@@ -7,7 +7,7 @@
 
   const definition = {
     name: 'get_current_datetime',
-    description: 'Devuelve la hora exacta. Úsala solo si el usuario pide la hora actual.',
+    description: 'Devuelve la fecha y hora actuales. Úsala cuando necesites conocer el momento actual; la fecha de inicio de la conversación es una referencia histórica.',
     parameters: { type: 'object', properties: {} }
   };
 
@@ -21,8 +21,8 @@
       metadata: { icon: '⏱️', label: definition.name },
       settings: { showInSettings: false },
       promptGuide: (lang) => lang === 'en'
-        ? '- `get_current_datetime()`: Returns exact current time.'
-        : '- `get_current_datetime()`: Devuelve la hora exacta actual.',
+        ? '- `get_current_datetime()`: Returns the current date and exact time.'
+        : '- `get_current_datetime()`: Devuelve la fecha y hora exactas actuales.',
       isAvailable: (appConfig = {}) => appConfig.sendDateTime !== false,
       execute: async () => {
         return {

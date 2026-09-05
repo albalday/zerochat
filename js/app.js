@@ -247,27 +247,6 @@
     };
   }
 
-  function getFormattedDateTime() {
-    const lang = appConfig.language || (I18n.getLanguage ? I18n.getLanguage() : 'es');
-    if (I18n.getFormattedDateTime) {
-      return I18n.getFormattedDateTime(new Date(), lang);
-    }
-    const now = new Date();
-    const locale = (lang === 'en') ? 'en-US' : 'es-ES';
-    return now.toLocaleDateString(locale, {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-
-  function getDailyDateAnchor() {
-    return Engine.getDailyDateAnchor ? Engine.getDailyDateAnchor(appConfig.language || 'es') : '';
-  }
-
   function getToolsSystemPromptGuide() {
     return Engine.getToolsSystemPromptGuide ? Engine.getToolsSystemPromptGuide(appConfig, appConfig.language || 'es') : '';
   }
@@ -311,7 +290,8 @@
 
   function createInitialChatHistory() {
     return [
-      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt() }
+      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt(),
+        contextDateAnchor: Engine.getConversationDateAnchor(appConfig.language || 'es') }
     ];
   }
 
@@ -1476,6 +1456,8 @@
       { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt() }
     ];
 
+    Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', targetConv.createdAt);
+
     renderSessionMessages(chatHistory);
     renderSidebarChats();
 
@@ -1811,6 +1793,7 @@
         savedSessions.unshift(newSession);
         currentSessionId = newSession.id;
         chatHistory = newSession.history;
+        Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', newSession.createdAt);
 
         renderSessionMessages(chatHistory);
         saveCurrentSession();

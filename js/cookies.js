@@ -376,6 +376,7 @@
                 stats: m.stats || null,
                 createdAt: m.createdAt || (conversationRecord.createdAt + idx * 10)
               };
+              if (m.contextDateAnchor) msgRecord.contextDateAnchor = m.contextDateAnchor;
               if (m.images) msgRecord.images = m.images;
               msgStore.put(msgRecord);
             });

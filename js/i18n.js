@@ -364,9 +364,8 @@
       agent_chart_desc: 'Permite al modelo invocar render_chart para generar y mostrar gráficos interactivos de barras, líneas o sectores sin librerías externas.',
       model_cache_title: 'Caché de contexto automática',
       model_cache_desc: 'El cliente aplica automáticamente las marcas de caché compatibles con el proveedor. En servidores locales, la caché KV se administra en el servidor.',
-      agent_datetime_title: 'Fecha y Hora Actual',
-      agent_datetime_desc: 'Incluye la fecha en el sistema y permite al modelo consultar la hora exacta.',
-      datetime_initial_user_msg: 'La fecha y hora actual es: {datetime}.',
+      agent_datetime_title: 'Fecha inicial y consulta de hora',
+      agent_datetime_desc: 'Conserva la fecha inicial de la conversación y habilita la herramienta para consultar la fecha y hora actuales.',
       field_max_agent_turns: 'Límite de turnos agénticos',
       field_max_agent_turns_hint: 'Número máximo de pasos o llamadas consecutivas a herramientas antes de forzar la síntesis final (entre 5 y 35).',
       agent_raw_logs_title: 'Captura de Tráfico Raw en Logs',
@@ -454,7 +453,6 @@
       tool_chart_title: 'Visualización de Datos ({type})',
 
       // Contexto del sistema de fecha/hora del mundo real
-      system_context_prefix: '\n\n[INFORMACIÓN TEMPORAL DEL MUNDO REAL]\n- Fecha y hora actual del mundo real: {datetime}.\n- Año presente en el mundo real: {year}.\n- Contexto temporal obligatorio: Esta es la fecha y hora REAL y PRESENTE del mundo físico en el que se produce esta conversación. No es una fecha hipotética, ni una simulación, ni una fecha futura. Todo acontecimiento anterior a este momento pertenece al pasado, y el año actual es {year}. Responde y razona siempre tomando esta fecha como el momento presente real de hoy.',
       default_system_prompt: ''
     },
 
@@ -800,9 +798,8 @@
       agent_chart_desc: 'Allows the model to call render_chart to generate and display interactive bar, line, doughnut or pie charts without external libraries.',
       model_cache_title: 'Automatic context caching',
       model_cache_desc: 'The client automatically applies cache markers supported by the provider. On local servers, the KV cache is managed by the server.',
-      agent_datetime_title: 'Current Date & Time',
-      agent_datetime_desc: 'Includes date in system context and allows the model to query exact time.',
-      datetime_initial_user_msg: 'The current date and time is: {datetime}.',
+      agent_datetime_title: 'Start date and time lookup',
+      agent_datetime_desc: 'Keeps the conversation start date and enables the tool for looking up the current date and time.',
       field_max_agent_turns: 'Agentic Turns Limit',
       field_max_agent_turns_hint: 'Maximum number of tool steps before forcing final synthesis (between 5 and 35).',
       agent_raw_logs_title: 'Capture Raw Traffic in Logs',
@@ -890,7 +887,6 @@
       tool_chart_title: 'Data Visualization ({type})',
 
       // Real-world temporal system context
-      system_context_prefix: '\n\n[REAL-WORLD TEMPORAL INFORMATION]\n- Current real-world date and time: {datetime}.\n- Current real-world year: {year}.\n- Mandatory temporal context: This is the ACTUAL, REAL-WORLD PRESENT time of the physical world in which this conversation is occurring. It is NOT a hypothetical date, a simulation, or a future date. All events prior to this timestamp are in the past, and the current year is {year}. Always answer and reason taking this date and time as today\'s real-world present.',
       default_system_prompt: ''
     }
   };
@@ -1001,26 +997,6 @@
     return str;
   }
 
-  /**
-   * Formatea la fecha y hora actual en el locale correspondiente ('es-ES' o 'en-US').
-   */
-  function getFormattedDateTime(date = new Date(), lang = currentLang) {
-    const locale = (lang === 'en') ? 'en-US' : 'es-ES';
-    const options = {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    try {
-      return date.toLocaleDateString(locale, options);
-    } catch (e) {
-      return date.toLocaleString();
-    }
-  }
-
   const I18N_DOM_BINDINGS = [
     { attr: 'data-i18n', prop: 'textContent' },
     { attr: 'data-i18n-html', prop: 'innerHTML' },
@@ -1078,7 +1054,6 @@
     setLanguage,
     onChange,
     detectInitialLanguage,
-    getFormattedDateTime,
     applyTranslations,
     getAvailableLanguages,
     TRANSLATIONS

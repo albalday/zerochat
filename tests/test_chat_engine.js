@@ -1,7 +1,7 @@
 /**
  * Suite de pruebas unitarias para ChatEngine (js/chat-engine.js).
  * Verifica:
- * 1. Formateo de anclas diarias y guías de herramientas en System Prompt.
+ * 1. Formateo de fechas iniciales y guías de herramientas en System Prompt.
  * 2. Inyección y anclaje de mensajes efectivos para Context-Caching.
  * 3. Inserción semántica de cursor en streaming.
  * 4. Orquestación del bucle agéntico con streaming y llamadas a herramientas.
@@ -40,13 +40,13 @@ test('ChatEngine - no crea evidencia visual para resultados de herramienta sin i
 const ChatAPI = require('../js/api.js');
 const ChatAgentCore = require('../js/agent-core.js');
 
-test('ChatEngine - getDailyDateAnchor genera el ancla con fecha y zona horaria', (t) => {
-  const anchorEs = ChatEngine.getDailyDateAnchor('es');
-  assert.ok(anchorEs.includes('Fecha actual:'));
+test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {
+  const anchorEs = ChatEngine.getConversationDateAnchor('es');
+  assert.ok(anchorEs.includes('Fecha de inicio de la conversación:'));
   assert.ok(anchorEs.includes('Zona:'));
 
-  const anchorEn = ChatEngine.getDailyDateAnchor('en');
-  assert.ok(anchorEn.includes('Current date:'));
+  const anchorEn = ChatEngine.getConversationDateAnchor('en');
+  assert.ok(anchorEn.includes('Conversation start date:'));
   assert.ok(anchorEn.includes('Timezone:'));
 });
 
@@ -101,7 +101,7 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
 
   assert.equal(messages[0].role, 'system');
   assert.ok(messages[0].content.includes('[BASE DE CONOCIMIENTO ACTIVA: Manual GA-Z77P-D3]'));
-  assert.ok(messages[0].content.includes('Fecha actual:'));
+  assert.ok(messages[0].content.includes('Fecha de inicio de la conversación:'));
   assert.ok(messages[0].content.includes('Formato: Usa siempre Markdown estándar'));
   assert.ok(messages[0].content.includes('Eres un asistente experto.'));
   assert.ok(messages[0].content.includes('[Formato: Usa siempre Markdown estándar y texto plano.]'));
@@ -110,7 +110,8 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
 
   assert.equal(messages[1].role, 'user');
   assert.ok(messages[1].content.includes('¿Qué manuales tengo disponibles?'));
-  assert.ok(messages[1].content.includes('[Context Time:'));
+  assert.equal(messages[1].content, history[0].content);
+  assert.ok(!JSON.stringify(messages).includes('[Context Time:'));
 });
 
 test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas', async (t) => {
@@ -493,4 +494,45 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
   assert.equal(userMessages.length, 2, 'Deben conservarse los mensajes de usuario válidos');
   assert.equal(userMessages[0].content, '¿Qué temperatura hace?');
   assert.ok(userMessages[1].content.includes('Ahora dime la hora'));
+});
+
+
+test('ChatEngine - conserva el texto de usuario entre peticiones y llamadas a herramientas', () => {
+  const history = [{ role: 'user', content: 'Primera pregunta' }];
+  const config = { sendDateTime: true };
+  const first = ChatEngine.buildEffectiveMessages(history, config);
+  history.push({ role: 'assistant', content: 'Respuesta' }, { role: 'user', content: 'Segunda pregunta' });
+  const next = ChatEngine.buildEffectiveMessages(history, config);
+  assert.equal(first.find(m => m.role === 'user').content, next.find(m => m.role === 'user').content);
+  assert.equal(next.filter(m => m.role === 'user')[1].content, 'Segunda pregunta');
+  assert.ok(!JSON.stringify(next).includes('[Context Time:'));
+});
+
+
+test('ChatEngine - fecha inicial estable al cambiar día, idioma y serializar el historial', () => {
+  const history = [{ role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
+  const anchor = ChatEngine.ensureConversationDate(history, 'es', '2026-01-01T12:00:00Z');
+  assert.match(anchor, /2026-01-01/);
+  const before = ChatEngine.buildEffectiveMessages(history, { sendDateTime: true });
+  const restored = JSON.parse(JSON.stringify(history));
+  assert.equal(ChatEngine.ensureConversationDate(restored, 'en', '2026-02-02T12:00:00Z'), anchor);
+  const after = ChatEngine.buildEffectiveMessages(restored, { sendDateTime: true });
+  assert.deepEqual(after, before);
+  assert.equal(after[0].content.split(anchor).length - 1, 1);
+  assert.equal(after[1].content, 'Hola');
+  assert.ok(after.every(m => !Object.hasOwn(m, 'contextDateAnchor')));
+  assert.ok(!/\d{2}:\d{2}/.test(anchor));
+  assert.ok(!JSON.stringify(ChatEngine.buildEffectiveMessages(restored, { sendDateTime: false })).includes(anchor));
+  assert.equal(ChatEngine.buildEffectiveMessages(restored, { sendDateTime: true })[0].content, before[0].content);
+});
+
+
+test('ChatEngine - anuncia la herramienta temporal aunque sea la única habilitada', () => {
+  const enabledTools = Object.fromEntries(ChatAgentCore.registry.getActiveDefinitions({}).map(t => [t.function.name, false]));
+  const config = { enabledTools, sendDateTime: true };
+  const defs = ChatAgentCore.registry.getActiveDefinitions(config);
+  assert.ok(defs.some(t => t.function.name === 'get_current_datetime'));
+  const messages = ChatEngine.buildEffectiveMessages([{ role: 'user', content: '¿Qué hora es?' }], config, { forceSystemPromptGuide: true });
+  assert.match(messages[0].content, /get_current_datetime/);
+  assert.ok(!ChatAgentCore.registry.getActiveDefinitions({ ...config, sendDateTime: false }).some(t => t.function.name === 'get_current_datetime'));
 });

@@ -1454,3 +1454,41 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
   }
 });
 
+
+test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const file of ['index.html', 'zerochat.html']) {
+      const context = await browser.newContext({ timezoneId: 'Europe/Madrid' });
+      const page = await context.newPage();
+      await page.clock.setFixedTime(new Date('2026-09-05T23:30:00Z'));
+      await page.goto('file://' + path.resolve(__dirname, '..', file), { waitUntil: 'load' });
+      await page.waitForFunction(() => !!window.ChatEngine?.ensureConversationDate);
+      const initial = await page.evaluate(async () => {
+        const history = [{ id: 'system_root', role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
+        const anchor = ChatEngine.ensureConversationDate(history, 'es');
+        const messages = ChatEngine.buildEffectiveMessages(history, { sendDateTime: true });
+        await ChatStorage.saveConversation({ id: 'temporal_browser', title: 'Fecha fija', createdAt: Date.now() }, history);
+        return { anchor, messages };
+      });
+      assert.match(initial.anchor, /2026-09-06/);
+      await page.clock.setFixedTime(new Date('2026-09-08T10:00:00Z'));
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForFunction(() => !!window.ChatEngine?.ensureConversationDate);
+      const restored = await page.evaluate(async () => {
+        const session = await ChatStorage.getConversation('temporal_browser');
+        const messages = ChatEngine.buildEffectiveMessages(session.history, { sendDateTime: true });
+        const time = await ChatAgentCore.registry.getTool('get_current_datetime').execute();
+        return { messages, time, fresh: ChatEngine.getConversationDateAnchor('es') };
+      });
+      assert.deepEqual(restored.messages, initial.messages, file);
+      assert.equal(restored.messages[1].content, 'Hola');
+      assert.ok(!JSON.stringify(restored.messages).includes('[Context Time:'));
+      assert.equal(restored.time.iso, '2026-09-08T10:00:00.000Z');
+      assert.match(restored.fresh, /2026-09-08/);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});

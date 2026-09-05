@@ -61,24 +61,30 @@
     return String(content);
   }
 
-  /**
-   * Genera el ancla de fecha diaria para maximizar la autoridad del contexto y 100% de aciertos en Context-Cache.
-   * @param {string} [lang='es'] - Código de idioma ('es' o 'en').
-   * @returns {string} - Texto formateado del ancla diaria.
-   */
-  function getDailyDateAnchor(lang = 'es') {
-    const now = new Date();
-    const isoDate = now.toISOString().slice(0, 10);
-    const tz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-      : 'UTC';
-    const dayName = now.toLocaleDateString(lang === 'en' ? 'en-US' : 'es-ES', { weekday: 'long' });
+  /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local. */
+  function getConversationDateAnchor(lang = 'es', startedAt = Date.now()) {
+    let date = new Date(startedAt);
+    if (Number.isNaN(date.getTime())) date = new Date();
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date);
+    const value = type => parts.find(part => part.type === type).value;
+    const isoDate = `${value('year')}-${value('month')}-${value('day')}`;
+    return lang === 'en'
+      ? `[Conversation start date: ${isoDate}, Timezone: ${tz}.]`
+      : `[Fecha de inicio de la conversación: ${isoDate}, Zona: ${tz}.]`;
+  }
 
-    if (lang === 'en') {
-      return `[Current date: ${isoDate} (${dayName}), Timezone: ${tz}. Treat as present.]`;
+  /** Guarda el ancla una sola vez; el metadato no se transmite en el payload. */
+  function ensureConversationDate(chatHistory = [], lang = 'es', startedAt = Date.now()) {
+    const root = chatHistory.find(m => m && m.role === 'system' && !m._isSummaryBlock)
+      || chatHistory.find(m => m && m.role);
+    if (!root) return getConversationDateAnchor(lang, startedAt);
+    if (typeof root.contextDateAnchor !== 'string' || !root.contextDateAnchor.trim()) {
+      root.contextDateAnchor = getConversationDateAnchor(lang, startedAt);
     }
-
-    return `[Fecha actual: ${isoDate} (${dayName}), Zona: ${tz}. Trátala como presente.]`;
+    return root.contextDateAnchor;
   }
 
   /**
@@ -313,16 +319,16 @@
       activePrompt = activePrompt ? `${ragContext}\n\n${activePrompt}` : ragContext;
     }
 
-    // Ancla de fecha diaria para máxima autoridad en System Prompt y 100% de aciertos en Context-Cache
+    // Fecha inicial persistida: no cambia al continuar o reabrir la conversación.
     const lang = appConfig.language || 'es';
     if (appConfig.sendDateTime !== false) {
-      const dateAnchor = getDailyDateAnchor(lang);
+      const dateAnchor = ensureConversationDate(chatHistory, lang);
       activePrompt = activePrompt ? (dateAnchor + '\n\n' + activePrompt) : dateAnchor;
     }
 
     const isToolsEnabled = options.enableTools !== undefined
       ? Boolean(options.enableTools)
-      : Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false));
+      : (appConfig.sendDateTime !== false || Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false)));
 
     // Consultar si el modelo soporta llamadas a herramientas nativas
     const API = getAPI();
@@ -373,21 +379,6 @@
         role: 'system',
         content: fullSystemPrompt
       });
-    }
-
-    // Inyectar marca temporal en el último mensaje de usuario si está configurado
-    if (appConfig.sendDateTime !== false && messages.length > 0) {
-      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-      if (lastUserMsg && typeof lastUserMsg.content === 'string') {
-        const now = new Date();
-        const isoDate = now.toISOString().slice(0, 10);
-        const dayName = now.toLocaleDateString(lang === 'en' ? 'en-US' : 'es-ES', { weekday: 'long' });
-        const timeStr = now.toLocaleTimeString(lang === 'en' ? 'en-US' : 'es-ES', { hour: '2-digit', minute: '2-digit' });
-        const timeMarker = `\n\n[Context Time: ${timeStr}, Date: ${isoDate} (${dayName})]`;
-        if (!lastUserMsg.content.includes('[Context Time:')) {
-          lastUserMsg.content += timeMarker;
-        }
-      }
     }
 
     // Asegurar que la conversación comience con un turno de usuario válido tras el mensaje del sistema
@@ -996,7 +987,8 @@
   }
 
   return {
-    getDailyDateAnchor,
+    getConversationDateAnchor,
+    ensureConversationDate,
     getConfiguredSystemPrompt,
     getToolsSystemPromptGuide,
     injectStreamingCursor,
