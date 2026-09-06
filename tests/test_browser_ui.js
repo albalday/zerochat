@@ -821,9 +821,15 @@ test('Browser UI - Fase 7: Accesibilidad WCAG 2.1 AA, Focus-Visible y Reduced Mo
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.waitForSelector('#welcome-banner');
 
     // 1. Validar Focus Visible con navegación por teclado
+    await page.evaluate(() => {
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+      }
+    });
     await page.keyboard.press('Tab');
     const focusedOutline = await page.evaluate(() => {
       const activeEl = document.activeElement;

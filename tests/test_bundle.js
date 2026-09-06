@@ -42,6 +42,12 @@ test('Bundler - Generación en modo Producción (Gzip Base64 Level 9)', () => {
     assert.equal(/<script[^>]*src=["']js\//i.test(content), false, 'No deben quedar etiquetas <script src="js/...">');
     assert.equal(/<link[^>]*href=["']css\//i.test(content), false, 'No deben quedar etiquetas <link href="css/...">');
 
+    // Extraer y descomprimir el CSS embebido
+    const cssMatch = content.match(/<script[^>]*id=["']compressed-css["'][^>]*>([\s\S]*?)<\/script>/i);
+    assert.ok(cssMatch, 'Debe contener la etiqueta <script id="compressed-css">');
+    const decompressedCss = zlib.gunzipSync(Buffer.from(cssMatch[1].trim(), 'base64')).toString('utf-8');
+    assert.ok(decompressedCss.length > 10000, 'El CSS descomprimido debe contener los estilos completos');
+
     // Extraer y descomprimir el JavaScript embebido
     const match = content.match(/<script[^>]*id=["']compressed-js["'][^>]*>([\s\S]*?)<\/script>/i);
     assert.ok(match, 'Debe contener la etiqueta <script id="compressed-js">');
@@ -120,7 +126,11 @@ test('Bundler - Detecta recursos locales desde cualquier HTML de entrada', () =>
     const content = fs.readFileSync(outputPath, 'utf-8');
     assert.equal(/<link[^>]*href=["']assets\/app\.css/i.test(content), false);
     assert.equal(/<script[^>]*src=["']assets\//i.test(content), false);
-    assert.ok(content.includes('body{color:red}'));
+
+    const cssMatch = content.match(/<script[^>]*id=["']compressed-css["'][^>]*>([\s\S]*?)<\/script>/i);
+    assert.ok(cssMatch, 'Debe contener compressed-css');
+    const decompressedCss = zlib.gunzipSync(Buffer.from(cssMatch[1].trim(), 'base64')).toString('utf-8');
+    assert.ok(decompressedCss.includes('body{color:red}'));
 
     const match = content.match(/<script[^>]*id=["']compressed-js["'][^>]*>([\s\S]*?)<\/script>/i);
     const js = zlib.gunzipSync(Buffer.from(match[1].trim(), 'base64')).toString('utf-8');

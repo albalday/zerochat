@@ -35,29 +35,41 @@ from urllib.parse import unquote, urlsplit
 BOOTSTRAP_LOADER_SCRIPT = """<script>
 (async () => {
   try {
-    // 1. Leer el string Base64 de la etiqueta #compressed-js
-    const el = document.getElementById('compressed-js');
-    if (!el) throw new Error('Elemento #compressed-js no encontrado.');
-    const b64 = el.textContent.trim();
+    const decompress = async (id) => {
+      const el = document.getElementById(id);
+      if (!el) return '';
+      const b64 = el.textContent.trim();
+      if (!b64) return '';
+      const binStr = atob(b64);
+      const bytes = new Uint8Array(binStr.length);
+      for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+      const ds = new DecompressionStream('gzip');
+      const stream = new Blob([bytes], { type: 'application/gzip' }).stream().pipeThrough(ds);
+      return await new Response(stream).text();
+    };
 
-    // 2. Decodificar Base64 a Uint8Array
-    const binStr = atob(b64);
-    const bytes = new Uint8Array(binStr.length);
-    for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+    const [cssCode, jsCode] = await Promise.all([
+      decompress('compressed-css'),
+      decompress('compressed-js')
+    ]);
 
-    // 3. Descomprimir utilizando la API nativa DecompressionStream('gzip')
-    const ds = new DecompressionStream('gzip');
-    const stream = new Blob([bytes], { type: 'application/gzip' }).stream().pipeThrough(ds);
+    if (cssCode) {
+      const style = document.createElement('style');
+      style.id = 'zerochat-bundled-styles';
+      style.textContent = cssCode;
+      document.head.appendChild(style);
+    }
+    document.documentElement.classList.add('zerochat-ready');
 
-    // 4. Convertir el stream resultante a texto
-    const jsCode = await new Response(stream).text();
-
-    // 5. Inyectar en el DOM como un nuevo nodo <script> para ejecución
-    const script = document.createElement('script');
-    script.textContent = jsCode;
-    document.body.appendChild(script);
+    if (jsCode) {
+      const script = document.createElement('script');
+      script.id = 'zerochat-bundled-script';
+      script.textContent = jsCode;
+      document.body.appendChild(script);
+    }
   } catch (err) {
-    console.error('Error al inicializar JavaScript comprimido:', err);
+    document.documentElement.classList.add('zerochat-ready');
+    console.error('Error al inicializar ZeroChat comprimido:', err);
   }
 })();
 </script>"""
@@ -224,11 +236,10 @@ def minify_css_external(css: str) -> Optional[str]:
 def minify_js_external(js: str) -> Optional[str]:
     """
     Intenta minificar JavaScript utilizando esbuild si está disponible en el entorno.
-    Preserva nombres de funciones y clases maestras mediante --keep-names para compatibilidad.
     """
     try:
         res = subprocess.run(
-            ['npx', '--yes', 'esbuild', '--minify', '--keep-names'],
+            ['npx', '--yes', 'esbuild', '--minify', '--target=es2022'],
             input=js,
             capture_output=True,
             text=True,
@@ -472,16 +483,21 @@ def strip_js_comments(js: str) -> str:
     return '\n'.join(cleaned_lines)
 
 
-def compress_js_to_gzip_base64(js_code: str) -> Tuple[str, int, int]:
+def compress_to_gzip_base64(text: str) -> Tuple[str, int, int]:
     """
-    Comprime el código JavaScript usando la biblioteca estándar gzip con el nivel máximo (9)
+    Comprime texto usando la biblioteca estándar gzip con el nivel máximo (9)
     y lo codifica en Base64.
     Retorna (base64_string, bytes_gzip, bytes_base64).
     """
-    raw_bytes = js_code.encode("utf-8")
+    raw_bytes = text.encode("utf-8")
     compressed_bytes = gzip.compress(raw_bytes, compresslevel=9)
     b64_string = base64.b64encode(compressed_bytes).decode("ascii")
     return b64_string, len(compressed_bytes), len(b64_string.encode("ascii"))
+
+
+def compress_js_to_gzip_base64(js_code: str) -> Tuple[str, int, int]:
+    """Alias de compatibilidad para compress_to_gzip_base64."""
+    return compress_to_gzip_base64(js_code)
 
 
 def verify_bundle(html_content: str, verbose: bool = False) -> Tuple[bool, List[str]]:
@@ -489,17 +505,33 @@ def verify_bundle(html_content: str, verbose: bool = False) -> Tuple[bool, List[
     Verifica la integridad del archivo distribuible generado:
     1. Estructura HTML básica.
     2. Ausencia de referencias locales a CSS y JavaScript que debían incorporarse.
-    3. Presencia del payload comprimido o script JS.
+    3. Presencia de los payloads comprimidos CSS y JS.
     4. Descompresión gzip/Base64.
     5. Validación de sintaxis JavaScript embebido con Node.js.
     """
     errors: List[str] = []
 
     # 1. Estructura HTML básica
-    required_tags = ['<!DOCTYPE html>', '<html', '<head', '</head>', '<body', '</body>', '</html>', '<style>', '</style>']
+    required_tags = ['<!DOCTYPE html>', '<html', '<head', '</head>', '<body', '</body>', '</html>']
     for tag in required_tags:
         if tag.lower() not in html_content.lower():
             errors.append(f"Falta la etiqueta requerida '{tag}' en el documento generado.")
+
+    # 2. Extraer y verificar CSS desde gzip Base64
+    css_match = re.search(
+        r'<script[^>]*type=["\']application/gzip-base64["\'][^>]*id=["\']compressed-css["\'][^>]*>(.*?)</script>',
+        html_content,
+        re.DOTALL | re.IGNORECASE
+    )
+    if css_match:
+        try:
+            b64_css = css_match.group(1).strip()
+            gzip_bytes_css = base64.b64decode(b64_css)
+            decompressed_css = gzip.decompress(gzip_bytes_css).decode("utf-8")
+            if not decompressed_css.strip():
+                errors.append("El CSS descomprimido está vacío.")
+        except Exception as e:
+            errors.append(f"Error al decodificar o descomprimir el payload CSS gzip Base64: {e}")
 
     # 3. Extraer el código JavaScript desde gzip Base64
     decompressed_js = ""
@@ -618,7 +650,8 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     final_js_size = len(final_js.encode("utf-8"))
 
     # 5. Comprimir con Gzip level 9 y convertir a Base64
-    b64_js, gzip_bytes, b64_bytes = compress_js_to_gzip_base64(final_js)
+    b64_css, css_gzip_bytes, css_b64_bytes = compress_to_gzip_base64(css_min)
+    b64_js, js_gzip_bytes, js_b64_bytes = compress_to_gzip_base64(final_js)
 
     # 6. Limpiar e integrar en HTML
     html_cleaned = raw_html
@@ -628,11 +661,13 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     min_html_base = minify_html(html_cleaned, mode=mode)
     min_html_size = len(min_html_base.encode("utf-8"))
 
-    # Inyección de CSS y JavaScript comprimido
-    compressed_script_tag = f'<script type="application/gzip-base64" id="compressed-js">{b64_js}</script>'
+    critical_css = '<style>html{visibility:hidden}html.zerochat-ready{visibility:visible}</style>'
+    compressed_css_tag = f'<script type="application/gzip-base64" id="compressed-css">{b64_css}</script>'
+    compressed_js_tag = f'<script type="application/gzip-base64" id="compressed-js">{b64_js}</script>'
     
-    final_html = min_html_base.replace("</head>", f"<style>{css_min}</style></head>")
-    final_html = final_html.replace("</body>", f"{compressed_script_tag}\n{BOOTSTRAP_LOADER_SCRIPT}</body>")
+    final_html = min_html_base.replace("</head>", f"{critical_css}</head>")
+    final_html = final_html.replace("</body>", f"{compressed_css_tag}\n{compressed_js_tag}\n{BOOTSTRAP_LOADER_SCRIPT}</body>")
+
     final_size = len(final_html.encode("utf-8"))
 
     # 7. Validación de integridad del distribuible
@@ -659,19 +694,24 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     print(f"⏱️  Tiempo de compilación: {elapsed_time:.1f} ms")
     print("-" * 70)
     html_reduction = (1 - min_html_size / raw_html_size) * 100 if raw_html_size else 0
-    css_reduction = (1 - min_css_size / raw_css_size) * 100 if raw_css_size else 0
+    css_opt_reduction = (1 - min_css_size / raw_css_size) * 100 if raw_css_size else 0
+    css_gzip_reduction = (1 - css_gzip_bytes / min_css_size) * 100 if min_css_size else 0
     js_reduction = (1 - final_js_size / raw_js_size) * 100 if raw_js_size else 0
-    gzip_reduction = (1 - gzip_bytes / final_js_size) * 100 if final_js_size else 0
-    print(f"  • HTML Markup:       {raw_html_size:>8,} bytes  ➜  {min_html_size:>8,} bytes  ({html_reduction:>5.1f}% reducción)")
-    print(f"  • CSS Styles:        {raw_css_size:>8,} bytes  ➜  {min_css_size:>8,} bytes  ({css_reduction:>5.1f}% reducción)")
-    print(f"  • JS Concatenado:    {raw_js_size:>8,} bytes")
-    print(f"  • JS Optimizado:     {final_js_size:>8,} bytes  ({js_reduction:>5.1f}% reducción)")
-    print(f"  • JS Gzip (L9):      {gzip_bytes:>8,} bytes  ({gzip_reduction:>5.1f}% compresión)")
-    print(f"  • JS Base64 Payload: {b64_bytes:>8,} bytes")
+    js_gzip_reduction = (1 - js_gzip_bytes / final_js_size) * 100 if final_js_size else 0
+    print(f"  • HTML Markup:        {raw_html_size:>8,} bytes  ➜  {min_html_size:>8,} bytes  ({html_reduction:>5.1f}% reducción)")
+    print(f"  • CSS Styles (Raw):   {raw_css_size:>8,} bytes  ➜  {min_css_size:>8,} bytes  ({css_opt_reduction:>5.1f}% optimizado)")
+    if mode == "prod":
+        print(f"  • CSS Gzip (L9):      {css_gzip_bytes:>8,} bytes  ({css_gzip_reduction:>5.1f}% compresión)")
+        print(f"  • CSS Base64 Payload: {css_b64_bytes:>8,} bytes")
+    print(f"  • JS Concatenado:     {raw_js_size:>8,} bytes")
+    print(f"  • JS Optimizado:      {final_js_size:>8,} bytes  ({js_reduction:>5.1f}% reducción)")
+    if mode == "prod":
+        print(f"  • JS Gzip (L9):       {js_gzip_bytes:>8,} bytes  ({js_gzip_reduction:>5.1f}% compresión)")
+        print(f"  • JS Base64 Payload:  {js_b64_bytes:>8,} bytes")
     print("-" * 70)
-    print(f"📦 TAMAÑO TOTAL RAW:   {total_raw_size:>8,} bytes ({total_raw_size/1024:.1f} KB)")
-    print(f"🚀 TAMAÑO DIST FINAL:  {final_size:>8,} bytes ({final_size/1024:.1f} KB)")
-    print(f"📊 REDUCCIÓN TOTAL:    {total_reduction_pct:.1f}% ({total_raw_size - final_size:,} bytes ahorrados)")
+    print(f"📦 TAMAÑO TOTAL RAW:    {total_raw_size:>8,} bytes ({total_raw_size/1024:.1f} KB)")
+    print(f"🚀 TAMAÑO DIST FINAL:   {final_size:>8,} bytes ({final_size/1024:.1f} KB)")
+    print(f"📊 REDUCCIÓN TOTAL:     {total_reduction_pct:.1f}% ({total_raw_size - final_size:,} bytes ahorrados)")
     print("=" * 70 + "\n")
 
     return True
