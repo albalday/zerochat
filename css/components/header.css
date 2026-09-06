@@ -200,6 +200,7 @@
   background-color: rgba(2, 132, 199, 0.1);
   display: inline-flex;
   align-items: center;
+  gap: 0.2rem;
 }
 
 [data-theme="dark"] .context-cache-pill {

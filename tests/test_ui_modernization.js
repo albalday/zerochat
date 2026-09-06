@@ -60,3 +60,17 @@ test('UI Modernization - Sidebar incluye backdrop y trampa accesible para móvil
   assert.ok(sidebarJs.includes('sidebar-backdrop'), 'ui-sidebar.js debe manipular el backdrop en móvil');
   assert.ok(sidebarJs.includes('inert'), 'ui-sidebar.js debe usar el atributo inert para WCAG');
 });
+
+test('UI Modernization - Imágenes en chat redimensionadas como máximo al ancho del chat', () => {
+  const baseCss = fs.readFileSync(path.resolve(__dirname, '../css/base.css'), 'utf8');
+  assert.match(baseCss, /img\s*\{[^}]*max-width:\s*100%/);
+
+  const messagesCss = fs.readFileSync(path.resolve(__dirname, '../css/components/messages.css'), 'utf8');
+  assert.ok(messagesCss.includes('.message-content img'), 'messages.css debe definir selector para imágenes en mensaje');
+  assert.ok(messagesCss.includes('.message-image-thumb'), 'messages.css debe definir selector para miniaturas adjuntas');
+  assert.match(messagesCss, /\.message-image-thumb\s*\{[^}]*max-width:\s*100%/);
+
+  const markdownCss = fs.readFileSync(path.resolve(__dirname, '../css/components/markdown.css'), 'utf8');
+  assert.match(markdownCss, /\.chat-embedded-image\s*\{[^}]*max-width:\s*100%/);
+  assert.match(markdownCss, /\.chat-image-figure\s*\{[^}]*max-width:\s*100%/);
+});

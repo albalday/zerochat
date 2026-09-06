@@ -616,7 +616,12 @@
     // Caché pill en badge
     if (elements.contextHubCachePill) {
       if (sCached > 0) {
-        elements.contextHubCachePill.textContent = `⚡ ${formatTokenCount(sCached)}`;
+        const cacheVal = elements.contextHubCachePill.querySelector('#context-hub-cache-val');
+        if (cacheVal) {
+          cacheVal.textContent = formatTokenCount(sCached);
+        } else {
+          elements.contextHubCachePill.innerHTML = `<svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span id="context-hub-cache-val">${formatTokenCount(sCached)}</span>`;
+        }
         elements.contextHubCachePill.style.display = 'inline-flex';
       } else {
         elements.contextHubCachePill.style.display = 'none';
