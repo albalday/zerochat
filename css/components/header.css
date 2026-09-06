@@ -7,15 +7,16 @@
   align-items: center;
   justify-content: space-between;
   height: var(--header-height, 3.5rem);
-  min-height: var(--header-height, 3.5rem);
-  padding: 0 1rem;
-  border-bottom: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
+  min-height: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 1rem 0 1rem;
+  border-bottom: 1px solid rgba(var(--bg-surface-rgb), 0.2);
+  /* Glassmorphism real: fondo semi-transparente con blur efectivo */
+  background-color: rgba(var(--bg-surface-rgb), var(--header-bg-alpha));
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
   position: sticky;
   top: 0;
   z-index: var(--z-header, 100);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   user-select: none;
 }
 
@@ -216,3 +217,73 @@
     max-width: 110px;
   }
 }
+
+/* ==========================================================================
+   Menú Overflow de Acciones Secundarias (popover API)
+   ========================================================================== */
+.header-overflow-menu {
+  position: fixed;
+  top: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top, 0px) + 4px);
+  right: 0.75rem;
+  z-index: var(--z-modal, 210);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 180px;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  /* Popover API: oculto por defecto */
+  opacity: 1;
+  transition: opacity 0.15s ease, translate 0.15s ease,
+              display 0.15s ease allow-discrete,
+              overlay 0.15s ease allow-discrete;
+}
+
+@starting-style {
+  .header-overflow-menu:popover-open {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+
+.header-overflow-menu:not(:popover-open) {
+  opacity: 0;
+  translate: 0 -8px;
+}
+
+.header-overflow-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.825rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  text-align: left;
+}
+
+.header-overflow-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
+.header-overflow-btn.btn-danger-hover:hover {
+  color: var(--danger);
+  background-color: rgba(239, 68, 68, 0.08);
+}
+
+[data-theme="dark"] .header-overflow-menu {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--border-color);
+}
+

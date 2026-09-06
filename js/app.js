@@ -244,6 +244,10 @@
       agentToolsContainer: document.getElementById('agent-tools-container'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       settingSendDateTime: document.getElementById('setting-send-datetime'),
+      // Fase 5: sugerencias de bienvenida
+      welcomeSuggestions: document.getElementById('welcome-suggestions'),
+      // Fase 7: backdrop para drawer en móvil
+      sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     };
   }
 
@@ -563,7 +567,10 @@
     elements.connectionTokensBadge.style.display = 'inline-flex';
   }
 
+  // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
+  // Esta función solo actúa como fallback para navegadores sin soporte.
   function autoResizeTextarea() {
+    if (CSS && CSS.supports && CSS.supports('field-sizing', 'content')) return;
     if (!elements.userInput) return;
     if (!elements.userInput.value) {
       elements.userInput.style.height = '';
@@ -793,6 +800,11 @@
     wrapper.appendChild(row);
 
     elements.messagesList.appendChild(wrapper);
+    // Animar solo mensajes nuevos en tiempo real (no historial)
+    if (!existingMsgId) {
+      wrapper.classList.add('is-new-message');
+      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
+    }
     scrollToBottom();
 
     return msgId;
@@ -855,6 +867,11 @@
     wrapper.appendChild(row);
 
     elements.messagesList.appendChild(wrapper);
+    // Animar solo mensajes nuevos en tiempo real (no historial)
+    if (!existingMsgId) {
+      wrapper.classList.add('is-new-message');
+      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
+    }
     scrollToBottom();
 
     return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
@@ -897,7 +914,10 @@
     }
 
     currentAbortController = new AbortController();
+    // Mostrar indicador de escritura hasta que llegue el primer chunk
+    showTypingIndicator();
     const { wrapper, row, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = createAssistantMessagePlaceholder();
+    removeTypingIndicator();
     const attachListeners = Markdown.attachCopyCodeListeners || function() {};
 
     if (!API.streamChatCompletion) {
@@ -1070,6 +1090,7 @@
   }
 
   function finishGeneration() {
+    removeTypingIndicator(); // Seguridad: limpiar si quedó activo
     if (State.set) {
       State.set('streaming', { isGenerating: false, status: 'idle' });
     } else {
@@ -1878,6 +1899,121 @@
   }
 
   // ==========================================================================
+  // Fase 5 — Sugerencias de Prompt en la Pantalla de Bienvenida
+  // ==========================================================================
+
+  function renderWelcomeSuggestions() {
+    const container = elements.welcomeSuggestions || document.getElementById('welcome-suggestions');
+    if (!container) return;
+
+    const config = getRuntimeConfig();
+    const hasRag = config.ragEnabled;
+    const hasSystemPrompt = config.activeProfile && config.activeProfile.systemPrompt;
+    const lang = config.language || 'es';
+    const isEs = lang !== 'en';
+
+    const suggestions = isEs
+      ? [
+          { icon: '💡', text: 'Explica un concepto', desc: 'En términos simples y con ejemplos', prompt: 'Explícame ' },
+          { icon: '✍️', text: 'Escribe para mí', desc: 'Email, texto, resumen o guión', prompt: 'Escribe un ' },
+          { icon: '🔍', text: 'Analiza esto', desc: 'Código, datos o documento', prompt: 'Analiza el siguiente ' },
+          { icon: '🤔', text: 'Ayúdame a pensar', desc: 'Pros y contras, plan o decisión', prompt: 'Ayúdame a evaluar ' }
+        ]
+      : [
+          { icon: '💡', text: 'Explain a concept', desc: 'Simply, with examples', prompt: 'Explain ' },
+          { icon: '✍️', text: 'Write something', desc: 'Email, summary, or script', prompt: 'Write a ' },
+          { icon: '🔍', text: 'Analyze this', desc: 'Code, data, or document', prompt: 'Analyze the following ' },
+          { icon: '🤔', text: 'Help me think', desc: 'Pros/cons, plan, or decision', prompt: 'Help me evaluate ' }
+        ];
+
+    if (hasRag) {
+      suggestions[3] = isEs
+        ? { icon: '📚', text: 'Busca en mis docs', desc: 'Base de conocimiento local', prompt: 'Busca en mis documentos: ' }
+        : { icon: '📚', text: 'Search my docs', desc: 'Local knowledge base', prompt: 'Search my documents for: ' };
+    }
+
+    container.innerHTML = suggestions.map((s, i) => `
+      <button type="button" class="welcome-card" style="--card-index: ${i}" data-prompt="${s.prompt.replace(/"/g, '&quot;')}">
+        <span class="welcome-card-icon">${s.icon}</span>
+        <span class="welcome-card-text">${s.text}</span>
+        <span class="welcome-card-desc">${s.desc}</span>
+      </button>
+    `).join('');
+
+    container.querySelectorAll('.welcome-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const prompt = card.getAttribute('data-prompt') || '';
+        if (elements.userInput) {
+          elements.userInput.value = prompt;
+          elements.userInput.focus();
+          // Colocar el cursor al final
+          elements.userInput.setSelectionRange(prompt.length, prompt.length);
+        }
+      });
+    });
+  }
+
+  // ==========================================================================
+  // Fase 8 — Indicador de Escritura del Asistente
+  // ==========================================================================
+
+  let typingIndicatorEl = null;
+
+  function showTypingIndicator() {
+    if (typingIndicatorEl) return;
+    const wrapper = document.createElement('div');
+    wrapper.id = 'typing-indicator-wrapper';
+    wrapper.className = 'message-wrapper assistant';
+    const row = document.createElement('div');
+    row.className = 'message-row assistant';
+    const indicator = document.createElement('div');
+    indicator.className = 'typing-indicator';
+    indicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+    row.appendChild(indicator);
+    wrapper.appendChild(row);
+    typingIndicatorEl = wrapper;
+    if (elements.messagesList) {
+      elements.messagesList.appendChild(wrapper);
+      scrollToBottom();
+    }
+  }
+
+  function removeTypingIndicator() {
+    if (typingIndicatorEl && typingIndicatorEl.parentNode) {
+      typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+    }
+    typingIndicatorEl = null;
+  }
+
+  // ==========================================================================
+  // Fase 6 — View Transitions para Cambio de Pestaña y Light-Dismiss
+  // ==========================================================================
+
+  function switchModalTab(tabBtn, allTabs, allPanes) {
+    const targetTabId = tabBtn.getAttribute('data-tab');
+    if (!targetTabId) return;
+
+    allTabs.forEach(b => b.classList.remove('active'));
+    allPanes.forEach(p => p.classList.remove('active'));
+    tabBtn.classList.add('active');
+    const targetPane = document.getElementById(targetTabId);
+    if (targetPane) targetPane.classList.add('active');
+  }
+
+  function setupLightDismissDialogs() {
+    // Fallback para navegadores sin soporte de closedby="any"
+    // Solo actúa si el atributo no está soportado
+    document.querySelectorAll('dialog').forEach(dialog => {
+      dialog.addEventListener('click', e => {
+        // Si el clic fue directamente en el fondo del dialog (no en su contenido)
+        if (e.target === dialog) {
+          dialog.close();
+        }
+      });
+    });
+  }
+
+  // ==========================================================================
   // Escuchadores de Eventos
   // ==========================================================================
 
@@ -2250,17 +2386,7 @@
       elements.modalTabs.forEach(tabBtn => {
         tabBtn.addEventListener('click', function (e) {
           e.preventDefault();
-          const targetTabId = tabBtn.getAttribute('data-tab');
-          if (!targetTabId) return;
-
-          elements.modalTabs.forEach(b => b.classList.remove('active'));
-          elements.modalPanes.forEach(p => p.classList.remove('active'));
-
-          tabBtn.classList.add('active');
-          const targetPane = document.getElementById(targetTabId);
-          if (targetPane) {
-            targetPane.classList.add('active');
-          }
+          switchModalTab(tabBtn, elements.modalTabs, elements.modalPanes);
         });
       });
     }
@@ -2369,6 +2495,12 @@
       exportConversationAsJson,
       exportConversationAsPrint
     };
+
+    // Fase 5: renderizar tarjetas de sugerencias en la pantalla de bienvenida
+    renderWelcomeSuggestions();
+
+    // Fase 6: configurar light-dismiss fallback para navegadores sin closedby
+    setupLightDismissDialogs();
 
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
   }

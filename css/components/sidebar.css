@@ -15,15 +15,25 @@
   display: flex;
   flex-direction: column;
   z-index: var(--z-sidebar, 110);
-  animation: slideInLeft 0.2s ease-out;
   box-shadow: var(--shadow-sm);
   user-select: none;
+  /* Transición bidireccional CSS — controlada por .sidebar-hidden */
+  transition: translate 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.2s ease,
+              visibility 0.22s ease;
+  translate: 0 0;
+  opacity: 1;
+  visibility: visible;
 }
 
-@keyframes slideInLeft {
-  from { transform: translateX(-100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+/* Estado cerrado: translate fuera de pantalla sin display:none para mantener transición de salida */
+.chat-sidebar.sidebar-hidden {
+  translate: -100% 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
+
 
 /* Cabecera de Barra Lateral */
 .sidebar-header {
@@ -295,5 +305,30 @@
     box-shadow: var(--shadow-lg);
     width: 82vw;
     max-width: 320px;
+    padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/* Backdrop oscuro detrás del sidebar en móvil */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-sidebar, 110) - 1);
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition: opacity 0.22s ease;
+}
+
+@media (max-width: 768px) {
+  .sidebar-backdrop.visible {
+    display: block;
+    animation: fadeInBackdrop 0.22s ease both;
+  }
+}
+
+@keyframes fadeInBackdrop {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

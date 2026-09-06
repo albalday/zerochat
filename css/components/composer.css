@@ -206,10 +206,22 @@
   min-width: 250px;
   max-width: 320px;
   overflow: hidden;
-  /* Se abre con display:flex desde ui-reasoning.js. Mantener cabecera y opciones apiladas. */
+  /* Se abre con display:flex desde ui-reasoning.js. */
   flex-direction: column;
-  animation: fadeIn 0.15s ease-out;
+  /* Entrada animada con @starting-style */
+  transition: opacity 0.15s ease, translate 0.15s ease,
+              display 0.15s ease allow-discrete;
+  opacity: 1;
+  translate: 0 0;
 }
+
+@starting-style {
+  .reasoning-menu {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
 
 .reasoning-menu-header {
   display: flex;
@@ -353,12 +365,21 @@
   font-size: 0.975rem;
   color: var(--text-main);
   resize: none;
+  /* field-sizing: content — CSS nativo auto-height sin JS (Baseline 2024) */
+  field-sizing: content;
   max-height: 160px;
   min-height: 24px;
   line-height: 1.5;
   padding: 0.45rem 0.35rem;
   align-self: center;
 }
+
+@media (max-width: 640px) {
+  .chat-textarea {
+    max-height: 30dvh; /* Evita colapso en pantallas pequeñas */
+  }
+}
+
 
 .chat-textarea::placeholder {
   color: var(--text-muted);

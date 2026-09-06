@@ -11,8 +11,14 @@
   margin-left: auto;
   margin-right: auto;
   padding: 0 0.5rem;
-  animation: fadeIn 0.2s ease-out;
+  /* Sin animación en carga de historial — solo mensajes nuevos se animan */
 }
+
+/* Solo los mensajes generados en tiempo real reciben la animación */
+.message-wrapper.is-new-message {
+  animation: slideUpFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 
 .message-wrapper.user {
   align-items: flex-end;
@@ -71,15 +77,22 @@
   border-color: #334155;
 }
 
-/* Mensaje del Asistente: Canvas plano integrado sin bordes pesados */
+/* Mensaje del Asistente: Burbuja sutil con fondo para mejor legibilidad */
 .message-row.assistant .message-content {
-  background-color: transparent;
+  background-color: var(--bg-assistant-bubble);
   color: var(--text-main);
-  border: none;
-  padding: 0.35rem 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 0.85rem 1.15rem;
   width: 100%;
   text-wrap: pretty;
 }
+
+/* Eliminar margen superior en primer párrafo de burbuja */
+.message-row.assistant .message-content > p:first-child {
+  margin-top: 0;
+}
+
 
 /* Mensaje de Error */
 .message-error .message-content {
@@ -166,7 +179,8 @@
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
-  padding: 0.25rem 0.5rem;
+  padding: 0.45rem 0.6rem;  /* ≥36px touch target */
+  min-height: 36px;
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
   font-weight: 500;
@@ -199,6 +213,18 @@
   color: var(--success);
 }
 
+/* Siempre visible en dispositivos touch */
+@media (hover: none) {
+  .message-actions {
+    opacity: 0.55;
+  }
+  .message-wrapper:focus-within .message-actions {
+    opacity: 1;
+  }
+}
+
+
+
 /* Bloque de razonamiento / CoT <think> como acordeón elegante */
 .thought-block {
   margin: 0.85rem 0;
@@ -208,6 +234,13 @@
   background-color: var(--bg-surface-subtle);
   overflow: hidden;
   transition: all 0.2s ease;
+  /* interpolate-size: permite animar height: auto en el details nativo */
+  interpolate-size: allow-keywords;
+}
+
+/* Fallback: sin animación si interpolate-size no está disponible */
+@supports not (interpolate-size: allow-keywords) {
+  .thought-block { overflow: visible; }
 }
 
 .thought-summary {
@@ -258,6 +291,40 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+/* ==========================================================================
+   Indicador de Escritura del Asistente (Typing Indicator — Fase 8)
+   ========================================================================== */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0.65rem 1rem;
+  background-color: var(--bg-assistant-bubble);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  margin-bottom: 0.25rem;
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  animation: typingBounce 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 
 /* Tipografía de Contenido Markdown dentro del Mensaje */
 .message-content h1,

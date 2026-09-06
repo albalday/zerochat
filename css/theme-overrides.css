@@ -68,15 +68,7 @@
 }
 
 /* Reglas de Modo Oscuro */
-[data-theme="dark"] .welcome-card {
-  background-color: var(--bg-surface);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .welcome-card:hover {
-  background-color: #1e293b;
-  border-color: var(--primary);
-}
+/* welcome-card dark mode styles are defined in css/components/welcome.css */
 
 [data-theme="dark"] .badge-server,
 [data-theme="dark"] .badge-profile {
@@ -262,18 +254,13 @@
   color: #94a3b8;
 }
 
-/* Estadísticas de respuesta con texto negro de alto contraste en Modo Oscuro */
+/* Estadísticas de respuesta en Modo Oscuro — usando tokens semánticos */
 [data-theme="dark"] .message-stats {
-  background-color: #cbd5e1;
-  color: #000000;
-  font-weight: 600;
-  border: 1px solid #94a3b8;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
 }
 
-[data-theme="dark"] .message-stats span,
-[data-theme="dark"] .message-stats .stat-item {
-  color: #000000;
-}
 
 /* Modo Oscuro: Tarjeta de consulta web */
 [data-theme="dark"] .web-request-card {
