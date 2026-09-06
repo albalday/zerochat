@@ -134,6 +134,21 @@
       activeProfileSelect: document.getElementById('active-profile-select'),
       connectionTokensBadge: document.getElementById('connection-tokens-badge'),
       connectionTokensText: document.getElementById('connection-tokens-text'),
+      contextHubPct: document.getElementById('context-hub-pct'),
+      contextHubCachePill: document.getElementById('context-hub-cache-pill'),
+      contextHubPopover: document.getElementById('context-hub-popover'),
+      btnCloseContextPopover: document.getElementById('btn-close-context-popover'),
+      contextProgressBar: document.getElementById('context-progress-bar'),
+      contextMetricUsedVal: document.getElementById('context-metric-used-val'),
+      contextMetricLimitVal: document.getElementById('context-metric-limit-val'),
+      contextMetricFreeVal: document.getElementById('context-metric-free-val'),
+      contextMetricStatusVal: document.getElementById('context-metric-status-val'),
+      contextMetricCachedReadVal: document.getElementById('context-metric-cached-read-val'),
+      contextMetricCachedWriteVal: document.getElementById('context-metric-cached-write-val'),
+      contextMetricTurnPromptVal: document.getElementById('context-metric-turn-prompt-val'),
+      contextMetricTurnCompletionVal: document.getElementById('context-metric-turn-completion-val'),
+      contextMetricTurnSpeedVal: document.getElementById('context-metric-turn-speed-val'),
+      contextMetricTurnLatencyVal: document.getElementById('context-metric-turn-latency-val'),
       badgeServer: document.getElementById('badge-server'),
       currentServerUrl: document.getElementById('current-server-url'),
       badgeModel: document.getElementById('badge-model'),
@@ -538,27 +553,130 @@
     return String(num);
   }
 
-  function updateConnectionTokensBadge(stats) {
+  let lastKnownStats = null;
+  let lastKnownDiagnostics = null;
+
+  function updateConnectionTokensBadge(stats, diagnostics) {
     if (!elements.connectionTokensBadge) return;
+    if (stats) lastKnownStats = stats;
+    if (diagnostics) lastKnownDiagnostics = diagnostics;
 
-    // Mostrar la insignia únicamente si el servidor devolvió explícitamente usage (promptTokens o totalTokens)
-    const promptTok = (stats && typeof stats === 'object') ? (stats.promptTokens || stats.totalTokens || 0) : 0;
+    const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
+    const model = runtimeCfg.model || '';
+    const apiType = runtimeCfg.apiType || 'openai';
 
-    if (!promptTok || promptTok <= 0) {
-      elements.connectionTokensBadge.style.display = 'none';
-      return;
+    const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
+
+    const sPrompt = (stats && typeof stats === 'object') ? (stats.promptTokens || 0) : (lastKnownStats?.promptTokens || 0);
+    const sCached = (stats && typeof stats === 'object') ? (stats.cachedTokens || 0) : (lastKnownStats?.cachedTokens || 0);
+    const sCacheCreate = (stats && typeof stats === 'object') ? (stats.cacheCreationTokens || 0) : (lastKnownStats?.cacheCreationTokens || 0);
+    const sCompletion = (stats && typeof stats === 'object') ? (stats.completionTokens || stats.tokens || 0) : (lastKnownStats?.completionTokens || 0);
+
+    let diag = diagnostics || lastKnownDiagnostics;
+    if (!diag && CM && typeof CM.getContextDiagnostics === 'function') {
+      diag = CM.getContextDiagnostics(chatHistory, {
+        model,
+        providerType: apiType,
+        usedTokens: sPrompt > 0 ? sPrompt : null
+      });
     }
 
-    const usedFormatted = formatTokenCount(promptTok);
+    const totalLimit = diag?.totalLimit || (CM ? CM.getModelContextLimit(model, apiType) : 128000);
+    const usedTokens = diag?.usedTokens ?? sPrompt;
+    const percentUsed = diag?.percentUsed ?? (totalLimit > 0 ? Number(((usedTokens / totalLimit) * 100).toFixed(1)) : 0);
+    const remainingTokens = Math.max(0, totalLimit - usedTokens);
+
+    // Formateo compacto
+    const isEst = diag?.isEstimated ?? (sPrompt <= 0);
+    const prefix = (isEst && usedTokens > 0) ? '~' : '';
+    const usedFormatted = prefix + formatTokenCount(usedTokens);
+    const limitFormatted = formatTokenCount(totalLimit);
 
     if (elements.connectionTokensText) {
-      elements.connectionTokensText.textContent = `${usedFormatted} tok`;
+      elements.connectionTokensText.textContent = `${usedFormatted} / ${limitFormatted}`;
     }
 
-    const titleText = t('tokens_badge_title', {
-      used: promptTok.toLocaleString()
-    }) || `Tokens de contexto: ${promptTok.toLocaleString()} tokens`;
+    if (elements.contextHubPct) {
+      elements.contextHubPct.textContent = `${percentUsed}%`;
+    }
 
+    // Semáforo de salud visual
+    elements.connectionTokensBadge.classList.remove('status-warning', 'status-critical');
+    if (elements.contextProgressBar) {
+      elements.contextProgressBar.classList.remove('warning', 'critical');
+    }
+    if (percentUsed >= 85) {
+      elements.connectionTokensBadge.classList.add('status-critical');
+      if (elements.contextProgressBar) elements.contextProgressBar.classList.add('critical');
+    } else if (percentUsed >= 60) {
+      elements.connectionTokensBadge.classList.add('status-warning');
+      if (elements.contextProgressBar) elements.contextProgressBar.classList.add('warning');
+    }
+
+    // Caché pill en badge
+    if (elements.contextHubCachePill) {
+      if (sCached > 0) {
+        elements.contextHubCachePill.textContent = `⚡ ${formatTokenCount(sCached)}`;
+        elements.contextHubCachePill.style.display = 'inline-flex';
+      } else {
+        elements.contextHubCachePill.style.display = 'none';
+      }
+    }
+
+    // Barra de progreso del popover
+    if (elements.contextProgressBar) {
+      elements.contextProgressBar.style.width = `${Math.min(100, Math.max(0, percentUsed))}%`;
+    }
+
+    // Métricas del Popover
+    if (elements.contextMetricUsedVal) {
+      elements.contextMetricUsedVal.textContent = `${usedTokens.toLocaleString()} tok` + (isEst && usedTokens > 0 ? ' (est.)' : '');
+    }
+    if (elements.contextMetricLimitVal) {
+      elements.contextMetricLimitVal.textContent = `${totalLimit.toLocaleString()} tok`;
+    }
+    if (elements.contextMetricFreeVal) {
+      elements.contextMetricFreeVal.textContent = `${remainingTokens.toLocaleString()} tok`;
+    }
+    if (elements.contextMetricStatusVal) {
+      elements.contextMetricStatusVal.className = 'context-metric-val';
+      if (percentUsed >= 85) {
+        elements.contextMetricStatusVal.classList.add('status-critical');
+        elements.contextMetricStatusVal.textContent = t('context_status_critical') || 'Crítico';
+      } else if (percentUsed >= 60) {
+        elements.contextMetricStatusVal.classList.add('status-warning');
+        elements.contextMetricStatusVal.textContent = t('context_status_warning') || 'Elevado';
+      } else {
+        elements.contextMetricStatusVal.classList.add('status-ok');
+        elements.contextMetricStatusVal.textContent = t('context_status_ok') || 'Óptimo';
+      }
+    }
+
+    // Caché Popover
+    if (elements.contextMetricCachedReadVal) {
+      elements.contextMetricCachedReadVal.textContent = `${sCached.toLocaleString()} tok`;
+    }
+    if (elements.contextMetricCachedWriteVal) {
+      elements.contextMetricCachedWriteVal.textContent = `${sCacheCreate.toLocaleString()} tok`;
+    }
+
+    // Turno Popover
+    if (elements.contextMetricTurnPromptVal) {
+      elements.contextMetricTurnPromptVal.textContent = sPrompt > 0 ? `${sPrompt.toLocaleString()} tok` : '-';
+    }
+    if (elements.contextMetricTurnCompletionVal) {
+      elements.contextMetricTurnCompletionVal.textContent = sCompletion > 0 ? `${sCompletion.toLocaleString()} tok` : '-';
+    }
+    const currentSpeed = (stats && stats.tokensPerSec) || lastKnownStats?.tokensPerSec;
+    if (elements.contextMetricTurnSpeedVal) {
+      elements.contextMetricTurnSpeedVal.textContent = currentSpeed ? `${currentSpeed} tok/s` : '-';
+    }
+    const currentTtft = (stats && stats.ttftSec) || lastKnownStats?.ttftSec;
+    if (elements.contextMetricTurnLatencyVal) {
+      elements.contextMetricTurnLatencyVal.textContent = currentTtft ? `${currentTtft}s` : '-';
+    }
+
+    const titleText = t('context_hub_btn_title') || `Ventana de contexto: ${usedTokens.toLocaleString()} de ${totalLimit.toLocaleString()} tokens (${percentUsed}%)`;
     elements.connectionTokensBadge.setAttribute('title', titleText);
     elements.connectionTokensBadge.style.display = 'inline-flex';
   }
@@ -1061,6 +1179,7 @@
 
     if (loopResult && loopResult.stats) {
       updateStatsDisplay(loopResult.stats);
+      updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics);
     }
 
     actions.style.display = 'inline-flex';
@@ -2385,6 +2504,43 @@
     elements.settingsDialog.addEventListener('click', function (e) {
       if (e.target === elements.settingsDialog) {
         closeSettingsModal();
+      }
+    });
+
+    if (elements.connectionTokensBadge) {
+      elements.connectionTokensBadge.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const pop = elements.contextHubPopover;
+        if (!pop) return;
+        const isHidden = pop.style.display === 'none' || !pop.style.display;
+        pop.style.display = isHidden ? 'flex' : 'none';
+        elements.connectionTokensBadge.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        elements.connectionTokensBadge.classList.toggle('active', isHidden);
+      });
+    }
+
+    if (elements.btnCloseContextPopover) {
+      elements.btnCloseContextPopover.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (elements.contextHubPopover) elements.contextHubPopover.style.display = 'none';
+        if (elements.connectionTokensBadge) {
+          elements.connectionTokensBadge.setAttribute('aria-expanded', 'false');
+          elements.connectionTokensBadge.classList.remove('active');
+        }
+      });
+    }
+
+    document.addEventListener('click', function (e) {
+      if (elements.contextHubPopover && elements.contextHubPopover.style.display !== 'none') {
+        if (!elements.contextHubPopover.contains(e.target) && !elements.connectionTokensBadge.contains(e.target)) {
+          elements.contextHubPopover.style.display = 'none';
+          if (elements.connectionTokensBadge) {
+            elements.connectionTokensBadge.setAttribute('aria-expanded', 'false');
+            elements.connectionTokensBadge.classList.remove('active');
+          }
+        }
       }
     });
   }

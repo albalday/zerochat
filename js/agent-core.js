@@ -1220,7 +1220,14 @@
           tokens: lastStats?.tokens || 0,
           tokensPerSec: lastStats?.tokensPerSec || 0,
           cachedTokens: lastStats?.cachedTokens || 0,
-          ttftSec: lastStats?.ttftSec || 0
+          cacheCreationTokens: lastStats?.cacheCreationTokens || 0,
+          promptTokens: lastStats?.promptTokens || 0,
+          completionTokens: lastStats?.completionTokens || 0,
+          totalTokens: lastStats?.totalTokens || 0,
+          reasoningTokens: lastStats?.reasoningTokens || 0,
+          ttftSec: lastStats?.ttftSec || 0,
+          totalSec: lastStats?.totalSec || ((totalElapsedMs / 1000).toFixed(2)),
+          isEstimated: lastStats?.isEstimated ?? true
         },
         error: executionError
       };

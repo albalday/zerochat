@@ -614,6 +614,38 @@ Responde estrictamente con el siguiente formato:
     };
   }
 
+  /**
+   * Calcula diagnósticos del estado del contexto para telemetría e interfaz de usuario.
+   * @param {Array} messages - Historial de mensajes.
+   * @param {Object} [options={}] - Parámetros de modelo, proveedor y tokens informados.
+   * @returns {Object} Diagnósticos normalizados.
+   */
+  function getContextDiagnostics(messages = [], options = {}) {
+    const model = options.model || '';
+    const providerType = options.providerType || 'openai';
+    const totalLimit = options.totalContextLimit || getModelContextLimit(model, providerType);
+    const budget = calculateInputBudget({ ...options, totalContextLimit: totalLimit });
+
+    const isEstimated = options.usedTokens === undefined || options.usedTokens === null;
+    const usedTokens = !isEstimated ? Number(options.usedTokens) : estimateHistoryTokens(messages, model);
+    const percentUsed = totalLimit > 0 ? Math.min(100, (usedTokens / totalLimit) * 100) : 0;
+    const remainingTokens = Math.max(0, totalLimit - usedTokens);
+
+    return {
+      model,
+      providerType,
+      totalLimit,
+      budget,
+      usedTokens,
+      remainingTokens,
+      percentUsed: Number(percentUsed.toFixed(1)),
+      isEstimated,
+      prunedCount: options.prunedCount || 0,
+      excludedCount: options.excludedCount || 0,
+      strategy: options.strategy || (options.excludedCount > 0 ? 'sliding_window_truncated' : 'full_history')
+    };
+  }
+
   return {
     getModelContextLimit,
     calculateInputBudget,
@@ -625,6 +657,7 @@ Responde estrictamente con el siguiente formato:
     pruneHistoricalToolMessage,
     groupIntoAtomicBlocks,
     buildOptimizedContext,
+    getContextDiagnostics,
     shouldCompress,
     buildSummarizationTranscript,
     generateDeterministicSummary,

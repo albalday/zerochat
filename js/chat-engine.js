@@ -61,6 +61,8 @@
     return String(content);
   }
 
+  let lastContextDiagnostics = null;
+
   /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local. */
   function getConversationDateAnchor(lang = 'es', startedAt = Date.now()) {
     let date = new Date(startedAt);
@@ -396,6 +398,7 @@
         providerType: appConfig.apiType,
         ...options
       });
+      lastContextDiagnostics = optimization.diagnostics || null;
       return optimization.messages;
     }
 
@@ -989,6 +992,7 @@
       finalAssistantText,
       accumulatedMarkdown: (accumulatedConversationMarkdown ? accumulatedConversationMarkdown : '') + finalAssistantText,
       stats: finalStats,
+      contextDiagnostics: lastContextDiagnostics,
       chatHistory
     };
   }
@@ -1001,6 +1005,7 @@
     injectStreamingCursor,
     buildEffectiveMessages,
     executeAgentTurnLoop,
+    getLastContextDiagnostics: () => lastContextDiagnostics,
     extractBaseId,
     removeTurnFromHistory
   };

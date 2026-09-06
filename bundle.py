@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlsplit
 
 BOOTSTRAP_LOADER_SCRIPT = """<script>

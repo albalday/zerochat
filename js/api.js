@@ -515,13 +515,17 @@
     let serverPromptTokens = 0;
     let serverCompletionTokens = 0;
     let serverTotalTokens = 0;
+    let serverReasoningTokens = 0;
     const requestStartTime = performance.now();
     let firstTokenTime = null;
 
     function getStats() {
       const now = performance.now();
       const totalElapsedSec = ((now - requestStartTime) / 1000).toFixed(2);
-      const tokens = estimateTokens(accumulatedText + accumulatedReasoning, chunkCount);
+      const isEstimated = serverCompletionTokens <= 0;
+      const tokens = serverCompletionTokens > 0
+        ? serverCompletionTokens
+        : estimateTokens(accumulatedText + accumulatedReasoning, chunkCount);
 
       if (firstTokenTime) {
         const ttftSec = ((firstTokenTime - requestStartTime) / 1000).toFixed(2);
@@ -539,20 +543,24 @@
           cacheCreationTokens: serverCacheCreationTokens,
           promptTokens: serverPromptTokens,
           completionTokens: serverCompletionTokens,
-          totalTokens: serverTotalTokens
+          totalTokens: serverTotalTokens,
+          reasoningTokens: serverReasoningTokens,
+          isEstimated: isEstimated
         };
       } else {
         return {
           ttftSec: totalElapsedSec,
           generationSec: '0.00',
           totalSec: totalElapsedSec,
-          tokens: 0,
+          tokens: tokens,
           tokensPerSec: '0.0',
           cachedTokens: serverCachedTokens,
           cacheCreationTokens: serverCacheCreationTokens,
           promptTokens: serverPromptTokens,
           completionTokens: serverCompletionTokens,
-          totalTokens: serverTotalTokens
+          totalTokens: serverTotalTokens,
+          reasoningTokens: serverReasoningTokens,
+          isEstimated: isEstimated
         };
       }
     }
@@ -780,23 +788,28 @@
                 });
               }
 
-              // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens)
+              // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens / Ollama)
               const streamUsage = chunkData.usage || parsed.usage;
               if (streamUsage) {
-                const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? 0;
-                const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? 0;
-                const tTokens = streamUsage.total_tokens ?? (pTokens + cTokens);
+                const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? streamUsage.prompt_eval_count ?? 0;
+                const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? streamUsage.eval_count ?? 0;
+                const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens ?? streamUsage.reasoning_tokens ?? 0;
 
                 if (pTokens > 0) serverPromptTokens = pTokens;
                 if (cTokens > 0) serverCompletionTokens = cTokens;
-                if (tTokens > 0) serverTotalTokens = tTokens;
+                if (rTokens > 0) serverReasoningTokens = rTokens;
+
+                if (streamUsage.total_tokens && streamUsage.total_tokens > 0) {
+                  serverTotalTokens = Math.max(streamUsage.total_tokens, (serverPromptTokens + serverCompletionTokens));
+                } else if (serverPromptTokens > 0 || serverCompletionTokens > 0) {
+                  serverTotalTokens = serverPromptTokens + serverCompletionTokens;
+                }
 
                 if (onLog) {
-                  const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens;
                   const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
                   onLog({
                     type: 'stats',
-                    text: `Uso de tokens: Prompt=${serverPromptTokens}, Respuesta=${serverCompletionTokens}, Total=${serverTotalTokens}${rTokens ? ` (Razonamiento: ${rTokens})` : ''}${cacheLog}`
+                    text: `Uso de tokens: Prompt=${serverPromptTokens}, Respuesta=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Razonamiento: ${serverReasoningTokens})` : ''}${cacheLog}`
                   });
                 }
               }

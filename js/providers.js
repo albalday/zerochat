@@ -109,11 +109,16 @@
       payload.reasoning_effort = effort;
     }
 
+    supportsUsageStatistics() {
+      const id = String(this.id || '').toLowerCase();
+      return id !== 'ollama' && id !== 'gemini' && id !== 'claude';
+    }
+
     /**
      * Aplica la solicitud de métricas detalladas de tokens si se trata de streaming.
      */
     requestUsageStatistics(payload, stream = true) {
-      if (stream !== false) {
+      if (stream !== false && this.supportsUsageStatistics()) {
         payload.stream_options = { include_usage: true };
       }
     }
@@ -140,12 +145,12 @@
     applyTools(payload, toolsList, toolChoice = 'auto') {
       if (toolsList && toolsList.length > 0) {
         payload.tools = toolsList;
-        payload.tool_choice = toolChoice || 'auto';
+        payload.tool_choice = toolChoice;
       }
     }
 
     /**
-     * Construye el payload completo para la petición POST respetando las capacidades declaradas.
+     * Construye el payload completo para la petición HTTP de Chat Completion.
      */
     buildPayload(params) {
       const {
@@ -155,8 +160,8 @@
         reasoningEffort = 'none',
         toolsList = [],
         toolChoice = 'auto',
-        jsonMode = false,
-        stream = true
+        stream = true,
+        jsonMode = false
       } = params;
 
       const capabilities = this.getCapabilities(model);
@@ -170,6 +175,9 @@
 
       if (capabilities.streaming && stream !== false) {
         payload.stream = true;
+        if (this.supportsUsageStatistics()) {
+          this.requestUsageStatistics(payload, true);
+        }
       }
 
       if (capabilities.reasoning) {
@@ -232,8 +240,18 @@
         }
       }
 
-      // Usage / Context Caching
-      const usage = parsed.usage || parsed.message?.usage;
+      // Usage / Context Caching (OpenAI, Anthropic, Ollama)
+      let usage = parsed.usage || parsed.message?.usage;
+      if (!usage && (parsed.prompt_eval_count !== undefined || parsed.eval_count !== undefined)) {
+        const pEval = parsed.prompt_eval_count ?? 0;
+        const cEval = parsed.eval_count ?? 0;
+        usage = {
+          prompt_tokens: pEval,
+          completion_tokens: cEval,
+          total_tokens: pEval + cEval
+        };
+      }
+
       if (usage) {
         result.usage = usage;
         if (usage.prompt_tokens_details?.cached_tokens) {
@@ -989,6 +1007,10 @@
         }
       }
 
+      if (parsed.type === 'message_delta' && parsed.usage) {
+        result.usage = parsed.usage;
+      }
+
       if (parsed.type === 'content_block_delta') {
         if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
           result.reasoningChunk = parsed.delta.thinking;
@@ -998,12 +1020,14 @@
       }
 
       // Fallback a formato choices por si OpenRouter sirve Claude en formato OpenAI
-      if (parsed.choices?.[0]) {
+      if (parsed.choices?.[0] || parsed.usage) {
         const baseRes = super.parseStreamChunk(parsed, state);
         if (baseRes.textChunk) result.textChunk = baseRes.textChunk;
         if (baseRes.reasoningChunk) result.reasoningChunk = baseRes.reasoningChunk;
         if (baseRes.toolCallDeltas.length > 0) result.toolCallDeltas = baseRes.toolCallDeltas;
         if (baseRes.cachedTokens > 0) result.cachedTokens = baseRes.cachedTokens;
+        if (baseRes.cacheCreationTokens > 0) result.cacheCreationTokens = baseRes.cacheCreationTokens;
+        if (baseRes.usage && !result.usage) result.usage = baseRes.usage;
       }
 
       return result;
