@@ -244,8 +244,6 @@
       agentToolsContainer: document.getElementById('agent-tools-container'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       settingSendDateTime: document.getElementById('setting-send-datetime'),
-      // Fase 5: sugerencias de bienvenida
-      welcomeSuggestions: document.getElementById('welcome-suggestions'),
       // Fase 7: backdrop para drawer en móvil
       sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     };
@@ -1899,63 +1897,9 @@
   }
 
   // ==========================================================================
-  // Fase 5 — Sugerencias de Prompt en la Pantalla de Bienvenida
-  // ==========================================================================
-
-  function renderWelcomeSuggestions() {
-    const container = elements.welcomeSuggestions || document.getElementById('welcome-suggestions');
-    if (!container) return;
-
-    const config = getRuntimeConfig();
-    const hasRag = config.ragEnabled;
-    const hasSystemPrompt = config.activeProfile && config.activeProfile.systemPrompt;
-    const lang = config.language || 'es';
-    const isEs = lang !== 'en';
-
-    const suggestions = isEs
-      ? [
-          { icon: '💡', text: 'Explica un concepto', desc: 'En términos simples y con ejemplos', prompt: 'Explícame ' },
-          { icon: '✍️', text: 'Escribe para mí', desc: 'Email, texto, resumen o guión', prompt: 'Escribe un ' },
-          { icon: '🔍', text: 'Analiza esto', desc: 'Código, datos o documento', prompt: 'Analiza el siguiente ' },
-          { icon: '🤔', text: 'Ayúdame a pensar', desc: 'Pros y contras, plan o decisión', prompt: 'Ayúdame a evaluar ' }
-        ]
-      : [
-          { icon: '💡', text: 'Explain a concept', desc: 'Simply, with examples', prompt: 'Explain ' },
-          { icon: '✍️', text: 'Write something', desc: 'Email, summary, or script', prompt: 'Write a ' },
-          { icon: '🔍', text: 'Analyze this', desc: 'Code, data, or document', prompt: 'Analyze the following ' },
-          { icon: '🤔', text: 'Help me think', desc: 'Pros/cons, plan, or decision', prompt: 'Help me evaluate ' }
-        ];
-
-    if (hasRag) {
-      suggestions[3] = isEs
-        ? { icon: '📚', text: 'Busca en mis docs', desc: 'Base de conocimiento local', prompt: 'Busca en mis documentos: ' }
-        : { icon: '📚', text: 'Search my docs', desc: 'Local knowledge base', prompt: 'Search my documents for: ' };
-    }
-
-    container.innerHTML = suggestions.map((s, i) => `
-      <button type="button" class="welcome-card" style="--card-index: ${i}" data-prompt="${s.prompt.replace(/"/g, '&quot;')}">
-        <span class="welcome-card-icon">${s.icon}</span>
-        <span class="welcome-card-text">${s.text}</span>
-        <span class="welcome-card-desc">${s.desc}</span>
-      </button>
-    `).join('');
-
-    container.querySelectorAll('.welcome-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const prompt = card.getAttribute('data-prompt') || '';
-        if (elements.userInput) {
-          elements.userInput.value = prompt;
-          elements.userInput.focus();
-          // Colocar el cursor al final
-          elements.userInput.setSelectionRange(prompt.length, prompt.length);
-        }
-      });
-    });
-  }
-
-  // ==========================================================================
   // Fase 8 — Indicador de Escritura del Asistente
   // ==========================================================================
+
 
   let typingIndicatorEl = null;
 
@@ -2495,9 +2439,6 @@
       exportConversationAsJson,
       exportConversationAsPrint
     };
-
-    // Fase 5: renderizar tarjetas de sugerencias en la pantalla de bienvenida
-    renderWelcomeSuggestions();
 
     // Fase 6: configurar light-dismiss fallback para navegadores sin closedby
     setupLightDismissDialogs();

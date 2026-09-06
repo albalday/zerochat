@@ -28,27 +28,23 @@ test('UI Modernization - Modales y mensajes usan @starting-style para animacione
   assert.ok(messagesCss.includes('interpolate-size: allow-keywords'), 'messages.css debe soportar interpolate-size');
 });
 
-test('UI Modernization - Header incluye menú overflow y safe-area', () => {
+test('UI Modernization - Header incluye las 3 acciones superiores y safe-area', () => {
   const headerCss = fs.readFileSync(path.resolve(__dirname, '../css/components/header.css'), 'utf8');
-  assert.ok(headerCss.includes('.header-overflow-menu'), 'header.css debe definir estilos de overflow menu');
   assert.ok(headerCss.includes('env(safe-area-inset-top'), 'header.css debe soportar safe-area-inset-top');
 
   const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
-  assert.ok(indexHtml.includes('id="btn-header-overflow"'), 'index.html debe incluir el botón de menú overflow');
-  assert.ok(indexHtml.includes('id="header-overflow-popover"'), 'index.html debe incluir el popover de overflow');
+  assert.ok(indexHtml.includes('id="btn-quick-export"'), 'index.html debe incluir #btn-quick-export en la barra superior');
+  assert.ok(indexHtml.includes('id="btn-clear-chat"'), 'index.html debe incluir #btn-clear-chat en la barra superior');
+  assert.ok(indexHtml.includes('id="btn-toggle-debug"'), 'index.html debe incluir #btn-toggle-debug en la barra superior');
 });
 
-test('UI Modernization - Pantalla de bienvenida incluye contenedor de sugerencias y estilos dedicados', () => {
+test('UI Modernization - Pantalla de bienvenida limpia sin sugerencias intrusivas', () => {
   const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
-  assert.ok(indexHtml.includes('id="welcome-suggestions"'), 'index.html debe incluir el contenedor de sugerencias');
-
-  const welcomeCss = fs.readFileSync(path.resolve(__dirname, '../css/components/welcome.css'), 'utf8');
-  assert.ok(welcomeCss.includes('.welcome-suggestions'), 'welcome.css debe definir el grid de sugerencias');
-  assert.ok(welcomeCss.includes('.welcome-card'), 'welcome.css debe definir las tarjetas de sugerencia');
-
-  const stylesCss = fs.readFileSync(path.resolve(__dirname, '../css/styles.css'), 'utf8');
-  assert.ok(stylesCss.includes('components/welcome.css'), 'styles.css maestro debe importar welcome.css');
+  assert.ok(indexHtml.includes('class="welcome-banner"'), 'index.html debe incluir .welcome-banner');
+  assert.ok(indexHtml.includes('class="welcome-icon"'), 'index.html debe incluir .welcome-icon');
+  assert.ok(!indexHtml.includes('id="welcome-suggestions"'), 'index.html no debe incluir sugerencias de bienvenida');
 });
+
 
 test('UI Modernization - Modales soportan atributo closedby="any"', () => {
   const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');

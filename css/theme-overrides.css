@@ -68,7 +68,16 @@
 }
 
 /* Reglas de Modo Oscuro */
-/* welcome-card dark mode styles are defined in css/components/welcome.css */
+[data-theme="dark"] .welcome-card {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .welcome-card:hover {
+  background-color: #1e293b;
+  border-color: var(--primary);
+}
+
 
 [data-theme="dark"] .badge-server,
 [data-theme="dark"] .badge-profile {
