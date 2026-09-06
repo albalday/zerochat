@@ -472,6 +472,220 @@
   display: none !important;
 }
 
+/* ==========================================================================
+   Telemetría de Contexto en el Composer (Texto sutil, pequeño y sin remarcar)
+   ========================================================================== */
+.input-actions .context-hub-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.composer-telemetry-btn {
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+  line-height: 1.2;
+  user-select: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.composer-telemetry-btn:hover {
+  color: var(--text-main);
+}
+
+.composer-telemetry-btn:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.composer-tokens-text {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.composer-tokens-cache {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  color: #0284c7;
+  font-size: 0.65rem;
+}
+
+[data-theme="dark"] .composer-tokens-cache {
+  color: #38bdf8;
+}
+
+/* Indicadores de advertencia o crítico (sutil cambio de tono sin remarcar ni alterar fondo) */
+.composer-telemetry-btn.status-warning .composer-tokens-text {
+  color: #d97706;
+}
+
+.composer-telemetry-btn.status-critical .composer-tokens-text {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* Popover Flotante desplegado hacia arriba desde el Composer */
+.input-actions .context-hub-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  left: auto;
+  top: auto;
+  width: 310px;
+  max-width: min(320px, calc(100vw - 32px));
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: var(--z-modal, 1000);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: contextPopoverFadeUp 0.15s ease-out;
+  text-align: left;
+}
+
+@keyframes contextPopoverFadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.context-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.5rem;
+}
+
+.context-popover-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.775rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.btn-close-popover {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast);
+}
+
+.btn-close-popover:hover {
+  color: var(--text-main);
+}
+
+.context-popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.context-section-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.context-progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background-color: var(--bg-surface-subtle);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.context-progress-bar {
+  height: 100%;
+  background-color: var(--primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.context-progress-bar.warning {
+  background-color: #f59e0b;
+}
+
+.context-progress-bar.critical {
+  background-color: #ef4444;
+}
+
+.context-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.45rem;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+}
+
+.context-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.context-metric-label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.context-metric-val {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.context-metric-val.accent {
+  color: #0284c7;
+}
+
+[data-theme="dark"] .context-metric-val.accent {
+  color: #38bdf8;
+}
+
+.context-metric-val.status-ok {
+  color: #10b981;
+}
+
+.context-metric-val.status-warning {
+  color: #f59e0b;
+}
+
+.context-metric-val.status-critical {
+  color: #ef4444;
+}
+
 /* Disclaimer inferior */
 .chat-disclaimer {
   text-align: center;

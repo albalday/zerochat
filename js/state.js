@@ -92,7 +92,14 @@
         loopWarning: false
       },
 
-      // 6. Estado de la Interfaz (UI)
+      // 6. Telemetría de Contexto y Tokens
+      telemetry: {
+        stats: null,
+        diagnostics: null,
+        lastTurnStats: null
+      },
+
+      // 7. Estado de la Interfaz (UI)
       ui: {
         sidebarOpen: false,
         reasoningMenuOpen: false,

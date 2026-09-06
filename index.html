@@ -83,105 +83,6 @@
           </svg>
           <span class="btn-header-label" data-i18n="btn_settings">Configuración</span>
         </button>
-
-        <div id="unified-context-hub" class="context-hub-wrapper">
-          <button type="button" id="connection-tokens-badge" class="badge-pill badge-tokens context-hub-badge" style="display: none;" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
-            <span class="tokens-icon">
-              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                <line x1="12" y1="22.08" x2="12" y2="12"></line>
-              </svg>
-            </span>
-            <span id="connection-tokens-text" class="tokens-text">0 / 128k</span>
-            <span id="context-hub-pct" class="context-pct">0%</span>
-            <span id="context-hub-cache-pill" class="context-cache-pill" style="display: none;" title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span id="context-hub-cache-val">0</span></span>
-          </button>
-
-          <!-- Popover Flotante de Métricas Detalladas -->
-          <div id="context-hub-popover" class="context-hub-popover" style="display: none;" role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
-            <div class="context-popover-header">
-              <div class="context-popover-title">
-                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="16" x2="12" y2="12"></line>
-                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                </svg>
-                <span data-i18n="context_hub_title">Métricas de Contexto y Tokens</span>
-              </div>
-              <button type="button" id="btn-close-context-popover" class="btn-close-popover" aria-label="Cerrar">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-
-            <!-- Sección 1: Capacidad de Contexto Global -->
-            <div class="context-popover-section">
-              <div class="context-section-title" data-i18n="context_section_global">Ventana de Contexto Global</div>
-              <div class="context-progress-bar-container">
-                <div id="context-progress-bar" class="context-progress-bar" style="width: 0%;"></div>
-              </div>
-              <div class="context-metrics-grid">
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_used">Usado</span>
-                  <span id="context-metric-used-val" class="context-metric-val">0 tok</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_limit">Capacidad</span>
-                  <span id="context-metric-limit-val" class="context-metric-val">128,000</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_free">Disponible</span>
-                  <span id="context-metric-free-val" class="context-metric-val">128,000</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_status">Estado</span>
-                  <span id="context-metric-status-val" class="context-metric-val status-ok">Óptimo</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Sección 2: Caché de Contexto -->
-            <div class="context-popover-section" id="context-cache-section">
-              <div class="context-section-title" data-i18n="context_section_cache">Caché de Contexto (Prompt/KV)</div>
-              <div class="context-metrics-grid">
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_cached_read">Leídos (Ahorro)</span>
-                  <span id="context-metric-cached-read-val" class="context-metric-val accent">0 tok</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_cached_write">Escritos en caché</span>
-                  <span id="context-metric-cached-write-val" class="context-metric-val">0 tok</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Sección 3: Último Turno Generado -->
-            <div class="context-popover-section" id="context-last-turn-section">
-              <div class="context-section-title" data-i18n="context_section_turn">Último Turno Generado</div>
-              <div class="context-metrics-grid">
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_turn_prompt">Entrada (Prompt)</span>
-                  <span id="context-metric-turn-prompt-val" class="context-metric-val">0 tok</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_turn_completion">Salida (Respuesta)</span>
-                  <span id="context-metric-turn-completion-val" class="context-metric-val">0 tok</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_turn_speed">Velocidad</span>
-                  <span id="context-metric-turn-speed-val" class="context-metric-val">-</span>
-                </div>
-                <div class="context-metric-item">
-                  <span class="context-metric-label" data-i18n="context_metric_turn_latency">Latencia (TTFT)</span>
-                  <span id="context-metric-turn-latency-val" class="context-metric-val">-</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="header-center">
@@ -280,6 +181,97 @@
         ></textarea>
 
         <div class="input-actions">
+          <div id="unified-context-hub" class="context-hub-wrapper">
+            <button type="button" id="connection-tokens-badge" class="composer-telemetry-btn" style="display: none;" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
+              <span id="connection-tokens-text" class="composer-tokens-text">0 / 128k</span>
+              <span id="context-hub-cache-pill" class="composer-tokens-cache" style="display: none;" title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span id="context-hub-cache-val">0</span></span>
+            </button>
+
+            <!-- Popover Flotante de Métricas Detalladas -->
+            <div id="context-hub-popover" class="context-hub-popover" style="display: none;" role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
+              <div class="context-popover-header">
+                <div class="context-popover-title">
+                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                  <span data-i18n="context_hub_title">Métricas de Contexto y Tokens</span>
+                </div>
+                <button type="button" id="btn-close-context-popover" class="btn-close-popover" aria-label="Cerrar">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Sección 1: Capacidad de Contexto Global -->
+              <div class="context-popover-section">
+                <div class="context-section-title" data-i18n="context_section_global">Ventana de Contexto Global</div>
+                <div class="context-progress-bar-container">
+                  <div id="context-progress-bar" class="context-progress-bar" style="width: 0%;"></div>
+                </div>
+                <div class="context-metrics-grid">
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_used">Usado</span>
+                    <span id="context-metric-used-val" class="context-metric-val">0 tok</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_limit">Capacidad</span>
+                    <span id="context-metric-limit-val" class="context-metric-val">128,000</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_free">Disponible</span>
+                    <span id="context-metric-free-val" class="context-metric-val">128,000</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_status">Estado</span>
+                    <span id="context-metric-status-val" class="context-metric-val status-ok">Óptimo</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sección 2: Caché de Contexto -->
+              <div class="context-popover-section" id="context-cache-section">
+                <div class="context-section-title" data-i18n="context_section_cache">Caché de Contexto (Prompt/KV)</div>
+                <div class="context-metrics-grid">
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_cached_read">Leídos (Ahorro)</span>
+                    <span id="context-metric-cached-read-val" class="context-metric-val accent">0 tok</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_cached_write">Escritos en caché</span>
+                    <span id="context-metric-cached-write-val" class="context-metric-val">0 tok</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sección 3: Último Turno Generado -->
+              <div class="context-popover-section" id="context-last-turn-section">
+                <div class="context-section-title" data-i18n="context_section_turn">Último Turno Generado</div>
+                <div class="context-metrics-grid">
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_turn_prompt">Entrada (Prompt)</span>
+                    <span id="context-metric-turn-prompt-val" class="context-metric-val">0 tok</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_turn_completion">Salida (Respuesta)</span>
+                    <span id="context-metric-turn-completion-val" class="context-metric-val">0 tok</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_turn_speed">Velocidad</span>
+                    <span id="context-metric-turn-speed-val" class="context-metric-val">-</span>
+                  </div>
+                  <div class="context-metric-item">
+                    <span class="context-metric-label" data-i18n="context_metric_turn_latency">Latencia (TTFT)</span>
+                    <span id="context-metric-turn-latency-val" class="context-metric-val">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" title="Detener respuesta">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" rx="2"></rect>
@@ -1020,6 +1012,7 @@
   <script src="js/ui-inspector.js"></script>
   <script src="js/ui-sidebar.js"></script>
   <script src="js/ui-settings.js"></script>
+  <script src="js/ui-telemetry.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

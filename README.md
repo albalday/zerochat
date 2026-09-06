@@ -73,4 +73,4 @@ git ls-tree -r --name-only HEAD
 
 Para localizar un componente concreto, usa por ejemplo `rg --files js tests css`.
 
-Las reglas de contribución, pruebas y empaquetado están en [AGENT_GUIDELINES.md](AGENT_GUIDELINES.md). Las dependencias de terceros y sus licencias se detallan en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Las reglas de contribución, pruebas y empaquetado están en [AGENTS.md](AGENTS.md). Las dependencias de terceros y sus licencias se detallan en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

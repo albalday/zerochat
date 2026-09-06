@@ -134,8 +134,8 @@
       activeProfileSelect: document.getElementById('active-profile-select'),
       connectionTokensBadge: document.getElementById('connection-tokens-badge'),
       connectionTokensText: document.getElementById('connection-tokens-text'),
-      contextHubPct: document.getElementById('context-hub-pct'),
       contextHubCachePill: document.getElementById('context-hub-cache-pill'),
+      contextHubCacheVal: document.getElementById('context-hub-cache-val'),
       contextHubPopover: document.getElementById('context-hub-popover'),
       btnCloseContextPopover: document.getElementById('btn-close-context-popover'),
       contextProgressBar: document.getElementById('context-progress-bar'),
@@ -546,144 +546,49 @@
     updateConnectionTokensBadge(null);
   }
 
-  function formatTokenCount(num) {
-    if (!num || isNaN(num)) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-    return String(num);
+  function getUITelemetry() {
+    return window.ChatUITelemetry || (typeof require !== 'undefined' ? (() => { try { return require('./ui-telemetry.js'); } catch (e) { return null; } })() : null);
   }
 
-  let lastKnownStats = null;
-  let lastKnownDiagnostics = null;
+  function updateConnectionTokensBadge(stats, diagnostics, options = {}) {
+    const UITel = getUITelemetry();
+    if (!UITel || !elements.connectionTokensBadge) return;
 
-  function updateConnectionTokensBadge(stats, diagnostics) {
-    if (!elements.connectionTokensBadge) return;
-    if (stats) lastKnownStats = stats;
-    if (diagnostics) lastKnownDiagnostics = diagnostics;
+    if (stats) {
+      State.set('telemetry', prev => ({ ...(prev || {}), stats }));
+    }
+    if (diagnostics) {
+      State.set('telemetry', prev => ({ ...(prev || {}), diagnostics }));
+    }
+
+    const telState = State.get ? State.get('telemetry') : {};
+    const effectiveStats = stats || telState?.stats || null;
+    const effectiveDiag = diagnostics || telState?.diagnostics || null;
 
     const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
-    const model = runtimeCfg.model || '';
-    const apiType = runtimeCfg.apiType || 'openai';
-
     const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
 
-    const sPrompt = (stats && typeof stats === 'object') ? (stats.promptTokens || 0) : (lastKnownStats?.promptTokens || 0);
-    const sCached = (stats && typeof stats === 'object') ? (stats.cachedTokens || 0) : (lastKnownStats?.cachedTokens || 0);
-    const sCacheCreate = (stats && typeof stats === 'object') ? (stats.cacheCreationTokens || 0) : (lastKnownStats?.cacheCreationTokens || 0);
-    const sCompletion = (stats && typeof stats === 'object') ? (stats.completionTokens || stats.tokens || 0) : (lastKnownStats?.completionTokens || 0);
+    const vm = UITel.computeTelemetryViewModel({
+      stats: effectiveStats,
+      diagnostics: effectiveDiag,
+      config: runtimeCfg,
+      chatHistory: chatHistory,
+      contextManager: CM
+    });
 
-    let diag = diagnostics || lastKnownDiagnostics;
-    if (!diag && CM && typeof CM.getContextDiagnostics === 'function') {
-      diag = CM.getContextDiagnostics(chatHistory, {
-        model,
-        providerType: apiType,
-        usedTokens: sPrompt > 0 ? sPrompt : null
-      });
-    }
+    UITel.renderTelemetry(elements, vm, options, t);
+  }
 
-    const totalLimit = diag?.totalLimit || (CM ? CM.getModelContextLimit(model, apiType) : 128000);
-    const usedTokens = diag?.usedTokens ?? sPrompt;
-    const percentUsed = diag?.percentUsed ?? (totalLimit > 0 ? Number(((usedTokens / totalLimit) * 100).toFixed(1)) : 0);
-    const remainingTokens = Math.max(0, totalLimit - usedTokens);
-
-    // Formateo compacto
-    const isEst = diag?.isEstimated ?? (sPrompt <= 0);
-    const prefix = (isEst && usedTokens > 0) ? '~' : '';
-    const usedFormatted = prefix + formatTokenCount(usedTokens);
-    const limitFormatted = formatTokenCount(totalLimit);
-
-    if (elements.connectionTokensText) {
-      elements.connectionTokensText.textContent = `${usedFormatted} / ${limitFormatted}`;
+  function resetTelemetryDisplay() {
+    const UITel = getUITelemetry();
+    if (State.set) {
+      State.set('telemetry', { stats: null, diagnostics: null, lastTurnStats: null });
     }
-
-    if (elements.contextHubPct) {
-      elements.contextHubPct.textContent = `${percentUsed}%`;
+    if (UITel && elements.connectionTokensBadge) {
+      const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
+      const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
+      UITel.resetTelemetry(elements, runtimeCfg, chatHistory, CM, t);
     }
-
-    // Semáforo de salud visual
-    elements.connectionTokensBadge.classList.remove('status-warning', 'status-critical');
-    if (elements.contextProgressBar) {
-      elements.contextProgressBar.classList.remove('warning', 'critical');
-    }
-    if (percentUsed >= 85) {
-      elements.connectionTokensBadge.classList.add('status-critical');
-      if (elements.contextProgressBar) elements.contextProgressBar.classList.add('critical');
-    } else if (percentUsed >= 60) {
-      elements.connectionTokensBadge.classList.add('status-warning');
-      if (elements.contextProgressBar) elements.contextProgressBar.classList.add('warning');
-    }
-
-    // Caché pill en badge
-    if (elements.contextHubCachePill) {
-      if (sCached > 0) {
-        const cacheVal = elements.contextHubCachePill.querySelector('#context-hub-cache-val');
-        if (cacheVal) {
-          cacheVal.textContent = formatTokenCount(sCached);
-        } else {
-          elements.contextHubCachePill.innerHTML = `<svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span id="context-hub-cache-val">${formatTokenCount(sCached)}</span>`;
-        }
-        elements.contextHubCachePill.style.display = 'inline-flex';
-      } else {
-        elements.contextHubCachePill.style.display = 'none';
-      }
-    }
-
-    // Barra de progreso del popover
-    if (elements.contextProgressBar) {
-      elements.contextProgressBar.style.width = `${Math.min(100, Math.max(0, percentUsed))}%`;
-    }
-
-    // Métricas del Popover
-    if (elements.contextMetricUsedVal) {
-      elements.contextMetricUsedVal.textContent = `${usedTokens.toLocaleString()} tok` + (isEst && usedTokens > 0 ? ' (est.)' : '');
-    }
-    if (elements.contextMetricLimitVal) {
-      elements.contextMetricLimitVal.textContent = `${totalLimit.toLocaleString()} tok`;
-    }
-    if (elements.contextMetricFreeVal) {
-      elements.contextMetricFreeVal.textContent = `${remainingTokens.toLocaleString()} tok`;
-    }
-    if (elements.contextMetricStatusVal) {
-      elements.contextMetricStatusVal.className = 'context-metric-val';
-      if (percentUsed >= 85) {
-        elements.contextMetricStatusVal.classList.add('status-critical');
-        elements.contextMetricStatusVal.textContent = t('context_status_critical') || 'Crítico';
-      } else if (percentUsed >= 60) {
-        elements.contextMetricStatusVal.classList.add('status-warning');
-        elements.contextMetricStatusVal.textContent = t('context_status_warning') || 'Elevado';
-      } else {
-        elements.contextMetricStatusVal.classList.add('status-ok');
-        elements.contextMetricStatusVal.textContent = t('context_status_ok') || 'Óptimo';
-      }
-    }
-
-    // Caché Popover
-    if (elements.contextMetricCachedReadVal) {
-      elements.contextMetricCachedReadVal.textContent = `${sCached.toLocaleString()} tok`;
-    }
-    if (elements.contextMetricCachedWriteVal) {
-      elements.contextMetricCachedWriteVal.textContent = `${sCacheCreate.toLocaleString()} tok`;
-    }
-
-    // Turno Popover
-    if (elements.contextMetricTurnPromptVal) {
-      elements.contextMetricTurnPromptVal.textContent = sPrompt > 0 ? `${sPrompt.toLocaleString()} tok` : '-';
-    }
-    if (elements.contextMetricTurnCompletionVal) {
-      elements.contextMetricTurnCompletionVal.textContent = sCompletion > 0 ? `${sCompletion.toLocaleString()} tok` : '-';
-    }
-    const currentSpeed = (stats && stats.tokensPerSec) || lastKnownStats?.tokensPerSec;
-    if (elements.contextMetricTurnSpeedVal) {
-      elements.contextMetricTurnSpeedVal.textContent = currentSpeed ? `${currentSpeed} tok/s` : '-';
-    }
-    const currentTtft = (stats && stats.ttftSec) || lastKnownStats?.ttftSec;
-    if (elements.contextMetricTurnLatencyVal) {
-      elements.contextMetricTurnLatencyVal.textContent = currentTtft ? `${currentTtft}s` : '-';
-    }
-
-    const titleText = t('context_hub_btn_title') || `Ventana de contexto: ${usedTokens.toLocaleString()} de ${totalLimit.toLocaleString()} tokens (${percentUsed}%)`;
-    elements.connectionTokensBadge.setAttribute('title', titleText);
-    elements.connectionTokensBadge.style.display = 'inline-flex';
   }
 
   // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
@@ -1184,7 +1089,7 @@
 
     if (loopResult && loopResult.stats) {
       updateStatsDisplay(loopResult.stats);
-      updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics);
+      updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
     }
 
     actions.style.display = 'inline-flex';
@@ -1599,6 +1504,7 @@
 
     Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', targetConv.createdAt);
 
+    resetTelemetryDisplay();
     renderSessionMessages(chatHistory);
     renderSidebarChats();
 
@@ -1613,6 +1519,7 @@
     currentSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
     chatHistory = createInitialChatHistory();
 
+    resetTelemetryDisplay();
     renderSessionMessages(chatHistory);
     renderSidebarChats();
 
@@ -1742,6 +1649,7 @@
         elements.messagesList.appendChild(elements.welcomeBanner);
         elements.welcomeBanner.style.display = 'block';
       }
+      resetTelemetryDisplay();
       return;
     }
 
@@ -1865,7 +1773,7 @@
     }
 
     scrollToBottom();
-    updateConnectionTokensBadge(null);
+    updateConnectionTokensBadge(null, null, { forcePopover: true });
   }
 
   // ==========================================================================
@@ -2512,42 +2420,12 @@
       }
     });
 
-    if (elements.connectionTokensBadge) {
-      elements.connectionTokensBadge.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const pop = elements.contextHubPopover;
-        if (!pop) return;
-        const isHidden = pop.style.display === 'none' || !pop.style.display;
-        pop.style.display = isHidden ? 'flex' : 'none';
-        elements.connectionTokensBadge.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
-        elements.connectionTokensBadge.classList.toggle('active', isHidden);
+    const UITel = getUITelemetry();
+    if (UITel && UITel.bindPopoverEvents) {
+      UITel.bindPopoverEvents(elements, () => {
+        updateConnectionTokensBadge(null, null, { forcePopover: true });
       });
     }
-
-    if (elements.btnCloseContextPopover) {
-      elements.btnCloseContextPopover.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (elements.contextHubPopover) elements.contextHubPopover.style.display = 'none';
-        if (elements.connectionTokensBadge) {
-          elements.connectionTokensBadge.setAttribute('aria-expanded', 'false');
-          elements.connectionTokensBadge.classList.remove('active');
-        }
-      });
-    }
-
-    document.addEventListener('click', function (e) {
-      if (elements.contextHubPopover && elements.contextHubPopover.style.display !== 'none') {
-        if (!elements.contextHubPopover.contains(e.target) && !elements.connectionTokensBadge.contains(e.target)) {
-          elements.contextHubPopover.style.display = 'none';
-          if (elements.connectionTokensBadge) {
-            elements.connectionTokensBadge.setAttribute('aria-expanded', 'false');
-            elements.connectionTokensBadge.classList.remove('active');
-          }
-        }
-      }
-    });
   }
 
   function init() {
