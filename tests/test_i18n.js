@@ -41,4 +41,45 @@ test('I18n - Título de la aplicación solo contiene ZeroChat y la versión', ()
 
   I18n.setLanguage('en', false);
   assert.match(I18n.t('app_title'), /^ZeroChat v[^\s-]+$/);
+  I18n.setLanguage('es', false);
 });
+
+test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
+  let callCount = 0;
+  let receivedLang = null;
+
+  const unsubscribe = I18n.onChange(lang => {
+    callCount++;
+    receivedLang = lang;
+  });
+
+  try {
+    I18n.setLanguage('en', false);
+    assert.equal(callCount, 1);
+    assert.equal(receivedLang, 'en');
+    assert.equal(I18n.getLanguage(), 'en');
+
+    // Comprobar formateo en inglés
+    const enText = I18n.t('rag_branch_summary_format', { count: 5, plural: 's', bytes: '12 MB' });
+    assert.equal(enText, '5 documents of 12 MB');
+
+    I18n.setLanguage('es', false);
+    assert.equal(callCount, 2);
+    assert.equal(receivedLang, 'es');
+    assert.equal(I18n.getLanguage(), 'es');
+
+    // Comprobar formateo en español
+    const esText = I18n.t('rag_branch_summary_format', { count: 5, plural: 's', bytes: '12 MB' });
+    assert.equal(esText, '5 documentos de 12 MB');
+  } finally {
+    unsubscribe();
+  }
+
+  // Tras cancelar suscripción, no debe invocarse
+  I18n.setLanguage('en', false);
+  assert.equal(callCount, 2, 'El listener desuscrito no debe ejecutarse');
+
+  // Restaurar idioma por defecto
+  I18n.setLanguage('es', false);
+});
+

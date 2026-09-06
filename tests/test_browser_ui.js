@@ -1243,7 +1243,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
   }
 });
 
-test('Fase 6: Verificación global de iconos SVG, accesibilidad y auditoría residual', async (t) => {
+test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditoría residual', async (t) => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 

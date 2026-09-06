@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 
 // Cargar módulos
 const AgentCore = require('../js/agent-core.js');
-const ToolCards = require('../js/tool-cards.js');
 
 test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente', async () => {
   const toolCall = {
@@ -103,12 +102,6 @@ test('ToolDispatcher - dispatchToolCall maneja herramienta inexistente de forma 
   const res = await AgentCore.dispatchToolCall(toolCall);
   assert.equal(res.success, false);
   assert.ok(res.error.includes('no encontrada'));
-});
-
-test('ToolCards - updateLiveToolCard actualiza elementos del DOM sin lanzar errores', () => {
-  assert.equal(typeof ToolCards.updateLiveToolCard, 'function');
-  assert.equal(typeof ToolCards.createLiveToolCard, 'function');
-  assert.equal(typeof ToolCards.renderHistoricalToolCard, 'function');
 });
 
 test('ToolDispatcher - getDefinitions excluye todas las herramientas RAG si RAG no está activo', () => {

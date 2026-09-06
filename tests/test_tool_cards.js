@@ -28,3 +28,10 @@ test('ChatToolCards - resuelve la vista declarada por la tool registrada', () =>
     else global.window = previousWindow;
   }
 });
+
+test('ChatToolCards - Métodos de renderizado y actualización expuestos', () => {
+  assert.equal(typeof ChatToolCards.updateLiveToolCard, 'function');
+  assert.equal(typeof ChatToolCards.createLiveToolCard, 'function');
+  assert.equal(typeof ChatToolCards.renderHistoricalToolCard, 'function');
+});
+
