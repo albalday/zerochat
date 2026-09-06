@@ -98,10 +98,82 @@
     };
   }
 
+  function getExportModalHTML() {
+    return `<div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="modal-icon">
+            <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+          </span>
+          <h3 data-i18n="export_modal_title">Exportar Conversación</h3>
+        </div>
+        <button type="button" id="btn-close-export" class="btn-close-modal" data-i18n-title="btn_close_export_title" title="Cerrar modal">
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+        </button>
+      </div>
+
+      <div class="modal-body-scrollable">
+        <div class="export-options-grid">
+          <button type="button" id="btn-export-markdown" class="export-card-btn">
+            <span class="export-card-icon">
+              <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-file-text"></use></svg>
+            </span>
+            <div class="export-card-info">
+              <strong data-i18n="export_md_title">Descargar Markdown (.md)</strong>
+              <span data-i18n="export_md_desc">Formato limpio con formato, código y tablas legible en cualquier visor.</span>
+            </div>
+          </button>
+
+          <button type="button" id="btn-export-json" class="export-card-btn">
+            <span class="export-card-icon">
+              <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-code"></use></svg>
+            </span>
+            <div class="export-card-info">
+              <strong data-i18n="export_json_title">Descargar JSON de Sesión (.json)</strong>
+              <span data-i18n="export_json_desc">Historial estructurado completo con herramientas, imágenes y metadatos para restaurar.</span>
+            </div>
+          </button>
+
+          <button type="button" id="btn-export-print" class="export-card-btn">
+            <span class="export-card-icon">
+              <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-printer"></use></svg>
+            </span>
+            <div class="export-card-info">
+              <strong data-i18n="export_pdf_title">Imprimir / Guardar como PDF</strong>
+              <span data-i18n="export_pdf_desc">Genera un documento PDF limpio maquetado para lectura e informes.</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="btn-cancel-export" class="btn-secondary" data-i18n="btn_close">Cerrar</button>
+      </div>
+    </div>`;
+  }
+
+  function ensureDialogMarkup() {
+    if (typeof document === 'undefined') return;
+    const dialog = document.getElementById('export-modal');
+    if (dialog && !dialog.firstElementChild) {
+      dialog.innerHTML = getExportModalHTML();
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
+    } else {
+      ensureDialogMarkup();
+    }
+  }
+
   return {
     downloadFile,
     buildMarkdownExport,
     buildJsonExport,
-    parseImportedJson
+    parseImportedJson,
+    ensureDialogMarkup,
+    getExportModalHTML
   };
 }));

@@ -190,6 +190,7 @@
   }
 
   function initMcpUI(elements, options = {}) {
+    ensureDialogMarkup();
     if (!elements) return null;
     const State = getState();
     const MCP = getMCP();
@@ -243,6 +244,81 @@
     };
   }
 
+  function getMcpSetupDialogHTML() {
+    return `<div class="modal-header">
+      <div class="modal-title">
+        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+        <h3 data-i18n="mcp_setup_modal_title">Configuración de MCP (mcp-proxy)</h3>
+      </div>
+      <button id="btn-close-mcp-setup" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+      </button>
+    </div>
+    <div class="modal-body" style="padding: 1.25rem;">
+      <!-- Configuración de Host y Puerto (Rango 63xx) -->
+      <div class="mcp-config-card">
+        <div class="mcp-fields-grid">
+          <div class="form-field">
+            <label for="mcp-host-input" data-i18n="mcp_field_host">Host del proxy</label>
+            <input type="text" id="mcp-host-input" class="form-input" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-field">
+            <label for="mcp-port-input" data-i18n="mcp_field_port">Puerto (Rango 63xx recomendado)</label>
+            <input type="number" id="mcp-port-input" class="form-input" value="6388" min="1024" max="65535" placeholder="6388">
+          </div>
+        </div>
+        <div class="mcp-endpoint-row">
+          <span class="label-hint">Endpoint:</span>
+          <code id="mcp-endpoint-preview" class="mcp-endpoint-preview">http://127.0.0.1:6388/sse</code>
+        </div>
+      </div>
+
+      <!-- Instrucciones de Descarga, Actualización y Arranque (Ayuda) -->
+      <div class="mcp-instructions-card">
+        <div class="mcp-instructions-header">
+          <span class="mcp-instructions-icon">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
+          </span>
+          <div>
+            <strong data-i18n="mcp_instructions_title">Instrucciones de Instalación y Arranque</strong>
+            <p class="label-hint" style="margin-top: 0.15rem;" data-i18n="mcp_instructions_desc">
+              Ejecuta el siguiente comando en tu terminal para instalar/actualizar y arrancar mcp-proxy en un entorno Python privado (~/.zerochat/mcp-env):
+            </p>
+          </div>
+        </div>
+
+        <div class="mcp-command-wrapper">
+          <pre class="mcp-command-box"><code id="mcp-terminal-command">mkdir -p ~/.zerochat && python3 -m venv ~/.zerochat/mcp-env && ~/.zerochat/mcp-env/bin/pip install -U "mcp<2" mcp-proxy && ([ -f scripts/mcp_server.py ] && cp scripts/mcp_server.py ~/.zerochat/server.py || true) && ~/.zerochat/mcp-env/bin/mcp-proxy --port 6388 --allow-origin="*" -- ~/.zerochat/mcp-env/bin/python3 ~/.zerochat/server.py</code></pre>
+          <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
+            <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="footer-actions-right" style="margin-left: auto;">
+        <button type="button" id="btn-close-mcp-setup-footer" class="btn-primary" data-i18n="btn_close">Cerrar</button>
+      </div>
+    </div>`;
+  }
+
+  function ensureDialogMarkup() {
+    if (typeof document === 'undefined') return;
+    const dialog = document.getElementById('mcp-setup-dialog');
+    if (dialog && !dialog.firstElementChild) {
+      dialog.innerHTML = getMcpSetupDialogHTML();
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
+    } else {
+      ensureDialogMarkup();
+    }
+  }
+
   return {
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -253,7 +329,9 @@
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,
-    initMcpUI
+    initMcpUI,
+    ensureDialogMarkup,
+    getMcpSetupDialogHTML
   };
 });
 

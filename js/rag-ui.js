@@ -646,6 +646,7 @@
     } else {
       activeBranchIds = new Set();
     }
+    ensureDialogMarkup();
     const modal = document.getElementById('rag-modal');
     document.getElementById('btn-open-rag')?.addEventListener('click', async () => {
       await refresh();
@@ -715,10 +716,154 @@
     }
   }
 
+  function getRagModalHTML() {
+    return `<div class="modal-header">
+      <div class="modal-title">
+        <span class="rag-header-icon">
+          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
+        </span>
+        <h3 data-i18n="rag_modal_title">Conocimiento local</h3>
+      </div>
+      <button type="button" id="btn-close-rag" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+      </button>
+    </div>
+    <div class="modal-tabs-nav rag-tabs-nav" id="rag-modal-tabs-nav">
+      <button type="button" class="modal-tab-btn active" data-rag-tab="tab-rag-active" data-i18n="rag_tab_active">Activar</button>
+      <button type="button" class="modal-tab-btn" data-rag-tab="tab-rag-manage" data-i18n="rag_tab_documents">Documentos</button>
+      <button type="button" class="modal-tab-btn" data-rag-tab="tab-rag-help" data-i18n="rag_tab_help">Ayuda</button>
+    </div>
+    <div class="modal-body rag-modal-body-tabbed">
+      <div id="tab-rag-active" class="modal-tab-pane active">
+        <div class="setting-toggle-card rag-master-toggle-card">
+          <div class="toggle-card-info">
+            <div class="toggle-card-title"><span id="rag-active-status-title" data-i18n="rag_status_disabled">Conocimiento desactivado</span></div>
+            <p class="toggle-card-desc" id="rag-active-status-desc" data-i18n="rag_status_disabled_desc">Selecciona una o varias ramas para que el agente pueda buscar en tus documentos.</p>
+          </div>
+          <div class="rag-master-toggle-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" id="btn-rag-activate-all" class="btn-secondary" data-i18n="rag_activate_all">Activar todas</button>
+            <button type="button" id="btn-rag-toggle-master" class="btn-secondary" data-i18n="rag_disable_all">Desactivar todas</button>
+          </div>
+        </div>
+        <div class="form-field">
+          <label><strong data-i18n="rag_available_branches">Ramas disponibles</strong><span class="label-hint" data-i18n="rag_available_branches_hint">Puedes activar una o varias ramas simultáneamente para búsquedas cruzadas.</span></label>
+          <div id="rag-active-branch-list" class="rag-active-branch-list"></div>
+        </div>
+        <div class="rag-active-tip-card">
+          <span class="rag-active-tip-icon">💡</span>
+          <div class="rag-active-tip-content">
+            <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
+            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse.</span>
+          </div>
+        </div>
+      </div>
+      <div id="tab-rag-manage" class="modal-tab-pane">
+        <div class="rag-manage-toolbar">
+          <div class="form-field rag-manage-branch-field">
+            <label for="rag-manage-branch-select"><strong data-i18n="rag_branch_label">Rama:</strong></label>
+            <select id="rag-manage-branch-select" class="combobox-select-helper"></select>
+          </div>
+          <div class="rag-manage-toolbar-actions">
+            <button type="button" id="btn-rag-new-branch" class="btn-primary">
+              <span id="rag-new-branch-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg></span>
+              <span id="rag-new-branch-text" data-i18n="rag_new_branch">Nueva rama</span>
+            </button>
+            <button type="button" id="btn-rag-edit-branch" class="btn-secondary" data-i18n-title="rag_edit_branch">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>
+              <span data-i18n="rag_edit_branch">Editar</span>
+            </button>
+            <button type="button" id="btn-rag-delete-branch" class="btn-secondary btn-danger-hover" data-i18n-title="rag_delete_branch">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
+              <span data-i18n="rag_delete_branch">Eliminar</span>
+            </button>
+            <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+              <span data-i18n="rag_export_branch">Respaldo</span>
+            </button>
+            <button type="button" id="btn-rag-import-branch" class="btn-secondary" data-i18n-title="rag_import_branch">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
+              <span data-i18n="rag_import_branch">Restaurar</span>
+            </button>
+            <input id="rag-import-input" type="file" accept="application/json,.json,.gz,.json.gz,application/gzip" hidden>
+          </div>
+        </div>
+        <div class="rag-branch-details-card" id="rag-branch-details-card">
+          <div class="rag-branch-fields-grid">
+            <div class="form-field" style="margin-bottom: 0;">
+              <label for="rag-branch-name-input"><strong data-i18n="rag_branch_name">Nombre de la rama:</strong></label>
+              <input type="text" id="rag-branch-name-input" data-i18n-placeholder="rag_branch_name_placeholder" placeholder="Nombre de la rama (ej: Manuales)" autocomplete="off">
+            </div>
+            <div class="form-field" style="margin-bottom: 0;">
+              <label for="rag-branch-lang-select"><strong data-i18n="rag_branch_lang">Idioma de la documentación:</strong></label>
+              <select id="rag-branch-lang-select" class="combobox-select-helper">
+                <option value="spanish" selected data-i18n="rag_lang_spanish">Español</option>
+                <option value="english" data-i18n="rag_lang_english">Inglés</option>
+                <option value="french" data-i18n="rag_lang_french">Francés</option>
+                <option value="german" data-i18n="rag_lang_german">Alemán</option>
+                <option value="italian" data-i18n="rag_lang_italian">Italiano</option>
+                <option value="portuguese" data-i18n="rag_lang_portuguese">Portugués</option>
+              </select>
+            </div>
+            <div class="form-field" style="margin-bottom: 0;">
+              <label for="rag-branch-desc-input"><strong data-i18n="rag_branch_desc">Descripción (opcional):</strong></label>
+              <input type="text" id="rag-branch-desc-input" data-i18n-placeholder="rag_branch_desc_placeholder" placeholder="Descripción sobre el contenido de esta rama" autocomplete="off">
+            </div>
+          </div>
+          <div id="rag-branch-feedback" class="server-query-status" style="display: none; margin-top: 0.5rem;"></div>
+        </div>
+        <div id="rag-manage-workspace" class="rag-manage-workspace"></div>
+      </div>
+      <div id="tab-rag-help" class="modal-tab-pane">
+        <div class="rag-help-container">
+          <div class="setting-card">
+            <div class="setting-card-title"><strong>IndexedDB + Orama</strong></div>
+            <p class="setting-card-desc" data-i18n="rag_help_storage_desc">Los archivos, metadatos y fragmentos se guardan en IndexedDB. Orama construye en memoria un índice de búsqueda local para la rama activa.</p>
+          </div>
+          <div class="setting-card">
+            <div class="setting-card-title"><strong data-i18n="rag_help_private_title">Sin permisos ni costes de ingesta</strong></div>
+            <p class="setting-card-desc" data-i18n="rag_help_private_desc">Seleccionar un archivo solo permite leer esa carga. No se solicitan permisos sobre carpetas y no se llama a ningún LLM para resumir o indexar.</p>
+          </div>
+          <div class="setting-card">
+            <div class="setting-card-title"><strong data-i18n="rag_help_llm_title">Configurar el modelo para responder sobre documentos</strong></div>
+            <p class="setting-card-desc" data-i18n="rag_help_llm_desc">Para preguntas factuales sobre documentos, usa una temperatura baja (0 a 0,2): reduce variaciones y hace más probable que el modelo se atenga a los fragmentos recuperados. Una temperatura de 0,7 o superior conviene para redacción creativa, no para extraer cifras o hechos. El modelo también debe admitir llamadas a herramientas; si no las admite, no podrá consultar esta base documental.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-info">
+        <span id="rag-branch-summary-footer" class="rag-branch-summary-footer" style="display: none;"></span>
+        <span id="rag-footer-separator" class="rag-footer-separator" style="display: none;">·</span>
+        <div id="rag-storage-quota-info" class="rag-storage-quota-info">
+          <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-database"></use></svg>
+          <span>IndexedDB</span>
+        </div>
+      </div>
+      <div class="modal-footer-actions"><button type="button" id="btn-close-rag-footer" class="btn-secondary" data-i18n="btn_close">Cerrar</button></div>
+    </div>`;
+  }
+
+  function ensureDialogMarkup() {
+    if (typeof document === 'undefined') return;
+    const dialog = document.getElementById('rag-modal');
+    if (dialog && !dialog.firstElementChild) {
+      dialog.innerHTML = getRagModalHTML();
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
+    } else {
+      ensureDialogMarkup();
+    }
+  }
+
   return {
     initRagUI, refresh, renderActiveTab, renderManageTab,
     getActiveBranchId, setActiveBranchId,
     getActiveBranchIds, setActiveBranchIds, toggleBranchActive, isBranchActive,
-    updateToolbarStatus, exportBranch, importBranchFile, ingestionResultMarkup
+    updateToolbarStatus, exportBranch, importBranchFile, ingestionResultMarkup,
+    ensureDialogMarkup, getRagModalHTML
   };
 });

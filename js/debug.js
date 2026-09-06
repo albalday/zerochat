@@ -243,6 +243,7 @@
   }
 
   function openInterceptorModal({ endpoint, headers, payload, onSyncDebugState }) {
+    ensureDialogMarkup();
     return new Promise((resolve) => {
       if (!dom.debugInterceptorDialog) {
         return resolve({ cancel: false, modifiedPayload: null });
@@ -367,6 +368,73 @@
     });
   }
 
+  function getDebugInterceptorDialogHTML() {
+    return `<div class="modal-header">
+      <div class="modal-title">
+        <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
+        <h3 data-i18n="debug_modal_title">Debug de Mensaje Saliente</h3>
+      </div>
+      <div class="modal-header-actions">
+        <button type="button" id="btn-maximize-debug-modal" class="modal-btn-action" data-i18n-title="btn_maximize_title" title="Maximizar / Restaurar">
+          <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shuffle"></use></svg>
+        </button>
+        <button type="button" id="btn-close-debug-modal" class="modal-btn-close" title="Cancelar envío">
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+        </button>
+      </div>
+    </div>
+    
+    <div class="debug-modal-body">
+      <div class="debug-modal-info">
+        <p data-i18n="debug_modal_desc">
+          Revisa o modifica el payload JSON antes de enviarlo al servidor. Puedes editar cualquier mensaje, parámetros o herramientas.
+        </p>
+      </div>
+
+      <div class="debug-editor-wrapper">
+        <div class="debug-editor-header">
+          <span id="debug-modal-endpoint-badge" class="debug-endpoint-badge">POST /v1/chat/completions</span>
+          <div class="debug-editor-actions">
+            <button type="button" id="btn-format-debug-json" class="btn-tool-mini" title="Formatear JSON">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-sparkles"></use></svg>
+              <span data-i18n="btn_format_json">Formatear</span>
+            </button>
+            <button type="button" id="btn-copy-debug-json" class="btn-tool-mini" title="Copiar todo al portapapeles">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
+              <span data-i18n="btn_copy_all">Copiar todo</span>
+            </button>
+          </div>
+        </div>
+        <textarea id="txt-debug-payload" class="debug-payload-textarea" spellcheck="false" wrap="off"></textarea>
+        <div id="debug-json-error" class="debug-json-error" style="display: none;"></div>
+      </div>
+
+      <div class="debug-modal-footer">
+        <div class="debug-modal-footer-actions">
+          <button type="button" id="btn-debug-cancel" class="btn-secondary" data-i18n="btn_cancel">Cancelar</button>
+          <button type="button" id="btn-debug-send-disable" class="btn-secondary-action" data-i18n="btn_send_and_stop_debug">Enviar y parar debug</button>
+          <button type="button" id="btn-debug-send" class="btn-primary" data-i18n="btn_send">Enviar</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function ensureDialogMarkup() {
+    if (typeof document === 'undefined') return;
+    const dialog = document.getElementById('debug-interceptor-dialog');
+    if (dialog && !dialog.firstElementChild) {
+      dialog.innerHTML = getDebugInterceptorDialogHTML();
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
+    } else {
+      ensureDialogMarkup();
+    }
+  }
+
   return {
     setElements,
     setRawLogsEnabled,
@@ -379,6 +447,8 @@
     copyLogs,
     addLog,
     filterLogs,
-    openInterceptorModal
+    openInterceptorModal,
+    ensureDialogMarkup,
+    getDebugInterceptorDialogHTML
   };
 }));

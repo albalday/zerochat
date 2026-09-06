@@ -2462,7 +2462,16 @@
     }
   }
 
+  function ensureModalsMarkup() {
+    if (UISettings && typeof UISettings.ensureDialogMarkup === 'function') UISettings.ensureDialogMarkup();
+    if (window.ChatUIMcp && typeof window.ChatUIMcp.ensureDialogMarkup === 'function') window.ChatUIMcp.ensureDialogMarkup();
+    if (window.ChatRagUI && typeof window.ChatRagUI.ensureDialogMarkup === 'function') window.ChatRagUI.ensureDialogMarkup();
+    if (window.ChatExport && typeof window.ChatExport.ensureDialogMarkup === 'function') window.ChatExport.ensureDialogMarkup();
+    if (Debug && typeof Debug.ensureDialogMarkup === 'function') Debug.ensureDialogMarkup();
+  }
+
   function init() {
+    ensureModalsMarkup();
     cacheDomElements();
     if (Debug.setElements) Debug.setElements(elements);
     if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(appConfig.enableRawLogs);
