@@ -328,5 +328,5 @@ test('ChatAPI.getProviderCapabilities - Consulta a través de ChatAPI', () => {
 
   const geminiCaps = ChatAPI.getProviderCapabilities('https://generativelanguage.googleapis.com/v1beta/openai');
   assert.equal(geminiCaps.reasoning, false);
-  assert.equal(geminiCaps.promptCaching, false);
+  assert.equal(geminiCaps.promptCaching, true);
 });

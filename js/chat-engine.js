@@ -311,20 +311,8 @@
       }
     });
 
-    let activePrompt = getConfiguredSystemPrompt(appConfig);
-
-    // Inyección de la instrucción compacta de conocimiento local.
-    const ragContext = options.currentRagSystemContext || appConfig.currentRagSystemContext || '';
-    if (ragContext) {
-      activePrompt = activePrompt ? `${ragContext}\n\n${activePrompt}` : ragContext;
-    }
-
-    // Fecha inicial persistida: no cambia al continuar o reabrir la conversación.
-    const lang = appConfig.language || 'es';
-    if (appConfig.sendDateTime !== false) {
-      const dateAnchor = ensureConversationDate(chatHistory, lang);
-      activePrompt = activePrompt ? (dateAnchor + '\n\n' + activePrompt) : dateAnchor;
-    }
+    // 1. Instrucciones base del sistema (máxima estabilidad de prefijo)
+    const baseSystemPrompt = getConfiguredSystemPrompt(appConfig);
 
     const isToolsEnabled = options.enableTools !== undefined
       ? Boolean(options.enableTools)
@@ -338,7 +326,8 @@
       isNativeToolsSupported = caps ? (caps.tools !== false) : true;
     }
 
-    // Instrucción de flujo para herramientas
+    // 2. Instrucción de flujo para herramientas (estable)
+    const lang = appConfig.language || 'es';
     let toolsGuide = '';
     if (isToolsEnabled) {
       if (!isNativeToolsSupported || options.forceSystemPromptGuide) {
@@ -350,7 +339,7 @@
       }
     }
 
-    // Directiva proactiva de Base de Conocimiento activa
+    // 3. Directiva proactiva de Base de Conocimiento activa (estable por rama)
     const activeBranchIds = Array.isArray(options.activeRagBranchIds)
       ? options.activeRagBranchIds
       : (options.activeRagBranchId ? [options.activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
@@ -363,9 +352,20 @@
       toolsGuide = toolsGuide ? `${toolsGuide}\n\n${ragInstruction}` : ragInstruction;
     }
 
-    let fullSystemPrompt = activePrompt;
-    if (toolsGuide) {
-      fullSystemPrompt = fullSystemPrompt ? (fullSystemPrompt + '\n\n' + toolsGuide) : toolsGuide;
+    // Ensamblar bloque estable
+    let fullSystemPrompt = [baseSystemPrompt, toolsGuide].filter(Boolean).join('\n\n');
+
+    // 4. Inyección de contexto dinámico al final para preservar el prefijo en caché:
+    // a) Contexto RAG recuperado para esta consulta
+    const ragContext = options.currentRagSystemContext || appConfig.currentRagSystemContext || '';
+    if (ragContext) {
+      fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${ragContext}` : ragContext;
+    }
+
+    // b) Fecha inicial persistida de la conversación
+    if (appConfig.sendDateTime !== false) {
+      const dateAnchor = ensureConversationDate(chatHistory, lang);
+      fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${dateAnchor}` : dateAnchor;
     }
 
     if (messages.length > 0 && messages[0].role === 'system') {

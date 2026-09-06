@@ -203,6 +203,9 @@
     if (elements.settingSendDateTime && profileData.sendDateTime !== undefined) {
       elements.settingSendDateTime.checked = profileData.sendDateTime !== false;
     }
+    if (elements.settingEnableContextCache && profileData.enableContextCache !== undefined) {
+      elements.settingEnableContextCache.checked = profileData.enableContextCache !== false;
+    }
   }
 
   function gatherCurrentFormConfig(elements, appConfig) {
@@ -231,6 +234,7 @@
       enableRawLogs: elements?.settingEnableRawLogs ? elements.settingEnableRawLogs.checked : Boolean(appConfig?.enableRawLogs),
       enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
       sendDateTime: elements?.settingSendDateTime ? elements.settingSendDateTime.checked : true,
+      enableContextCache: elements?.settingEnableContextCache ? elements.settingEnableContextCache.checked : (appConfig?.enableContextCache !== false),
       activeRagBranchId: appConfig?.activeRagBranchId || '',
       activeRagBranchIds: Array.isArray(appConfig?.activeRagBranchIds) ? [...appConfig.activeRagBranchIds] : []
     };

@@ -22,7 +22,7 @@
     maxAgentTurns: 15,
     modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
-    enableRawLogs: false, sendDateTime: true,
+    enableRawLogs: false, sendDateTime: true, enableContextCache: true,
     theme: 'light', language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: []
   });
@@ -59,6 +59,7 @@
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.sendDateTime = next.sendDateTime !== false;
+    next.enableContextCache = next.enableContextCache !== false;
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;

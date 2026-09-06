@@ -16,7 +16,7 @@
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'apiKey', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'maxAgentTurns', 'modelReasoningConfig', 'enabledTools',
-    'enableRawLogs', 'sendDateTime'
+    'enableRawLogs', 'sendDateTime', 'enableContextCache'
   ]);
 
   function clone(value) {
@@ -31,12 +31,12 @@
     apiUrl: '', apiType: 'openai', apiKey: '', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
-    enableRawLogs: false, sendDateTime: true
+    enableRawLogs: false, sendDateTime: true, enableContextCache: true
   });
 
   const DEFAULT_PROFILES = Object.freeze([
-    { id: 'profile:local', name: 'Local chat', settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: 'google/gemma-4-26b-a4b-qat', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, sendDateTime: true } },
-    { id: 'profile:remote', name: 'Remoto chat', settings: { apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiType: 'gemini', apiKey: '', model: 'gemini-3.8-flash', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, sendDateTime: true } }
+    { id: 'profile:local', name: 'Local chat', settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: 'google/gemma-4-26b-a4b-qat', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, sendDateTime: true, enableContextCache: true } },
+    { id: 'profile:remote', name: 'Remoto chat', settings: { apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiType: 'gemini', apiKey: '', model: 'gemini-3.8-flash', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, sendDateTime: true, enableContextCache: true } }
   ]);
 
   function normalizeSettings(source = {}) {

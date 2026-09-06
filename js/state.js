@@ -63,6 +63,7 @@
         enableRawLogs: false,
         enableDebugMessages: false,
         sendDateTime: true,
+        enableContextCache: true,
         activeRagBranchId: '',
         activeRagBranchIds: [],
         modelReasoningConfig: null

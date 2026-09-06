@@ -771,19 +771,23 @@
                 });
               }
 
-              // Usage logging si viene en el chunk
+              // Usage logging si viene en el chunk (OpenAI prompt_tokens / Anthropic input_tokens)
               const streamUsage = chunkData.usage || parsed.usage;
               if (streamUsage) {
-                if (streamUsage.prompt_tokens) serverPromptTokens = streamUsage.prompt_tokens;
-                if (streamUsage.completion_tokens) serverCompletionTokens = streamUsage.completion_tokens;
-                if (streamUsage.total_tokens) serverTotalTokens = streamUsage.total_tokens;
+                const pTokens = streamUsage.prompt_tokens ?? streamUsage.input_tokens ?? 0;
+                const cTokens = streamUsage.completion_tokens ?? streamUsage.output_tokens ?? 0;
+                const tTokens = streamUsage.total_tokens ?? (pTokens + cTokens);
+
+                if (pTokens > 0) serverPromptTokens = pTokens;
+                if (cTokens > 0) serverCompletionTokens = cTokens;
+                if (tTokens > 0) serverTotalTokens = tTokens;
 
                 if (onLog) {
                   const rTokens = streamUsage.completion_tokens_details?.reasoning_tokens;
-                  const cTokens = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
+                  const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
                   onLog({
                     type: 'stats',
-                    text: `Uso de tokens: Prompt=${streamUsage.prompt_tokens || 0}, Respuesta=${streamUsage.completion_tokens || 0}, Total=${streamUsage.total_tokens || 0}${rTokens ? ` (Razonamiento: ${rTokens})` : ''}${cTokens}`
+                    text: `Uso de tokens: Prompt=${serverPromptTokens}, Respuesta=${serverCompletionTokens}, Total=${serverTotalTokens}${rTokens ? ` (Razonamiento: ${rTokens})` : ''}${cacheLog}`
                   });
                 }
               }

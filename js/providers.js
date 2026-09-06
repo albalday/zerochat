@@ -110,10 +110,21 @@
     }
 
     /**
-     * Aplica opciones de caché de contexto (Prompt / KV Caching).
+     * Aplica la solicitud de métricas detalladas de tokens si se trata de streaming.
+     */
+    requestUsageStatistics(payload, stream = true) {
+      if (stream !== false) {
+        payload.stream_options = { include_usage: true };
+      }
+    }
+
+    /**
+     * Aplica opciones específicas de caché de contexto (Prompt / KV Caching).
+     * En OpenAI/v1 compatible, la caché es gestionada automáticamente por el servidor según el prefijo,
+     * y las métricas se obtienen a través de requestUsageStatistics.
      */
     applyContextCache(payload, options = {}) {
-      payload.stream_options = { include_usage: true };
+      this.requestUsageStatistics(payload, options.stream !== false);
     }
 
     /**
@@ -170,7 +181,7 @@
       }
 
       if (capabilities.promptCaching) {
-        this.applyContextCache(payload, { toolsList, messages: formattedMessages });
+        this.applyContextCache(payload, { toolsList, messages: formattedMessages, stream: stream !== false });
       }
 
       if (capabilities.jsonMode && jsonMode) {
@@ -775,6 +786,19 @@
       return `${url}/v1/messages`;
     }
 
+    /**
+     * Construye las cabeceras HTTP necesarias para Anthropic directo o proxies.
+     */
+    buildHeaders(apiKey) {
+      const headers = super.buildHeaders(apiKey);
+      // Cabecera obligatoria de versión para API directa de Anthropic (https://api.anthropic.com/v1)
+      headers['anthropic-version'] = '2023-06-01';
+      if (apiKey && apiKey.trim() !== '') {
+        headers['x-api-key'] = apiKey.trim();
+      }
+      return headers;
+    }
+
     formatMessages(messages, capabilities) {
       const caps = capabilities || this.getCapabilities();
       return messages.map(m => {
@@ -895,11 +919,20 @@
     applyContextCache(payload, options = {}) {
       const { toolsList = [], messages = [] } = options;
 
-      if (toolsList.length > 0) {
+      if (toolsList.length > 0 && !toolsList[toolsList.length - 1].cache_control) {
         toolsList[toolsList.length - 1].cache_control = { type: 'ephemeral' };
       }
 
-      payload.messages = messages.map((m, idx, arr) => {
+      // Localizar el último turno procesable (user o tool) para anclar el punto dinámico de caché
+      let lastProcessableIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user' || messages[i].role === 'tool') {
+          lastProcessableIdx = i;
+          break;
+        }
+      }
+
+      payload.messages = messages.map((m, idx) => {
         if (m.role === 'system') {
           if (typeof m.content === 'string') {
             return {
@@ -916,8 +949,7 @@
           }
         }
 
-        const isLastUser = m.role === 'user' && !arr.slice(idx + 1).some(nextM => nextM.role === 'user');
-        if (isLastUser) {
+        if (idx === lastProcessableIdx) {
           if (typeof m.content === 'string') {
             return {
               ...m,
@@ -999,11 +1031,19 @@
           tools: true,
           reasoning: false,
           jsonMode: true,
-          promptCaching: false,
+          promptCaching: true,
           embeddings: true,
           modelListing: true
         }
       });
+    }
+
+    /**
+     * En el endpoint OpenAI de Gemini (/v1beta/openai), la caché es implícita en servidor.
+     * No se inyecta stream_options para no causar rechazos con stream: false o endpoints estrictos.
+     */
+    applyContextCache(payload, options = {}) {
+      // Gemini maneja context caching automáticamente a nivel de servidor.
     }
 
     normalizeEndpoint(rawUrl) {
@@ -1256,27 +1296,63 @@
 
     applyContextCache(payload, options = {}) {
       super.applyContextCache(payload, options);
-      // Inyectar cache_control en mensajes si se envían modelos Claude a través de OpenRouter
+      // Inyectar cache_control con límite estricto de máximo 4 puntos efímeros (política OpenRouter / Anthropic)
       const { toolsList = [], messages = [] } = options;
-      if (toolsList.length > 0) {
-        toolsList[toolsList.length - 1].cache_control = { type: 'ephemeral' };
+      let usedBreakpoints = 0;
+      const MAX_BREAKPOINTS = 4;
+
+      // 1. Marcar la última herramienta si hay tools (1 punto)
+      if (toolsList.length > 0 && usedBreakpoints < MAX_BREAKPOINTS) {
+        if (!toolsList[toolsList.length - 1].cache_control) {
+          toolsList[toolsList.length - 1].cache_control = { type: 'ephemeral' };
+        }
+        usedBreakpoints++;
       }
-      payload.messages = messages.map((m, idx, arr) => {
-        if (m.role === 'system') {
-          if (typeof m.content === 'string') {
-            return {
-              ...m,
-              content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }]
-            };
-          }
+
+      // 2. Identificar el último system prompt consolidado (1 punto)
+      let lastSystemIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'system') {
+          lastSystemIdx = i;
+          break;
         }
-        const isLastUser = m.role === 'user' && !arr.slice(idx + 1).some(nextM => nextM.role === 'user');
-        if (isLastUser && typeof m.content === 'string') {
-          return {
-            ...m,
-            content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }]
+      }
+
+      // 3. Identificar el último turno procesable (user o tool) (1 punto)
+      let lastProcessableIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user' || messages[i].role === 'tool') {
+          lastProcessableIdx = i;
+          break;
+        }
+      }
+
+      function attachCacheControl(content) {
+        if (typeof content === 'string') {
+          return [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
+        } else if (Array.isArray(content) && content.length > 0) {
+          const updated = [...content];
+          const lastItem = updated[updated.length - 1];
+          updated[updated.length - 1] = {
+            ...lastItem,
+            cache_control: { type: 'ephemeral' }
           };
+          return updated;
         }
+        return content;
+      }
+
+      payload.messages = messages.map((m, idx) => {
+        if (idx === lastSystemIdx && usedBreakpoints < MAX_BREAKPOINTS) {
+          usedBreakpoints++;
+          return { ...m, content: attachCacheControl(m.content) };
+        }
+
+        if (idx === lastProcessableIdx && usedBreakpoints < MAX_BREAKPOINTS) {
+          usedBreakpoints++;
+          return { ...m, content: attachCacheControl(m.content) };
+        }
+
         return m;
       });
     }
