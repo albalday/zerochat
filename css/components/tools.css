@@ -3,11 +3,6 @@
    ========================================================================== */
 .chat-chart-card {
   margin-top: 0.85rem;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
   animation: fadeIn 0.2s ease-out;
 }
@@ -93,11 +88,7 @@
    Estilos del Provider Inspector
    ========================================================================== */
 .inspector-intro-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  box-shadow: var(--shadow-sm);
+  margin-bottom: 0.5rem;
 }
 
 .inspector-intro-header {
@@ -238,12 +229,7 @@
 .mcp-status-card,
 .mcp-config-card,
 .mcp-instructions-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg, 0.75rem);
-  padding: 1rem;
   margin-bottom: 0.85rem;
-  box-shadow: var(--shadow-sm);
 }
 
 .mcp-status-header {
@@ -321,8 +307,6 @@
 }
 
 .btn-mcp-action {
-  display: inline-flex;
-  align-items: center;
   gap: 0.4rem;
   font-size: 0.8rem;
   padding: 0.4rem 0.75rem;
@@ -512,9 +496,6 @@
   justify-content: space-between;
   gap: 0.85rem;
   padding: 0.75rem 0.95rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease;
 }

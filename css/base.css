@@ -136,3 +136,78 @@ summary:focus-visible {
   border-width: 0;
 }
 
+/* ==========================================================================
+   Fundación UI y Consolidación de Clases Base
+   ========================================================================== */
+.btn-base,
+.btn-primary,
+.btn-secondary,
+.btn-close,
+.btn-attach,
+.btn-send,
+.btn-stop-stream,
+.btn-reasoning,
+.btn-query-server,
+.btn-profile-action,
+.btn-mcp-action,
+.btn-debug-action,
+.btn-danger-outline,
+.modal-btn-action,
+.modal-btn-close,
+.modal-tab-btn,
+.export-card-btn {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-base,
+.btn-primary,
+.btn-secondary,
+.btn-close,
+.btn-query-server,
+.btn-profile-action,
+.btn-mcp-action,
+.btn-danger-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.card-base,
+.chat-chart-card,
+.inspector-intro-card,
+.setting-toggle-card,
+.connection-active-card,
+.rag-branch-details-card,
+.rag-active-tip-card,
+.mcp-status-card,
+.mcp-config-card,
+.mcp-instructions-card,
+.mcp-tool-card,
+.profile-values-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.card-base,
+.chat-chart-card,
+.inspector-intro-card,
+.mcp-status-card,
+.mcp-config-card,
+.mcp-instructions-card {
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.surface-glass {
+  background: rgba(var(--bg-surface-rgb, 255, 255, 255), var(--surface-alpha, 0.85));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+}
+

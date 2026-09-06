@@ -110,16 +110,7 @@
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-secondary);
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   transition: all 0.15s ease;
-  flex-shrink: 0;
   margin-bottom: 2px;
 }
 
@@ -455,21 +446,26 @@
   margin-bottom: 2px;
 }
 
+/* Botones Circulares del Composer */
+.btn-attach,
+.btn-send,
+.btn-stop-stream {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 /* Botón Circular de Envío */
 .btn-send {
   background-color: var(--primary);
   color: #ffffff;
   border: none;
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  flex-shrink: 0;
   box-shadow: var(--shadow-xs);
 }
 
@@ -494,23 +490,14 @@
 
 /* Botón Circular de Detención de Streaming */
 .btn-stop-stream {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   gap: 0.35rem;
   background-color: var(--danger);
   color: #ffffff;
   border: none;
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--radius-full);
   padding: 0;
-  cursor: pointer;
   transition: all 0.15s ease;
   animation: pulseStop 1.5s infinite;
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
-  flex-shrink: 0;
 }
 
 .btn-stop-stream:hover {
