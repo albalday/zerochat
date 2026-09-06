@@ -120,3 +120,56 @@ test('Api - Cancelación de envío desde onBeforeRequest sin invocar fetch (Debu
     global.fetch = originalFetch;
   }
 });
+
+test('ChatAPI - streamChatCompletion no duplica tokens de razonamiento en onLog cuando existe onReasoningChunk', async () => {
+  const originalFetch = global.fetch;
+  const sseData = [
+    'data: {"choices":[{"delta":{"reasoning_content":"Pol"}}]}\n\n',
+    'data: {"choices":[{"delta":{"reasoning_content":"itely"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"OK"}}]}\n\n',
+    'data: [DONE]\n\n'
+  ].join('');
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(sseData));
+      controller.close();
+    }
+  });
+
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h) => (h.toLowerCase() === 'content-type' ? 'text/event-stream' : null)
+    },
+    body: stream
+  });
+
+  const reasoningChunks = [];
+  const logEvents = [];
+
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1',
+      apiType: 'openai',
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }],
+      onReasoningChunk: (chunk) => {
+        reasoningChunks.push(chunk);
+      },
+      onLog: (logData) => {
+        logEvents.push(logData);
+      }
+    });
+
+    assert.equal(res.accumulatedText, 'OK');
+    assert.deepEqual(reasoningChunks, ['Pol', 'itely']);
+    const thinkingLogs = logEvents.filter(l => l.type === 'thinking');
+    assert.equal(thinkingLogs.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+

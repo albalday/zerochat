@@ -200,9 +200,6 @@
     if (elements.settingEnableRawLogs && profileData.enableRawLogs !== undefined) {
       elements.settingEnableRawLogs.checked = profileData.enableRawLogs === true;
     }
-    if (elements.settingSendDateTime && profileData.sendDateTime !== undefined) {
-      elements.settingSendDateTime.checked = profileData.sendDateTime !== false;
-    }
     if (elements.settingEnableContextCache && profileData.enableContextCache !== undefined) {
       elements.settingEnableContextCache.checked = profileData.enableContextCache !== false;
     }
@@ -233,7 +230,6 @@
       enabledTools: gatherEnabledToolsFromUI(elements?.agentToolsContainer),
       enableRawLogs: elements?.settingEnableRawLogs ? elements.settingEnableRawLogs.checked : Boolean(appConfig?.enableRawLogs),
       enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
-      sendDateTime: elements?.settingSendDateTime ? elements.settingSendDateTime.checked : true,
       enableContextCache: elements?.settingEnableContextCache ? elements.settingEnableContextCache.checked : (appConfig?.enableContextCache !== false),
       activeRagBranchId: appConfig?.activeRagBranchId || '',
       activeRagBranchIds: Array.isArray(appConfig?.activeRagBranchIds) ? [...appConfig.activeRagBranchIds] : []
@@ -292,9 +288,6 @@
     if (elements.settingEnableRawLogs) {
       elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
     }
-    if (elements.settingSendDateTime) {
-      elements.settingSendDateTime.checked = appConfig?.sendDateTime !== false;
-    }
 
     const settingsTabs = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tabs-nav .modal-tab-btn') : elements.modalTabs;
     const settingsPanes = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tab-pane') : elements.modalPanes;
@@ -332,7 +325,6 @@
       if (elements.modelSelectHelper) elements.modelSelectHelper.value = defaults.model;
       if (elements.agentToolsContainer) renderAgentToolsUI(elements.agentToolsContainer, defaults.enabledTools || {});
       if (elements.settingEnableRawLogs) elements.settingEnableRawLogs.checked = defaults.enableRawLogs === true;
-      if (elements.settingSendDateTime) elements.settingSendDateTime.checked = defaults.sendDateTime !== false;
       return defaults;
     }
     return defaults;

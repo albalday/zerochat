@@ -11,7 +11,7 @@ function createFixture() {
       apiUrl: 'http://office.test/v1', apiType: 'openai', apiKey: 'secret',
       model: 'qwen-office', systemPrompt: 'Oficina', temperature: '0.2',
       reasoningEffort: 'high', enabledTools: { search_web: false },
-      enableRawLogs: true, sendDateTime: false
+      enableRawLogs: true
     }
   };
   const storage = {

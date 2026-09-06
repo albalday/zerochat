@@ -19,7 +19,7 @@ test('ChatEngine - adjunta una imagen RAG como evidencia multimodal tras su resu
   const messages = ChatEngine.buildEffectiveMessages([
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Imagen recuperada.', images: [{ dataUrl: 'data:image/png;base64,AA==', imageRef: 'rag-image://doc_1:img_1', documentTitle: 'diagrama.md', page: 2 }] }
-  ], { sendDateTime: false }, { enableTools: false });
+  ], {}, { enableTools: false });
 
   const toolIndex = messages.findIndex(message => message.role === 'tool' && message.name === 'read_knowledge_image');
   assert.ok(toolIndex >= 0);
@@ -34,7 +34,7 @@ test('ChatEngine - no crea evidencia visual para resultados de herramienta sin i
   const messages = ChatEngine.buildEffectiveMessages([
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'call_image', name: 'read_knowledge_image', content: 'Error.' }
-  ], { sendDateTime: false }, { enableTools: false });
+  ], {}, { enableTools: false });
   assert.equal(messages.filter(message => Array.isArray(message.content)).length, 0);
 });
 const ChatAPI = require('../js/api.js');
@@ -88,7 +88,6 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
     systemPrompt: 'Eres un asistente experto.',
     systemDataPrompt: '[Formato: Usa siempre Markdown estándar y texto plano.]',
     language: 'es',
-    sendDateTime: true,
     activeRagBranchId: 'branch_123',
     enableAgentJs: true
   };
@@ -345,14 +344,14 @@ test('ChatEngine - removeTurnFromHistory elimina todos los mensajes del turno as
       id: `${baseId}_turn_0_assistant`,
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call_time_1', type: 'function', function: { name: 'get_current_datetime', arguments: '{}' } }]
+      tool_calls: [{ id: 'call_time_1', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"return 10 + 20;"}' } }]
     },
     {
       id: `${baseId}_turn_0_tool_call_time_1`,
       role: 'tool',
       tool_call_id: 'call_time_1',
-      name: 'get_current_datetime',
-      content: '{"datetime":"2026-09-05T12:00:00Z"}'
+      name: 'execute_javascript',
+      content: '30'
     },
     {
       id: `${baseId}_final`,
@@ -499,7 +498,7 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
 
 test('ChatEngine - conserva el texto de usuario entre peticiones y llamadas a herramientas', () => {
   const history = [{ role: 'user', content: 'Primera pregunta' }];
-  const config = { sendDateTime: true };
+  const config = {};
   const first = ChatEngine.buildEffectiveMessages(history, config);
   history.push({ role: 'assistant', content: 'Respuesta' }, { role: 'user', content: 'Segunda pregunta' });
   const next = ChatEngine.buildEffectiveMessages(history, config);
@@ -513,26 +512,74 @@ test('ChatEngine - fecha inicial estable al cambiar día, idioma y serializar el
   const history = [{ role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
   const anchor = ChatEngine.ensureConversationDate(history, 'es', '2026-01-01T12:00:00Z');
   assert.match(anchor, /2026-01-01/);
-  const before = ChatEngine.buildEffectiveMessages(history, { sendDateTime: true });
+  const before = ChatEngine.buildEffectiveMessages(history);
   const restored = JSON.parse(JSON.stringify(history));
   assert.equal(ChatEngine.ensureConversationDate(restored, 'en', '2026-02-02T12:00:00Z'), anchor);
-  const after = ChatEngine.buildEffectiveMessages(restored, { sendDateTime: true });
+  const after = ChatEngine.buildEffectiveMessages(restored);
   assert.deepEqual(after, before);
   assert.equal(after[0].content.split(anchor).length - 1, 1);
   assert.equal(after[1].content, 'Hola');
   assert.ok(after.every(m => !Object.hasOwn(m, 'contextDateAnchor')));
   assert.ok(!/\d{2}:\d{2}/.test(anchor));
-  assert.ok(!JSON.stringify(ChatEngine.buildEffectiveMessages(restored, { sendDateTime: false })).includes(anchor));
-  assert.equal(ChatEngine.buildEffectiveMessages(restored, { sendDateTime: true })[0].content, before[0].content);
+  assert.equal(ChatEngine.buildEffectiveMessages(restored)[0].content, before[0].content);
 });
 
 
-test('ChatEngine - anuncia la herramienta temporal aunque sea la única habilitada', () => {
+test('ChatEngine - inyecta la fecha inicial de forma incondicional sin forzar el modo de herramientas si están desactivadas', () => {
   const enabledTools = Object.fromEntries(ChatAgentCore.registry.getActiveDefinitions({}).map(t => [t.function.name, false]));
-  const config = { enabledTools, sendDateTime: true };
+  const config = { enabledTools };
   const defs = ChatAgentCore.registry.getActiveDefinitions(config);
-  assert.ok(defs.some(t => t.function.name === 'get_current_datetime'));
-  const messages = ChatEngine.buildEffectiveMessages([{ role: 'user', content: '¿Qué hora es?' }], config, { forceSystemPromptGuide: true });
-  assert.match(messages[0].content, /get_current_datetime/);
-  assert.ok(!ChatAgentCore.registry.getActiveDefinitions({ ...config, sendDateTime: false }).some(t => t.function.name === 'get_current_datetime'));
+  assert.equal(defs.length, 0, 'No debe haber herramientas activas si todas están desmarcadas');
+  const messages = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Hola' }], config);
+  assert.match(messages[0].content, /Fecha de inicio de la conversación/);
 });
+
+test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningChunk y onLog', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+
+  ChatAPI.streamChatCompletion = async (params) => {
+    if (params.onReasoningChunk) {
+      params.onReasoningChunk('Pol');
+      params.onReasoningChunk('itely');
+    }
+    if (params.onChunk) {
+      params.onChunk('Respuesta', 'Respuesta', null);
+    }
+    if (params.onDone) {
+      params.onDone('Respuesta', null, null);
+    }
+    return {
+      accumulatedText: 'Respuesta',
+      stats: null,
+      toolCalls: null
+    };
+  };
+
+  const reasoningChunks = [];
+  const logEvents = [];
+
+  const res = await ChatEngine.executeAgentTurnLoop({
+    apiUrl: 'http://localhost:1234/v1',
+    apiType: 'openai',
+    model: 'test-model',
+    chatHistory: [{ role: 'user', content: 'Hola' }],
+    appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model' },
+    assistantMsgId: 'asst_reasoning_test',
+    onReasoningChunk: (chunk) => {
+      reasoningChunks.push(chunk);
+    },
+    onLog: (type, text) => {
+      logEvents.push({ type, text });
+    }
+  });
+
+  assert.equal(res.success, true);
+  // Se deben recibir exactamente los 2 chunks sin duplicarse
+  assert.deepEqual(reasoningChunks, ['Pol', 'itely']);
+  // onLog no debe recibir logs de tipo 'thinking' puesto que onReasoningChunk los procesó
+  const thinkingLogs = logEvents.filter(l => l.type === 'thinking');
+  assert.equal(thinkingLogs.length, 0);
+
+  ChatAPI.streamChatCompletion = originalStream;
+});
+

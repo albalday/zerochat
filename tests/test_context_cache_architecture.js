@@ -15,8 +15,7 @@ test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero 
   const history = [{ role: 'user', content: 'Consulta 1' }];
   const config = {
     systemPrompt: 'INSTRUCCION_BASE_MAESTRA',
-    systemDataPrompt: 'FORMATO_PLANO',
-    sendDateTime: true
+    systemDataPrompt: 'FORMATO_PLANO'
   };
   const effective = ChatEngine.buildEffectiveMessages(history, config, {
     currentRagSystemContext: 'CONTEXTO_RAG_VARIABLE'
@@ -52,10 +51,10 @@ test('ContextCache - ClaudeAdapter genera cabeceras nativas y ubica cache_contro
     messages: [
       { role: 'system', content: 'Eres un asistente' },
       { role: 'user', content: '¿Qué hora es?' },
-      { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_current_datetime', arguments: '{}' } }] },
-      { role: 'tool', tool_call_id: 'call_1', content: '2026-09-06T07:00:00Z' }
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"return 1+1;"}' } }] },
+      { role: 'tool', tool_call_id: 'call_1', content: '2' }
     ],
-    toolsList: [{ type: 'function', function: { name: 'get_current_datetime' } }]
+    toolsList: [{ type: 'function', function: { name: 'execute_javascript' } }]
   });
 
   // Tools deben tener cache_control

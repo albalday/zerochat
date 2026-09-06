@@ -30,10 +30,18 @@ flowchart TD
     B --> C{¿Pasaron los Tests?}
     C -- No --> D[Corregir Código y Reintentar Tests]
     D --> B
-    C -- Sí --> E[3. Recompilar Bundle: python3 bundle.py index.html zerochat.html]
+    C -- Sí --> E[3. Recompilar Bundle Obligatorio: npm run build]
     E --> F[4. Actualizar Documentación si procede]
     F --> G[5. Hacer Commit en Git en la Rama 'dev']
 ```
+
+> [!IMPORTANT]
+> ### 🛑 NORMA INQUEBRANTABLE DE FIN DE MODIFICACIÓN: REGENERAR SIEMPRE EL BUNDLE
+> **SIEMPRE**, sin ninguna excepción, ante cualquier cambio o edición en el código fuente (`js/`, `css/`, `index.html` o dependencias):
+> 1. **Verificar tests**: `npm test` (o `npm run test:unit`).
+> 2. **REGENERAR EL BUNDLE**: Ejecutar obligatoriamente `npm run build` (o `python3 bundle.py index.html zerochat.html`).
+> 
+> **Ninguna tarea se considera finalizada** ni se debe responder al usuario como completada sin haber ejecutado `npm run build` para asegurar que la distribución `zerochat.html` refleje de forma idéntica e inmediata todos los cambios.
 
 ---
 
@@ -59,7 +67,8 @@ Una vez que los tests pasen correctamente, se debe actualizar la distribución e
 
 ### Comando de Compilación:
 ```bash
-python3 bundle.py index.html zerochat.html
+npm run build
+# Equivalente manual: python3 bundle.py index.html zerochat.html
 ```
 
 El script detecta las hojas de estilo y scripts locales declarados por el HTML base, preserva su orden, verifica la integridad del JavaScript, minifica el CSS, elimina comentarios, comprime el código con `Gzip (Level 9)` y genera el archivo de salida indicado.

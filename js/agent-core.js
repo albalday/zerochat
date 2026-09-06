@@ -274,9 +274,8 @@
       tools.push(createBuiltinTool('fetch_web_page', 'ChatBuiltinFetchWebPageTool', './tools/builtin/fetch-web-page.tool.js'));
       tools.push(createBuiltinTool('download_pdf', 'ChatBuiltinDownloadPdfTool', './tools/builtin/download-pdf.tool.js'));
 
-      // 5-9. Gráficos, fecha y RAG como módulos autocontenidos.
+      // 5-8. Gráficos y RAG como módulos autocontenidos.
       tools.push(createBuiltinTool('render_chart', 'ChatBuiltinRenderChartTool', './tools/builtin/render-chart.tool.js'));
-      tools.push(createBuiltinTool('get_current_datetime', 'ChatBuiltinGetCurrentDatetimeTool', './tools/builtin/get-current-datetime.tool.js'));
       tools.push(createBuiltinTool('list_documents', 'ChatBuiltinListDocumentsTool', './tools/builtin/list-documents.tool.js'));
       tools.push(createBuiltinTool('search_knowledge_base', 'ChatBuiltinSearchKnowledgeBaseTool', './tools/builtin/search-knowledge-base.tool.js'));
       tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));

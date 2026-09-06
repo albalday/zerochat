@@ -18,7 +18,6 @@ const SearchWebTool = BUILTIN_BY_ID.get('search_web');
 const FetchWebPageTool = BUILTIN_BY_ID.get('fetch_web_page');
 const DownloadPdfTool = BUILTIN_BY_ID.get('download_pdf');
 const RenderChartTool = BUILTIN_BY_ID.get('render_chart');
-const DateTimeTool = BUILTIN_BY_ID.get('get_current_datetime');
 const ListDocumentsTool = BUILTIN_BY_ID.get('list_documents');
 const SearchKnowledgeBaseTool = BUILTIN_BY_ID.get('search_knowledge_base');
 const ReadKnowledgeChunkTool = BUILTIN_BY_ID.get('read_knowledge_chunk');
@@ -122,18 +121,15 @@ test('Builtin Tools - fetch_web_page y download_pdf usan WebBrowser inyectado', 
   assert.match(pdfTool.formatDispatchMarkdown({ url: 'https://example.com/document.pdf' }, pdfResult), /download_pdf/);
 });
 
-test('Builtin Tools - render_chart y get_current_datetime ejecutan de forma autocontenida', async () => {
+test('Builtin Tools - render_chart ejecuta de forma autocontenida', async () => {
   const chartTool = RenderChartTool.createTool(AgentCore.Tool);
   const chartResult = await chartTool.execute({ type: 'bar', title: 'Ventas', labels: ['Enero'], datasets: [{ label: '2026', data: [10] }] }, {
     services: { charts: { renderChartCard: (args) => `<svg data-title="${args.title}"></svg>` } }
   });
-  const dateResult = await DateTimeTool.createTool(AgentCore.Tool).execute();
 
   assert.equal(chartResult.success, true);
   assert.match(chartResult.svg, /Ventas/);
   assert.equal(chartTool.serializeResultForModel({ type: 'bar', title: 'Ventas' }, chartResult), '{"success":true,"type":"bar","title":"Ventas"}');
-  assert.equal(dateResult.success, true);
-  assert.ok(typeof dateResult.iso === 'string');
 
   // Vista delegada de render_chart
   const fakeDocument = { createElement: () => ({ className: '', innerHTML: '' }) };

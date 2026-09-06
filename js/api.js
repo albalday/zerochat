@@ -692,8 +692,11 @@
               if (chunkData.reasoningChunk) {
                 if (!firstTokenTime) firstTokenTime = performance.now();
                 accumulatedReasoning += chunkData.reasoningChunk;
-                if (onReasoningChunk) onReasoningChunk(chunkData.reasoningChunk, accumulatedReasoning);
-                if (onLog) onLog({ type: 'thinking', text: chunkData.reasoningChunk });
+                if (onReasoningChunk) {
+                  onReasoningChunk(chunkData.reasoningChunk, accumulatedReasoning);
+                } else if (onLog) {
+                  onLog({ type: 'thinking', text: chunkData.reasoningChunk });
+                }
               }
 
               // Contenido textual con soporte de etiquetas <think>, <thought>, <reasoning>
@@ -727,15 +730,21 @@
                       const rText = remaining.slice(0, closeMatch.index);
                       if (rText) {
                         accumulatedReasoning += rText;
-                        if (onReasoningChunk) onReasoningChunk(rText, accumulatedReasoning);
-                        if (onLog) onLog({ type: 'thinking', text: rText });
+                        if (onReasoningChunk) {
+                          onReasoningChunk(rText, accumulatedReasoning);
+                        } else if (onLog) {
+                          onLog({ type: 'thinking', text: rText });
+                        }
                       }
                       activeReasoningTag = null;
                       remaining = remaining.slice(closeMatch.index + closeMatch[0].length);
                     } else {
                       accumulatedReasoning += remaining;
-                      if (onReasoningChunk) onReasoningChunk(remaining, accumulatedReasoning);
-                      if (onLog) onLog({ type: 'thinking', text: remaining });
+                      if (onReasoningChunk) {
+                        onReasoningChunk(remaining, accumulatedReasoning);
+                      } else if (onLog) {
+                        onLog({ type: 'thinking', text: remaining });
+                      }
                       remaining = '';
                     }
                   }

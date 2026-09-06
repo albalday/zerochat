@@ -316,7 +316,7 @@
 
     const isToolsEnabled = options.enableTools !== undefined
       ? Boolean(options.enableTools)
-      : (appConfig.sendDateTime !== false || Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false)));
+      : Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false));
 
     // Consultar si el modelo soporta llamadas a herramientas nativas
     const API = getAPI();
@@ -362,11 +362,9 @@
       fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${ragContext}` : ragContext;
     }
 
-    // b) Fecha inicial persistida de la conversación
-    if (appConfig.sendDateTime !== false) {
-      const dateAnchor = ensureConversationDate(chatHistory, lang);
-      fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${dateAnchor}` : dateAnchor;
-    }
+    // b) Fecha inicial persistida de la conversación (siempre activa)
+    const dateAnchor = ensureConversationDate(chatHistory, lang);
+    fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${dateAnchor}` : dateAnchor;
 
     if (messages.length > 0 && messages[0].role === 'system') {
       if (fullSystemPrompt) {
@@ -522,8 +520,11 @@
         onBeforeRequest: onBeforeRequest,
 
         onReasoningChunk: function (chunk) {
-          if (typeof onReasoningChunk === 'function') onReasoningChunk(chunk);
-          if (typeof onLog === 'function') onLog('thinking', chunk);
+          if (typeof onReasoningChunk === 'function') {
+            onReasoningChunk(chunk);
+          } else if (typeof onLog === 'function') {
+            onLog('thinking', chunk);
+          }
         },
 
         onLog: function (logData) {
@@ -636,8 +637,11 @@
               signal: signal,
 
               onReasoningChunk: function (chunk) {
-                if (typeof onReasoningChunk === 'function') onReasoningChunk(chunk);
-                if (typeof onLog === 'function') onLog('thinking', chunk);
+                if (typeof onReasoningChunk === 'function') {
+                  onReasoningChunk(chunk);
+                } else if (typeof onLog === 'function') {
+                  onLog('thinking', chunk);
+                }
               },
               onLog: function (logData) {
                 if (typeof onLog === 'function' && logData && logData.type !== 'thinking') onLog(logData.type, logData.text);
@@ -919,8 +923,11 @@
           signal: signal,
 
           onReasoningChunk: function (chunk) {
-            if (typeof onReasoningChunk === 'function') onReasoningChunk(chunk);
-            if (typeof onLog === 'function') onLog('thinking', chunk);
+            if (typeof onReasoningChunk === 'function') {
+              onReasoningChunk(chunk);
+            } else if (typeof onLog === 'function') {
+              onLog('thinking', chunk);
+            }
           },
           onLog: function (logData) {
             if (typeof onLog === 'function' && logData && logData.type !== 'thinking') onLog(logData.type, logData.text);

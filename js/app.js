@@ -76,7 +76,6 @@
     },
     enableRawLogs: false,
     enableDebugMessages: false,
-    sendDateTime: true,
     activeRagBranchId: ''
   };
 
@@ -243,7 +242,6 @@
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
-      settingSendDateTime: document.getElementById('setting-send-datetime'),
       // Fase 7: backdrop para drawer en móvil
       sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     };

@@ -22,7 +22,7 @@
     maxAgentTurns: 15,
     modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
-    enableRawLogs: false, sendDateTime: true, enableContextCache: true,
+    enableRawLogs: false, enableContextCache: true,
     theme: 'light', language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: []
   });
@@ -43,6 +43,7 @@
     delete next.enableAgentWeb;
     delete next.enableAgentSearch;
     delete next.enableAgentChart;
+    delete next.sendDateTime;
     next.apiUrl = String(next.apiUrl || DEFAULTS.apiUrl).trim() || DEFAULTS.apiUrl;
     next.apiType = String(next.apiType || DEFAULTS.apiType).trim() || DEFAULTS.apiType;
     next.apiKey = String(next.apiKey || '').trim();
@@ -58,7 +59,6 @@
     next.enabledTools = next.enabledTools && typeof next.enabledTools === 'object' ? clone(next.enabledTools) : clone(DEFAULTS.enabledTools);
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
-    next.sendDateTime = next.sendDateTime !== false;
     next.enableContextCache = next.enableContextCache !== false;
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';

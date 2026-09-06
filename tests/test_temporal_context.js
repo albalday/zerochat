@@ -25,7 +25,7 @@ test('Contexto temporal - conserva fecha en IndexedDB, exportación y compactaci
   const compacted = await Context.compressHistory({ messages: imported.history, options: { recentTurnsToKeep: 2 } });
   assert.equal(compacted.compressed, true);
   assert.equal(Engine.ensureConversationDate(compacted.messages, 'en', '2027-03-03T12:00:00Z'), anchor);
-  assert.ok(Engine.buildEffectiveMessages(compacted.messages, { sendDateTime: true })[0].content.includes(anchor));
+  assert.ok(Engine.buildEffectiveMessages(compacted.messages)[0].content.includes(anchor));
 });
 
 test('Contexto temporal - usa el día local en el límite de medianoche', () => {

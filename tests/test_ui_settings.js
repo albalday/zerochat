@@ -65,8 +65,7 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
     temperatureVal: { textContent: '' },
     settingMaxAgentTurns: { value: '' },
     maxAgentTurnsVal: { textContent: '' },
-    settingEnableRawLogs: { checked: false },
-    settingSendDateTime: { checked: false }
+    settingEnableRawLogs: { checked: false }
   };
 
   const profileData = {
@@ -78,8 +77,7 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
     systemDataPrompt: 'Formato ZeroChat.',
     temperature: '0.2',
     maxAgentTurns: 22,
-    enableRawLogs: true,
-    sendDateTime: true
+    enableRawLogs: true
   };
 
   UISettings.applyProfileToForm(elements, profileData);
@@ -95,7 +93,6 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
   assert.equal(elements.settingMaxAgentTurns.value, 22);
   assert.equal(elements.maxAgentTurnsVal.textContent, 22);
   assert.equal(elements.settingEnableRawLogs.checked, true);
-  assert.equal(elements.settingSendDateTime.checked, true);
 });
 
 test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns correctamente', () => {
@@ -120,7 +117,6 @@ test('UISettings - handleSaveProfile delega el guardado al editor sin mutar la c
     settingSystemPrompt: { value: 'Instrucciones locales' },
     settingTemperature: { value: '0.5' },
     settingEnableRawLogs: { checked: false },
-    settingSendDateTime: { checked: true },
     profileActionFeedback: { style: { display: 'none' }, className: '', textContent: '' }
   };
 

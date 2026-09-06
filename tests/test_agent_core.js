@@ -13,7 +13,6 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
   assert.ok(registry.hasTool('fetch_web_page'));
   assert.ok(registry.hasTool('download_pdf'));
   assert.ok(registry.hasTool('render_chart'));
-  assert.ok(registry.hasTool('get_current_datetime'));
 
   // Comprobar resolución por alias
   assert.equal(registry.getTool('executejs').name, 'execute_javascript');
@@ -22,12 +21,10 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
   assert.equal(registry.getTool('fetchwebpage').name, 'fetch_web_page');
   assert.equal(registry.getTool('downloadpdf').name, 'download_pdf');
   assert.equal(registry.getTool('renderchart').name, 'render_chart');
-  assert.equal(registry.getTool('get_current_time').name, 'get_current_datetime');
-  assert.equal(registry.getTool('now').name, 'get_current_datetime');
 
   // Comprobar generación de esquemas Function Calling
   const defs = registry.getDefinitions();
-  assert.ok(defs.length >= 6);
+  assert.ok(defs.length >= 5);
   const jsDef = defs.find(d => d.function.name === 'execute_javascript');
   assert.ok(jsDef);
   assert.equal(jsDef.type, 'function');
@@ -167,8 +164,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.ok(ids.includes('fetch_web_page'));
   assert.ok(ids.includes('download_pdf'));
   assert.ok(ids.includes('render_chart'));
-  // get_current_datetime y herramientas RAG no deben aparecer en la UI de settings
-  assert.ok(!ids.includes('get_current_datetime'));
+  // Herramientas RAG no deben aparecer en la UI de settings
   assert.ok(!ids.includes('list_documents'));
 
   // 2. getActiveDefinitions filtra según appConfig.enabledTools
@@ -187,7 +183,6 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.ok(allNames.includes('fetch_web_page'));
   assert.ok(allNames.includes('download_pdf'));
   assert.ok(allNames.includes('render_chart'));
-  assert.ok(allNames.includes('get_current_datetime')); // Herramienta de sistema siempre disponible
 
   // Desactivar search_web y download_pdf
   const filteredDefs = registry.getActiveDefinitions({

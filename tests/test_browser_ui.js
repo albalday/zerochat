@@ -1388,14 +1388,14 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
           id: `${baseId}_turn_0_assistant`,
           role: 'assistant',
           content: null,
-          tool_calls: [{ id: 'call_time_ui', type: 'function', function: { name: 'get_current_datetime', arguments: '{}' } }]
+          tool_calls: [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]
         },
         {
           id: `${baseId}_turn_0_tool_call_time_ui`,
           role: 'tool',
           tool_call_id: 'call_time_ui',
-          name: 'get_current_datetime',
-          content: '{"datetime":"2026-09-05T12:00:00Z"}'
+          name: 'execute_javascript',
+          content: '4'
         },
         {
           id: `${baseId}_final`,
@@ -1467,7 +1467,7 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en
       const initial = await page.evaluate(async () => {
         const history = [{ id: 'system_root', role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
         const anchor = ChatEngine.ensureConversationDate(history, 'es');
-        const messages = ChatEngine.buildEffectiveMessages(history, { sendDateTime: true });
+        const messages = ChatEngine.buildEffectiveMessages(history);
         await ChatStorage.saveConversation({ id: 'temporal_browser', title: 'Fecha fija', createdAt: Date.now() }, history);
         return { anchor, messages };
       });
@@ -1477,14 +1477,12 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en
       await page.waitForFunction(() => !!window.ChatEngine?.ensureConversationDate);
       const restored = await page.evaluate(async () => {
         const session = await ChatStorage.getConversation('temporal_browser');
-        const messages = ChatEngine.buildEffectiveMessages(session.history, { sendDateTime: true });
-        const time = await ChatAgentCore.registry.getTool('get_current_datetime').execute();
-        return { messages, time, fresh: ChatEngine.getConversationDateAnchor('es') };
+        const messages = ChatEngine.buildEffectiveMessages(session.history);
+        return { messages, fresh: ChatEngine.getConversationDateAnchor('es') };
       });
       assert.deepEqual(restored.messages, initial.messages, file);
       assert.equal(restored.messages[1].content, 'Hola');
       assert.ok(!JSON.stringify(restored.messages).includes('[Context Time:'));
-      assert.equal(restored.time.iso, '2026-09-08T10:00:00.000Z');
       assert.match(restored.fresh, /2026-09-08/);
       await context.close();
     }
