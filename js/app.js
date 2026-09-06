@@ -117,9 +117,7 @@
       sidebarChatsList: document.getElementById('sidebar-chats-list'),
       btnImportChatFile: document.getElementById('btn-import-chat-file'),
       importJsonInput: document.getElementById('import-json-input'),
-      btnOpenExportModal: document.getElementById('btn-open-export-modal'),
       btnDeleteAllChats: document.getElementById('btn-delete-all-chats'),
-      btnQuickExport: document.getElementById('btn-quick-export'),
 
       // Modal de exportación
       exportModal: document.getElementById('export-modal'),
@@ -153,7 +151,6 @@
       currentServerUrl: document.getElementById('current-server-url'),
       badgeModel: document.getElementById('badge-model'),
       currentModelName: document.getElementById('current-model-name'),
-      btnClearChat: document.getElementById('btn-clear-chat'),
       btnOpenSettings: document.getElementById('btn-open-settings'),
       btnOpenProfiles: document.getElementById('btn-open-profiles'),
       btnLangQuick: document.getElementById('btn-lang-quick'),
@@ -256,7 +253,23 @@
       btnRunInspector: document.getElementById('btn-run-inspector'),
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
+      mcpToolsContainer: document.getElementById('mcp-tools-container'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
+      mcpStatusBadge: document.getElementById('mcp-status-badge'),
+      mcpStatusText: document.getElementById('mcp-status-text'),
+      btnMcpConnect: document.getElementById('btn-mcp-connect'),
+      btnMcpDisconnect: document.getElementById('btn-mcp-disconnect'),
+      mcpServerDetails: document.getElementById('mcp-server-details'),
+      mcpErrorMessage: document.getElementById('mcp-error-message'),
+      mcpHostInput: document.getElementById('mcp-host-input'),
+      mcpPortInput: document.getElementById('mcp-port-input'),
+      mcpEndpointPreview: document.getElementById('mcp-endpoint-preview'),
+      mcpTerminalCommand: document.getElementById('mcp-terminal-command'),
+      btnMcpCopyCmd: document.getElementById('btn-mcp-copy-cmd'),
+      btnMcpConfigure: document.getElementById('btn-mcp-configure'),
+      mcpSetupDialog: document.getElementById('mcp-setup-dialog'),
+      btnCloseMcpSetup: document.getElementById('btn-close-mcp-setup'),
+      btnCloseMcpSetupFooter: document.getElementById('btn-close-mcp-setup-footer'),
       // Fase 7: backdrop para drawer en móvil
       sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     };
@@ -308,32 +321,6 @@
       { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt(),
         contextDateAnchor: Engine.getConversationDateAnchor(appConfig.language || 'es') }
     ];
-  }
-
-  function resetConversation() {
-    if (isGenerating && currentAbortController) {
-      currentAbortController.abort();
-    }
-
-    // Limpiar sesión vacía previa y generar nuevo ID de sesión limpia
-    if (Array.isArray(savedSessions)) {
-      savedSessions = savedSessions.filter(s => s.id !== currentSessionId);
-    }
-    if (Storage.deleteConversation) {
-      Storage.deleteConversation(currentSessionId);
-    }
-    currentSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-
-    chatHistory = createInitialChatHistory();
-    renderSessionMessages(chatHistory);
-    renderSidebarChats();
-
-    clearAttachedFiles();
-    if (elements.userInput) {
-      elements.userInput.value = '';
-      autoResizeTextarea();
-      elements.userInput.focus();
-    }
   }
 
   // ==========================================================================
@@ -798,8 +785,9 @@
     const btnReuse = document.createElement('button');
     btnReuse.type = 'button';
     btnReuse.className = 'btn-msg-action';
-    btnReuse.innerHTML = `${getMsgIcon('edit', 12)} <span>${t('btn_reuse')}</span>`;
+    btnReuse.innerHTML = getMsgIcon('edit', 14);
     btnReuse.title = t('btn_reuse_title');
+    btnReuse.setAttribute('aria-label', t('btn_reuse_title'));
     btnReuse.addEventListener('click', () => {
       elements.userInput.value = originalPrompt || text;
       autoResizeTextarea();
@@ -809,8 +797,9 @@
     const btnDelete = document.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = `${getMsgIcon('trash', 12)} <span>${t('btn_delete')}</span>`;
+    btnDelete.innerHTML = getMsgIcon('trash', 14);
     btnDelete.title = t('btn_delete_usr_title');
+    btnDelete.setAttribute('aria-label', t('btn_delete_usr_title'));
     btnDelete.addEventListener('click', () => removeMessage(wrapper));
 
     actions.appendChild(btnReuse);
@@ -868,14 +857,16 @@
     const btnCopy = document.createElement('button');
     btnCopy.type = 'button';
     btnCopy.className = 'btn-msg-action btn-copy-full';
-    btnCopy.innerHTML = `${getMsgIcon('copy', 12)} <span>${t('btn_copy')}</span>`;
+    btnCopy.innerHTML = getMsgIcon('copy', 14);
     btnCopy.title = t('btn_copy_title');
+    btnCopy.setAttribute('aria-label', t('btn_copy_title'));
 
     const btnDelete = document.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = `${getMsgIcon('trash', 12)} <span>${t('btn_delete')}</span>`;
+    btnDelete.innerHTML = getMsgIcon('trash', 14);
     btnDelete.title = t('btn_delete_ast_title');
+    btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
     btnDelete.addEventListener('click', () => removeMessage(wrapper));
 
     actions.appendChild(btnCopy);
@@ -942,7 +933,7 @@
     showTypingIndicator();
     const { wrapper, row, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = createAssistantMessagePlaceholder();
     removeTypingIndicator();
-    const attachListeners = Markdown.attachCopyCodeListeners || function() {};
+    const attachListeners = (el) => attachListenersToContainer(el);
 
     if (!API.streamChatCompletion) {
       row.classList.add('message-error');
@@ -1097,12 +1088,14 @@
       try {
         const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
         await navigator.clipboard.writeText(fullMd);
-        const span = btnCopy.querySelector('span');
-        const originalText = span ? span.textContent : '';
-        btnCopy.innerHTML = `${getMsgIcon('check', 12)} <span>${t('copied_text')}</span>`;
+        btnCopy.innerHTML = getMsgIcon('check', 14);
+        btnCopy.title = t('copied_text');
+        btnCopy.setAttribute('aria-label', t('copied_text'));
         btnCopy.classList.add('copied');
         setTimeout(() => {
-          btnCopy.innerHTML = `${getMsgIcon('copy', 12)} <span>${originalText || t('btn_copy')}</span>`;
+          btnCopy.innerHTML = getMsgIcon('copy', 14);
+          btnCopy.title = t('btn_copy_title');
+          btnCopy.setAttribute('aria-label', t('btn_copy_title'));
           btnCopy.classList.remove('copied');
         }, 2000);
       } catch (err) {
@@ -1476,7 +1469,11 @@
       UISidebar.renderSidebarChats(elements, savedSessions, currentSessionId, {
         onSwitchSession: switchToSession,
         onRenameSession: renameSession,
-        onDeleteSession: deleteSession
+        onDeleteSession: deleteSession,
+        onExportSession: (sessionId, e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          openExportModal(sessionId);
+        }
       }, { groupByDate: true });
     }
   }
@@ -1619,18 +1616,6 @@
         }
       });
     }
-    // Botones y cabeceras de colapso de tarjetas de herramientas
-    container.querySelectorAll('.btn-tool-collapse, .tool-card-header, .web-card-header, .search-card-header').forEach(el => {
-      el.onclick = (e) => {
-        if (e.target.closest('a')) return;
-        const card = el.closest('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card');
-        if (card) {
-          card.classList.toggle('collapsed');
-          const span = card.querySelector('.btn-tool-collapse span');
-          if (span) span.textContent = card.classList.contains('collapsed') ? '▸' : '▾';
-        }
-      };
-    });
   }
 
   function renderSessionMessages(history) {
@@ -1757,9 +1742,15 @@
           btnCopy.onclick = async () => {
             if (navigator.clipboard) {
               await navigator.clipboard.writeText(fullAssistantMarkdown || content.innerText);
-              btnCopy.innerHTML = `${getMsgIcon('check', 12)} <span>${t('btn_copied')}</span>`;
+              btnCopy.innerHTML = getMsgIcon('check', 14);
+              btnCopy.title = t('copied_text');
+              btnCopy.setAttribute('aria-label', t('copied_text'));
+              btnCopy.classList.add('copied');
               setTimeout(() => {
-                btnCopy.innerHTML = `${getMsgIcon('copy', 12)} <span>${t('btn_copy')}</span>`;
+                btnCopy.innerHTML = getMsgIcon('copy', 14);
+                btnCopy.title = t('btn_copy_title');
+                btnCopy.setAttribute('aria-label', t('btn_copy_title'));
+                btnCopy.classList.remove('copied');
               }, 2000);
             }
           };
@@ -1780,8 +1771,13 @@
   // Modal de Exportación e Importación de Conversaciones
   // ==========================================================================
 
-  function openExportModal() {
+  function getExportTargetSessionId() {
+    return elements.exportModal?.dataset?.sessionId || currentSessionId;
+  }
+
+  function openExportModal(targetSessionId = null) {
     if (elements.exportModal) {
+      elements.exportModal.dataset.sessionId = targetSessionId || currentSessionId;
       if (typeof elements.exportModal.showModal === 'function') {
         elements.exportModal.showModal();
       } else {
@@ -1792,6 +1788,7 @@
 
   function closeExportModal() {
     if (elements.exportModal) {
+      delete elements.exportModal.dataset.sessionId;
       if (typeof elements.exportModal.close === 'function') {
         elements.exportModal.close();
       } else {
@@ -1800,30 +1797,43 @@
     }
   }
 
-  function exportConversationAsMarkdown() {
-    const sess = savedSessions.find(s => s.id === currentSessionId);
+  async function getSessionForExport() {
+    const id = getExportTargetSessionId();
+    if (id === currentSessionId) {
+      return { sess: savedSessions.find(s => s.id === id), history: chatHistory };
+    }
+    const conv = (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null;
+    return { sess: conv, history: conv?.history || [] };
+  }
+
+  async function exportConversationAsMarkdown() {
+    const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
-    const md = Export.buildMarkdownExport ? Export.buildMarkdownExport(chatHistory, { title, model: appConfig.model }) : '';
+    const md = Export.buildMarkdownExport ? Export.buildMarkdownExport(history, { title, model: appConfig.model }) : '';
     if (Export.downloadFile) {
       Export.downloadFile(md, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.md`, 'text/markdown');
     }
     closeExportModal();
   }
 
-  function exportConversationAsJson() {
-    const sess = savedSessions.find(s => s.id === currentSessionId);
+  async function exportConversationAsJson() {
+    const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
-    const jsonStr = Export.buildJsonExport ? Export.buildJsonExport(sess, chatHistory, appConfig) : '{}';
+    const jsonStr = Export.buildJsonExport ? Export.buildJsonExport(sess, history, appConfig) : '{}';
     if (Export.downloadFile) {
       Export.downloadFile(jsonStr, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.json`, 'application/json');
     }
     closeExportModal();
   }
 
-  function exportConversationAsPrint() {
+  async function exportConversationAsPrint() {
+    const targetId = getExportTargetSessionId();
     closeExportModal();
+    if (targetId && targetId !== currentSessionId) {
+      await switchToSession(targetId);
+    }
     setTimeout(() => {
       window.print();
     }, 200);
@@ -2014,11 +2024,6 @@
     // Botones de acción
     elements.btnStopStream.addEventListener('click', handleStopGeneration);
 
-    // Limpiar conversación actual
-    if (elements.btnClearChat) {
-      elements.btnClearChat.addEventListener('click', resetConversation);
-    }
-
     // Botón rápido de Idioma en la barra superior
     if (elements.btnLangQuick) {
       elements.btnLangQuick.addEventListener('click', () => {
@@ -2075,12 +2080,11 @@
       elements.btnDeleteAllChats.addEventListener('click', deleteAllSessions);
     }
 
-    // Modal de Exportación
-    if (elements.btnOpenExportModal) {
-      elements.btnOpenExportModal.addEventListener('click', openExportModal);
-    }
-    if (elements.btnQuickExport) {
-      elements.btnQuickExport.addEventListener('click', openExportModal);
+    // Modal de Exportación (disparado desde cada chat en la barra lateral)
+    if (elements.exportModal) {
+      elements.exportModal.addEventListener('close', () => {
+        delete elements.exportModal.dataset.sessionId;
+      });
     }
     if (elements.btnCloseExport) {
       elements.btnCloseExport.addEventListener('click', closeExportModal);
@@ -2458,6 +2462,27 @@
 
     if (window.ChatRagUI && window.ChatRagUI.initRagUI) {
       window.ChatRagUI.initRagUI();
+    }
+
+    if (window.ChatUIMcp && window.ChatUIMcp.initMcpUI) {
+      window.ChatUIMcp.initMcpUI({
+        statusBadge: elements.mcpStatusBadge,
+        statusText: elements.mcpStatusText,
+        btnConnect: elements.btnMcpConnect,
+        btnDisconnect: elements.btnMcpDisconnect,
+        btnConfigure: elements.btnMcpConfigure,
+        mcpSetupDialog: elements.mcpSetupDialog,
+        btnCloseSetup: elements.btnCloseMcpSetup,
+        btnCloseSetupFooter: elements.btnCloseMcpSetupFooter,
+        serverDetails: elements.mcpServerDetails,
+        errorMessage: elements.mcpErrorMessage,
+        hostInput: elements.mcpHostInput,
+        portInput: elements.mcpPortInput,
+        endpointPreview: elements.mcpEndpointPreview,
+        commandSnippet: elements.mcpTerminalCommand,
+        btnCopyCmd: elements.btnMcpCopyCmd,
+        toolsContainer: elements.mcpToolsContainer
+      });
     }
 
     window.ChatApp = {

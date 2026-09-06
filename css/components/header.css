@@ -9,49 +9,36 @@
   height: var(--header-height, 3.5rem);
   min-height: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) 1rem 0 1rem;
-  border-bottom: 1px solid rgba(var(--bg-surface-rgb), 0.2);
-  /* Glassmorphism real: fondo semi-transparente con blur efectivo */
-  background-color: rgba(var(--bg-surface-rgb), var(--header-bg-alpha));
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  position: sticky;
+  border-bottom: none;
+  background: transparent;
+  position: absolute;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: var(--z-header, 100);
+  pointer-events: none;
   user-select: none;
 }
 
 .header-left,
-.header-center,
 .header-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  pointer-events: auto;
 }
 
 .header-left {
-  flex: 1 1 0%;
+  flex: 0 0 auto;
   justify-content: flex-start;
   min-width: 0;
 }
 
-.header-center {
-  flex: 0 0 auto;
-  justify-content: center;
-}
-
 .header-right {
-  flex: 1 1 0%;
+  flex: 0 0 auto;
   justify-content: flex-end;
   min-width: 0;
-}
-
-/* Marca / Título en Header */
-.app-brand-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text-main);
-  opacity: 0.9;
+  margin-left: auto;
 }
 
 /* Botón de alternancia de barra lateral (Sidebar Toggle) */
@@ -174,10 +161,6 @@
 }
 
 @media (max-width: 640px) {
-  .app-brand-title {
-    display: none;
-  }
-
   .badge-pill.badge-profile {
     max-width: 150px;
   }

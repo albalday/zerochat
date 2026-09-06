@@ -61,25 +61,37 @@
       btn.type = 'button';
       btn.className = 'reasoning-option';
       btn.setAttribute('data-level', lvl);
+      if (typeof btn.setAttribute === 'function') {
+        btn.setAttribute('role', 'menuitemradio');
+      }
 
       const info = getReasoningLevelLabel(lvl);
       const lower = String(lvl).toLowerCase().trim();
       const activeLower = String(activeLevel || 'off').toLowerCase().trim();
+      const isSelected = lower === activeLower || (activeLower === 'off' && lower === 'none') || (activeLower === 'none' && lower === 'off');
 
-      if (lower === activeLower || (activeLower === 'off' && lower === 'none') || (activeLower === 'none' && lower === 'off')) {
+      if (isSelected) {
         btn.classList.add('active');
+        if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-checked', 'true');
+      } else {
+        if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-checked', 'false');
       }
 
       btn.innerHTML = `
-        <span class="option-icon">${info.icon}</span>
+        <span class="option-icon" aria-hidden="true">${info.icon}</span>
         <div class="option-text">
-          <strong>${info.label}</strong>
-          ${info.desc ? `<small>${info.desc}</small>` : ''}
+          <strong class="option-title">${info.label}</strong>
+          ${info.desc ? `<small class="option-desc">${info.desc}</small>` : ''}
         </div>
+        <span class="option-check" aria-hidden="true">
+          <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
       `;
 
       btn.addEventListener('click', (e) => {
-        e.stopPropagation();
+        if (e && typeof e.stopPropagation === 'function') {
+          e.stopPropagation();
+        }
         if (typeof onSelect === 'function') {
           onSelect(lvl);
         }
@@ -89,14 +101,59 @@
     });
   }
 
+  function initReasoningKeyboardNav(elements) {
+    if (!elements || !elements.reasoningMenu || typeof elements.reasoningMenu.addEventListener !== 'function' || elements.reasoningMenu._hasKeyNav) return;
+    elements.reasoningMenu._hasKeyNav = true;
+
+    elements.reasoningMenu.addEventListener('keydown', (e) => {
+      if (!elements.reasoningOptionsContainer) return;
+      const options = Array.from(elements.reasoningOptionsContainer.querySelectorAll ? elements.reasoningOptionsContainer.querySelectorAll('.reasoning-option') : []);
+      if (!options.length) return;
+
+      const activeEl = elements.reasoningMenu.ownerDocument ? elements.reasoningMenu.ownerDocument.activeElement : document.activeElement;
+      const currentIndex = options.findIndex(opt => opt === activeEl);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+        if (options[nextIndex] && typeof options[nextIndex].focus === 'function') {
+          options[nextIndex].focus();
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+        if (options[prevIndex] && typeof options[prevIndex].focus === 'function') {
+          options[prevIndex].focus();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeReasoningMenu(elements);
+        if (elements.btnReasoning && typeof elements.btnReasoning.focus === 'function') {
+          elements.btnReasoning.focus();
+        }
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        if (options[0] && typeof options[0].focus === 'function') {
+          options[0].focus();
+        }
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        if (options[options.length - 1] && typeof options[options.length - 1].focus === 'function') {
+          options[options.length - 1].focus();
+        }
+      }
+    });
+  }
+
   function positionReasoningMenu(elements) {
     if (!elements || !elements.reasoningMenu || !elements.btnReasoning) return;
     if (elements.reasoningMenu.style.display === 'none') return;
 
-    const btnRect = elements.btnReasoning.getBoundingClientRect();
-    const win = elements.reasoningMenu.ownerDocument?.defaultView || window;
-    const viewportHeight = win.visualViewport ? win.visualViewport.height : win.innerHeight;
-    const viewportWidth = win.innerWidth;
+    const btnRect = elements.btnReasoning.getBoundingClientRect ? elements.btnReasoning.getBoundingClientRect() : { top: 0, left: 0 };
+    const win = elements.reasoningMenu.ownerDocument?.defaultView || (typeof window !== 'undefined' ? window : null);
+    if (!win) return;
+    const viewportHeight = win.visualViewport ? win.visualViewport.height : (win.innerHeight || 800);
+    const viewportWidth = win.innerWidth || 1200;
 
     const spaceAbove = btnRect.top;
     const menuWidth = Math.min(290, viewportWidth - 16);
@@ -125,6 +182,10 @@
     if (!elements || !elements.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'flex';
 
+    if (elements.btnReasoning && typeof elements.btnReasoning.setAttribute === 'function') {
+      elements.btnReasoning.setAttribute('aria-expanded', 'true');
+    }
+
     const API = getApi();
     const apiType = appConfig?.apiType || (elements.settingApiType ? elements.settingApiType.value : 'openai');
     const reasoningConfig = API?.getStandardReasoningOptions
@@ -138,6 +199,16 @@
 
     renderReasoningMenuOptions(elements, reasoningConfig, appConfig?.reasoningEffort || 'off', onSelect);
     positionReasoningMenu(elements);
+    initReasoningKeyboardNav(elements);
+
+    // Focus active or first option for keyboard accessibility
+    if (elements.reasoningOptionsContainer && typeof elements.reasoningOptionsContainer.querySelector === 'function') {
+      const activeBtn = elements.reasoningOptionsContainer.querySelector('.reasoning-option.active') ||
+                        elements.reasoningOptionsContainer.querySelector('.reasoning-option');
+      if (activeBtn && typeof activeBtn.focus === 'function') {
+        activeBtn.focus();
+      }
+    }
   }
 
   function closeReasoningMenu(elements) {
@@ -145,6 +216,10 @@
     elements.reasoningMenu.style.display = 'none';
     elements.reasoningMenu.style.left = '0px';
     elements.reasoningMenu.style.right = 'auto';
+
+    if (elements.btnReasoning && typeof elements.btnReasoning.setAttribute === 'function') {
+      elements.btnReasoning.setAttribute('aria-expanded', 'false');
+    }
   }
 
   function toggleReasoningMenu(elements, appConfig, onSelect) {
@@ -193,16 +268,21 @@
       }
     }
 
-    if (elements.reasoningOptionsContainer) {
+    if (elements.reasoningOptionsContainer && typeof elements.reasoningOptionsContainer.querySelectorAll === 'function') {
       const options = elements.reasoningOptionsContainer.querySelectorAll('.reasoning-option');
-      options.forEach(opt => {
-        const optLower = String(opt.getAttribute('data-level') || '').toLowerCase().trim();
-        if (optLower === lower || (lower === 'off' && optLower === 'none') || (lower === 'none' && optLower === 'off')) {
-          opt.classList.add('active');
-        } else {
-          opt.classList.remove('active');
-        }
-      });
+      if (options && options.forEach) {
+        options.forEach(opt => {
+          const optLower = String(opt.getAttribute ? opt.getAttribute('data-level') : '').toLowerCase().trim();
+          const isSelected = optLower === lower || (lower === 'off' && optLower === 'none') || (lower === 'none' && optLower === 'off');
+          if (isSelected) {
+            if (opt.classList && typeof opt.classList.add === 'function') opt.classList.add('active');
+            if (typeof opt.setAttribute === 'function') opt.setAttribute('aria-checked', 'true');
+          } else {
+            if (opt.classList && typeof opt.classList.remove === 'function') opt.classList.remove('active');
+            if (typeof opt.setAttribute === 'function') opt.setAttribute('aria-checked', 'false');
+          }
+        });
+      }
     }
   }
 

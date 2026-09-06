@@ -128,3 +128,46 @@ test('UISidebar - renderSidebarChats con groupByDate añade cabeceras de grupo',
   assert.equal(headers[1].textContent, 'Ayer');
   assert.equal(headers[2].textContent, 'Anteriores');
 });
+
+test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por chat y dispara callback', () => {
+  const appendedItems = [];
+  const fakeList = {
+    innerHTML: '',
+    ownerDocument: {
+      createElement: (tag) => {
+        const el = {
+          tagName: tag,
+          className: '',
+          attributes: {},
+          innerHTML: '',
+          setAttribute: (k, v) => { el.attributes[k] = v; },
+          getAttribute: (k) => el.attributes[k],
+          querySelector: (sel) => ({
+            addEventListener: (evt, handler) => { el['_' + sel] = handler; }
+          }),
+          addEventListener: (evt, handler) => { el._click = handler; }
+        };
+        return el;
+      }
+    },
+    appendChild: (item) => appendedItems.push(item)
+  };
+
+  const elements = { sidebarChatsList: fakeList };
+  const sessions = [
+    { id: 'sess_export_1', title: 'Chat a Exportar', updatedAt: Date.now() }
+  ];
+
+  let exportedSessionId = null;
+  UISidebar.renderSidebarChats(elements, sessions, 'sess_export_1', {
+    onExportSession: (id) => { exportedSessionId = id; }
+  });
+
+  assert.equal(appendedItems.length, 1);
+  assert.ok(appendedItems[0].innerHTML.includes('btn-export'), 'El chat item debe contener el botón .btn-export');
+  assert.ok(typeof appendedItems[0]['_.btn-export'] === 'function', 'Debe registrarse el listener de click para .btn-export');
+
+  // Disparar click en btn-export
+  appendedItems[0]['_.btn-export']({ stopPropagation: () => {} });
+  assert.equal(exportedSessionId, 'sess_export_1', 'Debe invocar onExportSession con el id correspondiente');
+});

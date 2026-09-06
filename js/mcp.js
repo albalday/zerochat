@@ -49,6 +49,14 @@
     return null;
   }
 
+  function getState() {
+    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
+    if (typeof require !== 'undefined') {
+      try { return require('./state.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Realiza una petición fetch con timeout controlado mediante AbortController.
    */
@@ -70,6 +78,80 @@
   }
 
   /**
+   * Sondea de forma no destructiva un endpoint MCP / mcp-proxy para verificar conectividad y latencia.
+   */
+  async function probeConnection(url, options = {}) {
+    const timeoutMs = options.timeoutMs || 4000;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const normalizedUrl = (url || '').trim();
+
+    if (!normalizedUrl) {
+      return { success: false, error: 'URL no válida o vacía', latencyMs: 0 };
+    }
+
+    let client = null;
+    try {
+      client = new McpClient({ url: normalizedUrl, timeoutMs });
+      const initResult = await client.initialize({ timeoutMs });
+      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const latencyMs = Math.max(1, Math.round(endTime - startTime));
+
+      if (initResult && initResult.success) {
+        return {
+          success: true,
+          latencyMs,
+          serverInfo: initResult.serverInfo || { name: 'mcp-proxy', version: 'unknown' },
+          capabilities: initResult.capabilities || {}
+        };
+      }
+
+      // Si initialize no devuelve éxito estricto, probamos un GET simple por si el endpoint SSE está activo
+      const probeRes = await fetchWithTimeout(normalizedUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'text/event-stream, application/json, */*' }
+      }, timeoutMs).catch(() => null);
+
+      if (probeRes) {
+        return {
+          success: true,
+          latencyMs,
+          serverInfo: { name: 'mcp-proxy', version: 'active' },
+          capabilities: {}
+        };
+      }
+
+      let errMsg = initResult?.error || 'No se pudo establecer sesión con el servidor MCP';
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED')) {
+        errMsg = 'No se puede conectar al proxy en esa dirección y puerto. Asegúrate de haber arrancado mcp-proxy en tu terminal.';
+      }
+
+      return {
+        success: false,
+        error: errMsg,
+        latencyMs
+      };
+    } catch (err) {
+      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const latencyMs = Math.max(1, Math.round(endTime - startTime));
+      let errMsg = err.message || 'Error de conexión';
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED')) {
+        errMsg = 'No se puede conectar al proxy en esa dirección y puerto. Asegúrate de haber arrancado mcp-proxy en tu terminal.';
+      }
+      return {
+        success: false,
+        error: errMsg,
+        latencyMs
+      };
+    } finally {
+      if (client) {
+        try {
+          client.disconnect();
+        } catch (e) {}
+      }
+    }
+  }
+
+  /**
    * Cliente de Protocolo MCP (Model Context Protocol) basado en JSON-RPC 2.0 sobre HTTP.
    */
   class McpClient {
@@ -77,11 +159,46 @@
       this.id = config.id || `mcp_server_${Date.now()}`;
       this.name = config.name || 'MCP Server';
       this.url = (config.url || '').trim().replace(/\/+$/, '');
+      this.postUrl = null;
+      this.isSseActive = false;
+      this.sseSource = null;
+      this.sseReader = null;
+      this.pendingRequests = new Map();
       this.headers = config.headers || {};
       this.timeoutMs = config.timeoutMs || DEFAULT_TIMEOUT_MS;
       this.requestId = 1;
       this.serverCapabilities = null;
       this.serverInfo = null;
+    }
+
+    /**
+     * Cierra de forma limpia la conexión SSE activa y resetea las URLs efímeras de sesión.
+     */
+    disconnect() {
+      if (this.sseSource) {
+        try {
+          this.sseSource.close();
+        } catch (e) {}
+        this.sseSource = null;
+      }
+      if (this.sseReader) {
+        try {
+          this.sseReader.cancel();
+        } catch (e) {}
+        this.sseReader = null;
+      }
+      this.isSseActive = false;
+      this.postUrl = null;
+
+      if (this.pendingRequests && this.pendingRequests.size > 0) {
+        for (const [id, req] of this.pendingRequests.entries()) {
+          if (req.timer) clearTimeout(req.timer);
+          if (typeof req.reject === 'function') {
+            req.reject(new Error('Conexión MCP cerrada'));
+          }
+        }
+        this.pendingRequests.clear();
+      }
     }
 
     /**
@@ -99,12 +216,165 @@
     }
 
     /**
+     * Inicia o reutiliza la conexión SSE persistente para recibir el endpoint y respuestas asíncronas.
+     */
+    async connectSseStream(options = {}) {
+      if (!options.forceReconnect && this.postUrl && this.isSseActive) {
+        return this.postUrl;
+      }
+      if (options.forceReconnect || !this.isSseActive) {
+        this.disconnect();
+      }
+
+      const timeoutMs = options.timeoutMs || 4000;
+      if (!this.pendingRequests) this.pendingRequests = new Map();
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (url) => {
+          if (!settled) {
+            settled = true;
+            this.postUrl = url;
+            resolve(url);
+          }
+        };
+
+        const timer = setTimeout(() => finish(this.url), timeoutMs);
+
+        try {
+          if (typeof EventSource !== 'undefined') {
+            const es = new EventSource(this.url);
+            this.sseSource = es;
+            this.isSseActive = true;
+
+            es.addEventListener('endpoint', (evt) => {
+              clearTimeout(timer);
+              const postPath = (evt.data || '').trim();
+              const fullUrl = new URL(postPath, this.url).toString();
+              this.postUrl = fullUrl;
+              finish(fullUrl);
+            });
+
+            es.addEventListener('message', (evt) => {
+              this._handleJsonRpcMessage(evt.data);
+            });
+
+            es.onerror = () => {
+              clearTimeout(timer);
+              this.isSseActive = false;
+              this.postUrl = null;
+              finish(this.url);
+            };
+          } else {
+            // Node.js fallback mediante fetch stream
+            fetch(this.url, {
+              headers: { 'Accept': 'text/event-stream' }
+            }).then(res => {
+              if (!res.ok || !res.body) {
+                clearTimeout(timer);
+                this.isSseActive = false;
+                this.postUrl = null;
+                return finish(this.url);
+              }
+              const reader = res.body.getReader ? res.body.getReader() : null;
+              if (!reader) {
+                clearTimeout(timer);
+                this.isSseActive = false;
+                this.postUrl = null;
+                return finish(this.url);
+              }
+              this.isSseActive = true;
+              this.sseReader = reader;
+              const decoder = new TextDecoder();
+              let buffer = '';
+
+              const pump = () => {
+                reader.read().then(({ done, value }) => {
+                  if (done) {
+                    this.isSseActive = false;
+                    return;
+                  }
+                  buffer += decoder.decode(value, { stream: true });
+                  const chunks = buffer.split('\n\n');
+                  buffer = chunks.pop() || '';
+
+                  for (const chunk of chunks) {
+                    const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
+                    if (endpointMatch) {
+                      clearTimeout(timer);
+                      const postPath = endpointMatch[1].trim();
+                      const fullUrl = new URL(postPath, this.url).toString();
+                      this.postUrl = fullUrl;
+                      finish(fullUrl);
+                    }
+                    const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
+                    if (msgMatch && !endpointMatch) {
+                      this._handleJsonRpcMessage(msgMatch[1]);
+                    }
+                  }
+                  pump();
+                }).catch(() => {
+                  this.isSseActive = false;
+                });
+              };
+              pump();
+            }).catch(() => {
+              clearTimeout(timer);
+              this.isSseActive = false;
+              finish(this.url);
+            });
+          }
+        } catch (e) {
+          clearTimeout(timer);
+          this.isSseActive = false;
+          finish(this.url);
+        }
+      });
+    }
+
+    _handleJsonRpcMessage(raw) {
+      try {
+        const data = typeof raw === 'string' ? JSON.parse(raw.trim()) : raw;
+        if (data && data.id !== undefined && this.pendingRequests.has(data.id)) {
+          const pending = this.pendingRequests.get(data.id);
+          this.pendingRequests.delete(data.id);
+          if (pending.timer) clearTimeout(pending.timer);
+          if (data.error) {
+            const code = data.error.code ? ` (${data.error.code})` : '';
+            pending.reject(new Error(`Error MCP${code}: ${data.error.message || JSON.stringify(data.error)}`));
+          } else {
+            pending.resolve(data.result);
+          }
+        }
+      } catch (e) {}
+    }
+
+    /**
+     * Resuelve la URL adecuada para enviar peticiones POST al servidor MCP.
+     */
+    async resolvePostUrl(options = {}) {
+      if (!options.forceReconnect && this.postUrl && this.isSseActive) {
+        return this.postUrl;
+      }
+      if (this.url.endsWith('/sse') || options.isSse) {
+        return await this.connectSseStream(options);
+      }
+      return this.postUrl || this.url;
+    }
+
+    /**
      * Despacha una petición JSON-RPC 2.0 al endpoint del servidor MCP.
      */
     async request(method, params = {}, options = {}) {
       if (!this.url) {
         throw new Error(`El servidor MCP '${this.name}' no tiene una URL configurada.`);
       }
+
+      if (!this.pendingRequests) this.pendingRequests = new Map();
+
+      // Si es un endpoint SSE (/sse), conectamos o reutilizamos el canal SSE
+      const isSseEndpoint = this.url.endsWith('/sse') || options.isSse;
+      let targetUrl = await this.resolvePostUrl(options);
 
       const id = this.requestId++;
       const payload = {
@@ -115,12 +385,56 @@
       };
 
       const timeoutMs = options.timeoutMs || this.timeoutMs;
-      const res = await fetchWithTimeout(this.url, {
-        method: 'POST',
-        headers: this.buildHeaders(),
-        body: JSON.stringify(payload),
-        signal: options.signal
-      }, timeoutMs);
+      let res;
+      try {
+        res = await fetchWithTimeout(targetUrl, {
+          method: 'POST',
+          headers: this.buildHeaders(),
+          body: JSON.stringify(payload),
+          signal: options.signal
+        }, timeoutMs);
+      } catch (fetchErr) {
+        // En caso de fallo de red en endpoint SSE, reconectar y reintentar una única vez
+        if (!options._isRetry && (isSseEndpoint || this.postUrl)) {
+          this.disconnect();
+          return this.request(method, params, { ...options, _isRetry: true, forceReconnect: true });
+        }
+        throw fetchErr;
+      }
+
+      // Si targetUrl devolvió 404 (ej. "Could not find session for ID: <uuid>"),
+      // la sesión SSE en mcp-proxy expiró o el servidor se reinició.
+      // Invalidamos la sesión, forzamos reconexión limpia a /sse y reintentamos.
+      if (res.status === 404 && !options._isRetry && (isSseEndpoint || (targetUrl && targetUrl.includes('session_id')) || this.postUrl)) {
+        this.disconnect();
+        return this.request(method, params, { ...options, _isRetry: true, forceReconnect: true });
+      }
+
+      // Si targetUrl devolvió 405 y no habíamos probado SSE, intentamos SSE
+      if (res.status === 405 && !isSseEndpoint) {
+        const resolved = await this.connectSseStream({ ...options, isSse: true });
+        if (resolved && resolved !== targetUrl) {
+          res = await fetchWithTimeout(resolved, {
+            method: 'POST',
+            headers: this.buildHeaders(),
+            body: JSON.stringify(payload),
+            signal: options.signal
+          }, timeoutMs);
+        }
+      }
+
+      // Si el servidor SSE devuelve 202 Accepted (o 200 sin cuerpo JSON directo), la respuesta llegará vía el stream SSE
+      if (res.status === 202) {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            if (this.pendingRequests.has(id)) {
+              this.pendingRequests.delete(id);
+              reject(new Error(`Timeout esperando respuesta para petición #${id} (${method})`));
+            }
+          }, timeoutMs);
+          this.pendingRequests.set(id, { resolve, reject, timer });
+        });
+      }
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
@@ -179,18 +493,22 @@
      * Envía una notificación JSON-RPC (sin esperar resultado).
      */
     async notify(method, params = {}) {
-      if (!this.url) return;
+      const targetUrl = await this.resolvePostUrl().catch(() => this.url);
+      if (!targetUrl) return;
       const payload = {
         jsonrpc: '2.0',
         method: method,
         params: params
       };
       try {
-        await fetch(this.url, {
+        const res = await fetch(targetUrl, {
           method: 'POST',
           headers: this.buildHeaders(),
           body: JSON.stringify(payload)
         });
+        if (res.status === 404 && this.postUrl) {
+          this.disconnect();
+        }
       } catch (e) {}
     }
 
@@ -249,6 +567,93 @@
     }
   }
 
+  function getMcpIconSvg(size = 14) {
+    const Icons = (typeof window !== 'undefined' && window.ChatIcons) || (typeof require !== 'undefined' ? (() => { try { return require('./icons.js'); } catch (e) { return null; } })() : null);
+    if (Icons && typeof Icons.get === 'function') {
+      return Icons.get('plug', { size });
+    }
+    return `<svg class="ui-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a6 6 0 0 1-12 0V8z"></path></svg>`;
+  }
+
+  function formatMcpMarkdown(toolName, args, result, outcome, serverName) {
+    const raw = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : outcome?.error || result?.error || 'Sin salida');
+    const argStr = args && typeof args === 'object' && Object.keys(args).length ? JSON.stringify(args, null, 2) : '';
+    const parts = [`> 🔌 **${toolName}** (*${serverName || 'MCP'}*)`];
+    if (argStr) parts.push(`> \`\`\`json\n> ${argStr.split('\n').join('\n> ')}\n> \`\`\``);
+    parts.push(`> \`\`\`\n> ${String(raw).split('\n').join('\n> ')}\n> \`\`\``);
+    return parts.join('\n');
+  }
+
+  function createMcpToolView(toolName, serverName) {
+    const iconSvg = getMcpIconSvg(14);
+
+    const renderCard = (args, contentHtml, badgeHtml, ui, isCollapsed = false) => {
+      const esc = ui?.markdown?.escapeHtml || String;
+      const t = ui?.t || (k => k);
+      const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card') : document.createElement('div');
+      card.className = 'tool-card-wrapper mcp-card';
+      const argStr = args && typeof args === 'object' && Object.keys(args).length ? esc(JSON.stringify(args, null, 2)) : '';
+      const cardClass = isCollapsed ? 'tool-execution-card collapsed' : 'tool-execution-card';
+      const btnTitle = isCollapsed ? (t('tool_btn_expand') || 'Expandir') : (t('tool_btn_collapse') || 'Minimizar');
+      card.innerHTML = `
+        <div class="${cardClass}">
+          <div class="tool-card-header">
+            <div class="tool-card-title">${iconSvg}<span>${esc(toolName)}</span><span class="mcp-card-server-tag">${esc(serverName || 'MCP')}</span></div>
+            <div class="tool-card-header-actions">
+              ${badgeHtml}
+              <button type="button" class="btn-tool-collapse" title="${btnTitle}">${ui?.CHEVRON_SVG || '▼'}</button>
+            </div>
+          </div>
+          <div class="tool-card-collapsible-body">
+            ${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}
+            <div class="tool-card-result">${contentHtml}</div>
+          </div>
+        </div>`;
+      return card;
+    };
+
+    return {
+      createLiveCard: (args, ui) => {
+        if (typeof document === 'undefined') return null;
+        const t = ui?.t || (k => k);
+        const spinner = ui?.SPINNER_SVG || '';
+        const badge = `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></span>`;
+        const placeholder = `<div class="tool-loading-placeholder">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></div>`;
+        return renderCard(args, placeholder, badge, ui, false);
+      },
+      updateLiveCard: (cardDiv, args, result = {}, elapsedMs = 0, ui) => {
+        if (!cardDiv) return;
+        const esc = ui?.markdown?.escapeHtml || String;
+        const t = ui?.t || (k => k);
+        const isSuccess = result?.success !== false && !result?.error && !result?.isError;
+        const badge = cardDiv.querySelector('.tool-card-badge');
+        if (badge) {
+          badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
+          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || '✔'} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || '✖'} <span>Error (${elapsedMs}ms)</span>`;
+        }
+        const resEl = cardDiv.querySelector('.tool-card-result');
+        if (resEl) {
+          const out = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : (result?.error || 'Sin salida'));
+          resEl.innerHTML = `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`;
+        }
+        const card = cardDiv.querySelector?.('.tool-execution-card') || (cardDiv.matches?.('.tool-execution-card') ? cardDiv : null);
+        if (card) {
+          card.classList.add('collapsed');
+          const btn = card.querySelector('.btn-tool-collapse');
+          if (btn) btn.title = t('tool_btn_expand') || 'Expandir';
+        }
+      },
+      renderHistoricalCard: (args, message, ui) => {
+        if (typeof document === 'undefined') return null;
+        const esc = ui?.markdown?.escapeHtml || String;
+        const t = ui?.t || (k => k);
+        const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || '✔'} <span>${t('tool_status_success') || 'OK'}</span></span>`;
+        const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
+        return renderCard(args, `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`, badge, ui, true);
+      }
+    };
+  }
+
   /**
    * Proveedor de herramientas MCP integrado en la arquitectura AgentCore (McpToolProvider).
    */
@@ -282,23 +687,40 @@
       for (const rt of rawTools) {
         if (!rt.name) continue;
 
-        // Nombre canónico con prefijo seguro para evitar colisiones entre múltiples servidores
         const safeServerId = this.client.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
         const namespacedName = `mcp__${safeServerId}__${rt.name}`;
+        const toolName = rt.name;
 
         const tool = new AgentCore.Tool({
+          id: namespacedName,
           name: namespacedName,
-          description: rt.description ? `[MCP: ${this.serverName}] ${rt.description}` : `[MCP: ${this.serverName}] Herramienta ${rt.name}`,
+          description: rt.description ? `[MCP: ${this.serverName}] ${rt.description}` : `[MCP: ${this.serverName}] Herramienta ${toolName}`,
           parameters: rt.inputSchema || { type: 'object', properties: {} },
-          aliases: [rt.name, `mcp_${rt.name}`, `${safeServerId}_${rt.name}`],
+          aliases: [toolName, `mcp_${toolName}`, `${safeServerId}_${toolName}`],
           category: 'mcp',
+          isAvailable: () => {
+            if (this.client.id === 'mcp_proxy') {
+              const State = getState();
+              return State ? State.get('mcp')?.status === 'connected' : false;
+            }
+            return true;
+          },
+          settings: {
+            titleFallback: toolName,
+            descFallback: rt.description || '',
+            icon: 'plug',
+            defaultEnabled: true,
+            showInSettings: true
+          },
           metadata: {
-            icon: '🔌',
-            label: rt.name,
+            icon: 'plug',
+            iconSvg: getMcpIconSvg(14),
+            label: toolName,
             mcpServerName: this.serverName,
             mcpServerUrl: this.serverUrl,
             originalName: rt.name,
-            mcpServerId: this.client.id
+            mcpServerId: this.client.id,
+            description: rt.description || ''
           },
           execute: async (args, context = {}) => {
             return this.client.callTool(rt.name, args, {
@@ -306,9 +728,22 @@
               timeoutMs: options.timeoutMs
             });
           },
+          result: {
+            toModel: (args, result, outcome) => {
+              if (result?.content) return result.content;
+              if (result?.rawResult) {
+                if (typeof result.rawResult === 'string') return result.rawResult;
+                return JSON.stringify(result.rawResult);
+              }
+              return outcome?.error || result?.error || 'Sin salida';
+            },
+            toMarkdown: (args, result, outcome) => {
+              return formatMcpMarkdown(toolName, args, result, outcome, this.serverName);
+            }
+          },
+          view: createMcpToolView(toolName, this.serverName),
           formatter: (args, result) => {
-            const output = result.content || (result.rawResult ? JSON.stringify(result.rawResult, null, 2) : 'Sin salida');
-            return `> 🔌 **MCP: ${rt.name}** (*${this.serverName}*)\n> \`\`\`json\n> ${JSON.stringify(args, null, 2).split('\n').join('\n> ')}\n> \`\`\`\n> \`\`\`\n> ${String(output).split('\n').join('\n> ')}\n> \`\`\``;
+            return formatMcpMarkdown(toolName, args, result, null, this.serverName);
           }
         });
 
@@ -420,7 +855,12 @@
      */
     removeServer(id) {
       this.servers = this.servers.filter(s => s.id !== id);
-      this.clients.delete(id);
+      if (this.clients.has(id)) {
+        try {
+          this.clients.get(id).disconnect();
+        } catch (e) {}
+        this.clients.delete(id);
+      }
       this.providers.delete(id);
       this.saveConfig();
     }
@@ -472,7 +912,16 @@
         return {
           success: true,
           toolCount: tools.length,
-          tools: tools.map(t => ({ name: t.name, description: t.description }))
+          tools: tools.map(t => ({
+            id: t.id || t.name,
+            name: t.name,
+            description: t.metadata?.description || t.settings?.descFallback || t.description || '',
+            parameters: t.parameters,
+            inputSchema: t.parameters,
+            category: t.category,
+            titleFallback: t.settings?.titleFallback || t.name,
+            descFallback: t.settings?.descFallback || t.metadata?.description || t.description || ''
+          }))
         };
       } catch (err) {
         return {
@@ -495,6 +944,69 @@
       }
       return results;
     }
+
+    /**
+     * Sondea la conectividad con un endpoint MCP.
+     */
+    async probeConnection(url, options = {}) {
+      return probeConnection(url, options);
+    }
+
+    /**
+     * Conecta con mcp-proxy en el host y puerto configurados, registrando sus herramientas.
+     */
+    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null } = {}, registry = null) {
+      const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
+      const State = getState();
+      if (State?.set) State.set('mcp', { status: 'connecting', host, port, endpoint: targetEndpoint, error: null });
+
+      const probe = await probeConnection(targetEndpoint);
+      if (!probe.success) {
+        if (State?.set) State.set('mcp', { status: 'error', host, port, endpoint: targetEndpoint, error: probe.error, latencyMs: probe.latencyMs, serverInfo: null, tools: [] });
+        return probe;
+      }
+
+      if (this.clients.has('mcp_proxy')) {
+        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
+        this.clients.delete('mcp_proxy');
+      }
+
+      this.addServer({ id: 'mcp_proxy', name: probe.serverInfo?.name || 'mcp-proxy', url: targetEndpoint, enabled: true });
+      const registerResult = await this.connectAndRegisterServer('mcp_proxy', registry);
+
+      if (State?.set) {
+        State.set('mcp', {
+          status: registerResult.success ? 'connected' : 'error',
+          host, port, endpoint: targetEndpoint,
+          serverInfo: probe.serverInfo,
+          tools: registerResult.tools || [],
+          lastConnected: Date.now(),
+          latencyMs: probe.latencyMs,
+          error: registerResult.success ? null : registerResult.error
+        });
+      }
+
+      return { success: registerResult.success, probe, register: registerResult, tools: registerResult.tools || [] };
+    }
+
+    /**
+     * Desconecta el proxy y actualiza el estado global a desconectado.
+     */
+    disconnectProxy(registry = null) {
+      const AgentCore = getAgentCore();
+      const targetRegistry = registry || AgentCore?.registry;
+      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_proxy');
+      this.providers.delete('mcp_proxy');
+
+      if (this.clients.has('mcp_proxy')) {
+        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
+        this.clients.delete('mcp_proxy');
+      }
+
+      const State = getState();
+      if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null });
+      return { success: true };
+    }
   }
 
   const manager = new McpManager();
@@ -503,6 +1015,7 @@
     McpClient,
     McpToolProvider,
     McpManager,
+    probeConnection,
     manager
   };
 });

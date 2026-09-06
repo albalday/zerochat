@@ -520,18 +520,24 @@
       });
     });
 
-    // 3. Botones de colapsar / minimizar tarjetas de herramientas
-    container.querySelectorAll('.btn-tool-collapse').forEach(function (button) {
-      if (button.dataset.listenerAttached) return;
-      button.dataset.listenerAttached = 'true';
-
-      button.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const card = button.closest('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card');
+    // 3. Botones y cabeceras de colapsar / minimizar tarjetas de herramientas
+    container.querySelectorAll('.tool-card-header, .web-card-header, .search-card-header, .chat-chart-header, .btn-tool-collapse').forEach(function (el) {
+      if (el.dataset.collapseInit) return;
+      el.dataset.collapseInit = 'true';
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('a')) return;
+        if (el.classList.contains('btn-tool-collapse')) {
+          e.stopPropagation();
+        }
+        const card = el.closest('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card');
         if (!card) return;
         const isCollapsed = card.classList.toggle('collapsed');
-        const iconSpan = button.querySelector('span');
-        button.title = isCollapsed ? tr('tool_btn_expand', 'Expandir herramienta') : tr('tool_btn_collapse', 'Minimizar herramienta');
+        const btn = card.querySelector('.btn-tool-collapse');
+        if (btn) {
+          btn.title = isCollapsed ? tr('tool_btn_expand', 'Expandir herramienta') : tr('tool_btn_collapse', 'Minimizar herramienta');
+          const span = btn.querySelector('span');
+          if (span) span.textContent = isCollapsed ? '▸' : '▾';
+        }
       });
     });
 

@@ -301,7 +301,8 @@
 
 .tool-card-header,
 .web-card-header,
-.search-card-header {
+.search-card-header,
+.chat-chart-header {
   cursor: pointer;
   user-select: none;
 }
@@ -388,6 +389,17 @@
   background-color: var(--bg-hover);
   color: var(--text-main);
   border-color: var(--border-focus);
+}
+
+.btn-tool-collapse svg {
+  transition: transform 0.15s ease;
+}
+
+.tool-execution-card.collapsed .btn-tool-collapse svg,
+.web-request-card.collapsed .btn-tool-collapse svg,
+.web-search-card.collapsed .btn-tool-collapse svg,
+.chat-chart-card.collapsed .btn-tool-collapse svg {
+  transform: rotate(-90deg);
 }
 
 .tool-card-collapsible-body {

@@ -259,3 +259,211 @@ test('MCP - McpManager administración de servidores y sincronización', async (
   assert.equal(manager.getServers().some(s => s.id === server.id), false);
 });
 
+test('MCP - probeConnection sondea exitosamente un endpoint activo', async () => {
+  const originalFetch = global.fetch;
+
+  try {
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
+              capabilities: {}
+            }
+          })
+        };
+      }
+      return { ok: false, status: 404 };
+    };
+
+    const res = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 1000 });
+    assert.equal(res.success, true);
+    assert.equal(res.serverInfo.name, 'mcp-proxy');
+    assert.equal(res.serverInfo.version, '0.4.0');
+    assert.ok(typeof res.latencyMs === 'number');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - probeConnection maneja fallo de conexión y URL vacía', async () => {
+  const emptyRes = await MCP.probeConnection('');
+  assert.equal(emptyRes.success, false);
+  assert.ok(emptyRes.error.includes('no válida'));
+
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:6388');
+    };
+
+    const failRes = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+    assert.equal(failRes.success, false);
+    assert.ok(failRes.error.includes('No se puede conectar al proxy'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async () => {
+  const originalFetch = global.fetch;
+  const manager = new MCP.McpManager();
+
+  try {
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'mcp-proxy', version: '1.0.0' },
+              capabilities: {}
+            }
+          })
+        };
+      }
+      if (body.method === 'tools/list') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: { tools: [] }
+          })
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    const registry = new AgentCore.ToolRegistry();
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    assert.equal(connResult.success, true);
+
+    const discResult = manager.disconnectProxy();
+    assert.equal(discResult.success, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - McpClient disconnect() limpia recursos y cancela peticiones pendientes', async () => {
+  const client = new MCP.McpClient({
+    id: 'test_server',
+    name: 'Test Server',
+    url: 'http://127.0.0.1:6388/sse'
+  });
+
+  client.isSseActive = true;
+  client.postUrl = 'http://127.0.0.1:6388/messages/?session_id=fake-uuid';
+
+  // Simular una petición pendiente esperando SSE
+  let rejectedError = null;
+  client.pendingRequests.set(1, {
+    reject: (err) => { rejectedError = err; },
+    resolve: () => {},
+    timer: setTimeout(() => {}, 10000)
+  });
+
+  client.disconnect();
+
+  assert.equal(client.isSseActive, false);
+  assert.equal(client.postUrl, null);
+  assert.equal(client.pendingRequests.size, 0);
+  assert.ok(rejectedError);
+  assert.ok(rejectedError.message.includes('cerrada'));
+});
+
+test('MCP - McpClient se auto-recupera de HTTP 404 por sesión SSE expirada o reiniciada', async () => {
+  const originalFetch = global.fetch;
+  let sseConnectCount = 0;
+  let requestsMade = [];
+
+  try {
+    global.fetch = async (url, options = {}) => {
+      requestsMade.push({ url, method: options.method || 'GET' });
+
+      // GET a /sse para negociar endpoint
+      if (url === 'http://127.0.0.1:6388/sse') {
+        sseConnectCount++;
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('event: endpoint\ndata: /messages/?session_id=new-session-uuid-123\n\n'));
+            controller.close();
+          }
+        });
+        return {
+          ok: true,
+          status: 200,
+          body: stream
+        };
+      }
+
+      // POST con ID caducado devuelto por proxy reiniciado
+      if (url.includes('session_id=old-stale-uuid')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => 'Could not find session for ID: old-stale-uuid'
+        };
+      }
+
+      // POST con nuevo session_id tras recuperación
+      if (url.includes('session_id=new-session-uuid-123')) {
+        const body = JSON.parse(options.body || '{}');
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: { recovered: true, ping: 'pong' }
+          })
+        };
+      }
+
+      return { ok: false, status: 500, text: async () => 'Error no esperado' };
+    };
+
+    const client = new MCP.McpClient({
+      id: 'mcp_proxy',
+      name: 'mcp-proxy',
+      url: 'http://127.0.0.1:6388/sse'
+    });
+
+    // Simulamos que el cliente tenía en memoria una sesión previa antes del reinicio del servidor
+    client.isSseActive = true;
+    client.postUrl = 'http://127.0.0.1:6388/messages/?session_id=old-stale-uuid';
+
+    // Ejecutamos la petición: debe fallar con 404, detectar sesión muerta, reconectar y reintentar con éxito
+    const result = await client.request('ping', {});
+
+    assert.equal(result.recovered, true);
+    assert.equal(result.ping, 'pong');
+    assert.equal(sseConnectCount, 1);
+    assert.ok(client.postUrl.includes('session_id=new-session-uuid-123'));
+
+    // Validar secuencia de llamadas: primero POST a old-stale, luego GET a /sse, luego POST a new-session
+    assert.equal(requestsMade[0].url, 'http://127.0.0.1:6388/messages/?session_id=old-stale-uuid');
+    assert.equal(requestsMade[1].url, 'http://127.0.0.1:6388/sse');
+    assert.equal(requestsMade[2].url, 'http://127.0.0.1:6388/messages/?session_id=new-session-uuid-123');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+
+

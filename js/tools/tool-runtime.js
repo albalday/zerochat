@@ -19,7 +19,8 @@
     webBrowser: { globalName: 'ChatWebBrowser', modulePath: '../web-browser.js' },
     charts: { globalName: 'ChatCharts', modulePath: '../charts.js' },
     ragStorage: { globalName: 'ChatRagStorage', modulePath: '../ragStorage.js' },
-    ragService: { globalName: 'ChatRagService', modulePath: '../rag-service.js' }
+    ragService: { globalName: 'ChatRagService', modulePath: '../rag-service.js' },
+    mcp: { globalName: 'ChatMCP', modulePath: '../mcp.js' }
   };
 
   function resolveService(name) {

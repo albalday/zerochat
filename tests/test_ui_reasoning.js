@@ -100,3 +100,93 @@ test('UIReasoning - selectReasoningLevel normaliza y emite la intención sin mut
   assert.equal(labelEl.textContent, 'None');
   assert.ok(!btnEl.classList.classes.has('active'));
 });
+
+test('UIReasoning - renderReasoningMenuOptions genera atributos ARIA estándar y checkmark SVG', () => {
+  const createdButtons = [];
+  const fakeContainer = {
+    innerHTML: '',
+    ownerDocument: {
+      createElement: (tag) => {
+        const el = {
+          tagName: tag,
+          type: '',
+          className: '',
+          attributes: {},
+          classList: {
+            add: (cls) => { el.className += ' ' + cls; },
+            remove: (cls) => { el.className = el.className.replace(cls, '').trim(); }
+          },
+          setAttribute: (name, val) => { el.attributes[name] = val; },
+          getAttribute: (name) => el.attributes[name],
+          addEventListener: (event, handler) => { el._handler = handler; }
+        };
+        return el;
+      }
+    },
+    appendChild: (child) => {
+      createdButtons.push(child);
+    }
+  };
+
+  const elements = { reasoningOptionsContainer: fakeContainer };
+  const reasoningInfo = { levels: ['off', 'low', 'medium', 'high'] };
+
+  UIReasoning.renderReasoningMenuOptions(elements, reasoningInfo, 'high', () => {});
+
+  assert.equal(createdButtons.length, 4);
+  createdButtons.forEach(btn => {
+    assert.equal(btn.attributes['role'], 'menuitemradio');
+    assert.ok(btn.innerHTML.includes('option-check'));
+    assert.ok(btn.innerHTML.includes('<svg'));
+  });
+
+  // El botón 'high' debe tener aria-checked="true"
+  const highBtn = createdButtons.find(b => b.attributes['data-level'] === 'high');
+  assert.equal(highBtn.attributes['aria-checked'], 'true');
+  assert.ok(highBtn.className.includes('active'));
+
+  // Los demás deben tener aria-checked="false"
+  const lowBtn = createdButtons.find(b => b.attributes['data-level'] === 'low');
+  assert.equal(lowBtn.attributes['aria-checked'], 'false');
+});
+
+test('UIReasoning - openReasoningMenu y closeReasoningMenu actualizan aria-expanded', () => {
+  const btnEl = {
+    attributes: {},
+    setAttribute: function(name, val) { this.attributes[name] = val; },
+    getAttribute: function(name) { return this.attributes[name]; },
+    getBoundingClientRect: () => ({ top: 100, left: 100, width: 80, height: 32 })
+  };
+  const menuEl = {
+    style: {},
+    addEventListener: () => {}
+  };
+  const fakeContainer = {
+    innerHTML: '',
+    ownerDocument: {
+      createElement: () => ({
+        attributes: {},
+        classList: { add: () => {}, remove: () => {} },
+        setAttribute: () => {},
+        getAttribute: () => '',
+        addEventListener: () => {}
+      })
+    },
+    appendChild: () => {},
+    querySelector: () => null
+  };
+
+  const elements = {
+    btnReasoning: btnEl,
+    reasoningMenu: menuEl,
+    reasoningOptionsContainer: fakeContainer
+  };
+
+  UIReasoning.openReasoningMenu(elements, { apiType: 'openai', reasoningEffort: 'low' });
+  assert.equal(btnEl.attributes['aria-expanded'], 'true');
+  assert.equal(menuEl.style.display, 'flex');
+
+  UIReasoning.closeReasoningMenu(elements);
+  assert.equal(btnEl.attributes['aria-expanded'], 'false');
+  assert.equal(menuEl.style.display, 'none');
+});

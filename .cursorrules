@@ -6,3 +6,4 @@
   1. Ejecuta las pruebas: `npm test` (o `npm run test:unit`).
   2. **REGENERA EL BUNDLE**: `npm run build` (genera el archivo de distribución `zerochat.html`).
   3. No des ninguna tarea por finalizada sin haber ejecutado `npm run build` con éxito.
+

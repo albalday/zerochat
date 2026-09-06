@@ -184,6 +184,12 @@
   background-color: #1e293b;
 }
 
+[data-theme="dark"] .reasoning-option.active {
+  background-color: rgba(255, 255, 255, 0.07);
+  color: var(--text-main);
+  border: none;
+}
+
 [data-theme="dark"] .thought-block {
   background-color: rgba(11, 17, 32, 0.6);
   border-color: var(--border-color);

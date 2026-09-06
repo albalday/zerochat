@@ -28,14 +28,19 @@ test('UI Modernization - Modales y mensajes usan @starting-style para animacione
   assert.ok(messagesCss.includes('interpolate-size: allow-keywords'), 'messages.css debe soportar interpolate-size');
 });
 
-test('UI Modernization - Header incluye las 3 acciones superiores y safe-area', () => {
+test('UI Modernization - Header incluye acciones superiores limpias y safe-area', () => {
   const headerCss = fs.readFileSync(path.resolve(__dirname, '../css/components/header.css'), 'utf8');
   assert.ok(headerCss.includes('env(safe-area-inset-top'), 'header.css debe soportar safe-area-inset-top');
 
   const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
-  assert.ok(indexHtml.includes('id="btn-quick-export"'), 'index.html debe incluir #btn-quick-export en la barra superior');
-  assert.ok(indexHtml.includes('id="btn-clear-chat"'), 'index.html debe incluir #btn-clear-chat en la barra superior');
+  assert.ok(!indexHtml.includes('id="btn-quick-export"'), 'index.html no debe incluir #btn-quick-export en la barra superior');
+  assert.ok(!indexHtml.includes('id="btn-clear-chat"'), 'index.html no debe incluir #btn-clear-chat');
   assert.ok(indexHtml.includes('id="btn-toggle-debug"'), 'index.html debe incluir #btn-toggle-debug en la barra superior');
+  assert.ok(indexHtml.includes('data-i18n="sidebar_title"'), 'index.html debe incluir el título de Chats y Configuración');
+  assert.ok(indexHtml.includes('.sidebar-header #btn-open-settings') || indexHtml.includes('id="btn-open-settings" class="btn-sidebar-icon"'), 'index.html debe incluir #btn-open-settings en la cabecera del sidebar');
+  assert.ok(!indexHtml.includes('id="btn-open-export-modal"'), 'index.html no debe incluir #btn-open-export-modal en el pie de la barra lateral');
+  assert.ok(indexHtml.includes('id="btn-sidebar-new-chat" class="btn-sidebar-icon"'), 'index.html debe incluir #btn-sidebar-new-chat como icono en la cabecera del sidebar');
+  assert.ok(!indexHtml.includes('app-brand-title'), 'index.html no debe incluir título en la barra superior');
 });
 
 test('UI Modernization - Pantalla de bienvenida limpia sin sugerencias intrusivas', () => {

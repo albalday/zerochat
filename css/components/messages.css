@@ -81,21 +81,26 @@
   border-color: #334155;
 }
 
-/* Mensaje del Asistente: Burbuja sutil con fondo para mejor legibilidad */
+/* Mensaje del Asistente: Sin enmarcado, estilo limpio ChatGPT / Gemini */
 .message-row.assistant .message-content {
-  background-color: var(--bg-assistant-bubble);
+  background-color: transparent;
   color: var(--text-main);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  padding: 0.85rem 1.15rem;
+  border: none;
+  border-radius: 0;
+  padding: 0.25rem 0;
   width: 100%;
   min-width: 0;
   text-wrap: pretty;
+  box-shadow: none;
 }
 
-/* Eliminar margen superior en primer párrafo de burbuja */
+/* Eliminar margen superior en primer párrafo y margen inferior en último párrafo */
 .message-row.assistant .message-content > p:first-child {
   margin-top: 0;
+}
+
+.message-row.assistant .message-content > p:last-child {
+  margin-bottom: 0;
 }
 
 
@@ -121,7 +126,7 @@
   justify-content: space-between;
   width: 100%;
   gap: 0.5rem;
-  margin-top: 0.35rem;
+  margin-top: 0.15rem;
   flex-wrap: wrap;
 }
 
@@ -180,15 +185,15 @@
 .btn-msg-action {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
-  padding: 0.45rem 0.6rem;  /* ≥36px touch target */
-  min-height: 36px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
   border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -304,9 +309,9 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0.65rem 1rem;
-  background-color: var(--bg-assistant-bubble);
-  border: 1px solid var(--border-subtle);
+  padding: 0.4rem 0.5rem;
+  background-color: transparent;
+  border: none;
   border-radius: var(--radius-xl);
   margin-bottom: 0.25rem;
 }

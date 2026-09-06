@@ -114,9 +114,10 @@
   function renderAgentToolsUI(container, currentEnabledTools = {}) {
     if (!container) return;
     const AgentCore = getAgentCore();
-    const tools = (AgentCore?.registry && typeof AgentCore.registry.listToolsForUI === 'function')
+    const allTools = (AgentCore?.registry && typeof AgentCore.registry.listToolsForUI === 'function')
       ? AgentCore.registry.listToolsForUI()
       : [];
+    const tools = allTools.filter(t => t.category !== 'mcp');
 
     container.innerHTML = '';
     const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
@@ -227,7 +228,10 @@
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
       theme: appConfig?.theme || 'light',
       language: appConfig?.language || 'es',
-      enabledTools: gatherEnabledToolsFromUI(elements?.agentToolsContainer),
+      enabledTools: {
+        ...gatherEnabledToolsFromUI(elements?.agentToolsContainer),
+        ...gatherEnabledToolsFromUI(elements?.mcpToolsContainer)
+      },
       enableRawLogs: elements?.settingEnableRawLogs ? elements.settingEnableRawLogs.checked : Boolean(appConfig?.enableRawLogs),
       enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
       enableContextCache: elements?.settingEnableContextCache ? elements.settingEnableContextCache.checked : (appConfig?.enableContextCache !== false),
@@ -288,6 +292,12 @@
     if (elements.settingEnableRawLogs) {
       elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
     }
+    if (elements.mcpHostInput) {
+      elements.mcpHostInput.value = appConfig?.mcpHost || '127.0.0.1';
+    }
+    if (elements.mcpPortInput) {
+      elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
+    }
 
     const settingsTabs = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tabs-nav .modal-tab-btn') : elements.modalTabs;
     const settingsPanes = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tab-pane') : elements.modalPanes;
@@ -325,6 +335,8 @@
       if (elements.modelSelectHelper) elements.modelSelectHelper.value = defaults.model;
       if (elements.agentToolsContainer) renderAgentToolsUI(elements.agentToolsContainer, defaults.enabledTools || {});
       if (elements.settingEnableRawLogs) elements.settingEnableRawLogs.checked = defaults.enableRawLogs === true;
+      if (elements.mcpHostInput) elements.mcpHostInput.value = defaults.mcpHost || '127.0.0.1';
+      if (elements.mcpPortInput) elements.mcpPortInput.value = defaults.mcpPort || 6388;
       return defaults;
     }
     return defaults;

@@ -24,7 +24,8 @@
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true,
     theme: 'light', language: 'es', enableDebugMessages: false,
-    activeRagBranchId: '', activeRagBranchIds: []
+    activeRagBranchId: '', activeRagBranchIds: [],
+    mcpHost: '127.0.0.1', mcpPort: 6388
   });
 
   function clone(value) {
@@ -60,6 +61,9 @@
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;
+    next.mcpHost = String(next.mcpHost || DEFAULTS.mcpHost).trim() || DEFAULTS.mcpHost;
+    const parsedMcpPort = Number(next.mcpPort);
+    next.mcpPort = Number.isInteger(parsedMcpPort) && parsedMcpPort >= 1024 && parsedMcpPort <= 65535 ? parsedMcpPort : DEFAULTS.mcpPort;
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
@@ -132,7 +136,17 @@
       return commit(DEFAULTS);
     }
 
-    return { initialize, getActive, updateRuntime, updateGeneral, activateProfile, subscribe, resetRuntime };
+    return {
+      initialize,
+      getActive,
+      get: getActive,
+      updateRuntime,
+      updateGeneral,
+      update: updateRuntime,
+      activateProfile,
+      subscribe,
+      resetRuntime
+    };
   }
 
   const defaultStore = createConfigStore();

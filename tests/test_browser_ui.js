@@ -18,7 +18,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.3.0', 'El título de index.html debe ser ZeroChat v6.3.0');
+    assert.equal(await page.title(), 'ZeroChat v6.4.0', 'El título de index.html debe ser ZeroChat v6.4.0');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -50,7 +50,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.3.0', 'El título de zerochat.html debe ser ZeroChat v6.3.0');
+    assert.equal(title, 'ZeroChat v6.4.0', 'El título de zerochat.html debe ser ZeroChat v6.4.0');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -164,29 +164,29 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const isSidebarToggleInHeader = await page.$eval('.app-header #btn-toggle-sidebar', el => !!el);
     assert.ok(isSidebarToggleInHeader, '#btn-toggle-sidebar debe residir dentro de .app-header');
 
-    // Estado inicial: sidebar cerrado
+    // Estado inicial: sidebar abierto por defecto
     const sidebarInitialDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
-    assert.equal(sidebarInitialDisplay, 'none');
-
-    // Abrir sidebar pulsando el botón del header
-    await page.click('#btn-toggle-sidebar');
-    const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
-    assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
+    assert.equal(sidebarInitialDisplay, 'flex', 'El sidebar debe estar abierto por defecto');
 
     // Cerrar sidebar pulsando el botón de cerrar del sidebar
     await page.click('#btn-close-sidebar');
     const sidebarClosedAgain = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarClosedAgain, 'none', 'El sidebar debe cerrarse');
 
+    // Abrir sidebar pulsando el botón del header
+    await page.click('#btn-toggle-sidebar');
+    const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
+    assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
+
     // 4. Selector de perfiles activo en el header
     const hasProfileSelect = await page.$eval('.app-header #active-profile-select', el => !!el);
     assert.ok(hasProfileSelect, 'El selector de perfil debe residir dentro del header');
 
-    // 5. Botón de Configuración abre el diálogo
+    // 5. Botón de Configuración en la cabecera del sidebar abre el diálogo
     await page.click('#btn-open-settings');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const isSettingsOpen = await page.$eval('#settings-dialog', el => el.open);
-    assert.ok(isSettingsOpen, 'Pulsar el botón de ajustes en el header debe abrir #settings-dialog');
+    assert.ok(isSettingsOpen, 'Pulsar el botón de ajustes en el sidebar debe abrir #settings-dialog');
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
 
@@ -230,7 +230,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
             <div class="message-content">Hola ZeroChat, muéstrame una tabla y código.</div>
             <div class="message-footer-row">
               <div class="message-actions">
-                <button class="btn-msg-action">${editSvg} <span>Editar</span></button>
+                <button class="btn-msg-action" aria-label="Editar" title="Editar">${editSvg}</button>
               </div>
             </div>
           </div>
@@ -274,7 +274,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
                 <span class="stat-item">${zapSvg} <span>45 tok/s</span></span>
               </div>
               <div class="message-actions">
-                <button class="btn-msg-action">${copySvg} <span>Copiar</span></button>
+                <button class="btn-msg-action" aria-label="Copiar" title="Copiar">${copySvg}</button>
               </div>
             </div>
           </div>
@@ -297,6 +297,19 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
 
     assert.ok(canvasMetrics.userWidth <= 1120 && canvasMetrics.userWidth > 900, `El ancho de mensaje (${canvasMetrics.userWidth}px) debe respetar el canvas de lectura ampliado max-width: 68rem`);
     assert.ok(canvasMetrics.astWidth <= 1120 && canvasMetrics.astWidth > 900, `El ancho del asistente (${canvasMetrics.astWidth}px) debe respetar el canvas de lectura ampliado max-width: 68rem`);
+
+    // Validar ausencia de enmarcado en respuestas del asistente
+    const astFraming = await page.evaluate(() => {
+      const astContent = document.querySelector('.message-row.assistant .message-content');
+      const style = getComputedStyle(astContent);
+      return {
+        borderStyle: style.borderStyle,
+        borderWidth: style.borderWidth,
+        backgroundColor: style.backgroundColor
+      };
+    });
+    assert.ok(astFraming.borderWidth === '0px' || astFraming.borderStyle === 'none', 'La respuesta del asistente no debe tener borde/enmarcado');
+    assert.ok(astFraming.backgroundColor === 'rgba(0, 0, 0, 0)' || astFraming.backgroundColor === 'transparent', 'La respuesta del asistente debe tener fondo transparente sin enmarcado');
 
     // 2. Validar acordeón de razonamiento plegable
     const thoughtInfo = await page.evaluate(() => {
@@ -349,12 +362,14 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
       
       const allActionBtnsHaveSvg = actionBtns.every(btn => btn.querySelector('svg.ui-icon'));
       const noActionBtnHasEmoji = actionBtns.every(btn => !emojiRegex.test(btn.textContent));
+      const allActionBtnsIconOnly = actionBtns.every(btn => !btn.querySelector('span') && !btn.textContent.trim());
       const allStatsHaveSvg = statItems.every(item => item.querySelector('svg.ui-icon'));
       const noStatHasEmoji = statItems.every(item => !emojiRegex.test(item.textContent));
 
       return {
         allActionBtnsHaveSvg,
         noActionBtnHasEmoji,
+        allActionBtnsIconOnly,
         allStatsHaveSvg,
         noStatHasEmoji,
         actionBtnCount: actionBtns.length,
@@ -364,6 +379,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
 
     assert.ok(msgActionsInfo.actionBtnCount > 0, 'Deben existir botones de acción de mensaje');
     assert.ok(msgActionsInfo.allActionBtnsHaveSvg, 'Todos los botones de acción deben contener un SVG .ui-icon');
+    assert.ok(msgActionsInfo.allActionBtnsIconOnly, 'Todos los botones de acción deben ser únicamente icono sin texto');
     assert.ok(msgActionsInfo.noActionBtnHasEmoji, 'Ningún botón de acción debe tener emojis en su texto');
     assert.ok(msgActionsInfo.statCount > 0, 'Deben existir items de estadísticas');
     assert.ok(msgActionsInfo.allStatsHaveSvg, 'Todos los items de estadísticas deben contener un SVG .ui-icon');
@@ -471,25 +487,27 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
-    // 1. Abrir barra lateral
-    await page.click('#btn-toggle-sidebar');
+    // 1. Validar que la barra lateral está abierta por defecto
     const isSidebarVisible = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display === 'flex');
     assert.ok(isSidebarVisible, 'El sidebar debe mostrarse con display flex');
 
-    // 2. Validar botón destacado "+ Nueva conversación"
+    // 2. Validar botón de nueva conversación como icono en la cabecera
     const newChatBtnInfo = await page.evaluate(() => {
       const btn = document.getElementById('btn-sidebar-new-chat');
       const style = getComputedStyle(btn);
       return {
         exists: !!btn,
         text: btn.textContent.trim(),
-        borderRadius: parseFloat(style.borderRadius),
-        bgColor: style.backgroundColor
+        hasSvg: !!btn.querySelector('svg'),
+        isInActions: !!btn.closest('.sidebar-header-actions'),
+        width: parseFloat(style.width),
+        height: parseFloat(style.height)
       };
     });
     assert.ok(newChatBtnInfo.exists, 'El botón #btn-sidebar-new-chat debe existir');
-    assert.ok(newChatBtnInfo.text.includes('Nueva conversación'), 'El botón debe contener el texto de nueva conversación');
-    assert.ok(newChatBtnInfo.borderRadius >= 16, 'El botón de nueva conversación debe ser redondeado estilo cápsula');
+    assert.ok(newChatBtnInfo.hasSvg, 'El botón de nueva conversación debe contener un icono SVG');
+    assert.ok(newChatBtnInfo.isInActions, 'El botón de nueva conversación debe estar en las acciones de la cabecera del sidebar');
+    assert.ok(newChatBtnInfo.width > 0 && newChatBtnInfo.height > 0, 'El botón de nueva conversación debe tener dimensiones renderizadas');
 
     // 3. Validar buscador de historial con icono
     const searchInfo = await page.evaluate(() => {
@@ -666,6 +684,74 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(renamedActiveResult.runtimeName, 'Local chat renombrado', 'El perfil activo debe reflejar el nuevo nombre');
     assert.equal(renamedActiveResult.runtimeUrl, 'http://active-profile-test:1234/v1', 'Los cambios del perfil activo deben recargarse');
 
+    // 2c. Verificar pestaña MCP (mcp-proxy) al lado de Agente, modal de configuración reactivo y comando
+    const tabOrder = await page.$$eval('#settings-dialog .modal-tabs-nav .modal-tab-btn', els => els.map(e => e.getAttribute('data-tab')));
+    const agentIndex = tabOrder.indexOf('tab-agent');
+    const mcpIndex = tabOrder.indexOf('tab-mcp');
+    assert.ok(agentIndex >= 0 && mcpIndex === agentIndex + 1, 'La pestaña MCP debe estar posicionada inmediatamente al lado de la de Agente');
+
+    const mcpTabBtn = await page.$('button[data-tab="tab-mcp"]');
+    assert.ok(mcpTabBtn, 'Debe existir la pestaña MCP en la navegación de pestañas');
+    await mcpTabBtn.click();
+    const isMcpActive = await mcpTabBtn.evaluate(el => el.classList.contains('active'));
+    assert.ok(isMcpActive, 'La pestaña MCP debe quedar activa al hacer click');
+
+    const mcpUiState = await page.evaluate(() => {
+      const pane = document.getElementById('tab-mcp');
+      const badge = document.getElementById('mcp-status-badge');
+      const btnConfigure = document.getElementById('btn-mcp-configure');
+      const btnConnect = document.getElementById('btn-mcp-connect');
+      return {
+        paneActive: pane?.classList.contains('active'),
+        badgeText: badge?.textContent?.trim(),
+        hasConfigureBtn: !!btnConfigure,
+        hasConnectBtn: !!btnConnect,
+        hasToolsContainer: !!document.getElementById('mcp-tools-container'),
+        toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none'
+      };
+    });
+
+    assert.ok(mcpUiState.paneActive, 'El panel tab-mcp debe estar visible y activo');
+    assert.ok(mcpUiState.badgeText.includes('Desconectado'), 'El estado inicial debe ser Desconectado');
+    assert.ok(mcpUiState.hasConfigureBtn, 'El botón Configurar debe estar presente en el panel MCP');
+    assert.ok(mcpUiState.hasConnectBtn, 'El botón Conectar debe estar presente en el panel MCP');
+    assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
+    assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
+
+    // Abrir modal de configuración e instrucciones desde el botón Configurar
+    await page.click('#btn-mcp-configure');
+    await page.waitForSelector('#mcp-setup-dialog[open]');
+    const isSetupOpen = await page.$eval('#mcp-setup-dialog', el => el.open);
+    assert.ok(isSetupOpen, 'El modal de configuración de MCP debe abrirse');
+
+    const modalState = await page.evaluate(() => {
+      const portInput = document.getElementById('mcp-port-input');
+      const command = document.getElementById('mcp-terminal-command');
+      const endpoint = document.getElementById('mcp-endpoint-preview');
+      return {
+        port: portInput?.value,
+        commandText: command?.textContent?.trim(),
+        endpointText: endpoint?.textContent?.trim()
+      };
+    });
+
+    assert.equal(modalState.port, '6388', 'El puerto por defecto debe ser 6388 (rango 63xx)');
+    assert.ok(modalState.commandText.includes('--port 6388'), 'El comando debe reflejar el puerto 6388');
+    assert.equal(modalState.endpointText, 'http://127.0.0.1:6388/sse');
+
+    // Cambiar interactivamente el puerto en el input del modal y verificar reactividad inmediata
+    await page.fill('#mcp-port-input', '6395');
+    const updatedCommand = await page.$eval('#mcp-terminal-command', el => el.textContent.trim());
+    const updatedEndpoint = await page.$eval('#mcp-endpoint-preview', el => el.textContent.trim());
+    assert.ok(updatedCommand.includes('--port 6395'), 'El comando debe actualizarse reactivamente a 6395');
+    assert.equal(updatedEndpoint, 'http://127.0.0.1:6395/sse', 'El endpoint debe actualizarse reactivamente a 6395');
+
+    // Cerrar el modal de configuración de MCP
+    await page.click('#btn-close-mcp-setup-footer');
+    await page.waitForFunction(() => !document.getElementById('mcp-setup-dialog')?.open);
+    const isSetupClosed = await page.$eval('#mcp-setup-dialog', el => !el.open);
+    assert.ok(isSetupClosed, 'El modal de configuración de MCP debe cerrarse correctamente');
+
     // 3. Cerrar ambos modales sin guardar la configuración general.
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
     await page.click('#btn-close-settings');
@@ -804,14 +890,12 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
     const headerIcons = await page.evaluate(() => {
       const profileSvg = document.querySelector('.badge-profile .profile-icon svg');
       const ragSvg = document.querySelector('#btn-open-rag svg');
-      const exportSvg = document.querySelector('#btn-quick-export svg');
       const debugSvg = document.querySelector('#btn-toggle-debug svg');
       const reasoningSvg = document.querySelector('#btn-reasoning svg');
 
       return {
         hasProfileSvg: !!profileSvg,
         hasRagSvg: !!ragSvg,
-        hasExportSvg: !!exportSvg,
         hasDebugSvg: !!debugSvg,
         hasReasoningSvg: !!reasoningSvg,
         ragWidth: ragSvg ? parseFloat(getComputedStyle(ragSvg).width) : 0,
@@ -821,7 +905,6 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 
     assert.ok(headerIcons.hasProfileSvg, 'El selector de perfiles debe contener un SVG vectorial (zap)');
     assert.ok(headerIcons.hasRagSvg, 'El botón RAG debe contener un SVG vectorial (layers)');
-    assert.ok(headerIcons.hasExportSvg, 'El botón de exportar debe contener un SVG vectorial (download)');
     assert.ok(headerIcons.hasDebugSvg, 'El botón de debug debe contener un SVG vectorial (terminal)');
     assert.ok(headerIcons.hasReasoningSvg, 'El botón de razonamiento debe contener un SVG vectorial (brain)');
     assert.ok(headerIcons.ragWidth >= 12, 'El icono RAG debe tener dimensiones computadas válidas');
@@ -840,6 +923,15 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
       const lowText = lowOption?.querySelector('.option-text');
       const svg = header?.querySelector('svg');
       const text = header?.textContent || '';
+      const activeOption = document.querySelector('.reasoning-option.active');
+      const activeCheckSvg = activeOption?.querySelector('.option-check svg');
+      const lowBorderStyle = lowOption ? getComputedStyle(lowOption).borderStyle : '';
+      const activeBorderStyle = activeOption ? getComputedStyle(activeOption).borderStyle : '';
+      const lowBorderWidth = lowOption ? getComputedStyle(lowOption).borderWidth : '';
+      const activeBorderWidth = activeOption ? getComputedStyle(activeOption).borderWidth : '';
+      const btnAriaPopup = document.getElementById('btn-reasoning')?.getAttribute('aria-haspopup');
+      const btnAriaExpanded = document.getElementById('btn-reasoning')?.getAttribute('aria-expanded');
+
       return {
         hasSvg: !!svg,
         hasEmoji: text.includes('🧠'),
@@ -848,7 +940,14 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
         headerBottom: header?.getBoundingClientRect().bottom || 0,
         optionsTop: options?.getBoundingClientRect().top || 0,
         lowIconRight: lowIcon?.getBoundingClientRect().right || 0,
-        lowTextLeft: lowText?.getBoundingClientRect().left || 0
+        lowTextLeft: lowText?.getBoundingClientRect().left || 0,
+        lowBorderStyle,
+        activeBorderStyle,
+        lowBorderWidth,
+        activeBorderWidth,
+        hasActiveCheckSvg: !!activeCheckSvg,
+        btnAriaPopup,
+        btnAriaExpanded
       };
     });
 
@@ -857,6 +956,11 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
     assert.equal(menuHeaderInfo.flexDirection, 'column', 'El menú de razonamiento debe apilar cabecera y opciones verticalmente');
     assert.ok(menuHeaderInfo.optionsTop >= menuHeaderInfo.headerBottom, 'Las opciones deben mostrarse debajo de la cabecera, no a su lado');
     assert.ok(menuHeaderInfo.lowTextLeft - menuHeaderInfo.lowIconRight <= 10, 'El texto del nivel bajo debe quedar junto a su indicador');
+    assert.ok(menuHeaderInfo.lowBorderStyle === 'none' || menuHeaderInfo.lowBorderWidth === '0px', 'Las opciones de razonamiento no deben tener enmarcado');
+    assert.ok(menuHeaderInfo.activeBorderStyle === 'none' || menuHeaderInfo.activeBorderWidth === '0px', 'La opción activa de razonamiento no debe tener enmarcado');
+    assert.ok(menuHeaderInfo.hasActiveCheckSvg, 'La opción activa debe indicar selección mediante icono SVG checkmark');
+    assert.equal(menuHeaderInfo.btnAriaPopup, 'menu', 'El botón de razonamiento debe declarar aria-haspopup="menu"');
+    assert.equal(menuHeaderInfo.btnAriaExpanded, 'true', 'El botón de razonamiento debe tener aria-expanded="true" al estar desplegado');
   } finally {
     await browser.close();
   }
@@ -870,36 +974,35 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
-    // 1. Abrir barra lateral
-    await page.click('#btn-toggle-sidebar');
+    // 1. Validar barra lateral abierta
     await page.waitForFunction(() => document.getElementById('chat-sidebar')?.style.display !== 'none');
 
     // 2. Verificar iconos vectoriales de cabecera, buscador y footer de sidebar
     const sidebarIcons = await page.evaluate(() => {
       const newChatSvg = document.querySelector('#btn-sidebar-new-chat svg');
+      const settingsSvg = document.querySelector('.sidebar-header #btn-open-settings svg');
       const closeSvg = document.querySelector('#btn-close-sidebar svg');
       const searchSvg = document.querySelector('.sidebar-search-box svg');
       const importSvg = document.querySelector('#btn-import-chat-file svg');
-      const exportSvg = document.querySelector('#btn-open-export-modal svg');
       const deleteAllSvg = document.querySelector('#btn-delete-all-chats svg');
 
       return {
         hasNewChatSvg: !!newChatSvg,
+        hasSettingsSvg: !!settingsSvg,
         hasCloseSvg: !!closeSvg,
         hasSearchSvg: !!searchSvg,
         hasImportSvg: !!importSvg,
-        hasExportSvg: !!exportSvg,
         hasDeleteAllSvg: !!deleteAllSvg,
         newChatWidth: newChatSvg ? parseFloat(getComputedStyle(newChatSvg).width) : 0,
         searchWidth: searchSvg ? parseFloat(getComputedStyle(searchSvg).width) : 0
       };
     });
 
-    assert.ok(sidebarIcons.hasNewChatSvg, 'El botón "+ Nueva conversación" debe tener icono SVG');
+    assert.ok(sidebarIcons.hasNewChatSvg, 'El botón de nueva conversación debe tener icono SVG');
+    assert.ok(sidebarIcons.hasSettingsSvg, 'El botón de configuración en la cabecera del sidebar debe tener icono SVG');
     assert.ok(sidebarIcons.hasCloseSvg, 'El botón de cerrar barra lateral debe tener icono SVG');
     assert.ok(sidebarIcons.hasSearchSvg, 'El buscador debe tener icono SVG de lupa');
     assert.ok(sidebarIcons.hasImportSvg, 'El botón de importar debe tener icono SVG');
-    assert.ok(sidebarIcons.hasExportSvg, 'El botón de exportar debe tener icono SVG');
     assert.ok(sidebarIcons.hasDeleteAllSvg, 'El botón de borrar todo debe tener icono SVG');
     assert.ok(sidebarIcons.newChatWidth >= 14, 'El icono de nuevo chat debe tener tamaño >= 14px');
 
@@ -912,21 +1015,26 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
         ], 'sess_test_1', {});
       }
       const item = list.querySelector('.sidebar-chat-item');
+      const exportSvg = item?.querySelector('.btn-export svg');
       const renameSvg = item?.querySelector('.btn-rename svg');
       const deleteSvg = item?.querySelector('.btn-delete svg');
 
       return {
         hasItem: !!item,
+        hasExportSvg: !!exportSvg,
         hasRenameSvg: !!renameSvg,
         hasDeleteSvg: !!deleteSvg,
+        exportWidth: exportSvg ? parseFloat(getComputedStyle(exportSvg).width) : 0,
         renameWidth: renameSvg ? parseFloat(getComputedStyle(renameSvg).width) : 0,
         deleteWidth: deleteSvg ? parseFloat(getComputedStyle(deleteSvg).width) : 0
       };
     });
 
     assert.ok(chatItemActionIcons.hasItem, 'El item de conversación debe renderizarse');
+    assert.ok(chatItemActionIcons.hasExportSvg, 'La acción de exportar debe contener icono SVG (download)');
     assert.ok(chatItemActionIcons.hasRenameSvg, 'La acción de renombrar debe contener icono SVG (edit)');
     assert.ok(chatItemActionIcons.hasDeleteSvg, 'La acción de eliminar debe contener icono SVG (trash)');
+    assert.ok(chatItemActionIcons.exportWidth >= 10, 'El icono de exportar debe tener dimensiones válidas');
     assert.ok(chatItemActionIcons.renameWidth >= 10, 'El icono de renombrar debe tener dimensiones válidas');
     assert.ok(chatItemActionIcons.deleteWidth >= 10, 'El icono de eliminar debe tener dimensiones válidas');
   } finally {
@@ -1007,7 +1115,8 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
         hasSearchBadgeSpinnerSvg: !!searchBadgeSpinnerSvg,
         searchBadgeHasEmoji,
         chartSvgFound,
-        chartEmojiFound
+        chartEmojiFound,
+        jsCardCollapsed: !!jsCard.querySelector('.tool-execution-card.collapsed')
       };
     });
 
@@ -1019,6 +1128,7 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
     assert.ok(toolCardsResult.hasJsCollapseSvg, 'El botón de colapsar debe tener un chevron SVG');
     assert.ok(toolCardsResult.hasJsBadgeSuccessSvg, 'El badge de completado debe tener un check SVG');
     assert.equal(toolCardsResult.jsBadgeSuccessHasEmoji, false, 'El badge de completado no debe tener emoji ✅');
+    assert.ok(toolCardsResult.jsCardCollapsed, 'La tarjeta de la tool debe aparecer minimizada (collapsed) tras su ejecución');
 
     // Validaciones Search Web Card
     assert.ok(toolCardsResult.hasSearchTitleSvg, 'search_web debe tener icono SVG');
@@ -1490,3 +1600,64 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en
     await browser.close();
   }
 });
+
+test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuperar del historial', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-banner');
+
+    // 1. Guardar y cargar una conversación con tool en el almacenamiento
+    await page.evaluate(async () => {
+      const history = [
+        { id: 'msg_u_tool', role: 'user', content: 'Calcula 10 + 20' },
+        {
+          id: 'msg_a_tool',
+          role: 'assistant',
+          content: 'He ejecutado el código para calcularlo:',
+          tool_calls: [{
+            id: 'call_js_hist_1',
+            type: 'function',
+            function: { name: 'execute_javascript', arguments: '{"javascript":"return 10 + 20;"}' }
+          }]
+        },
+        {
+          id: 'msg_t_tool',
+          role: 'tool',
+          tool_call_id: 'call_js_hist_1',
+          name: 'execute_javascript',
+          content: '{"success":true,"result":"30"}'
+        }
+      ];
+      await window.ChatStorage.saveConversation({ id: 'sess_tool_hist_toggle', title: 'Test Tool Toggle', createdAt: Date.now() }, history);
+      await window.ChatApp.switchToSession('sess_tool_hist_toggle');
+    });
+
+    // 2. Esperar que se renderice la tarjeta de la tool
+    await page.waitForSelector('.tool-execution-card');
+
+    // 3. Verificar que aparece minimizada (collapsed) inicialmente
+    const isInitiallyCollapsed = await page.$eval('.tool-execution-card', el => el.classList.contains('collapsed'));
+    assert.equal(isInitiallyCollapsed, true, 'La tarjeta de tool recuperada del historial debe estar minimizada inicialmente');
+
+    // 4. Hacer clic en el botón .btn-tool-collapse y verificar que se abre (no colapsada)
+    await page.click('.btn-tool-collapse');
+    const isOpenedAfterBtnClick = await page.$eval('.tool-execution-card', el => !el.classList.contains('collapsed'));
+    assert.equal(isOpenedAfterBtnClick, true, 'Al pulsar el botón .btn-tool-collapse debe expandirse la tarjeta');
+
+    // 5. Hacer clic de nuevo en el botón .btn-tool-collapse y verificar que se cierra
+    await page.click('.btn-tool-collapse');
+    const isClosedAfterSecondClick = await page.$eval('.tool-execution-card', el => el.classList.contains('collapsed'));
+    assert.equal(isClosedAfterSecondClick, true, 'Al pulsar de nuevo el botón .btn-tool-collapse debe volver a minimizarse');
+
+    // 6. Hacer clic en la cabecera .tool-card-header y verificar que también se expande
+    await page.click('.tool-card-header');
+    const isOpenedAfterHeaderClick = await page.$eval('.tool-execution-card', el => !el.classList.contains('collapsed'));
+    assert.equal(isOpenedAfterHeaderClick, true, 'Al pulsar en la cabecera de la tarjeta debe expandirse');
+  } finally {
+    await browser.close();
+  }
+});
+

@@ -65,7 +65,9 @@
         enableContextCache: true,
         activeRagBranchId: '',
         activeRagBranchIds: [],
-        modelReasoningConfig: null
+        modelReasoningConfig: null,
+        mcpHost: '127.0.0.1',
+        mcpPort: 6388
       },
 
       // 2. Sesiones y Conversación Activa
@@ -105,6 +107,19 @@
         reasoningMenuOpen: false,
         debugPanelOpen: false,
         activeModal: null // null | 'settings' | 'export' | 'debug_interceptor'
+      },
+
+      // 8. Estado de Integración MCP (mcp-proxy)
+      mcp: {
+        status: 'disconnected', // 'disconnected' | 'connecting' | 'connected' | 'error'
+        host: '127.0.0.1',
+        port: 6388,
+        endpoint: 'http://127.0.0.1:6388/sse',
+        serverInfo: null,
+        tools: [],
+        lastConnected: null,
+        latencyMs: null,
+        error: null
       }
     };
 

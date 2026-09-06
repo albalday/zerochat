@@ -15,11 +15,11 @@
 
   const definition = {
     name: 'execute_javascript',
-    description: 'Ejecuta código JavaScript localmente en un sandbox seguro en el navegador para cálculos matemáticos y procesamiento de datos.',
+    description: 'Ejecuta JavaScript local en sandbox. Usa siempre return o console.log() para devolver el resultado.',
     parameters: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Código JS ejecutable.' }
+        code: { type: 'string', description: 'Código JS ejecutable. Usa siempre return <valor> o console.log() para emitir la salida.' }
       },
       required: ['code']
     }
@@ -167,8 +167,8 @@
         showInSettings: true
       },
       promptGuide: (lang) => lang === 'en'
-        ? '- `execute_javascript(code="...")`: Executes JavaScript code locally in the browser for math calculations, algorithms, and data processing.'
-        : '- `execute_javascript(code="...")`: Ejecuta código JavaScript localmente en el navegador para cálculos matemáticos, algoritmos y procesamiento de datos.',
+        ? '- `execute_javascript(code="...")`: Runs JavaScript locally in sandbox. Always use `return <value>` or `console.log(...)` to output results.'
+        : '- `execute_javascript(code="...")`: Ejecuta JavaScript local en sandbox. Usa siempre `return <valor>` o `console.log(...)` para emitir el resultado.',
       execute: async (args, context = {}) => {
         const Sandbox = context.services?.sandbox;
         if (!Sandbox || !Sandbox.execute) {

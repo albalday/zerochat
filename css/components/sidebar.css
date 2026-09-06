@@ -37,16 +37,45 @@
 
 /* Cabecera de Barra Lateral */
 .sidebar-header {
-  padding: 0.75rem 0.85rem;
+  padding: 0.65rem 0.85rem;
   border-bottom: 1px solid var(--border-color);
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.sidebar-header-top {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.4rem;
+  width: 100%;
+}
+
+.sidebar-header-title {
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 /* Botón Destacado "+ Nueva conversación" */
 .btn-sidebar-new-chat {
-  flex: 1 1 auto;
+  width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -79,11 +108,11 @@
   line-height: 1;
 }
 
-/* Botón de cerrar barra lateral */
+/* Botones de acción en cabecera de barra lateral (sin enmarcado) */
 .btn-sidebar-icon,
 .btn-sidebar-close {
   background: transparent;
-  border: 1px solid var(--border-color);
+  border: none;
   color: var(--text-muted);
   width: 32px;
   height: 32px;
@@ -94,14 +123,13 @@
   justify-content: center;
   cursor: pointer;
   font-size: 0.85rem;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
 }
 
 .btn-sidebar-icon:hover,
 .btn-sidebar-close:hover {
   background-color: var(--bg-hover);
   color: var(--text-main);
-  border-color: var(--primary);
 }
 
 /* Buscador de conversaciones */
@@ -220,7 +248,7 @@
 
 .btn-chat-action {
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   color: var(--text-muted);
   cursor: pointer;
   padding: 0.2rem 0.35rem;
@@ -231,22 +259,19 @@
 
 .btn-chat-action:hover {
   color: var(--text-main);
-  background-color: var(--bg-surface);
-  border-color: var(--border-color);
+  background-color: var(--bg-hover);
 }
 
 .btn-chat-action.btn-delete:hover {
   color: var(--danger);
   background-color: #fee2e2;
-  border-color: #fca5a5;
 }
 
 [data-theme="dark"] .btn-chat-action.btn-delete:hover {
   background-color: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.4);
 }
 
-/* Pie de Barra Lateral */
+/* Pie de Barra Lateral (sin enmarcado) */
 .sidebar-footer {
   padding: 0.65rem 0.85rem;
   border-top: 1px solid var(--border-color);
@@ -257,16 +282,16 @@
 }
 
 .btn-sidebar-footer {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface-subtle);
+  border: none;
+  background-color: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -275,7 +300,6 @@
 .btn-sidebar-footer:hover {
   background-color: var(--bg-hover);
   color: var(--text-main);
-  border-color: var(--primary);
 }
 
 .btn-sidebar-danger {
@@ -285,13 +309,11 @@
 
 .btn-sidebar-danger:hover {
   background-color: #fee2e2;
-  border-color: #fca5a5;
   color: var(--danger);
 }
 
 [data-theme="dark"] .btn-sidebar-danger:hover {
   background-color: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.4);
 }
 
 /* Adaptación Responsive para Móviles (Drawer Drawer Mode) */

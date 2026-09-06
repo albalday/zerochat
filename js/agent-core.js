@@ -359,12 +359,53 @@
     }
 
     /**
-     * Devuelve las herramientas visibles para la UI de Configuración.
+     * Desregistra un proveedor y todas las herramientas que expone.
      */
-    listToolsForUI() {
+    unregisterProvider(providerId) {
+      if (!providerId || !this.providers.has(providerId)) return;
+      const provider = this.providers.get(providerId);
+      this.providers.delete(providerId);
+      const tools = typeof provider.getTools === 'function' ? provider.getTools() : [];
+      if (Array.isArray(tools)) {
+        tools.forEach(tool => {
+          if (tool && tool.name) {
+            this.unregisterTool(tool.name);
+          }
+        });
+      }
+    }
+
+    /**
+     * Desregistra una herramienta individual y sus alias.
+     */
+    unregisterTool(name) {
+      if (!name) return;
+      const clean = String(name).trim().toLowerCase();
+      const tool = this.tools.get(clean);
+      if (tool) {
+        this.tools.delete(clean);
+        this.aliasMap.delete(clean.replace(/_/g, ''));
+        if (Array.isArray(tool.aliases)) {
+          tool.aliases.forEach(alias => {
+            const cleanAlias = String(alias).trim().toLowerCase();
+            this.aliasMap.delete(cleanAlias);
+            this.aliasMap.delete(cleanAlias.replace(/_/g, ''));
+          });
+        }
+      }
+    }
+
+    /**
+     * Devuelve las herramientas visibles para la UI de Configuración.
+     * @param {string} [filterCategory=null] - Opcional: filtrar por categoría ('builtin', 'mcp', etc.)
+     */
+    listToolsForUI(filterCategory = null) {
       const list = [];
       for (const tool of this.tools.values()) {
         if (tool.settings && tool.settings.showInSettings !== false) {
+          if (filterCategory && tool.category !== filterCategory) {
+            continue;
+          }
           list.push({
             id: tool.id || tool.name,
             name: tool.name,

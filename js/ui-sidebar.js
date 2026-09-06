@@ -19,6 +19,7 @@
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
+  const getIcons = () => resolveDep('ChatIcons', './icons.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -167,6 +168,11 @@
       return;
     }
 
+    const Icons = getIcons();
+    const exportSvg = Icons && typeof Icons.get === 'function' ? Icons.get('download', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+    const editSvg = Icons && typeof Icons.get === 'function' ? Icons.get('edit', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+    const trashSvg = Icons && typeof Icons.get === 'function' ? Icons.get('trash', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+
     let currentCategory = null;
     matching.forEach(s => {
       const d = new Date(s.updatedAt || s.createdAt || Date.now());
@@ -190,19 +196,13 @@
       const rawTitle = s.title || t('chat_untitled') || 'Nueva conversación';
       const safeTitle = escapeHtml(rawTitle);
 
-      const editSvg = (typeof ChatIcons !== 'undefined' && ChatIcons.has('edit'))
-        ? ChatIcons.get('edit', { size: 13 })
-        : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-      const trashSvg = (typeof ChatIcons !== 'undefined' && ChatIcons.has('trash'))
-        ? ChatIcons.get('trash', { size: 13 })
-        : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-
       item.innerHTML = `
         <div class="sidebar-chat-info">
           <span class="sidebar-chat-title" title="${safeTitle}">${safeTitle}</span>
           <span class="sidebar-chat-time">${timeStr}</span>
         </div>
         <div class="sidebar-chat-actions">
+          <button type="button" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}">${exportSvg}</button>
           <button type="button" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}">${editSvg}</button>
           <button type="button" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}">${trashSvg}</button>
         </div>
@@ -215,9 +215,20 @@
         }
       });
 
+      const btnExport = item.querySelector('.btn-export');
+      if (btnExport) {
+        btnExport.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          if (typeof callbacks.onExportSession === 'function') {
+            callbacks.onExportSession(s.id, e);
+          }
+        });
+      }
+
       const btnRename = item.querySelector('.btn-rename');
       if (btnRename) {
         btnRename.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
           if (typeof callbacks.onRenameSession === 'function') {
             callbacks.onRenameSession(s.id, e);
           }
@@ -227,6 +238,7 @@
       const btnDelete = item.querySelector('.btn-delete');
       if (btnDelete) {
         btnDelete.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
           if (typeof callbacks.onDeleteSession === 'function') {
             callbacks.onDeleteSession(s.id, e);
           }
