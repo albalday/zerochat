@@ -76,11 +76,11 @@
       definition,
       aliases: ['fetchwebpage', 'fetch_web', 'fetch_url', 'get_web_page', 'read_web_page', 'web_fetch', 'browse_web', 'webpage'],
       category: 'web',
-      metadata: { icon: '🌐', label: definition.name },
+      metadata: { icon: 'globe', label: definition.name },
       settings: {
         titleKey: 'agent_web_title', titleFallback: 'Navegación Web en Tiempo Real',
         descKey: 'agent_web_desc', descFallback: 'Permite al modelo invocar fetch_web_page para consultar páginas web públicas y extraer su contenido textual en tiempo real.',
-        icon: '🌐', defaultEnabled: true, showInSettings: true
+        icon: 'globe', defaultEnabled: true, showInSettings: true
       },
       promptGuide: (lang) => lang === 'en'
         ? '- `fetch_web_page(url="...")`: Reads and extracts clean text content from public web pages or HTML articles.'
@@ -92,7 +92,7 @@
       },
       result: {
         toModel: (_args, result) => JSON.stringify(result || {}),
-        toMarkdown: (args) => `> 🌐 **fetch_web_page**\n> URL: "${args.url || ''}"\n\n`
+        toMarkdown: (args) => `> **fetch_web_page**\n> URL: "${args.url || ''}"\n\n`
       },
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }

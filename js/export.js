@@ -32,18 +32,22 @@
 
   function buildMarkdownExport(chatHistory, options = {}) {
     const title = options.title || 'ZeroChat_Conversation';
-    const model = options.model || 'No especificado';
+    const model = options.model || (options.t ? options.t('not_specified') : 'No especificado');
     const dateStr = options.date || new Date().toLocaleString();
+    const userRole = options.userRole || (options.t ? options.t('role_user') : '👤 Usuario');
+    const assistantRole = options.assistantRole || (options.t ? options.t('role_assistant') : '🤖 Asistente');
+    const exportDateLabel = options.exportDateLabel || (options.t ? options.t('export_date') : 'Fecha de exportación');
+    const modelLabel = options.modelLabel || (options.t ? options.t('field_model') : 'Modelo');
 
-    let md = `# ${title}\n\n*Fecha de exportación: ${dateStr}*\n*Modelo: ${model}*\n\n---\n\n`;
+    let md = `# ${title}\n\n*${exportDateLabel}: ${dateStr}*\n*${modelLabel}: ${model}*\n\n---\n\n`;
 
     (chatHistory || []).forEach(m => {
       if (!m || m.role === 'system') return;
       if (m.role === 'user') {
         const contentStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        md += `### 👤 Usuario\n\n${contentStr}\n\n---\n\n`;
+        md += `### ${userRole}\n\n${contentStr}\n\n---\n\n`;
       } else if (m.role === 'assistant' && m.content) {
-        md += `### 🤖 Asistente\n\n${m.content}\n\n---\n\n`;
+        md += `### ${assistantRole}\n\n${m.content}\n\n---\n\n`;
       }
     });
 
@@ -84,7 +88,7 @@
       throw new Error('El archivo no contiene un historial de chat válido (propiedad history ausente).');
     }
 
-    const newId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const newId = 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     return {
       id: newId,
       title: importedSession.title || defaultTitle,

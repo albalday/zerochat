@@ -62,15 +62,19 @@
       const chip = document.createElement('div');
       chip.className = 'file-chip';
 
-      let icon = '📄';
-      if (file.type === 'pdf') icon = '📕';
-      else if (file.type === 'image') icon = '🖼️';
+      let iconName = 'file-text';
+      if (file.type === 'pdf') iconName = 'file-text';
+      else if (file.type === 'image') iconName = 'image';
+
+      const Icons = typeof window !== 'undefined' ? window.ChatIcons : null;
+      const iconSvg = Icons ? Icons.get(iconName, { size: 14 }) : '';
+      const safeName = String(file.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
       chip.innerHTML = `
-        <span class="file-chip-icon">${icon}</span>
-        <span class="file-chip-name" title="${file.name}">${file.name}</span>
+        <span class="file-chip-icon">${iconSvg}</span>
+        <span class="file-chip-name" title="${safeName}">${safeName}</span>
         <span class="file-chip-size">(${FileParser.formatBytes(file.size)})</span>
-        <button type="button" class="btn-remove-chip" data-index="${index}" title="Remove">×</button>
+        <button type="button" class="btn-remove-chip" data-index="${index}" title="Eliminar">×</button>
       `;
 
       chip.querySelector('.btn-remove-chip').addEventListener('click', () => {

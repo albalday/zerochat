@@ -19,12 +19,12 @@
       this.modules = new Map();
     }
 
-    register(toolModule) {
+    register(toolModule, options = {}) {
       if (!toolModule || typeof toolModule.id !== 'string' || !toolModule.id.trim()) {
         throw new Error('Un módulo de tool debe declarar un id válido.');
       }
       const id = toolModule.id.trim();
-      if (this.modules.has(id)) {
+      if (this.modules.has(id) && !options.overwrite) {
         throw new Error(`El módulo de tool '${id}' ya está registrado.`);
       }
       this.modules.set(id, toolModule);

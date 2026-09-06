@@ -16,10 +16,44 @@
     return null;
   }
   function getBranchIds(context = {}) { return context.activeRagBranchIds || context.activeRagBranchId || context.branchId || context.config?.activeRagBranchIds || context.config?.activeRagBranchId || ''; }
+  function createLiveCard(args, ui) {
+    if (ui?.createCardWrapper) return ui.createCardWrapper();
+    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return null;
+    const cardDiv = doc.createElement('div');
+    cardDiv.className = 'tool-card-wrapper';
+    const t = ui?.t || ((key) => key);
+    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${args?.imageRef || ''}</code></div></div>`;
+    return cardDiv;
+  }
+
+  function updateLiveCard(cardDiv, args, result, _elapsedMs, ui) {
+    if (!cardDiv) return;
+    const t = ui?.t || ((key) => key);
+    const content = result?.success ? (result.documentTitle || result.imageRef) : (result?.error || 'Error');
+    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${args?.imageRef || ''}</code></div><div class="rag-card-body">${content}</div></div>`;
+  }
+
+  function renderHistoricalCard(args, toolMessage, ui) {
+    const cardDiv = createLiveCard(args, ui);
+    if (!cardDiv) return null;
+    let result = {};
+    if (toolMessage?.content) {
+      try { result = JSON.parse(toolMessage.content); } catch (_) { result = { content: toolMessage.content }; }
+    }
+    updateLiveCard(cardDiv, args, result, 0, ui);
+    return cardDiv;
+  }
+
   function createTool(Tool) {
     if (typeof Tool !== 'function') throw new Error('La clase Tool es necesaria para crear read_knowledge_image.');
     return new Tool({
-      id: definition.name, definition, aliases: [], category: 'rag', metadata: { icon: '🖼️', label: definition.name }, settings: { showInSettings: false },
+      id: definition.name,
+      definition,
+      aliases: [],
+      category: 'rag',
+      metadata: { icon: 'image', label: definition.name },
+      settings: { showInSettings: false },
       isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {
         const service = getRagService(context);
@@ -27,13 +61,13 @@
       },
       result: {
         toModel: (_args, result) => result?.success ? `Imagen recuperada: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, página ${result.page}` : ''})` : ''}. Analízala visualmente para responder.` : JSON.stringify(result || {}),
-        toMarkdown: (args, result) => result?.success ? `> 🖼️ **read_knowledge_image** (${result.imageRef})\n\n` : `> 🖼️ **read_knowledge_image** (${args?.imageRef || ''}) · ❌ ${result?.error || 'Error'}\n\n`
+        toMarkdown: (args, result) => result?.success ? `> **read_knowledge_image** (${result.imageRef})\n\n` : `> **read_knowledge_image** (${args?.imageRef || ''}) · ${result?.error || 'Error'}\n\n`
       },
-      formatter: (args, result) => result?.success ? `> 🖼️ **read_knowledge_image** (${result.imageRef})` : `> 🖼️ **read_knowledge_image** (${args?.imageRef || ''}) · ❌ ${result?.error || 'Error'}`,
-      displayMode: 'collapsed'
+      displayMode: 'collapsed',
+      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
-  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) {} }

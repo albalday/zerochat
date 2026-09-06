@@ -155,7 +155,7 @@
         for (let i = 0; i < cookies.length; i++) {
           const cookie = cookies[i];
           const eqPos = cookie.indexOf('=');
-          const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+          const name = eqPos > -1 ? cookie.slice(0, eqPos).trim() : cookie.trim();
           if (name) {
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=;SameSite=Lax`;
@@ -361,7 +361,7 @@
             messages.forEach((m, idx) => {
               let msgId = m.id;
               if (!msgId || seenMsgIds.has(msgId)) {
-                msgId = `msg_${sessionId}_${idx}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                msgId = `msg_${sessionId}_${idx}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
               }
               seenMsgIds.add(msgId);
 
@@ -531,10 +531,7 @@
 
   /** Inicializa el almacenamiento IndexedDB. */
   async function initDB() {
-    const db = await openDatabase();
-    if (db) {
-    }
-    return db;
+    return openDatabase();
   }
 
   return {

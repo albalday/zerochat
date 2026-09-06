@@ -363,16 +363,16 @@
     let lastError = null;
 
     for (const endpoint of candidateEndpoints) {
+      let timeoutId = null;
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        timeoutId = setTimeout(() => controller.abort(), 8000);
 
         const response = await fetch(endpoint, {
           method: 'GET',
           headers: headers,
           signal: controller.signal
         });
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
           lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -394,6 +394,8 @@
         }
       } catch (err) {
         lastError = err;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
       }
     }
 

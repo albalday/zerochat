@@ -156,13 +156,13 @@
       definition,
       aliases: ['executejs', 'execute_js', 'run_javascript', 'run_js', 'javascript', 'evaljs'],
       category: 'sandbox',
-      metadata: { icon: '⚡', label: definition.name },
+      metadata: { icon: 'zap', label: definition.name },
       settings: {
         titleKey: 'agent_js_title',
         titleFallback: 'Ejecución de JavaScript Local (Sandbox)',
         descKey: 'agent_js_desc',
         descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos en un entorno seguro en el navegador.',
-        icon: '⚡',
+        icon: 'zap',
         defaultEnabled: true,
         showInSettings: true
       },

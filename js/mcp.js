@@ -823,7 +823,7 @@
         throw new Error('La URL del servidor MCP es obligatoria.');
       }
 
-      const id = serverConfig.id || `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const id = serverConfig.id || `mcp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const existingIdx = this.servers.findIndex(s => s.id === id);
 
       const serverData = {

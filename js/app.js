@@ -19,6 +19,7 @@
   'use strict';
 
   // Módulos globales
+  const Utils = window.ChatUtils || {};
   const Storage = window.ChatStorage || {};
   const Markdown = window.ChatMarkdown || {};
   const API = window.ChatAPI || {};
@@ -738,7 +739,9 @@
       elements.welcomeBanner.style.display = 'none';
     }
 
-    const msgId = existingMsgId || ('msg_usr_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7));
+    const msgId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? 'msg_usr_' + crypto.randomUUID()
+      : 'msg_usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
 
     const wrapper = document.createElement('div');
     wrapper.className = 'message-wrapper user';
@@ -824,7 +827,9 @@
   }
 
   function createAssistantMessagePlaceholder(existingMsgId) {
-    const rawId = existingMsgId || ('msg_ast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7));
+    const rawId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? 'msg_ast_' + crypto.randomUUID()
+      : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
     const baseId = extractBaseId(rawId) || rawId;
     const msgId = existingMsgId ? rawId : baseId;
 
@@ -1402,7 +1407,9 @@
     }
 
     // Siempre iniciar en un chat nuevo al abrir o recargar la página (F5 / Ctrl+F5)
-    currentSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    currentSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? 'session_' + crypto.randomUUID()
+      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     chatHistory = createInitialChatHistory();
 
     renderSessionMessages(chatHistory);
@@ -1460,6 +1467,9 @@
     }
 
     await Storage.saveConversation(sess, chatHistory);
+    if (State.setState) {
+      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
+    }
 
     renderSidebarChats();
   }
@@ -1501,6 +1511,10 @@
 
     Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', targetConv.createdAt);
 
+    if (State.setState) {
+      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
+    }
+
     resetTelemetryDisplay();
     renderSessionMessages(chatHistory);
     renderSidebarChats();
@@ -1513,8 +1527,14 @@
   async function createNewSession({ saveCurrent = true } = {}) {
     if (saveCurrent) await saveCurrentSession();
 
-    currentSessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    currentSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? 'session_' + crypto.randomUUID()
+      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     chatHistory = createInitialChatHistory();
+
+    if (State.setState) {
+      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
+    }
 
     resetTelemetryDisplay();
     renderSessionMessages(chatHistory);
@@ -1542,6 +1562,10 @@
 
     await Storage.deleteConversation(sessionId);
 
+    if (State.setState) {
+      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions } });
+    }
+
     if (savedSessions.length === 0) {
       await createNewSession({ saveCurrent: false });
     } else if (currentSessionId === sessionId) {
@@ -1559,8 +1583,12 @@
     savedSessions = [];
     const deleted = await Storage.deleteAllConversations();
     if (!deleted) {
-      alert('No se pudo borrar el historial persistente. Revisa la consola para más detalles.');
+      alert(t('chat_delete_history_err'));
       return;
+    }
+
+    if (State.setState) {
+      State.setState({ sessions: { activeId: null, list: [] } });
     }
 
     await createNewSession({ saveCurrent: false });
@@ -1571,7 +1599,7 @@
     const sess = savedSessions.find(s => s.id === sessionId);
     if (!sess) return;
 
-    const newTitle = prompt('Nombre de la conversación:', sess.title || '');
+    const newTitle = prompt(t('prompt_rename_conversation'), sess.title || '');
     if (newTitle !== null && newTitle.trim() !== '') {
       sess.title = newTitle.trim();
       if (Storage.renameConversation) {
@@ -1673,7 +1701,9 @@
         while (i < validMessages.length && validMessages[i].role !== 'user') {
           const item = validMessages[i];
           if (item && !item.id) {
-            item.id = 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7);
+            item.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+              ? 'msg_ast_' + crypto.randomUUID()
+              : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
           }
           assistantGroup.push(item);
           i++;
@@ -1734,7 +1764,7 @@
 
         // Si no se generó ningún contenido visual en el asistente
         if (content.children.length === 0) {
-          content.innerHTML = '<p><em>(Sin respuesta de texto)</em></p>';
+          content.innerHTML = `<p><em>${Markdown.escapeHtml ? Markdown.escapeHtml(t('no_text_response')) : t('no_text_response')}</em></p>`;
         }
 
         // Configurar botón de copia
@@ -1858,7 +1888,7 @@
         saveCurrentSession();
         alert(t('chat_imported_success'));
       } catch (err) {
-        alert('Error al leer el archivo JSON: ' + (err.message || err));
+        alert(t('chat_import_json_err', { err: err.message || err }));
       }
       if (elements.importJsonInput) elements.importJsonInput.value = '';
     };

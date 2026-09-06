@@ -75,11 +75,11 @@
       definition,
       aliases: ['downloadpdf', 'fetch_pdf', 'download_pdf_document', 'fetch_pdf_document', 'download_file', 'getpdf', 'readpdf'],
       category: 'web',
-      metadata: { icon: '📄', label: definition.name },
+      metadata: { icon: 'file-text', label: definition.name },
       settings: {
         titleKey: 'agent_pdf_title', titleFallback: 'Descarga y Lectura de Documentos PDF',
         descKey: 'agent_pdf_desc', descFallback: 'Permite al modelo descargar documentos PDF desde la web y extraer todo su texto al contexto en tiempo real.',
-        icon: '📄', defaultEnabled: true, showInSettings: true
+        icon: 'file-text', defaultEnabled: true, showInSettings: true
       },
       promptGuide: (lang) => lang === 'en'
         ? '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.'
@@ -91,7 +91,7 @@
       },
       result: {
         toModel: (_args, result) => JSON.stringify(result || {}),
-        toMarkdown: (args) => `> 📄 **download_pdf**\n> URL: "${args.url || ''}"\n\n`
+        toMarkdown: (args) => `> **download_pdf**\n> URL: "${args.url || ''}"\n\n`
       },
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }

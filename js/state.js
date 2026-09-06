@@ -38,6 +38,7 @@
   }
 
   function createInitialState(overrides = {}) {
+    const DEFAULT_SYSTEM_DATA_PROMPT = '[Formato: Usa siempre Markdown estándar y texto plano. Nunca uses sintaxis ni delimitadores LaTeX ($ o $$); escribe las matemáticas, fórmulas y números directamente en texto legible con símbolos estándar (+, -, ×, /, =).]';
     const defaultState = {
       // 1. Configuración de la Aplicación y Preferencias
       config: {
@@ -48,6 +49,7 @@
         apiKey: '',
         model: '',
         systemPrompt: '',
+        systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT,
         temperature: '0.7',
         reasoningEffort: 'none',
         maxAgentTurns: 15,
@@ -72,7 +74,7 @@
 
       // 2. Sesiones y Conversación Activa
       sessions: {
-        activeId: 'session_' + Date.now(),
+        activeId: typeof crypto !== 'undefined' && crypto.randomUUID ? ('session_' + crypto.randomUUID()) : ('session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)),
         list: []
       },
 
@@ -106,7 +108,8 @@
         sidebarOpen: false,
         reasoningMenuOpen: false,
         debugPanelOpen: false,
-        activeModal: null // null | 'settings' | 'export' | 'debug_interceptor'
+        activeModal: null, // null | 'settings' | 'export' | 'debug_interceptor'
+        attachedFiles: []
       },
 
       // 8. Estado de Integración MCP (mcp-proxy)

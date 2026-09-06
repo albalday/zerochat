@@ -99,7 +99,7 @@
       definition,
       aliases: [],
       category: 'rag',
-      metadata: { icon: '📄', label: definition.name },
+      metadata: { icon: 'file-text', label: definition.name },
       settings: { showInSettings: false },
       isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {
@@ -110,14 +110,8 @@
         toModel: (_args, result) => result?.content || JSON.stringify(result || {}),
         toMarkdown: (args, result) => {
           const ids = result?.chunkIds || (args?.chunkIds) || [args?.chunkId || ''];
-          return `> 📄 **read_knowledge_chunk** (${ids.join(', ')})\n\n`;
+          return `> **read_knowledge_chunk** (${ids.join(', ')})\n\n`;
         }
-      },
-      formatter: (args, result) => {
-        const ids = result?.chunkIds || (args?.chunkIds) || [args?.chunkId || ''];
-        return result.success
-          ? `> 📄 **read_knowledge_chunk** (${ids.join(', ')})\n> \`\`\`text\n> ${String(result.content).split('\n').join('\n> ')}\n> \`\`\``
-          : `> 📄 **read_knowledge_chunk** (${ids.join(', ')})\n> ❌ ${result.error || 'Error'}`;
       },
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }

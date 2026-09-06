@@ -37,14 +37,14 @@
 
     if (cleanHex.toUpperCase().startsWith('FEFF')) {
       for (let i = 4; i < cleanHex.length; i += 4) {
-        const code = parseInt(cleanHex.substr(i, 4), 16);
+        const code = parseInt(cleanHex.slice(i, i + 4), 16);
         if (!isNaN(code) && code > 0) str += String.fromCharCode(code);
       }
       return str;
     }
 
     for (let i = 0; i < cleanHex.length; i += 2) {
-      const code = parseInt(cleanHex.substr(i, 2), 16);
+      const code = parseInt(cleanHex.slice(i, i + 2), 16);
       if (!isNaN(code) && code >= 32) str += String.fromCharCode(code);
     }
     return str;
@@ -82,7 +82,7 @@
         const dstHex = cm[2];
         let dstChar = '';
         for (let k = 0; k < dstHex.length; k += 4) {
-          const code = parseInt(dstHex.substr(k, 4), 16);
+          const code = parseInt(dstHex.slice(k, k + 4), 16);
           if (!isNaN(code)) dstChar += String.fromCharCode(code);
         }
         if (dstChar) {
@@ -110,7 +110,7 @@
           const dstHex = destMatches[idx].replace(/[<>]/g, '');
           let dstChar = '';
           for (let k = 0; k < dstHex.length; k += 4) {
-            const code = parseInt(dstHex.substr(k, 4), 16);
+            const code = parseInt(dstHex.slice(k, k + 4), 16);
             if (!isNaN(code)) dstChar += String.fromCharCode(code);
           }
           if (dstChar) {
@@ -385,10 +385,10 @@
         if (j < len && streamString.charCodeAt(j) === 62) j++;
         let decoded = '';
         for (let k = 0; k < hex.length; k += 4) {
-          const chunk = hex.substr(k, 4).toLowerCase();
+          const chunk = hex.slice(k, k + 4).toLowerCase();
           if (activeCmap.has(chunk)) decoded += activeCmap.get(chunk);
           else {
-            const sub2 = hex.substr(k, 2).toLowerCase();
+            const sub2 = hex.slice(k, k + 2).toLowerCase();
             if (activeCmap.has(sub2)) { decoded += activeCmap.get(sub2); k -= 2; }
             else {
               const code = parseInt(chunk, 16);
@@ -442,10 +442,10 @@
             }
             if (k < len && streamString.charCodeAt(k) === 62) k++;
             for (let m = 0; m < hex.length; m += 4) {
-              const chunk = hex.substr(m, 4).toLowerCase();
+              const chunk = hex.slice(m, m + 4).toLowerCase();
               if (activeCmap.has(chunk)) arrText += activeCmap.get(chunk);
               else {
-                const sub2 = hex.substr(m, 2).toLowerCase();
+                const sub2 = hex.slice(m, m + 2).toLowerCase();
                 if (activeCmap.has(sub2)) { arrText += activeCmap.get(sub2); m -= 2; }
               }
             }

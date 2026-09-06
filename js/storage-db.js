@@ -39,65 +39,41 @@
     if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, options);
   }
 
+  function ensureStore(db, tx, name, options) {
+    return db.objectStoreNames.contains(name)
+      ? tx.objectStore(name)
+      : db.createObjectStore(name, options);
+  }
+
   function upgradeSchema(db, transaction) {
-    let store;
-    if (!db.objectStoreNames.contains(STORES.conversations)) {
-      store = db.createObjectStore(STORES.conversations, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.conversations);
-    }
+    let store = ensureStore(db, transaction, STORES.conversations, { keyPath: 'id' });
     createIndex(store, 'by_updatedAt', 'updatedAt', { unique: false });
     createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
 
-    if (!db.objectStoreNames.contains(STORES.messages)) {
-      store = db.createObjectStore(STORES.messages, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.messages);
-    }
+    store = ensureStore(db, transaction, STORES.messages, { keyPath: 'id' });
     createIndex(store, 'by_conversationId', 'conversationId', { unique: false });
     createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
     createIndex(store, 'by_role', 'role', { unique: false });
 
-    if (!db.objectStoreNames.contains(STORES.attachments)) {
-      store = db.createObjectStore(STORES.attachments, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.attachments);
-    }
+    store = ensureStore(db, transaction, STORES.attachments, { keyPath: 'id' });
     createIndex(store, 'by_conversationId', 'conversationId', { unique: false });
     createIndex(store, 'by_messageId', 'messageId', { unique: false });
 
-    if (!db.objectStoreNames.contains(STORES.ragBranches)) {
-      store = db.createObjectStore(STORES.ragBranches, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.ragBranches);
-    }
+    store = ensureStore(db, transaction, STORES.ragBranches, { keyPath: 'id' });
     createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
 
-    if (!db.objectStoreNames.contains(STORES.ragDocuments)) {
-      store = db.createObjectStore(STORES.ragDocuments, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.ragDocuments);
-    }
+    store = ensureStore(db, transaction, STORES.ragDocuments, { keyPath: 'id' });
     createIndex(store, 'by_branchId', 'branchId', { unique: false });
     createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
 
-    // La versión anterior almacenaba archivos fuente completos en rag_files.
-    // El RAG solo conserva su representación consultable y las imágenes extraídas.
     if (db.objectStoreNames.contains('rag_files')) {
       db.deleteObjectStore('rag_files');
     }
-    if (!db.objectStoreNames.contains(STORES.ragImages)) {
-      store = db.createObjectStore(STORES.ragImages, { keyPath: 'documentId' });
-    } else {
-      store = transaction.objectStore(STORES.ragImages);
-    }
+
+    store = ensureStore(db, transaction, STORES.ragImages, { keyPath: 'documentId' });
     createIndex(store, 'by_branchId', 'branchId', { unique: false });
 
-    if (!db.objectStoreNames.contains(STORES.ragChunks)) {
-      store = db.createObjectStore(STORES.ragChunks, { keyPath: 'id' });
-    } else {
-      store = transaction.objectStore(STORES.ragChunks);
-    }
+    store = ensureStore(db, transaction, STORES.ragChunks, { keyPath: 'id' });
     createIndex(store, 'by_branchId', 'branchId', { unique: false });
     createIndex(store, 'by_documentId', 'documentId', { unique: false });
     createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
@@ -105,7 +81,6 @@
     if (!db.objectStoreNames.contains(STORES.ragMeta)) {
       db.createObjectStore(STORES.ragMeta, { keyPath: 'key' });
     }
-
   }
 
   function openDatabase() {
@@ -132,7 +107,11 @@
         dbPromise = null;
         resolve(null);
       };
-      request.onblocked = () => console.warn('[ZeroChatDB] La actualización está bloqueada por otra pestaña.');
+      request.onblocked = () => {
+        console.warn('[ZeroChatDB] La actualización está bloqueada por otra pestaña.');
+        dbPromise = null;
+        resolve(null);
+      };
     });
     return dbPromise;
   }

@@ -483,13 +483,13 @@
         }
 
         outputContainer.style.display = 'block';
-        outputContainer.innerHTML = '<div class="output-header"><span>⏳ ' + tr('agent_js_title', 'Ejecutando en sandbox local...') + '</span></div>';
+        outputContainer.innerHTML = '<div class="output-header"><span>' + tr('agent_js_title', 'Ejecutando en sandbox local...') + '</span></div>';
 
         const sandboxRunner = window.ChatSandbox || Sandbox;
         if (sandboxRunner && sandboxRunner.execute) {
           const res = await sandboxRunner.execute(rawCode);
           const statusClass = res.success ? 'success' : 'error';
-          const headerTitle = res.success ? `▶️ ${tr('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : `⚠️ Error (${res.executionTimeMs}ms)`;
+          const headerTitle = res.success ? `${tr('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : `Error (${res.executionTimeMs}ms)`;
 
           let outputContent = '';
           if (res.logs && res.logs.length > 0) {

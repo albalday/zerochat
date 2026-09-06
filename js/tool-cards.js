@@ -54,12 +54,11 @@
       cardEl.classList.add('collapsed');
       const btn = cardEl.querySelector('.btn-tool-collapse');
       if (btn) btn.title = t('tool_btn_expand') || 'Expandir herramienta';
-      const span = cardEl.querySelector('.btn-tool-collapse span');
-      if (span) span.textContent = '▸';
     }
   }
 
   function fallback(name, args, isCollapsed = false) {
+    if (typeof document === 'undefined') return null;
     const card = document.createElement('div'); card.className = 'tool-card-wrapper';
     const hasArgs = args && typeof args === 'object' && Object.keys(args).length > 0;
     const tool = (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name) : null;

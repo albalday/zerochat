@@ -95,7 +95,7 @@
       definition,
       aliases: ['search_kb', 'searchknowledgebase', 'search_documents', 'search_knowledge', 'buscar_en_documentos'],
       category: 'rag',
-      metadata: { icon: '🔍', label: definition.name },
+      metadata: { icon: 'search', label: definition.name },
       settings: { showInSettings: false },
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {
@@ -105,10 +105,8 @@
       },
       result: {
         toModel: (_args, result) => result?.text || JSON.stringify(result || {}),
-        toMarkdown: (args, result) => `> 🔍 **search_knowledge_base** ("${args.query || ''}") [${result?.matchesCount || 0} coincidencias]\n\n`
+        toMarkdown: (args, result) => `> **search_knowledge_base** ("${args.query || ''}") [${result?.matchesCount || 0} coincidencias]\n\n`
       },
-      formatter: (args, result) => '> 🔍 **search_knowledge_base** ("' + (args.query || '') + '") [' + (result.matchesCount || 0) + ' coincidencias]\n> ```\n> ' +
-        String(result.text || '').split('\n').join('\n> ') + '\n> ```',
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });

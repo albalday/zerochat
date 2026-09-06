@@ -456,13 +456,8 @@
 }
 
 .btn-copied {
-  color: #16a34a !important;
-  border-color: #16a34a !important;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  color: var(--success) !important;
+  border-color: var(--success) !important;
 }
 
 .spinning {

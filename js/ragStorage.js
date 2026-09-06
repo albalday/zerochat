@@ -606,7 +606,11 @@
       }
       return branch;
     } catch (error) {
-      await deleteBranch(branch.id);
+      try {
+        await deleteBranch(branch.id);
+      } catch (rollbackError) {
+        console.warn('[RagStorage] Error durante el rollback de importación:', rollbackError);
+      }
       throw error;
     }
   }

@@ -38,6 +38,12 @@
     return `<div class="chat-chart-card">${chartIconSvg} ${escapeHtml(args.title || 'Gráfico')}</div>`;
   }
 
+  function createLiveCard(args, ui) {
+    const cardDiv = createCardWrapper(ui);
+    if (cardDiv) cardDiv.innerHTML = renderChart(args, ui);
+    return cardDiv;
+  }
+
   function updateLiveCard(cardDiv, args, _result, _elapsedMs, ui) {
     if (cardDiv) cardDiv.innerHTML = renderChart(args, ui);
   }
@@ -55,8 +61,8 @@
       definition,
       aliases: ['renderchart', 'draw_chart', 'create_chart', 'plot_chart', 'generate_chart', 'show_chart', 'chart', 'grafico'],
       category: 'charts',
-      metadata: { icon: '📊', label: definition.name },
-      settings: { titleKey: 'agent_chart_title', titleFallback: 'Visualización de Datos y Gráficos Nativos (SVG)', descKey: 'agent_chart_desc', descFallback: 'Permite al modelo invocar render_chart para generar y mostrar gráficos interactivos de barras, líneas o sectores sin librerías externas.', icon: '📊', defaultEnabled: true, showInSettings: true },
+      metadata: { icon: 'bar-chart', label: definition.name },
+      settings: { titleKey: 'agent_chart_title', titleFallback: 'Visualización de Datos y Gráficos Nativos (SVG)', descKey: 'agent_chart_desc', descFallback: 'Permite al modelo invocar render_chart para generar y mostrar gráficos interactivos de barras, líneas o sectores sin librerías externas.', icon: 'bar-chart', defaultEnabled: true, showInSettings: true },
       promptGuide: (lang) => lang === 'en'
         ? '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Generates and displays native interactive SVG charts (bar, line, pie, doughnut).'
         : '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Genera y visualiza gráficos SVG nativos interactivos (barras, líneas, sectores, donut).',
@@ -68,14 +74,14 @@
       },
       result: {
         toModel: (args, _result, outcome) => JSON.stringify({ success: outcome?.ok !== false, type: args.type || 'bar', title: args.title || 'Gráfico' }),
-        toMarkdown: (args) => `> 📊 **render_chart** (${args.type || 'bar'})\n> Título: "${args.title || 'Gráfico'}"\n\n`
+        toMarkdown: (args) => `> **render_chart** (${args.type || 'bar'})\n> Título: "${args.title || 'Gráfico'}"\n\n`
       },
       displayMode: 'expanded',
-      view: { id: definition.name, displayMode: 'expanded', updateLiveCard, renderHistoricalCard }
+      view: { id: definition.name, displayMode: 'expanded', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
 
-  const toolModule = { id: definition.name, definition, displayMode: 'expanded', createTool, view: { id: definition.name, displayMode: 'expanded', updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'expanded', createTool, view: { id: definition.name, displayMode: 'expanded', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) {} }

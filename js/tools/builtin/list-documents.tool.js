@@ -77,7 +77,7 @@
       definition,
       aliases: ['listdocuments', 'list_knowledge_base', 'list_docs', 'get_documents', 'listar_documentos'],
       category: 'rag',
-      metadata: { icon: '📖', label: definition.name },
+      metadata: { icon: 'book-open', label: definition.name },
       settings: { showInSettings: false },
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (_args, context = {}) => {
@@ -87,10 +87,8 @@
       },
       result: {
         toModel: (_args, result) => result?.text || JSON.stringify(result || {}),
-        toMarkdown: (_args, result) => `> 📖 **list_documents** (${result?.count || 0} documentos indexados)\n\n`
+        toMarkdown: (_args, result) => `> **list_documents** (${result?.count || 0} documentos indexados)\n\n`
       },
-      formatter: (_args, result) => '> 📖 **list_documents** (' + (result.count || 0) + ' documentos disponibles)\n> ```\n> ' +
-        String(result.text || '').split('\n').join('\n> ') + '\n> ```',
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });

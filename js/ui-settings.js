@@ -220,7 +220,7 @@
       apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
       apiKey: elements?.settingApiKey ? elements.settingApiKey.value.trim() : '',
       model: selectedModel,
-      systemPrompt: appConfig?.systemPrompt || '',
+      systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
       temperature: appConfig?.temperature || '0.7',
       reasoningEffort: appConfig?.reasoningEffort || 'none',
