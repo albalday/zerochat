@@ -63,7 +63,7 @@
     const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) }) || `Conocimiento local: "${Markdown.escapeHtml(query)}"`;
     const loading = t('tool_rag_search_loading') || 'Buscando con Orama...';
     const building = t('tool_rag_search_building') || 'Construyendo el índice local...';
-    card.innerHTML = `<div class="tool-execution-card rag-execution-card collapsed"><div class="tool-card-header"><div class="tool-card-title"><span>${DB_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Expandir'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${building}</span></div></div></div></div>`;
+    card.innerHTML = `<div class="tool-execution-card rag-execution-card"><div class="tool-card-header"><div class="tool-card-title"><span>${DB_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${building}</span></div></div></div></div>`;
     return card;
   }
 

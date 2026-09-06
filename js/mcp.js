@@ -637,12 +637,6 @@
           const out = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : (result?.error || 'Sin salida'));
           resEl.innerHTML = `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`;
         }
-        const card = cardDiv.querySelector?.('.tool-execution-card') || (cardDiv.matches?.('.tool-execution-card') ? cardDiv : null);
-        if (card) {
-          card.classList.add('collapsed');
-          const btn = card.querySelector('.btn-tool-collapse');
-          if (btn) btn.title = t('tool_btn_expand') || 'Expandir';
-        }
       },
       renderHistoricalCard: (args, message, ui) => {
         if (typeof document === 'undefined') return null;
