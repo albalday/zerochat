@@ -465,5 +465,94 @@ test('MCP - McpClient se auto-recupera de HTTP 404 por sesión SSE expirada o re
   }
 });
 
+test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permanece desconectado si no', async () => {
+  const originalFetch = global.fetch;
+
+  try {
+    // 1. Caso Servidor Inactivo / puerto cerrado
+    global.fetch = async () => {
+      throw new Error('fetch failed: ECONNREFUSED');
+    };
+
+    const resInactive = await MCP.manager.autoConnectIfAvailable({
+      host: '127.0.0.1',
+      port: 6388,
+      timeoutMs: 500
+    });
+
+    assert.equal(resInactive.available, false);
+    assert.equal(resInactive.success, false);
+
+    // 2. Caso Servidor Activo
+    global.fetch = async (url, options) => {
+      if (options?.method === 'GET' && url.includes('/sse')) {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('event: endpoint\ndata: /messages/?session_id=test-auto-conn\n\n'));
+            controller.close();
+          }
+        });
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+          body: stream
+        };
+      }
+
+      const body = JSON.parse(options?.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'mcp-proxy-auto', version: '1.0.0' },
+              capabilities: { tools: {} }
+            }
+          })
+        };
+      }
+      if (body.method === 'tools/list') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              tools: [
+                {
+                  name: 'auto_tool',
+                  description: 'Herramienta de prueba autoconectada',
+                  inputSchema: { type: 'object', properties: {} }
+                }
+              ]
+            }
+          })
+        };
+      }
+      return { ok: false, status: 404, text: async () => 'Not Found' };
+    };
+
+    const resActive = await MCP.manager.autoConnectIfAvailable({
+      host: '127.0.0.1',
+      port: 6388,
+      timeoutMs: 1000
+    });
+
+    assert.equal(resActive.success, true);
+    assert.equal(resActive.tools.length, 1);
+    assert.ok(resActive.tools[0].name.includes('auto_tool'));
+    assert.equal(resActive.tools[0].titleFallback, 'auto_tool');
+  } finally {
+    global.fetch = originalFetch;
+    MCP.manager.disconnectProxy();
+  }
+});
+
 
 

@@ -395,3 +395,24 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
   }
 });
 
+test('ChatUIMcp - autoConnectIfAvailable delega en ChatMCP.manager', async () => {
+  const ChatMCP = require('../js/mcp.js');
+  const originalAutoConnect = ChatMCP.manager.autoConnectIfAvailable;
+  let calledWith = null;
+
+  try {
+    ChatMCP.manager.autoConnectIfAvailable = async (opts) => {
+      calledWith = opts;
+      return { success: true, available: true };
+    };
+
+    const res = await ChatUIMcp.autoConnectIfAvailable({ host: '127.0.0.1', port: 6388 });
+    assert.equal(res.success, true);
+    assert.equal(res.available, true);
+    assert.equal(calledWith.host, '127.0.0.1');
+    assert.equal(calledWith.port, 6388);
+  } finally {
+    ChatMCP.manager.autoConnectIfAvailable = originalAutoConnect;
+  }
+});
+

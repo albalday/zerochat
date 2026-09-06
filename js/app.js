@@ -2522,6 +2522,9 @@
         btnCopyCmd: elements.btnMcpCopyCmd,
         toolsContainer: elements.mcpToolsContainer
       });
+      if (typeof window.ChatUIMcp.autoConnectIfAvailable === 'function') {
+        window.ChatUIMcp.autoConnectIfAvailable();
+      }
     }
 
     window.ChatApp = {

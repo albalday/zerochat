@@ -986,6 +986,20 @@
     }
 
     /**
+     * Comprueba silenciosamente si el servidor mcp-proxy está disponible en el host/puerto
+     * y si lo está, activa la conexión y registra sus herramientas.
+     * Si no está disponible, permanece en estado 'disconnected' sin mostrar errores.
+     */
+    async autoConnectIfAvailable({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500 } = {}, registry = null) {
+      const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
+      const probe = await probeConnection(targetEndpoint, { timeoutMs });
+      if (!probe || !probe.success) {
+        return { success: false, available: false, probe };
+      }
+      return this.connectProxy({ host, port, endpoint: targetEndpoint }, registry);
+    }
+
+    /**
      * Desconecta el proxy y actualiza el estado global a desconectado.
      */
     disconnectProxy(registry = null) {

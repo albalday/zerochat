@@ -319,6 +319,20 @@
     }
   }
 
+  async function autoConnectIfAvailable(options = {}) {
+    const Config = getConfig();
+    const MCP = getMCP();
+    const currentConfig = Config?.get?.() || Config?.getActive?.() || {};
+    const host = options.host || currentConfig.mcpHost || DEFAULT_HOST;
+    const port = sanitizePort(options.port || currentConfig.mcpPort || DEFAULT_PORT);
+    const timeoutMs = options.timeoutMs || 1500;
+
+    if (MCP?.manager?.autoConnectIfAvailable) {
+      return await MCP.manager.autoConnectIfAvailable({ host, port, timeoutMs });
+    }
+    return { success: false, available: false };
+  }
+
   return {
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -330,6 +344,7 @@
     renderConnectionStatus,
     renderToolsList,
     initMcpUI,
+    autoConnectIfAvailable,
     ensureDialogMarkup,
     getMcpSetupDialogHTML
   };
