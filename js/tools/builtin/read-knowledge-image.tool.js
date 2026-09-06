@@ -29,10 +29,11 @@
         toModel: (_args, result) => result?.success ? `Imagen recuperada: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, página ${result.page}` : ''})` : ''}. Analízala visualmente para responder.` : JSON.stringify(result || {}),
         toMarkdown: (args, result) => result?.success ? `> 🖼️ **read_knowledge_image** (${result.imageRef})\n\n` : `> 🖼️ **read_knowledge_image** (${args?.imageRef || ''}) · ❌ ${result?.error || 'Error'}\n\n`
       },
-      formatter: (args, result) => result?.success ? `> 🖼️ **read_knowledge_image** (${result.imageRef})` : `> 🖼️ **read_knowledge_image** (${args?.imageRef || ''}) · ❌ ${result?.error || 'Error'}`
+      formatter: (args, result) => result?.success ? `> 🖼️ **read_knowledge_image** (${result.imageRef})` : `> 🖼️ **read_knowledge_image** (${args?.imageRef || ''}) · ❌ ${result?.error || 'Error'}`,
+      displayMode: 'collapsed'
     });
   }
-  const toolModule = { id: definition.name, definition, createTool, getRagService };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) {} }

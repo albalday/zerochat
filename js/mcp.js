@@ -613,6 +613,7 @@
     };
 
     return {
+      displayMode: 'collapsed',
       createLiveCard: (args, ui) => {
         if (typeof document === 'undefined') return null;
         const t = ui?.t || (k => k);
@@ -741,6 +742,7 @@
               return formatMcpMarkdown(toolName, args, result, outcome, this.serverName);
             }
           },
+          displayMode: 'collapsed',
           view: createMcpToolView(toolName, this.serverName),
           formatter: (args, result) => {
             return formatMcpMarkdown(toolName, args, result, null, this.serverName);

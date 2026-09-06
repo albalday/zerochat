@@ -167,7 +167,8 @@
       this.formatter = options.formatter || null;
       this.promptGuide = options.promptGuide || options.getSystemPromptGuide || null;
       this.isAvailable = typeof options.isAvailable === 'function' ? options.isAvailable : (() => true);
-      this.view = options.view || null;
+      this.displayMode = options.displayMode || options.view?.displayMode || options.metadata?.displayMode || options.definition?.displayMode || 'collapsed';
+      this.view = options.view ? { displayMode: this.displayMode, ...options.view } : { id: this.name, displayMode: this.displayMode };
     }
 
     /**
@@ -563,6 +564,7 @@
         };
       }
 
+      const displayMode = tool.displayMode || tool.view?.displayMode || 'collapsed';
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       try {
@@ -572,8 +574,8 @@
 
         const ToolRuntime = getToolRuntime();
         const executionContext = ToolRuntime?.createToolExecutionContext
-          ? ToolRuntime.createToolExecutionContext(context)
-          : context;
+          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context })
+          : { displayMode, ...context };
         const execResult = await tool.execute(parsedArgs, executionContext);
         const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const elapsed = parseFloat((endTime - startTime).toFixed(2));
@@ -582,12 +584,14 @@
           toolId: tool.id,
           toolName: tool.name,
           contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-          executionTimeMs: elapsed
+          executionTimeMs: elapsed,
+          displayMode
         };
         return {
           success: execResult?.success !== false,
           tool: tool,
           toolName: tool.name,
+          displayMode,
           args: parsedArgs,
           result: execResult,
           outcome: ToolOutcome.fromExecution(execResult, meta),
@@ -602,12 +606,14 @@
           toolId: tool.id,
           toolName: tool.name,
           contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-          executionTimeMs: elapsed
+          executionTimeMs: elapsed,
+          displayMode
         };
         return {
           success: false,
           tool: tool,
           toolName: tool.name,
+          displayMode,
           args: parsedArgs,
           error: err.message || String(err),
           executionTimeMs: elapsed,
@@ -661,7 +667,10 @@
 
       // 4. Actualizar la tarjeta DOM con el resultado
       if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
-        ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, execRes.result || execRes, execRes.executionTimeMs);
+        ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, execRes.result || execRes, execRes.executionTimeMs, {
+          displayMode: execRes.displayMode || execRes.tool?.displayMode,
+          outcome: execRes.outcome
+        });
         if (typeof attachListeners === 'function') attachListeners(cardEl);
         if (typeof scrollToBottom === 'function') scrollToBottom();
       }

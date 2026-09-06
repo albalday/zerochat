@@ -36,6 +36,16 @@
     CHEVRON_SVG
   });
 
+  const resolveToolDisplayMode = name => {
+    const view = getView(name);
+    if (view?.displayMode) return view.displayMode;
+    if (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) {
+      const tool = window.ChatAgentCore.registry.getTool(name);
+      return tool?.displayMode || tool?.view?.displayMode || null;
+    }
+    return null;
+  };
+
   function collapseCard(card) {
     if (!card) return;
     const cardEl = card.querySelector?.('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card')
@@ -49,31 +59,31 @@
     }
   }
 
-  function fallback(name, args, isHistorical = false) {
+  function fallback(name, args, isCollapsed = false) {
     const card = document.createElement('div'); card.className = 'tool-card-wrapper';
     const hasArgs = args && typeof args === 'object' && Object.keys(args).length > 0;
     const tool = (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name) : null;
     const icon = (typeof window !== 'undefined' && window.ChatIcons?.has(name))
       ? window.ChatIcons.get(name, { size: 14 })
       : (tool?.metadata?.iconSvg || DEFAULT_TOOL_ICON);
-    const badgeClass = isHistorical ? 'tool-card-badge status-success' : 'tool-card-badge status-loading';
-    const badgeContent = isHistorical
+    const badgeClass = isCollapsed ? 'tool-card-badge status-success' : 'tool-card-badge status-loading';
+    const badgeContent = isCollapsed
       ? `${CHECK_SVG} <span>${t('tool_status_success') || 'Completado'}</span>`
       : `${SPINNER_SVG} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span>`;
-    const collapseBtnTitle = isHistorical ? (t('tool_btn_expand') || 'Expandir herramienta') : (t('tool_btn_collapse') || 'Minimizar');
+    const collapseBtnTitle = isCollapsed ? (t('tool_btn_expand') || 'Expandir herramienta') : (t('tool_btn_collapse') || 'Minimizar');
     const collapseBtn = hasArgs
       ? `<button type="button" class="btn-tool-collapse" title="${collapseBtnTitle}">${CHEVRON_SVG}</button>`
       : '';
     const bodyHtml = hasArgs
       ? `<div class="tool-card-collapsible-body"><div class="tool-card-result"><pre class="tool-card-code"><code>${getMarkdown().escapeHtml(JSON.stringify(args, null, 2))}</code></pre></div></div>`
       : '';
-    const cardClass = isHistorical ? 'tool-execution-card collapsed' : 'tool-execution-card';
+    const cardClass = isCollapsed ? 'tool-execution-card collapsed' : 'tool-execution-card';
     card.innerHTML = `<div class="${cardClass}"><div class="tool-card-header"><div class="tool-card-title"><span>${icon}</span><span>${getMarkdown().escapeHtml(name)}</span></div><div class="tool-card-header-actions"><span class="${badgeClass}">${badgeContent}</span>${collapseBtn}</div></div>${bodyHtml}</div>`;
     return card;
   }
 
   function createLiveToolCard(name, args = {}) { if (typeof document === 'undefined') return null; const view = getView(name); return view?.createLiveCard ? view.createLiveCard(args, context()) : fallback(name, args, false); }
-  function updateLiveToolCard(card, name, args = {}, result = {}, elapsedMs = 0) {
+  function updateLiveToolCard(card, name, args = {}, result = {}, elapsedMs = 0, options = {}) {
     const view = getView(name);
     if (view?.updateLiveCard) {
       view.updateLiveCard(card, args, result, elapsedMs, context());
@@ -87,7 +97,16 @@
           : `${ERROR_SVG} <span>${t('tool_status_error', { ms: elapsedMs }) || `Error (${elapsedMs}ms)`}</span>`;
       }
     }
-    collapseCard(card);
+    const displayMode = options?.displayMode
+      || result?.displayMode
+      || result?.outcome?.meta?.displayMode
+      || view?.displayMode
+      || resolveToolDisplayMode(name)
+      || 'collapsed';
+
+    if (displayMode === 'collapsed') {
+      collapseCard(card);
+    }
   }
   function renderHistoricalToolCard(call, message) {
     if (!call?.function || typeof document === 'undefined') return null;
@@ -97,21 +116,27 @@
     } catch (e) {
       args = { input: call.function.arguments || '' };
     }
-    const view = getView(call.function.name);
+    const toolName = call.function.name;
+    const view = getView(toolName);
+    const displayMode = view?.displayMode || resolveToolDisplayMode(toolName) || 'collapsed';
     const card = view?.renderHistoricalCard
       ? view.renderHistoricalCard(args, message, context())
-      : fallback(call.function.name, args, true);
-    collapseCard(card);
+      : fallback(toolName, args, displayMode === 'collapsed');
+    if (displayMode === 'collapsed') {
+      collapseCard(card);
+    }
     return card;
   }
 
   return {
     normalizeName,
     resolveToolView: getView,
+    resolveToolDisplayMode,
     createCardWrapper,
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,
+    collapseCard,
     SPINNER_SVG,
     CHECK_SVG,
     ERROR_SVG,

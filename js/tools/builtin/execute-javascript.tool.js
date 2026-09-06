@@ -180,18 +180,20 @@
         return Sandbox.execute(getCode(args), timeoutMs);
       },
       result: { toModel, toMarkdown },
-      view: { id: 'execute_javascript', createLiveCard, updateLiveCard, renderHistoricalCard }
+      displayMode: 'collapsed',
+      view: { id: 'execute_javascript', displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
 
   const toolModule = {
     id: definition.name,
     definition,
+    displayMode: 'collapsed',
     createTool,
     getCode,
     toModel,
     toMarkdown,
-    view: { id: 'execute_javascript', createLiveCard, updateLiveCard, renderHistoricalCard }
+    view: { id: 'execute_javascript', displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 
   function registerWithBuiltinManifest() {

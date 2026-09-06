@@ -93,11 +93,12 @@
         toModel: (_args, result) => JSON.stringify(result || {}),
         toMarkdown: (args) => `> 📄 **download_pdf**\n> URL: "${args.url || ''}"\n\n`
       },
-      view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard }
+      displayMode: 'collapsed',
+      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
 
-  const toolModule = { id: definition.name, definition, createTool, getUrl, view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getUrl, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) {} }

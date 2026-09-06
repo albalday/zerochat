@@ -70,11 +70,12 @@
         toModel: (args, _result, outcome) => JSON.stringify({ success: outcome?.ok !== false, type: args.type || 'bar', title: args.title || 'Gráfico' }),
         toMarkdown: (args) => `> 📊 **render_chart** (${args.type || 'bar'})\n> Título: "${args.title || 'Gráfico'}"\n\n`
       },
-      view: { id: definition.name, updateLiveCard, renderHistoricalCard }
+      displayMode: 'expanded',
+      view: { id: definition.name, displayMode: 'expanded', updateLiveCard, renderHistoricalCard }
     });
   }
 
-  const toolModule = { id: definition.name, definition, createTool, view: { id: definition.name, updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'expanded', createTool, view: { id: definition.name, displayMode: 'expanded', updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) {} }

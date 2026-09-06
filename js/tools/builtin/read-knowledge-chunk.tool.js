@@ -119,11 +119,12 @@
           ? `> 📄 **read_knowledge_chunk** (${ids.join(', ')})\n> \`\`\`text\n> ${String(result.content).split('\n').join('\n> ')}\n> \`\`\``
           : `> 📄 **read_knowledge_chunk** (${ids.join(', ')})\n> ❌ ${result.error || 'Error'}`;
       },
-      view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard }
+      displayMode: 'collapsed',
+      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
 
-  const toolModule = { id: definition.name, definition, createTool, getRagService, getBranchId, view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService, getBranchId, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) {} }

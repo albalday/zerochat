@@ -91,11 +91,12 @@
       },
       formatter: (_args, result) => '> 📖 **list_documents** (' + (result.count || 0) + ' documentos disponibles)\n> ```\n> ' +
         String(result.text || '').split('\n').join('\n> ') + '\n> ```',
-      view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard }
+      displayMode: 'collapsed',
+      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
     });
   }
 
-  const toolModule = { id: definition.name, definition, createTool, getBranchId, getRagService, view: { id: definition.name, createLiveCard, updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getBranchId, getRagService, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) {} }

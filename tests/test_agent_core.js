@@ -232,3 +232,32 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.doesNotMatch(guideEn, /fetch_web_page/);
 });
 
+test('AgentCore - Tool y ToolExecutor propagan displayMode a executionContext, meta y outcome', async () => {
+  let receivedContext = null;
+  const toolExpanded = new AgentCoreModule.Tool({
+    name: 'custom_chart',
+    description: 'Herramienta de prueba con displayMode expanded',
+    displayMode: 'expanded',
+    execute: async (args, context) => {
+      receivedContext = context;
+      return { success: true, chart: true };
+    }
+  });
+
+  assert.equal(toolExpanded.displayMode, 'expanded');
+  assert.equal(toolExpanded.view?.displayMode, 'expanded');
+
+  const registry = new AgentCoreModule.ToolRegistry();
+  registry.registerTool(toolExpanded);
+
+  const executor = new AgentCoreModule.ToolExecutor(registry);
+  const result = await executor.executeToolCall({
+    function: { name: 'custom_chart', arguments: '{}' }
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.displayMode, 'expanded');
+  assert.equal(result.outcome?.meta?.displayMode, 'expanded');
+  assert.equal(receivedContext?.displayMode, 'expanded');
+});
+
