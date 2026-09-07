@@ -107,20 +107,37 @@
     return branches;
   }
 
-  async function buildRagSystemContext(branchIds) {
+  async function buildRagSystemContext(branchIds, options = {}) {
     if (!branchIds) return '';
     try {
       const branches = await resolveBranches(branchIds);
       const names = branches.map(b => b.name).join(', ');
-      const label = branches.length === 1 ? `[BASE DE CONOCIMIENTO ACTIVA: ${names}]` : `[BASES DE CONOCIMIENTO ACTIVAS: ${names}]`;
-      return `${label}\n\nProtocolo de consulta documental:\n- Inicia siempre buscando con search_knowledge_base usando términos breves y clave; no concatenes frases largas.\n- Si la consulta alude a un documento concreto o filtro (ej: "AMD_2015_10K.pdf"), indícalo en documentHint y busca directamente sin consultar antes list_documents.\n- Prioriza scope="auto" (por defecto) o documentHint para una fuente concreta; usa scope="corpus" para comparar varias.\n- Consulta list_documents solo si la búsqueda no halla resultados o desconoces las fuentes disponibles.\n- Usa read_knowledge_chunk si el fragmento corta cifras, columnas de una tabla o una referencia de imagen que necesites localizar y contextualizar. Puedes consultar varios fragmentos a la vez pasando una lista en chunkIds (ej: ["chunk_1", "chunk_2"]) para contrastar datos o seguir fragmentos contiguos en un solo turno.\n- Trata las salidas de herramientas como evidencia interna privada: sintetiza y responde directamente sin reproducir fragmentos íntegros ni identificadores técnicos.\n- Las imágenes del documento se identifican como ![descripción](rag-image://docId:imgId). Si una imagen puede aportar información relevante y tienes visión nativa, usa read_knowledge_image con su referencia completa para inspeccionarla antes de responder; solicita solo las necesarias. Si el usuario pide imágenes, busca términos como "imagen", "diagrama" o "rag-image" e incluye estas referencias íntegras en tu respuesta.\n- Si la evidencia es insuficiente o no hallas datos concluyentes, indícalo con precisión y concluye; no inventes ni divagues.`;
+      const isCheckpoint = !!options.isCheckpointEnabled;
+      const lang = options.lang || 'es';
+      const isEn = lang === 'en';
+
+      const label = branches.length === 1
+        ? (isEn ? `[ACTIVE KNOWLEDGE BASE: ${names}]` : `[BASE DE CONOCIMIENTO ACTIVA: ${names}]`)
+        : (isEn ? `[ACTIVE KNOWLEDGE BASES: ${names}]` : `[BASES DE CONOCIMIENTO ACTIVAS: ${names}]`);
+
+      const checkpointRule = isCheckpoint
+        ? (isEn
+            ? '\n- After extracting key data from 1-2 documents or before concluding complex inquiries, invoke "agent_checkpoint" to consolidate findings and clear working memory.'
+            : '\n- Tras obtener datos clave de 1 o 2 documentos o antes de concluir consultas complejas, invoca obligatoriamente "agent_checkpoint" para consolidar cifras y validar tu memoria de trabajo.')
+        : '';
+
+      if (isEn) {
+        return `${label}\n\nDocument retrieval protocol:\n- Always start by searching with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- If the query refers to a specific document or filter (e.g. "AMD_2015_10K.pdf"), specify it in documentHint and search directly without consulting list_documents first.\n- Prioritize scope="auto" (default) or documentHint for a specific source; use scope="corpus" to compare multiple sources.\n- Consult list_documents only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- Do not re-search if you found the relevant section or document: if text or tables are truncated, inspect the adjacent chunks with read_knowledge_chunk (e.g. chunkIds=["chunk_2", "chunk_3"]).\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
+      }
+
+      return `${label}\n\nProtocolo de consulta documental:\n- Inicia siempre buscando con search_knowledge_base usando términos breves y clave; no concatenes frases largas.\n- Si la consulta alude a un documento concreto o filtro (ej: "AMD_2015_10K.pdf"), indícalo en documentHint y busca directamente sin consultar antes list_documents.\n- Prioriza scope="auto" (por defecto) o documentHint para una fuente concreta; usa scope="corpus" para comparar varias.\n- Consulta list_documents solo si la búsqueda no halla resultados, desconoces las fuentes disponibles o la consulta hace referencia a un documento cuyo nombre exacto desconoces.\n- En resultados con scope="corpus" se devuelven como máximo 2 fragmentos por documento; si necesitas más profundidad de una fuente concreta, repite la búsqueda con scope="document" y documentHint.\n- No reformules la búsqueda si ya localizaste la sección o documento relevante: si el fragmento corta tablas o texto, consulta los fragmentos contiguos con read_knowledge_chunk (ej: chunkIds=["chunk_2", "chunk_3"]).\n- Trata las salidas de herramientas como evidencia interna privada: sintetiza y responde directamente sin reproducir fragmentos íntegros ni identificadores técnicos.\n- Las imágenes del documento se identifican como ![descripción](rag-image://docId:imgId). Si una imagen puede aportar información relevante y tienes visión nativa, usa read_knowledge_image con su referencia completa para inspeccionarla antes de responder; solicita solo las necesarias. Si el usuario pide imágenes, busca términos como "imagen", "diagrama" o "rag-image" e incluye estas referencias íntegras en tu respuesta.${checkpointRule}\n- Si la evidencia es insuficiente o no hallas datos concluyentes, indícalo con precisión y concluye; no inventes ni divagues.`;
     } catch (_) {
       return '';
     }
   }
 
-  async function injectRagContext(systemPrompt, branchIds) {
-    const context = await buildRagSystemContext(branchIds);
+  async function injectRagContext(systemPrompt, branchIds, options = {}) {
+    const context = await buildRagSystemContext(branchIds, options);
     return [context, String(systemPrompt || '').trim()].filter(Boolean).join('\n\n');
   }
 

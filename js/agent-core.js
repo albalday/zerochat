@@ -1216,7 +1216,7 @@
           const stepExecResults = [];
 
           let hasCheckpointCall = false;
-          const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'search_web', 'fetch_web_page', 'download_pdf']);
+          const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'list_documents', 'search_web', 'fetch_web_page', 'download_pdf']);
 
           for (let i = 0; i < stepToolCalls.length; i++) {
             if (combinedSignal.aborted) break;
@@ -1253,15 +1253,36 @@
             let toolResponseContent = '';
             if (execResult.success && execResult.result !== undefined) {
               const serialized = execResult.tool.serializeResultForModel(execResult.args, execResult.result, execResult.outcome);
-              toolResponseContent = typeof serialized === 'string'
-                ? serialized
-                : JSON.stringify(serialized);
+              const serializedText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
 
-              // Sugerencia agéntica sutil si se encadenan múltiples consultas de datos sin checkpoint
+              // Si el resultado incluye una imagen RAG (dataUrl), construir content multipart
+              // para que el LLM con visión nativa pueda inspeccionarla directamente.
+              // En proveedores sin visión, formatMessages aplana el array a texto automáticamente.
+              const ragDataUrl = execResult.result?.dataUrl;
+              const ragMimeType = execResult.result?.mimeType;
+              if (ragDataUrl && ragMimeType) {
+                toolResponseContent = [
+                  { type: 'text', text: serializedText },
+                  { type: 'image_url', image_url: { url: ragDataUrl } }
+                ];
+              } else {
+                toolResponseContent = serializedText;
+              }
+
+              // Sugerencia agéntica prepended si se encadenan múltiples consultas de datos sin checkpoint
               if (DATA_TOOL_NAMES.has(toolFnName)) {
                 consecutiveDataCalls++;
-                if (consecutiveDataCalls >= 3 && !hasCheckpointCall) {
-                  toolResponseContent += '\n\n[Sugerencia agéntica: Se han recopilado múltiples fuentes de datos. Puedes invocar "agent_checkpoint" para consolidar tus hallazgos antes de proseguir o finalizar.]';
+                if (consecutiveDataCalls >= 2 && !hasCheckpointCall) {
+                  const isEn = params.lang === 'en' || params.language === 'en';
+                  const nudge = isEn
+                    ? '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n'
+                    : '[AVISO AGÉNTICO OBLIGATORIO: Has consultado fuentes de datos. Antes de responder o si aún te faltan datos (ej: otros años o documentos), debes invocar la herramienta "agent_checkpoint" indicando tus hallazgos hasta ahora y qué información te falta.]\n\n';
+                  if (Array.isArray(toolResponseContent)) {
+                    // content multipart (imagen RAG): prepend nudge al primer fragmento texto
+                    toolResponseContent = [{ type: 'text', text: nudge + (toolResponseContent[0]?.text || '') }, ...toolResponseContent.slice(1)];
+                  } else {
+                    toolResponseContent = nudge + toolResponseContent;
+                  }
                 }
               } else if (isCheckpoint) {
                 consecutiveDataCalls = 0;
