@@ -1,113 +1,127 @@
-# 🤖 Protocolo de Desarrollo e Ingeniería para Agentes IA — ZeroChat
+# Normas de desarrollo de ZeroChat
 
-Este documento establece las **reglas de ingeniería, patrones de arquitectura, directrices de código, flujo de pruebas y protocolo de compilación** para ZeroChat. Cualquier agente IA (Antigravity, Claude Code, Cursor, Copilot, etc.) o desarrollador debe adherirse estrictamente a estas directrices.
+Estas normas definen el nivel mínimo de calidad para cualquier cambio en ZeroChat.
+Se aplican tanto al desarrollo humano como a los agentes de generación de código.
 
----
+## 1. Fuente de verdad
 
-## 1. 🛑 Reglas Cardinales e Inquebrantables
+El código fuente se mantiene en:
 
-1. **Arquitectura Fuente vs Distribución**:
-   - Todo el desarrollo se realiza exclusivamente en el código fuente modular: `js/`, `css/` e `index.html`.
-   - **NUNCA modifiques `zerochat.html` a mano**. Este archivo es un bundle empaquetado y minificado generado por `bundle.py`.
-2. **Norma Inquebrantable de Fin de Modificación: Regenerar el Bundle**:
-   - Tras CUALQUIER edición en el código fuente, **SIEMPRE sin excepción**:
-     1. Ejecutar las pruebas unitarias: `npm test` (o `npm run test:unit`).
-     2. **REGENERAR EL BUNDLE**: Ejecutar `npm run build`.
-   - Ninguna tarea se considera finalizada ni entregada al usuario sin haber ejecutado `npm run build` para garantizar que `zerochat.html` esté 100% sincronizado.
-3. **Validación Obligatoria de Interfaz de Usuario (Browser Tests)**:
-   - Si un cambio modifica el DOM (`index.html`), estilos (`css/`) o renderizado de componentes visuales en `js/`, es **OBLIGATORIO** ejecutar los tests de integración en navegador real:
-     ```bash
-     npm run test:browser
-     ```
-   - Esta suite (Playwright/Chromium) valida la carga en protocolo `file://`, la ausencia de errores en consola, la resolución de tokens CSS, el modo oscuro, la accesibilidad (WCAG 2.1 AA) y la integridad de iconos SVG.
+- `index.html`
+- `js/`
+- `css/`
+- `tests/`
+- `scripts/`
 
----
+`zerochat.html` es un artefacto generado. No debe editarse manualmente.
+Cualquier modificación del código fuente que afecte a la aplicación debe terminar
+con la regeneración del bundle mediante `npm run build`.
 
-## 2. 🏛️ Principio de Ingeniería: Reutilizar Infraestructura antes de Crear
+Los cambios deben ser pequeños, coherentes con la arquitectura existente y limitarse
+al problema solicitado. No se deben introducir refactorizaciones generales, nuevas
+abstracciones o dependencias sin una justificación concreta.
 
-El desarrollo en ZeroChat debe mantener un nivel de ingeniería profesional y evitar la proliferación desordenada de código:
-- **Prohibido crear código redundante o "islas" desconectadas**: Antes de implementar una función, revisa los servicios, adaptadores, stores y helpers ya existentes en el repositorio.
-- **Evitar la saturación de `js/app.js`**: `app.js` es únicamente el orquestador principal de arranque e inicialización. No debe inflarse con lógica de negocio específica, parsers, ni manipulación masiva de DOM que corresponda a submódulos.
-- **Mantener el desacoplamiento mediante UMD**: Todos los módulos de `js/` deben seguir el patrón Factory/UMD para permitir ejecución isomórfica (tanto en el navegador bajo `file://` / `http://` como en Node.js para los tests unitarios).
+## 2. Calidad del código
 
----
+El código nuevo debe:
 
-## 3. 🧩 Estructuras Básicas a Respetar, Utilizar y Mantener
+- respetar los patrones y APIs ya utilizados por el módulo;
+- mantener las interfaces públicas salvo que el cambio lo requiera;
+- evitar duplicación y estado global innecesario;
+- separar la lógica de dominio, persistencia, proveedores y presentación;
+- gestionar errores de forma explícita, sin ocultarlos silenciosamente;
+- validar entradas externas y valores procedentes de la configuración;
+- ser comprobable mediante pruebas automatizadas;
+- incluir comentarios únicamente cuando aclaren una decisión no evidente.
 
-### A. Estado Global Reactivo (`ChatState` en `js/state.js`)
-- **Única fuente de verdad**: Todo estado que deba compartirse, persistirse o sobrevivir al ciclo de vida de la interfaz debe residir en el store reactivo `ChatState`.
-- **Slices canónicos**:
-  - `config`: Preferencias y configuración del modelo, proveedor y flags.
-  - `sessions`: ID activo y lista de conversaciones guardadas.
-  - `messages`: Historial en memoria de la sesión activa.
-  - `streaming`: Estado de generación (`isGenerating`, `status`, `error`).
-  - `agent`: Turnos agénticos y herramienta en ejecución.
-  - `telemetry`: Métricas de tokens, diagnósticos de contexto y latencia.
-  - `ui`: Estados de paneles modales, drawers y menús.
-- **Prohibido el estado volátil no controlado**: NUNCA uses variables globales de clausura en módulos o en `app.js` para retener datos de sesión o telemetría que provoquen fugas de estado entre conversaciones.
+Antes de crear una utilidad, servicio o abstracción, debe comprobarse si ya existe
+una solución equivalente en el repositorio.
 
-### B. Sistema Multidioma y Localización (`ChatI18n` en `js/i18n.js`)
-- **Cero texto hardcodeado en la UI**: Ninguna etiqueta, botón, placeholder o mensaje visible al usuario debe escribirse directamente en texto plano en HTML o JS.
-- **HTML Declarativo**: Usa atributos `data-i18n="clave"`, `data-i18n-title="clave"` o `data-i18n-placeholder="clave"`.
-- **Lógica JavaScript**: Usa `ChatI18n.t('clave', { params })`.
-- **Paridad estricta**: Si agregas o modificas una clave de traducción, debes actualizar **simultáneamente** los diccionarios `es` y `en` en `js/i18n.js`.
+## 3. Arquitectura y presentación
 
-### C. Arquitectura Modular de UI (`ChatUI*` / `js/ui-*.js`)
-- Cada subsistema visual debe tener su propio módulo desacoplado (ej: `ui-reasoning.js`, `ui-sidebar.js`, `ui-settings.js`, `ui-inspector.js`, `ui-telemetry.js`, `tool-cards.js`).
-- **Renderizado Eficiente (Lazy Rendering)**: Evitar mutaciones masivas del DOM durante el streaming de tokens. Los componentes pesados (como modales y popovers) deben actualizarse bajo demanda al abrirse o al completarse la inferencia.
+`app.js` coordina el arranque y la integración de módulos. La lógica específica debe
+permanecer en su módulo correspondiente.
 
-### D. Contrato Declarativo de Herramientas Agénticas (`js/tools/`)
-- Cada tool vive en `js/tools/builtin/<nombre>.tool.js`.
-- Debe cumplir estrictamente el contrato declarativo:
-  - `definition`: Nombre, descripción y JSON Schema para Function Calling.
-  - `settings`: Descriptor de habilitación y configuración.
-  - `execute(args, context)`: Lógica de ejecución; consume dependencias mediante `context.services` (inyección de dependencias para testeo).
-  - `result`: Adaptadores `toModel` y `toMarkdown`.
-  - `view`: Tarjetas en el chat (`createLiveCard`, `updateLiveCard`, `renderHistoricalCard`).
-- NUNCA uses propiedades obsoletas como `ui` o `handler`.
+El estado compartido, persistente o necesario para coordinar subsistemas debe pasar
+por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messages`,
+`streaming`, `agent`, `telemetry`, `ui`). Está prohibido usar variables globales de
+módulo que provoquen fugas de estado entre conversaciones.
 
-### E. Adaptadores de Proveedores (`js/providers.js`)
-- Todos los proveedores de IA extienden `BaseProviderAdapter`.
-- Gestionan diferencias de protocolo (OpenAI, Anthropic SSE, Ollama, Gemini, OpenRouter) en:
-  - Normalización de endpoints y listing de modelos.
-  - Streaming SSE y deltas de texto, pensamiento (`reasoningChunk`), tool calls y uso de tokens (`usage`).
-  - Cache de contexto (Prompt / KV Caching) y opciones de streaming.
+Los módulos reutilizables deben conservar el patrón UMD utilizado por el proyecto
+para poder ejecutarse en navegador y en las pruebas de Node.js.
 
-### F. Persistencia y Almacenamiento Local (`ZeroChatDB` en `js/storage-db.js`)
-- Almacenamiento centralizado en IndexedDB con esquema relacional ligero (conversaciones, mensajes, chunks de conocimiento, imágenes extraídas).
-- Mantiene aislados los adjuntos pesados (imágenes Base64) del árbol de mensajes para optimizar lecturas rápidas.
+Los proveedores de IA deben extender `BaseProviderAdapter` (`js/providers.js`) para
+normalizar endpoints, streaming SSE, razonamiento (`reasoningChunk`), tool calls y telemetría.
 
-### G. Sistema de Diseño, CSS Tokens e Iconografía Vectorial
-- **CSS Tokens nativos**: Usa variables de `css/tokens.css` (`--bg-surface`, `--text-main`, `--primary`, `--radius-md`, etc.) y las variantes de Glassmorphism.
-- **🚫 Prohibido el uso de emojis crudos como iconos en la UI**: En botones, badges, barras de navegación o acciones, usa **exclusivamente** iconos vectoriales SVG limpios (`<svg class="ui-icon">` o a través del catálogo `ChatIcons.get('nombre', size)` en `js/icons.js`). Los emojis solo son admisibles en texto explicativo o contenido de chat.
-- **Estándares modernos de CSS y HTML**: Uso de `@starting-style` para animaciones, `field-sizing: content` para textareas y componentes semánticos `<dialog>`.
+La persistencia local en IndexedDB se canaliza mediante `ZeroChatDB` (`js/storage-db.js`),
+manteniendo los adjuntos pesados (como imágenes Base64) aislados del árbol de mensajes.
 
----
+El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
+añadirse simultáneamente a los diccionarios español e inglés.
 
-## 4. 🧪 Protocolo de Pruebas y Comandos de Verificación
+La interfaz no debe usar emojis crudos en botones, badges, barras o acciones interactivas.
+Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catálogo
+`ChatIcons` (`js/icons.js`) o etiquetas `<svg class="ui-icon">`. Los emojis solo son
+admisibles en contenido textual explicativo o mensajes del chat.
 
-Antes de dar cualquier cambio por completado:
+Para preservar el rendimiento durante el streaming de tokens SSE, se debe aplicar
+renderizado eficiente (lazy rendering): evitar mutaciones masivas continuas del DOM y
+actualizar paneles o popovers pesados bajo demanda al interactuar o al finalizar la inferencia.
 
-| Comando | Propósito | Cuándo es obligatorio |
-| :--- | :--- | :--- |
-| `npm test` | Suite completa de pruebas unitarias en Node.js | Tras **cualquier** cambio en código fuente. |
-| `npm run test:unit` | Suite rápida omitiendo tests de browser | Durante iteraciones rápidas de lógica pura. |
-| `npm run test:browser` | Suite Playwright en Chromium real | **Obligatorio** si se modifica HTML, CSS o DOM. |
-| `npm run build` | Compilación y minificación del bundle `zerochat.html` | **Obligatorio** como paso final de toda tarea. |
+Las herramientas deben respetar el contrato documentado en `docs/TOOLS.md`.
+No deben utilizarse las propiedades obsoletas `ui` ni `handler`.
 
-> [!CAUTION]
-> **Tolerancia cero a fallos**: Todos los tests deben pasar exitosamente (cero tests fallidos, cero advertencias en consola). No se permite comentar ni saltarse pruebas para eludir errores. Si agregas un nuevo módulo, añade su correspondiente `tests/test_<modulo>.js`.
+## 4. Seguridad
 
----
+Las entradas de usuario, respuestas de proveedores, contenido de documentos y
+resultados de herramientas se consideran datos no confiables.
 
-## 5. 🌿 Flujo de Git y Control de Versiones
+Todo cambio que afecte a MCP, ejecución de comandos, sandbox, persistencia de datos,
+credenciales o contenido HTML debe incluir pruebas específicas y revisar:
 
-1. **Rama de trabajo**: Todo desarrollo se efectúa sobre la rama **`dev`**.
-2. **Convención de commits**: Usar formato **Conventional Commits**:
-   - `feat: ...` — Nueva funcionalidad.
-   - `fix: ...` — Corrección de bugs.
-   - `refactor: ...` — Refactorización interna sin cambio funcional.
-   - `docs: ...` — Documentación (`AGENTS.md`, `README.md`).
-   - `test: ...` — Nuevas pruebas o mejoras en tests.
-   - `chore: ...` — Tareas de build, dependencias o mantenimiento.
-3. **Confirmación**: Asegurarse de que `zerochat.html` forma parte del commit para mantener el bundle sincronizado con el código fuente.
+- validación de entradas;
+- autorización;
+- límites de tamaño y tiempo;
+- exposición de secretos;
+- generación segura de HTML;
+- comportamiento ante errores y cancelación.
+
+No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
+
+## 5. Pruebas y build
+
+Durante el desarrollo se puede usar la validación más específica:
+
+- lógica sin interfaz: `npm run test:unit`;
+- cambios de HTML, CSS o DOM: `npm run test:browser`;
+- validación completa: `npm test`;
+- regeneración del distribuible: `npm run build`.
+
+Antes de considerar terminado un cambio:
+
+1. deben pasar las pruebas aplicables;
+2. debe ejecutarse `npm test`;
+3. debe ejecutarse `npm run build`;
+4. debe comprobarse que `zerochat.html` queda actualizado;
+5. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
+
+## 6. Control de versiones y Git
+
+El flujo de trabajo en el repositorio debe seguir estas pautas:
+
+- **Rama de trabajo**: Todo desarrollo o cambio se realiza sobre la rama `dev`.
+- **Formato de commits**: Usar la convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
+- **Sincronización del bundle**: El archivo distribuible `zerochat.html` debe incluirse en la confirmación siempre que se modifique código fuente de la aplicación.
+
+## 7. Finalización
+
+Un cambio está terminado cuando:
+
+- implementa únicamente el comportamiento solicitado;
+- conserva la compatibilidad existente, salvo decisión explícita;
+- tiene pruebas adecuadas;
+- mantiene español e inglés cuando afecta a la interfaz;
+- no deja errores de consola en los tests de navegador;
+- actualiza el bundle distribuible;
+- deja la documentación coherente con el comportamiento real.
+
