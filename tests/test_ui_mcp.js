@@ -432,3 +432,83 @@ test('ChatUIMcp - autoConnectIfAvailable delega en ChatMCP.manager', async () =>
   }
 });
 
+test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actualiza políticas', () => {
+  const ChatToolSecurity = require('../js/tool-security.js');
+  ChatToolSecurity.manager.clearAllAuthorizations();
+  ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+
+  const mockSelects = [];
+  const selectListeners = {};
+
+  const container = {
+    innerHTML: '',
+    style: {},
+    querySelectorAll: (selector) => {
+      if (selector === '.mcp-auth-select') {
+        return mockSelects;
+      }
+      return [];
+    }
+  };
+
+  const tools = [
+    {
+      id: 'mcp__test_tool_1',
+      name: 'mcp__test_tool_1',
+      metadata: { mcpServerName: 'srv1', originalName: 'tool1' }
+    },
+    {
+      id: 'mcp__test_tool_2',
+      name: 'mcp__test_tool_2',
+      metadata: { mcpServerName: 'srv1', originalName: 'tool2' }
+    }
+  ];
+
+  // Pre-autorizar tool 2
+  ChatToolSecurity.manager.setToolPolicy('mcp__test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
+
+  tools.forEach(tool => {
+    const sel = {
+      value: tool.id === 'mcp__test_tool_2' ? 'allow' : 'ask',
+      className: '',
+      getAttribute: (attr) => {
+        if (attr === 'data-tool-id') return tool.id;
+        if (attr === 'data-server-name') return tool.metadata.mcpServerName;
+        if (attr === 'data-orig-name') return tool.metadata.originalName;
+        return null;
+      },
+      addEventListener: (evt, fn) => {
+        selectListeners[`${tool.id}_${evt}`] = fn;
+      }
+    };
+    mockSelects.push(sel);
+  });
+
+  ChatUIMcp.renderToolsList(container, tools, {}, (k) => ChatI18n.t(k));
+
+  // Verificar que el select está presente en el markup
+  assert.ok(container.innerHTML.includes('mcp-auth-select'));
+  assert.ok(container.innerHTML.includes('value="allow" selected'));
+
+  // Cambiar tool 1 a 'allow'
+  mockSelects[0].value = 'allow';
+  selectListeners['mcp__test_tool_1_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_1'), 'allow');
+  assert.ok(mockSelects[0].className.includes('status-allowed'));
+
+  // Cambiar tool 2 a 'ask' (revocar)
+  mockSelects[1].value = 'ask';
+  selectListeners['mcp__test_tool_2_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_2'), null);
+  assert.ok(mockSelects[1].className.includes('status-ask'));
+
+  // Probar modo global allow_all
+  ChatToolSecurity.manager.setGlobalMcpPolicy('allow_all');
+  ChatUIMcp.renderToolsList(container, tools, {}, (k) => ChatI18n.t(k));
+  assert.ok(container.innerHTML.includes('(Global)'));
+
+  ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+  ChatToolSecurity.manager.clearAllAuthorizations();
+});
+
+

@@ -130,3 +130,97 @@ test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
   }
 });
 
+test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y patrones denegados', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_constraints' });
+
+  const tool = {
+    id: 'mcp__srv__cmd',
+    name: 'mcp__srv__cmd',
+    category: 'mcp'
+  };
+
+  // Autorizar con restricciones de comandos
+  manager.setToolPolicy(tool.id, 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['git ', 'npm test'],
+        deniedPatterns: ['sudo'],
+        allowChaining: false
+      }
+    }
+  });
+
+  assert.deepEqual(manager.getToolConstraints(tool.id).command.allowedPrefixes, ['git ', 'npm test']);
+
+  // 1. Comando dentro de la lista permitida sin encadenamiento -> allow
+  const evalGit = manager.evaluateAuthorization(tool, { command: 'git status' });
+  assert.equal(evalGit.status, 'allow');
+  assert.equal(evalGit.requiresApproval, false);
+
+  const evalNpm = manager.evaluateAuthorization(tool, { command: 'npm test -- --bail' });
+  assert.equal(evalNpm.status, 'allow');
+  assert.equal(evalNpm.requiresApproval, false);
+
+  // 2. Comando fuera de la lista permitida -> ask (fallback seguro)
+  const evalCurl = manager.evaluateAuthorization(tool, { command: 'curl https://example.com' });
+  assert.equal(evalCurl.status, 'ask');
+  assert.equal(evalCurl.requiresApproval, true);
+
+  // 3. Intento de encadenamiento no autorizado en shell (; o &&) -> ask
+  const evalChained = manager.evaluateAuthorization(tool, { command: 'git status; rm -rf /' });
+  assert.equal(evalChained.status, 'ask');
+  assert.equal(evalChained.requiresApproval, true);
+
+  // 4. Patrón expresamente denegado (sudo) -> deny
+  const evalSudo = manager.evaluateAuthorization(tool, { command: 'sudo git status' });
+  assert.equal(evalSudo.status, 'deny');
+  assert.equal(evalSudo.requiresApproval, false);
+});
+
+test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y carpetas permitidas', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_path_constraints' });
+
+  const tool = {
+    id: 'mcp__srv__fs',
+    name: 'mcp__srv__fs',
+    category: 'mcp'
+  };
+
+  manager.setToolPolicy(tool.id, 'allow', {
+    constraints: {
+      path: {
+        allowedDirectories: ['./'],
+        deniedDirectories: ['/etc', '~/.ssh'],
+        preventTraversal: true
+      }
+    }
+  });
+
+  // 1. Ruta relativa válida dentro del proyecto -> allow
+  const evalRel = manager.evaluateAuthorization(tool, { path: 'src/index.js' });
+  assert.equal(evalRel.status, 'allow');
+  assert.equal(evalRel.requiresApproval, false);
+
+  // 2. Intento de directory traversal que escapa -> deny
+  const evalTraversal = manager.evaluateAuthorization(tool, { path: '../../etc/shadow' });
+  assert.equal(evalTraversal.status, 'deny');
+  assert.equal(evalTraversal.requiresApproval, false);
+
+  // 3. Ruta en lista negra expresa (/etc) -> deny
+  const evalEtc = manager.evaluateAuthorization(tool, { path: '/etc/hosts' });
+  assert.equal(evalEtc.status, 'deny');
+  assert.equal(evalEtc.requiresApproval, false);
+
+  // 4. Ruta absoluta fuera de allowedDirectories -> ask
+  const evalOutside = manager.evaluateAuthorization(tool, { path: '/var/log/syslog' });
+  assert.equal(evalOutside.status, 'ask');
+  assert.equal(evalOutside.requiresApproval, true);
+
+  // 5. Actualizar restricciones mediante setToolConstraints
+  manager.setToolConstraints(tool.id, null);
+  assert.equal(manager.getToolConstraints(tool.id), null);
+  const evalNowAllowed = manager.evaluateAuthorization(tool, { path: '/var/log/syslog' });
+  assert.equal(evalNowAllowed.status, 'allow');
+});
+
+

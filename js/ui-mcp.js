@@ -359,16 +359,32 @@
         paramsHint = Object.entries(props).map(([k, v]) => `${k}${req.includes(k) ? '' : '?'}: ${v.type || 'any'}`).join(', ');
       }
 
+      const serverName = tool.metadata?.mcpServerName || '';
+      const originalName = tool.metadata?.originalName || tool.name;
       const toolRule = Security?.manager?.getToolPolicy ? Security.manager.getToolPolicy(id) : null;
+      const toolConstraints = Security?.manager?.getToolConstraints ? Security.manager.getToolConstraints(id) : null;
+      const hasConstraints = !!(toolConstraints && (toolConstraints.command || toolConstraints.path));
+      const effectivePolicy = toolRule || 'ask';
+
       let authTagHtml = '';
       if (globalPolicy === 'allow_all') {
-        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_policy_allow_all'))}">${escapeHtml(translator('mcp_security_badge_allowed'))}</span>`;
-      } else if (toolRule === 'allow') {
-        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_badge_allowed'))}">${escapeHtml(translator('mcp_security_badge_allowed'))}</span>`;
-      } else if (toolRule === 'deny') {
-        authTagHtml = `<span class="mcp-auth-badge status-denied" title="${escapeHtml(translator('tool_auth_denied_badge'))}">${escapeHtml(translator('tool_auth_denied_badge'))}</span>`;
+        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_policy_allow_all'))}">${escapeHtml(translator('mcp_security_badge_allowed'))} (Global)</span>`;
       } else {
-        authTagHtml = `<span class="mcp-auth-badge status-ask" title="${escapeHtml(translator('mcp_security_badge_ask'))}">${escapeHtml(translator('mcp_security_badge_ask'))}</span>`;
+        const selectTitle = escapeHtml(translator('mcp_security_select_title'));
+        const optAsk = escapeHtml(translator('mcp_security_badge_ask'));
+        let optAllowed = escapeHtml(translator('mcp_security_badge_allowed'));
+        if (hasConstraints && effectivePolicy === 'allow') {
+          optAllowed += ` (${escapeHtml(translator('mcp_security_constrained') || 'Acotada')})`;
+        }
+        const optDenied = escapeHtml(translator('tool_auth_denied_badge'));
+        const statusClass = effectivePolicy === 'allow' ? 'status-allowed' : (effectivePolicy === 'deny' ? 'status-denied' : 'status-ask');
+
+        authTagHtml = `
+          <select class="mcp-auth-select ${statusClass}" data-tool-id="${escapeHtml(id)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
+            <option value="ask" ${effectivePolicy === 'ask' ? 'selected' : ''}>${optAsk}</option>
+            <option value="allow" ${effectivePolicy === 'allow' ? 'selected' : ''}>${optAllowed}</option>
+            <option value="deny" ${effectivePolicy === 'deny' ? 'selected' : ''}>${optDenied}</option>
+          </select>`;
       }
 
       return `
@@ -398,6 +414,39 @@
         <span class="mcp-tools-counter">${translator('mcp_tools_count', { count: tools.length })}</span>
       </div>
       <div class="mcp-tools-list">${items}</div>`;
+
+    container.querySelectorAll?.('.mcp-auth-select').forEach(sel => {
+      sel.addEventListener?.('change', () => {
+        const tid = sel.getAttribute?.('data-tool-id');
+        if (!tid) return;
+        const newPolicy = sel.value;
+        const sName = sel.getAttribute?.('data-server-name') || '';
+        const oName = sel.getAttribute?.('data-orig-name') || tid;
+
+        if (Security?.manager) {
+          if (newPolicy === 'ask') {
+            Security.manager.revokeToolPolicy(tid);
+          } else {
+            Security.manager.setToolPolicy(tid, newPolicy, {
+              serverName: sName,
+              originalName: oName
+            });
+          }
+        }
+
+        // Actualizar clase visual del select según la nueva opción
+        sel.className = `mcp-auth-select status-${newPolicy === 'allow' ? 'allowed' : (newPolicy === 'deny' ? 'denied' : 'ask')}`;
+
+        // Sincronizar lista de autorizaciones guardadas en el modal si está disponible
+        const savedListEl = typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null;
+        if (savedListEl && typeof renderSavedAuthorizations === 'function') {
+          renderSavedAuthorizations({
+            savedAuthsList: savedListEl,
+            btnClearAuths: document.getElementById('btn-mcp-clear-auths')
+          }, translator);
+        }
+      });
+    });
 
     container.querySelectorAll?.('.mcp-tool-checkbox').forEach(cb => {
       cb.addEventListener?.('change', () => {
@@ -492,14 +541,30 @@
       const origName = escapeHtml(item.originalName || item.toolId);
       const isAllowed = item.policy === 'allow';
       const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
-      const badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
+      let badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
       const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
+
+      let constraintTag = '';
+      if (item.constraints) {
+        const parts = [];
+        if (item.constraints.command?.allowedPrefixes) {
+          parts.push(item.constraints.command.allowedPrefixes.join(', '));
+        }
+        if (item.constraints.path?.allowedDirectories) {
+          parts.push(item.constraints.path.allowedDirectories.join(', '));
+        }
+        if (parts.length > 0) {
+          badgeText += ` (${escapeHtml(translator('mcp_security_constrained') || 'Acotada')})`;
+          constraintTag = `<span class="mcp-auth-constraint-tag" title="${escapeHtml(parts.join(' | '))}">${escapeHtml(parts.join(' | '))}</span>`;
+        }
+      }
 
       return `
         <div class="mcp-auth-item" data-tool-id="${toolId}">
           <div class="mcp-auth-item-info">
             <strong class="mcp-auth-item-name">${origName}</strong>
             <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
+            ${constraintTag}
           </div>
           <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}">
             ${trashIcon} <span>${revokeLabel}</span>

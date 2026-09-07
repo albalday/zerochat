@@ -173,6 +173,25 @@
       }
     }
 
+    const parsedArgs = options.args || {};
+    const cmdArg = parsedArgs.command || parsedArgs.cmd || parsedArgs.script;
+    const pathArg = parsedArgs.path || parsedArgs.filepath || parsedArgs.file;
+
+    let contextualButtonsHtml = '';
+    let baseCmd = '';
+    if (typeof cmdArg === 'string' && cmdArg.trim()) {
+      baseCmd = cmdArg.trim().split(/\s+/)[0];
+      if (baseCmd) {
+        contextualButtonsHtml = `
+          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${esc(tFn('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
+        `;
+      }
+    } else if (typeof pathArg === 'string' && pathArg.trim()) {
+      contextualButtonsHtml = `
+        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn'))}</span></button>
+      `;
+    }
+
     const serverTag = serverName ? `<span class="mcp-card-server-tag">${esc(serverName)}</span>` : '';
     authPromptEl.innerHTML = `
       <div class="tool-auth-header">
@@ -185,7 +204,8 @@
       </div>
       <div class="tool-auth-actions">
         <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir una vez')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
-        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre este tool')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre este tool'}</span></button>
+        ${contextualButtonsHtml}
+        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre este tool')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir todo'}</span></button>
         <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
       </div>
     `;
@@ -207,7 +227,9 @@
         resolved = true;
         cleanup();
 
-        if (decision === 'deny') {
+        const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+
+        if (decisionType === 'deny') {
           if (badge) {
             badge.className = 'tool-card-badge status-error';
             badge.innerHTML = `${ERROR_SVG} <span>${tFn('tool_auth_denied_badge') || 'Denegado'}</span>`;
@@ -228,12 +250,40 @@
       };
 
       const btnAllowOnce = authPromptEl.querySelector('.btn-auth-allow-once');
+      const btnAllowCmd = authPromptEl.querySelector('.btn-auth-allow-cmd');
+      const btnAllowPath = authPromptEl.querySelector('.btn-auth-allow-path');
       const btnAllowAlways = authPromptEl.querySelector('.btn-auth-allow-always');
       const btnDeny = authPromptEl.querySelector('.btn-auth-deny');
 
       btnAllowOnce?.addEventListener('click', (e) => {
         e.stopPropagation();
         handleDecision('allow_once');
+      });
+
+      btnAllowCmd?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision({
+          decision: 'allow_always',
+          constraints: {
+            command: {
+              allowedPrefixes: [baseCmd + ' ', baseCmd],
+              allowChaining: false
+            }
+          }
+        });
+      });
+
+      btnAllowPath?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision({
+          decision: 'allow_always',
+          constraints: {
+            path: {
+              allowedDirectories: ['./'],
+              preventTraversal: true
+            }
+          }
+        });
       });
 
       btnAllowAlways?.addEventListener('click', (e) => {

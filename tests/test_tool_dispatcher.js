@@ -209,5 +209,66 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();
   }
+
+  // 4. Caso Ask con restricciones granulares (allow_always con constraints)
+  ChatToolCards.promptToolAuthorization = async () => ({
+    decision: 'allow_always',
+    constraints: {
+      command: { allowedPrefixes: ['echo '], allowChaining: false }
+    }
+  });
+
+  try {
+    const resFirst = await AgentCore.dispatchToolCall(toolCall, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(resFirst.success, true);
+    // Verificar que las restricciones se persistieron
+    const savedConstraints = ChatToolSecurity.manager.getToolConstraints('mcp__test_srv__run_cmd');
+    assert.ok(savedConstraints);
+    assert.deepEqual(savedConstraints.command.allowedPrefixes, ['echo ']);
+
+    // Ejecutar otro comando permitido ('echo second') sin que promptToolAuthorization sea llamado
+    let promptCalled = false;
+    ChatToolCards.promptToolAuthorization = async () => {
+      promptCalled = true;
+      return 'deny';
+    };
+
+    const toolCallEcho2 = {
+      id: 'call_mcp_test_2',
+      type: 'function',
+      function: {
+        name: 'mcp__test_srv__run_cmd',
+        arguments: JSON.stringify({ cmd: 'echo second' })
+      }
+    };
+
+    const resEcho2 = await AgentCore.dispatchToolCall(toolCallEcho2, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(resEcho2.success, true);
+    assert.equal(promptCalled, false, 'No debe pedir autorización para comando autorizado en lista blanca');
+
+    // Ejecutar comando no autorizado ('cat secret.txt') -> debe invocar prompt
+    const toolCallCat = {
+      id: 'call_mcp_test_3',
+      type: 'function',
+      function: {
+        name: 'mcp__test_srv__run_cmd',
+        arguments: JSON.stringify({ cmd: 'cat secret.txt' })
+      }
+    };
+
+    const resCat = await AgentCore.dispatchToolCall(toolCallCat, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(promptCalled, true, 'Debe pedir confirmación para comando fuera del prefijo autorizado');
+    assert.equal(resCat.success, false);
+  } finally {
+    ChatToolCards.promptToolAuthorization = origPrompt;
+    ChatToolSecurity.manager.clearAllAuthorizations();
+  }
 });
+
 

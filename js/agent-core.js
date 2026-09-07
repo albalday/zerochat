@@ -712,7 +712,10 @@
               signal: options.signal
             });
 
-            if (userDecision === 'deny') {
+            const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
+            const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
+
+            if (decisionType === 'deny') {
               const denyMsg = 'Ejecución denegada por el usuario.';
               return {
                 success: false,
@@ -727,11 +730,12 @@
               };
             }
 
-            if (userDecision === 'allow_always') {
-              // Autorización de grano fino: solo para esta herramienta específica
+            if (decisionType === 'allow_always') {
+              // Autorización de grano fino: solo para esta herramienta específica con posibles restricciones
               ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
                 serverName: authEval.serverName,
-                originalName: authEval.originalName
+                originalName: authEval.originalName,
+                constraints
               });
             }
           }

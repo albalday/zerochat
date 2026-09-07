@@ -50,6 +50,174 @@
     return resolveDep('ChatAgentCore', './agent-core.js');
   }
 
+  function normalizePath(p) {
+    if (typeof p !== 'string') return '';
+    let norm = p.replace(/\\/g, '/');
+    norm = norm.replace(/\/+/g, '/');
+    return norm;
+  }
+
+  function isPathTraversal(norm) {
+    const segments = norm.split('/');
+    let depth = 0;
+    for (const seg of segments) {
+      if (seg === '..') {
+        depth--;
+        if (depth < 0) return true;
+      } else if (seg && seg !== '.') {
+        depth++;
+      }
+    }
+    return false;
+  }
+
+  function evaluatePathConstraint(pathVal, pathConstraints) {
+    if (!pathVal || typeof pathVal !== 'string') return { allowed: true };
+    if (!pathConstraints || typeof pathConstraints !== 'object') return { allowed: true };
+
+    const norm = normalizePath(pathVal);
+
+    if (pathConstraints.preventTraversal) {
+      if (norm.includes('../') || norm.startsWith('..') || norm.endsWith('/..')) {
+        if (isPathTraversal(norm)) {
+          return {
+            allowed: false,
+            denied: true,
+            reason: 'path_traversal_detected',
+            details: `Navegación de directorios no permitida: ${pathVal}`
+          };
+        }
+      }
+    }
+
+    if (Array.isArray(pathConstraints.deniedDirectories)) {
+      for (const denied of pathConstraints.deniedDirectories) {
+        const normDenied = normalizePath(denied);
+        if (norm.startsWith(normDenied) || norm === normDenied || norm.includes(normDenied)) {
+          return {
+            allowed: false,
+            denied: true,
+            reason: 'path_in_denied_directory',
+            details: `Ruta denegada por lista negra: ${pathVal}`
+          };
+        }
+      }
+    }
+
+    if (Array.isArray(pathConstraints.allowedDirectories) && pathConstraints.allowedDirectories.length > 0) {
+      let matched = false;
+      for (const allowed of pathConstraints.allowedDirectories) {
+        const normAllowed = normalizePath(allowed);
+        if (normAllowed === './' || normAllowed === '.') {
+          if (!norm.startsWith('/') && !norm.startsWith('~')) {
+            matched = true;
+            break;
+          }
+        } else if (norm.startsWith(normAllowed)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        return {
+          allowed: false,
+          denied: false,
+          reason: 'path_outside_allowed_directories',
+          details: `Ruta fuera de las carpetas autorizadas: ${pathVal}`
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  function evaluateCommandConstraint(cmdVal, commandConstraints) {
+    if (!cmdVal || typeof cmdVal !== 'string') return { allowed: true };
+    if (!commandConstraints || typeof commandConstraints !== 'object') return { allowed: true };
+
+    const trimmed = cmdVal.trim();
+
+    if (commandConstraints.allowChaining === false) {
+      const chainingRegex = /(?:[;&|`]|(?:\$\())/;
+      if (chainingRegex.test(trimmed)) {
+        return {
+          allowed: false,
+          denied: false,
+          reason: 'command_chaining_requires_approval',
+          details: `Comando contiene encadenamiento o operadores de shell no autorizados: ${trimmed}`
+        };
+      }
+    }
+
+    if (Array.isArray(commandConstraints.deniedPatterns)) {
+      for (const pattern of commandConstraints.deniedPatterns) {
+        if (typeof pattern === 'string' && trimmed.includes(pattern)) {
+          return {
+            allowed: false,
+            denied: true,
+            reason: 'command_matches_denied_pattern',
+            details: `Comando contiene un patrón bloqueado (${pattern}): ${trimmed}`
+          };
+        }
+      }
+    }
+
+    if (Array.isArray(commandConstraints.allowedPrefixes) && commandConstraints.allowedPrefixes.length > 0) {
+      let matched = false;
+      for (const prefix of commandConstraints.allowedPrefixes) {
+        const cleanPrefix = prefix.trim();
+        if (trimmed === cleanPrefix || trimmed.startsWith(cleanPrefix + ' ') || trimmed.startsWith(cleanPrefix)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        return {
+          allowed: false,
+          denied: false,
+          reason: 'command_outside_allowed_prefixes',
+          details: `Comando fuera de los prefijos autorizados: ${trimmed}`
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  function evaluateConstraints(constraints, args = {}) {
+    if (!constraints || typeof constraints !== 'object') {
+      return { status: 'allow' };
+    }
+
+    if (constraints.command) {
+      const cmdVal = args.command || args.cmd || args.script || '';
+      if (cmdVal) {
+        const cmdRes = evaluateCommandConstraint(cmdVal, constraints.command);
+        if (cmdRes.denied) {
+          return { status: 'deny', reason: cmdRes.reason, details: cmdRes.details };
+        }
+        if (!cmdRes.allowed) {
+          return { status: 'ask', reason: cmdRes.reason, details: cmdRes.details };
+        }
+      }
+    }
+
+    if (constraints.path) {
+      const pathVal = args.path || args.filepath || args.file || args.directory || args.dir || args.cwd || '';
+      if (pathVal) {
+        const pathRes = evaluatePathConstraint(pathVal, constraints.path);
+        if (pathRes.denied) {
+          return { status: 'deny', reason: pathRes.reason, details: pathRes.details };
+        }
+        if (!pathRes.allowed) {
+          return { status: 'ask', reason: pathRes.reason, details: pathRes.details };
+        }
+      }
+    }
+
+    return { status: 'allow' };
+  }
+
   /**
    * Administrador de Seguridad y Políticas de Ejecución.
    */
@@ -221,10 +389,43 @@
         lastUsedAt: Date.now(),
         serverName: meta.serverName || existing.serverName || '',
         originalName: meta.originalName || existing.originalName || toolId,
-        constraints: meta.constraints || existing.constraints || null
+        constraints: meta.constraints !== undefined ? meta.constraints : (existing.constraints || null)
       });
 
       this.save();
+    }
+
+    /**
+     * Obtiene los metadatos completos y restricciones de una herramienta registrada.
+     * @param {string} toolId
+     */
+    getToolEntry(toolId) {
+      return this.tools.get(toolId) || null;
+    }
+
+    /**
+     * Obtiene las restricciones configuradas para una herramienta.
+     * @param {string} toolId
+     * @returns {object|null}
+     */
+    getToolConstraints(toolId) {
+      const entry = this.tools.get(toolId);
+      return entry ? (entry.constraints || null) : null;
+    }
+
+    /**
+     * Establece o actualiza las restricciones de una herramienta.
+     * @param {string} toolId
+     * @param {object|null} constraints
+     */
+    setToolConstraints(toolId, constraints) {
+      const entry = this.tools.get(toolId);
+      if (entry) {
+        entry.constraints = constraints || null;
+        this.save();
+        return true;
+      }
+      return false;
     }
 
     /**
@@ -250,7 +451,7 @@
 
     /**
      * Lista todas las herramientas con autorizaciones individuales registradas.
-     * @returns {Array<{ toolId: string, policy: string, grantedAt: number, lastUsedAt?: number, serverName?: string, originalName?: string }>}
+     * @returns {Array<{ toolId: string, policy: string, grantedAt: number, lastUsedAt?: number, serverName?: string, originalName?: string, constraints?: object }>}
      */
     listAuthorizedTools() {
       const list = [];
@@ -269,7 +470,7 @@
      * @param {object|string} toolOrName - Instancia de Tool o nombre de la herramienta.
      * @param {object} [args={}] - Argumentos de la llamada.
      * @param {object} [options={}] - Opciones de contexto.
-     * @returns {{ requiresApproval: boolean, status: 'allow'|'deny'|'ask', reason: string, toolId: string, serverName: string, originalName: string }}
+     * @returns {{ requiresApproval: boolean, status: 'allow'|'deny'|'ask', reason: string, toolId: string, serverName: string, originalName: string, details?: string }}
      */
     evaluateAuthorization(toolOrName, args = {}, options = {}) {
       let tool = null;
@@ -321,6 +522,33 @@
       if (this.tools.has(toolId)) {
         const rule = this.tools.get(toolId);
         if (rule.policy === TOOL_POLICIES.ALLOW) {
+          // Evaluar restricciones granulares si existen
+          if (rule.constraints) {
+            const constraintEval = evaluateConstraints(rule.constraints, args);
+            if (constraintEval.status === TOOL_POLICIES.DENY) {
+              return {
+                requiresApproval: false,
+                status: TOOL_POLICIES.DENY,
+                reason: constraintEval.reason || 'constraint_violation_denied',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            }
+            if (constraintEval.status === TOOL_POLICIES.ASK) {
+              return {
+                requiresApproval: true,
+                status: TOOL_POLICIES.ASK,
+                reason: constraintEval.reason || 'constraint_outside_scope',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            }
+          }
+
           // Registrar último uso
           rule.lastUsedAt = Date.now();
           return {
@@ -329,7 +557,8 @@
             reason: 'granular_allow_rule',
             toolId,
             serverName,
-            originalName
+            originalName,
+            constraints: rule.constraints || null
           };
         }
         if (rule.policy === TOOL_POLICIES.DENY) {
@@ -372,6 +601,9 @@
     GLOBAL_POLICIES,
     TOOL_POLICIES,
     ToolSecurityManager,
+    evaluatePathConstraint,
+    evaluateCommandConstraint,
+    evaluateConstraints,
     manager
   };
 });
