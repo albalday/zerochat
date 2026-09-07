@@ -44,7 +44,7 @@ permanecer en su módulo correspondiente.
 
 El estado compartido, persistente o necesario para coordinar subsistemas debe pasar
 por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messages`,
-`streaming`, `agent`, `telemetry`, `ui`). Está prohibido usar variables globales de
+`streaming`, `agent`, `telemetry`, `ui`, `toolSecurity`). Está prohibido usar variables globales de
 módulo que provoquen fugas de estado entre conversaciones.
 
 Los módulos reutilizables deben conservar el patrón UMD utilizado por el proyecto
@@ -113,7 +113,27 @@ El flujo de trabajo en el repositorio debe seguir estas pautas:
 - **Formato de commits**: Usar la convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
 - **Sincronización del bundle**: El archivo distribuible `zerochat.html` debe incluirse en la confirmación siempre que se modifique código fuente de la aplicación.
 
-## 7. Finalización
+## 7. Regla de promoción a `master`
+
+Todo cambio destinado a `master` debe prepararse primero en `dev`.
+
+La promoción a `master` queda prohibida si:
+
+- la versión del producto no se ha incrementado previamente en `dev`;
+- la versión de `dev` y `master` coinciden o no hay un avance claro de versión;
+- no se ejecuta la validación automática definida por el proyecto;
+- cualquier comprobación crítica falla.
+
+La validación automática mínima para un pase a `master` debe incluir:
+
+- `npm test`;
+- `npm run build`;
+- `npm run test:browser` si el cambio afecta a HTML, CSS o DOM.
+
+Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
+`master` debe ser únicamente el estado validado y liberado, no una rama de trabajo.
+
+## 8. Finalización
 
 Un cambio está terminado cuando:
 

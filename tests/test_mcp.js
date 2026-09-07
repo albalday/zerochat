@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 // Cargar módulos
 const AgentCore = require('../js/agent-core.js');
 const MCP = require('../js/mcp.js');
+const ChatState = require('../js/state.js');
 
 test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
   const originalFetch = global.fetch;
@@ -551,6 +552,44 @@ test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permane
   } finally {
     global.fetch = originalFetch;
     MCP.manager.disconnectProxy();
+  }
+});
+
+test('MCP - connectProxy soporta silentOnFailure para arranque y fallo explícito', async () => {
+  const originalFetch = global.fetch;
+  const manager = new MCP.McpManager();
+
+  try {
+    // Simular que no hay servidor escuchando (fetch falla)
+    global.fetch = async () => {
+      throw new Error('ECONNREFUSED');
+    };
+
+    // 1. Conexión de arranque (silentOnFailure: true)
+    const resSilent = await manager.connectProxy({
+      host: '127.0.0.1',
+      port: 6388,
+      silentOnFailure: true
+    });
+    assert.equal(resSilent.success, false);
+    assert.equal(resSilent.available, false);
+    const stateSilent = ChatState.get('mcp');
+    assert.equal(stateSilent.status, 'disconnected');
+    assert.equal(stateSilent.error, null);
+
+    // 2. Conexión manual por el usuario (silentOnFailure: false)
+    const resManual = await manager.connectProxy({
+      host: '127.0.0.1',
+      port: 6388,
+      silentOnFailure: false
+    });
+    assert.equal(resManual.success, false);
+    const stateManual = ChatState.get('mcp');
+    assert.equal(stateManual.status, 'error');
+    assert.ok(stateManual.error);
+  } finally {
+    global.fetch = originalFetch;
+    manager.disconnectProxy();
   }
 });
 

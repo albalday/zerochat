@@ -74,9 +74,14 @@ test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para F
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
   function createMockElements() {
+    const attrs = {};
     return {
       statusBadge: { className: '' },
-      statusText: { textContent: '' },
+      statusText: {
+        textContent: '',
+        setAttribute: (k, v) => { attrs[k] = v; },
+        getAttribute: (k) => attrs[k]
+      },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
       btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
       serverDetails: { style: {}, innerHTML: '' },
@@ -95,8 +100,10 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   ChatUIMcp.renderConnectionStatus(elements, { status: 'disconnected', host: '127.0.0.1', port: 6388 }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-disconnected');
   assert.equal(elements.statusText.textContent, 'Desconectado');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
   assert.equal(elements.btnConnect.style.display, 'inline-flex');
   assert.equal(elements.btnConnect.disabled, false);
+  assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
   assert.equal(elements.btnDisconnect.style.display, 'none');
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.errorMessage.style.display, 'none');
@@ -105,7 +112,9 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connecting');
   assert.equal(elements.statusText.textContent, 'Conectando...');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
   assert.equal(elements.btnConnect.disabled, true);
+  assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connecting"'));
   assert.equal(elements.btnDisconnect.style.display, 'none');
 
   // 3. Estado conectado
@@ -119,6 +128,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connected');
   assert.equal(elements.statusText.textContent, 'Conectado');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
   assert.equal(elements.serverDetails.style.display, 'flex');
@@ -136,6 +146,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-error');
   assert.equal(elements.statusText.textContent, 'Error de conexión');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_error');
   assert.equal(elements.btnConnect.style.display, 'inline-flex');
   assert.equal(elements.btnConnect.disabled, false);
   assert.equal(elements.errorMessage.style.display, 'flex');
@@ -509,6 +520,60 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 
   ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
   ChatToolSecurity.manager.clearAllAuthorizations();
+});
+
+test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTranslations', () => {
+  const originalLang = ChatI18n.getLanguage ? ChatI18n.getLanguage() : 'es';
+  ChatI18n.setLanguage('es', false);
+
+  const mockAttrs = { 'data-i18n': 'mcp_status_disconnected' };
+  const mockStatusText = {
+    textContent: 'Desconectado',
+    setAttribute(k, v) { mockAttrs[k] = v; },
+    getAttribute(k) { return mockAttrs[k]; }
+  };
+  const mockElements = {
+    statusBadge: { className: 'mcp-status-badge mcp-status-disconnected' },
+    statusText: mockStatusText,
+    btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
+    btnDisconnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
+    serverDetails: { style: {}, innerHTML: '' },
+    errorMessage: { style: {}, innerHTML: '' }
+  };
+
+  // Simular conexión establecida
+  ChatUIMcp.renderConnectionStatus(mockElements, {
+    status: 'connected',
+    serverInfo: { name: 'mcp-proxy', version: '1.0' },
+    tools: [{ name: 'test_tool' }],
+    latencyMs: 5
+  }, (k, p) => ChatI18n.t(k, p));
+
+  assert.equal(mockStatusText.textContent, 'Conectado');
+  assert.equal(mockStatusText.getAttribute('data-i18n'), 'mcp_status_connected');
+
+  // Simular escaneo de data-i18n (como hace applyTranslations en openSettingsModal)
+  const mockRoot = {
+    querySelectorAll(selector) {
+      if (selector === '[data-i18n]') {
+        return [mockStatusText];
+      }
+      return [];
+    }
+  };
+  ChatI18n.applyTranslations(mockRoot);
+
+  // Debe mantenerse Conectado, no volver a Desconectado
+  assert.equal(mockStatusText.textContent, 'Conectado');
+  assert.equal(mockStatusText.getAttribute('data-i18n'), 'mcp_status_connected');
+
+  // Si se cambia a inglés, debe traducirse a Connected
+  ChatI18n.setLanguage('en', false);
+  ChatI18n.applyTranslations(mockRoot);
+  assert.equal(mockStatusText.textContent, 'Connected');
+
+  // Restaurar idioma
+  ChatI18n.setLanguage(originalLang, false);
 });
 
 

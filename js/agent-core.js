@@ -85,6 +85,14 @@
     return null;
   }
 
+  function getI18n() {
+    if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
+    if (typeof require !== 'undefined') {
+      try { return require('./i18n.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Versión del contrato público que deben implementar las herramientas.
    *
@@ -640,6 +648,94 @@
     }
 
     /**
+     * Evalúa políticas de seguridad y solicita autorización al usuario si procede.
+     * @private
+     */
+    async _evaluateAndAuthorizeToolCall({
+      toolCall,
+      rawFuncName,
+      parsedArgs,
+      cardEl,
+      options,
+      scrollToBottom,
+      ToolCards
+    }) {
+      const targetTool = this.registry.getTool(rawFuncName);
+      const ToolSecurity = getToolSecurity();
+      if (!ToolSecurity || !ToolSecurity.manager || typeof ToolSecurity.manager.evaluateAuthorization !== 'function') {
+        return { allowed: true };
+      }
+
+      const I18n = getI18n();
+      const t = (k, fb) => (I18n?.t ? I18n.t(k) : fb);
+      const authEval = ToolSecurity.manager.evaluateAuthorization(targetTool || rawFuncName, parsedArgs, options);
+
+      if (authEval.status === 'deny') {
+        const denyError = t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.');
+        if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
+          ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, { success: false, error: denyError }, 0, { displayMode: 'collapsed' });
+        }
+        return {
+          allowed: false,
+          response: {
+            success: false,
+            result: null,
+            resultText: `Error: ${denyError}`,
+            markdownBlock: `> 🛑 **${rawFuncName}**: ${denyError}`,
+            cardElement: cardEl,
+            executionTimeMs: 0,
+            error: denyError,
+            toolName: rawFuncName,
+            args: parsedArgs
+          }
+        };
+      }
+
+      if (authEval.requiresApproval) {
+        if (ToolCards && typeof ToolCards.promptToolAuthorization === 'function') {
+          if (typeof scrollToBottom === 'function') scrollToBottom();
+          const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
+            args: parsedArgs,
+            serverName: authEval.serverName,
+            toolName: rawFuncName,
+            signal: options.signal
+          });
+
+          const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
+          const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
+
+          if (decisionType === 'deny') {
+            const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
+            return {
+              allowed: false,
+              response: {
+                success: false,
+                result: null,
+                resultText: `Error: ${denyMsg}`,
+                markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
+                cardElement: cardEl,
+                executionTimeMs: 0,
+                error: denyMsg,
+                toolName: rawFuncName,
+                args: parsedArgs
+              }
+            };
+          }
+
+          if (decisionType === 'allow_always') {
+            ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
+              serverName: authEval.serverName,
+              originalName: authEval.originalName,
+              constraints
+            });
+          }
+        }
+      }
+
+      return { allowed: true };
+    }
+
+    /**
      * Despacha una llamada a herramienta gestionando el ciclo completo:
      * - Parseo seguro de argumentos
      * - Creación inicial e inserción de la tarjeta DOM en vivo
@@ -679,67 +775,18 @@
       }
 
       // 2.1 Verificación de Seguridad y Autorización de Ejecución
-      const targetTool = this.registry.getTool(rawFuncName);
-      const ToolSecurity = getToolSecurity();
-      if (ToolSecurity && ToolSecurity.manager && typeof ToolSecurity.manager.evaluateAuthorization === 'function') {
-        const authEval = ToolSecurity.manager.evaluateAuthorization(targetTool || rawFuncName, parsedArgs, options);
+      const authCheck = await this._evaluateAndAuthorizeToolCall({
+        toolCall,
+        rawFuncName,
+        parsedArgs,
+        cardEl,
+        options,
+        scrollToBottom,
+        ToolCards
+      });
 
-        if (authEval.status === 'deny') {
-          const denyError = 'Herramienta bloqueada por política de seguridad.';
-          if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
-            ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, { success: false, error: denyError }, 0, { displayMode: 'collapsed' });
-          }
-          return {
-            success: false,
-            result: null,
-            resultText: `Error: ${denyError}`,
-            markdownBlock: `> 🛑 **${rawFuncName}**: ${denyError}`,
-            cardElement: cardEl,
-            executionTimeMs: 0,
-            error: denyError,
-            toolName: rawFuncName,
-            args: parsedArgs
-          };
-        }
-
-        if (authEval.requiresApproval) {
-          if (ToolCards && typeof ToolCards.promptToolAuthorization === 'function') {
-            if (typeof scrollToBottom === 'function') scrollToBottom();
-            const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
-              args: parsedArgs,
-              serverName: authEval.serverName,
-              toolName: rawFuncName,
-              signal: options.signal
-            });
-
-            const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
-            const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
-
-            if (decisionType === 'deny') {
-              const denyMsg = 'Ejecución denegada por el usuario.';
-              return {
-                success: false,
-                result: null,
-                resultText: `Error: ${denyMsg}`,
-                markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
-                cardElement: cardEl,
-                executionTimeMs: 0,
-                error: denyMsg,
-                toolName: rawFuncName,
-                args: parsedArgs
-              };
-            }
-
-            if (decisionType === 'allow_always') {
-              // Autorización de grano fino: solo para esta herramienta específica con posibles restricciones
-              ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
-                serverName: authEval.serverName,
-                originalName: authEval.originalName,
-                constraints
-              });
-            }
-          }
-        }
+      if (!authCheck.allowed) {
+        return authCheck.response;
       }
 
       // 3. Ejecutar la herramienta a través de executeToolCall

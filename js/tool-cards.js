@@ -262,12 +262,15 @@
 
       btnAllowCmd?.addEventListener('click', (e) => {
         e.stopPropagation();
+        const baseNameOnly = baseCmd.includes('/') ? baseCmd.split('/').pop() : baseCmd;
+        const prefixes = Array.from(new Set([baseCmd + ' ', baseCmd, baseNameOnly + ' ', baseNameOnly]));
         handleDecision({
           decision: 'allow_always',
           constraints: {
             command: {
-              allowedPrefixes: [baseCmd + ' ', baseCmd],
-              allowChaining: false
+              allowedPrefixes: prefixes,
+              allowChaining: false,
+              allowPipes: true
             }
           }
         });

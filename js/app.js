@@ -2522,8 +2522,13 @@
         btnCopyCmd: elements.btnMcpCopyCmd,
         toolsContainer: elements.mcpToolsContainer
       });
-      if (typeof window.ChatUIMcp.autoConnectIfAvailable === 'function') {
-        window.ChatUIMcp.autoConnectIfAvailable();
+      const currentCfg = getRuntimeConfig();
+      if (window.ChatMCP?.manager?.connectProxy) {
+        window.ChatMCP.manager.connectProxy({
+          host: currentCfg?.mcpHost || '127.0.0.1',
+          port: currentCfg?.mcpPort || 6388,
+          silentOnFailure: true
+        });
       }
     }
 

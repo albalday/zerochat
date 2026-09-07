@@ -488,7 +488,7 @@
               <div class="mcp-status-actions">
                 <span id="mcp-status-badge" class="mcp-status-badge mcp-status-disconnected">
                   <span class="mcp-status-dot"></span>
-                  <span id="mcp-status-text" data-i18n="mcp_status_disconnected">Desconectado</span>
+                  <span id="mcp-status-text">Desconectado</span>
                 </span>
                 <button type="button" id="btn-mcp-connect" class="btn-primary btn-mcp-action">
                   <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>

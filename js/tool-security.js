@@ -31,6 +31,9 @@
   });
 
   function resolveDep(name, path) {
+    if (typeof window !== 'undefined' && window.ChatUtils?.resolveDep) {
+      return window.ChatUtils.resolveDep(name, path);
+    }
     if (typeof window !== 'undefined' && window[name]) return window[name];
     if (typeof require !== 'undefined') {
       try { return require(path); } catch (e) { return null; }
@@ -138,8 +141,15 @@
     const trimmed = cmdVal.trim();
 
     if (commandConstraints.allowChaining === false) {
-      const chainingRegex = /(?:[;&|`]|(?:\$\())/;
-      if (chainingRegex.test(trimmed)) {
+      // Encadenamiento peligroso: ejecución secuencial (;), condicional (&&, ||), o sustitución de subshell (` o $()`)
+      const isSequentialOrCond = /(?:;|&&|\|\||`|\$\()/.test(trimmed);
+      // Background execution: & que NO sea parte de una redirección de descriptor (como 2>&1, >&2, &>, &>>)
+      const isBackgroundAmp = /(?<!>|\d)&(?!\d|>)/.test(trimmed);
+
+      // Si allowPipes es explícitamente false, se prohíben tuberías |. Por defecto o si allowPipes es true, se permiten pipes.
+      const hasUnauthorizedPipe = commandConstraints.allowPipes === false && trimmed.includes('|');
+
+      if (isSequentialOrCond || isBackgroundAmp || hasUnauthorizedPipe) {
         return {
           allowed: false,
           denied: false,
@@ -166,7 +176,14 @@
       let matched = false;
       for (const prefix of commandConstraints.allowedPrefixes) {
         const cleanPrefix = prefix.trim();
-        if (trimmed === cleanPrefix || trimmed.startsWith(cleanPrefix + ' ') || trimmed.startsWith(cleanPrefix)) {
+        if (
+          trimmed === cleanPrefix ||
+          trimmed.startsWith(cleanPrefix + ' ') ||
+          trimmed.startsWith(cleanPrefix + '\t') ||
+          trimmed.startsWith('/usr/bin/' + cleanPrefix + ' ') ||
+          trimmed.startsWith('/bin/' + cleanPrefix + ' ') ||
+          trimmed.startsWith('/usr/local/bin/' + cleanPrefix + ' ')
+        ) {
           matched = true;
           break;
         }
@@ -298,7 +315,9 @@
         } else if (typeof localStorage !== 'undefined') {
           localStorage.setItem(this.storageKey, serialized);
         }
-      } catch (err) {}
+      } catch (err) {
+        console.warn('[ToolSecurity] Error al persistir políticas de seguridad:', err?.message || err);
+      }
 
       this.syncWithState();
       this.notifyListeners();
@@ -360,14 +379,66 @@
     }
 
     /**
+     * Resuelve la regla de autorización asociada a una herramienta, admitiendo
+     * coincidencia por ID canónico, alias, nombre original o nombres namespaced.
+     * @param {string} toolIdOrName 
+     * @param {object|null} [tool=null] 
+     * @returns {{ toolId: string, entry: object }|null}
+     */
+    findToolEntry(toolIdOrName, tool = null) {
+      if (!toolIdOrName && !tool) return null;
+
+      const candidates = [];
+      if (typeof toolIdOrName === 'string' && toolIdOrName.trim()) {
+        candidates.push(toolIdOrName.trim());
+      }
+      if (tool && typeof tool === 'object') {
+        if (tool.id && !candidates.includes(tool.id)) candidates.push(tool.id);
+        if (tool.name && !candidates.includes(tool.name)) candidates.push(tool.name);
+        const orig = tool.metadata?.originalName;
+        if (orig && !candidates.includes(orig)) candidates.push(orig);
+        if (Array.isArray(tool.aliases)) {
+          for (const a of tool.aliases) {
+            if (a && !candidates.includes(a)) candidates.push(a);
+          }
+        }
+      }
+
+      // 1. Comprobación directa por candidatos exactos
+      for (const id of candidates) {
+        if (this.tools.has(id)) {
+          return { toolId: id, entry: this.tools.get(id) };
+        }
+      }
+
+      // 2. Comprobación cruzada contra las entradas existentes
+      for (const [savedId, entry] of this.tools.entries()) {
+        const savedOrig = entry.originalName || savedId;
+        for (const cand of candidates) {
+          if (cand === savedOrig) {
+            return { toolId: savedId, entry };
+          }
+          if (savedId.endsWith('__' + cand) || savedId.endsWith('_' + cand)) {
+            return { toolId: savedId, entry };
+          }
+          if (cand.endsWith('__' + savedOrig) || cand.endsWith('_' + savedOrig)) {
+            return { toolId: savedId, entry };
+          }
+        }
+      }
+
+      return null;
+    }
+
+    /**
      * Obtiene la política específica para una herramienta.
      * @param {string} toolId
      * @returns {'allow'|'deny'|'ask'|null}
      */
     getToolPolicy(toolId) {
       if (!toolId) return null;
-      const rule = this.tools.get(toolId);
-      return rule ? rule.policy : null;
+      const found = this.findToolEntry(toolId);
+      return found ? found.entry.policy : null;
     }
 
     /**
@@ -382,8 +453,11 @@
         ? policy
         : TOOL_POLICIES.ASK;
 
-      const existing = this.tools.get(toolId) || {};
-      this.tools.set(toolId, {
+      const found = this.findToolEntry(toolId);
+      const targetId = found ? found.toolId : toolId;
+      const existing = found ? found.entry : (this.tools.get(targetId) || {});
+
+      this.tools.set(targetId, {
         policy: cleanPolicy,
         grantedAt: existing.grantedAt || Date.now(),
         lastUsedAt: Date.now(),
@@ -400,7 +474,8 @@
      * @param {string} toolId
      */
     getToolEntry(toolId) {
-      return this.tools.get(toolId) || null;
+      const found = this.findToolEntry(toolId);
+      return found ? found.entry : null;
     }
 
     /**
@@ -409,8 +484,8 @@
      * @returns {object|null}
      */
     getToolConstraints(toolId) {
-      const entry = this.tools.get(toolId);
-      return entry ? (entry.constraints || null) : null;
+      const found = this.findToolEntry(toolId);
+      return found ? (found.entry.constraints || null) : null;
     }
 
     /**
@@ -419,9 +494,9 @@
      * @param {object|null} constraints
      */
     setToolConstraints(toolId, constraints) {
-      const entry = this.tools.get(toolId);
-      if (entry) {
-        entry.constraints = constraints || null;
+      const found = this.findToolEntry(toolId);
+      if (found) {
+        found.entry.constraints = constraints || null;
         this.save();
         return true;
       }
@@ -433,8 +508,10 @@
      * @param {string} toolId
      */
     revokeToolPolicy(toolId) {
-      if (toolId && this.tools.has(toolId)) {
-        this.tools.delete(toolId);
+      if (!toolId) return false;
+      const found = this.findToolEntry(toolId);
+      if (found) {
+        this.tools.delete(found.toolId);
         this.save();
         return true;
       }
@@ -518,9 +595,12 @@
         };
       }
 
-      // 3. Herramientas MCP con regla granular específica guardada
-      if (this.tools.has(toolId)) {
-        const rule = this.tools.get(toolId);
+      // 3. Herramientas MCP con regla granular específica guardada (resolución robusta)
+      const foundEntry = this.findToolEntry(toolId, tool);
+      if (foundEntry) {
+        const rule = foundEntry.entry;
+        const resolvedToolId = foundEntry.toolId;
+
         if (rule.policy === TOOL_POLICIES.ALLOW) {
           // Evaluar restricciones granulares si existen
           if (rule.constraints) {
@@ -530,7 +610,7 @@
                 requiresApproval: false,
                 status: TOOL_POLICIES.DENY,
                 reason: constraintEval.reason || 'constraint_violation_denied',
-                toolId,
+                toolId: resolvedToolId,
                 serverName,
                 originalName,
                 details: constraintEval.details
@@ -541,7 +621,7 @@
                 requiresApproval: true,
                 status: TOOL_POLICIES.ASK,
                 reason: constraintEval.reason || 'constraint_outside_scope',
-                toolId,
+                toolId: resolvedToolId,
                 serverName,
                 originalName,
                 details: constraintEval.details
@@ -555,7 +635,7 @@
             requiresApproval: false,
             status: TOOL_POLICIES.ALLOW,
             reason: 'granular_allow_rule',
-            toolId,
+            toolId: resolvedToolId,
             serverName,
             originalName,
             constraints: rule.constraints || null
@@ -566,7 +646,7 @@
             requiresApproval: false,
             status: TOOL_POLICIES.DENY,
             reason: 'granular_deny_rule',
-            toolId,
+            toolId: resolvedToolId,
             serverName,
             originalName
           };
@@ -576,7 +656,7 @@
           requiresApproval: true,
           status: TOOL_POLICIES.ASK,
           reason: 'granular_ask_rule',
-          toolId,
+          toolId: resolvedToolId,
           serverName,
           originalName
         };

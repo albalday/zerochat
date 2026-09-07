@@ -950,16 +950,26 @@
 
     /**
      * Conecta con mcp-proxy en el host y puerto configurados, registrando sus herramientas.
+     * Si silentOnFailure es true (p. ej. comprobación inicial de arranque), no marca estado 'error'
+     * si el servidor simplemente no está levantado, sino que registra 'disconnected' limpiamente.
      */
-    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null } = {}, registry = null) {
+    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false } = {}, registry = null) {
       const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
       const State = getState();
-      if (State?.set) State.set('mcp', { status: 'connecting', host, port, endpoint: targetEndpoint, error: null });
+      if (!silentOnFailure && State?.set) {
+        State.set('mcp', { status: 'connecting', host, port, endpoint: targetEndpoint, error: null });
+      }
 
-      const probe = await probeConnection(targetEndpoint);
+      const probe = await probeConnection(targetEndpoint, { timeoutMs });
       if (!probe.success) {
-        if (State?.set) State.set('mcp', { status: 'error', host, port, endpoint: targetEndpoint, error: probe.error, latencyMs: probe.latencyMs, serverInfo: null, tools: [] });
-        return probe;
+        if (State?.set) {
+          if (silentOnFailure) {
+            State.set('mcp', { status: 'disconnected', host, port, endpoint: targetEndpoint, serverInfo: null, tools: [], latencyMs: null, error: null });
+          } else {
+            State.set('mcp', { status: 'error', host, port, endpoint: targetEndpoint, error: probe.error, latencyMs: probe.latencyMs, serverInfo: null, tools: [] });
+          }
+        }
+        return { success: false, available: false, probe, error: probe.error };
       }
 
       if (this.clients.has('mcp_proxy')) {
@@ -982,21 +992,14 @@
         });
       }
 
-      return { success: registerResult.success, probe, register: registerResult, tools: registerResult.tools || [] };
+      return { success: registerResult.success, available: true, probe, register: registerResult, tools: registerResult.tools || [] };
     }
 
     /**
-     * Comprueba silenciosamente si el servidor mcp-proxy está disponible en el host/puerto
-     * y si lo está, activa la conexión y registra sus herramientas.
-     * Si no está disponible, permanece en estado 'disconnected' sin mostrar errores.
+     * Comprueba si el servidor mcp-proxy está disponible delegando en la función estándar connectProxy.
      */
-    async autoConnectIfAvailable({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500 } = {}, registry = null) {
-      const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
-      const probe = await probeConnection(targetEndpoint, { timeoutMs });
-      if (!probe || !probe.success) {
-        return { success: false, available: false, probe };
-      }
-      return this.connectProxy({ host, port, endpoint: targetEndpoint }, registry);
+    async autoConnectIfAvailable(options = {}, registry = null) {
+      return this.connectProxy({ ...options, silentOnFailure: true }, registry);
     }
 
     /**

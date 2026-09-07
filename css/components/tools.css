@@ -1028,3 +1028,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.mcp-setup-modal-body {
+  padding: 1.25rem;
+}
+
+.mcp-section-hint {
+  margin-top: 0.15rem;
+}
+
+.btn-mcp-clear-auths {
+  display: none;
+}
+
+.mcp-cmd-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+
+.mcp-cmd-box-flex {
+  flex: 1;
+  margin: 0;
+}
+
+.mcp-modal-footer-end {
+  margin-left: auto;
+}
