@@ -18,7 +18,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.4.0', 'El título de index.html debe ser ZeroChat v6.4.0');
+    assert.equal(await page.title(), 'ZeroChat v6.5.0', 'El título de index.html debe ser ZeroChat v6.5.0');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -50,7 +50,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.4.0', 'El título de zerochat.html debe ser ZeroChat v6.4.0');
+    assert.equal(title, 'ZeroChat v6.5.0', 'El título de zerochat.html debe ser ZeroChat v6.5.0');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
