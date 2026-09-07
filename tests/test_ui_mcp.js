@@ -41,18 +41,35 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
   );
 });
 
-test('ChatUIMcp - generateTerminalCommand genera la línea de comando exacta para entorno privado', () => {
+test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplificada', () => {
   const cmdDefault = ChatUIMcp.generateTerminalCommand(6388);
-  assert.ok(cmdDefault.includes('pip install -U "mcp<2" mcp-proxy'));
-  assert.ok(cmdDefault.includes('--port 6388 --allow-origin="*"'));
-  assert.ok(cmdDefault.includes('server.py'));
+  assert.equal(cmdDefault, 'python3 zerochat_mcp.py --port 6388');
 
   const cmdCustom = ChatUIMcp.generateTerminalCommand(6395);
-  assert.ok(cmdCustom.includes('--port 6395 --allow-origin="*"'));
+  assert.equal(cmdCustom, 'python3 zerochat_mcp.py --port 6395');
 
   // Fallback seguro en puerto inválido
   const cmdInvalid = ChatUIMcp.generateTerminalCommand('invalido');
-  assert.ok(cmdInvalid.includes('--port 6388 --allow-origin="*"'));
+  assert.equal(cmdInvalid, 'python3 zerochat_mcp.py --port 6388');
+});
+
+test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {
+  const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
+  assert.ok(pyScript.includes('#!/usr/bin/env python3'));
+  assert.ok(pyScript.includes('FastMCP'));
+  assert.ok(pyScript.includes('list_directory'));
+  assert.ok(pyScript.includes('read_file'));
+  assert.ok(pyScript.includes('execute_command'));
+  assert.ok(pyScript.includes('ensure_dependencies'));
+  assert.ok(pyScript.includes('create_mcp_app'));
+  assert.ok(pyScript.includes('PrivateNetworkAccessMiddleware'));
+  assert.ok(pyScript.includes('CORSMiddleware'));
+  assert.ok(pyScript.includes('host: str = "127.0.0.1"'));
+  assert.ok(pyScript.includes('port: int = 6388'));
+
+  const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
+  assert.ok(pyCustom.includes('host: str = "0.0.0.0"'));
+  assert.ok(pyCustom.includes('port: int = 6399'));
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
@@ -191,15 +208,14 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.ok(mockCommandSnippet.textContent.includes('--port 6388'));
-  assert.ok(mockCommandSnippet.textContent.includes('pip install -U "mcp<2" mcp-proxy'));
+  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py --port 6388');
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6388/sse');
 
   // Al cambiar el input de puerto, se recalcula el comando en tiempo real
   mockPortInput.value = '6392';
   listeners['input']();
 
-  assert.ok(mockCommandSnippet.textContent.includes('--port 6392'));
+  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py --port 6392');
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6392/sse');
 
   uiInstance.destroy();
@@ -276,7 +292,7 @@ test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconect
   ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
   assert.equal(container.style.display, 'block');
   assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-  assert.ok(container.innerHTML.includes('Conecta con mcp-proxy'));
+  assert.ok(container.innerHTML.includes('FastMCP'));
 });
 
 test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura cambios', () => {

@@ -467,7 +467,7 @@
           <div id="agent-tools-container" class="agent-tools-container"></div>
         </div>
 
-        <!-- Pestaña 4: Gestor MCP (mcp-proxy) -->
+        <!-- Pestaña 4: Gestor MCP (FastMCP) -->
         <div id="tab-mcp" class="modal-tab-pane">
           <!-- Tarjeta de Estado y Conexión Principal -->
           <div class="mcp-status-card">
@@ -477,9 +477,9 @@
                   <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
                 </span>
                 <div>
-                  <strong data-i18n="mcp_connection_title">Gestor MCP (mcp-proxy)</strong>
+                  <strong data-i18n="mcp_connection_title">Gestor MCP (FastMCP)</strong>
                   <p class="label-hint" style="margin-top: 0.2rem;" data-i18n="mcp_connection_desc">
-                    Puente local para conectar ZeroChat con herramientas y servidores del Model Context Protocol (MCP) vía HTTP/SSE.
+                    Servidor local para conectar ZeroChat con herramientas del sistema vía Model Context Protocol (MCP) nativo (HTTP/SSE).
                   </p>
                 </div>
               </div>

@@ -13,6 +13,7 @@
   const CHECK_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
   const ERROR_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
   const CHEVRON_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+  const SHIELD_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
   const DEFAULT_TOOL_ICON = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 
   function createCardWrapper(ui, extraClass = '') {
@@ -127,6 +128,136 @@
     return card;
   }
 
+  /**
+   * Muestra la petición interactiva de autorización en la tarjeta de la herramienta y espera la decisión del usuario.
+   *
+   * @param {HTMLElement} card - Elemento DOM de la tarjeta en vivo.
+   * @param {object} toolCall - Objeto de llamada de herramienta.
+   * @param {object} [options={}] - Opciones adicionales (serverName, args, signal).
+   * @returns {Promise<'allow_once'|'allow_always'|'deny'>}
+   */
+  function promptToolAuthorization(card, toolCall, options = {}) {
+    if (!card || typeof document === 'undefined') {
+      return Promise.resolve('allow_once');
+    }
+
+    const tFn = (key, params) => t(key, params);
+    const esc = getMarkdown().escapeHtml;
+    const toolName = toolCall?.function?.name || options.toolName || 'tool';
+    const serverName = options.serverName || '';
+    const signal = options.signal;
+
+    // Asegurar que la tarjeta esté expandida para que el usuario visualice la petición
+    const cardEl = card.querySelector?.('.tool-execution-card, .mcp-card, .tool-card-wrapper') || card;
+    if (cardEl && cardEl.classList) {
+      cardEl.classList.remove('collapsed');
+    }
+
+    // Actualizar badge a pendiente de autorización
+    const badge = card.querySelector?.('.tool-card-badge');
+    if (badge) {
+      badge.className = 'tool-card-badge status-pending-auth';
+      badge.innerHTML = `${SHIELD_SVG} <span>${tFn('tool_auth_badge') || 'Requiere Autorización'}</span>`;
+    }
+
+    // Crear o insertar el bloque de autorización dentro del cuerpo de la tarjeta
+    const bodyEl = card.querySelector?.('.tool-card-collapsible-body') || cardEl;
+    let authPromptEl = card.querySelector?.('.tool-card-auth-prompt');
+    if (!authPromptEl) {
+      authPromptEl = document.createElement('div');
+      authPromptEl.className = 'tool-card-auth-prompt';
+      if (bodyEl) {
+        bodyEl.prepend(authPromptEl);
+      } else {
+        card.appendChild(authPromptEl);
+      }
+    }
+
+    const serverTag = serverName ? `<span class="mcp-card-server-tag">${esc(serverName)}</span>` : '';
+    authPromptEl.innerHTML = `
+      <div class="tool-auth-header">
+        <div class="tool-auth-title-row">
+          <span class="tool-auth-shield-icon">${SHIELD_SVG}</span>
+          <strong class="tool-auth-title">${tFn('tool_auth_title') || 'Autorización de Ejecución'}</strong>
+          ${serverTag}
+        </div>
+        <p class="tool-auth-desc">${tFn('tool_auth_desc') || 'Esta herramienta MCP requiere tu confirmación antes de interactuar con el sistema:'}</p>
+      </div>
+      <div class="tool-auth-actions">
+        <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir una vez')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre este tool')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre este tool'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
+      </div>
+    `;
+
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      const cleanup = () => {
+        if (authPromptEl && authPromptEl.parentNode) {
+          authPromptEl.remove();
+        }
+        if (signal && abortHandler) {
+          signal.removeEventListener('abort', abortHandler);
+        }
+      };
+
+      const handleDecision = (decision) => {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+
+        if (decision === 'deny') {
+          if (badge) {
+            badge.className = 'tool-card-badge status-error';
+            badge.innerHTML = `${ERROR_SVG} <span>${tFn('tool_auth_denied_badge') || 'Denegado'}</span>`;
+          }
+          const resEl = card.querySelector?.('.tool-card-result');
+          if (resEl) {
+            resEl.innerHTML = `<div class="tool-auth-denied-notice">${esc(tFn('tool_auth_denied_msg') || 'Ejecución denegada por el usuario.')}</div>`;
+          }
+        } else {
+          // 'allow_once' o 'allow_always': restaurar badge a ejecutando
+          if (badge) {
+            badge.className = 'tool-card-badge status-loading';
+            badge.innerHTML = `${SPINNER_SVG} <span>${tFn('tool_badge_executing') || 'Ejecutando...'}</span>`;
+          }
+        }
+
+        resolve(decision);
+      };
+
+      const btnAllowOnce = authPromptEl.querySelector('.btn-auth-allow-once');
+      const btnAllowAlways = authPromptEl.querySelector('.btn-auth-allow-always');
+      const btnDeny = authPromptEl.querySelector('.btn-auth-deny');
+
+      btnAllowOnce?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision('allow_once');
+      });
+
+      btnAllowAlways?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision('allow_always');
+      });
+
+      btnDeny?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision('deny');
+      });
+
+      let abortHandler = null;
+      if (signal) {
+        abortHandler = () => handleDecision('deny');
+        if (signal.aborted) {
+          handleDecision('deny');
+        } else {
+          signal.addEventListener('abort', abortHandler, { once: true });
+        }
+      }
+    });
+  }
+
   return {
     normalizeName,
     resolveToolView: getView,
@@ -135,10 +266,12 @@
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,
+    promptToolAuthorization,
     collapseCard,
     SPINNER_SVG,
     CHECK_SVG,
     ERROR_SVG,
-    CHEVRON_SVG
+    CHEVRON_SVG,
+    SHIELD_SVG
   };
 }));

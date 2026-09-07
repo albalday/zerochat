@@ -137,3 +137,77 @@ test('ToolDispatcher - getDefinitions excluye todas las herramientas RAG si RAG 
   assert.ok(searchKbActive, 'search_knowledge_base DEBE enviarse cuando RAG está activo');
   assert.ok(readChunkActive, 'read_knowledge_chunk DEBE enviarse cuando RAG está activo');
 });
+
+test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de herramientas MCP', async () => {
+  const ChatToolSecurity = require('../js/tool-security.js');
+  const ChatToolCards = require('../js/tool-cards.js');
+
+  // Registrar herramienta MCP ficticia cumpliendo el contrato declarativo
+  const fakeMcpTool = new AgentCore.Tool({
+    definition: {
+      name: 'mcp__test_srv__run_cmd',
+      description: '[MCP: test-srv] Ejecuta comando',
+      parameters: {
+        type: 'object',
+        properties: { cmd: { type: 'string' } }
+      }
+    },
+    category: 'mcp',
+    settings: { showInSettings: true },
+    metadata: { mcpServerName: 'test-srv', originalName: 'run_cmd' },
+    execute: async (args) => ({ success: true, output: `executed: ${args.cmd}` }),
+    result: {
+      toModel: (_args, res) => res?.output || '',
+      toMarkdown: (_args, res) => `> ${res?.output || ''}`
+    }
+  });
+  AgentCore.registry.registerTool(fakeMcpTool);
+
+  const toolCall = {
+    id: 'call_mcp_test_1',
+    type: 'function',
+    function: {
+      name: 'mcp__test_srv__run_cmd',
+      arguments: JSON.stringify({ cmd: 'echo hello' })
+    }
+  };
+
+  // 1. Caso Deny directo por política
+  ChatToolSecurity.manager.setToolPolicy('mcp__test_srv__run_cmd', 'deny');
+  const resDeny = await AgentCore.dispatchToolCall(toolCall);
+  assert.equal(resDeny.success, false);
+  assert.ok(resDeny.error.includes('bloqueada'));
+
+  // 2. Caso Ask con Denegación interactiva del usuario
+  ChatToolSecurity.manager.setToolPolicy('mcp__test_srv__run_cmd', 'ask');
+  
+  // Mock de ToolCards.promptToolAuthorization
+  const origPrompt = ChatToolCards.promptToolAuthorization;
+  ChatToolCards.promptToolAuthorization = async () => 'deny';
+
+  try {
+    const resUserDeny = await AgentCore.dispatchToolCall(toolCall, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(resUserDeny.success, false);
+    assert.ok(resUserDeny.error.includes('denegada por el usuario'));
+  } finally {
+    ChatToolCards.promptToolAuthorization = origPrompt;
+  }
+
+  // 3. Caso Ask con Autorización 'allow_always'
+  ChatToolCards.promptToolAuthorization = async () => 'allow_always';
+  try {
+    const resAllowAlways = await AgentCore.dispatchToolCall(toolCall, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(resAllowAlways.success, true);
+    assert.ok(resAllowAlways.resultText.includes('executed: echo hello'));
+    // Verificar que se persistió 'allow'
+    assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_srv__run_cmd'), 'allow');
+  } finally {
+    ChatToolCards.promptToolAuthorization = origPrompt;
+    ChatToolSecurity.manager.clearAllAuthorizations();
+  }
+});
+

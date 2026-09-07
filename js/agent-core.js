@@ -69,6 +69,22 @@
     return null;
   }
 
+  function getToolSecurity() {
+    if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
+    if (typeof require !== 'undefined') {
+      try { return require('./tool-security.js'); } catch (e) {}
+    }
+    return null;
+  }
+
+  function getToolCards() {
+    if (typeof window !== 'undefined' && window.ChatToolCards) return window.ChatToolCards;
+    if (typeof require !== 'undefined') {
+      try { return require('./tool-cards.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Versión del contrato público que deben implementar las herramientas.
    *
@@ -495,8 +511,8 @@
       if (guides.length === 0) return '';
 
       return isEs
-        ? `\n\n[HERRAMIENTAS Y FUNCIONES DISPONIBLES]:\nPuedes utilizar las siguientes herramientas cuando sea necesario para responder con precisión:\n${guides.join('\n')}\n*Instrucción de flujo:* Tras usar herramientas, entrega una respuesta final al usuario, no un registro de la consulta. Responde primero a su pregunta y usa los resultados solo como evidencia. No muestres la salida bruta de herramientas.`
-        : `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n*Workflow instruction:* After using tools, provide a final answer to the user, not a consultation log. Answer their question first and use tool results only as evidence. Do not show raw tool output.`;
+        ? `\n\n[HERRAMIENTAS Y FUNCIONES DISPONIBLES]:\nPuedes utilizar las siguientes herramientas cuando sea necesario para responder con precisión:\n${guides.join('\n')}\n*Instrucción de flujo:* Tras usar herramientas, responde directamente a la consulta del usuario de forma sintética y clara. Usa la información solo como evidencia, integrando las fuentes de forma breve o enlazada. Evita resúmenes largos o repetitivos de las fuentes consultadas y no muestres la salida bruta de herramientas.`
+        : `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
     }
 
     /**
@@ -643,7 +659,7 @@
 
       const rawFuncName = toolCall?.function?.name || '';
       const parsedArgs = this.parseArguments(toolCall?.function?.arguments);
-      const ToolCards = (typeof window !== 'undefined' && window.ChatToolCards) ? window.ChatToolCards : null;
+      const ToolCards = getToolCards();
 
       // 1. Crear e insertar la tarjeta DOM en vivo con estado de carga
       let cardEl = null;
@@ -660,6 +676,66 @@
       if (typeof onLog === 'function') {
         onLog('tool', `${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
         onLog('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
+      }
+
+      // 2.1 Verificación de Seguridad y Autorización de Ejecución
+      const targetTool = this.registry.getTool(rawFuncName);
+      const ToolSecurity = getToolSecurity();
+      if (ToolSecurity && ToolSecurity.manager && typeof ToolSecurity.manager.evaluateAuthorization === 'function') {
+        const authEval = ToolSecurity.manager.evaluateAuthorization(targetTool || rawFuncName, parsedArgs, options);
+
+        if (authEval.status === 'deny') {
+          const denyError = 'Herramienta bloqueada por política de seguridad.';
+          if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
+            ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, { success: false, error: denyError }, 0, { displayMode: 'collapsed' });
+          }
+          return {
+            success: false,
+            result: null,
+            resultText: `Error: ${denyError}`,
+            markdownBlock: `> 🛑 **${rawFuncName}**: ${denyError}`,
+            cardElement: cardEl,
+            executionTimeMs: 0,
+            error: denyError,
+            toolName: rawFuncName,
+            args: parsedArgs
+          };
+        }
+
+        if (authEval.requiresApproval) {
+          if (ToolCards && typeof ToolCards.promptToolAuthorization === 'function') {
+            if (typeof scrollToBottom === 'function') scrollToBottom();
+            const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
+              args: parsedArgs,
+              serverName: authEval.serverName,
+              toolName: rawFuncName,
+              signal: options.signal
+            });
+
+            if (userDecision === 'deny') {
+              const denyMsg = 'Ejecución denegada por el usuario.';
+              return {
+                success: false,
+                result: null,
+                resultText: `Error: ${denyMsg}`,
+                markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
+                cardElement: cardEl,
+                executionTimeMs: 0,
+                error: denyMsg,
+                toolName: rawFuncName,
+                args: parsedArgs
+              };
+            }
+
+            if (userDecision === 'allow_always') {
+              // Autorización de grano fino: solo para esta herramienta específica
+              ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
+                serverName: authEval.serverName,
+                originalName: authEval.originalName
+              });
+            }
+          }
+        }
       }
 
       // 3. Ejecutar la herramienta a través de executeToolCall

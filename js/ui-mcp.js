@@ -27,6 +27,7 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
 
   const t = (k, p) => getI18n()?.t ? getI18n().t(k, p) : k;
   const escapeHtml = (s) => s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -45,8 +46,269 @@
     return `http://${sanitizeHost(host)}:${sanitizePort(port)}${p}`;
   }
 
+  function generateMcpServerScript(options = {}) {
+    const host = sanitizeHost(options.host);
+    const port = sanitizePort(options.port);
+
+    const pyCode = [
+      '#!/usr/bin/env python3',
+      '# /// script',
+      '# requires-python = ">=3.10"',
+      '# dependencies = [',
+      '#     "mcp>=1.0.0,<2",',
+      '#     "uvicorn>=0.30.0",',
+      '#     "starlette>=0.27.0",',
+      '# ]',
+      '# ///',
+      '"""',
+      'Servidor Local MCP para ZeroChat (FastMCP nativo sobre SSE).',
+      'Expone herramientas del sistema local: list_directory, read_file, execute_command.',
+      'Generado automaticamente por ZeroChat.',
+      '"""',
+      '',
+      'import os',
+      'import sys',
+      'import json',
+      'import argparse',
+      'import subprocess',
+      'from pathlib import Path',
+      '',
+      'try:',
+      '    from mcp.server.fastmcp import FastMCP',
+      'except ImportError:',
+      '    FastMCP = None',
+      '',
+      '',
+      'def ensure_dependencies():',
+      '    """Garantiza la disponibilidad de mcp y uvicorn creando un venv privado si es necesario."""',
+      '    try:',
+      '        import mcp  # noqa: F401',
+      '        import uvicorn  # noqa: F401',
+      '        import starlette  # noqa: F401',
+      '        return',
+      '    except ImportError:',
+      '        pass',
+      '',
+      '    env_dir = Path.home() / ".zerochat" / "mcp-env"',
+      '    is_win = sys.platform == "win32"',
+      '    py_bin = env_dir / ("Scripts/python.exe" if is_win else "bin/python3")',
+      '    pip_bin = env_dir / ("Scripts/pip.exe" if is_win else "bin/pip")',
+      '',
+      '    if not py_bin.exists():',
+      '        print(f"[ZeroChat MCP] Configurando entorno virtual privado en {env_dir}...")',
+      '        import venv',
+      '        venv.create(env_dir, with_pip=True)',
+      '        print("[ZeroChat MCP] Instalando dependencias de FastMCP (\'mcp<2\')...")',
+      '        subprocess.run([str(pip_bin), "install", "-U", "mcp<2"], check=True)',
+      '',
+      '    if Path(sys.executable).resolve() != py_bin.resolve():',
+      '        print("[ZeroChat MCP] Re-ejecutando con el entorno privado...")',
+      '        if is_win:',
+      '            sys.exit(subprocess.call([str(py_bin)] + sys.argv))',
+      '        else:',
+      '            os.execv(str(py_bin), [str(py_bin)] + sys.argv)',
+      '',
+      '',
+      'def list_directory(path: str = ".", max_depth: int = 1) -> str:',
+      '    """Recorre un directorio local y devuelve la lista estructurada de archivos y subcarpetas con sus tamanios y tipos."""',
+      '    try:',
+      '        target = Path(path).expanduser().resolve()',
+      '        if not target.exists():',
+      '            return json.dumps({"success": False, "error": f"La ruta \'{path}\' no existe."})',
+      '        if not target.is_dir():',
+      '            return json.dumps({"success": False, "error": f"La ruta \'{path}\' no es un directorio."})',
+      '',
+      '        entries = []',
+      '        for entry in os.scandir(target):',
+      '            try:',
+      '                stat = entry.stat(follow_symlinks=False)',
+      '                is_dir = entry.is_dir(follow_symlinks=False)',
+      '                entries.append({',
+      '                    "name": entry.name,',
+      '                    "path": str(Path(entry.path).resolve()),',
+      '                    "type": "directory" if is_dir else "file",',
+      '                    "size_bytes": None if is_dir else stat.st_size,',
+      '                    "is_symlink": entry.is_symlink()',
+      '                })',
+      '            except (PermissionError, FileNotFoundError):',
+      '                continue',
+      '',
+      '        entries.sort(key=lambda e: (e["type"] != "directory", e["name"].lower()))',
+      '        return json.dumps({"success": True, "path": str(target), "total_items": len(entries), "entries": entries}, ensure_ascii=False, indent=2)',
+      '    except Exception as e:',
+      '        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)',
+      '',
+      '',
+      'def read_file(path: str, max_bytes: int = 100000) -> str:',
+      '    """Lee el contenido de texto de un archivo local con limite de seguridad."""',
+      '    try:',
+      '        target = Path(path).expanduser().resolve()',
+      '        if not target.exists():',
+      '            return json.dumps({"success": False, "error": f"El archivo \'{path}\' no existe."})',
+      '        if not target.is_file():',
+      '            return json.dumps({"success": False, "error": f"La ruta \'{path}\' no es un archivo regular."})',
+      '',
+      '        file_size = target.stat().st_size',
+      '        safe_limit = max(1024, min(int(max_bytes), 2000000))',
+      '        with open(target, "r", encoding="utf-8", errors="replace") as f:',
+      '            content = f.read(safe_limit)',
+      '',
+      '        return json.dumps({',
+      '            "success": True,',
+      '            "path": str(target),',
+      '            "size_bytes": file_size,',
+      '            "bytes_read": len(content.encode("utf-8")),',
+      '            "truncated": file_size > safe_limit,',
+      '            "content": content',
+      '        }, ensure_ascii=False, indent=2)',
+      '    except Exception as e:',
+      '        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)',
+      '',
+      '',
+      'def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 30) -> str:',
+      '    """Ejecuta un comando en la terminal local y devuelve stdout, stderr y codigo de salida."""',
+      '    try:',
+      '        target_cwd = str(Path(cwd).expanduser().resolve())',
+      '        proc = subprocess.run(',
+      '            command,',
+      '            shell=True,',
+      '            capture_output=True,',
+      '            text=True,',
+      '            cwd=target_cwd,',
+      '            timeout=max(1, min(int(timeout_seconds), 300))',
+      '        )',
+      '        stdout = proc.stdout[:50000] + ("\\n\\n[... Truncado ...]" if len(proc.stdout) > 50000 else "")',
+      '        stderr = proc.stderr[:20000] + ("\\n\\n[... Truncado ...]" if len(proc.stderr) > 20000 else "")',
+      '        return json.dumps({',
+      '            "success": proc.returncode == 0,',
+      '            "command": command,',
+      '            "cwd": target_cwd,',
+      '            "returncode": proc.returncode,',
+      '            "stdout": stdout,',
+      '            "stderr": stderr,',
+      '            "truncated": len(proc.stdout) > 50000 or len(proc.stderr) > 20000',
+      '        }, ensure_ascii=False, indent=2)',
+      '    except subprocess.TimeoutExpired:',
+      '        return json.dumps({"success": False, "command": command, "error": f"Excedio el tiempo limite ({timeout_seconds}s).", "returncode": -1})',
+      '    except Exception as e:',
+      '        return json.dumps({"success": False, "command": command, "error": str(e), "returncode": -1})',
+      '',
+      '',
+      'SERVER_TOOLS = [list_directory, read_file, execute_command]',
+      '',
+      '',
+      'def create_mcp_app(host: str = "' + host + '", port: int = ' + port + '):',
+      '    ensure_dependencies()',
+      '    from mcp.server.fastmcp import FastMCP',
+      '    from mcp.server.transport_security import TransportSecuritySettings',
+      '    from starlette.middleware.cors import CORSMiddleware',
+      '    from starlette.types import ASGIApp, Receive, Scope, Send',
+      '',
+      '    sec_settings = TransportSecuritySettings(',
+      '        enable_dns_rebinding_protection=False,',
+      '        allowed_hosts=["*"],',
+      '        allowed_origins=["*"]',
+      '    )',
+      '',
+      '    mcp = FastMCP(',
+      '        "ZeroChat Local Tools",',
+      '        host=host,',
+      '        port=port,',
+      '        transport_security=sec_settings',
+      '    )',
+      '',
+      '    for tool_fn in SERVER_TOOLS:',
+      '        mcp.tool()(tool_fn)',
+      '',
+      '    app = mcp.sse_app()',
+      '',
+      '    class PrivateNetworkAccessMiddleware:',
+      '        def __init__(self, inner_app: ASGIApp):',
+      '            self.inner_app = inner_app',
+      '',
+      '        async def __call__(self, scope: Scope, receive: Receive, send: Send):',
+      '            if scope["type"] == "http":',
+      '                async def custom_send(message):',
+      '                    if message["type"] == "http.response.start":',
+      '                        headers = dict(message.get("headers", []))',
+      '                        headers[b"access-control-allow-private-network"] = b"true"',
+      '                        if b"access-control-allow-origin" not in headers:',
+      '                            headers[b"access-control-allow-origin"] = b"*"',
+      '                        message["headers"] = list(headers.items())',
+      '                    await send(message)',
+      '                await self.inner_app(scope, receive, custom_send)',
+      '            else:',
+      '                await self.inner_app(scope, receive, send)',
+      '',
+      '    app.add_middleware(',
+      '        CORSMiddleware,',
+      '        allow_origins=["*"],',
+      '        allow_credentials=True,',
+      '        allow_methods=["*"],',
+      '        allow_headers=["*"],',
+      '    )',
+      '    app.add_middleware(PrivateNetworkAccessMiddleware)',
+      '    return app',
+      '',
+      '',
+      'def main():',
+      '    parser = argparse.ArgumentParser(description="Servidor Local MCP para ZeroChat (FastMCP nativo SSE)")',
+      '    parser.add_argument("--host", default="' + host + '", help="Host de escucha (default: ' + host + ')")',
+      '    parser.add_argument("--port", type=int, default=' + port + ', help="Puerto de escucha (default: ' + port + ')")',
+      '    parser.add_argument("--test", action="store_true", help="Ejecutar prueba interna de herramientas")',
+      '    args = parser.parse_args()',
+      '',
+      '    if args.test:',
+      '        print("[TEST] list_directory(\'.\') ->", json.loads(list_directory("."))["success"])',
+      '        print("[TEST] read_file(\'package.json\') ->", json.loads(read_file("package.json"))["success"])',
+      '        print("[TEST] execute_command(\'echo hello\') ->", json.loads(execute_command("echo hello"))["success"])',
+      '        print("[TEST] Todas las funciones operan correctamente.")',
+      '        return',
+      '',
+      '    ensure_dependencies()',
+      '    import uvicorn',
+      '    app = create_mcp_app(host=args.host, port=args.port)',
+      '    print(f"🚀 [ZeroChat MCP] Servidor FastMCP activo en http://{args.host}:{args.port}/sse")',
+      '    print("📡 Esperando conexiones de ZeroChat...")',
+      '    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")',
+      '',
+      '',
+      'if __name__ == "__main__":',
+      '    main()',
+      ''
+    ];
+
+    return pyCode.join('\n');
+  }
+
+  function downloadMcpServerScript(options = {}) {
+    const host = sanitizeHost(options.host);
+    const port = sanitizePort(options.port);
+    const content = generateMcpServerScript({ host, port });
+    const filename = 'zerochat_mcp.py';
+
+    if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+      try {
+        const blob = new Blob([content], { type: 'text/x-python;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 3000);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   function generateTerminalCommand(port) {
-    return `mkdir -p ~/.zerochat && python3 -m venv ~/.zerochat/mcp-env && ~/.zerochat/mcp-env/bin/pip install -U "mcp<2" mcp-proxy && ([ -f scripts/mcp_server.py ] && cp scripts/mcp_server.py ~/.zerochat/server.py || true) && ~/.zerochat/mcp-env/bin/mcp-proxy --port ${sanitizePort(port)} --allow-origin="*" -- ~/.zerochat/mcp-env/bin/python3 ~/.zerochat/server.py`;
+    return `python3 zerochat_mcp.py --port ${sanitizePort(port)}`;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -82,6 +344,9 @@
     const term16 = Icons?.get ? Icons.get('terminal', { size: 16 }) : '';
     const badgeText = escapeHtml(translator('mcp_tool_badge'));
 
+    const Security = getSecurity();
+    const globalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
+
     const items = tools.map(tool => {
       const id = tool.id || tool.name;
       const isChecked = currentEnabledTools[id] !== undefined ? currentEnabledTools[id] !== false : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : true);
@@ -94,6 +359,18 @@
         paramsHint = Object.entries(props).map(([k, v]) => `${k}${req.includes(k) ? '' : '?'}: ${v.type || 'any'}`).join(', ');
       }
 
+      const toolRule = Security?.manager?.getToolPolicy ? Security.manager.getToolPolicy(id) : null;
+      let authTagHtml = '';
+      if (globalPolicy === 'allow_all') {
+        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_policy_allow_all'))}">${escapeHtml(translator('mcp_security_badge_allowed'))}</span>`;
+      } else if (toolRule === 'allow') {
+        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_badge_allowed'))}">${escapeHtml(translator('mcp_security_badge_allowed'))}</span>`;
+      } else if (toolRule === 'deny') {
+        authTagHtml = `<span class="mcp-auth-badge status-denied" title="${escapeHtml(translator('tool_auth_denied_badge'))}">${escapeHtml(translator('tool_auth_denied_badge'))}</span>`;
+      } else {
+        authTagHtml = `<span class="mcp-auth-badge status-ask" title="${escapeHtml(translator('mcp_security_badge_ask'))}">${escapeHtml(translator('mcp_security_badge_ask'))}</span>`;
+      }
+
       return `
         <div class="mcp-tool-card" data-tool-id="${escapeHtml(id)}">
           <div class="mcp-tool-info">
@@ -101,6 +378,7 @@
               <span class="mcp-tool-icon">${plug16}</span>
               <span class="mcp-tool-name">${escapeHtml(tool.name)}</span>
               <span class="mcp-tool-badge">${badgeText}</span>
+              ${authTagHtml}
             </div>
             <p class="mcp-tool-desc">${desc}</p>
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
@@ -189,12 +467,69 @@
     }
   }
 
+  function renderSavedAuthorizations(elements, translator = t) {
+    if (!elements && typeof document === 'undefined') return;
+    const container = elements?.savedAuthsList || (typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null);
+    const btnClear = elements?.btnClearAuths || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
+    if (!container) return;
+
+    const Security = getSecurity();
+    const authorized = Security?.manager?.listAuthorizedTools ? Security.manager.listAuthorizedTools() : [];
+
+    if (!authorized || authorized.length === 0) {
+      container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(translator('mcp_security_no_saved_auths'))}</div>`;
+      if (btnClear) btnClear.style.display = 'none';
+      return;
+    }
+
+    if (btnClear) btnClear.style.display = 'inline-flex';
+
+    const Icons = getIcons();
+    const trashIcon = Icons?.get ? Icons.get('trash', { size: 12 }) : '';
+
+    container.innerHTML = authorized.map(item => {
+      const toolId = escapeHtml(item.toolId);
+      const origName = escapeHtml(item.originalName || item.toolId);
+      const isAllowed = item.policy === 'allow';
+      const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
+      const badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
+      const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
+
+      return `
+        <div class="mcp-auth-item" data-tool-id="${toolId}">
+          <div class="mcp-auth-item-info">
+            <strong class="mcp-auth-item-name">${origName}</strong>
+            <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
+          </div>
+          <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}">
+            ${trashIcon} <span>${revokeLabel}</span>
+          </button>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.btn-revoke-auth').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tid = btn.getAttribute('data-tool-id');
+        if (tid && Security?.manager?.revokeToolPolicy) {
+          Security.manager.revokeToolPolicy(tid);
+          renderSavedAuthorizations(elements, translator);
+          if (elements?.toolsContainer) {
+            const currentConfig = getConfig()?.get?.() || {};
+            const state = getState()?.get?.('mcp') || {};
+            renderToolsList(elements.toolsContainer, state.tools || [], currentConfig.enabledTools || {}, translator);
+          }
+        }
+      });
+    });
+  }
+
   function initMcpUI(elements, options = {}) {
     ensureDialogMarkup();
     if (!elements) return null;
     const State = getState();
     const MCP = getMCP();
     const Config = getConfig();
+    const Security = getSecurity();
 
     const currentConfig = Config?.get?.() || {};
     if (elements.hostInput && !elements.hostInput.value) elements.hostInput.value = currentConfig.mcpHost || DEFAULT_HOST;
@@ -211,12 +546,101 @@
     elements.portInput?.addEventListener?.('input', updateCommandAndEndpoint);
     elements.hostInput?.addEventListener?.('input', updateCommandAndEndpoint);
 
-    const openModal = () => elements.mcpSetupDialog?.showModal?.();
+    const openModal = () => {
+      elements.mcpSetupDialog?.showModal?.();
+      syncSecurityControls();
+    };
     const closeModal = () => elements.mcpSetupDialog?.close?.();
     elements.btnConfigure?.addEventListener?.('click', openModal);
     elements.btnCloseSetup?.addEventListener?.('click', closeModal);
     elements.btnCloseSetupFooter?.addEventListener?.('click', closeModal);
     elements.mcpSetupDialog?.addEventListener?.('click', (e) => { if (e.target === elements.mcpSetupDialog) closeModal(); });
+
+    // Controles de Seguridad MCP
+    const radioAsk = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
+    const radioAllowAll = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
+    const btnClearAuths = elements.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
+
+    function syncSecurityControls() {
+      const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
+      if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
+      if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
+      renderSavedAuthorizations(elements, t);
+    }
+
+    radioAsk?.addEventListener?.('change', () => {
+      if (radioAsk.checked && Security?.manager?.setGlobalMcpPolicy) {
+        Security.manager.setGlobalMcpPolicy('ask');
+        if (elements.toolsContainer) {
+          const currentCfg = getConfig()?.get?.() || {};
+          const st = State?.get?.('mcp') || {};
+          renderToolsList(elements.toolsContainer, st.tools || [], currentCfg.enabledTools || {}, t);
+        }
+      }
+    });
+
+    radioAllowAll?.addEventListener?.('change', () => {
+      if (radioAllowAll.checked && Security?.manager?.setGlobalMcpPolicy) {
+        Security.manager.setGlobalMcpPolicy('allow_all');
+        if (elements.toolsContainer) {
+          const currentCfg = getConfig()?.get?.() || {};
+          const st = State?.get?.('mcp') || {};
+          renderToolsList(elements.toolsContainer, st.tools || [], currentCfg.enabledTools || {}, t);
+        }
+      }
+    });
+
+    btnClearAuths?.addEventListener?.('click', () => {
+      if (Security?.manager?.clearAllAuthorizations) {
+        Security.manager.clearAllAuthorizations();
+        renderSavedAuthorizations(elements, t);
+        if (elements.toolsContainer) {
+          const currentCfg = getConfig()?.get?.() || {};
+          const st = State?.get?.('mcp') || {};
+          renderToolsList(elements.toolsContainer, st.tools || [], currentCfg.enabledTools || {}, t);
+        }
+      }
+    });
+
+    const unsubscribeSecurity = Security?.manager?.subscribe ? Security.manager.subscribe(() => {
+      syncSecurityControls();
+      if (elements.toolsContainer) {
+        const currentCfg = getConfig()?.get?.() || {};
+        const st = State?.get?.('mcp') || {};
+        renderToolsList(elements.toolsContainer, st.tools || [], currentCfg.enabledTools || {}, t);
+      }
+    }) : null;
+
+    let pollTimer = null;
+    function startAutoConnectPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      let attempts = 0;
+      pollTimer = setInterval(async () => {
+        attempts++;
+        if (attempts > 40 || State?.get?.('mcp')?.status === 'connected') {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          return;
+        }
+        const host = elements.hostInput?.value || DEFAULT_HOST;
+        const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
+        try {
+          const res = await autoConnectIfAvailable({ host, port, timeoutMs: 1200 });
+          if (res && res.available && res.success) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+
+    const btnDownload = elements.btnDownloadScript || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-download-script') : null);
+    btnDownload?.addEventListener?.('click', () => {
+      const host = elements.hostInput?.value || DEFAULT_HOST;
+      const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
+      downloadMcpServerScript({ host, port });
+      startAutoConnectPolling();
+    });
 
     elements.btnCopyCmd?.addEventListener?.('click', () => {
       const cmd = elements.commandSnippet?.textContent || generateTerminalCommand(elements.portInput?.value);
@@ -234,13 +658,20 @@
     const unsubscribe = State?.subscribe?.('mcp', (newState) => renderConnectionStatus(elements, newState, t));
     renderConnectionStatus(elements, State?.get?.('mcp'), t);
     updateCommandAndEndpoint();
+    syncSecurityControls();
 
     return {
       updateCommandAndEndpoint,
       openSetupModal: openModal,
       closeSetupModal: closeModal,
+      startAutoConnectPolling,
+      syncSecurityControls,
       render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
-      destroy: () => { if (typeof unsubscribe === 'function') unsubscribe(); }
+      destroy: () => {
+        if (pollTimer) clearInterval(pollTimer);
+        if (typeof unsubscribe === 'function') unsubscribe();
+        if (typeof unsubscribeSecurity === 'function') unsubscribeSecurity();
+      }
     };
   }
 
@@ -248,7 +679,7 @@
     return `<div class="modal-header">
       <div class="modal-title">
         <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-        <h3 data-i18n="mcp_setup_modal_title">Configuración de MCP (mcp-proxy)</h3>
+        <h3 data-i18n="mcp_setup_modal_title">Configuración de MCP (FastMCP)</h3>
       </div>
       <button id="btn-close-mcp-setup" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
         <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
@@ -259,7 +690,7 @@
       <div class="mcp-config-card">
         <div class="mcp-fields-grid">
           <div class="form-field">
-            <label for="mcp-host-input" data-i18n="mcp_field_host">Host del proxy</label>
+            <label for="mcp-host-input" data-i18n="mcp_field_host">Host del servidor</label>
             <input type="text" id="mcp-host-input" class="form-input" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false">
           </div>
           <div class="form-field">
@@ -273,26 +704,76 @@
         </div>
       </div>
 
-      <!-- Instrucciones de Descarga, Actualización y Arranque (Ayuda) -->
+      <!-- Seguridad y Autorizaciones de Ejecución -->
+      <div class="mcp-security-card">
+        <div class="mcp-security-header">
+          <span class="mcp-security-icon">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </span>
+          <div>
+            <strong data-i18n="mcp_security_section_title">Seguridad y Autorización de Ejecución</strong>
+            <p class="label-hint" style="margin-top: 0.15rem;" data-i18n="mcp_security_desc">
+              Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.
+            </p>
+          </div>
+        </div>
+
+        <div class="mcp-policy-options">
+          <label class="mcp-policy-option">
+            <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
+            <div class="mcp-policy-text">
+              <strong data-i18n="mcp_security_policy_ask">Pedir autorización antes de ejecutar (Recomendado)</strong>
+              <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">El chat te pedirá confirmar cada comando o herramienta MCP no autorizada previamente.</p>
+            </div>
+          </label>
+          <label class="mcp-policy-option">
+            <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
+            <div class="mcp-policy-text">
+              <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo sin restricciones)</strong>
+              <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta MCP sin pausas de confirmación.</p>
+            </div>
+          </label>
+        </div>
+
+        <div class="mcp-saved-auths-section">
+          <div class="mcp-saved-auths-header">
+            <span class="label-hint" data-i18n="mcp_security_saved_auths_title">Herramientas con Permiso Recordado:</span>
+            <button type="button" id="btn-mcp-clear-auths" class="btn-text-action" style="display: none;" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
+          </div>
+          <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
+        </div>
+      </div>
+
+      <!-- Instrucciones de Descarga y Arranque -->
       <div class="mcp-instructions-card">
         <div class="mcp-instructions-header">
           <span class="mcp-instructions-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
           </span>
           <div>
-            <strong data-i18n="mcp_instructions_title">Instrucciones de Instalación y Arranque</strong>
+            <strong data-i18n="mcp_instructions_title">Instalación y Arranque del Servidor</strong>
             <p class="label-hint" style="margin-top: 0.15rem;" data-i18n="mcp_instructions_desc">
-              Ejecuta el siguiente comando en tu terminal para instalar/actualizar y arrancar mcp-proxy en un entorno Python privado (~/.zerochat/mcp-env):
+              Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zerochat_mcp.py:
             </p>
           </div>
         </div>
 
-        <div class="mcp-command-wrapper">
-          <pre class="mcp-command-box"><code id="mcp-terminal-command">mkdir -p ~/.zerochat && python3 -m venv ~/.zerochat/mcp-env && ~/.zerochat/mcp-env/bin/pip install -U "mcp<2" mcp-proxy && ([ -f scripts/mcp_server.py ] && cp scripts/mcp_server.py ~/.zerochat/server.py || true) && ~/.zerochat/mcp-env/bin/mcp-proxy --port 6388 --allow-origin="*" -- ~/.zerochat/mcp-env/bin/python3 ~/.zerochat/server.py</code></pre>
-          <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
-            <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
+        <div class="mcp-download-actions">
+          <button type="button" id="btn-mcp-download-script" class="btn-primary btn-mcp-download" data-i18n-title="mcp_btn_download_title">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+            <span data-i18n="mcp_btn_download_server">Descargar servidor (zerochat_mcp.py)</span>
           </button>
+        </div>
+
+        <div class="mcp-command-wrapper">
+          <span class="label-hint" data-i18n="mcp_run_instruction">Comando de ejecución:</span>
+          <div style="display: flex; gap: 0.5rem; align-items: center; width: 100%;">
+            <pre class="mcp-command-box" style="flex: 1; margin: 0;"><code id="mcp-terminal-command">python3 zerochat_mcp.py --port 6388</code></pre>
+            <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
+              <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -340,6 +821,8 @@
     sanitizeHost,
     buildMcpEndpoint,
     generateTerminalCommand,
+    generateMcpServerScript,
+    downloadMcpServerScript,
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,

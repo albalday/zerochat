@@ -336,8 +336,8 @@
         toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
       } else {
         toolsGuide = (lang === 'en')
-          ? `*Workflow instruction:* After using tools, provide a final answer to the user, not a consultation log. Answer their question first and use tool results only as evidence. Do not show raw tool output.`
-          : `*Instrucción de flujo:* Tras usar herramientas, entrega una respuesta final al usuario, no un registro de la consulta. Responde primero a su pregunta y usa los resultados solo como evidencia. No muestres la salida bruta de herramientas.`;
+          ? `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`
+          : `*Instrucción de flujo:* Tras usar herramientas, responde directamente a la consulta del usuario de forma sintética y clara. Usa la información solo como evidencia, integrando las fuentes de forma breve o enlazada. Evita resúmenes largos o repetitivos de las fuentes consultadas y no muestres la salida bruta de herramientas.`;
       }
     }
 
@@ -611,8 +611,8 @@
                 ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
                 : 'A partir de la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial. Si la información o datos solicitados no se han encontrado en los documentos consultados, indica claramente que no se han encontrado datos para responder a la pregunta, en lugar de hacer un resumen de todo o volcar los fragmentos consultados.')
             : (isEn
-                ? 'Based on all the information gathered from the tools above, please write a comprehensive, detailed, and well-structured final answer to my initial question, organizing the findings clearly and citing sources.'
-                : 'A partir de toda la información obtenida por las herramientas anteriores, redacta ahora una respuesta final completa, detallada y bien estructurada para mi consulta inicial, organizando los hallazgos con claridad y citando las fuentes consultadas.');
+                ? 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.'
+                : 'A partir de toda la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial con claridad, precisión y de forma concisa. Cita las fuentes de forma breve o mediante enlaces contextuales, sin redactar resúmenes extensos ni explicaciones repetitivas de las fuentes consultadas.');
 
           synthMessages.push({
             role: 'user',
@@ -901,8 +901,8 @@
             ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
             : 'A partir de la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial. Si la información o datos solicitados no se han encontrado en los documentos consultados, indica claramente que no se han encontrado datos para responder a la pregunta, en lugar de hacer un resumen de todo o volcar los fragmentos consultados.')
         : (isEn
-            ? 'Based on all the information gathered from the tools above, please write a comprehensive, detailed, and well-structured final answer to my initial question, organizing the findings clearly and citing sources.'
-            : 'A partir de toda la información obtenida por las herramientas anteriores, redacta ahora una respuesta final completa, detallada y bien estructurada para mi consulta inicial, organizando los hallazgos con claridad y citando las fuentes consultadas.');
+            ? 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.'
+            : 'A partir de toda la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial con claridad, precisión y de forma concisa. Cita las fuentes de forma breve o mediante enlaces contextuales, sin redactar resúmenes extensos ni explicaciones repetitivas de las fuentes consultadas.');
 
       synthMessages.push({
         role: 'user',

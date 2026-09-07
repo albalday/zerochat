@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "mcp>=1.0.0,<2",
+#     "uvicorn>=0.30.0",
+#     "starlette>=0.27.0",
+# ]
+# ///
 """
-Servidor Local MCP para ZeroChat (FastMCP).
+Servidor Local MCP para ZeroChat (FastMCP nativo sobre SSE).
 Expone herramientas del sistema local: list_directory, read_file, execute_command.
 """
 
 import os
 import sys
 import json
+import argparse
 import subprocess
 from pathlib import Path
 
@@ -14,6 +23,36 @@ try:
     from mcp.server.fastmcp import FastMCP
 except ImportError:
     FastMCP = None
+
+
+def ensure_dependencies():
+    """Garantiza la disponibilidad de 'mcp' y 'uvicorn', creando un venv privado si es necesario."""
+    try:
+        import mcp  # noqa: F401
+        import uvicorn  # noqa: F401
+        import starlette  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    env_dir = Path.home() / ".zerochat" / "mcp-env"
+    is_win = sys.platform == "win32"
+    py_bin = env_dir / ("Scripts/python.exe" if is_win else "bin/python3")
+    pip_bin = env_dir / ("Scripts/pip.exe" if is_win else "bin/pip")
+
+    if not py_bin.exists():
+        print(f"[ZeroChat MCP] Configurando entorno virtual privado en {env_dir}...")
+        import venv
+        venv.create(env_dir, with_pip=True)
+        print("[ZeroChat MCP] Instalando dependencias de FastMCP ('mcp<2')...")
+        subprocess.run([str(pip_bin), "install", "-U", "mcp<2"], check=True)
+
+    if Path(sys.executable).resolve() != py_bin.resolve():
+        print("[ZeroChat MCP] Re-ejecutando con el entorno privado...")
+        if is_win:
+            sys.exit(subprocess.call([str(py_bin)] + sys.argv))
+        else:
+            os.execv(str(py_bin), [str(py_bin)] + sys.argv)
 
 
 def list_directory(path: str = ".", max_depth: int = 1) -> str:
@@ -104,25 +143,82 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 30) -> 
 SERVER_TOOLS = [list_directory, read_file, execute_command]
 
 
-def create_mcp_server():
-    if FastMCP is None:
-        raise RuntimeError("La librería 'mcp' no está instalada. Ejecuta: pip install 'mcp<2'")
-    mcp = FastMCP("ZeroChat Local Tools")
+def create_mcp_app(host: str = "127.0.0.1", port: int = 6388):
+    ensure_dependencies()
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+    # Desactivar protección DNS rebinding para admitir conexiones locales y file:// (Origin: null)
+    sec_settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+        allowed_hosts=["*"],
+        allowed_origins=["*"]
+    )
+
+    mcp = FastMCP(
+        "ZeroChat Local Tools",
+        host=host,
+        port=port,
+        transport_security=sec_settings
+    )
+
     for tool_fn in SERVER_TOOLS:
         mcp.tool()(tool_fn)
-    return mcp
+
+    app = mcp.sse_app()
+
+    # Middleware para soporte de Private Network Access (PNA) y Origin: null en Chromium
+    class PrivateNetworkAccessMiddleware:
+        def __init__(self, inner_app: ASGIApp):
+            self.inner_app = inner_app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope["type"] == "http":
+                async def custom_send(message):
+                    if message["type"] == "http.response.start":
+                        headers = dict(message.get("headers", []))
+                        headers[b"access-control-allow-private-network"] = b"true"
+                        if b"access-control-allow-origin" not in headers:
+                            headers[b"access-control-allow-origin"] = b"*"
+                        message["headers"] = list(headers.items())
+                    await send(message)
+                await self.inner_app(scope, receive, custom_send)
+            else:
+                await self.inner_app(scope, receive, send)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_middleware(PrivateNetworkAccessMiddleware)
+    return app
 
 
 def main():
-    if "--test" in sys.argv:
+    parser = argparse.ArgumentParser(description="Servidor Local MCP para ZeroChat (FastMCP nativo SSE)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host de escucha (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=6388, help="Puerto de escucha (default: 6388)")
+    parser.add_argument("--test", action="store_true", help="Ejecutar prueba interna de herramientas")
+    args = parser.parse_args()
+
+    if args.test:
         print("[TEST] list_directory('.') ->", json.loads(list_directory("."))["success"])
         print("[TEST] read_file('package.json') ->", json.loads(read_file("package.json"))["success"])
         print("[TEST] execute_command('echo hello') ->", json.loads(execute_command("echo hello"))["success"])
         print("[TEST] Todas las funciones operan correctamente.")
         return
 
-    server = create_mcp_server()
-    server.run(transport="stdio")
+    ensure_dependencies()
+    import uvicorn
+    app = create_mcp_app(host=args.host, port=args.port)
+    print(f"🚀 [ZeroChat MCP] Servidor FastMCP activo en http://{args.host}:{args.port}/sse")
+    print("📡 Esperando conexiones de ZeroChat...")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

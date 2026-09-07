@@ -161,7 +161,7 @@
         titleKey: 'agent_js_title',
         titleFallback: 'Ejecución de JavaScript Local (Sandbox)',
         descKey: 'agent_js_desc',
-        descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos en un entorno seguro en el navegador.',
+        descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos directamente en el navegador (seguridad estándar del navegador).',
         icon: 'zap',
         defaultEnabled: true,
         showInSettings: true
