@@ -178,7 +178,7 @@
     elements.reasoningMenu.style.maxHeight = `${Math.round(maxHeight)}px`;
   }
 
-  function openReasoningMenu(elements, appConfig, onSelect) {
+  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
     if (!elements || !elements.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'flex';
 
@@ -198,6 +198,7 @@
     }
 
     renderReasoningMenuOptions(elements, reasoningConfig, appConfig?.reasoningEffort || 'off', onSelect);
+    syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
     positionReasoningMenu(elements);
     initReasoningKeyboardNav(elements);
 
@@ -208,6 +209,22 @@
       if (activeBtn && typeof activeBtn.focus === 'function') {
         activeBtn.focus();
       }
+    }
+  }
+
+  function syncCheckpointToggle(elements, isEnabled, onToggleCheckpoint) {
+    if (!elements) return;
+    const chk = elements.chkReasoningAgentCheckpoint ||
+      (elements.reasoningMenu?.querySelector ? elements.reasoningMenu.querySelector('#chk-reasoning-agent-checkpoint') : null);
+    if (!chk) return;
+
+    chk.checked = Boolean(isEnabled);
+
+    if (!chk._hasAgentListener && typeof onToggleCheckpoint === 'function') {
+      chk._hasAgentListener = true;
+      chk.addEventListener('change', (e) => {
+        onToggleCheckpoint(e.target.checked);
+      });
     }
   }
 
@@ -222,13 +239,13 @@
     }
   }
 
-  function toggleReasoningMenu(elements, appConfig, onSelect) {
+  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
     if (!elements || !elements.reasoningMenu) return;
     const isVisible = elements.reasoningMenu.style.display === 'flex' || elements.reasoningMenu.style.display === 'block';
     if (isVisible) {
       closeReasoningMenu(elements);
     } else {
-      openReasoningMenu(elements, appConfig, onSelect);
+      openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint);
     }
   }
 
@@ -294,6 +311,7 @@
     closeReasoningMenu,
     toggleReasoningMenu,
     selectReasoningLevel,
-    updateReasoningUI
+    updateReasoningUI,
+    syncCheckpointToggle
   };
 });

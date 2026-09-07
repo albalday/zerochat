@@ -179,6 +179,21 @@
             <div class="reasoning-options" id="reasoning-options-container" role="presentation">
               <!-- Opciones según el tipo de endpoint configurado -->
             </div>
+            <div class="reasoning-menu-footer">
+              <div class="reasoning-agent-toggle-wrapper">
+                <div class="reasoning-agent-toggle-info">
+                  <div class="reasoning-agent-toggle-title">
+                    <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"></path><line x1="12" y1="13" x2="12" y2="21"></line></svg>
+                    <span data-i18n="reasoning_checkpoint_agent_title">Punto de control agéntico</span>
+                  </div>
+                  <div class="reasoning-agent-toggle-desc" data-i18n="reasoning_checkpoint_agent_desc">Consolida hallazgos y poda memoria en modelos abiertos o RAG</div>
+                </div>
+                <label class="switch switch-sm" data-i18n-title="reasoning_checkpoint_agent_tooltip" title="Activar/Desactivar herramienta agent_checkpoint">
+                  <input type="checkbox" id="chk-reasoning-agent-checkpoint">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -401,6 +416,7 @@
   <script src="js/tools/builtin/search-knowledge-base.tool.js"></script>
   <script src="js/tools/builtin/read-knowledge-chunk.tool.js"></script>
   <script src="js/tools/builtin/read-knowledge-image.tool.js"></script>
+  <script src="js/tools/builtin/agent-checkpoint.tool.js"></script>
   <script src="js/tool-security.js"></script>
   <script src="js/agent-core.js"></script>
   <script src="js/mcp.js"></script>

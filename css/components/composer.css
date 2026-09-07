@@ -386,12 +386,47 @@
 }
 
 .reasoning-menu-footer {
-  padding: 0.45rem 0.85rem;
+  padding: 0.5rem 0.85rem;
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface-subtle);
   font-size: 0.7rem;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+.reasoning-agent-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.reasoning-agent-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.reasoning-agent-toggle-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.reasoning-agent-toggle-title svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.reasoning-agent-toggle-desc {
+  font-size: 0.675rem;
+  color: var(--text-muted);
+  line-height: 1.25;
 }
 
 .reasoning-detection-info {

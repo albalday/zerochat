@@ -224,6 +224,36 @@
     };
   }
 
+  /**
+   * Compacta activamente el contenido de herramientas previas cuando se ejecuta un punto de control (agent_checkpoint).
+   * Mantiene intactos role, name, tool_call_id y metadata para no invalidar el protocolo de llamadas del proveedor.
+   * @param {Array} messages - Lista de mensajes de la conversación o de trabajo.
+   * @param {Object} [options={}] - Opciones de compactación.
+   * @returns {Array} Nueva lista de mensajes con resultados voluminosos de herramientas compactados.
+   */
+  function compactToolHistory(messages = [], options = {}) {
+    if (!Array.isArray(messages) || messages.length === 0) return [];
+    const maxChars = options.maxCompactedChars || 250;
+    const excludeNames = new Set(options.excludeToolNames || ['agent_checkpoint', 'checkpoint', 'agentcheckpoint']);
+    const upToIndex = typeof options.upToIndex === 'number' ? options.upToIndex : messages.length;
+
+    return messages.map((m, idx) => {
+      if (idx >= upToIndex || !m || m.role !== 'tool') return m;
+      const toolName = m.name || 'tool';
+      if (excludeNames.has(toolName) || m._compactedByCheckpoint) return m;
+
+      const contentStr = serializeContent(m.content);
+      if (contentStr.length <= maxChars) return m;
+
+      const preview = contentStr.slice(0, 100).replace(/\s+/g, ' ').trim();
+      return {
+        ...m,
+        content: `[Salida previa de herramienta ${toolName} compactada en punto de control: "${preview}..."]`,
+        _compactedByCheckpoint: true
+      };
+    });
+  }
+
   // ==========================================================================
   // 4. Ventana Deslizante con Preservación de Pares Agénticos (Pair-Safe Sliding Window)
   // ==========================================================================
@@ -655,6 +685,7 @@ Responde estrictamente con el siguiente formato:
     registerEstimator,
     truncateToolContent,
     pruneHistoricalToolMessage,
+    compactToolHistory,
     groupIntoAtomicBlocks,
     buildOptimizedContext,
     getContextDiagnostics,

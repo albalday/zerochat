@@ -306,6 +306,9 @@
       tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));
       tools.push(createBuiltinTool('read_knowledge_image', 'ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'));
 
+      // 9. Punto de control y compactación agéntica multipropósito
+      tools.push(createBuiltinTool('agent_checkpoint', 'ChatBuiltinAgentCheckpointTool', './tools/builtin/agent-checkpoint.tool.js'));
+
       return tools;
     }
   }
@@ -975,6 +978,7 @@
       const combinedSignal = internalAbortController.signal;
 
       let stepIndex = 0;
+      let consecutiveDataCalls = 0;
       let workingMessages = [...messages];
       let finalAccumulatedText = '';
       let finalReasoningText = '';
@@ -1211,18 +1215,32 @@
           const executedToolMessages = [];
           const stepExecResults = [];
 
+          let hasCheckpointCall = false;
+          const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'search_web', 'fetch_web_page', 'download_pdf']);
+
           for (let i = 0; i < stepToolCalls.length; i++) {
             if (combinedSignal.aborted) break;
             const call = stepToolCalls[i];
+            const toolFnName = call.function?.name || '';
+            const isCheckpoint = toolFnName === 'agent_checkpoint' || toolFnName === 'checkpoint';
+            if (isCheckpoint) hasCheckpointCall = true;
 
             if (callbacks.onToolStart) {
-              const toolInstance = this.registry.getTool(call.function?.name);
+              const toolInstance = this.registry.getTool(toolFnName);
               callbacks.onToolStart(call, toolInstance, stepIndex);
             }
 
             const execResult = await this.executeToolWithRetries(
               call,
-              { signal: combinedSignal, ...params },
+              {
+                signal: combinedSignal,
+                compactHistory: () => {
+                  if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+                    workingMessages = ContextManager.compactToolHistory(workingMessages);
+                  }
+                },
+                ...params
+              },
               maxRetries,
               (tc, attempt, total, err) => {
                 if (callbacks.onRetry) {
@@ -1238,6 +1256,16 @@
               toolResponseContent = typeof serialized === 'string'
                 ? serialized
                 : JSON.stringify(serialized);
+
+              // Sugerencia agéntica sutil si se encadenan múltiples consultas de datos sin checkpoint
+              if (DATA_TOOL_NAMES.has(toolFnName)) {
+                consecutiveDataCalls++;
+                if (consecutiveDataCalls >= 3 && !hasCheckpointCall) {
+                  toolResponseContent += '\n\n[Sugerencia agéntica: Se han recopilado múltiples fuentes de datos. Puedes invocar "agent_checkpoint" para consolidar tus hallazgos antes de proseguir o finalizar.]';
+                }
+              } else if (isCheckpoint) {
+                consecutiveDataCalls = 0;
+              }
             } else {
               toolResponseContent = JSON.stringify({
                 success: false,
@@ -1254,7 +1282,7 @@
 
             toolExecutions.push({
               step: stepIndex,
-              toolName: call.function?.name || 'tool',
+              toolName: toolFnName || 'tool',
               args: execResult.args || call.function?.arguments,
               result: execResult.result,
               success: execResult.success,
@@ -1266,9 +1294,14 @@
               id: `msg_turn_${stepIndex}_tool_${call.id || i}_${Date.now()}`,
               role: 'tool',
               tool_call_id: call.id || `call_${Date.now()}_${i}`,
-              name: call.function?.name || 'tool',
+              name: toolFnName || 'tool',
               content: toolResponseContent
             });
+          }
+
+          // Si el paso incluyó un checkpoint, compactar el historial de trabajo activo
+          if (hasCheckpointCall && ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+            workingMessages = ContextManager.compactToolHistory(workingMessages);
           }
 
           // Actualizar historial asegurando el emparejamiento estricto assistant(tool_calls) <-> tool(results)

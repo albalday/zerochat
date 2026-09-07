@@ -753,7 +753,7 @@
           <span class="rag-active-tip-icon">💡</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
-            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse.</span>
+            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y evitar la saturación de contexto.</span>
           </div>
         </div>
       </div>

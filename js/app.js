@@ -174,6 +174,7 @@
       reasoningMenu: document.getElementById('reasoning-menu'),
       reasoningOptionsContainer: document.getElementById('reasoning-options-container'),
       reasoningModelBadge: document.getElementById('reasoning-model-badge'),
+      chkReasoningAgentCheckpoint: document.getElementById('chk-reasoning-agent-checkpoint'),
 
       // Panel de Debug & Logs
       btnToggleDebug: document.getElementById('btn-toggle-debug'),
@@ -391,15 +392,23 @@
     }
   }
 
+  function toggleCheckpointAgent(enabled) {
+    const currentTools = (appConfig && appConfig.enabledTools) ? appConfig.enabledTools : {};
+    const updatedTools = { ...currentTools, agent_checkpoint: Boolean(enabled) };
+    if (Config.updateRuntime) {
+      Config.updateRuntime({ enabledTools: updatedTools });
+    }
+  }
+
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel);
+      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
     }
   }
 
   function openReasoningMenu() {
     if (UIReasoning.openReasoningMenu) {
-      UIReasoning.openReasoningMenu(elements, appConfig, selectReasoningLevel);
+      UIReasoning.openReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
     }
   }
 
