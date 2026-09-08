@@ -4,3 +4,5 @@ asegurarse recoger un chat de la lista del historico no mezcla con el actual
 iconos copiar y pegar respuesta pone izda estadisticas
 indicar descarga a file de zerochat.html
 por que sale 32k en servidor lmstudio
+aprendido: docs arquitectura, doc normas test exhaustivos
+puntos fuerts: rag financial, tool agentico,  
