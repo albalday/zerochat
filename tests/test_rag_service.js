@@ -25,7 +25,7 @@ test('RagService - inyecta solo instrucciones compactas', async () => {
   assert.match(context, /search_knowledge_base/);
   assert.match(context, /list_documents/);
   assert.match(context, /read_knowledge_image/);
-  assert.match(context, /visión nativa/);
+  assert.match(context, /native vision/);
   assert.doesNotMatch(context, /Kubernetes|PostgreSQL/);
   assert.match(await RagService.injectRagContext('Responde brevemente.', branch.id), /Responde brevemente/);
 });
@@ -153,18 +153,18 @@ test('RagService - soporta múltiples ramas activas simultáneamente', async () 
   });
 
   const context = await RagService.buildRagSystemContext([b1.id, b2.id]);
-  assert.match(context, /BASES DE CONOCIMIENTO ACTIVAS/);
+  assert.match(context, /ACTIVE KNOWLEDGE BASES/);
   assert.match(context, /Operaciones/);
   assert.match(context, /Redes/);
 
   const list = await RagService.listDocuments([b1.id, b2.id]);
   assert.equal(list.count, 2);
-  assert.match(list.text, /DOCUMENTOS EN Operaciones/);
-  assert.match(list.text, /DOCUMENTOS EN Redes/);
+  assert.match(list.text, /DOCUMENTS IN Operaciones/);
+  assert.match(list.text, /DOCUMENTS IN Redes/);
 
   const search = await RagService.searchKnowledgeBase([b1.id, b2.id], { query: 'puerto SSH', tolerance: 0 });
   assert.ok(search.matchesCount >= 1);
-  assert.match(search.text, /Rama: Redes/);
+  assert.match(search.text, /Branch: Redes/);
   const chunkId = search.matches[0].chunkId;
 
   const read = await RagService.readKnowledgeChunk([b1.id, b2.id], { chunkId });
@@ -201,7 +201,7 @@ test('RagService - focaliza una fuente identificable sin contaminar con otros do
   assert.equal(result.selectedDocument.documentId, alpha.id);
   assert.ok(result.matches.length >= 1);
   assert.ok(result.matches.every(match => match.documentId === alpha.id));
-  assert.match(result.text, /Alcance aplicado: document/);
+  assert.match(result.text, /Applied scope: document/);
 });
 
 test('RagService - scope auto resuelve empresa y ejercicio desde títulos FinanceBench', async () => {
@@ -287,7 +287,7 @@ test('RagService - usa corpus ante una referencia documental ambigua', async () 
   assert.equal(result.appliedScope, 'corpus');
   assert.equal(result.selectedDocument, null);
   assert.equal(new Set(result.matches.map(match => match.documentId)).size, 2);
-  assert.match(result.text, /Candidatos documentales/);
+  assert.match(result.text, /Document candidates/);
 });
 
 test('RagService - no focaliza arbitrariamente títulos idénticos', async () => {

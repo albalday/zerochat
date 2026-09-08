@@ -7,15 +7,15 @@
 
   const definition = {
     name: 'render_chart',
-    description: 'Genera y visualiza un gráfico interactivo (barras, líneas, donut o sectores) a partir de datos numéricos o tablas.',
+    description: 'Generates and displays an interactive chart (bar, line, donut, or pie) from numerical data or tables.',
     parameters: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['bar', 'line', 'pie', 'doughnut'], description: 'Tipo de gráfico.' },
-        title: { type: 'string', description: 'Título descriptivo del gráfico.' },
-        description: { type: 'string', description: 'Breve explicación de los datos.' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'Etiquetas del eje X o categorías.' },
-        datasets: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } }, color: { type: 'string' } }, required: ['label', 'data'] }, description: 'Series de datos numéricos.' }
+        type: { type: 'string', enum: ['bar', 'line', 'pie', 'doughnut'], description: 'Chart type.' },
+        title: { type: 'string', description: 'Descriptive chart title.' },
+        description: { type: 'string', description: 'Brief explanation of the data.' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'X-axis labels or categories.' },
+        datasets: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } }, color: { type: 'string' } }, required: ['label', 'data'] }, description: 'Numerical data series.' }
       },
       required: ['type', 'title', 'labels', 'datasets']
     }
@@ -63,9 +63,7 @@
       category: 'charts',
       metadata: { icon: 'bar-chart', label: definition.name },
       settings: { titleKey: 'agent_chart_title', titleFallback: 'Visualización de Datos y Gráficos Nativos (SVG)', descKey: 'agent_chart_desc', descFallback: 'Permite al modelo invocar render_chart para generar y mostrar gráficos interactivos de barras, líneas o sectores sin librerías externas.', icon: 'bar-chart', defaultEnabled: true, showInSettings: true },
-      promptGuide: (lang) => lang === 'en'
-        ? '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Generates and displays native interactive SVG charts (bar, line, pie, doughnut).'
-        : '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Genera y visualiza gráficos SVG nativos interactivos (barras, líneas, sectores, donut).',
+      promptGuide: () => '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Generates and displays native interactive SVG charts (bar, line, pie, doughnut).',
       execute: async (args, context = {}) => {
         const Charts = context.services?.charts;
         if (!Charts || (!Charts.renderChartCard && !Charts.renderBarChart)) return { success: false, error: 'Módulo Charts no disponible.' };

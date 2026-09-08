@@ -58,7 +58,7 @@ test('ChatEngine - getToolsSystemPromptGuide genera la lista de herramientas act
     enableAgentChart: true
   }, 'es');
 
-  assert.ok(guideEs.includes('HERRAMIENTAS Y FUNCIONES DISPONIBLES'));
+  assert.ok(guideEs.includes('AVAILABLE TOOLS AND FUNCTIONS'));
   assert.ok(guideEs.includes('fetch_web_page'));
   assert.ok(guideEs.includes('search_web'));
   assert.ok(guideEs.includes('execute_javascript'));
@@ -104,8 +104,8 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
   assert.ok(messages[0].content.includes('Formato: Usa siempre Markdown estándar'));
   assert.ok(messages[0].content.includes('Eres un asistente experto.'));
   assert.ok(messages[0].content.includes('[Formato: Usa siempre Markdown estándar y texto plano.]'));
-  assert.ok(messages[0].content.includes('Base de Conocimiento activa'));
-  assert.ok(messages[0].content.includes("list_documents' solo cuando necesites explícitamente un inventario completo"));
+  assert.ok(messages[0].content.includes('Knowledge Base active'));
+  assert.ok(messages[0].content.includes("Use 'list_documents' only when you explicitly need a complete inventory"));
 
   assert.equal(messages[1].role, 'user');
   assert.ok(messages[1].content.includes('¿Qué manuales tengo disponibles?'));

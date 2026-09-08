@@ -7,10 +7,10 @@
 
   const definition = {
     name: 'search_web',
-    description: 'Busca en internet en tiempo real información actualizada, noticias, artículos y enlaces web utilizando DuckDuckGo.',
+    description: 'Searches the internet in real time for up-to-date information, news, articles, and web links using DuckDuckGo.',
     parameters: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'Términos o consulta de búsqueda (ej: "INE poblacion Ceuta padron", "DeepSeek R1").' } },
+      properties: { query: { type: 'string', description: 'Search terms or query (e.g. "INE population Ceuta census", "DeepSeek R1").' } },
       required: ['query']
     }
   };
@@ -91,9 +91,7 @@
         descKey: 'agent_search_desc', descFallback: 'Permite al modelo invocar search_web para buscar información actualizada, definiciones, noticias y enlaces web mediante la API de DuckDuckGo.',
         icon: 'search', defaultEnabled: true, showInSettings: true
       },
-      promptGuide: (lang) => lang === 'en'
-        ? '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet using DuckDuckGo.'
-        : '- `search_web(query="...")`: Busca información actualizada, noticias, artículos y enlaces en internet mediante DuckDuckGo.',
+      promptGuide: () => '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet using DuckDuckGo.',
       execute: async (args, context = {}) => {
         const WebSearch = context.services?.webSearch;
         if (!WebSearch || !WebSearch.search) return { success: false, error: 'Módulo WebSearch no disponible.' };

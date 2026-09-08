@@ -7,18 +7,18 @@
 
   const definition = {
     name: 'read_knowledge_chunk',
-    description: 'Lee el contenido completo de uno o varios fragmentos contiguos o complementarios localizados previamente. Admite chunkId para un fragmento o chunkIds (lista de identificadores) para recuperar varios a la vez (máximo 5) en un solo turno. Úsalo como evidencia interna; después sintetiza y responde.',
+    description: 'Reads the full content of one or several previously located chunks. Accepts chunkId for a single chunk or chunkIds (list of identifiers) to retrieve up to 5 at once in a single turn. Use as internal evidence; then synthesize and respond.',
     parameters: {
       type: 'object',
       properties: {
         chunkIds: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Lista de identificadores de fragmentos a leer simultáneamente en un solo turno (máximo 5).'
+          description: 'List of chunk identifiers to read simultaneously in a single turn (max 5).'
         },
         chunkId: {
           type: 'string',
-          description: 'Identificador único de fragmento (chunkId). Se admite como alternativa o complemento a chunkIds.'
+          description: 'Unique chunk identifier (chunkId). Accepted as an alternative or complement to chunkIds.'
         }
       }
     }

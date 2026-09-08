@@ -113,24 +113,23 @@
       const branches = await resolveBranches(branchIds);
       const names = branches.map(b => b.name).join(', ');
       const isCheckpoint = !!options.isCheckpointEnabled;
-      const lang = options.lang || 'es';
-      const isEn = lang === 'en';
 
       const label = branches.length === 1
-        ? (isEn ? `[ACTIVE KNOWLEDGE BASE: ${names}]` : `[BASE DE CONOCIMIENTO ACTIVA: ${names}]`)
-        : (isEn ? `[ACTIVE KNOWLEDGE BASES: ${names}]` : `[BASES DE CONOCIMIENTO ACTIVAS: ${names}]`);
+        ? `[ACTIVE KNOWLEDGE BASE: ${names}]`
+        : `[ACTIVE KNOWLEDGE BASES: ${names}]`;
 
-      const checkpointRule = isCheckpoint
-        ? (isEn
-            ? '\n- After extracting key data from 1-2 documents or before concluding complex inquiries, invoke "agent_checkpoint" to consolidate findings and clear working memory.'
-            : '\n- Tras obtener datos clave de 1 o 2 documentos o antes de concluir consultas complejas, invoca obligatoriamente "agent_checkpoint" para consolidar cifras y validar tu memoria de trabajo.')
+      // Expose the language of the documentary connection so the model knows
+      // in what language to formulate queries and what to expect in results.
+      const branchLang = branches[0]?.language || options.branchLanguage || null;
+      const langNote = branchLang
+        ? `\n- Document language: the documents in this knowledge base are written in **${branchLang}**. Formulate search queries in that language for best recall.`
         : '';
 
-      if (isEn) {
-        return `${label}\n\nDocument retrieval protocol:\n- Always start by searching with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- If the query refers to a specific document or filter (e.g. "AMD_2015_10K.pdf"), specify it in documentHint and search directly without consulting list_documents first.\n- Prioritize scope="auto" (default) or documentHint for a specific source; use scope="corpus" to compare multiple sources.\n- Consult list_documents only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- Do not re-search if you found the relevant section or document: if text or tables are truncated, inspect the adjacent chunks with read_knowledge_chunk (e.g. chunkIds=["chunk_2", "chunk_3"]).\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
-      }
+      const checkpointRule = isCheckpoint
+        ? '\n- After extracting key data from 1-2 documents or before concluding complex inquiries, invoke "agent_checkpoint" to consolidate findings and clear working memory.'
+        : '';
 
-      return `${label}\n\nProtocolo de consulta documental:\n- Inicia siempre buscando con search_knowledge_base usando términos breves y clave; no concatenes frases largas.\n- Si la consulta alude a un documento concreto o filtro (ej: "AMD_2015_10K.pdf"), indícalo en documentHint y busca directamente sin consultar antes list_documents.\n- Prioriza scope="auto" (por defecto) o documentHint para una fuente concreta; usa scope="corpus" para comparar varias.\n- Consulta list_documents solo si la búsqueda no halla resultados, desconoces las fuentes disponibles o la consulta hace referencia a un documento cuyo nombre exacto desconoces.\n- En resultados con scope="corpus" se devuelven como máximo 2 fragmentos por documento; si necesitas más profundidad de una fuente concreta, repite la búsqueda con scope="document" y documentHint.\n- No reformules la búsqueda si ya localizaste la sección o documento relevante: si el fragmento corta tablas o texto, consulta los fragmentos contiguos con read_knowledge_chunk (ej: chunkIds=["chunk_2", "chunk_3"]).\n- Trata las salidas de herramientas como evidencia interna privada: sintetiza y responde directamente sin reproducir fragmentos íntegros ni identificadores técnicos.\n- Las imágenes del documento se identifican como ![descripción](rag-image://docId:imgId). Si una imagen puede aportar información relevante y tienes visión nativa, usa read_knowledge_image con su referencia completa para inspeccionarla antes de responder; solicita solo las necesarias. Si el usuario pide imágenes, busca términos como "imagen", "diagrama" o "rag-image" e incluye estas referencias íntegras en tu respuesta.${checkpointRule}\n- Si la evidencia es insuficiente o no hallas datos concluyentes, indícalo con precisión y concluye; no inventes ni divagues.`;
+      return `${label}\n\nDocument retrieval protocol:${langNote}\n- Always start by searching with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- If the query refers to a specific document or filter (e.g. "AMD_2015_10K.pdf"), specify it in documentHint and search directly without consulting list_documents first.\n- Prioritize scope="auto" (default) or documentHint for a specific source; use scope="corpus" to compare multiple sources.\n- Consult list_documents only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- Do not re-search if you found the relevant section or document: if text or tables are truncated, inspect the adjacent chunks with read_knowledge_chunk (e.g. chunkIds=["chunk_2", "chunk_3"]).\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
     } catch (_) {
       return '';
     }
@@ -149,13 +148,13 @@
       for (const branch of branches) {
         const documents = await RagStorage.getDocumentsByBranch(branch.id);
         allDocs.push(...documents);
-        const lines = [`[DOCUMENTOS EN ${branch.name}]`];
+        const lines = [`[DOCUMENTS IN ${branch.name}]`];
         for (const document of documents) {
           const imgCount = Number.isInteger(document.imageCount) ? document.imageCount : 0;
-          const imgLabel = imgCount === 1 ? '1 imagen' : `${imgCount} imágenes`;
-          lines.push(`- ${document.title} (documentId: ${document.id}, ${document.chunkCount} fragmentos, ${imgLabel}, ${document.fileType})`);
+          const imgLabel = imgCount === 1 ? '1 image' : `${imgCount} images`;
+          lines.push(`- ${document.title} (documentId: ${document.id}, ${document.chunkCount} chunks, ${imgLabel}, ${document.fileType})`);
         }
-        if (!documents.length) lines.push('La rama no contiene documentos.');
+        if (!documents.length) lines.push('The branch contains no documents.');
         sections.push(lines.join('\n'));
       }
       return {
@@ -237,12 +236,12 @@
 
       let appliedScope = 'corpus';
       let scopeReason = requestedScope === 'corpus'
-        ? 'La consulta solicitó cobertura transversal entre documentos.'
-        : 'No se encontró una coincidencia documental inequívoca; se aplicó búsqueda transversal.';
+        ? 'The query requested cross-document coverage.'
+        : 'No unambiguous document match found; cross-document search applied.';
       let result;
       if (selection.selected && typeof RagIndex.searchDocuments === 'function') {
         appliedScope = 'document';
-        scopeReason = `Coincidencia inequívoca con el título «${selection.selected.title}».`;
+        scopeReason = `Unambiguous match with title "${selection.selected.title}".`;
         result = await RagIndex.searchDocuments(
           selection.selected.branchId,
           [selection.selected.documentId],
@@ -277,22 +276,22 @@
 
       const branchLabel = branches.map(b => b.name).join(', ');
       const lines = [
-        `[RESULTADOS EN ${branchLabel} PARA: ${query}]`,
-        `Alcance solicitado: ${requestedScope}`,
-        `Alcance aplicado: ${appliedScope}`,
-        `Motivo: ${scopeReason}`
+        `[RESULTS IN ${branchLabel} FOR: ${query}]`,
+        `Requested scope: ${requestedScope}`,
+        `Applied scope: ${appliedScope}`,
+        `Reason: ${scopeReason}`
       ];
-      if (selection.selected) lines.push(`Documento seleccionado: ${selection.selected.title} (${selection.selected.documentId})`);
+      if (selection.selected) lines.push(`Selected document: ${selection.selected.title} (${selection.selected.documentId})`);
       if (!selection.selected && selection.candidates.length > 0) {
-        lines.push(`Candidatos documentales: ${selection.candidates.map(candidate => candidate.title).join(', ')}`);
+        lines.push(`Document candidates: ${selection.candidates.map(candidate => candidate.title).join(', ')}`);
       }
       for (const match of matches) {
-        const branchBadge = branches.length > 1 ? ` [Rama: ${match.branchName}]` : '';
+        const branchBadge = branches.length > 1 ? ` [Branch: ${match.branchName}]` : '';
         lines.push(`- ${match.documentTitle} · ${match.sectionTitle}${branchBadge} (chunkId: ${match.chunkId}, score: ${match.score.toFixed(3)})`);
         const indentedSnippet = match.snippet.split('\n').map(line => `  ${line}`).join('\n');
         lines.push(indentedSnippet);
       }
-      if (!matches.length) lines.push('No se encontraron fragmentos relevantes.');
+      if (!matches.length) lines.push('No relevant chunks found.');
 
       return {
         success: true,
@@ -410,10 +409,10 @@
       const formattedSections = items.map((item, idx) => {
         const meta = [
           `chunkId: ${item.chunkId}`,
-          `Fragmento ${Number.isInteger(item.order) ? item.order + 1 : idx + 1} de ${item.totalChunks || '?'}`,
-          item.pageStart ? `Pág: ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `-${item.pageEnd}` : ''}` : null,
-          item.prevChunkId ? `Anterior: ${item.prevChunkId}` : null,
-          item.nextChunkId ? `Siguiente: ${item.nextChunkId}` : null
+          `Chunk ${Number.isInteger(item.order) ? item.order + 1 : idx + 1} of ${item.totalChunks || '?'}`,
+          item.pageStart ? `Page: ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `-${item.pageEnd}` : ''}` : null,
+          item.prevChunkId ? `Prev: ${item.prevChunkId}` : null,
+          item.nextChunkId ? `Next: ${item.nextChunkId}` : null
         ].filter(Boolean).join(' | ');
         return `### ${item.documentTitle} · ${item.sectionTitle} (${meta})\n\n${item.content}`;
       });

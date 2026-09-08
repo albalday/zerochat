@@ -1003,7 +1003,10 @@
     // Cargar únicamente la instrucción compacta de las ramas activas.
     if (activeRagBranchIds.length > 0 && window.ChatRagService && window.ChatRagService.buildRagSystemContext) {
       try {
-        currentRagSystemContext = await window.ChatRagService.buildRagSystemContext(activeRagBranchIds);
+        currentRagSystemContext = await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
+          isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
+          lang: runtimeConfig.language || 'es'
+        });
       } catch (err) {
         console.warn('Error al cargar contexto inicial de RAG:', err);
         currentRagSystemContext = '';

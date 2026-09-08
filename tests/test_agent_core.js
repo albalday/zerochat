@@ -210,12 +210,12 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: false,
       render_chart: true
     }
-  }, 'es');
+  });
   assert.match(guideEs, /execute_javascript/);
   assert.match(guideEs, /fetch_web_page/);
   assert.doesNotMatch(guideEs, /search_web/);
   assert.doesNotMatch(guideEs, /download_pdf/);
-  assert.match(guideEs, /HERRAMIENTAS Y FUNCIONES DISPONIBLES/);
+  assert.match(guideEs, /AVAILABLE TOOLS AND FUNCTIONS/);
 
   const guideEn = registry.getActivePromptGuide({
     enabledTools: {
@@ -225,7 +225,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: false,
       render_chart: false
     }
-  }, 'en');
+  });
   assert.match(guideEn, /AVAILABLE TOOLS AND FUNCTIONS/);
   assert.match(guideEn, /execute_javascript/);
   assert.match(guideEn, /search_web/);

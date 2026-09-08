@@ -490,8 +490,7 @@
     /**
      * Genera la guía textual de herramientas para el System Prompt.
      */
-    getActivePromptGuide(appConfig = {}, lang = 'es') {
-      const isEs = lang !== 'en';
+    getActivePromptGuide(appConfig = {}) {
       const enabledTools = appConfig.enabledTools || {};
       const guides = [];
 
@@ -512,7 +511,7 @@
         }
 
         if (typeof tool.getSystemPromptGuide === 'function') {
-          const guideStr = tool.getSystemPromptGuide(lang);
+          const guideStr = tool.getSystemPromptGuide('en');
           if (guideStr && typeof guideStr === 'string') {
             guides.push(guideStr);
           }
@@ -521,9 +520,7 @@
 
       if (guides.length === 0) return '';
 
-      return isEs
-        ? `\n\n[HERRAMIENTAS Y FUNCIONES DISPONIBLES]:\nPuedes utilizar las siguientes herramientas cuando sea necesario para responder con precisión:\n${guides.join('\n')}\n*Instrucción de flujo:* Tras usar herramientas, responde directamente a la consulta del usuario de forma sintética y clara. Usa la información solo como evidencia, integrando las fuentes de forma breve o enlazada. Evita resúmenes largos o repetitivos de las fuentes consultadas y no muestres la salida bruta de herramientas.`
-        : `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
+      return `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
     }
 
     /**
@@ -1109,7 +1106,7 @@
                   ...workingMessages,
                   {
                     role: 'user',
-                    content: 'Por favor, proporciona un resumen final completo, estructurado y detallado respondiendo a mi consulta a partir de toda la información obtenida por las herramientas.'
+                    content: 'Please provide a complete, structured, and detailed final summary answering my query based on all the information obtained from the tools.'
                   }
                 ];
                 const synthRes = await API.streamChatCompletion({
@@ -1147,7 +1144,7 @@
                 .map(m => m.content)
                 .filter(Boolean);
               if (toolContents.length > 0) {
-                currentStepText = '### Resumen de la Información Consultada\n\n' + toolContents.join('\n\n---\n\n');
+                currentStepText = '### Queried Information Summary\n\n' + toolContents.join('\n\n---\n\n');
               }
             }
 
@@ -1273,10 +1270,7 @@
               if (DATA_TOOL_NAMES.has(toolFnName)) {
                 consecutiveDataCalls++;
                 if (consecutiveDataCalls >= 2 && !hasCheckpointCall) {
-                  const isEn = params.lang === 'en' || params.language === 'en';
-                  const nudge = isEn
-                    ? '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n'
-                    : '[AVISO AGÉNTICO OBLIGATORIO: Has consultado fuentes de datos. Antes de responder o si aún te faltan datos (ej: otros años o documentos), debes invocar la herramienta "agent_checkpoint" indicando tus hallazgos hasta ahora y qué información te falta.]\n\n';
+                  const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
                   if (Array.isArray(toolResponseContent)) {
                     // content multipart (imagen RAG): prepend nudge al primer fragmento texto
                     toolResponseContent = [{ type: 'text', text: nudge + (toolResponseContent[0]?.text || '') }, ...toolResponseContent.slice(1)];
@@ -1373,8 +1367,8 @@
           try {
             const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');
             const synthPrompt = hasRagTool
-              ? 'A partir de la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial. Si la información o datos solicitados no se han encontrado en los documentos consultados, indica claramente que no se han encontrado datos para responder a la pregunta, en lugar de hacer un resumen de todo o volcar los fragmentos consultados.'
-              : 'Por favor, proporciona un resumen final completo, estructurado y detallado respondiendo a mi consulta a partir de toda la información obtenida por las herramientas.';
+              ? 'Based on the information obtained by the previous tools, answer my initial query directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, rather than summarizing everything or dumping consulted chunks.'
+              : 'Please provide a complete, structured, and detailed final summary answering my query based on all the information obtained from the tools.';
 
             const synthMessages = [
               ...workingMessages,
@@ -1411,14 +1405,14 @@
           if (!finalAccumulatedText || finalAccumulatedText.trim() === '') {
             const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');
             if (hasRagTool) {
-              finalAccumulatedText = 'No se han encontrado datos en los documentos consultados para responder a la pregunta.';
+              finalAccumulatedText = 'No data was found in the consulted documents to answer the question.';
             } else {
               const toolContents = workingMessages
                 .filter(m => m.role === 'tool' && m.content)
                 .map(m => m.content)
                 .filter(Boolean);
               if (toolContents.length > 0) {
-                finalAccumulatedText = '### Resumen de la Información Consultada\n\n' + toolContents.join('\n\n---\n\n');
+                finalAccumulatedText = '### Queried Information Summary\n\n' + toolContents.join('\n\n---\n\n');
               }
             }
           }

@@ -6,8 +6,8 @@
   'use strict';
   const definition = {
     name: 'read_knowledge_image',
-    description: 'Recupera una imagen de un documento del RAG para inspeccionarla visualmente. Úsala solo si tienes capacidad de visión nativa y consideras que puede aportar información relevante. Proporciona una referencia completa rag-image://docId:imgId obtenida del documento; no inventes identificadores. Si no puedes procesar imágenes, no uses esta herramienta.',
-    parameters: { type: 'object', properties: { imageRef: { type: 'string', description: 'Referencia completa rag-image://docId:imgId obtenida de un documento del RAG.' } }, required: ['imageRef'] }
+    description: 'Retrieves an image from a RAG document to inspect it visually. Use only if you have native vision capability and the image may provide relevant information. Provide a full rag-image://docId:imgId reference obtained from the document; do not invent identifiers. If you cannot process images, do not use this tool.',
+    parameters: { type: 'object', properties: { imageRef: { type: 'string', description: 'Full rag-image://docId:imgId reference obtained from a RAG document.' } }, required: ['imageRef'] }
   };
   function getRagService(context = {}) {
     if (context.services?.ragService) return context.services.ragService;
@@ -60,7 +60,7 @@
         return service?.readKnowledgeImage ? service.readKnowledgeImage(getBranchIds(context), args) : { success: false, error: 'Servicio de RAG no disponible.' };
       },
       result: {
-        toModel: (_args, result) => result?.success ? `Imagen recuperada: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, página ${result.page}` : ''})` : ''}. Analízala visualmente para responder.` : JSON.stringify(result || {}),
+        toModel: (_args, result) => result?.success ? `Image retrieved: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, page ${result.page}` : ''})` : ''}. Inspect it visually to answer.` : JSON.stringify(result || {}),
         toMarkdown: (args, result) => result?.success ? `> **read_knowledge_image** (${result.imageRef})\n\n` : `> **read_knowledge_image** (${args?.imageRef || ''}) · ${result?.error || 'Error'}\n\n`
       },
       displayMode: 'collapsed',

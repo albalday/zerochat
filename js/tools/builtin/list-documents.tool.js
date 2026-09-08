@@ -7,7 +7,7 @@
 
   const definition = {
     name: 'list_documents',
-    description: 'Devuelve el catálogo de documentos disponibles (título, fragmentos e imágenes). Úsala como apoyo cuando no conozcas las fuentes de la base o si una búsqueda previa no encuentra el documento.',
+    description: 'Returns the catalog of available documents (title, chunks, and images). Use it when you do not know the available sources or when a previous search did not find the expected document.',
     parameters: { type: 'object', properties: {}, required: [] }
   };
 

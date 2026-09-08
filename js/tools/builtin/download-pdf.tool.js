@@ -7,8 +7,8 @@
 
   const definition = {
     name: 'download_pdf',
-    description: 'Descarga un archivo o documento PDF desde una URL web y extrae todo su texto legible para analizarlo e integrarlo en el contexto (ej: "https://arxiv.org/pdf/2310.06825.pdf").',
-    parameters: { type: 'object', properties: { url: { type: 'string', description: 'URL directa del documento PDF a descargar y extraer.' } }, required: ['url'] }
+    description: 'Downloads a PDF file or document from a web URL and extracts all its readable text to analyze and include in the context (e.g. "https://arxiv.org/pdf/2310.06825.pdf").',
+    parameters: { type: 'object', properties: { url: { type: 'string', description: 'Direct URL of the PDF document to download and extract.' } }, required: ['url'] }
   };
 
   function getUrl(args) {
@@ -81,9 +81,7 @@
         descKey: 'agent_pdf_desc', descFallback: 'Permite al modelo descargar documentos PDF desde la web y extraer todo su texto al contexto en tiempo real.',
         icon: 'file-text', defaultEnabled: true, showInSettings: true
       },
-      promptGuide: (lang) => lang === 'en'
-        ? '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.'
-        : '- `download_pdf(url="...")`: Descarga un documento PDF desde una URL y extrae todo su texto legible al contexto.',
+      promptGuide: () => '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.',
       execute: async (args, context = {}) => {
         const WebBrowser = context.services?.webBrowser;
         if (!WebBrowser || !WebBrowser.downloadPdf) return { success: false, error: 'Módulo WebBrowser no disponible.' };

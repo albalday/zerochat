@@ -7,25 +7,25 @@
 
   const definition = {
     name: 'agent_checkpoint',
-    description: 'Punto de control agéntico: consolida hallazgos clave de herramientas previas, evalúa si la información es suficiente y solicita guía al cliente para continuar o finalizar la respuesta.',
+    description: 'Agentic checkpoint and memory consolidation: invoke it after querying data sources to cross-check findings, verify whether information is sufficient, or validate the final answer before delivering it.',
     parameters: {
       type: 'object',
       properties: {
         findings: {
           type: 'string',
-          description: 'Resumen estructurado y conciso de los datos, cifras o hechos confirmados hasta ahora (memoria de trabajo).'
+          description: 'Structured, concise summary of the data, figures, or confirmed facts gathered so far (working memory).'
         },
         ready_to_respond: {
           type: 'boolean',
-          description: 'Indica si se dispone de suficiente información para formular la respuesta final al usuario (true) o si aún se requieren más consultas (false).'
+          description: 'Whether enough information is available to formulate the final answer to the user (true) or more queries are still needed (false).'
         },
         missing_info: {
           type: 'string',
-          description: 'Datos específicos o contrastes que aún faltan por investigar (solo si ready_to_respond es false).'
+          description: 'Specific data or contrasts that still need to be investigated (only when ready_to_respond is false).'
         },
         next_action: {
           type: 'string',
-          description: 'Siguiente hipótesis, herramienta o consulta específica que se planea realizar (solo si ready_to_respond es false).'
+          description: 'Next hypothesis, tool, or specific query planned (only when ready_to_respond is false).'
         }
       },
       required: ['findings', 'ready_to_respond']
@@ -134,9 +134,7 @@
         defaultEnabled: false,
         showInSettings: true
       },
-      promptGuide: (lang) => lang === 'en'
-        ? '- `agent_checkpoint(findings="...", ready_to_respond=true|false, missing_info="...", next_action="...")`: Consolidates multi-step findings, compacts working memory, and verifies whether to conclude or continue searching.'
-        : '- `agent_checkpoint(findings="...", ready_to_respond=true|false, missing_info="...", next_action="...")`: Consolida hallazgos intermedios, compacta la memoria de trabajo y valida si se debe concluir o continuar investigando.',
+      promptGuide: () => '- `agent_checkpoint(findings="...", ready_to_respond=true|false, missing_info="...", next_action="...")`: Consolidates multi-step findings, compacts working memory, and verifies whether to conclude or continue searching.',
       execute: async (args = {}, context = {}) => {
         const isReady = args.ready_to_respond === true || args.ready_to_respond === 'true';
         const findings = String(args.findings || args.summary || args.state || '').trim();
@@ -159,7 +157,7 @@
             status: 'acknowledged',
             action: 'conclude',
             findings,
-            guidance: 'Hallazgos consolidados y verificados. Procede a formular de inmediato tu respuesta final completa, estructurada y detallada al usuario.'
+            guidance: 'Findings consolidated and verified. Proceed immediately to formulate your complete, structured, and detailed final answer to the user.'
           };
         }
 
@@ -170,7 +168,7 @@
           findings,
           missing_info: missingInfo,
           next_action: nextAction,
-          guidance: `Punto de control registrado y memoria previa compactada. Procede con tu siguiente acción planificada: ${nextAction || 'realizar la consulta pendiente.'}`
+          guidance: `Checkpoint recorded and previous memory compacted. Proceed with your planned next action: ${nextAction || 'perform the pending query.'}`
         };
       },
       result: {

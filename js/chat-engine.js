@@ -335,9 +335,11 @@
       if (!isNativeToolsSupported || options.forceSystemPromptGuide) {
         toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
       } else {
-        toolsGuide = (lang === 'en')
-          ? `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`
-          : `*Instrucción de flujo:* Tras usar herramientas, responde directamente a la consulta del usuario de forma sintética y clara. Usa la información solo como evidencia, integrando las fuentes de forma breve o enlazada. Evita resúmenes largos o repetitivos de las fuentes consultadas y no muestres la salida bruta de herramientas.`;
+        const isCheckpointActive = !!(appConfig?.enabledTools?.agent_checkpoint);
+        const checkpointGuidance = isCheckpointActive
+          ? '\n*Agent checkpoint:* When gathering information from multiple searches or documents, or before concluding, invoke "agent_checkpoint" to consolidate facts and clear working memory.'
+          : '';
+        toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.${checkpointGuidance}`;
       }
     }
 
@@ -348,9 +350,7 @@
     const activeBranchId = options.activeRagBranchId || (Array.isArray(activeBranchIds) ? activeBranchIds[0] : '') || (appConfig.activeRagBranchId || '');
 
     if (activeBranchId || (Array.isArray(activeBranchIds) && activeBranchIds.length > 0)) {
-      const ragInstruction = (lang === 'en')
-        ? `*Knowledge Base active:* Follow the document-consultation protocol above. Use 'list_documents' only when you explicitly need a complete inventory.`
-        : `*Base de Conocimiento activa:* Sigue el protocolo de consulta documental anterior. Usa 'list_documents' solo cuando necesites explícitamente un inventario completo.`;
+      const ragInstruction = `*Knowledge Base active:* Follow the document-consultation protocol above. Use 'list_documents' only when you explicitly need a complete inventory.`;
       toolsGuide = toolsGuide ? `${toolsGuide}\n\n${ragInstruction}` : ragInstruction;
     }
 
@@ -469,6 +469,8 @@
     let finalAssistantText = '';
     let finalStats = null;
     let isCancelled = false;
+    let consecutiveDataCalls = 0;
+    const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'list_documents', 'search_web', 'fetch_web_page', 'download_pdf']);
 
     while (turnIndex < maxAgentTurns) {
       if (signal && signal.aborted) {
@@ -817,7 +819,15 @@
             language: appConfig.language || 'es',
             signal: signal,
             activeRagBranchId: resolvedActiveRagBranchId,
-            activeRagBranchIds: resolvedActiveRagBranchIds
+            activeRagBranchIds: resolvedActiveRagBranchIds,
+            compactHistory: () => {
+              const ContextManager = getContextManager();
+              if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+                const compacted = ContextManager.compactToolHistory(chatHistory);
+                chatHistory.length = 0;
+                chatHistory.push(...compacted);
+              }
+            }
           });
         } else {
           toolExecRes = {
@@ -844,16 +854,42 @@
         tool_calls: turnToolCalls
       });
 
+      const isCheckpointActive = Boolean(appConfig?.enabledTools?.agent_checkpoint);
+      let hasCheckpointInTurn = false;
+
       // Guardar respuesta de cada herramienta ejecutada
       let combinedMarkdownBlocks = '';
       for (const item of executedResults) {
         const { tc, toolExecRes, rawFuncName, index } = item;
+        const isCheckpoint = rawFuncName === 'agent_checkpoint' || rawFuncName === 'checkpoint';
+        if (isCheckpoint) {
+          hasCheckpointInTurn = true;
+        }
+
+        let toolContent = toolExecRes.resultText;
+
+        // Inyección agéntica activa si se encadenan consultas de datos sin checkpoint
+        if (isCheckpointActive) {
+          if (DATA_TOOL_NAMES.has(rawFuncName)) {
+            consecutiveDataCalls++;
+            if (consecutiveDataCalls >= 2) {
+              const isEn = appConfig.language === 'en';
+              const nudge = isEn
+                ? '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n'
+                : '[AVISO AGÉNTICO OBLIGATORIO: Has consultado fuentes de datos. Antes de responder o si aún te faltan datos (ej: otros años o documentos), debes invocar la herramienta "agent_checkpoint" indicando tus hallazgos hasta ahora y qué información te falta.]\n\n';
+              toolContent = nudge + (toolContent || '');
+            }
+          } else if (isCheckpoint) {
+            consecutiveDataCalls = 0;
+          }
+        }
+
         const toolMessage = {
           id: `${assistantMsgId}_turn_${turnIndex}_tool_${tc.id || index}_${Date.now()}`,
           role: 'tool',
           tool_call_id: tc.id || `call_${Date.now()}_${index}`,
           name: rawFuncName,
-          content: toolExecRes.resultText
+          content: toolContent
         };
         if (rawFuncName === 'read_knowledge_image' && toolExecRes.result?.success && toolExecRes.result.dataUrl) {
           toolMessage.images = [{
@@ -866,6 +902,16 @@
         chatHistory.push(toolMessage);
         if (toolExecRes.markdownBlock) {
           combinedMarkdownBlocks += (combinedMarkdownBlocks ? '\n\n' : '') + toolExecRes.markdownBlock;
+        }
+      }
+
+      // Si este turno ejecutó un checkpoint, compactar inmediatamente el historial de herramientas previas
+      if (hasCheckpointInTurn) {
+        const ContextManager = getContextManager();
+        if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+          const compacted = ContextManager.compactToolHistory(chatHistory);
+          chatHistory.length = 0;
+          chatHistory.push(...compacted);
         }
       }
 

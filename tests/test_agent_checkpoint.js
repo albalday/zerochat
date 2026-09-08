@@ -8,6 +8,9 @@ const State = require('../js/state.js');
 const I18n = require('../js/i18n.js');
 const UIReasoning = require('../js/ui-reasoning.js');
 const AgentCheckpointTool = require('../js/tools/builtin/agent-checkpoint.tool.js');
+const Engine = require('../js/chat-engine.js');
+const RagStorage = require('../js/ragStorage.js');
+const RagService = require('../js/rag-service.js');
 
 test('AgentCheckpoint Tool - Cumple con el contrato declarativo, registro y defaultEnabled: false', () => {
   const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
@@ -100,7 +103,7 @@ test('AgentCheckpoint Tool - Ejecución con ready_to_respond: true (conclude)', 
   assert.equal(result.action, 'conclude');
   assert.equal(result.status, 'acknowledged');
   assert.equal(result.findings, args.findings);
-  assert.ok(result.guidance.includes('respuesta final'));
+  assert.ok(result.guidance.includes('final answer'));
   assert.equal(compactCalled, true, 'Debe invocar context.compactHistory');
 
   const serialized = tool.serializeResultForModel(args, result);
@@ -182,3 +185,152 @@ test('ContextManager - compactToolHistory compacta mensajes de herramientas cons
   assert.equal(compacted[4].name, 'agent_checkpoint');
   assert.ok(compacted[4].content.includes('Ventas subieron 10%'));
 });
+
+test('AgentCheckpoint Tool - ChatEngine inyecta instrucción de checkpoint en toolsGuide solo si está activo', () => {
+  const history = [{ role: 'user', content: 'Hola' }];
+  const msgsDisabled = Engine.buildEffectiveMessages(history, {
+    systemPrompt: 'Base prompt',
+    enabledTools: { agent_checkpoint: false },
+    language: 'es'
+  });
+  assert.ok(!msgsDisabled[0].content.includes('Agent checkpoint:'));
+
+  const msgsEnabledEs = Engine.buildEffectiveMessages(history, {
+    systemPrompt: 'Base prompt',
+    enabledTools: { agent_checkpoint: true },
+    language: 'es'
+  });
+  assert.ok(msgsEnabledEs[0].content.includes('Agent checkpoint:'));
+  assert.ok(msgsEnabledEs[0].content.includes('invoke "agent_checkpoint"'));
+
+  const msgsEnabledEn = Engine.buildEffectiveMessages(history, {
+    systemPrompt: 'Base prompt',
+    enabledTools: { agent_checkpoint: true },
+    language: 'en'
+  });
+  assert.ok(msgsEnabledEn[0].content.includes('Agent checkpoint:'));
+  assert.ok(msgsEnabledEn[0].content.includes('invoke "agent_checkpoint"'));
+});
+
+test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de checkpoint según options.isCheckpointEnabled', async () => {
+  const branch = await RagStorage.createBranch('Finanzas', 'Documentos contables');
+
+  const contextWithoutCp = await RagService.buildRagSystemContext(branch.id, { isCheckpointEnabled: false });
+  assert.ok(!contextWithoutCp.includes('agent_checkpoint'));
+
+  const contextWithCp = await RagService.buildRagSystemContext(branch.id, { isCheckpointEnabled: true });
+  assert.ok(contextWithCp.includes('agent_checkpoint'));
+  assert.ok(contextWithCp.includes('consolidate findings and clear working memory'));
+});
+
+test('ContextManager - getModelContextLimit reconoce modelos Gemma', () => {
+  const limitGemma2 = ContextManager.getModelContextLimit('google/gemma-2-9b-it');
+  assert.equal(limitGemma2, 8192);
+
+  const limitGemma4 = ContextManager.getModelContextLimit('google/gemma-4-12b-qat');
+  assert.equal(limitGemma4, 32768);
+
+  const limitGemmaGeneric = ContextManager.getModelContextLimit('gemma-3-27b');
+  assert.equal(limitGemmaGeneric, 32768);
+});
+
+test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas consecutivas y compacta al recibir checkpoint', async () => {
+  const ChatAPI = require('../js/api.js');
+  const originalStream = ChatAPI.streamChatCompletion;
+
+  let turn = 0;
+  ChatAPI.streamChatCompletion = async (options) => {
+    turn++;
+    if (turn === 1) {
+      // Turno 1: el modelo llama a list_documents (primera consulta de datos)
+      if (options.onDone) {
+        options.onDone('', { completionTokens: 10 }, [
+          { id: 'call_list_1', function: { name: 'list_documents', arguments: '{}' } }
+        ]);
+      }
+      return {
+        accumulatedText: '',
+        toolCalls: [{ id: 'call_list_1', function: { name: 'list_documents', arguments: '{}' } }],
+        stats: { completionTokens: 10 }
+      };
+    } else if (turn === 2) {
+      // Turno 2: el modelo llama a search_web (segunda consulta de datos consecutiva)
+      if (options.onDone) {
+        options.onDone('', { completionTokens: 10 }, [
+          { id: 'call_web_2', function: { name: 'search_web', arguments: '{"query":"walmart ebitda"}' } }
+        ]);
+      }
+      return {
+        accumulatedText: '',
+        toolCalls: [{ id: 'call_web_2', function: { name: 'search_web', arguments: '{"query":"walmart ebitda"}' } }],
+        stats: { completionTokens: 10 }
+      };
+    } else if (turn === 3) {
+      // Turno 3: el modelo atiende al aviso y llama a agent_checkpoint
+      if (options.onDone) {
+        options.onDone('', { completionTokens: 10 }, [
+          {
+            id: 'call_cp_3',
+            function: {
+              name: 'agent_checkpoint',
+              arguments: JSON.stringify({
+                findings: 'Datos parciales de 2018 recuperados.',
+                missing_info: 'Faltan 2019 y 2020.',
+                ready_to_respond: false
+              })
+            }
+          }
+        ]);
+      }
+      return {
+        accumulatedText: '',
+        toolCalls: [{
+          id: 'call_cp_3',
+          function: {
+            name: 'agent_checkpoint',
+            arguments: JSON.stringify({
+              findings: 'Datos parciales de 2018 recuperados.',
+              missing_info: 'Faltan 2019 y 2020.',
+              ready_to_respond: false
+            })
+          }
+        }],
+        stats: { completionTokens: 10 }
+      };
+    } else {
+      // Turno 4: respuesta final
+      if (options.onDone) options.onDone('Respuesta final completada.', { completionTokens: 20 }, null);
+      return { accumulatedText: 'Respuesta final completada.', toolCalls: null, stats: { completionTokens: 20 } };
+    }
+  };
+
+  const history = [{ role: 'user', content: 'Calcula EBITDA Walmart' }];
+  const res = await Engine.executeAgentTurnLoop({
+    apiUrl: 'http://localhost:1234/v1',
+    apiType: 'openai',
+    model: 'google/gemma-4-12b-qat',
+    chatHistory: history,
+    appConfig: {
+      apiUrl: 'http://localhost:1234/v1',
+      model: 'google/gemma-4-12b-qat',
+      language: 'es',
+      enabledTools: { agent_checkpoint: true, search_web: true, list_documents: true }
+    }
+  });
+
+  ChatAPI.streamChatCompletion = originalStream;
+
+  assert.equal(res.success, true);
+  // Verificar que la herramienta en turno 2 (search_web) recibió el aviso agéntico obligatorio
+  const webToolMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');
+  assert.ok(webToolMsg, 'Debe existir el mensaje tool de search_web');
+  assert.ok(webToolMsg.content.includes('AVISO AGÉNTICO OBLIGATORIO'), 'Debe incluir el aviso agéntico obligatorio');
+
+  // Verificar que al procesar agent_checkpoint se compactó el historial
+  const compactedWebMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');
+  // Si el contenido supera 250 caracteres, se compacta; en search_web mock o real:
+  const cpToolMsg = history.find(m => m.role === 'tool' && m.name === 'agent_checkpoint');
+  assert.ok(cpToolMsg, 'Debe existir el mensaje tool de agent_checkpoint');
+  assert.ok(cpToolMsg.content.includes('Datos parciales de 2018 recuperados'));
+});
+

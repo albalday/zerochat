@@ -7,8 +7,8 @@
 
   const definition = {
     name: 'fetch_web_page',
-    description: 'Descarga y lee el texto y contenido de una página web pública o artículo HTML a partir de su URL (ej: "https://es.wikipedia.org/wiki/Sol").',
-    parameters: { type: 'object', properties: { url: { type: 'string', description: 'URL de la página web a consultar.' } }, required: ['url'] }
+    description: 'Downloads and reads the text and content of a public web page or HTML article from its URL (e.g. "https://en.wikipedia.org/wiki/Sun").',
+    parameters: { type: 'object', properties: { url: { type: 'string', description: 'URL of the web page to read.' } }, required: ['url'] }
   };
 
   function getUrl(args) {
@@ -82,9 +82,7 @@
         descKey: 'agent_web_desc', descFallback: 'Permite al modelo invocar fetch_web_page para consultar páginas web públicas y extraer su contenido textual en tiempo real.',
         icon: 'globe', defaultEnabled: true, showInSettings: true
       },
-      promptGuide: (lang) => lang === 'en'
-        ? '- `fetch_web_page(url="...")`: Reads and extracts clean text content from public web pages or HTML articles.'
-        : '- `fetch_web_page(url="...")`: Lee y extrae el texto de páginas web públicas o artículos HTML.',
+      promptGuide: () => '- `fetch_web_page(url="...")`: Downloads and extracts clean text content from public web pages or HTML articles.',
       execute: async (args, context = {}) => {
         const WebBrowser = context.services?.webBrowser;
         if (!WebBrowser || !WebBrowser.fetchPage) return { success: false, error: 'Módulo WebBrowser no disponible.' };

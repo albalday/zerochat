@@ -60,5 +60,5 @@ test('Tool infrastructure - registra read_knowledge_image solo con RAG activo', 
   assert.ok(tool);
   assert.equal(tool.isAvailable({}), false);
   assert.equal(tool.isAvailable({ activeRagBranchId: 'branch_1' }), true);
-  assert.match(tool.description, /visión nativa/);
+  assert.match(tool.description, /native vision/);
 });

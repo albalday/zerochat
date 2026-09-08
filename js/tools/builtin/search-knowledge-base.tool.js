@@ -7,21 +7,21 @@
 
   const definition = {
     name: 'search_knowledge_base',
-    description: 'Busca fragmentos relevantes o imágenes en la base de conocimiento. Usa scope="document" con documentHint si el usuario menciona un documento concreto o filtro (ej: "AMD_2015_10K.pdf"), scope="corpus" para búsquedas transversales o scope="auto" (por defecto).',
+    description: 'Searches for relevant text chunks or images in the knowledge base. Use scope="document" with documentHint when the user mentions a specific document or filter (e.g. "AMD_2015_10K.pdf"), scope="corpus" for cross-document searches, or scope="auto" (default).',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Término, tema, magnitud o palabra clave a buscar en el documento o base.' },
+        query: { type: 'string', description: 'Term, topic, metric, or keywords to search in the document or knowledge base (direct terms, no quotes).' },
         scope: {
           type: 'string',
           enum: ['auto', 'document', 'corpus'],
-          description: 'Alcance de la búsqueda: document para una fuente identificable, corpus para varias fuentes y auto si no está claro. Por defecto auto.'
+          description: 'Search scope: "document" for a specific identifiable source, "corpus" for multiple sources, "auto" when unclear. Defaults to "auto".'
         },
         documentHint: {
           type: 'string',
-          description: 'Nombre exacto, archivo o filtro de la fuente indicada por el usuario (ej: "AMD_2015_10K.pdf", "WALMART_2015_10K.pdf").'
+          description: 'Exact name, filename, or filter for the source mentioned by the user (e.g. "AMD_2015_10K.pdf", "WALMART_2015_10K.pdf").'
         },
-        limit: { type: 'integer', description: 'Número opcional de fragmentos a devolver (por defecto 10).' }
+        limit: { type: 'integer', description: 'Optional number of chunks to return (default 10).' }
       },
       required: ['query']
     }
