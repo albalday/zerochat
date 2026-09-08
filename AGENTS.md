@@ -59,6 +59,9 @@ manteniendo los adjuntos pesados (como imágenes Base64) aislados del árbol de 
 El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
 añadirse simultáneamente a los diccionarios español e inglés.
 
+Los mensajes inyectados programáticamente en la conversación deben redactarse en
+inglés.
+
 La interfaz no debe usar emojis crudos en botones, badges, barras o acciones interactivas.
 Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catálogo
 `ChatIcons` (`js/icons.js`) o etiquetas `<svg class="ui-icon">`. Los emojis solo son
@@ -144,4 +147,3 @@ Un cambio está terminado cuando:
 - no deja errores de consola en los tests de navegador;
 - actualiza el bundle distribuible;
 - deja la documentación coherente con el comportamiento real.
-

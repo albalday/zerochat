@@ -63,8 +63,8 @@
 
   let lastContextDiagnostics = null;
 
-  /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local. */
-  function getConversationDateAnchor(lang = 'es', startedAt = Date.now()) {
+  /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local (siempre en inglés para el modelo). */
+  function getConversationDateAnchor(lang = 'en', startedAt = Date.now()) {
     let date = new Date(startedAt);
     if (Number.isNaN(date.getTime())) date = new Date();
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -73,9 +73,7 @@
     }).formatToParts(date);
     const value = type => parts.find(part => part.type === type).value;
     const isoDate = `${value('year')}-${value('month')}-${value('day')}`;
-    return lang === 'en'
-      ? `[Conversation start date: ${isoDate}, Timezone: ${tz}.]`
-      : `[Fecha de inicio de la conversación: ${isoDate}, Zona: ${tz}.]`;
+    return `[Conversation start date: ${isoDate}, Timezone: ${tz}.]`;
   }
 
   /** Guarda el ancla una sola vez; el metadato no se transmite en el payload. */
@@ -298,12 +296,12 @@
         // ni en texto/base64 dentro del resultado de la herramienta.
         const image = Array.isArray(m.images) ? m.images.find(item => item?.dataUrl) : null;
         if (toolName === 'read_knowledge_image' && image) {
-          const provenance = [image.imageRef, image.documentTitle, image.page ? `página ${image.page}` : '']
+          const provenance = [image.imageRef, image.documentTitle, image.page ? `page ${image.page}` : '']
             .filter(Boolean).join(' · ');
           messages.push({
             role: 'user',
             content: [
-              { type: 'text', text: `Evidencia visual recuperada por read_knowledge_image${provenance ? `: ${provenance}` : '.'}` },
+              { type: 'text', text: `Visual evidence retrieved by read_knowledge_image${provenance ? `: ${provenance}` : '.'}` },
               { type: 'image_url', image_url: { url: image.dataUrl } }
             ]
           });
@@ -386,7 +384,7 @@
     if (firstNonSysIdx !== -1 && messages[firstNonSysIdx].role === 'assistant') {
       messages.splice(firstNonSysIdx, 0, {
         role: 'user',
-        content: 'Continuar'
+        content: 'Continue'
       });
     }
 

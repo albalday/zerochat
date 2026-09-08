@@ -42,8 +42,8 @@ const ChatAgentCore = require('../js/agent-core.js');
 
 test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona horaria', (t) => {
   const anchorEs = ChatEngine.getConversationDateAnchor('es');
-  assert.ok(anchorEs.includes('Fecha de inicio de la conversación:'));
-  assert.ok(anchorEs.includes('Zona:'));
+  assert.ok(anchorEs.includes('Conversation start date:'));
+  assert.ok(anchorEs.includes('Timezone:'));
 
   const anchorEn = ChatEngine.getConversationDateAnchor('en');
   assert.ok(anchorEn.includes('Conversation start date:'));
@@ -86,7 +86,7 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
 
   const appConfig = {
     systemPrompt: 'Eres un asistente experto.',
-    systemDataPrompt: '[Formato: Usa siempre Markdown estándar y texto plano.]',
+    systemDataPrompt: '[Format: Always use standard Markdown and plain text.]',
     language: 'es',
     activeRagBranchId: 'branch_123',
     enableAgentJs: true
@@ -100,10 +100,9 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
 
   assert.equal(messages[0].role, 'system');
   assert.ok(messages[0].content.includes('[BASE DE CONOCIMIENTO ACTIVA: Manual GA-Z77P-D3]'));
-  assert.ok(messages[0].content.includes('Fecha de inicio de la conversación:'));
-  assert.ok(messages[0].content.includes('Formato: Usa siempre Markdown estándar'));
+  assert.ok(messages[0].content.includes('Conversation start date:'));
   assert.ok(messages[0].content.includes('Eres un asistente experto.'));
-  assert.ok(messages[0].content.includes('[Formato: Usa siempre Markdown estándar y texto plano.]'));
+  assert.ok(messages[0].content.includes('[Format: Always use standard Markdown and plain text.]'));
   assert.ok(messages[0].content.includes('Knowledge Base active'));
   assert.ok(messages[0].content.includes("Use 'list_documents' only when you explicitly need a complete inventory"));
 
@@ -531,7 +530,7 @@ test('ChatEngine - inyecta la fecha inicial de forma incondicional sin forzar el
   const defs = ChatAgentCore.registry.getActiveDefinitions(config);
   assert.equal(defs.length, 0, 'No debe haber herramientas activas si todas están desmarcadas');
   const messages = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Hola' }], config);
-  assert.match(messages[0].content, /Fecha de inicio de la conversación/);
+  assert.match(messages[0].content, /Conversation start date/);
 });
 
 test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningChunk y onLog', async () => {

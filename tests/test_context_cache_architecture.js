@@ -26,7 +26,7 @@ test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero 
   
   const baseIdx = sys.content.indexOf('INSTRUCCION_BASE_MAESTRA');
   const ragIdx = sys.content.indexOf('CONTEXTO_RAG_VARIABLE');
-  const dateIdx = sys.content.indexOf('Fecha de inicio de la conversación');
+  const dateIdx = sys.content.indexOf('Conversation start date');
 
   assert.ok(baseIdx !== -1, 'Debe contener la instrucción base');
   assert.ok(ragIdx !== -1, 'Debe contener el contexto RAG');

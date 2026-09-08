@@ -1155,7 +1155,7 @@
           // Regla Gemini: Un turno assistant con tool_calls NUNCA puede ir inmediatamente después de system
           const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
           if (!prevMsg || prevMsg.role === 'system') {
-            formatted.push({ role: 'user', content: 'Continuar' });
+            formatted.push({ role: 'user', content: 'Continue' });
           }
 
           formatted.push({
@@ -1176,7 +1176,7 @@
           if (!hasMatchingToolCall) {
             // Si el mensaje anterior a este asistente autogenerado es system, insertar user primero
             if (!prevMsg || prevMsg.role === 'system') {
-              formatted.push({ role: 'user', content: 'Continuar' });
+              formatted.push({ role: 'user', content: 'Continue' });
             }
             formatted.push({
               role: 'assistant',
@@ -1202,13 +1202,13 @@
           // Si el mensaje es assistant (texto) y va inmediatamente después de system, insertar user antes
           const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
           if (!prevMsg || prevMsg.role === 'system') {
-            formatted.push({ role: 'user', content: 'Continuar' });
+            formatted.push({ role: 'user', content: 'Continue' });
           }
         } else if (m.role === 'user') {
           // Regla Gemini: Un turno 'user' NUNCA puede ir inmediatamente después de un turno 'tool'
           const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
           if (prevMsg && prevMsg.role === 'tool') {
-            formatted.push({ role: 'assistant', content: 'Información de herramientas recibida.' });
+            formatted.push({ role: 'assistant', content: 'Tool information received.' });
           }
           formatted.push(m);
         } else {

@@ -38,7 +38,7 @@
   }
 
   function createInitialState(overrides = {}) {
-    const DEFAULT_SYSTEM_DATA_PROMPT = '[Formato: Usa siempre Markdown estándar y texto plano. Nunca uses sintaxis ni delimitadores LaTeX ($ o $$); escribe las matemáticas, fórmulas y números directamente en texto legible con símbolos estándar (+, -, ×, /, =).]';
+    const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
     const defaultState = {
       // 1. Configuración de la Aplicación y Preferencias
       config: {
