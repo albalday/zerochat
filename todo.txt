@@ -1,0 +1,6 @@
+regenerar indice porque y cachear en orama
+asegurarse new chat borra todo el estado de mensajes
+asegurarse recoger un chat de la lista del historico no mezcla con el actual 
+iconos copiar y pegar respuesta pone izda estadisticas
+indicar descarga a file de zerochat.html
+por que sale 32k en servidor lmstudio
