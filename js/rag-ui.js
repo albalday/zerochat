@@ -827,6 +827,10 @@
             <div class="setting-card-title"><strong data-i18n="rag_help_llm_title">Configurar el modelo para responder sobre documentos</strong></div>
             <p class="setting-card-desc" data-i18n="rag_help_llm_desc">Para preguntas factuales sobre documentos, usa una temperatura baja (0 a 0,2): reduce variaciones y hace más probable que el modelo se atenga a los fragmentos recuperados. Una temperatura de 0,7 o superior conviene para redacción creativa, no para extraer cifras o hechos. El modelo también debe admitir llamadas a herramientas; si no las admite, no podrá consultar esta base documental.</p>
           </div>
+          <div class="setting-card">
+            <div class="setting-card-title"><strong data-i18n="rag_help_checkpoint_title">Punto de control agéntico para modelos de poco contexto</strong></div>
+            <p class="setting-card-desc" data-i18n-html="rag_help_checkpoint_desc">Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios, descargue la memoria de trabajo y continúe investigando sin perder coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.</p>
+          </div>
         </div>
       </div>
     </div>
