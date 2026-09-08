@@ -297,7 +297,7 @@ test('AgentRuntime - Detección de bucles infinitos (Loop Detection)', async () 
   assert.match(result.finalText, /bucle/i);
 });
 
-test('AgentRuntime - Auto-síntesis cuando el modelo finaliza con texto vacío tras ejecutar tools', async () => {
+test('AgentRuntime - Clean termination when model returns empty text after tools', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({
     name: 'fetch_stock',
@@ -305,23 +305,16 @@ test('AgentRuntime - Auto-síntesis cuando el modelo finaliza con texto vacío t
   }));
 
   let step = 0;
-  let synthRequested = false;
 
   const mockApi = {
     streamChatCompletion: async (params) => {
       step++;
       if (step === 1) {
-        // Paso 1: Ejecutar tool
         const tc = { id: 'call_stock', function: { name: 'fetch_stock', arguments: '{}' } };
         return { accumulatedText: '', toolCalls: [tc], stats: { tokens: 10 } };
       } else if (step === 2) {
-        // Paso 2: El modelo devuelve cadena vacía y 0 toolCalls (comportamiento de Gemini reportado)
+        // Model returns empty text and no tool calls — clean termination expected
         return { accumulatedText: '', toolCalls: [], stats: { tokens: 5 } };
-      } else if (step === 3) {
-        // Paso 3: Auto-síntesis forzada con toolChoice: 'none'
-        assert.equal(params.toolChoice, 'none');
-        synthRequested = true;
-        return { accumulatedText: 'El precio actual de la acción es $215.4.', toolCalls: [], stats: { tokens: 20 } };
       }
     }
   };
@@ -329,13 +322,13 @@ test('AgentRuntime - Auto-síntesis cuando el modelo finaliza con texto vacío t
   const runtime = new AgentRuntime({ registry, autoSynthesize: true });
   const result = await runtime.execute({
     api: mockApi,
-    messages: [{ role: 'user', content: 'Dame el precio de la acción' }]
+    messages: [{ role: 'user', content: 'Get the stock price' }]
   });
 
   assert.equal(result.success, true);
   assert.equal(result.status, 'completed');
-  assert.equal(synthRequested, true);
-  assert.equal(result.finalText, 'El precio actual de la acción es $215.4.');
+  // No third API call — model terminated abruptly, no synthesis
+  assert.equal(step, 2);
 });
 
 test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mismo turno', async () => {

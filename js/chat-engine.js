@@ -581,122 +581,11 @@
         turnFinalStats = streamResult.stats || turnFinalStats;
       }
 
-      // Extraer tool calls de texto si no llegaron en estructura JSON nativa
-      if ((!turnToolCalls || turnToolCalls.length === 0) && currentTurnText && API.extractToolCallsFromText) {
-        const textCalls = API.extractToolCallsFromText(currentTurnText);
-        if (textCalls && textCalls.length > 0) {
-          turnToolCalls = textCalls;
-        }
-      }
-
-      // CASO A: Si no hay llamadas a herramientas, turno final o síntesis forzada
+      // CASO A: No tool calls — final turn
       if (!turnToolCalls || turnToolCalls.length === 0) {
-        // Síntesis forzada si el modelo devolvió texto vacío tras turnos de herramientas
-        if ((!currentTurnText || currentTurnText.trim() === '') && turnIndex > 0 && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'tool' && !(signal && signal.aborted)) {
-          if (typeof onLog === 'function') onLog('info', 'El modelo finalizó el turno de herramientas sin texto. Solicitando síntesis final obligatoria...');
-
-          let synthText = '';
-          let synthStats = null;
-          const isEn = appConfig.language === 'en';
-          const synthMessages = buildEffectiveMessages(chatHistory, appConfig, {
-            currentRagSystemContext,
-            activeRagBranchId: resolvedActiveRagBranchId,
-            activeRagBranchIds: resolvedActiveRagBranchIds,
-            forceSystemPromptGuide: true
-          });
-
-          const isRagActive = Boolean(resolvedActiveRagBranchId || (resolvedActiveRagBranchIds && resolvedActiveRagBranchIds.length > 0));
-          const isRagUsed = isRagActive || chatHistory.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'read_knowledge_image' || m.name === 'list_documents');
-
-          const synthPrompt = isRagUsed
-            ? (isEn
-                ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
-                : 'A partir de la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial. Si la información o datos solicitados no se han encontrado en los documentos consultados, indica claramente que no se han encontrado datos para responder a la pregunta, en lugar de hacer un resumen de todo o volcar los fragmentos consultados.')
-            : (isEn
-                ? 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.'
-                : 'A partir de toda la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial con claridad, precisión y de forma concisa. Cita las fuentes de forma breve o mediante enlaces contextuales, sin redactar resúmenes extensos ni explicaciones repetitivas de las fuentes consultadas.');
-
-          synthMessages.push({
-            role: 'user',
-            content: synthPrompt
-          });
-
-          try {
-            await API.streamChatCompletion({
-              apiUrl: apiUrl || appConfig.apiUrl,
-              apiType: apiType || appConfig.apiType,
-              apiKey: apiKey || appConfig.apiKey,
-              model: model || appConfig.model,
-              messages: synthMessages,
-              temperature: temperature !== undefined ? temperature : appConfig.temperature,
-              reasoningEffort: reasoningEffort || appConfig.reasoningEffort || 'none',
-              tools: [],
-              enableTools: false,
-              toolChoice: 'none',
-              enableAgentJs: false,
-              enableAgentWeb: false,
-              enableAgentSearch: false,
-              enableAgentChart: false,
-              activeRagBranchId: resolvedActiveRagBranchId || '',
-              activeRagBranchIds: resolvedActiveRagBranchIds,
-              signal: signal,
-
-              onReasoningChunk: function (chunk) {
-                if (typeof onReasoningChunk === 'function') {
-                  onReasoningChunk(chunk);
-                } else if (typeof onLog === 'function') {
-                  onLog('thinking', chunk);
-                }
-              },
-              onLog: function (logData) {
-                if (typeof onLog === 'function' && logData && logData.type !== 'thinking') onLog(logData.type, logData.text);
-              },
-              onChunk: function (fullTextSoFar, delta, stats) {
-                synthText = fullTextSoFar;
-                if (turnBlock) {
-                  turnBlock.innerHTML = injectStreamingCursor(parseMd(synthText));
-                  attachEvts(turnBlock);
-                }
-                if (stats && typeof onStats === 'function') onStats(stats);
-                scrollFn();
-              },
-              onDone: function (finalText, stats) {
-                synthText = finalText || synthText;
-                synthStats = stats;
-              }
-            });
-          } catch (intSynthErr) {
-            if (typeof onLog === 'function') onLog('warn', `Error en síntesis intermedia: ${intSynthErr.message}`);
-          }
-
-          if (synthText && synthText.trim() !== '') {
-            currentTurnText = synthText;
-            if (synthStats) turnFinalStats = synthStats;
-          }
-        }
-
-        // Si aún no hay texto tras síntesis forzada, compilar resultados de herramientas o indicar falta de datos
-        if (!currentTurnText || currentTurnText.trim() === '') {
-          const isRagActive = Boolean(resolvedActiveRagBranchId || (resolvedActiveRagBranchIds && resolvedActiveRagBranchIds.length > 0));
-          const isRagUsed = isRagActive || chatHistory.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'read_knowledge_image' || m.name === 'list_documents');
-          const isEn = appConfig.language === 'en';
-
-          if (isRagUsed) {
-            currentTurnText = isEn
-              ? 'No data was found in the consulted documents to answer your question.'
-              : 'No se han encontrado datos en los documentos consultados para responder a la pregunta.';
-          } else {
-            const toolResults = chatHistory
-              .filter(m => m.role === 'tool' && m.content)
-              .map(m => m.content)
-              .filter(Boolean);
-
-            if (toolResults.length > 0) {
-              currentTurnText = isEn
-                ? '### Summary of Search Results\n\n' + toolResults.join('\n\n---\n\n')
-                : '### Resumen de la Información Consultada\n\n' + toolResults.join('\n\n---\n\n');
-            }
-          }
+        // If the model returned empty text after a tool turn, log it and move on
+        if ((!currentTurnText || currentTurnText.trim() === '') && turnIndex > 0 && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'tool') {
+          if (typeof onLog === 'function') onLog('warn', 'Model ended the tool loop without producing a response.');
         }
 
         if (turnBlock) {
@@ -873,10 +762,7 @@
           if (DATA_TOOL_NAMES.has(rawFuncName)) {
             consecutiveDataCalls++;
             if (consecutiveDataCalls >= 2) {
-              const isEn = appConfig.language === 'en';
-              const nudge = isEn
-                ? '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n'
-                : '[AVISO AGÉNTICO OBLIGATORIO: Has consultado fuentes de datos. Antes de responder o si aún te faltan datos (ej: otros años o documentos), debes invocar la herramienta "agent_checkpoint" indicando tus hallazgos hasta ahora y qué información te falta.]\n\n';
+              const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
               toolContent = nudge + (toolContent || '');
             }
           } else if (isCheckpoint) {
@@ -931,7 +817,6 @@
 
       let finalSynthText = '';
       let finalSynthStats = null;
-      const isEn = appConfig.language === 'en';
       const synthMessages = buildEffectiveMessages(chatHistory, appConfig, {
         currentRagSystemContext,
         activeRagBranchId: resolvedActiveRagBranchId,
@@ -943,12 +828,8 @@
       const isRagUsed = isRagActive || chatHistory.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'read_knowledge_image' || m.name === 'list_documents');
 
       const synthPrompt = isRagUsed
-        ? (isEn
-            ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
-            : 'A partir de la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial. Si la información o datos solicitados no se han encontrado en los documentos consultados, indica claramente que no se han encontrado datos para responder a la pregunta, en lugar de hacer un resumen de todo o volcar los fragmentos consultados.')
-        : (isEn
-            ? 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.'
-            : 'A partir de toda la información obtenida por las herramientas anteriores, responde directamente a mi consulta inicial con claridad, precisión y de forma concisa. Cita las fuentes de forma breve o mediante enlaces contextuales, sin redactar resúmenes extensos ni explicaciones repetitivas de las fuentes consultadas.');
+        ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
+        : 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.';
 
       synthMessages.push({
         role: 'user',

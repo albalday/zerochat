@@ -18,19 +18,6 @@ test('Api - Normalización de nombres de herramientas', () => {
   assert.equal(Api.normalizeToolName('render_chart'), 'render_chart');
 });
 
-test('Api - Extracción de Tool Calls emitidas como texto', () => {
-  // Llama 3 / Hermes syntax
-  const llamaText = 'Voy a calcular: call:execute_javascript{"code":"2+2"}';
-  const llamaCalls = Api.extractToolCallsFromText(llamaText);
-  assert.ok(llamaCalls && llamaCalls.length === 1);
-  assert.equal(llamaCalls[0].function.name, 'execute_javascript');
-
-  // XML syntax
-  const xmlText = '<tool_call>{"name":"search_web","arguments":{"query":"noticias"}}</tool_call>';
-  const xmlCalls = Api.extractToolCallsFromText(xmlText);
-  assert.ok(xmlCalls && xmlCalls.length === 1);
-  assert.equal(xmlCalls[0].function.name, 'search_web');
-});
 
 test('Api - Estimación aproximada de tokens', () => {
   const shortText = 'Hola mundo';

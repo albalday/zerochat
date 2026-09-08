@@ -324,7 +324,7 @@ test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas c
   // Verificar que la herramienta en turno 2 (search_web) recibió el aviso agéntico obligatorio
   const webToolMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');
   assert.ok(webToolMsg, 'Debe existir el mensaje tool de search_web');
-  assert.ok(webToolMsg.content.includes('AVISO AGÉNTICO OBLIGATORIO'), 'Debe incluir el aviso agéntico obligatorio');
+  assert.ok(webToolMsg.content.includes('MANDATORY AGENT NOTICE'), 'Debe incluir el aviso agéntico obligatorio');
 
   // Verificar que al procesar agent_checkpoint se compactó el historial
   const compactedWebMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');

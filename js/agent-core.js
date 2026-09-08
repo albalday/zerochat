@@ -1086,66 +1086,11 @@
             finalReasoningText += (finalReasoningText ? '\n' : '') + currentStepReasoning;
           }
 
-          // Extraer tool calls de texto si no llegaron estructuradas
-          if ((!stepToolCalls || stepToolCalls.length === 0) && currentStepText) {
-            if (API.extractToolCallsFromText) {
-              const textCalls = API.extractToolCallsFromText(currentStepText);
-              if (textCalls && textCalls.length > 0) {
-                stepToolCalls = textCalls;
-              }
-            }
-          }
-
-          // Caso A: Sin llamadas a herramientas -> Turno final o necesidad de síntesis
+          // Caso A: Sin llamadas a herramientas -> Turno final
           if (!stepToolCalls || stepToolCalls.length === 0) {
-            // Si el texto devuelto está vacío y el paso previo fue una tool, forzar turno de síntesis
-            if ((!currentStepText || currentStepText.trim() === '') && stepIndex > 0 && workingMessages.length > 0 && workingMessages[workingMessages.length - 1].role === 'tool' && autoSynthesize && !combinedSignal.aborted) {
-              if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
-              try {
-                const synthMessages = [
-                  ...workingMessages,
-                  {
-                    role: 'user',
-                    content: 'Please provide a complete, structured, and detailed final summary answering my query based on all the information obtained from the tools.'
-                  }
-                ];
-                const synthRes = await API.streamChatCompletion({
-                  apiUrl,
-                  apiType,
-                  apiKey,
-                  model,
-                  messages: synthMessages,
-                  temperature,
-                  reasoningEffort,
-                  enableTools: true,
-                  toolChoice: 'none',
-                  signal: combinedSignal,
-                  onChunk: (fullTextSoFar, delta, stats) => {
-                    currentStepText = fullTextSoFar;
-                    if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
-                  },
-                  onDone: (finalText, stats) => {
-                    currentStepText = finalText || currentStepText;
-                    lastStats = stats || lastStats;
-                  }
-                });
-                if (synthRes && synthRes.accumulatedText) {
-                  currentStepText = synthRes.accumulatedText;
-                }
-              } catch (synthErr) {
-                if (callbacks.onLog) callbacks.onLog({ type: 'warn', text: `Auto-síntesis fallida: ${synthErr.message}` });
-              }
-            }
-
-            // Si el modelo todavía no devolvió texto, recopilar los resultados de las herramientas
-            if (!currentStepText || currentStepText.trim() === '') {
-              const toolContents = workingMessages
-                .filter(m => m.role === 'tool' && m.content)
-                .map(m => m.content)
-                .filter(Boolean);
-              if (toolContents.length > 0) {
-                currentStepText = '### Queried Information Summary\n\n' + toolContents.join('\n\n---\n\n');
-              }
+            // If the model returned empty text after a tool turn, log it and move on
+            if ((!currentStepText || currentStepText.trim() === '') && stepIndex > 0 && workingMessages.length > 0 && workingMessages[workingMessages.length - 1].role === 'tool') {
+              if (callbacks.onLog) callbacks.onLog({ type: 'warn', text: 'Model ended the tool loop without producing a response.' });
             }
 
             finalAccumulatedText = currentStepText;
