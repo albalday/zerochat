@@ -207,3 +207,27 @@ test('Builtin Tools - search_knowledge_base declara los alcances de recuperació
   assert.match(SearchKnowledgeBaseTool.definition.description, /scope="document"/);
   assert.match(SearchKnowledgeBaseTool.definition.description, /scope="corpus"/);
 });
+
+test('Builtin Tools - list_documents declara parámetro filter y lo propaga a RagService', async () => {
+  const properties = ListDocumentsTool.definition.parameters.properties;
+  assert.equal(properties.filter.type, 'string');
+  assert.match(ListDocumentsTool.definition.description, /filter/);
+
+  const calls = [];
+  const ragService = {
+    listDocuments: async (branchIds, args) => {
+      calls.push({ branchIds, args });
+      return { success: true, count: 1, text: 'Doc', filter: args?.filter };
+    }
+  };
+  const context = { config: { activeRagBranchId: 'branch-1' }, services: { ragService } };
+  const tool = ListDocumentsTool.createTool(AgentCore.Tool);
+  const res = await tool.execute({ filter: 'Walmart' }, context);
+  assert.equal(res.success, true);
+  assert.deepEqual(calls[0], { branchIds: 'branch-1', args: { filter: 'Walmart' } });
+
+  const mdFiltered = tool.formatDispatchMarkdown({ filter: 'Walmart' }, { count: 1 });
+  assert.match(mdFiltered, /filtrado por "Walmart"/);
+  const mdUnfiltered = tool.formatDispatchMarkdown({}, { count: 5 });
+  assert.doesNotMatch(mdUnfiltered, /filtrado por/);
+});

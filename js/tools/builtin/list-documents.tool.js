@@ -7,8 +7,17 @@
 
   const definition = {
     name: 'list_documents',
-    description: 'Returns the catalog of available documents (title, chunks, and images). Use it when you do not know the available sources or when a previous search did not find the expected document.',
-    parameters: { type: 'object', properties: {}, required: [] }
+    description: 'Returns the catalog of available documents (title, chunks, and images). Accepts an optional filter to narrow documents by title keywords (e.g. "Walmart", "2020", "10K"). Use it when you do not know the available sources or when a previous search did not find the expected document.',
+    parameters: {
+      type: 'object',
+      properties: {
+        filter: {
+          type: 'string',
+          description: 'Optional keyword, company name, year, or topic to filter document titles (e.g. "Walmart", "2020", "10-K"). If omitted, returns all documents.'
+        }
+      },
+      required: []
+    }
   };
 
   function getBranchIds(context = {}) {
@@ -80,14 +89,17 @@
       metadata: { icon: 'book-open', label: definition.name },
       settings: { showInSettings: false },
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
-      execute: async (_args, context = {}) => {
+      execute: async (args = {}, context = {}) => {
         const RagService = getRagService(context);
         if (!RagService?.listDocuments) return { success: false, error: 'Servicio de RAG no disponible.' };
-        return RagService.listDocuments(getBranchIds(context));
+        return RagService.listDocuments(getBranchIds(context), args);
       },
       result: {
         toModel: (_args, result) => result?.text || JSON.stringify(result || {}),
-        toMarkdown: (_args, result) => `> **list_documents** (${result?.count || 0} documentos indexados)\n\n`
+        toMarkdown: (args, result) => {
+          const filterSuffix = args?.filter ? ` filtrado por "${args.filter}"` : '';
+          return `> **list_documents** (${result?.count || 0} documentos indexados${filterSuffix})\n\n`;
+        }
       },
       displayMode: 'collapsed',
       view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }

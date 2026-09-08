@@ -129,7 +129,7 @@
         ? '\n- After extracting key data from 1-2 documents or before concluding complex inquiries, invoke "agent_checkpoint" to consolidate findings and clear working memory.'
         : '';
 
-      return `${label}\n\nDocument retrieval protocol:${langNote}\n- Always start by searching with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- If the query refers to a specific document or filter (e.g. "AMD_2015_10K.pdf"), specify it in documentHint and search directly without consulting list_documents first.\n- Prioritize scope="auto" (default) or documentHint for a specific source; use scope="corpus" to compare multiple sources.\n- Consult list_documents only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- Do not re-search if you found the relevant section or document: if text or tables are truncated, inspect the adjacent chunks with read_knowledge_chunk (e.g. chunkIds=["chunk_2", "chunk_3"]).\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
+      return `${label}\n\nDocument retrieval protocol:${langNote}\n- Always start by searching with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- If the query refers to a specific document or filter (e.g. "AMD_2015_10K.pdf"), specify it in documentHint and search directly without consulting list_documents first.\n- Prioritize scope="auto" (default) or documentHint for a specific source; use scope="corpus" to compare multiple sources.\n- Consult list_documents (optionally specifying filter, e.g. filter="Walmart") only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- Do not re-search if you found the relevant section or document: if text or tables are truncated, inspect the adjacent chunks with read_knowledge_chunk (e.g. chunkIds=["chunk_2", "chunk_3"]).\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
     } catch (_) {
       return '';
     }
@@ -140,21 +140,49 @@
     return [context, String(systemPrompt || '').trim()].filter(Boolean).join('\n\n');
   }
 
-  async function listDocuments(branchIds) {
+  async function listDocuments(branchIds, rawArgs) {
     try {
       const branches = await resolveBranches(branchIds);
+      const args = (typeof rawArgs === 'string')
+        ? { filter: rawArgs }
+        : parseArguments(rawArgs);
+      const filterText = String(args.filter || args.query || '').trim();
+      const filterTokens = filterText ? documentReferenceTokens(filterText) : [];
+
       const allDocs = [];
       const sections = [];
       for (const branch of branches) {
         const documents = await RagStorage.getDocumentsByBranch(branch.id);
-        allDocs.push(...documents);
-        const lines = [`[DOCUMENTS IN ${branch.name}]`];
-        for (const document of documents) {
+        const filteredDocs = filterText
+          ? documents.filter(doc => {
+              const normTitle = normalizeDocumentReference(doc.title);
+              const normFilter = normalizeDocumentReference(filterText);
+              if (normFilter && normTitle.includes(normFilter)) return true;
+              const compactTitle = normTitle.replace(/\s+/g, '');
+              const compactFilter = normFilter.replace(/\s+/g, '');
+              if (compactFilter && compactTitle.includes(compactFilter)) return true;
+              if (filterTokens.length > 0) {
+                const titleTokens = new Set(documentReferenceTokens(doc.title));
+                return filterTokens.some(tok => titleTokens.has(tok));
+              }
+              return false;
+            })
+          : documents;
+
+        allDocs.push(...filteredDocs);
+        const filterBadge = filterText ? ` (filtered by "${filterText}")` : '';
+        const lines = [`[DOCUMENTS IN ${branch.name}${filterBadge}]`];
+        for (const document of filteredDocs) {
           const imgCount = Number.isInteger(document.imageCount) ? document.imageCount : 0;
           const imgLabel = imgCount === 1 ? '1 image' : `${imgCount} images`;
           lines.push(`- ${document.title} (documentId: ${document.id}, ${document.chunkCount} chunks, ${imgLabel}, ${document.fileType})`);
         }
-        if (!documents.length) lines.push('The branch contains no documents.');
+        if (!filteredDocs.length) {
+          lines.push(filterText
+            ? `No documents matching "${filterText}" were found in this branch.`
+            : 'The branch contains no documents.'
+          );
+        }
         sections.push(lines.join('\n'));
       }
       return {
@@ -162,6 +190,7 @@
         branchId: branches[0]?.id || '',
         branchName: branches.map(b => b.name).join(', '),
         branchIds: branches.map(b => b.id),
+        filter: filterText || null,
         count: allDocs.length,
         documents: allDocs,
         text: sections.join('\n\n')
@@ -239,6 +268,7 @@
         ? 'The query requested cross-document coverage.'
         : 'No unambiguous document match found; cross-document search applied.';
       let result;
+      let appliedMaxPerDoc = null;
       if (selection.selected && typeof RagIndex.searchDocuments === 'function') {
         appliedScope = 'document';
         scopeReason = `Unambiguous match with title "${selection.selected.title}".`;
@@ -249,11 +279,26 @@
           { limit, tolerance: args.tolerance }
         );
       } else {
+        let dynamicMaxPerDoc = 2;
+        const explicitMaxPerDoc = Number(args.maxPerDocument);
+        if (Number.isInteger(explicitMaxPerDoc) && explicitMaxPerDoc > 0) {
+          dynamicMaxPerDoc = explicitMaxPerDoc;
+        } else if (requestedScope !== 'corpus') {
+          // Búsqueda auto o document con ambigüedad: si hay pocos documentos o pocos candidatos,
+          // permitir 3 o 4 chunks por documento para no perder tablas contables complementarias (ej: P&L + Cash Flows)
+          if (documents.length <= 2 || (selection.candidates.length > 0 && selection.candidates.length <= 2)) {
+            dynamicMaxPerDoc = 4;
+          } else if (documents.length <= 4) {
+            dynamicMaxPerDoc = 3;
+          }
+        }
+        appliedMaxPerDoc = dynamicMaxPerDoc;
+
         const corpusOptions = {
           limit,
           tolerance: args.tolerance,
           groupByDocument: true,
-          maxPerDocument: 2
+          maxPerDocument: dynamicMaxPerDoc
         };
         result = typeof RagIndex.searchBranches === 'function'
           ? await RagIndex.searchBranches(ids, query, corpusOptions)
@@ -283,7 +328,7 @@
       ];
       if (selection.selected) lines.push(`Selected document: ${selection.selected.title} (${selection.selected.documentId})`);
       if (!selection.selected && selection.candidates.length > 0) {
-        lines.push(`Document candidates: ${selection.candidates.map(candidate => candidate.title).join(', ')}`);
+        lines.push(`Document candidates: ${selection.candidates.map(candidate => candidate.title).join(', ')} (tip: specify documentHint with the target document to retrieve more depth).`);
       }
       for (const match of matches) {
         const branchBadge = branches.length > 1 ? ` [Branch: ${match.branchName}]` : '';
@@ -305,7 +350,7 @@
         documentHint: String(args.documentHint || ''),
         selectedDocument: selection.selected,
         documentCandidates: selection.candidates,
-        maxChunksPerDocument: appliedScope === 'corpus' ? 2 : null,
+        maxChunksPerDocument: appliedScope === 'corpus' ? appliedMaxPerDoc : null,
         matchesCount: matches.length,
         totalMatches: result.count,
         matches,

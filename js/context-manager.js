@@ -193,12 +193,67 @@
   }
 
   /**
+   * Trunca de forma equilibrada una salida multisección (como múltiples fragmentos devueltos por read_knowledge_chunk).
+   * En lugar de cortar el 70% central de todo el texto (lo que elimina por completo fragmentos enteros del medio),
+   * distribuye el presupuesto proporcionalmente entre las secciones para que cada fragmento conserve su cabecera,
+   * contexto y datos numéricos clave.
+   */
+  function truncateMultiSectionToolContent(sections, maxChars, toolName) {
+    const separator = '\n\n---\n\n';
+    const totalSeparatorsLength = separator.length * (sections.length - 1);
+    const availableBudget = Math.max(sections.length * 200, maxChars - totalSeparatorsLength);
+
+    const initialShare = Math.floor(availableBudget / sections.length);
+    let remainingBudget = availableBudget;
+    const finalSections = new Array(sections.length);
+    const oversizedIndices = [];
+
+    sections.forEach((sec, idx) => {
+      if (sec.length <= initialShare) {
+        finalSections[idx] = sec;
+        remainingBudget -= sec.length;
+      } else {
+        oversizedIndices.push(idx);
+      }
+    });
+
+    if (oversizedIndices.length === 0) {
+      return sections.join(separator);
+    }
+
+    const shareForOversized = Math.max(150, Math.floor(remainingBudget / oversizedIndices.length));
+    oversizedIndices.forEach(idx => {
+      const sec = sections[idx];
+      if (sec.length <= shareForOversized) {
+        finalSections[idx] = sec;
+      } else {
+        const headLen = Math.floor(shareForOversized * 0.7);
+        const tailLen = Math.floor(shareForOversized * 0.2);
+        const head = sec.slice(0, headLen);
+        const tail = sec.slice(-tailLen);
+        const omitted = sec.length - (headLen + tailLen);
+        finalSections[idx] = `${head}\n\n[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]\n\n${tail}`;
+      }
+    });
+
+    return finalSections.join(separator);
+  }
+
+  /**
    * Trunca de forma segura el contenido de un resultado de herramienta.
    */
   function truncateToolContent(content, maxChars = DEFAULT_MAX_ACTIVE_TOOL_CHARS, toolName = 'tool') {
     const str = serializeContent(content);
     if (str.length <= maxChars) {
       return str;
+    }
+
+    // Si el contenido contiene múltiples secciones separadas por '---' (típico de read_knowledge_chunk)
+    if (str.includes('\n\n---\n\n')) {
+      const sections = str.split('\n\n---\n\n');
+      if (sections.length > 1) {
+        return truncateMultiSectionToolContent(sections, maxChars, toolName);
+      }
     }
 
     const head = str.slice(0, Math.floor(maxChars * 0.7));
@@ -357,11 +412,16 @@
     const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
 
     // Aplicar límite al bloque activo si contiene herramientas
+    const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
     const processedLastBlock = lastBlock.map(m => {
       if (m.role === 'tool') {
+        const isReadKnowledge = !isExplicitActiveToolChars && (m.name === 'read_knowledge_chunk' || m.name === 'readknowledgechunk');
+        const effectiveMaxActiveChars = isReadKnowledge
+          ? Math.max(maxActiveToolChars, Math.min(45000, Math.floor(inputBudget * 1.5)))
+          : maxActiveToolChars;
         return {
           ...m,
-          content: truncateToolContent(m.content, maxActiveToolChars, m.name)
+          content: truncateToolContent(m.content, effectiveMaxActiveChars, m.name)
         };
       }
       return m;

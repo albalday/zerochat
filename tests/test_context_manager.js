@@ -240,3 +240,55 @@ test('ContextManager - Protección contra bucles de summarization y pérdida de 
   });
   assert.equal(should, false, 'Debe respetar el periodo de enfriamiento (cooldown) para evitar bucles');
 });
+
+test('ContextManager - truncateToolContent preserva todos los fragmentos en salidas multisección de RAG', () => {
+  const chunk1 = '### WALMART_2020_10K.pdf · TOC (chunkId: doc_1:chunk:36)\n\nTabla de contenidos financiera y notas generales: ' + 'A'.repeat(3000);
+  const chunk2 = '### WALMART_2020_10K.pdf · Income Statement (chunkId: doc_1:chunk:37)\n\nConsolidated Statements of Income Revenues Net Sales Operating Income: ' + 'B'.repeat(8000);
+  const chunk3 = '### WALMART_2020_10K.pdf · Cash Flows (chunkId: doc_1:chunk:38)\n\nConsolidated Statements of Cash Flows Depreciation and Amortization: ' + 'C'.repeat(8000);
+  const chunk4 = '### WALMART_2020_10K.pdf · Segment Info (chunkId: doc_1:chunk:39)\n\nSegment assets, net sales and operational metrics: ' + 'D'.repeat(8000);
+
+  const multiChunkOutput = [chunk1, chunk2, chunk3, chunk4].join('\n\n---\n\n');
+  const maxBudget = 10000;
+
+  const truncated = ChatContextManager.truncateToolContent(multiChunkOutput, maxBudget, 'read_knowledge_chunk');
+
+  // 1. Debe respetar el presupuesto máximo (con margen mínimo por separadores)
+  assert.ok(truncated.length <= maxBudget + 500, `Debe respetar el límite de caracteres (actual: ${truncated.length})`);
+
+  // 2. Todos los fragmentos deben estar presentes (ningún chunk del medio eliminado por completo)
+  assert.ok(truncated.includes('chunk:36'), 'Debe conservar el primer fragmento (TOC)');
+  assert.ok(truncated.includes('chunk:37'), 'Debe conservar el segundo fragmento (Income Statement)');
+  assert.ok(truncated.includes('chunk:38'), 'Debe conservar el tercer fragmento (Cash Flows)');
+  assert.ok(truncated.includes('chunk:39'), 'Debe conservar el cuarto fragmento (Segment Info)');
+
+  // 3. Cada fragmento debe conservar su cabecera descriptiva
+  assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Income Statement'));
+  assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Cash Flows'));
+});
+
+test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para read_knowledge_chunk en el turno activo', () => {
+  const tableContent = '### Financials\n\n' + 'FILA_CONTABLE_'.repeat(2000); // ~28.000 chars
+
+  const messages = [
+    { role: 'system', content: 'Eres un analista.' },
+    { role: 'user', content: 'Dame el EBITDA de Walmart.' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call_read', function: { name: 'read_knowledge_chunk', arguments: '{"chunkIds":["c1"]}' } }]
+    },
+    { role: 'tool', tool_call_id: 'call_read', name: 'read_knowledge_chunk', content: tableContent }
+  ];
+
+  const result = ChatContextManager.buildOptimizedContext(messages, {
+    model: 'gpt-4o',
+    providerType: 'openai'
+  });
+
+  const toolMsg = result.messages.find(m => m.role === 'tool');
+  assert.ok(toolMsg);
+  // Con gpt-4o (budget amplio), el contenido no debe truncarse destructivamente
+  assert.ok(!toolMsg.content.includes('Truncado por ChatContextManager'), 'No debe truncar si el presupuesto del modelo admite las tablas');
+  assert.equal(toolMsg.content.length, tableContent.length);
+});
+

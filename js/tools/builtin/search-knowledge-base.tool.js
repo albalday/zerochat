@@ -21,7 +21,8 @@
           type: 'string',
           description: 'Exact name, filename, or filter for the source mentioned by the user (e.g. "AMD_2015_10K.pdf", "WALMART_2015_10K.pdf").'
         },
-        limit: { type: 'integer', description: 'Optional number of chunks to return (default 10).' }
+        limit: { type: 'integer', description: 'Optional number of chunks to return (default 10).' },
+        maxPerDocument: { type: 'integer', description: 'Optional maximum number of chunks per document in corpus search (defaults dynamically to 2-4 depending on document candidates).' }
       },
       required: ['query']
     }

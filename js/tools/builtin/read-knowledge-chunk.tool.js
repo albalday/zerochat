@@ -7,14 +7,14 @@
 
   const definition = {
     name: 'read_knowledge_chunk',
-    description: 'Reads the full content of one or several previously located chunks. Accepts chunkId for a single chunk or chunkIds (list of identifiers) to retrieve up to 5 at once in a single turn. Use as internal evidence; then synthesize and respond.',
+    description: 'Reads the full content of one or several previously located chunks. Accepts chunkId for a single chunk or chunkIds (list of identifiers) to retrieve up to 5 at once in a single turn (prefer 1-2 chunks for dense financial tables). Use as internal evidence; then synthesize and respond.',
     parameters: {
       type: 'object',
       properties: {
         chunkIds: {
           type: 'array',
           items: { type: 'string' },
-          description: 'List of chunk identifiers to read simultaneously in a single turn (max 5).'
+          description: 'List of chunk identifiers to read simultaneously in a single turn (max 5; prefer 1-2 for dense tables).'
         },
         chunkId: {
           type: 'string',

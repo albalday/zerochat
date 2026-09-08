@@ -381,3 +381,139 @@ test('RagService - diversidad de corpus no pierde documentos tras un resultado d
   assert.ok(returnedIds.has(secondary.id));
   assert.ok(result.matches.filter(match => match.documentId === dominant.id).length <= 2);
 });
+
+test('RagService - dynamic maxPerDocument en scope auto con pocos candidatos amplía la profundidad', async () => {
+  const branch = await RagStorage.createBranch('FinancialBench_Auto');
+  const wmtDoc = await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'WALMART_2020_10K.pdf',
+    chunks: [
+      { title: 'TOC', content: 'Table of Contents financial statements 2020 2019 2018.' },
+      { title: 'Income Statement', content: 'Consolidated Statements of Income operating income total revenues net sales 2020 2019 2018.' },
+      { title: 'Cash Flows', content: 'Consolidated Statements of Cash Flows depreciation and amortization operating activities 2020 2019 2018.' },
+      { title: 'Segment Info', content: 'Segment assets, net sales, operating income and depreciation 2020 2019 2018.' }
+    ]
+  });
+
+  const result = await RagService.searchKnowledgeBase(branch.id, {
+    query: 'operating income depreciation amortization net sales 2020 2019 2018',
+    scope: 'auto',
+    limit: 10,
+    tolerance: 0
+  });
+
+  assert.equal(result.success, true);
+  // Al haber solo 1 documento en la base y scope auto, appliedScope es document si hubo match exacto o corpus con maxPerDocument dinámico de 4
+  if (result.appliedScope === 'corpus') {
+    assert.equal(result.maxChunksPerDocument, 4);
+    assert.ok(result.matches.length >= 3, 'Debe devolver más de 2 chunks gracias a la ampliación dinámica');
+  } else {
+    assert.equal(result.appliedScope, 'document');
+    assert.ok(result.matches.length >= 3);
+  }
+});
+
+test('RagService - maxPerDocument explícito es respetado en scope corpus', async () => {
+  const branch = await RagStorage.createBranch('MultiDoc_Explicit');
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'Doc_A.pdf',
+    chunks: [
+      { title: 'C1', content: 'Keyword alpha evidence 1' },
+      { title: 'C2', content: 'Keyword alpha evidence 2' },
+      { title: 'C3', content: 'Keyword alpha evidence 3' },
+      { title: 'C4', content: 'Keyword alpha evidence 4' }
+    ]
+  });
+
+  const result = await RagService.searchKnowledgeBase(branch.id, {
+    query: 'Keyword alpha',
+    scope: 'corpus',
+    maxPerDocument: 3,
+    limit: 10,
+    tolerance: 0
+  });
+
+  assert.equal(result.appliedScope, 'corpus');
+  assert.equal(result.maxChunksPerDocument, 3);
+  assert.equal(result.matches.length, 3);
+});
+
+test('RagService - ambigüedad documental incluye recomendación de documentHint', async () => {
+  const branch = await RagStorage.createBranch('Ambiguous_Branch');
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'AMZN_2019_10K.pdf',
+    chunks: [{ title: 'Revenue', content: 'Amazon net sales and operating income.' }]
+  });
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'AMZN_2020_10K.pdf',
+    chunks: [{ title: 'Revenue', content: 'Amazon net sales and operating income.' }]
+  });
+
+  const result = await RagService.searchKnowledgeBase(branch.id, {
+    query: 'Amazon net sales',
+    scope: 'document',
+    documentHint: 'AMZN',
+    tolerance: 0
+  });
+
+  assert.equal(result.appliedScope, 'corpus');
+  assert.match(result.text, /Document candidates:/);
+  assert.match(result.text, /specify documentHint with the target document to retrieve more depth/);
+});
+
+test('RagService - listDocuments filtra por palabra clave, empresa o año con coincidencia flexible', async () => {
+  const branch = await RagStorage.createBranch('Catalog_Branch');
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'WMT_2020_10K.pdf',
+    chunks: [{ title: 'Intro', content: 'Walmart 2020 10-K report.' }]
+  });
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'WMT_2019_10K.pdf',
+    chunks: [{ title: 'Intro', content: 'Walmart 2019 10-K report.' }]
+  });
+  await RagStorage.saveDocument({
+    branchId: branch.id,
+    title: 'TGT_2020_10K.pdf',
+    chunks: [{ title: 'Intro', content: 'Target 2020 10-K report.' }]
+  });
+
+  // Sin filtro -> devuelve todos los documentos
+  const allList = await RagService.listDocuments(branch.id);
+  assert.equal(allList.count, 3);
+  assert.equal(allList.filter, null);
+  assert.doesNotMatch(allList.text, /filtered by/);
+
+  // Filtro por keyword/empresa 'WMT'
+  const wmtList = await RagService.listDocuments(branch.id, { filter: 'WMT' });
+  assert.equal(wmtList.count, 2);
+  assert.equal(wmtList.filter, 'WMT');
+  assert.match(wmtList.text, /filtered by "WMT"/);
+  assert.ok(wmtList.documents.some(d => d.title === 'WMT_2020_10K.pdf'));
+  assert.ok(wmtList.documents.some(d => d.title === 'WMT_2019_10K.pdf'));
+  assert.ok(!wmtList.documents.some(d => d.title === 'TGT_2020_10K.pdf'));
+
+  // Filtro por año '2019'
+  const y2019List = await RagService.listDocuments(branch.id, { filter: '2019' });
+  assert.equal(y2019List.count, 1);
+  assert.equal(y2019List.documents[0].title, 'WMT_2019_10K.pdf');
+
+  // Filtro sin coincidencias
+  const noneList = await RagService.listDocuments(branch.id, { filter: 'Costco' });
+  assert.equal(noneList.count, 0);
+  assert.match(noneList.text, /No documents matching "Costco" were found/);
+
+  // Soporta paso directo de string como argumento rawArgs
+  const strList = await RagService.listDocuments(branch.id, 'TGT');
+  assert.equal(strList.count, 1);
+  assert.equal(strList.documents[0].title, 'TGT_2020_10K.pdf');
+
+  // Coincidencia insensible a guiones / variantes morfológicas ("10-K" coincide con "10K")
+  const hyphenList = await RagService.listDocuments(branch.id, { filter: '10-K' });
+  assert.equal(hyphenList.count, 3);
+});
+
