@@ -84,6 +84,7 @@ test('Browser UI - Modo Oscuro y resolución de Design Tokens', async () => {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-banner');
 
     // 1. Validar tokens en modo claro
     await page.evaluate(() => {
@@ -178,9 +179,47 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
 
-    // 4. Selector de perfiles activo en el header
-    const hasProfileSelect = await page.$eval('.app-header #active-profile-select', el => !!el);
-    assert.ok(hasProfileSelect, 'El selector de perfil debe residir dentro del header');
+    // 4. Selector de perfiles activo en el composer e integración de 'Editar perfiles'
+    const hasProfileSelect = await page.$eval('.chat-input-container #active-profile-select', el => !!el);
+    assert.ok(hasProfileSelect, 'El selector de perfil debe residir dentro del composer');
+
+    const profileStyle = await page.$eval('.composer-profile-badge', el => {
+      const computed = getComputedStyle(el);
+      const selectComputed = getComputedStyle(el.querySelector('select'));
+      return {
+        borderStyle: computed.borderStyle,
+        fontSize: selectComputed.fontSize,
+        maxWidth: selectComputed.maxWidth
+      };
+    });
+    assert.equal(profileStyle.borderStyle, 'none', 'El combo debe ser sin enmarcar (border: none)');
+    assert.equal(profileStyle.maxWidth, '240px', 'El ancho debe ser un 25% mayor que el original (240px)');
+
+    // Botón de editar perfiles en cabecera removido
+    const hasBtnOpenProfiles = await page.$eval('#btn-open-profiles', el => !!el).catch(() => false);
+    assert.equal(hasBtnOpenProfiles, false, 'El icono de editar perfiles en la cabecera debe haber sido eliminado');
+
+    // Disclaimer inferior del textbox eliminado
+    const hasDisclaimer = await page.$eval('.chat-disclaimer', el => !!el).catch(() => false);
+    assert.equal(hasDisclaimer, false, 'La línea de ayuda/disclaimer debajo del prompt debe haber sido eliminada');
+
+    // Opción 'Editar perfiles' en el selector
+    const editOption = await page.$eval('#active-profile-select option[value="__edit_profiles__"]', el => ({
+      exists: !!el,
+      text: el.textContent
+    }));
+    assert.ok(editOption.exists, 'El selector de perfil debe contener la opción para editar perfiles');
+    assert.equal(editOption.text, 'Editar perfiles', 'El texto de la opción debe ser "Editar perfiles"');
+
+    // Seleccionar 'Editar perfiles' debe abrir el diálogo de perfiles y reestablecer la selección
+    await page.selectOption('#active-profile-select', '__edit_profiles__');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
+    const isProfilesOpen = await page.$eval('#profiles-dialog', el => el.open);
+    assert.ok(isProfilesOpen, 'Seleccionar "Editar perfiles" en el selector debe abrir #profiles-dialog');
+    const selectedAfterEdit = await page.$eval('#active-profile-select', el => el.value);
+    assert.notEqual(selectedAfterEdit, '__edit_profiles__', 'El selector no debe quedar con __edit_profiles__ seleccionado');
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
 
     // 5. Botón de Configuración en la cabecera del sidebar abre el diálogo
     await page.click('#btn-open-settings');

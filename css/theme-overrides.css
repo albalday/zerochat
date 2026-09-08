@@ -57,54 +57,13 @@
   border-color: #334155;
 }
 
-.btn-lang-quick {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.btn-lang-quick:hover {
-  color: var(--primary);
-  border-color: var(--primary);
-}
-
 /* Reglas de Modo Oscuro */
-[data-theme="dark"] .welcome-card {
-  background-color: var(--bg-surface);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .welcome-card:hover {
-  background-color: #1e293b;
-  border-color: var(--primary);
-}
-
-
-[data-theme="dark"] .badge-server,
-[data-theme="dark"] .badge-profile {
-  color: #38bdf8;
-  background-color: rgba(56, 189, 248, 0.12);
-  border-color: rgba(56, 189, 248, 0.35);
-}
-
-[data-theme="dark"] .badge-server:hover,
-[data-theme="dark"] .badge-profile:hover {
-  background-color: rgba(56, 189, 248, 0.22);
-  border-color: #38bdf8;
-}
-
-[data-theme="dark"] .badge-profile:focus-within {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16), var(--shadow-sm);
-}
-
-[data-theme="dark"] .badge-pill,
 [data-theme="dark"] .btn-tool-mini {
   background-color: var(--bg-surface);
   color: var(--text-muted);
   border-color: var(--border-color);
 }
 
-[data-theme="dark"] .badge-pill:hover,
 [data-theme="dark"] .btn-tool-mini:hover {
   background-color: #1e293b;
   color: var(--text-main);
@@ -219,8 +178,7 @@
 [data-theme="dark"] .form-field input[type="text"],
 [data-theme="dark"] .form-field input[type="url"],
 [data-theme="dark"] .form-field input[type="password"],
-[data-theme="dark"] .form-field textarea,
-[data-theme="dark"] .select-theme {
+[data-theme="dark"] .form-field textarea {
   background-color: #0b1120;
   border-color: var(--border-color);
   color: var(--text-main);

@@ -883,16 +883,115 @@
   color: #ef4444;
 }
 
-/* Disclaimer inferior */
-.chat-disclaimer {
-  text-align: center;
-  font-size: 0.725rem;
-  color: var(--text-muted);
-  margin-top: 0.45rem;
-  margin-bottom: 0.1rem;
-  line-height: 1.4;
+/* ==========================================================================
+   Selector de Perfiles Integrado en Composer (Fila Inferior)
+   ========================================================================== */
+.composer-profile-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-full);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  max-width: 300px;
+  height: 28px;
   user-select: none;
-  max-width: var(--max-content-width, 68rem);
-  margin-left: auto;
-  margin-right: auto;
+  box-shadow: none;
+  flex-shrink: 0;
+  padding: 0;
 }
+
+.composer-profile-badge:hover,
+.composer-profile-badge:focus-within {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+  border: none;
+  box-shadow: none;
+}
+
+
+.composer-profile-badge .profile-icon {
+  position: absolute;
+  left: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  pointer-events: none;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.composer-profile-badge .profile-chevron {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.composer-profile-badge:hover .profile-chevron,
+.composer-profile-badge:focus-within .profile-chevron {
+  color: var(--text-main);
+}
+
+.composer-profile-select {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  padding-left: 1.5rem;
+  padding-right: 1.35rem;
+  text-overflow: ellipsis;
+  max-width: 240px;
+  line-height: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  position: relative;
+  z-index: 2;
+}
+
+.composer-profile-select:focus {
+  outline: none;
+}
+
+.composer-profile-select option {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 0.785rem;
+  padding: 0.35rem 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .composer-profile-badge {
+    max-width: 175px;
+  }
+
+  .composer-profile-select {
+    max-width: 140px;
+    padding-left: 1.35rem;
+    padding-right: 1.2rem;
+  }
+}
+

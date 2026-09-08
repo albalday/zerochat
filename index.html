@@ -36,6 +36,7 @@
       <symbol id="icon-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></symbol>
       <symbol id="icon-arrow-down" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></symbol>
+      <symbol id="icon-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></symbol>
       <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></symbol>
       <symbol id="icon-bot" viewBox="0 0 24 24"><rect width="18" height="12" x="3" y="10" rx="2"></rect><circle cx="12" cy="4" r="2"></circle><line x1="12" y1="6" x2="12" y2="10"></line><circle cx="8" cy="15" r="1"></circle><circle cx="16" cy="15" r="1"></circle></symbol>
       <symbol id="icon-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></symbol>
@@ -109,14 +110,6 @@
         <button type="button" id="btn-toggle-sidebar" class="btn-header-icon" data-i18n-title="btn_sidebar_title" title="Chats y Configuración" aria-label="Chats y Configuración" style="display: none;">
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-panel-left"></use></svg>
         </button>
-
-        <button type="button" id="btn-open-profiles" class="btn-header-icon" data-i18n-title="btn_manage_profiles_title" title="Gestionar perfiles de conexión" aria-label="Gestionar perfiles de conexión">
-          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-user-plus"></use></svg>
-        </button>
-        <label class="badge-pill badge-profile" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
-          <span class="profile-icon"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
-          <select id="active-profile-select" data-i18n-aria="profile_badge_title" aria-label="Perfil de conexión activo"></select>
-        </label>
       </div>
 
       <div class="header-right">
@@ -312,6 +305,13 @@
               </div>
             </div>
 
+            <!-- Selector de Perfil Activo en Composer -->
+            <label class="badge-profile composer-profile-badge" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
+              <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
+              <select id="active-profile-select" class="composer-profile-select" data-i18n-aria="profile_badge_title" aria-label="Perfil de conexión activo"></select>
+              <span class="profile-chevron"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
+            </label>
+
             <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" title="Detener respuesta">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg>
               <span data-i18n="btn_stop">Detener</span>
@@ -323,9 +323,6 @@
           </div>
         </div>
       </form>
-      <p class="chat-disclaimer" data-i18n="chat_disclaimer">
-        Las respuestas generadas pueden variar según el servidor y modelo configurados. Guarda tu API Key de forma segura.
-      </p>
     </div>
   </main>
 

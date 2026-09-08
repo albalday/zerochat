@@ -67,14 +67,17 @@
       else if (file.type === 'image') iconName = 'image';
 
       const Icons = typeof window !== 'undefined' ? window.ChatIcons : null;
+      const I18n = typeof window !== 'undefined' ? window.ChatI18n : null;
       const iconSvg = Icons ? Icons.get(iconName, { size: 14 }) : '';
+      const closeSvg = Icons ? Icons.get('close', { size: 12 }) : '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>';
+      const removeTitle = (I18n && typeof I18n.t === 'function') ? I18n.t('btn_delete') : 'Eliminar';
       const safeName = String(file.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
       chip.innerHTML = `
         <span class="file-chip-icon">${iconSvg}</span>
         <span class="file-chip-name" title="${safeName}">${safeName}</span>
         <span class="file-chip-size">(${FileParser.formatBytes(file.size)})</span>
-        <button type="button" class="btn-remove-chip" data-index="${index}" title="Eliminar">×</button>
+        <button type="button" class="btn-remove-chip file-chip-remove" data-index="${index}" title="${removeTitle}" aria-label="${removeTitle}">${closeSvg}</button>
       `;
 
       chip.querySelector('.btn-remove-chip').addEventListener('click', () => {

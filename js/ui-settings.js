@@ -76,10 +76,6 @@
     if (I18n?.setLanguage) {
       I18n.setLanguage(target, true);
     }
-    if (elements?.currentLangLabel) {
-      elements.currentLangLabel.textContent = target.toUpperCase();
-    }
-
     if (elements?.langButtons && elements.langButtons.length > 0) {
       elements.langButtons.forEach(btn => {
         if (btn.getAttribute('data-lang') === target) {
@@ -88,14 +84,6 @@
           btn.classList.remove('active');
         }
       });
-    }
-
-    if (elements?.currentProfileName) {
-      const activeProf = appConfig?.activeProfile?.name || appConfig?.activeProfileName || 'Local chat';
-      elements.currentProfileName.textContent = activeProf;
-    }
-    if (elements?.currentModelName) {
-      elements.currentModelName.textContent = appConfig?.model ? appConfig.model : t('no_model');
     }
 
     if (typeof callbacks.updateReasoningUI === 'function' && appConfig) {
@@ -415,7 +403,7 @@
           <div class="connection-active-card">
             <span class="connection-active-label" data-i18n="connection_active_profile">Perfil activo</span>
             <strong id="settings-active-profile-name"></strong>
-            <p data-i18n="connection_active_hint">El perfil activo se cambia desde el selector superior.</p>
+            <p data-i18n="connection_active_hint">Los perfiles se seleccionan y editan desde la caja de prompt.</p>
             <button type="button" id="btn-manage-profiles" class="btn-primary" data-i18n="btn_manage_profiles">Gestionar perfiles de conexión</button>
           </div>
         </div>

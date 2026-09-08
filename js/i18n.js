@@ -34,7 +34,7 @@
 
       // Barra de herramientas superior
       profile_badge_title: 'Perfil de conexión activo',
-      btn_manage_profiles_title: 'Gestionar perfiles de conexión',
+      edit_profiles: 'Editar perfiles',
       tokens_badge_title: 'Tokens de contexto: {{used}} tokens',
       context_hub_btn_title: 'Métricas de contexto y tokens de la conversación (Clic para ver detalles)',
       context_hub_title: 'Métricas de Contexto y Tokens',
@@ -156,7 +156,6 @@
       btn_stop: 'Detener',
       btn_stop_title: 'Detener la generación de respuesta',
       btn_send_title: 'Enviar mensaje',
-      chat_disclaimer: 'Las respuestas generadas pueden variar según el servidor y modelo configurado. Mantén tu API Key segura.',
 
       // Niveles de razonamiento
       reasoning_level_none: 'Desactivado (Ninguno)',
@@ -398,7 +397,7 @@
       field_profile: 'Perfil de Conexión / Servidor',
       tab_connection: 'Conexión',
       connection_active_profile: 'Perfil activo',
-      connection_active_hint: 'El perfil activo se cambia desde el selector superior.',
+      connection_active_hint: 'Los perfiles se seleccionan y editan desde la caja de prompt.',
       connection_no_active_profile: 'Sin perfil activo',
       btn_manage_profiles: 'Gestionar perfiles de conexión',
       profiles_modal_title: 'Mantenimiento de perfiles',
@@ -571,7 +570,7 @@
 
       // Barra de herramientas superior
       profile_badge_title: 'Active connection profile',
-      btn_manage_profiles_title: 'Manage connection profiles',
+      edit_profiles: 'Edit profiles',
       tokens_badge_title: 'Context tokens: {{used}} tokens',
       context_hub_btn_title: 'Conversation context and token metrics (Click to view details)',
       context_hub_title: 'Context & Token Metrics',
@@ -693,7 +692,6 @@
       btn_stop: 'Stop',
       btn_stop_title: 'Stop response generation',
       btn_send_title: 'Send message',
-      chat_disclaimer: 'Generated responses may vary based on configured server and model. Keep your API Key secure.',
 
       // Niveles de razonamiento
       reasoning_level_none: 'Disabled (None)',
@@ -935,7 +933,7 @@
       field_profile: 'Connection Profile / Server',
       tab_connection: 'Connection',
       connection_active_profile: 'Active profile',
-      connection_active_hint: 'Change the active profile from the top selector.',
+      connection_active_hint: 'Profiles are selected and edited from the prompt box.',
       connection_no_active_profile: 'No active profile',
       btn_manage_profiles: 'Manage connection profiles',
       profiles_modal_title: 'Profile maintenance',

@@ -128,8 +128,6 @@
       btnExportJson: document.getElementById('btn-export-json'),
       btnExportPrint: document.getElementById('btn-export-print'),
 
-      badgeProfile: document.getElementById('badge-profile'),
-      currentProfileName: document.getElementById('current-profile-name'),
       activeProfileSelect: document.getElementById('active-profile-select'),
       connectionTokensBadge: document.getElementById('connection-tokens-badge'),
       connectionTokensText: document.getElementById('connection-tokens-text'),
@@ -148,14 +146,7 @@
       contextMetricTurnCompletionVal: document.getElementById('context-metric-turn-completion-val'),
       contextMetricTurnSpeedVal: document.getElementById('context-metric-turn-speed-val'),
       contextMetricTurnLatencyVal: document.getElementById('context-metric-turn-latency-val'),
-      badgeServer: document.getElementById('badge-server'),
-      currentServerUrl: document.getElementById('current-server-url'),
-      badgeModel: document.getElementById('badge-model'),
-      currentModelName: document.getElementById('current-model-name'),
       btnOpenSettings: document.getElementById('btn-open-settings'),
-      btnOpenProfiles: document.getElementById('btn-open-profiles'),
-      btnLangQuick: document.getElementById('btn-lang-quick'),
-      currentLangLabel: document.getElementById('current-lang-label'),
       messagesList: document.getElementById('messages-list'),
       welcomeBanner: document.getElementById('welcome-banner'),
       chatForm: document.getElementById('chat-form'),
@@ -164,11 +155,6 @@
       btnStopStream: document.getElementById('btn-stop-stream'),
       btnComposerTools: document.getElementById('btn-composer-tools'),
       btnComposerMcp: document.getElementById('btn-composer-mcp'),
-
-      // Sugerencias
-      sugCardExplain: document.getElementById('sug-card-explain'),
-      sugCardCode: document.getElementById('sug-card-code'),
-      sugCardIdeas: document.getElementById('sug-card-ideas'),
 
       // Razonamiento (Thinking)
       btnReasoning: document.getElementById('btn-reasoning'),
@@ -495,20 +481,15 @@
     const config = getRuntimeConfig();
     if (elements.activeProfileSelect && Profiles.list) {
       const active = config.activeProfile?.id || '';
-      elements.activeProfileSelect.innerHTML = Profiles.list().map(profile => `<option value="${Markdown.escapeHtml(profile.id)}"${profile.id === active ? ' selected' : ''}>${Markdown.escapeHtml(profile.name)}</option>`).join('');
-    }
-    if (elements.currentProfileName) {
-      const activeProf = config.activeProfile?.name || 'Configuración actual';
-      elements.currentProfileName.textContent = activeProf;
+      const editLabel = ChatI18n?.t ? ChatI18n.t('edit_profiles') : 'Editar perfiles';
+      const profileOptions = Profiles.list().map(profile => `<option value="${Markdown.escapeHtml(profile.id)}"${profile.id === active ? ' selected' : ''}>${Markdown.escapeHtml(profile.name)}</option>`).join('');
+      elements.activeProfileSelect.innerHTML = `${profileOptions}<option value="__edit_profiles__">${Markdown.escapeHtml(editLabel)}</option>`;
+      if (active) {
+        elements.activeProfileSelect.value = active;
+      }
     }
     if (elements.settingsActiveProfileName) {
       elements.settingsActiveProfileName.textContent = config.activeProfile?.name || t('connection_no_active_profile');
-    }
-    if (elements.currentServerUrl) {
-      elements.currentServerUrl.textContent = config.apiUrl || 'http://localhost:1234/v1';
-    }
-    if (elements.currentModelName) {
-      elements.currentModelName.textContent = config.model ? config.model : t('no_model');
     }
     if (elements.settingApiType) {
       elements.settingApiType.value = config.apiType || 'openai';
@@ -2068,14 +2049,7 @@
     // Botones de acción
     elements.btnStopStream.addEventListener('click', handleStopGeneration);
 
-    // Botón rápido de Idioma en la barra superior
-    if (elements.btnLangQuick) {
-      elements.btnLangQuick.addEventListener('click', () => {
-        const nextLang = (getRuntimeConfig().language === 'en') ? 'es' : 'en';
-        applyLanguage(nextLang);
-        if (Config.updateGeneral) Config.updateGeneral({ language: nextLang });
-      });
-    }
+
 
     if (elements.btnOpenSettings) {
       elements.btnOpenSettings.addEventListener('click', () => openSettingsModal('tab-general'));
@@ -2100,29 +2074,48 @@
     }
     State.subscribe('mcp', (newState) => updateComposerMcpState(newState));
     updateComposerMcpState(State.get('mcp'));
-    window.addEventListener('zerochat:languagechange', () => updateComposerMcpState(State.get('mcp')));
-    if (elements.btnOpenProfiles) {
-      elements.btnOpenProfiles.addEventListener('click', openProfilesModal);
-    }
-    if (elements.badgeProfile) {
-      elements.badgeProfile.addEventListener('click', (event) => {
-        if (event.target !== elements.activeProfileSelect) openProfilesModal();
-      });
-    }
-    if (elements.badgeServer) {
-      elements.badgeServer.addEventListener('click', openProfilesModal);
-    }
-    if (elements.badgeModel) {
-      elements.badgeModel.addEventListener('click', openProfilesModal);
-    }
+    window.addEventListener('zerochat:languagechange', () => {
+      updateComposerMcpState(State.get('mcp'));
+      if (elements.activeProfileSelect) {
+        const editOpt = elements.activeProfileSelect.querySelector('option[value="__edit_profiles__"]');
+        if (editOpt) {
+          editOpt.textContent = ChatI18n?.t ? ChatI18n.t('edit_profiles') : 'Editar perfiles';
+        }
+      }
+    });
+
 
     // Barra Lateral de Chats (Sidebar)
     if (elements.btnToggleSidebar) {
       elements.btnToggleSidebar.addEventListener('click', toggleSidebar);
     }
     if (elements.activeProfileSelect) {
+      const profileBadge = elements.activeProfileSelect.closest('.composer-profile-badge');
+      if (profileBadge) {
+        profileBadge.addEventListener('click', (event) => {
+          if (event.target !== elements.activeProfileSelect) {
+            if (typeof elements.activeProfileSelect.showPicker === 'function') {
+              try {
+                elements.activeProfileSelect.showPicker();
+              } catch (_) {}
+            }
+          }
+        });
+      }
       elements.activeProfileSelect.addEventListener('change', function () {
-        if (!this.value || !Config.activateProfile) return;
+        if (!this.value) return;
+        if (this.value === '__edit_profiles__') {
+          const activeId = getRuntimeConfig().activeProfile?.id || '';
+          const hasOption = Array.from(this.options).some(o => o.value === activeId);
+          if (activeId && hasOption) {
+            this.value = activeId;
+          } else if (this.options.length > 1) {
+            this.selectedIndex = 0;
+          }
+          openProfilesModal();
+          return;
+        }
+        if (!Config.activateProfile) return;
         Config.activateProfile(this.value);
       });
     }
