@@ -120,10 +120,6 @@
       </div>
 
       <div class="header-right">
-        <button type="button" id="btn-open-rag" class="btn-header-tool btn-rag-mini" data-i18n-title="btn_rag_title" title="Gestionar conocimiento local">
-          <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
-          <span class="btn-header-label" data-i18n="btn_rag">Conocimiento</span>
-        </button>
         <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs">
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-panel-right"></use></svg>
         </button>
@@ -157,148 +153,174 @@
       <form id="chat-form" class="chat-input-container">
         <!-- Input oculto para selección de archivos -->
         <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.js,.ts,.py,.html,.css,.csv,.tsv,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sql,.sh,.rs,.go,.php,image/*" style="display: none;">
-        
-        <!-- Botón para adjuntar archivos -->
-        <button type="button" id="btn-attach-file" class="btn-attach" data-i18n-title="btn_attach_title" title="Adjuntar archivos (PDF, código, texto, imágenes)">
-          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-paperclip"></use></svg>
-        </button>
 
-        <!-- Control de Nivel de Razonamiento (Thinking) -->
-        <div class="reasoning-control-wrapper">
-          <button type="button" id="btn-reasoning" class="btn-reasoning" aria-haspopup="menu" aria-expanded="false" data-i18n-title="reasoning_btn_title" title="Nivel de razonamiento (Desactivado por defecto)">
-            <span class="reasoning-icon"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg></span>
-            <span id="reasoning-label" class="reasoning-label">None</span>
-          </button>
-
-          <!-- Menú desplegable de niveles -->
-          <div id="reasoning-menu" class="reasoning-menu" role="menu" aria-orientation="vertical" style="display: none;">
-            <div class="reasoning-menu-header">
-              <span class="reasoning-menu-title-wrapper"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg><span data-i18n="reasoning_menu_title">Nivel de Razonamiento</span></span>
-              <span id="reasoning-model-badge" class="reasoning-model-badge">-</span>
-            </div>
-            <div class="reasoning-options" id="reasoning-options-container" role="presentation">
-              <!-- Opciones según el tipo de endpoint configurado -->
-            </div>
-            <div class="reasoning-menu-footer">
-              <div class="reasoning-agent-toggle-wrapper">
-                <div class="reasoning-agent-toggle-info">
-                  <div class="reasoning-agent-toggle-title">
-                    <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"></path><line x1="12" y1="13" x2="12" y2="21"></line></svg>
-                    <span data-i18n="reasoning_checkpoint_agent_title">Punto de control agéntico</span>
-                  </div>
-                  <div class="reasoning-agent-toggle-desc" data-i18n="reasoning_checkpoint_agent_desc">Consolida hallazgos y poda memoria en modelos abiertos o RAG</div>
-                </div>
-                <label class="switch switch-sm" data-i18n-title="reasoning_checkpoint_agent_tooltip" title="Activar/Desactivar herramienta agent_checkpoint">
-                  <input type="checkbox" id="chk-reasoning-agent-checkpoint">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
+        <!-- Zona Superior: Textarea de ancho completo -->
+        <div class="composer-top-row">
+          <textarea
+            id="user-input"
+            class="chat-textarea"
+            rows="1"
+            data-i18n-placeholder="input_placeholder"
+            placeholder="Envía un mensaje o arrastra un archivo... (Enter para enviar, Shift+Enter para nueva línea)"
+            required
+          ></textarea>
         </div>
 
-        <textarea
-          id="user-input"
-          class="chat-textarea"
-          rows="1"
-          data-i18n-placeholder="input_placeholder"
-          placeholder="Envía un mensaje o arrastra un archivo... (Enter para enviar, Shift+Enter para nueva línea)"
-          required
-        ></textarea>
-
-        <div class="input-actions">
-          <div id="unified-context-hub" class="context-hub-wrapper">
-            <button type="button" id="connection-tokens-badge" class="composer-telemetry-btn" style="display: none;" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
-              <span id="connection-tokens-text" class="composer-tokens-text">0 / 128k</span>
-              <span id="context-hub-cache-pill" class="composer-tokens-cache" style="display: none;" title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg><span id="context-hub-cache-val">0</span></span>
+        <!-- Zona Inferior: Controles de estado y acciones -->
+        <div class="composer-bottom-row">
+          <div class="composer-controls-left">
+            <!-- Botón para adjuntar archivos -->
+            <button type="button" id="btn-attach-file" class="btn-attach btn-composer-icon-btn" data-i18n-title="btn_attach_title" title="Adjuntar archivos (PDF, código, texto, imágenes)">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-paperclip"></use></svg>
             </button>
 
-            <!-- Popover Flotante de Métricas Detalladas -->
-            <div id="context-hub-popover" class="context-hub-popover" style="display: none;" role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
-              <div class="context-popover-header">
-                <div class="context-popover-title">
-                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
-                  <span data-i18n="context_hub_title">Métricas de Contexto y Tokens</span>
-                </div>
-                <button type="button" id="btn-close-context-popover" class="btn-close-popover" aria-label="Cerrar">
-                  <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-                </button>
-              </div>
+            <!-- Control de Nivel de Razonamiento (Thinking) -->
+            <div class="reasoning-control-wrapper">
+              <button type="button" id="btn-reasoning" class="btn-composer-chip btn-reasoning" aria-haspopup="menu" aria-expanded="false" data-i18n-title="reasoning_btn_title" title="Nivel de razonamiento (Desactivado por defecto)">
+                <span class="reasoning-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg></span>
+                <span id="reasoning-label" class="reasoning-label">None</span>
+              </button>
 
-              <!-- Sección 1: Capacidad de Contexto Global -->
-              <div class="context-popover-section">
-                <div class="context-section-title" data-i18n="context_section_global">Ventana de Contexto Global</div>
-                <div class="context-progress-bar-container">
-                  <div id="context-progress-bar" class="context-progress-bar" style="width: 0%;"></div>
+              <!-- Menú desplegable de niveles -->
+              <div id="reasoning-menu" class="reasoning-menu" role="menu" aria-orientation="vertical" style="display: none;">
+                <div class="reasoning-menu-header">
+                  <span class="reasoning-menu-title-wrapper"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg><span data-i18n="reasoning_menu_title">Nivel de Razonamiento</span></span>
+                  <span id="reasoning-model-badge" class="reasoning-model-badge">-</span>
                 </div>
-                <div class="context-metrics-grid">
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_used">Usado</span>
-                    <span id="context-metric-used-val" class="context-metric-val">0 tok</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_limit">Capacidad</span>
-                    <span id="context-metric-limit-val" class="context-metric-val">128,000</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_free">Disponible</span>
-                    <span id="context-metric-free-val" class="context-metric-val">128,000</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_status">Estado</span>
-                    <span id="context-metric-status-val" class="context-metric-val status-ok">Óptimo</span>
-                  </div>
+                <div class="reasoning-options" id="reasoning-options-container" role="presentation">
+                  <!-- Opciones según el tipo de endpoint configurado -->
                 </div>
-              </div>
-
-              <!-- Sección 2: Caché de Contexto -->
-              <div class="context-popover-section" id="context-cache-section">
-                <div class="context-section-title" data-i18n="context_section_cache">Caché de Contexto (Prompt/KV)</div>
-                <div class="context-metrics-grid">
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_cached_read">Leídos (Ahorro)</span>
-                    <span id="context-metric-cached-read-val" class="context-metric-val accent">0 tok</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_cached_write">Escritos en caché</span>
-                    <span id="context-metric-cached-write-val" class="context-metric-val">0 tok</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Sección 3: Último Turno Generado -->
-              <div class="context-popover-section" id="context-last-turn-section">
-                <div class="context-section-title" data-i18n="context_section_turn">Último Turno Generado</div>
-                <div class="context-metrics-grid">
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_turn_prompt">Entrada (Prompt)</span>
-                    <span id="context-metric-turn-prompt-val" class="context-metric-val">0 tok</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_turn_completion">Salida (Respuesta)</span>
-                    <span id="context-metric-turn-completion-val" class="context-metric-val">0 tok</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_turn_speed">Velocidad</span>
-                    <span id="context-metric-turn-speed-val" class="context-metric-val">-</span>
-                  </div>
-                  <div class="context-metric-item">
-                    <span class="context-metric-label" data-i18n="context_metric_turn_latency">Latencia (TTFT)</span>
-                    <span id="context-metric-turn-latency-val" class="context-metric-val">-</span>
+                <div class="reasoning-menu-footer">
+                  <div class="reasoning-agent-toggle-wrapper">
+                    <div class="reasoning-agent-toggle-info">
+                      <div class="reasoning-agent-toggle-title">
+                        <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"></path><line x1="12" y1="13" x2="12" y2="21"></line></svg>
+                        <span data-i18n="reasoning_checkpoint_agent_title">Punto de control agéntico</span>
+                      </div>
+                      <div class="reasoning-agent-toggle-desc" data-i18n="reasoning_checkpoint_agent_desc">Consolida hallazgos y poda memoria en modelos abiertos o RAG</div>
+                    </div>
+                    <label class="switch switch-sm" data-i18n-title="reasoning_checkpoint_agent_tooltip" title="Activar/Desactivar herramienta agent_checkpoint">
+                      <input type="checkbox" id="chk-reasoning-agent-checkpoint">
+                      <span class="slider"></span>
+                    </label>
                   </div>
                 </div>
               </div>
             </div>
+
+            <!-- Botón de configuración de Herramientas / Agentes -->
+            <button type="button" id="btn-composer-tools" class="btn-composer-chip" data-i18n-title="btn_composer_tools_title" title="Configurar herramientas y agentes">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
+              <span data-i18n="btn_composer_tools">Tools</span>
+            </button>
+
+            <!-- Botón de estado y configuración MCP -->
+            <button type="button" id="btn-composer-mcp" class="btn-composer-chip mcp-disconnected" data-i18n-title="btn_composer_mcp_title" title="Estado y configuración MCP">
+              <span class="mcp-dot"></span>
+              <span class="composer-chip-label">MCP</span>
+            </button>
+
+            <!-- Botón de gestión de conocimiento RAG (movido desde el header) -->
+            <button type="button" id="btn-open-rag" class="btn-composer-chip btn-rag-mini" data-i18n-title="btn_rag_title" title="Gestionar conocimiento local (RAG)">
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
+              <span class="btn-label" data-i18n="btn_rag">RAG</span>
+            </button>
           </div>
 
-          <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" title="Detener respuesta">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg>
-            <span data-i18n="btn_stop">Detener</span>
-          </button>
+          <div class="composer-actions-right input-actions">
+            <div id="unified-context-hub" class="context-hub-wrapper">
+              <button type="button" id="connection-tokens-badge" class="composer-telemetry-btn" style="display: none;" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
+                <span id="connection-tokens-text" class="composer-tokens-text">0 / 128k</span>
+                <span id="context-hub-cache-pill" class="composer-tokens-cache" style="display: none;" title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg><span id="context-hub-cache-val">0</span></span>
+              </button>
 
-          <button type="submit" id="btn-send" class="btn-send" data-i18n-title="btn_send_title" title="Enviar mensaje">
-            <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-send"></use></svg>
-          </button>
+              <!-- Popover Flotante de Métricas Detalladas -->
+              <div id="context-hub-popover" class="context-hub-popover" style="display: none;" role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
+                <div class="context-popover-header">
+                  <div class="context-popover-title">
+                    <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
+                    <span data-i18n="context_hub_title">Métricas de Contexto y Tokens</span>
+                  </div>
+                  <button type="button" id="btn-close-context-popover" class="btn-close-popover" aria-label="Cerrar">
+                    <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+                  </button>
+                </div>
+
+                <!-- Sección 1: Capacidad de Contexto Global -->
+                <div class="context-popover-section">
+                  <div class="context-section-title" data-i18n="context_section_global">Ventana de Contexto Global</div>
+                  <div class="context-progress-bar-container">
+                    <div id="context-progress-bar" class="context-progress-bar" style="width: 0%;"></div>
+                  </div>
+                  <div class="context-metrics-grid">
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_used">Usado</span>
+                      <span id="context-metric-used-val" class="context-metric-val">0 tok</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_limit">Capacidad</span>
+                      <span id="context-metric-limit-val" class="context-metric-val">128,000</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_free">Disponible</span>
+                      <span id="context-metric-free-val" class="context-metric-val">128,000</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_status">Estado</span>
+                      <span id="context-metric-status-val" class="context-metric-val status-ok">Óptimo</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Sección 2: Caché de Contexto -->
+                <div class="context-popover-section" id="context-cache-section">
+                  <div class="context-section-title" data-i18n="context_section_cache">Caché de Contexto (Prompt/KV)</div>
+                  <div class="context-metrics-grid">
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_cached_read">Leídos (Ahorro)</span>
+                      <span id="context-metric-cached-read-val" class="context-metric-val accent">0 tok</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_cached_write">Escritos en caché</span>
+                      <span id="context-metric-cached-write-val" class="context-metric-val">0 tok</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Sección 3: Último Turno Generado -->
+                <div class="context-popover-section" id="context-last-turn-section">
+                  <div class="context-section-title" data-i18n="context_section_turn">Último Turno Generado</div>
+                  <div class="context-metrics-grid">
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_turn_prompt">Entrada (Prompt)</span>
+                      <span id="context-metric-turn-prompt-val" class="context-metric-val">0 tok</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_turn_completion">Salida (Respuesta)</span>
+                      <span id="context-metric-turn-completion-val" class="context-metric-val">0 tok</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_turn_speed">Velocidad</span>
+                      <span id="context-metric-turn-speed-val" class="context-metric-val">-</span>
+                    </div>
+                    <div class="context-metric-item">
+                      <span class="context-metric-label" data-i18n="context_metric_turn_latency">Latencia (TTFT)</span>
+                      <span id="context-metric-turn-latency-val" class="context-metric-val">-</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" title="Detener respuesta">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg>
+              <span data-i18n="btn_stop">Detener</span>
+            </button>
+
+            <button type="submit" id="btn-send" class="btn-send" data-i18n-title="btn_send_title" title="Enviar mensaje">
+              <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-send"></use></svg>
+            </button>
+          </div>
         </div>
       </form>
       <p class="chat-disclaimer" data-i18n="chat_disclaimer">

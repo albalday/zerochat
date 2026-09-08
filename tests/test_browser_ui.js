@@ -1667,3 +1667,113 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
   }
 });
 
+test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con controles y apertura directa de tabs', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-banner');
+
+    // 1. Validar la estructura de dos filas dentro de #chat-form
+    const structure = await page.evaluate(() => {
+      const form = document.querySelector('#chat-form');
+      const topRow = form?.querySelector('.composer-top-row');
+      const bottomRow = form?.querySelector('.composer-bottom-row');
+      const userInput = topRow?.querySelector('#user-input');
+      const controlsLeft = bottomRow?.querySelector('.composer-controls-left');
+      const actionsRight = bottomRow?.querySelector('.composer-actions-right');
+
+      const btnAttach = controlsLeft?.querySelector('#btn-attach-file');
+      const btnReasoning = controlsLeft?.querySelector('#btn-reasoning');
+      const btnTools = controlsLeft?.querySelector('#btn-composer-tools');
+      const btnMcp = controlsLeft?.querySelector('#btn-composer-mcp');
+      const btnRag = controlsLeft?.querySelector('#btn-open-rag');
+
+      const tokensBadge = actionsRight?.querySelector('#connection-tokens-badge');
+      const btnStop = actionsRight?.querySelector('#btn-stop-stream');
+      const btnSend = actionsRight?.querySelector('#btn-send');
+
+      return {
+        hasTopRow: !!topRow,
+        hasBottomRow: !!bottomRow,
+        userInputInTopRow: !!userInput,
+        hasControlsLeft: !!controlsLeft,
+        hasActionsRight: !!actionsRight,
+        hasBtnAttach: !!btnAttach,
+        hasBtnReasoning: !!btnReasoning,
+        hasBtnTools: !!btnTools,
+        hasBtnMcp: !!btnMcp,
+        hasBtnRag: !!btnRag,
+        ragText: btnRag?.textContent?.trim() || '',
+        mcpDot: !!btnMcp?.querySelector('.mcp-dot'),
+        hasTokensBadge: !!tokensBadge,
+        hasBtnStop: !!btnStop,
+        hasBtnSend: !!btnSend
+      };
+    });
+
+    assert.ok(structure.hasTopRow, 'El composer debe contener .composer-top-row');
+    assert.ok(structure.hasBottomRow, 'El composer debe contener .composer-bottom-row');
+    assert.ok(structure.userInputInTopRow, '#user-input debe estar en la fila superior');
+    assert.ok(structure.hasBtnAttach, 'El botón adjuntar debe estar en los controles inferiores izquierdos');
+    assert.ok(structure.hasBtnReasoning, 'El botón de razonamiento debe estar en los controles inferiores izquierdos');
+    assert.ok(structure.hasBtnTools, 'El botón de tools debe estar en los controles inferiores izquierdos');
+    assert.ok(structure.hasBtnMcp, 'El botón de MCP debe estar en los controles inferiores izquierdos');
+    assert.ok(structure.hasBtnRag, 'El botón de RAG debe estar en los controles inferiores izquierdos');
+    assert.ok(structure.ragText.includes('RAG'), `El botón de RAG debe tener el texto RAG (obtenido: "${structure.ragText}")`);
+    assert.ok(structure.mcpDot, 'El botón de MCP debe contener el indicador .mcp-dot');
+    assert.ok(structure.hasTokensBadge, 'El contador de tokens debe estar a la derecha');
+    assert.ok(structure.hasBtnSend, 'El botón enviar debe estar a la derecha');
+
+    // 2. Probar que pulsar #btn-composer-tools abre #settings-dialog en la pestaña tab-agent
+    await page.click('#btn-composer-tools');
+    await page.waitForSelector('#settings-dialog[open]');
+    const activeTabAfterTools = await page.evaluate(() => {
+      const activeBtn = document.querySelector('.modal-tabs-nav .modal-tab-btn.active');
+      const activePane = document.querySelector('.modal-tab-pane.active');
+      return {
+        tabKey: activeBtn?.getAttribute('data-tab'),
+        paneId: activePane?.id
+      };
+    });
+    assert.equal(activeTabAfterTools.tabKey, 'tab-agent', 'Al hacer clic en Tools debe abrirse la pestaña tab-agent');
+    assert.equal(activeTabAfterTools.paneId, 'tab-agent', 'El panel visible debe ser tab-agent');
+
+    // Cerrar modal de settings
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => !document.querySelector('#settings-dialog')?.open);
+
+    // 3. Probar que pulsar #btn-composer-mcp abre #settings-dialog en la pestaña tab-mcp
+    await page.click('#btn-composer-mcp');
+    await page.waitForSelector('#settings-dialog[open]');
+    const activeTabAfterMcp = await page.evaluate(() => {
+      const activeBtn = document.querySelector('.modal-tabs-nav .modal-tab-btn.active');
+      const activePane = document.querySelector('.modal-tab-pane.active');
+      return {
+        tabKey: activeBtn?.getAttribute('data-tab'),
+        paneId: activePane?.id
+      };
+    });
+    assert.equal(activeTabAfterMcp.tabKey, 'tab-mcp', 'Al hacer clic en MCP debe abrirse la pestaña tab-mcp');
+    assert.equal(activeTabAfterMcp.paneId, 'tab-mcp', 'El panel visible debe ser tab-mcp');
+
+    // Cerrar modal de settings
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => !document.querySelector('#settings-dialog')?.open);
+
+    // 4. Probar que pulsar #btn-open-rag abre el diálogo de RAG
+    await page.click('#btn-open-rag');
+    await page.waitForFunction(() => document.getElementById('rag-modal')?.open);
+    const isRagOpen = await page.$eval('#rag-modal', el => el.open);
+    assert.ok(isRagOpen, 'El botón #btn-open-rag en el composer debe abrir #rag-modal');
+
+    // Cerrar diálogo de RAG
+    await page.click('#btn-close-rag');
+    await page.waitForFunction(() => !document.getElementById('rag-modal')?.open);
+  } finally {
+    await browser.close();
+  }
+});
+
+

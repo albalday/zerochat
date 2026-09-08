@@ -162,6 +162,8 @@
       userInput: document.getElementById('user-input'),
       btnSend: document.getElementById('btn-send'),
       btnStopStream: document.getElementById('btn-stop-stream'),
+      btnComposerTools: document.getElementById('btn-composer-tools'),
+      btnComposerMcp: document.getElementById('btn-composer-mcp'),
 
       // Sugerencias
       sugCardExplain: document.getElementById('sug-card-explain'),
@@ -1349,13 +1351,13 @@
     if (saved) showProfileFeedback(t('msg_profile_cloned', { name }) || `Perfil clonado como "${name}".`, 'success');
   }
 
-  function openSettingsModal() {
+  function openSettingsModal(initialTabId = 'tab-general') {
     if (UISettings.openSettingsModal) {
       UISettings.openSettingsModal(elements, getRuntimeConfig(), {
         populateProfileSelector,
         loadCachedModels,
         updateReasoningUI
-      });
+      }, initialTabId);
     }
   }
 
@@ -2076,8 +2078,29 @@
     }
 
     if (elements.btnOpenSettings) {
-      elements.btnOpenSettings.addEventListener('click', openSettingsModal);
+      elements.btnOpenSettings.addEventListener('click', () => openSettingsModal('tab-general'));
     }
+    if (elements.btnComposerTools) {
+      elements.btnComposerTools.addEventListener('click', () => openSettingsModal('tab-agent'));
+    }
+    if (elements.btnComposerMcp) {
+      elements.btnComposerMcp.addEventListener('click', () => openSettingsModal('tab-mcp'));
+    }
+
+    function updateComposerMcpState(mcpState) {
+      if (!elements.btnComposerMcp) return;
+      const st = mcpState || State.get('mcp') || {};
+      const status = st.status || 'disconnected';
+      elements.btnComposerMcp.classList.remove('mcp-connected', 'mcp-connecting', 'mcp-disconnected', 'mcp-error');
+      elements.btnComposerMcp.classList.add(`mcp-${status}`);
+      const labelKey = `mcp_status_${status}`;
+      const statusText = ChatI18n?.t ? ChatI18n.t(labelKey) : status;
+      elements.btnComposerMcp.title = `MCP: ${statusText}`;
+      elements.btnComposerMcp.setAttribute('aria-label', `MCP: ${statusText}`);
+    }
+    State.subscribe('mcp', (newState) => updateComposerMcpState(newState));
+    updateComposerMcpState(State.get('mcp'));
+    window.addEventListener('zerochat:languagechange', () => updateComposerMcpState(State.get('mcp')));
     if (elements.btnOpenProfiles) {
       elements.btnOpenProfiles.addEventListener('click', openProfilesModal);
     }

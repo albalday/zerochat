@@ -276,7 +276,7 @@
     }
   }
 
-  function openSettingsModal(elements, appConfig, callbacks = {}) {
+  function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-general') {
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
     if (elements.settingsActiveProfileName) {
@@ -305,10 +305,12 @@
     if (settingsTabs && settingsTabs.length > 0) {
       settingsTabs.forEach(b => b.classList.remove('active'));
       if (settingsPanes) settingsPanes.forEach(p => p.classList.remove('active'));
-      settingsTabs[0].classList.add('active');
       const doc = elements.settingsDialog?.ownerDocument || document;
-      const firstPane = doc.getElementById(settingsTabs[0].getAttribute('data-tab'));
-      if (firstPane) firstPane.classList.add('active');
+      let targetTab = Array.from(settingsTabs).find(b => b.getAttribute('data-tab') === initialTabId);
+      if (!targetTab) targetTab = settingsTabs[0];
+      targetTab.classList.add('active');
+      const targetPane = doc.getElementById(targetTab.getAttribute('data-tab'));
+      if (targetPane) targetPane.classList.add('active');
     }
 
     if (typeof elements.settingsDialog.showModal === 'function') {

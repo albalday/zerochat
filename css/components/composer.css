@@ -80,12 +80,12 @@
 /* Formulario Omnibox Flotante */
 .chat-input-container {
   display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.35rem;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 1.5rem;
-  padding: 0.5rem 0.65rem 0.5rem 0.75rem;
+  border-radius: 1.25rem;
+  padding: 0.6rem 0.75rem 0.55rem 0.75rem;
   box-shadow: var(--shadow-composer);
   transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
   max-width: var(--max-content-width, 68rem);
@@ -105,22 +105,136 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
 }
 
-/* Botón para Adjuntar Archivos */
-.btn-attach {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  transition: all 0.15s ease;
-  margin-bottom: 2px;
+/* Fila Superior: Área de Prompt a ancho completo */
+.composer-top-row {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
 }
 
-.btn-attach:hover {
+/* Fila Inferior: Barra de herramientas, estado y acciones */
+.composer-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.composer-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.composer-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Botones estilo Chip compacto del Composer */
+.btn-composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-color);
+  padding: 0 0.55rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  height: 28px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn-composer-chip:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+  border-color: var(--border-hover, var(--primary));
+}
+
+.btn-composer-chip:active {
+  transform: scale(0.97);
+}
+
+.btn-composer-chip.active,
+.btn-composer-chip.btn-rag-mini.active {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.btn-composer-chip .btn-label,
+.btn-composer-chip .composer-chip-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Botón de icono circular compacto (ej. adjuntar) */
+.btn-composer-icon-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-composer-icon-btn:hover {
   background-color: var(--bg-hover);
   color: var(--primary);
 }
 
-.btn-attach:active {
+.btn-composer-icon-btn:active {
   transform: scale(0.95);
+}
+
+/* Indicador luminoso de estado MCP */
+.mcp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  flex-shrink: 0;
+  background-color: #dc2626;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-composer-chip.mcp-connected .mcp-dot {
+  background-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+}
+
+.btn-composer-chip.mcp-connecting .mcp-dot {
+  background-color: #ca8a04;
+  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.25);
+}
+
+.btn-composer-chip.mcp-error .mcp-dot,
+.btn-composer-chip.mcp-disconnected .mcp-dot {
+  background-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+}
+
+/* Botón para Adjuntar Archivos */
+.btn-attach {
+  margin-bottom: 0;
 }
 
 /* Control de Nivel de Razonamiento */
@@ -129,7 +243,7 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .btn-reasoning {
@@ -138,14 +252,15 @@
   gap: 0.35rem;
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
-  padding: 0.25rem 0.65rem;
+  padding: 0 0.55rem;
   border-radius: var(--radius-full);
-  font-size: 0.775rem;
+  font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
-  height: 32px;
+  height: 28px;
+  line-height: 1;
 }
 
 .btn-reasoning:hover {
@@ -442,7 +557,9 @@
 .chat-textarea,
 .chat-textarea:focus,
 .chat-textarea:focus-visible {
-  flex: 1 1 auto;
+  width: 100%;
+  flex: 1 1 100%;
+  box-sizing: border-box;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
@@ -453,11 +570,11 @@
   resize: none;
   /* field-sizing: content — CSS nativo auto-height sin JS (Baseline 2024) */
   field-sizing: content;
-  max-height: 160px;
-  min-height: 24px;
+  max-height: 180px;
+  min-height: 28px;
   line-height: 1.5;
-  padding: 0.45rem 0.35rem;
-  align-self: center;
+  padding: 0.2rem 0.25rem;
+  align-self: stretch;
 }
 
 @media (max-width: 640px) {
@@ -465,7 +582,6 @@
     max-height: 30dvh; /* Evita colapso en pantallas pequeñas */
   }
 }
-
 
 .chat-textarea::placeholder {
   color: var(--text-muted);
@@ -478,16 +594,15 @@
   align-items: center;
   gap: 0.35rem;
   flex-shrink: 0;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
-/* Botones Circulares del Composer */
-.btn-attach,
+/* Botones Circulares de Acción del Composer */
 .btn-send,
 .btn-stop-stream {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   border-radius: var(--radius-full);
   display: inline-flex;
   align-items: center;
