@@ -1,7 +1,61 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
+
+test('Browser UI - informa del alcance de almacenamiento y deriva la descarga HTTP', async () => {
+  const bundle = fs.readFileSync(path.resolve(__dirname, '../zerochat.html'));
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(bundle);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/index.html?preview=1`, { waitUntil: 'load' });
+    await page.click('#btn-open-execution-info');
+
+    const state = await page.evaluate(() => ({
+      open: document.getElementById('execution-info-dialog').open,
+      href: document.getElementById('btn-download-standalone').href,
+      hidden: document.getElementById('btn-download-standalone').hidden,
+      display: getComputedStyle(document.getElementById('btn-download-standalone')).display,
+      scope: document.getElementById('execution-storage-scope').textContent
+    }));
+
+    assert.equal(state.open, true);
+    assert.equal(state.href, `http://127.0.0.1:${port}/zerochat.html`);
+    assert.equal(state.hidden, false);
+    assert.notEqual(state.display, 'none');
+    assert.match(state.scope, /protocol|protocolo/i);
+  } finally {
+    await browser.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('Browser UI - no ofrece descarga desde file://', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-execution-info');
+    const state = await page.evaluate(() => ({
+      hidden: document.getElementById('btn-download-standalone').hidden,
+      href: document.getElementById('btn-download-standalone').getAttribute('href'),
+      display: getComputedStyle(document.getElementById('btn-download-standalone')).display
+    }));
+    assert.equal(state.hidden, true);
+    assert.equal(state.href, null);
+    assert.equal(state.display, 'none');
+  } finally {
+    await browser.close();
+  }
+});
 
 test('Browser UI - el fallback de contexto no invalida el formulario de envío', async () => {
   const browser = await chromium.launch({ headless: true });
@@ -115,7 +169,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.5.6', 'El título de index.html debe ser ZeroChat v6.5.6');
+        assert.equal(await page.title(), 'ZeroChat v6.5.7', 'El título de index.html debe ser ZeroChat v6.5.7');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -147,7 +201,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.5.6', 'El título de zerochat.html debe ser ZeroChat v6.5.6');
+        assert.equal(title, 'ZeroChat v6.5.7', 'El título de zerochat.html debe ser ZeroChat v6.5.7');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -356,6 +410,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
       const brainSvg = window.ChatIcons?.get('brain', { size: 13 }) || '';
       const zapSvg = window.ChatIcons?.get('zap', { size: 11 }) || '';
       const copySvg = window.ChatIcons?.get('copy', { size: 12 }) || '';
+      const branchSvg = window.ChatIcons?.get('git-branch', { size: 12 }) || '';
       
       // Mensaje de Usuario
       const userMsg = document.createElement('div');
@@ -367,6 +422,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
             <div class="message-footer-row">
               <div class="message-actions">
                 <button class="btn-msg-action" aria-label="Editar" title="Editar">${editSvg}</button>
+                <button class="btn-msg-action btn-copy-user" aria-label="Copiar" title="Copiar">${copySvg}</button>
               </div>
             </div>
           </div>
@@ -410,6 +466,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
                 <span class="stat-item">${zapSvg} <span>45 tok/s</span></span>
               </div>
               <div class="message-actions">
+                <button class="btn-msg-action btn-branch-conversation" aria-label="Crear rama" title="Crear rama">${branchSvg}</button>
                 <button class="btn-msg-action" aria-label="Copiar" title="Copiar">${copySvg}</button>
               </div>
             </div>
@@ -514,12 +571,65 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
     });
 
     assert.ok(msgActionsInfo.actionBtnCount > 0, 'Deben existir botones de acción de mensaje');
+    const branchButton = await page.$('.message-wrapper.assistant .btn-branch-conversation');
+    assert.ok(branchButton, 'Las respuestas deben incluir una acción para crear una rama');
+    const userCopyButton = await page.$('.message-wrapper.user .btn-copy-user');
+    assert.ok(userCopyButton, 'Los mensajes de usuario deben incluir una acción para copiar');
     assert.ok(msgActionsInfo.allActionBtnsHaveSvg, 'Todos los botones de acción deben contener un SVG .ui-icon');
     assert.ok(msgActionsInfo.allActionBtnsIconOnly, 'Todos los botones de acción deben ser únicamente icono sin texto');
     assert.ok(msgActionsInfo.noActionBtnHasEmoji, 'Ningún botón de acción debe tener emojis en su texto');
     assert.ok(msgActionsInfo.statCount > 0, 'Deben existir items de estadísticas');
     assert.ok(msgActionsInfo.allStatsHaveSvg, 'Todos los items de estadísticas deben contener un SVG .ui-icon');
     assert.ok(msgActionsInfo.noStatHasEmoji, 'Ningún item de estadísticas debe tener emojis en su texto');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - crear una rama conserva el origen y corta el nuevo historial en la respuesta seleccionada', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => !!window.ChatApp && !!window.ChatState && !!window.ChatStorage);
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    const result = await page.evaluate(async () => {
+      const parentId = 'session_branch_parent_test';
+      const history = [
+        { id: 'system_parent', role: 'system', content: 'System prompt' },
+        { id: 'user_parent_1', role: 'user', content: 'Pregunta inicial' },
+        { id: 'assistant_parent_1', role: 'assistant', content: 'Respuesta para bifurcar' },
+        { id: 'user_parent_2', role: 'user', content: 'Pregunta posterior' },
+        { id: 'assistant_parent_2', role: 'assistant', content: 'Respuesta posterior' }
+      ];
+      const parent = { id: parentId, title: 'Conversación origen', createdAt: Date.now(), updatedAt: Date.now(), messageCount: history.length };
+      window.ChatState.replaceConversation({ sessionId: parentId, messages: history });
+      window.ChatState.saveSessionMetadata(parent);
+      await window.ChatStorage.saveConversation(parent, history);
+
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('data-msg-id', 'assistant_parent_1');
+      wrapper.setAttribute('data-msg-ids', 'assistant_parent_1');
+      const created = await window.ChatApp.createConversationBranch(wrapper);
+      const childId = window.ChatState.get('sessions').activeId;
+      const child = await window.ChatStorage.getConversation(childId);
+      const source = await window.ChatStorage.getConversation(parentId);
+      return {
+        created,
+        childId,
+        childTitle: window.ChatState.get('sessions').list.find(session => session.id === childId)?.title,
+        childHistory: child?.history || [],
+        sourceHistory: source?.history || []
+      };
+    });
+
+    assert.equal(result.created, true, 'La rama debe crearse correctamente');
+    assert.notEqual(result.childId, 'session_branch_parent_test', 'La rama debe tener una sesión distinta');
+    assert.equal(result.childTitle, 'Rama: Conversación origen', 'La rama debe identificarse a partir del chat de origen');
+    assert.equal(result.childHistory.length, 3, 'La rama debe incluir solo el historial hasta la respuesta seleccionada');
+    assert.equal(result.sourceHistory.length, 5, 'La conversación de origen debe conservar todos sus mensajes');
+    assert.notEqual(result.childHistory[2].id, 'assistant_parent_1', 'Los mensajes de la rama deben tener IDs propios para no sobrescribir el origen');
   } finally {
     await browser.close();
   }

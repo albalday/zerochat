@@ -123,7 +123,7 @@
 .message-footer-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   width: 100%;
   gap: 0.5rem;
   margin-top: 0.15rem;
@@ -174,7 +174,7 @@
   margin: 0;
   opacity: 0.35;
   transition: opacity 0.15s ease;
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .message-wrapper:hover .message-actions,
@@ -455,4 +455,3 @@
   word-break: break-all;
   max-width: 100%;
 }
-

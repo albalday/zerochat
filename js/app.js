@@ -204,6 +204,14 @@
       fileInput: document.getElementById('file-input'),
       attachmentsContainer: document.getElementById('attachments-container'),
 
+      // Información sobre ejecución y almacenamiento
+      btnOpenExecutionInfo: document.getElementById('btn-open-execution-info'),
+      executionInfoDialog: document.getElementById('execution-info-dialog'),
+      executionStorageScope: document.getElementById('execution-storage-scope'),
+      btnCloseExecutionInfo: document.getElementById('btn-close-execution-info'),
+      btnCloseExecutionInfoFooter: document.getElementById('btn-close-execution-info-footer'),
+      btnDownloadStandalone: document.getElementById('btn-download-standalone'),
+
       // Modal de Configuración
       settingsDialog: document.getElementById('settings-dialog'),
       settingsActiveProfileName: document.getElementById('settings-active-profile-name'),
@@ -278,6 +286,49 @@
   function getConfiguredSystemPrompt(config = appConfig) {
     if (Engine.getConfiguredSystemPrompt) return Engine.getConfiguredSystemPrompt(config);
     return [config.systemPrompt, config.systemDataPrompt].map(value => String(value || '').trim()).filter(Boolean).join('\n\n');
+  }
+
+  function isHttpExecution() {
+    return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
+  }
+
+  function getStandaloneDownloadUrl() {
+    if (!isHttpExecution()) return null;
+    const url = new URL(window.location.href);
+    const path = url.pathname;
+    if (/\/index\.html$/i.test(path)) {
+      url.pathname = path.replace(/index\.html$/i, 'zerochat.html');
+    } else if (path.endsWith('/')) {
+      url.pathname = `${path}zerochat.html`;
+    } else {
+      url.pathname = `${path.slice(0, path.lastIndexOf('/') + 1)}zerochat.html`;
+    }
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  }
+
+  function updateExecutionInfo() {
+    const httpExecution = isHttpExecution();
+    if (elements.executionStorageScope) {
+      elements.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
+    }
+    if (elements.btnDownloadStandalone) {
+      const downloadUrl = getStandaloneDownloadUrl();
+      elements.btnDownloadStandalone.hidden = !downloadUrl;
+      if (downloadUrl) elements.btnDownloadStandalone.href = downloadUrl;
+      else elements.btnDownloadStandalone.removeAttribute('href');
+    }
+  }
+
+  function openExecutionInfo() {
+    if (!elements.executionInfoDialog) return;
+    updateExecutionInfo();
+    if (!elements.executionInfoDialog.open) elements.executionInfoDialog.showModal();
+  }
+
+  function closeExecutionInfo() {
+    if (elements.executionInfoDialog?.open) elements.executionInfoDialog.close();
   }
 
   function getRagSystemContext() {
@@ -745,6 +796,30 @@
     const actions = document.createElement('div');
     actions.className = 'message-actions';
 
+    const btnCopy = document.createElement('button');
+    btnCopy.type = 'button';
+    btnCopy.className = 'btn-msg-action btn-copy-user';
+    btnCopy.innerHTML = getMsgIcon('copy', 14);
+    btnCopy.title = t('btn_copy_user_title');
+    btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
+    btnCopy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(originalPrompt || text);
+        btnCopy.innerHTML = getMsgIcon('check', 14);
+        btnCopy.title = t('copied_text');
+        btnCopy.setAttribute('aria-label', t('copied_text'));
+        btnCopy.classList.add('copied');
+        setTimeout(() => {
+          btnCopy.innerHTML = getMsgIcon('copy', 14);
+          btnCopy.title = t('btn_copy_user_title');
+          btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
+          btnCopy.classList.remove('copied');
+        }, 2000);
+      } catch (err) {
+        console.error('Error copying user message:', err);
+      }
+    });
+
     const btnReuse = document.createElement('button');
     btnReuse.type = 'button';
     btnReuse.className = 'btn-msg-action';
@@ -766,6 +841,7 @@
     btnDelete.addEventListener('click', () => removeMessage(wrapper));
 
     actions.appendChild(btnReuse);
+    actions.appendChild(btnCopy);
     actions.appendChild(btnDelete);
     footerRow.appendChild(actions);
 
@@ -826,6 +902,14 @@
     btnCopy.title = t('btn_copy_title');
     btnCopy.setAttribute('aria-label', t('btn_copy_title'));
 
+    const btnBranch = document.createElement('button');
+    btnBranch.type = 'button';
+    btnBranch.className = 'btn-msg-action btn-branch-conversation';
+    btnBranch.innerHTML = getMsgIcon('git-branch', 14);
+    btnBranch.title = t('btn_branch_title');
+    btnBranch.setAttribute('aria-label', t('btn_branch_title'));
+    btnBranch.addEventListener('click', () => createConversationBranch(wrapper));
+
     const btnDelete = document.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'btn-msg-action btn-delete';
@@ -834,6 +918,7 @@
     btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
     btnDelete.addEventListener('click', () => removeMessage(wrapper));
 
+    actions.appendChild(btnBranch);
     actions.appendChild(btnCopy);
     actions.appendChild(btnDelete);
 
@@ -1020,6 +1105,7 @@
 
       if (loopResult && Array.isArray(loopResult.chatHistory) && State.replaceMessages) {
         State.replaceMessages(loopResult.chatHistory);
+        setAssistantGroupMessageIds(wrapper, getChatHistory());
       }
 
       if (loopResult && loopResult.cancelled) {
@@ -1578,6 +1664,97 @@
     return true;
   }
 
+  function getBranchBoundaryIndex(wrapper, history) {
+    if (!wrapper || !Array.isArray(history)) return -1;
+    const messageIds = new Set((wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean));
+    const messageId = wrapper.getAttribute('data-msg-id');
+    const baseId = wrapper.getAttribute('data-base-id');
+    if (messageId) messageIds.add(messageId);
+    if (baseId) messageIds.add(baseId);
+
+    let boundary = -1;
+    history.forEach((message, index) => {
+      if (!message || !message.id) return;
+      const messageBaseId = extractBaseId(message.id);
+      if (messageIds.has(message.id) || (messageBaseId && messageIds.has(messageBaseId))) {
+        boundary = index;
+      }
+    });
+    return boundary;
+  }
+
+  function setAssistantGroupMessageIds(wrapper, history) {
+    if (!wrapper || !Array.isArray(history)) return;
+    let lastUserIndex = -1;
+    for (let index = history.length - 1; index >= 0; index--) {
+      if (history[index]?.role === 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    const ids = history.slice(lastUserIndex + 1).map(message => message?.id).filter(Boolean);
+    if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
+  }
+
+  function cloneBranchHistory(history, boundary, sessionId) {
+    const sourceHistory = history.slice(0, boundary + 1);
+    const clonedHistory = Utils.clone ? Utils.clone(sourceHistory) : JSON.parse(JSON.stringify(sourceHistory));
+    return clonedHistory.map((message, index) => Object.assign({}, message, {
+      id: `msg_${sessionId}_${index}`
+    }));
+  }
+
+  async function createConversationBranch(wrapper) {
+    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+
+    const history = getChatHistory();
+    const boundary = getBranchBoundaryIndex(wrapper, history);
+    if (boundary < 0) return false;
+
+    await saveCurrentSession();
+    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+
+    const parentSessionId = getCurrentSessionId();
+    const parentSession = getSavedSessions().find(session => session.id === parentSessionId);
+    const parentTitle = parentSession?.title || t('chat_untitled');
+    const branchSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? 'session_' + crypto.randomUUID()
+      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
+    const now = Date.now();
+    const branchSession = {
+      id: branchSessionId,
+      title: t('chat_branch_title', { title: parentTitle }),
+      createdAt: now,
+      updatedAt: now,
+      messageCount: branchHistory.length,
+      metadata: {
+        parentSessionId,
+        branchedFromMessageIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
+      }
+    };
+
+    if (!Storage.saveConversation || !await Storage.saveConversation(branchSession, branchHistory)) {
+      ChatDialogs.alert(t('chat_branch_error'), { type: 'error' });
+      return false;
+    }
+    if (!initializeSessionState(branchSessionId, branchHistory, 'chat_new_blocked_generating')) {
+      await Storage.deleteConversation?.(branchSessionId);
+      return false;
+    }
+    if (State.saveSessionMetadata) State.saveSessionMetadata(branchSession);
+    renderSessionMessages(getChatHistory());
+    renderSidebarChats();
+
+    if (elements.userInput) {
+      elements.userInput.value = '';
+      autoResizeTextarea();
+      elements.userInput.focus();
+    }
+    if (window.innerWidth < 900) closeSidebar();
+    return true;
+  }
+
   async function deleteSession(sessionId, event) {
     if (event) event.stopPropagation();
     if (!await ChatDialogs.confirm(t('chat_delete_confirm'))) return;
@@ -2080,6 +2257,21 @@
   function setupEventListeners() {
     setupViewportListeners();
 
+    if (elements.btnOpenExecutionInfo) {
+      elements.btnOpenExecutionInfo.addEventListener('click', openExecutionInfo);
+    }
+    if (elements.btnCloseExecutionInfo) {
+      elements.btnCloseExecutionInfo.addEventListener('click', closeExecutionInfo);
+    }
+    if (elements.btnCloseExecutionInfoFooter) {
+      elements.btnCloseExecutionInfoFooter.addEventListener('click', closeExecutionInfo);
+    }
+    if (elements.executionInfoDialog) {
+      elements.executionInfoDialog.addEventListener('click', event => {
+        if (event.target === elements.executionInfoDialog) closeExecutionInfo();
+      });
+    }
+
     // Formulario de chat
     elements.chatForm.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -2127,6 +2319,7 @@
     updateComposerMcpState(State.get('mcp'));
     window.addEventListener('zerochat:languagechange', () => {
       updateComposerMcpState(State.get('mcp'));
+      updateExecutionInfo();
       if (elements.activeProfileSelect) {
         const editOpt = elements.activeProfileSelect.querySelector('option[value="__edit_profiles__"]');
         if (editOpt) {
@@ -2653,8 +2846,11 @@
       applyLanguage,
       switchToSession,
       createNewSession,
+      createConversationBranch,
       deleteSession,
       renameSession,
+      getStandaloneDownloadUrl,
+      openExecutionInfo,
       exportConversationAsMarkdown,
       exportConversationAsJson,
       exportConversationAsPrint

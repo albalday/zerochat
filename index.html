@@ -10,7 +10,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v6.5.6</title>
+  <title>ZeroChat v6.5.7</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -18,6 +18,7 @@
   <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
     <defs>
       <symbol id="icon-square-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></symbol>
+      <symbol id="icon-external-link" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></symbol>
       <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></symbol>
       <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></symbol>
@@ -64,14 +65,16 @@
   <aside id="chat-sidebar" class="chat-sidebar" aria-label="Chats y Configuración" data-i18n-aria="sidebar_title">
     <div class="sidebar-header">
       <div class="sidebar-header-top">
-        <span class="sidebar-header-title" data-i18n="sidebar_title">Chats y Configuración</span>
         <div class="sidebar-header-actions">
+          <a id="btn-sidebar-new-tab" class="btn-sidebar-icon" href="" target="_blank" rel="noopener" data-i18n-title="btn_open_new_tab_title" data-i18n-aria="btn_open_new_tab_title" title="Abrir ZeroChat en una nueva pestaña" aria-label="Abrir ZeroChat en una nueva pestaña">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
+          </a>
+          <button type="button" id="btn-open-settings" class="btn-sidebar-icon" data-i18n-title="btn_settings_title" title="Abrir configuración de API y Modelo" aria-label="Configuración">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
+          </button>
           <button type="button" id="btn-sidebar-new-chat" class="btn-sidebar-icon" data-i18n-title="btn_new_chat_sidebar_title" data-i18n-aria="btn_new_chat_sidebar_title" title="Crear nueva conversación" aria-label="Crear nueva conversación">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-square-pen"></use></svg>
             <span class="sr-only" data-i18n="chat_untitled">Nueva conversación</span>
-          </button>
-          <button type="button" id="btn-open-settings" class="btn-sidebar-icon" data-i18n-title="btn_settings_title" title="Abrir configuración de API y Modelo" aria-label="Configuración">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
           </button>
           <button type="button" id="btn-close-sidebar" class="btn-sidebar-icon btn-sidebar-close" data-i18n-title="btn_close_sidebar_title" title="Cerrar barra lateral" aria-label="Cerrar">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
@@ -132,6 +135,10 @@
           <span class="status-dot"></span>
           <span data-i18n="welcome_status">Chat vacío · A la espera de un comando</span>
         </div>
+        <button type="button" id="btn-open-execution-info" class="welcome-status-badge welcome-execution-btn" data-i18n-title="execution_info_open_title" title="Información sobre el modo de ejecución y el almacenamiento">
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
+          <span data-i18n="execution_info_open">Modo de ejecución y almacenamiento</span>
+        </button>
       </div>
     </div>
 
@@ -411,6 +418,30 @@
   <dialog id="export-modal" class="settings-modal"></dialog>
   <dialog id="debug-interceptor-dialog" class="debug-interceptor-modal"></dialog>
   <dialog id="rag-modal" class="settings-modal rag-modal"></dialog>
+
+  <dialog id="execution-info-dialog" class="settings-modal execution-info-dialog" aria-labelledby="execution-info-title">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
+        <h3 id="execution-info-title" data-i18n="execution_info_title">Modo de ejecución y almacenamiento</h3>
+      </div>
+      <button type="button" id="btn-close-execution-info" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+      </button>
+    </div>
+    <div class="modal-body execution-info-body">
+      <p data-i18n="execution_info_portable_tool">Herramienta portátil: guarda zerochat.html en una ubicación que controles —Escritorio, Descargas, correo o WhatsApp— y ábrelo desde ahí cuando lo necesites. La interfaz arranca sin conexión a Internet.</p>
+      <p id="execution-storage-scope"></p>
+      <p data-i18n="execution_info_requirements">La conversación seguirá necesitando el proveedor que hayas configurado: un modelo local puede funcionar sin red; una API remota y las funciones web, no.</p>
+    </div>
+    <div class="modal-footer">
+      <a id="btn-download-standalone" class="btn-primary" download="zerochat.html" hidden>
+        <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+        <span data-i18n="execution_info_download">Descargar zerochat.html</span>
+      </a>
+      <button type="button" id="btn-close-execution-info-footer" class="btn-secondary" data-i18n="btn_close">Cerrar</button>
+    </div>
+  </dialog>
 
   <dialog id="notice-dialog" class="settings-modal notice-dialog" aria-labelledby="notice-title" aria-describedby="notice-message">
     <div class="modal-header"><h3 id="notice-title"></h3></div>

@@ -85,6 +85,27 @@
   box-shadow: var(--shadow-sm);
 }
 
+.welcome-execution-btn {
+  display: flex;
+  width: fit-content;
+  margin: 0.75rem auto 0;
+  cursor: pointer;
+}
+
+.execution-info-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.execution-info-body p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.execution-info-dialog [hidden] {
+  display: none;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
