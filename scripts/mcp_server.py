@@ -141,9 +141,10 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 30) -> 
 
 
 SERVER_TOOLS = [list_directory, read_file, execute_command]
+DEFAULT_PORT = 6388
 
 
-def create_mcp_app(host: str = "127.0.0.1", port: int = 6388):
+def create_mcp_app(host: str = "127.0.0.1", port: int = DEFAULT_PORT):
     ensure_dependencies()
     from mcp.server.fastmcp import FastMCP
     from mcp.server.transport_security import TransportSecuritySettings
@@ -202,7 +203,7 @@ def create_mcp_app(host: str = "127.0.0.1", port: int = 6388):
 def main():
     parser = argparse.ArgumentParser(description="Servidor Local MCP para ZeroChat (FastMCP nativo SSE)")
     parser.add_argument("--host", default="127.0.0.1", help="Host de escucha (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=6388, help="Puerto de escucha (default: 6388)")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--test", action="store_true", help="Ejecutar prueba interna de herramientas")
     args = parser.parse_args()
 
@@ -223,4 +224,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

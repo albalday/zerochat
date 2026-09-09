@@ -776,7 +776,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     });
 
     assert.equal(modalState.port, '6388', 'El puerto por defecto debe ser 6388 (rango 63xx)');
-    assert.ok(modalState.commandText.includes('--port 6388'), 'El comando debe reflejar el puerto 6388');
+    assert.equal(modalState.commandText, 'python3 zerochat_mcp.py', 'El comando no debe repetir el puerto por defecto');
     assert.equal(modalState.endpointText, 'http://127.0.0.1:6388/sse');
 
     // Cambiar interactivamente el puerto en el input del modal y verificar reactividad inmediata

@@ -195,6 +195,7 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 30) -> 
 
 
 SERVER_TOOLS = [list_directory, read_file, execute_command]
+DEFAULT_PORT = ${port}
 
 
 def create_mcp_app(host: str = "${host}", port: int = ${port}):
@@ -305,7 +306,20 @@ if __name__ == "__main__":
   }
 
   function generateTerminalCommand(port) {
-    return `python3 zerochat_mcp.py --port ${sanitizePort(port)}`;
+    const normalizedPort = sanitizePort(port);
+    return normalizedPort === DEFAULT_PORT
+      ? 'python3 zerochat_mcp.py'
+      : `python3 zerochat_mcp.py --port ${normalizedPort}`;
+  }
+
+  function isAndroid() {
+    return typeof navigator !== 'undefined' && /Android/i.test(String(navigator.userAgent || ''));
+  }
+
+  function generateClipboardCommand(port, translator = t) {
+    const command = generateTerminalCommand(port);
+    if (!isAndroid()) return command;
+    return `${translator('mcp_termux_copy_help')}\n\n${command}`;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -704,7 +718,7 @@ if __name__ == "__main__":
     });
 
     elements.btnCopyCmd?.addEventListener?.('click', () => {
-      const cmd = elements.commandSnippet?.textContent || generateTerminalCommand(elements.portInput?.value);
+      const cmd = generateClipboardCommand(elements.portInput?.value);
       copyCommandToClipboard(cmd, elements.btnCopyCmd, t);
     });
 
@@ -843,7 +857,7 @@ if __name__ == "__main__":
         <div class="mcp-command-wrapper">
           <span class="label-hint" data-i18n="mcp_run_instruction">Comando de ejecución:</span>
           <div class="mcp-cmd-row">
-            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">python3 zerochat_mcp.py --port 6388</code></pre>
+            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">python3 zerochat_mcp.py</code></pre>
             <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
               <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
@@ -896,6 +910,8 @@ if __name__ == "__main__":
     sanitizeHost,
     buildMcpEndpoint,
     generateTerminalCommand,
+    isAndroid,
+    generateClipboardCommand,
     generateMcpServerScript,
     downloadMcpServerScript,
     copyCommandToClipboard,
@@ -907,4 +923,3 @@ if __name__ == "__main__":
     getMcpSetupDialogHTML
   };
 });
-

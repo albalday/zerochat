@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const ChatUIMcp = require('../js/ui-mcp.js');
 const ChatState = require('../js/state.js');
@@ -43,14 +45,55 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
 
 test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplificada', () => {
   const cmdDefault = ChatUIMcp.generateTerminalCommand(6388);
-  assert.equal(cmdDefault, 'python3 zerochat_mcp.py --port 6388');
+  assert.equal(cmdDefault, 'python3 zerochat_mcp.py');
 
   const cmdCustom = ChatUIMcp.generateTerminalCommand(6395);
   assert.equal(cmdCustom, 'python3 zerochat_mcp.py --port 6395');
 
   // Fallback seguro en puerto inválido
   const cmdInvalid = ChatUIMcp.generateTerminalCommand('invalido');
-  assert.equal(cmdInvalid, 'python3 zerochat_mcp.py --port 6388');
+  assert.equal(cmdInvalid, 'python3 zerochat_mcp.py');
+});
+
+test('ChatUIMcp - añade instrucciones Termux al copiar desde Android', () => {
+  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/120 Mobile' },
+    configurable: true,
+    writable: true
+  });
+
+  try {
+    assert.equal(ChatUIMcp.isAndroid(), true);
+    const copied = ChatUIMcp.generateClipboardCommand(6388, () => 'TERMUX HELP');
+    assert.equal(copied, 'TERMUX HELP\n\npython3 zerochat_mcp.py');
+  } finally {
+    if (originalDesc) {
+      Object.defineProperty(globalThis, 'navigator', originalDesc);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});
+
+test('ChatUIMcp - no añade instrucciones Termux fuera de Android', () => {
+  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/120' },
+    configurable: true,
+    writable: true
+  });
+
+  try {
+    assert.equal(ChatUIMcp.isAndroid(), false);
+    assert.equal(ChatUIMcp.generateClipboardCommand(6395, () => 'TERMUX HELP'), 'python3 zerochat_mcp.py --port 6395');
+  } finally {
+    if (originalDesc) {
+      Object.defineProperty(globalThis, 'navigator', originalDesc);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
 });
 
 test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {
@@ -70,6 +113,12 @@ test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para F
   const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
   assert.ok(pyCustom.includes('host: str = "0.0.0.0"'));
   assert.ok(pyCustom.includes('port: int = 6399'));
+});
+
+test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'mcp_server.py'), 'utf8');
+  assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
+  assert.match(serverSource, /add_argument\("--port", type=int, default=DEFAULT_PORT/);
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
@@ -219,7 +268,7 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py --port 6388');
+  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py');
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6388/sse');
 
   // Al cambiar el input de puerto, se recalcula el comando en tiempo real
@@ -575,5 +624,3 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
   // Restaurar idioma
   ChatI18n.setLanguage(originalLang, false);
 });
-
-
