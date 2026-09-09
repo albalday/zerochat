@@ -15,3 +15,4 @@ clave de prueba openai, gemini y claude
 rag permitir parar importacio, tratar ficheros duplicados
 ui para movil (botoneras)
 mcp android
+automatiza consulta de capacidades, no esperar a que el usuario las pida (sacar texto de resumen como notificacion con query)
