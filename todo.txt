@@ -4,8 +4,10 @@ iconos copiar y pegar respuesta pone izda estadisticas
 indicar descarga a file de zerochat.html
 por que sale 32k en servidor lmstudio
 aprendido: docs arquitectura, doc normas test exhaustivos agentes solucionan problema concreto se suelen saltar la infraestructura
+aprendido: multiples agents, niveles, uso git desde agente o herramienta
 puntos fuerts: rag financial, tool agentico,  
 sub agente (mismo-otro)
 los mensajes de alert pueden acabar siendo quitados sin quere por el usaurio en el check. poner funcion de alert
 mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
+clave de prueba openai, gemini y claude
