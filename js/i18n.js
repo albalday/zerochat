@@ -1275,6 +1275,15 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
     return str;
   }
 
+  /**
+   * Obtiene texto visible de interfaz con fallback local.
+   * Los textos dirigidos al modelo no deben pasar por esta API.
+   */
+  function uiText(key, fallback, params) {
+    const value = t(key, params);
+    return value === key && fallback !== undefined ? fallback : value;
+  }
+
   const I18N_DOM_BINDINGS = [
     { attr: 'data-i18n', prop: 'textContent' },
     { attr: 'data-i18n-html', prop: 'innerHTML' },
@@ -1328,6 +1337,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
 
   return {
     t,
+    uiText,
     getLanguage,
     setLanguage,
     onChange,

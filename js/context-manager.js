@@ -1,6 +1,6 @@
 /**
  * Módulo de Gestión Inteligente del Contexto (ChatContextManager) para ZeroChat.
- * Gestiona el presupuesto de tokens, estimación adaptable por modelo,
+ * Gestiona el presupuesto de tokens,
  * ventana deslizante segura con preservación de pares agénticos, control de resultados de herramientas
  * y sistema de compresión/resumen estructurado del historial.
  */
@@ -14,64 +14,18 @@
   'use strict';
 
   // ==========================================================================
-  // 1. Presupuestos y Ventanas de Contexto por Proveedor y Modelo
+  // 1. Presupuestos y Ventanas de Contexto
   // ==========================================================================
 
-  const DEFAULT_MODEL_CONTEXT_LIMITS = {
-    // Modelos locales y ligeros
-    'llama-3': 8192,
-    'llama-3.1': 128000,
-    'llama-3.2': 128000,
-    'llama-3.3': 128000,
-    'qwen2.5': 32768,
-    'mistral': 32768,
-    'phi-3': 128000,
-    'phi-4': 16384,
-    'gemma-2': 8192,
-    'gemma': 32768,
-
-    // OpenAI
-    'gpt-4o': 128000,
-    'gpt-4o-mini': 128000,
-    'gpt-4-turbo': 128000,
-    'gpt-3.5-turbo': 16384,
-    'o1': 128000,
-    'o1-mini': 128000,
-    'o3-mini': 128000,
-
-    // Anthropic Claude
-    'claude-3-5-sonnet': 200000,
-    'claude-3-5-haiku': 200000,
-    'claude-3-opus': 200000,
-
-    // Google Gemini
-    'gemini-1.5-pro': 1000000,
-    'gemini-1.5-flash': 1000000,
-    'gemini-2.0-flash': 1000000,
-    'gemini-2.0-pro': 1000000
-  };
-
-  const DEFAULT_PROVIDER_FALLBACK_LIMITS = {
-    ollama: 8192,
-    openai: 128000,
-    claude: 200000,
-    gemini: 1000000,
-    openrouter: 64000,
-    custom: 32768
-  };
+  // Only a fallback. The authoritative value must come from the provider.
+  const DEFAULT_CONTEXT_LIMIT = 65536;
 
   /**
-   * Obtiene el límite máximo de contexto del modelo/proveedor.
+   * Obtiene el límite de contexto publicado por el proveedor o el fallback general.
    */
-  function getModelContextLimit(model = '', providerType = 'openai') {
-    const cleanModel = String(model || '').toLowerCase().trim();
-    for (const [key, limit] of Object.entries(DEFAULT_MODEL_CONTEXT_LIMITS)) {
-      if (cleanModel.includes(key)) {
-        return limit;
-      }
-    }
-    const cleanType = String(providerType || 'openai').toLowerCase().trim();
-    return DEFAULT_PROVIDER_FALLBACK_LIMITS[cleanType] || 32768;
+  function getModelContextLimit(model = '', providerType = 'openai', configuredLimit) {
+    const limit = Number(configuredLimit);
+    return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_CONTEXT_LIMIT;
   }
 
   /**

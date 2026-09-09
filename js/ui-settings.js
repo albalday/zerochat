@@ -201,6 +201,11 @@
         ? elements.profileSelectHelper.value
         : (appConfig?.activeProfile?.name || 'Local chat'));
     const selectedModel = elements?.settingModel ? elements.settingModel.value.trim() : '';
+    const selectedOption = elements?.modelSelectHelper?.selectedOptions?.[0];
+    const selectedContextLimit = Number(selectedOption?.dataset?.contextLength);
+    const inheritedContextLimit = selectedModel === String(appConfig?.model || '').trim()
+      ? appConfig?.modelContextLimit
+      : null;
 
     return {
       activeProfileName: profileName,
@@ -208,6 +213,9 @@
       apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
       apiKey: elements?.settingApiKey ? elements.settingApiKey.value.trim() : '',
       model: selectedModel,
+      modelContextLimit: Number.isFinite(selectedContextLimit) && selectedContextLimit > 0
+        ? Math.floor(selectedContextLimit)
+        : (inheritedContextLimit || null),
       systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
       temperature: appConfig?.temperature || '0.7',

@@ -34,6 +34,12 @@
       : (typeof require !== 'undefined' ? (() => { try { return require('./markdown.js'); } catch (e) { return {}; } })() : {});
   }
 
+  function getI18n() {
+    return (typeof window !== 'undefined' && window.ChatI18n)
+      ? window.ChatI18n
+      : (typeof require !== 'undefined' ? (() => { try { return require('./i18n.js'); } catch (e) { return {}; } })() : {});
+  }
+
   function getContextManager() {
     return (typeof window !== 'undefined' && window.ChatContextManager)
       ? window.ChatContextManager
@@ -381,6 +387,7 @@
       const optimization = ContextManager.buildOptimizedContext(messages, {
         model: appConfig.model,
         providerType: appConfig.apiType,
+        totalContextLimit: appConfig.modelContextLimit,
         ...options
       });
       lastContextDiagnostics = optimization.diagnostics || null;
@@ -574,7 +581,11 @@
         }
 
         if (turnBlock) {
-          turnBlock.innerHTML = parseMd(currentTurnText || tr('empty_response', 'Respuesta vacía'));
+          const I18n = getI18n();
+          const emptyResponse = I18n && typeof I18n.uiText === 'function'
+            ? I18n.uiText('empty_response', '(Empty response)')
+            : '(Empty response)';
+          turnBlock.innerHTML = parseMd(currentTurnText || emptyResponse);
           attachEvts(turnBlock);
         }
 

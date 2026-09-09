@@ -23,6 +23,11 @@ test('I18n - Reemplazo dinámico de parámetros en t()', () => {
   assert.match(msg, /0\.85/);
 });
 
+test('I18n - uiText centraliza textos visibles con fallback local', () => {
+  assert.equal(I18n.uiText('rag_modal_title'), I18n.t('rag_modal_title'));
+  assert.equal(I18n.uiText('__missing_ui_key__', 'Fallback visible'), 'Fallback visible');
+});
+
 test('I18n - Traducciones del conocimiento local', () => {
   I18n.setLanguage('es', false);
   assert.equal(I18n.t('rag_modal_title'), 'Conocimiento local');
@@ -82,4 +87,3 @@ test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
   // Restaurar idioma por defecto
   I18n.setLanguage('es', false);
 });
-

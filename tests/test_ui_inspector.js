@@ -20,6 +20,15 @@ test('UIInspector - identifica el bloqueo CORS de Ollama y muestra una solución
   assert.equal(UIInspector.getOllamaConnectionHelp('ollama', new Error('HTTP 404')), '');
 });
 
+test('UIInspector - conserva el contexto activo publicado por LM Studio', () => {
+  UIInspector.saveCachedModels([{
+    id: 'google/gemma-4-26b-a4b-qat',
+    details: { max_context_length: 262144, loaded_context_length: 90112 }
+  }]);
+
+  assert.equal(UIInspector.getModelContextLimit('google/gemma-4-26b-a4b-qat'), 90112);
+});
+
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
   const datalistOptions = [];
   const selectOptions = [];

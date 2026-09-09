@@ -17,7 +17,7 @@
   const DEFAULTS = Object.freeze({
     schemaVersion: SCHEMA_VERSION,
     activeProfile: null,
-    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '',
+    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '', modelContextLimit: null,
     systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'none',
     maxAgentTurns: 15,
     modelReasoningConfig: null,
@@ -49,6 +49,8 @@
     next.apiType = String(next.apiType || DEFAULTS.apiType).trim() || DEFAULTS.apiType;
     next.apiKey = String(next.apiKey || '').trim();
     next.model = String(next.model || '').trim();
+    const contextLimit = Number(next.modelContextLimit);
+    next.modelContextLimit = Number.isFinite(contextLimit) && contextLimit > 0 ? Math.floor(contextLimit) : null;
     next.systemPrompt = String(next.systemPrompt || '').trim();
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);

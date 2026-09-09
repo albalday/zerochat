@@ -32,7 +32,7 @@ test('ContextManager - Conversaciones cortas que caben en el presupuesto', () =>
 
   const result = ChatContextManager.buildOptimizedContext(messages, {
     maxInputTokens: 4000,
-    model: 'gpt-4o'
+    model: 'configured-model'
   });
 
   assert.equal(result.messages.length, 4);
@@ -118,18 +118,14 @@ test('ContextManager - Truncamiento y Poda de resultados gigantescos de herramie
   assert.equal(result.diagnostics.prunedToolsCount, 1);
 });
 
-test('ContextManager - Diagnóstico y cálculo de presupuestos por modelo', () => {
-  const limitOllama = ChatContextManager.getModelContextLimit('llama-3', 'ollama');
-  assert.equal(limitOllama, 8192);
-
-  const limitClaude = ChatContextManager.getModelContextLimit('claude-3-5-sonnet', 'claude');
-  assert.equal(limitClaude, 200000);
+test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
+  assert.equal(ChatContextManager.getModelContextLimit('', '', 90112), 90112);
+  assert.equal(ChatContextManager.getModelContextLimit(), 65536);
 
   const budget = ChatContextManager.calculateInputBudget({
-    model: 'gpt-4o',
-    providerType: 'openai'
+    totalContextLimit: 90112
   });
-  assert.ok(budget > 100000 && budget <= 128000);
+  assert.ok(budget > 75000 && budget < 80000);
 });
 
 test('ContextManager - shouldCompress detecta cuándo una conversación supera los umbrales', () => {
@@ -281,14 +277,13 @@ test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para 
   ];
 
   const result = ChatContextManager.buildOptimizedContext(messages, {
-    model: 'gpt-4o',
+    model: 'configured-model',
     providerType: 'openai'
   });
 
   const toolMsg = result.messages.find(m => m.role === 'tool');
   assert.ok(toolMsg);
-  // Con gpt-4o (budget amplio), el contenido no debe truncarse destructivamente
+  // Con un presupuesto amplio, el contenido no debe truncarse destructivamente
   assert.ok(!toolMsg.content.includes('Truncado por ChatContextManager'), 'No debe truncar si el presupuesto del modelo admite las tablas');
   assert.equal(toolMsg.content.length, tableContent.length);
 });
-

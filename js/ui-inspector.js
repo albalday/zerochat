@@ -93,6 +93,16 @@
     return discoveredModels;
   }
 
+  function getModelContextLimit(model) {
+    const selected = String(model || '').trim();
+    const entry = discoveredModels.find(item => String(item?.id || item?.name || '').trim() === selected);
+    const details = entry?.details || entry || {};
+    const loaded = Number(details.loaded_context_length);
+    const maximum = Number(details.max_context_length);
+    return Number.isFinite(loaded) && loaded > 0 ? Math.floor(loaded)
+      : (Number.isFinite(maximum) && maximum > 0 ? Math.floor(maximum) : null);
+  }
+
   function populateModelList(elements, appConfig, models, selectFirstIfEmpty = false) {
     if (!models || !Array.isArray(models) || models.length === 0) return;
 
@@ -106,6 +116,8 @@
         if (id) {
           const opt = doc.createElement('option');
           opt.value = id;
+          const contextLimit = getModelContextLimit(id);
+          if (contextLimit) opt.dataset.contextLength = String(contextLimit);
           elements.modelDatalist.appendChild(opt);
         }
       });
@@ -128,6 +140,8 @@
           const opt = doc.createElement('option');
           opt.value = id;
           opt.textContent = id;
+          const contextLimit = getModelContextLimit(id);
+          if (contextLimit) opt.dataset.contextLength = String(contextLimit);
           if (currentVal && currentVal === id) {
             opt.selected = true;
             defaultOpt.selected = false;
@@ -398,6 +412,7 @@
     loadCachedModels,
     saveCachedModels,
     getCachedModels,
+    getModelContextLimit,
     populateModelList,
     handleQueryServer,
     handleRunInspector,

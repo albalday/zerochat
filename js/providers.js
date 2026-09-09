@@ -300,7 +300,8 @@
     getModelEndpoints(cleanUrl) {
       const v1Url = cleanUrl.endsWith('/v1') ? cleanUrl : `${cleanUrl}/v1`;
       const baseWithoutV1 = cleanUrl.replace(/\/v1$/, '');
-      return [`${v1Url}/models`, `${baseWithoutV1}/api/v0/models`];
+      // LM Studio exposes the active context length only through /api/v0/models.
+      return [`${baseWithoutV1}/api/v0/models`, `${v1Url}/models`];
     }
 
     /**

@@ -84,6 +84,7 @@ test('TokenTelemetry - ChatContextManager.getContextDiagnostics calcula ventana 
   const diagServer = ChatContextManager.getContextDiagnostics(messages, {
     model: 'gpt-4o',
     providerType: 'openai',
+    totalContextLimit: 128000,
     usedTokens: 12800
   });
 
@@ -96,7 +97,8 @@ test('TokenTelemetry - ChatContextManager.getContextDiagnostics calcula ventana 
   // Caso 2: Sin tokens reales (modo estimación local)
   const diagEst = ChatContextManager.getContextDiagnostics(messages, {
     model: 'claude-3-5-sonnet',
-    providerType: 'claude'
+    providerType: 'claude',
+    totalContextLimit: 200000
   });
 
   assert.equal(diagEst.totalLimit, 200000);
@@ -124,4 +126,3 @@ test('TokenTelemetry - ChatEngine preserva diagnósticos de contexto en buildEff
   assert.equal(diag.totalTokens > 0, true);
   assert.equal(diag.strategy, 'full_history');
 });
-

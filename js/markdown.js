@@ -16,19 +16,15 @@
   'use strict';
 
   const Sandbox = typeof window !== 'undefined' ? (window.ChatSandbox || {}) : {};
-  const I18n = typeof window !== 'undefined' ? (window.ChatI18n || {}) : {};
+  function getI18n() {
+    if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
+    if (typeof require !== 'undefined') {
+      try { return require('./i18n.js'); } catch (e) { return {}; }
+    }
+    return { uiText: (_key, fallback) => fallback };
+  }
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
-
-  function tr(key, fallback, params) {
-    if (typeof window !== 'undefined' && window.ChatI18n && window.ChatI18n.t) {
-      return window.ChatI18n.t(key, params);
-    }
-    if (I18n.t) {
-      return I18n.t(key, params);
-    }
-    return fallback;
-  }
 
   function escapeHtml(str) {
     if (!str) return '';
@@ -233,8 +229,8 @@
     // Reglas horizontales (---, ***, ___)
     p = p.replace(/^[ \t]*(?:---|\*\*\*|___)[ \t]*$/gm, '<hr>');
 
-    const thoughtTitle = tr('md_thought_title', '💭 Proceso de razonamiento');
-    const thoughtReasoning = tr('md_thought_reasoning', '💭 Razonando...');
+  const thoughtTitle = getI18n().uiText('md_thought_title', '💭 Proceso de razonamiento');
+  const thoughtReasoning = getI18n().uiText('md_thought_reasoning', '💭 Razonando...');
 
     // 1. Bloques de pensamiento <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>
     p = p.replace(/&lt;(think|thought|reasoning)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, function (match, tag, thought) {
@@ -358,10 +354,10 @@
     let codeLines = [];
     let textBuffer = [];
 
-    const runTitle = tr('md_run_js_title', 'Ejecutar en sandbox local (sin red ni archivos)');
-    const runBtn = tr('md_run_js_btn', 'Ejecutar JS');
-    const copyTitle = tr('md_copy_code_title', 'Copiar código');
-    const copyBtn = tr('md_copy_code_btn', 'Copiar');
+    const runTitle = getI18n().uiText('md_run_js_title', 'Ejecutar en sandbox local (sin red ni archivos)');
+    const runBtn = getI18n().uiText('md_run_js_btn', 'Ejecutar JS');
+    const copyTitle = getI18n().uiText('md_copy_code_title', 'Copiar código');
+    const copyBtn = getI18n().uiText('md_copy_code_btn', 'Copiar');
 
     function flushTextBuffer() {
       if (textBuffer.length === 0) return;
@@ -452,7 +448,7 @@
           await navigator.clipboard.writeText(rawCode);
           const span = button.querySelector('span');
           const originalText = span.textContent;
-          span.textContent = tr('copied_text', '¡Copiado!');
+          span.textContent = getI18n().uiText('copied_text', '¡Copiado!');
           button.classList.add('copied');
 
           setTimeout(function () {
@@ -483,13 +479,13 @@
         }
 
         outputContainer.style.display = 'block';
-        outputContainer.innerHTML = '<div class="output-header"><span>' + tr('agent_js_title', 'Ejecutando en sandbox local...') + '</span></div>';
+          outputContainer.innerHTML = '<div class="output-header"><span>' + getI18n().uiText('agent_js_title', 'Ejecutando en sandbox local...') + '</span></div>';
 
         const sandboxRunner = window.ChatSandbox || Sandbox;
         if (sandboxRunner && sandboxRunner.execute) {
           const res = await sandboxRunner.execute(rawCode);
           const statusClass = res.success ? 'success' : 'error';
-          const headerTitle = res.success ? `${tr('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : `Error (${res.executionTimeMs}ms)`;
+          const headerTitle = res.success ? `${getI18n().uiText('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : `Error (${res.executionTimeMs}ms)`;
 
           let outputContent = '';
           if (res.logs && res.logs.length > 0) {
@@ -502,13 +498,13 @@
             outputContent += `<div class="output-error">${escapeHtml(res.error)}</div>`;
           }
           if (!outputContent) {
-            outputContent = `<div class="output-empty">(${tr('empty_response', 'Ejecutado sin salida de consola ni retorno')})</div>`;
+            outputContent = `<div class="output-empty">(${getI18n().uiText('empty_response', 'Ejecutado sin salida de consola ni retorno')})</div>`;
           }
 
           outputContainer.innerHTML = `
             <div class="output-header ${statusClass}">
               <span>${headerTitle}</span>
-              <button type="button" class="btn-close-output" title="${tr('md_clear_output', 'Cerrar salida')}">×</button>
+              <button type="button" class="btn-close-output" title="${getI18n().uiText('md_clear_output', 'Cerrar salida')}">×</button>
             </div>
             <pre class="output-body">${outputContent}</pre>
           `;
@@ -534,7 +530,7 @@
         const isCollapsed = card.classList.toggle('collapsed');
         const btn = card.querySelector('.btn-tool-collapse');
         if (btn) {
-          btn.title = isCollapsed ? tr('tool_btn_expand', 'Expandir herramienta') : tr('tool_btn_collapse', 'Minimizar herramienta');
+          btn.title = isCollapsed ? getI18n().uiText('tool_btn_expand', 'Expandir herramienta') : getI18n().uiText('tool_btn_collapse', 'Minimizar herramienta');
           const span = btn.querySelector('span');
           if (span) span.textContent = isCollapsed ? '▸' : '▾';
         }

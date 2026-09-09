@@ -223,15 +223,9 @@ test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de c
   assert.ok(contextWithCp.includes('consolidate findings and clear working memory'));
 });
 
-test('ContextManager - getModelContextLimit reconoce modelos Gemma', () => {
-  const limitGemma2 = ContextManager.getModelContextLimit('google/gemma-2-9b-it');
-  assert.equal(limitGemma2, 8192);
-
-  const limitGemma4 = ContextManager.getModelContextLimit('google/gemma-4-12b-qat');
-  assert.equal(limitGemma4, 32768);
-
-  const limitGemmaGeneric = ContextManager.getModelContextLimit('gemma-3-27b');
-  assert.equal(limitGemmaGeneric, 32768);
+test('ContextManager - usa el límite publicado y un único fallback cuando falta', () => {
+  assert.equal(ContextManager.getModelContextLimit('', '', 90112), 90112);
+  assert.equal(ContextManager.getModelContextLimit(), 65536);
 });
 
 test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas consecutivas y compacta al recibir checkpoint', async () => {
@@ -308,11 +302,11 @@ test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas c
   const res = await Engine.executeAgentTurnLoop({
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
-    model: 'google/gemma-4-12b-qat',
+    model: 'configured-model',
     chatHistory: history,
     appConfig: {
       apiUrl: 'http://localhost:1234/v1',
-      model: 'google/gemma-4-12b-qat',
+      model: 'configured-model',
       language: 'es',
       enabledTools: { agent_checkpoint: true, search_web: true, list_documents: true }
     }
@@ -333,4 +327,3 @@ test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas c
   assert.ok(cpToolMsg, 'Debe existir el mensaje tool de agent_checkpoint');
   assert.ok(cpToolMsg.content.includes('Datos parciales de 2018 recuperados'));
 });
-

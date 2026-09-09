@@ -93,11 +93,12 @@
       diag = CM.getContextDiagnostics(chatHistory || [], {
         model,
         providerType: apiType,
+        totalContextLimit: cfg.modelContextLimit,
         usedTokens: sPrompt > 0 ? sPrompt : null
       });
     }
 
-    const totalLimit = diag?.totalLimit || (CM && typeof CM.getModelContextLimit === 'function' ? CM.getModelContextLimit(model, apiType) : 128000);
+    const totalLimit = diag?.totalLimit || (CM && typeof CM.getModelContextLimit === 'function' ? CM.getModelContextLimit(model, apiType, cfg.modelContextLimit) : 65536);
     const usedTokens = diag?.usedTokens ?? sPrompt;
     const percentUsed = diag?.percentUsed ?? (totalLimit > 0 ? Number(((usedTokens / totalLimit) * 100).toFixed(1)) : 0);
     const remainingTokens = Math.max(0, totalLimit - usedTokens);
