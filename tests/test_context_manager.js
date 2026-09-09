@@ -120,7 +120,7 @@ test('ContextManager - Truncamiento y Poda de resultados gigantescos de herramie
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
   assert.equal(ChatContextManager.getModelContextLimit('', '', 90112), 90112);
-  assert.equal(ChatContextManager.getModelContextLimit(), 65536);
+  assert.equal(ChatContextManager.getModelContextLimit(), 1000000);
 
   const budget = ChatContextManager.calculateInputBudget({
     totalContextLimit: 90112

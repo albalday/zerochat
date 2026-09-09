@@ -21,6 +21,19 @@ test('UITelemetry - formatTokenCount formatea de forma compacta y legible', () =
   assert.equal(UITelemetry.formatTokenCount(2000000), '2M');
 });
 
+test('UITelemetry - formatContextCapacity usa K para capacidades de contexto', () => {
+  assert.equal(UITelemetry.formatContextCapacity(90112), '90.112K');
+  assert.equal(UITelemetry.formatContextCapacity(1000000), '1000K');
+});
+
+test('UITelemetry - parseContextCapacity acepta capacidad compacta sin perder precisión', () => {
+  assert.equal(UITelemetry.parseContextCapacity('90.112K'), 90112);
+  assert.equal(UITelemetry.parseContextCapacity('1M'), 1000000);
+  assert.equal(UITelemetry.parseContextCapacity('64000'), 64000);
+  assert.equal(UITelemetry.parseContextCapacity('1K'), null);
+  assert.equal(UITelemetry.parseContextCapacity('unknown'), null);
+});
+
 test('UITelemetry - getContextHealthStatus evalúa umbrales de advertencia y crítico', () => {
   assert.equal(UITelemetry.getContextHealthStatus(0), 'ok');
   assert.equal(UITelemetry.getContextHealthStatus(25), 'ok');
@@ -60,7 +73,7 @@ test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y 
 
   const vm = UITelemetry.computeTelemetryViewModel({
     stats,
-    config: { model: 'gpt-4o', apiType: 'openai' },
+    config: { model: 'gpt-4o', apiType: 'openai', modelContextLimit: 128000 },
     chatHistory: [{ role: 'user', content: 'test' }],
     contextManager: fakeContextManager
   });
@@ -79,6 +92,7 @@ test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y 
   assert.equal(vm.turnSpeed, '74.2');
   assert.equal(vm.turnLatency, '0.45');
   assert.equal(vm.badgeText, '32k / 128k');
+  assert.equal(vm.contextLimitSource, 'server');
 });
 
 test('UITelemetry - computeTelemetryViewModel maneja estimación cuando no hay tokens de servidor', () => {
@@ -97,15 +111,32 @@ test('UITelemetry - computeTelemetryViewModel maneja estimación cuando no hay t
 
   const vm = UITelemetry.computeTelemetryViewModel({
     stats: null,
-    config: { model: 'claude-3-5-sonnet', apiType: 'claude' },
+    config: { model: 'claude-3-5-sonnet', apiType: 'claude', contextLimitOverride: 200000 },
     chatHistory: [{ role: 'user', content: 'Hola' }],
     contextManager: fakeContextManager
   });
 
   assert.equal(vm.isEstimated, true);
   assert.equal(vm.badgeText, '~1.5k / 200k');
+  assert.equal(vm.contextLimitSource, 'manual');
   assert.equal(vm.cachedTokens, 0);
   assert.equal(vm.cachedFormatted, '0');
+});
+
+test('UITelemetry - marca como asumida la capacidad cuando no la publica el servidor', () => {
+  const fakeContextManager = {
+    getContextDiagnostics: () => ({ totalLimit: 1000000, usedTokens: 1200, percentUsed: 0.1, isEstimated: true }),
+    getModelContextLimit: () => 1000000
+  };
+
+  const vm = UITelemetry.computeTelemetryViewModel({
+    config: { model: 'unknown-model', apiType: 'openai' },
+    chatHistory: [],
+    contextManager: fakeContextManager
+  });
+
+  assert.equal(vm.contextLimitSource, 'assumed');
+  assert.equal(vm.badgeText, '~1.2k / 1M*');
 });
 
 test('UITelemetry - updateBadge actualiza clases de semáforo, texto y pill de caché', () => {
@@ -236,7 +267,7 @@ test('UITelemetry - resetTelemetry restaura a estado neutro limpio para nueva se
     getModelContextLimit: () => 128000
   };
 
-  UITelemetry.resetTelemetry(elements, { model: 'gpt-4o' }, [], fakeContextManager);
+  UITelemetry.resetTelemetry(elements, { model: 'gpt-4o', modelContextLimit: 128000 }, [], fakeContextManager);
 
   assert.equal(elements.connectionTokensText.textContent, '0 / 128k');
   assert.equal(elements.contextHubCachePill.style.display, 'none');

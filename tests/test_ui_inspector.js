@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UIInspector = require('../js/ui-inspector.js');
+const Storage = require('../js/cookies.js');
+const API = require('../js/api.js');
 
 test('UIInspector - getBadgeClass, getBadgeIcon y getStatusLabel', () => {
   assert.equal(UIInspector.getBadgeClass('confirmed'), 'cap-badge cap-badge-confirmed');
@@ -27,6 +29,51 @@ test('UIInspector - conserva el contexto activo publicado por LM Studio', () => 
   }]);
 
   assert.equal(UIInspector.getModelContextLimit('google/gemma-4-26b-a4b-qat'), 90112);
+});
+
+test('UIInspector - aísla la caché de modelos por conexión', () => {
+  const local = { apiType: 'openai', apiUrl: 'http://localhost:1234/v1' };
+  const remote = { apiType: 'openai', apiUrl: 'https://api.example.test/v1' };
+  const model = 'same-model';
+  Storage.deleteStorageItem('cached_models');
+
+  UIInspector.saveCachedModels([{ id: model, details: { loaded_context_length: 90112 } }], local);
+  UIInspector.loadCachedModels({}, remote);
+  assert.equal(UIInspector.getModelContextLimit(model), null);
+
+  UIInspector.saveCachedModels([{ id: model, details: { loaded_context_length: 1048576 } }], remote);
+
+  UIInspector.loadCachedModels({}, local);
+  assert.equal(UIInspector.getModelContextLimit(model), 90112);
+  UIInspector.loadCachedModels({}, remote);
+  assert.equal(UIInspector.getModelContextLimit(model), 1048576);
+});
+
+test('UIInspector - handleQueryServer informa si la consulta fue satisfactoria', async () => {
+  const originalFetch = API.fetchServerModels;
+  API.fetchServerModels = async () => ({
+    success: true,
+    count: 1,
+    endpoint: 'http://localhost:1234/v1/models',
+    models: [{ id: 'model-a' }]
+  });
+  const elements = {
+    btnQueryServer: {
+      disabled: false,
+      classList: { add() {}, remove() {} },
+      querySelector: () => ({ textContent: '' })
+    },
+    settingApiUrl: { value: 'http://localhost:1234/v1' },
+    settingApiKey: { value: '' },
+    settingApiType: { value: 'openai' },
+    serverQueryStatus: { style: {}, className: '', innerHTML: '', textContent: '' }
+  };
+
+  try {
+    assert.equal(await UIInspector.handleQueryServer(elements, {}), true);
+  } finally {
+    API.fetchServerModels = originalFetch;
+  }
 });
 
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
@@ -69,6 +116,33 @@ test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
 
   // selectFirstIfEmpty establece el primer modelo si estaba vacío
   assert.equal(fakeSettingModel.value, 'gpt-4o');
+});
+
+test('UIInspector - populateModelList limpia opciones al no haber modelos para la conexión', () => {
+  const datalistOptions = [];
+  const selectOptions = [];
+  const ownerDocument = {
+    createElement: tag => ({ tagName: tag, value: '', textContent: '', disabled: false, selected: false })
+  };
+  const elements = {
+    modelDatalist: {
+      innerHTML: 'old options',
+      ownerDocument,
+      appendChild: option => datalistOptions.push(option)
+    },
+    modelSelectHelper: {
+      innerHTML: 'old options',
+      ownerDocument,
+      appendChild: option => selectOptions.push(option)
+    }
+  };
+
+  UIInspector.populateModelList(elements, {}, []);
+
+  assert.equal(elements.modelDatalist.innerHTML, '');
+  assert.equal(elements.modelSelectHelper.innerHTML, '');
+  assert.equal(datalistOptions.length, 0);
+  assert.equal(selectOptions.length, 1);
 });
 
 test('UIInspector - renderInspectorReport genera markup de metadatos y capacidades', () => {

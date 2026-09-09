@@ -10,7 +10,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v6.5.5</title>
+  <title>ZeroChat v6.5.6</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -261,6 +261,14 @@
                     <div class="context-metric-item">
                       <span class="context-metric-label" data-i18n="context_metric_status">Estado</span>
                       <span id="context-metric-status-val" class="context-metric-val status-ok">Óptimo</span>
+                    </div>
+                  </div>
+                  <div class="context-limit-control">
+                    <span id="context-limit-source" class="context-limit-source"></span>
+                    <label for="context-limit-override-input" data-i18n="context_limit_override_label">Capacidad asumida</label>
+                    <div class="context-limit-control-row">
+                      <input id="context-limit-override-input" type="text" inputmode="decimal" data-i18n-aria="context_limit_override_label" aria-label="Capacidad de contexto asumida">
+                      <button type="button" id="btn-save-context-limit-override" class="btn-secondary" data-i18n="context_limit_override_save">Usar</button>
                     </div>
                   </div>
                 </div>

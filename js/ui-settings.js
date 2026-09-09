@@ -201,21 +201,15 @@
         ? elements.profileSelectHelper.value
         : (appConfig?.activeProfile?.name || 'Local chat'));
     const selectedModel = elements?.settingModel ? elements.settingModel.value.trim() : '';
-    const selectedOption = elements?.modelSelectHelper?.selectedOptions?.[0];
-    const selectedContextLimit = Number(selectedOption?.dataset?.contextLength);
-    const inheritedContextLimit = selectedModel === String(appConfig?.model || '').trim()
-      ? appConfig?.modelContextLimit
-      : null;
-
     return {
       activeProfileName: profileName,
       apiUrl: elements?.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || 'http://localhost:1234/v1'),
       apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
       apiKey: elements?.settingApiKey ? elements.settingApiKey.value.trim() : '',
       model: selectedModel,
-      modelContextLimit: Number.isFinite(selectedContextLimit) && selectedContextLimit > 0
-        ? Math.floor(selectedContextLimit)
-        : (inheritedContextLimit || null),
+      // El límite publicado pertenece a la conexión en ejecución, no al formulario.
+      modelContextLimit: null,
+      contextLimitOverride: appConfig?.contextLimitOverride || null,
       systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
       temperature: appConfig?.temperature || '0.7',
@@ -608,7 +602,7 @@
         <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
         <div class="profile-values-card">
           <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option></select></div>
-          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div id="server-query-status" class="server-query-status" style="display: none;"></div></div>
+          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
           <div class="form-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
           <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
         </div>
@@ -634,7 +628,7 @@
         </div>
         <div class="footer-actions-right">
           <button type="button" id="btn-cancel-profiles" class="btn-secondary" data-i18n="btn_close">Cerrar</button>
-          <button type="button" id="btn-save-profile" class="btn-profile-action btn-save-profile" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg><span data-i18n="btn_save_profile">Guardar</span></button>
+          <button type="button" id="btn-save-profile" class="btn-profile-action btn-save-profile" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil" disabled><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg><span data-i18n="btn_save_profile">Guardar</span></button>
         </div>
       </div>
     </form>`;

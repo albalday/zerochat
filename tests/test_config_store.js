@@ -65,3 +65,27 @@ test('ChatConfig - snapshots no permiten mutar el estado interno', () => {
   snapshot.enabledTools.search_web = true;
   assert.equal(store.getActive().enabledTools.search_web, false);
 });
+
+test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil', () => {
+  const { store, getPersisted } = createFixture();
+  store.initialize();
+  store.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
+
+  assert.equal(store.getActive().modelContextLimit, 90112);
+  assert.equal(getPersisted().modelContextLimit, null);
+
+  const config = store.activateProfile('office');
+
+  assert.equal(config.modelContextLimit, null);
+  assert.equal(config.contextLimitOverride, null);
+});
+
+test('ChatConfig - cambiar de conexión descarta el límite detectado anterior', () => {
+  const { store } = createFixture();
+  store.initialize();
+  store.updateRuntime({ modelContextLimit: 90112 });
+
+  const config = store.updateRuntime({ apiUrl: 'https://api.example.test/v1' });
+
+  assert.equal(config.modelContextLimit, null);
+});

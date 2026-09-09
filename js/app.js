@@ -144,6 +144,9 @@
       contextMetricLimitVal: document.getElementById('context-metric-limit-val'),
       contextMetricFreeVal: document.getElementById('context-metric-free-val'),
       contextMetricStatusVal: document.getElementById('context-metric-status-val'),
+      contextLimitSource: document.getElementById('context-limit-source'),
+      contextLimitOverrideInput: document.getElementById('context-limit-override-input'),
+      btnSaveContextLimitOverride: document.getElementById('btn-save-context-limit-override'),
       contextMetricCachedReadVal: document.getElementById('context-metric-cached-read-val'),
       contextMetricCachedWriteVal: document.getElementById('context-metric-cached-write-val'),
       contextMetricTurnPromptVal: document.getElementById('context-metric-turn-prompt-val'),
@@ -226,6 +229,7 @@
       btnSaveProfile: document.getElementById('btn-save-profile'),
       btnDeleteProfile: document.getElementById('btn-delete-profile'),
       profileActionFeedback: document.getElementById('profile-action-feedback'),
+      profileSaveQueryHint: document.getElementById('profile-save-query-hint'),
       settingApiType: document.getElementById('setting-api-type'),
       settingApiUrl: document.getElementById('setting-api-url'),
       btnQueryServer: document.getElementById('btn-query-server'),
@@ -346,15 +350,31 @@
 
   function loadCachedModels() {
     if (UIInspector.loadCachedModels) {
-      return UIInspector.loadCachedModels(elements, appConfig);
+      const models = UIInspector.loadCachedModels(elements, appConfig);
+      syncPublishedModelContextLimit();
+      return models;
     }
     return [];
   }
 
+  function syncPublishedModelContextLimit() {
+    const config = getRuntimeConfig();
+    const publishedLimit = UIInspector.getModelContextLimit?.(config.model);
+    if (!publishedLimit || config.modelContextLimit === publishedLimit || !Config.updateRuntime) return false;
+    Config.updateRuntime({ modelContextLimit: publishedLimit });
+    return true;
+  }
+
   async function handleQueryServer() {
     if (UIInspector.handleQueryServer) {
-      await UIInspector.handleQueryServer(elements, appConfig);
+      const querySucceeded = await UIInspector.handleQueryServer(elements, appConfig);
+      if (querySucceeded) {
+        setProfileQueryState(true);
+        syncPublishedModelContextLimit();
+      }
+      return querySucceeded;
     }
+    return false;
   }
 
   // ==========================================================================
@@ -1173,6 +1193,7 @@
   function saveCurrentSettings(closeModal = true) {
     const newConfig = gatherCurrentFormConfig();
     const savedConfig = Config.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
+    loadCachedModels();
 
     const currentHistory = getChatHistory();
     if (currentHistory.length > 0 && currentHistory[0].role === 'system') {
@@ -1181,8 +1202,6 @@
         State.replaceMessages(currentHistory);
       }
     }
-
-    updateUIFromConfig();
 
     if (typeof populateProfileSelector === 'function') {
       populateProfileSelector(savedConfig.activeProfile?.id || '');
@@ -1196,6 +1215,10 @@
   }
 
   function handleSaveProfile() {
+    if (!isProfileQueryReady()) {
+      showProfileFeedback(t('profile_query_required'), 'error');
+      return false;
+    }
     const name = String(elements.settingProfileName?.value || '').trim();
     if (!name || !Profiles.save) return false;
     const selected = Profiles.get?.(elements.profileSelectHelper?.value || '') || null;
@@ -1224,8 +1247,21 @@
     });
     populateProfileSelector(saved.id);
     setSelectedProfileAsDefault(saved);
+    setProfileQueryState(false);
     showProfileFeedback(t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
     return true;
+  }
+
+  function isProfileQueryReady() {
+    return elements.profilesDialog?.dataset.queryReady === 'true';
+  }
+
+  function setProfileQueryState(ready) {
+    if (elements.profilesDialog) elements.profilesDialog.dataset.queryReady = String(ready);
+    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !ready;
+    if (elements.profileSaveQueryHint) {
+      elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'profile_query_required');
+    }
   }
 
   function activateProfileTab(tabBtn) {
@@ -1244,9 +1280,15 @@
   }
 
   function setSelectedProfileAsDefault(profile) {
-    if (!profile || !Config.activateProfile) return;
-    Config.activateProfile(profile.id);
-    updateUIFromConfig();
+    if (!profile) return;
+    activateConnectionProfile(profile.id);
+  }
+
+  function activateConnectionProfile(profileId) {
+    if (!profileId || !Config.activateProfile) return;
+    Config.activateProfile(profileId);
+    loadCachedModels();
+    resetTelemetryDisplay();
   }
 
   async function handleDeleteProfile() {
@@ -1257,6 +1299,7 @@
     if (!currentProfile || currentProfile.name !== profile.name) return;
     if (Profiles.remove?.(currentProfile.id)) {
       populateProfileSelector('');
+      setProfileQueryState(false);
       showProfileFeedback(t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
       updateUIFromConfig();
     }
@@ -1283,6 +1326,7 @@
     populateProfileSelector(saved.id);
     applyProfileToForm(saved.settings);
     setSelectedProfileAsDefault(saved);
+    setProfileQueryState(false);
     return saved;
   }
 
@@ -1323,15 +1367,21 @@
     applyProfileToForm(activeProfile?.settings || getRuntimeConfig());
     if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
     if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
+    setProfileQueryState(false);
     activateProfileTab(document.getElementById('profile-tab-name'));
     if (typeof loadCachedModels === 'function') loadCachedModels();
     if (typeof elements.profilesDialog.showModal === 'function') elements.profilesDialog.showModal();
   }
 
   function closeProfilesModal() {
+    if (isProfileQueryReady()) {
+      ChatDialogs.alert(t('err_profile_query_not_saved'), { type: 'error' });
+      return false;
+    }
     if (elements.profilesDialog?.open && typeof elements.profilesDialog.close === 'function') {
       elements.profilesDialog.close();
     }
+    return true;
   }
 
   function closeSettingsModal() {
@@ -2112,8 +2162,7 @@
           openProfilesModal();
           return;
         }
-        if (!Config.activateProfile) return;
-        Config.activateProfile(this.value);
+        activateConnectionProfile(this.value);
       });
     }
     if (elements.btnCloseSidebar) {
@@ -2294,6 +2343,11 @@
       elements.profilesDialog.addEventListener('click', function (e) {
         if (e.target === elements.profilesDialog) closeProfilesModal();
       });
+      elements.profilesDialog.addEventListener('cancel', function (e) {
+        if (!isProfileQueryReady()) return;
+        e.preventDefault();
+        ChatDialogs.alert(t('err_profile_query_not_saved'), { type: 'error' });
+      });
     }
 
     if (elements.profileSelectHelper) {
@@ -2309,6 +2363,7 @@
         }
         applyProfileToForm(profile.settings);
         setSelectedProfileAsDefault(profile);
+        setProfileQueryState(false);
       });
     }
 
@@ -2327,6 +2382,7 @@
               elements.settingProfileDescription.value = profile.description || '';
             }
             setSelectedProfileAsDefault(profile);
+            setProfileQueryState(false);
           }
         }
       });
@@ -2356,6 +2412,7 @@
 
     if (elements.settingApiType) {
       elements.settingApiType.addEventListener('change', function () {
+        setProfileQueryState(false);
         const val = this.value;
         const currentUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : '';
 
@@ -2376,6 +2433,9 @@
         }
       });
     }
+    [elements.settingApiUrl, elements.settingApiKey].forEach(input => {
+      input?.addEventListener('input', () => setProfileQueryState(false));
+    });
 
     if (elements.btnQueryServer) {
       elements.btnQueryServer.addEventListener('click', (e) => {
@@ -2483,6 +2543,30 @@
     if (UITel && UITel.bindPopoverEvents) {
       UITel.bindPopoverEvents(elements, () => {
         updateConnectionTokensBadge(null, null, { forcePopover: true });
+      });
+    }
+    if (elements.btnSaveContextLimitOverride && elements.contextLimitOverrideInput) {
+      elements.btnSaveContextLimitOverride.addEventListener('click', async function () {
+        const UITel = getUITelemetry();
+        const contextLimitOverride = UITel?.parseContextCapacity?.(elements.contextLimitOverrideInput.value);
+        if (!contextLimitOverride) {
+          await ChatDialogs.alert(t('context_limit_override_invalid'));
+          return;
+        }
+        const activeProfile = getRuntimeConfig().activeProfile;
+        const profile = activeProfile && Profiles.get?.(activeProfile.id);
+        if (!profile || !Profiles.save) {
+          await ChatDialogs.alert(t('context_limit_override_profile_required'));
+          return;
+        }
+        try {
+          const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
+          activateConnectionProfile(savedProfile.id);
+          updateConnectionTokensBadge(null, null, { forcePopover: true });
+        } catch (error) {
+          console.error('Could not save context limit override:', error);
+          await ChatDialogs.alert(t('context_limit_override_save_error'));
+        }
       });
     }
   }

@@ -4,7 +4,6 @@ comprobar que borrado de una respuesta o mensaje deja el estado en una situacion
 estudiar chats simultaneos como opcion y como algo que ahce el usuario por pestañas ventanas paralelas
 iconos copiar y pegar respuesta pone izda estadisticas
 indicar descarga a file de zerochat.html
-por que sale 32k en servidor lmstudio
 aprendido: docs arquitectura, doc normas test exhaustivos agentes solucionan problema concreto se suelen saltar la infraestructura
 aprendido: multiples agents, niveles, uso git desde agente o herramienta
 puntos fuerts: rag financial, tool agentico,  
@@ -13,6 +12,5 @@ mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
 clave de prueba openai, gemini y claude
 rag permitir parar importacio, tratar ficheros duplicados
-ui para movil (botoneras)
+ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
 mcp android
-automatiza consulta de capacidades, no esperar a que el usuario las pida (sacar texto de resumen como notificacion con query)

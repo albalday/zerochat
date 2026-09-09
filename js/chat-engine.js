@@ -387,7 +387,7 @@
       const optimization = ContextManager.buildOptimizedContext(messages, {
         model: appConfig.model,
         providerType: appConfig.apiType,
-        totalContextLimit: appConfig.modelContextLimit,
+        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
         ...options
       });
       lastContextDiagnostics = optimization.diagnostics || null;

@@ -7,7 +7,7 @@
 
   const definition = {
     name: 'search_knowledge_base',
-    description: 'Searches for relevant text chunks or images in the knowledge base. Use scope="document" with documentHint when the user mentions a specific document or filter (e.g. "AMD_2015_10K.pdf"), scope="corpus" for cross-document searches, or scope="auto" (default).',
+    description: 'Searches relevant knowledge-base chunks. Use scope="document" with documentHint for one exact source, scope="corpus" for comparisons or multiple sources, and scope="auto" only when the target scope is unclear. For multi-document retrieval, make one corpus search instead of repeating the same query per document.',
     parameters: {
       type: 'object',
       properties: {

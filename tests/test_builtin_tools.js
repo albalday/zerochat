@@ -206,6 +206,7 @@ test('Builtin Tools - search_knowledge_base declara los alcances de recuperació
   assert.equal(properties.documentHint.type, 'string');
   assert.match(SearchKnowledgeBaseTool.definition.description, /scope="document"/);
   assert.match(SearchKnowledgeBaseTool.definition.description, /scope="corpus"/);
+  assert.match(SearchKnowledgeBaseTool.definition.description, /one corpus search instead of repeating the same query per document/);
 });
 
 test('Builtin Tools - list_documents declara parámetro filter y lo propaga a RagService', async () => {

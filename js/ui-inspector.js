@@ -12,6 +12,7 @@
   'use strict';
 
   let discoveredModels = [];
+  const MODEL_CACHE_VERSION = 1;
 
   function resolveDep(globalName, relPath) {
     if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
@@ -62,28 +63,52 @@
     return type === 'ollama' && isBrowserNetworkError ? t('err_ollama_origins') : '';
   }
 
+  function getConnectionCacheKey(connection = {}) {
+    const apiType = String(connection.apiType || 'openai').trim().toLowerCase();
+    const apiUrl = String(connection.apiUrl || '').trim().replace(/\/+$/, '').toLowerCase();
+    return apiUrl ? `${apiType}:${apiUrl}` : '';
+  }
+
   function loadCachedModels(elements, appConfig) {
+    discoveredModels = [];
     try {
       const Storage = getStorage();
       const cached = Storage?.getStorageItem ? Storage.getStorageItem('cached_models') : null;
       if (cached) {
-        discoveredModels = JSON.parse(cached);
+        const document = JSON.parse(cached);
+        const cacheKey = getConnectionCacheKey(appConfig);
+        if (document?.version !== MODEL_CACHE_VERSION || !document.connections || typeof document.connections !== 'object') {
+          Storage?.deleteStorageItem?.('cached_models');
+          return discoveredModels;
+        }
+        discoveredModels = cacheKey ? (document.connections[cacheKey] || []) : [];
         if (Array.isArray(discoveredModels) && discoveredModels.length > 0) {
           populateModelList(elements, appConfig, discoveredModels, false);
         }
       }
     } catch (e) {
+      discoveredModels = [];
       console.warn('No se pudieron cargar modelos de caché:', e);
     }
     return discoveredModels;
   }
 
-  function saveCachedModels(models) {
-    discoveredModels = models || [];
+  function saveCachedModels(models, connection) {
+    discoveredModels = Array.isArray(models) ? models : [];
     try {
       const Storage = getStorage();
-      if (Storage?.setStorageItem) {
-        Storage.setStorageItem('cached_models', JSON.stringify(discoveredModels));
+      const cacheKey = getConnectionCacheKey(connection);
+      if (Storage?.setStorageItem && cacheKey) {
+        const cached = Storage.getStorageItem?.('cached_models');
+        let document = { version: MODEL_CACHE_VERSION, connections: {} };
+        try {
+          const parsed = cached ? JSON.parse(cached) : null;
+          if (parsed?.version === MODEL_CACHE_VERSION && parsed.connections && typeof parsed.connections === 'object') {
+            document = parsed;
+          }
+        } catch (_) {}
+        document.connections[cacheKey] = discoveredModels;
+        Storage.setStorageItem('cached_models', JSON.stringify(document));
       }
     } catch (e) {}
     return discoveredModels;
@@ -104,14 +129,14 @@
   }
 
   function populateModelList(elements, appConfig, models, selectFirstIfEmpty = false) {
-    if (!models || !Array.isArray(models) || models.length === 0) return;
+    const modelList = Array.isArray(models) ? models : [];
 
     const doc = elements?.modelDatalist?.ownerDocument || elements?.modelSelectHelper?.ownerDocument || (typeof document !== 'undefined' ? document : null);
     if (!doc) return;
 
     if (elements?.modelDatalist) {
       elements.modelDatalist.innerHTML = '';
-      models.forEach(m => {
+      modelList.forEach(m => {
         const id = (typeof m === 'string' ? m : (m.id || m.name || '')).trim();
         if (id) {
           const opt = doc.createElement('option');
@@ -129,12 +154,12 @@
       defaultOpt.value = '';
       defaultOpt.disabled = true;
       defaultOpt.selected = true;
-      defaultOpt.textContent = t('model_select_count', { count: models.length });
+      defaultOpt.textContent = t('model_select_count', { count: modelList.length });
       elements.modelSelectHelper.appendChild(defaultOpt);
 
       const currentVal = elements.settingModel ? elements.settingModel.value.trim() : (appConfig?.model || '');
 
-      models.forEach(m => {
+      modelList.forEach(m => {
         const id = (typeof m === 'string' ? m : (m.id || m.name || '')).trim();
         if (id) {
           const opt = doc.createElement('option');
@@ -153,7 +178,7 @@
 
     if (selectFirstIfEmpty && elements?.settingModel) {
       const currentVal = elements.settingModel.value.trim();
-      const firstId = (typeof models[0] === 'string' ? models[0] : (models[0].id || models[0].name || '')).trim();
+      const firstId = (typeof modelList[0] === 'string' ? modelList[0] : (modelList[0]?.id || modelList[0]?.name || '')).trim();
       if (!currentVal && firstId) {
         elements.settingModel.value = firstId;
         if (elements.modelSelectHelper) elements.modelSelectHelper.value = firstId;
@@ -162,7 +187,7 @@
   }
 
   async function handleQueryServer(elements, appConfig) {
-    if (!elements || !elements.btnQueryServer) return;
+    if (!elements || !elements.btnQueryServer) return false;
 
     const apiUrl = (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '').trim();
     const apiKey = (elements.settingApiKey ? elements.settingApiKey.value : appConfig?.apiKey || '').trim();
@@ -174,7 +199,7 @@
         elements.serverQueryStatus.className = 'server-query-status status-error';
         elements.serverQueryStatus.textContent = t('err_invalid_url');
       }
-      return;
+      return false;
     }
 
     elements.btnQueryServer.disabled = true;
@@ -200,13 +225,14 @@
       addDebugLog('raw', `<<< INCOMING (fetchServerModels):\n${JSON.stringify(res, null, 2)}`);
 
       if (res.success && res.models && res.models.length > 0) {
-        saveCachedModels(res.models);
+        saveCachedModels(res.models, { apiUrl, apiType });
         populateModelList(elements, appConfig, res.models, true);
 
         if (elements.serverQueryStatus) {
           elements.serverQueryStatus.className = 'server-query-status status-success';
           elements.serverQueryStatus.innerHTML = t('msg_models_success', { count: res.count, endpoint: res.endpoint });
         }
+        return true;
       } else {
         throw new Error(res.error || 'Server did not return a valid models list.');
       }
@@ -217,6 +243,7 @@
         const ollamaHelp = getOllamaConnectionHelp(apiType, err);
         elements.serverQueryStatus.innerHTML = ollamaHelp || t('err_api_connect', { err: escapeHtml(err.message || String(err)) });
       }
+      return false;
     } finally {
       elements.btnQueryServer.disabled = false;
       elements.btnQueryServer.classList.remove('loading');
@@ -411,6 +438,7 @@
   return {
     loadCachedModels,
     saveCachedModels,
+    getConnectionCacheKey,
     getCachedModels,
     getModelContextLimit,
     populateModelList,

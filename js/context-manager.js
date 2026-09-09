@@ -18,7 +18,7 @@
   // ==========================================================================
 
   // Only a fallback. The authoritative value must come from the provider.
-  const DEFAULT_CONTEXT_LIMIT = 65536;
+  const DEFAULT_CONTEXT_LIMIT = 1000000;
 
   /**
    * Obtiene el límite de contexto publicado por el proveedor o el fallback general.
@@ -692,6 +692,7 @@ Responde estrictamente con el siguiente formato:
   }
 
   return {
+    DEFAULT_CONTEXT_LIMIT,
     getModelContextLimit,
     calculateInputBudget,
     estimateTextTokens,

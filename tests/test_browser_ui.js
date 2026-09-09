@@ -3,6 +3,103 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+test('Browser UI - el fallback de contexto no invalida el formulario de envío', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForTimeout(250);
+    await page.selectOption('#active-profile-select', 'profile:remote');
+    await page.fill('#user-input', 'test');
+
+    const formState = await page.evaluate(() => ({
+      valid: document.getElementById('chat-form').checkValidity(),
+      fallback: document.getElementById('context-limit-override-input').value
+    }));
+
+    assert.equal(formState.fallback, '1000K');
+    assert.equal(formState.valid, true);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+
+    const state = await page.evaluate(() => ({
+      disabled: document.getElementById('btn-save-profile').disabled,
+      hint: document.getElementById('profile-save-query-hint').textContent
+    }));
+
+    assert.equal(state.disabled, true);
+    assert.match(state.hint, /Consulta el servidor/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - una consulta de perfil debe guardarse antes de cerrar', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.evaluate(() => {
+      window.ChatUIInspector.handleQueryServer = async () => true;
+    });
+    await page.click('#profile-tab-settings');
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
+    await page.click('#btn-cancel-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+
+    const state = await page.evaluate(() => ({
+      profilesOpen: document.getElementById('profiles-dialog').open,
+      notice: document.getElementById('notice-message').textContent
+    }));
+    assert.equal(state.profilesOpen, true);
+    assert.match(state.notice, /no se ha guardado/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - al volver a LM Studio recupera el límite publicado', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.setItem('zerochat_cached_models', JSON.stringify({
+        version: 1,
+        connections: {
+          'openai:http://localhost:1234/v1': [{
+            id: 'google/gemma-4-26b-a4b-qat',
+            details: { loaded_context_length: 90112, max_context_length: 262144 }
+          }]
+        }
+      }));
+    });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForTimeout(250);
+    await page.selectOption('#active-profile-select', 'profile:remote');
+    const remoteContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
+    assert.equal(remoteContext, null);
+    await page.selectOption('#active-profile-select', 'profile:local');
+
+    const context = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
+    assert.equal(context, 90112);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - index.html declara el mismo runtime que se distribuye', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -18,7 +115,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.5.5', 'El título de index.html debe ser ZeroChat v6.5.5');
+    assert.equal(await page.title(), 'ZeroChat v6.5.6', 'El título de index.html debe ser ZeroChat v6.5.6');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -50,7 +147,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.5.5', 'El título de zerochat.html debe ser ZeroChat v6.5.5');
+    assert.equal(title, 'ZeroChat v6.5.6', 'El título de zerochat.html debe ser ZeroChat v6.5.6');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -682,6 +779,9 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.click('#notice-accept');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://playwright-test:1234/v1');
+    await page.evaluate(() => { window.ChatUIInspector.handleQueryServer = async () => true; });
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     await page.click('#btn-save-profile');
 
     const profileSaveResult = await page.evaluate(() => {
@@ -708,6 +808,9 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.fill('#setting-profile-name', 'Local chat renombrado');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://active-profile-test:1234/v1');
+    await page.evaluate(() => { window.ChatUIInspector.handleQueryServer = async () => true; });
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     await page.click('#btn-save-profile');
     const renamedActiveResult = await page.evaluate(() => {
       const profiles = window.ChatProfileRepository?.list?.() || [];
@@ -1641,7 +1744,6 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     await browser.close();
   }
 });
-
 
 test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
   const browser = await chromium.launch({ headless: true });

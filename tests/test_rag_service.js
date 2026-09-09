@@ -26,6 +26,9 @@ test('RagService - inyecta solo instrucciones compactas', async () => {
   assert.match(context, /list_documents/);
   assert.match(context, /read_knowledge_image/);
   assert.match(context, /native vision/);
+  assert.match(context, /scope="corpus" for comparisons, multiple documents, companies, or years/);
+  assert.match(context, /Do not repeat the same query with different documentHint values/);
+  assert.match(context, /scope="auto" only when neither intent is clear/);
   assert.doesNotMatch(context, /Kubernetes|PostgreSQL/);
   assert.match(await RagService.injectRagContext('Responde brevemente.', branch.id), /Responde brevemente/);
 });
@@ -516,4 +519,3 @@ test('RagService - listDocuments filtra por palabra clave, empresa o año con co
   const hyphenList = await RagService.listDocuments(branch.id, { filter: '10-K' });
   assert.equal(hyphenList.count, 3);
 });
-

@@ -53,6 +53,22 @@
     return String(Math.round(val));
   }
 
+  function formatContextCapacity(num) {
+    const value = Number(num);
+    if (!Number.isFinite(value) || value <= 0) return '0';
+    if (value < 1000) return String(Math.round(value));
+    return `${(value / 1000).toFixed(3).replace(/\.?0+$/, '')}K`;
+  }
+
+  function parseContextCapacity(value) {
+    const match = String(value || '').trim().match(/^(\d+(?:[.,]\d+)?)\s*([km]?)$/i);
+    if (!match) return null;
+    const amount = Number(match[1].replace(',', '.'));
+    const multiplier = match[2].toLowerCase() === 'k' ? 1000 : (match[2].toLowerCase() === 'm' ? 1000000 : 1);
+    const limit = Math.floor(amount * multiplier);
+    return Number.isFinite(limit) && limit >= 1024 ? limit : null;
+  }
+
   /**
    * Clasifica la salud del contexto según el porcentaje de ventana consumido.
    * @param {number} percentUsed
@@ -93,12 +109,15 @@
       diag = CM.getContextDiagnostics(chatHistory || [], {
         model,
         providerType: apiType,
-        totalContextLimit: cfg.modelContextLimit,
+        totalContextLimit: cfg.modelContextLimit || cfg.contextLimitOverride,
         usedTokens: sPrompt > 0 ? sPrompt : null
       });
     }
 
-    const totalLimit = diag?.totalLimit || (CM && typeof CM.getModelContextLimit === 'function' ? CM.getModelContextLimit(model, apiType, cfg.modelContextLimit) : 65536);
+    const configuredLimit = cfg.modelContextLimit || cfg.contextLimitOverride;
+    const totalLimit = diag?.totalLimit || (CM && typeof CM.getModelContextLimit === 'function'
+      ? CM.getModelContextLimit(model, apiType, configuredLimit)
+      : (CM?.DEFAULT_CONTEXT_LIMIT || 0));
     const usedTokens = diag?.usedTokens ?? sPrompt;
     const percentUsed = diag?.percentUsed ?? (totalLimit > 0 ? Number(((usedTokens / totalLimit) * 100).toFixed(1)) : 0);
     const remainingTokens = Math.max(0, totalLimit - usedTokens);
@@ -107,7 +126,8 @@
     const prefix = (isEstimated && usedTokens > 0) ? '~' : '';
     const usedFormatted = prefix + formatTokenCount(usedTokens);
     const limitFormatted = formatTokenCount(totalLimit);
-    const badgeText = `${usedFormatted} / ${limitFormatted}`;
+    const contextLimitSource = cfg.modelContextLimit ? 'server' : (cfg.contextLimitOverride ? 'manual' : 'assumed');
+    const badgeText = `${usedFormatted} / ${limitFormatted}${contextLimitSource === 'assumed' ? '*' : ''}`;
     const healthStatus = getContextHealthStatus(percentUsed);
 
     return {
@@ -121,6 +141,7 @@
       prefix,
       badgeText,
       healthStatus,
+      contextLimitSource,
       cachedTokens: sCached,
       cachedFormatted: formatTokenCount(sCached),
       cacheCreationTokens: sCacheCreate,
@@ -204,10 +225,25 @@
       elements.contextMetricUsedVal.textContent = `${vm.usedTokens.toLocaleString()} tok` + (vm.isEstimated && vm.usedTokens > 0 ? ' (est.)' : '');
     }
     if (elements.contextMetricLimitVal) {
-      elements.contextMetricLimitVal.textContent = `${vm.totalLimit.toLocaleString()} tok`;
+      elements.contextMetricLimitVal.textContent = `${formatContextCapacity(vm.totalLimit)} tok`;
+    }
+    if (elements.contextLimitSource) {
+      const sourceKey = vm.contextLimitSource === 'server'
+        ? 'context_limit_source_server'
+        : (vm.contextLimitSource === 'manual' ? 'context_limit_source_manual' : 'context_limit_source_assumed');
+      elements.contextLimitSource.textContent = translate(sourceKey);
+    }
+    if (elements.contextLimitOverrideInput) {
+      const input = elements.contextLimitOverrideInput;
+      const isFocused = typeof document !== 'undefined' && document.activeElement === input;
+      if (!isFocused) input.value = vm.contextLimitSource === 'server' ? '' : formatContextCapacity(vm.totalLimit);
+      input.disabled = vm.contextLimitSource === 'server';
+    }
+    if (elements.btnSaveContextLimitOverride) {
+      elements.btnSaveContextLimitOverride.disabled = vm.contextLimitSource === 'server';
     }
     if (elements.contextMetricFreeVal) {
-      elements.contextMetricFreeVal.textContent = `${vm.remainingTokens.toLocaleString()} tok`;
+      elements.contextMetricFreeVal.textContent = `${formatContextCapacity(vm.remainingTokens)} tok`;
     }
     if (elements.contextMetricStatusVal) {
       elements.contextMetricStatusVal.className = 'context-metric-val';
@@ -355,6 +391,8 @@
 
   return {
     formatTokenCount,
+    formatContextCapacity,
+    parseContextCapacity,
     getContextHealthStatus,
     computeTelemetryViewModel,
     updateBadge,

@@ -225,7 +225,7 @@ test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de c
 
 test('ContextManager - usa el límite publicado y un único fallback cuando falta', () => {
   assert.equal(ContextManager.getModelContextLimit('', '', 90112), 90112);
-  assert.equal(ContextManager.getModelContextLimit(), 65536);
+  assert.equal(ContextManager.getModelContextLimit(), 1000000);
 });
 
 test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas consecutivas y compacta al recibir checkpoint', async () => {

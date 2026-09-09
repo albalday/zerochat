@@ -17,7 +17,7 @@
   const DEFAULTS = Object.freeze({
     schemaVersion: SCHEMA_VERSION,
     activeProfile: null,
-    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '', modelContextLimit: null,
+    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '', modelContextLimit: null, contextLimitOverride: null,
     systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'none',
     maxAgentTurns: 15,
     modelReasoningConfig: null,
@@ -51,6 +51,8 @@
     next.model = String(next.model || '').trim();
     const contextLimit = Number(next.modelContextLimit);
     next.modelContextLimit = Number.isFinite(contextLimit) && contextLimit > 0 ? Math.floor(contextLimit) : null;
+    const contextLimitOverride = Number(next.contextLimitOverride);
+    next.contextLimitOverride = Number.isFinite(contextLimitOverride) && contextLimitOverride > 0 ? Math.floor(contextLimitOverride) : null;
     next.systemPrompt = String(next.systemPrompt || '').trim();
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
@@ -84,7 +86,7 @@
 
     function persist(next) {
       if (!storage?.saveRuntimeConfigV2) throw new Error('El almacenamiento de configuración no está disponible.');
-      storage.saveRuntimeConfigV2(next);
+      storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
     }
 
     function commit(next) {
@@ -97,7 +99,7 @@
     function initialize() {
       profiles?.initialize?.();
       const stored = storage?.loadRuntimeConfigV2?.();
-      if (stored) return commit(stored);
+      if (stored) return commit({ ...stored, modelContextLimit: null });
 
       const initialProfile = profiles?.list?.()[0] || null;
       return initialProfile ? activateProfile(initialProfile.id) : commit(DEFAULTS);
@@ -112,6 +114,11 @@
       const safePatch = { ...patch };
       delete safePatch.schemaVersion;
       delete safePatch.activeProfile;
+      const connectionChanged = ['apiUrl', 'apiType', 'model'].some(key => Object.prototype.hasOwnProperty.call(safePatch, key)
+        && safePatch[key] !== current[key]);
+      if (connectionChanged && !Object.prototype.hasOwnProperty.call(safePatch, 'modelContextLimit')) {
+        safePatch.modelContextLimit = null;
+      }
       return commit({ ...current, ...safePatch });
     }
 
@@ -126,7 +133,13 @@
       PROFILE_FIELDS.forEach(field => {
         if (profile.settings[field] !== undefined) patch[field] = clone(profile.settings[field]);
       });
-      return commit({ ...getActive(), ...patch, activeProfile: profileMetadata(profile) });
+      return commit({
+        ...getActive(),
+        ...patch,
+        modelContextLimit: null,
+        contextLimitOverride: profile.settings.contextLimitOverride ?? null,
+        activeProfile: profileMetadata(profile)
+      });
     }
 
     function subscribe(listener) {
