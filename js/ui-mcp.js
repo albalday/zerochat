@@ -320,13 +320,22 @@ if __name__ == "__main__":
     return /Android/i.test(userAgent)
       || /Android/i.test(platform)
       || /Android/i.test(userAgentDataPlatform)
-      || (navigator.userAgentData?.mobile === true && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`));
+      || (navigator.userAgentData?.mobile === true && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`))
+      || (navigator.maxTouchPoints > 0 && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`));
   }
 
   function generateClipboardCommand(port, translator = t) {
     const command = generateTerminalCommand(port);
     if (!isAndroid()) return command;
     return `${translator('mcp_termux_copy_help')}\n\n${command}`;
+  }
+
+  function updateAndroidHelp(translator = t, element = null) {
+    const help = element || (typeof document !== 'undefined' ? document.getElementById('mcp-android-help') : null);
+    if (!help) return;
+    const detected = isAndroid();
+    help.style.display = detected ? 'block' : 'none';
+    if (detected) help.textContent = translator('mcp_android_detected');
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -534,6 +543,7 @@ if __name__ == "__main__":
     const port = elements.portInput?.value || state.port || DEFAULT_PORT;
     if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
     if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
+    updateAndroidHelp(translator, elements.androidHelp);
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
@@ -728,6 +738,7 @@ if __name__ == "__main__":
       const cmd = generateClipboardCommand(elements.portInput?.value);
       copyCommandToClipboard(cmd, elements.btnCopyCmd, t);
     });
+    updateAndroidHelp(t, elements.androidHelp);
 
     elements.btnConnect?.addEventListener?.('click', async () => {
       const host = elements.hostInput?.value || DEFAULT_HOST;
@@ -870,6 +881,7 @@ if __name__ == "__main__":
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
             </button>
           </div>
+          <p id="mcp-android-help" class="label-hint mcp-android-help" style="display: none;"></p>
         </div>
       </div>
     </div>

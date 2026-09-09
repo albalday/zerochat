@@ -336,6 +336,7 @@
       mcp_btn_download_server: 'Descargar servidor (zerochat_mcp.py)',
       mcp_btn_download_title: 'Descargar script Python autogenerado para iniciar el servidor MCP local',
       mcp_run_instruction: 'Comando de ejecución:',
+      mcp_android_detected: 'Android detectado: el botón de copiar incluirá las instrucciones completas para Termux.',
       mcp_termux_copy_help: `ANDROID / TERMUX
 1. Instala Termux desde F-Droid: https://f-droid.org/packages/com.termux/
 2. Abre Termux y ejecuta estas líneas:
@@ -897,6 +898,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_btn_download_server: 'Download server (zerochat_mcp.py)',
       mcp_btn_download_title: 'Download auto-generated Python script to start the local MCP server',
       mcp_run_instruction: 'Execution command:',
+      mcp_android_detected: 'Android detected: the copy button will include the complete Termux instructions.',
       mcp_termux_copy_help: `ANDROID / TERMUX
 1. Install Termux from F-Droid: https://f-droid.org/packages/com.termux/
 2. Open Termux and run these lines:

@@ -119,6 +119,29 @@ test('ChatUIMcp - detecta Android mediante User-Agent Client Hints', () => {
   }
 });
 
+test('ChatUIMcp - detecta Android táctil con User-Agent de escritorio', () => {
+  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      platform: 'Linux x86_64',
+      maxTouchPoints: 5
+    },
+    configurable: true,
+    writable: true
+  });
+
+  try {
+    assert.equal(ChatUIMcp.isAndroid(), true);
+  } finally {
+    if (originalDesc) {
+      Object.defineProperty(globalThis, 'navigator', originalDesc);
+    } else {
+      delete globalThis.navigator;
+    }
+  }
+});
+
 test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {
   const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
   assert.ok(pyScript.includes('#!/usr/bin/env python3'));
