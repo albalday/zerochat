@@ -402,21 +402,14 @@
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, cancelled?: boolean, error?: any }>}
    */
-  async function executeAgentTurnLoop(params = {}) {
+  async function executeWithAgentRuntime(params = {}) {
     const {
-      apiUrl,
-      apiType,
-      apiKey,
-      model,
-      temperature,
-      reasoningEffort,
       chatHistory = [],
       appConfig = {},
       assistantMsgId = `asst_${Date.now()}`,
       activeRagBranchId = '',
       activeRagBranchIds = [],
       currentRagSystemContext = '',
-      signal,
       container,
       onTurnStart,
       onChunk,
@@ -429,495 +422,175 @@
       scrollToBottom,
       attachListeners
     } = params;
-
-    const resolvedActiveRagBranchIds = (Array.isArray(activeRagBranchIds) && activeRagBranchIds.length > 0)
-      ? activeRagBranchIds
-      : (activeRagBranchId ? [activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
-    const resolvedActiveRagBranchId = activeRagBranchId || resolvedActiveRagBranchIds[0] || (appConfig.activeRagBranchId || '');
-
-    const API = getAPI();
     const AgentCore = getAgentCore();
     const Markdown = getMarkdown();
-    const parseMd = Markdown.parseMarkdown || function (txt) { return txt; };
-    const attachEvts = attachListeners || Markdown.attachCopyCodeListeners || function () {};
-    const scrollFn = scrollToBottom || function () {};
-
-    if (!API || !API.streamChatCompletion) {
-      const err = new Error('El módulo ChatAPI no está disponible.');
-      if (typeof onLog === 'function') onLog('error', err.message);
-      return { success: false, error: err };
+    const runtime = AgentCore?.runtime;
+    if (!runtime || !AgentCore?.registry || !AgentCore?.dispatchToolCall) {
+      return { success: false, error: new Error('El runtime agéntico no está disponible.') };
     }
 
-    if (!model || model.trim() === '') {
-      const err = new Error('No se ha seleccionado ningún modelo de inferencia.');
-      if (typeof onLog === 'function') onLog('error', err.message);
-      return { success: false, error: err };
-    }
+    const parseMd = Markdown.parseMarkdown || (text => text);
+    const attachEvts = attachListeners || Markdown.attachCopyCodeListeners || (() => {});
+    const scrollFn = scrollToBottom || (() => {});
+    const resolvedBranchIds = Array.isArray(activeRagBranchIds) && activeRagBranchIds.length > 0
+      ? activeRagBranchIds
+      : (activeRagBranchId ? [activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
+    const resolvedBranchId = activeRagBranchId || resolvedBranchIds[0] || appConfig.activeRagBranchId || '';
+    const turnBlocks = new Map();
+    let synthesisBlock = null;
+    const turnMarkdown = new Map();
 
-    const maxAgentTurns = params.maxAgentTurns || appConfig.maxAgentTurns || 15;
-    const toolCallSignatures = [];
-    let turnIndex = 0;
-    let accumulatedConversationMarkdown = '';
-    let finalAssistantText = '';
-    let finalStats = null;
-    let isCancelled = false;
-    let consecutiveDataCalls = 0;
-    const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'list_documents', 'search_web', 'fetch_web_page', 'download_pdf']);
-
-    while (turnIndex < maxAgentTurns) {
-      if (signal && signal.aborted) {
-        isCancelled = true;
-        break;
+    const getTurnMarkdown = turnIndex => {
+      if (!turnMarkdown.has(turnIndex)) {
+        turnMarkdown.set(turnIndex, { text: '', toolBlocks: [] });
       }
+      return turnMarkdown.get(turnIndex);
+    };
 
-      let turnBlock = null;
-      if (container && typeof document !== 'undefined') {
-        if (turnIndex === 0) {
-          container.innerHTML = '';
-        }
-        turnBlock = document.createElement('div');
-        turnBlock.className = 'agentic-turn-block';
-        container.appendChild(turnBlock);
-      }
-
-      if (typeof onTurnStart === 'function') {
-        onTurnStart({ turnIndex, turnBlock });
-      }
-
-      let currentTurnText = '';
-      let turnToolCalls = null;
-      let turnFinalStats = null;
-      let streamError = null;
-
-      const effectiveMessages = buildEffectiveMessages(chatHistory, appConfig, {
-        currentRagSystemContext,
-        activeRagBranchId: resolvedActiveRagBranchId,
-        activeRagBranchIds: resolvedActiveRagBranchIds
-      });
-
-      const AgentCore = getAgentCore();
-      const activeToolDefs = (AgentCore && AgentCore.registry && typeof AgentCore.registry.getActiveDefinitions === 'function')
-        ? AgentCore.registry.getActiveDefinitions({ ...appConfig, activeRagBranchId: resolvedActiveRagBranchId, activeRagBranchIds: resolvedActiveRagBranchIds })
-        : [];
-
-      const streamResult = await API.streamChatCompletion({
-        apiUrl: apiUrl || appConfig.apiUrl,
-        apiType: apiType || appConfig.apiType,
-        apiKey: apiKey || appConfig.apiKey,
-        model: model || appConfig.model,
-        messages: effectiveMessages,
-        temperature: temperature !== undefined ? temperature : appConfig.temperature,
-        reasoningEffort: reasoningEffort || appConfig.reasoningEffort || 'none',
-        tools: activeToolDefs,
-        enableTools: activeToolDefs.length > 0,
-        activeRagBranchId: resolvedActiveRagBranchId || '',
-        activeRagBranchIds: resolvedActiveRagBranchIds,
-        signal: signal,
-
-        onBeforeRequest: onBeforeRequest,
-
-        onReasoningChunk: function (chunk) {
-          if (typeof onReasoningChunk === 'function') {
-            onReasoningChunk(chunk);
-          } else if (typeof onLog === 'function') {
-            onLog('thinking', chunk);
+    const result = await runtime.execute({
+      apiUrl: params.apiUrl || appConfig.apiUrl,
+      apiType: params.apiType || appConfig.apiType,
+      apiKey: params.apiKey || appConfig.apiKey,
+      model: params.model || appConfig.model,
+      temperature: params.temperature !== undefined ? params.temperature : appConfig.temperature,
+      reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'none',
+      messages: chatHistory,
+      signal: params.signal,
+      maxSteps: params.maxAgentTurns || appConfig.maxAgentTurns || 15,
+      maxRetries: 0,
+      autoSynthesize: true,
+      synthesizeOnLoop: false,
+      appendFinalMessage: true,
+      isCheckpointEnabled: Boolean(appConfig.enabledTools?.agent_checkpoint),
+      onBeforeRequest,
+      createMessageId: (kind, info) => {
+        if (kind === 'final') return `${assistantMsgId}_final`;
+        if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
+        return `${assistantMsgId}_turn_${info.stepIndex}_tool_${info.toolCall?.id || info.toolIndex}_${Date.now()}`;
+      },
+      prepareMessages: (messages, options) => ({
+        messages: buildEffectiveMessages(messages, appConfig, {
+          currentRagSystemContext,
+          activeRagBranchId: resolvedBranchId,
+          activeRagBranchIds: resolvedBranchIds,
+          forceSystemPromptGuide: Boolean(options.isSynthesis)
+        }),
+        diagnostics: lastContextDiagnostics
+      }),
+      resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions({
+        ...appConfig,
+        activeRagBranchId: resolvedBranchId,
+        activeRagBranchIds: resolvedBranchIds
+      }),
+      dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
+        container,
+        onLog,
+        attachListeners: attachEvts,
+        scrollToBottom: scrollFn,
+        language: appConfig.language || 'es',
+        activeRagBranchId: resolvedBranchId,
+        activeRagBranchIds: resolvedBranchIds,
+        ...context
+      }),
+      callbacks: {
+        onStepStart: turnIndex => {
+          if (container && typeof document !== 'undefined') {
+            if (turnIndex === 0) container.innerHTML = '';
+            const block = document.createElement('div');
+            block.className = 'agentic-turn-block';
+            container.appendChild(block);
+            turnBlocks.set(turnIndex, block);
+            if (typeof onTurnStart === 'function') onTurnStart({ turnIndex, turnBlock: block });
           }
         },
-
-        onLog: function (logData) {
-          if (typeof onLog === 'function' && logData && logData.type !== 'thinking') {
-            onLog(logData.type, logData.text);
-          }
-        },
-
-        onChunk: function (fullTextSoFar, delta, stats) {
-          currentTurnText = fullTextSoFar;
-          if (turnBlock) {
-            turnBlock.innerHTML = injectStreamingCursor(parseMd(currentTurnText));
-            attachEvts(turnBlock);
+        onChunk: (text, delta, stats, turnIndex) => {
+          const block = turnBlocks.get(turnIndex) || synthesisBlock;
+          if (block) {
+            block.innerHTML = injectStreamingCursor(parseMd(text));
+            attachEvts(block);
           }
           if (stats && typeof onStats === 'function') onStats(stats);
-          if (typeof onChunk === 'function') onChunk({ turnIndex, fullText: currentTurnText, delta, stats });
+          if (typeof onChunk === 'function') onChunk({ turnIndex, fullText: text, delta, stats });
           scrollFn();
         },
-
-        onDone: function (finalText, stats, toolCalls) {
-          currentTurnText = finalText || currentTurnText;
-          turnFinalStats = stats;
-          turnToolCalls = toolCalls;
+        onReasoningChunk: (chunk, _accumulated, turnIndex) => {
+          if (typeof onReasoningChunk === 'function') onReasoningChunk(chunk, turnIndex);
         },
-
-        onError: function (error) {
-          streamError = error;
-        }
-      });
-
-      if (streamResult && streamResult.cancelled) {
-        if (turnBlock && !currentTurnText && turnBlock.parentNode) {
-          turnBlock.parentNode.removeChild(turnBlock);
-        }
-        return { success: false, cancelled: true };
-      }
-
-      if (streamError) {
-        if (signal && signal.aborted) {
-          return { success: false, cancelled: true };
-        }
-        if (typeof onLog === 'function') onLog('error', streamError.message || String(streamError));
-        return { success: false, error: streamError, currentTurnText };
-      }
-
-      if (streamResult) {
-        currentTurnText = streamResult.accumulatedText || currentTurnText;
-        turnToolCalls = streamResult.toolCalls || turnToolCalls;
-        turnFinalStats = streamResult.stats || turnFinalStats;
-      }
-
-      // CASO A: No tool calls — final turn
-      if (!turnToolCalls || turnToolCalls.length === 0) {
-        // If the model returned empty text after a tool turn, log it and move on
-        if ((!currentTurnText || currentTurnText.trim() === '') && turnIndex > 0 && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'tool') {
-          if (typeof onLog === 'function') onLog('warn', 'Model ended the tool loop without producing a response.');
-        }
-
-        if (turnBlock) {
-          const I18n = getI18n();
-          const emptyResponse = I18n && typeof I18n.uiText === 'function'
-            ? I18n.uiText('empty_response', '(Empty response)')
-            : '(Empty response)';
-          turnBlock.innerHTML = parseMd(currentTurnText || emptyResponse);
-          attachEvts(turnBlock);
-        }
-
-        chatHistory.push({
-          id: `${assistantMsgId}_final`,
-          role: 'assistant',
-          content: currentTurnText
-        });
-
-        finalAssistantText = currentTurnText;
-        finalStats = turnFinalStats;
-        if (finalStats && typeof onStats === 'function') onStats(finalStats);
-
-        return {
-          success: true,
-          finalAssistantText,
-          accumulatedMarkdown: (accumulatedConversationMarkdown ? accumulatedConversationMarkdown : '') + currentTurnText,
-          stats: finalStats,
-          chatHistory
-        };
-      }
-
-      // CASO B: Procesar llamadas a herramientas (soporte para llamadas individuales y en paralelo)
-      const currentSignatures = turnToolCalls.map(tc => {
-        const rawFuncName = tc.function?.name || '';
-        const normName = API.normalizeToolName ? API.normalizeToolName(rawFuncName) : rawFuncName.toLowerCase().replace(/_/g, '');
-        const argsStr = typeof tc.function?.arguments === 'object'
-          ? JSON.stringify(tc.function.arguments)
-          : String(tc.function?.arguments || '').trim();
-        return `${normName}:${argsStr}`;
-      });
-
-      // Protección contra Bucles Infinitos (repetición idéntica de llamadas)
-      const allRepeated = currentSignatures.length > 0 && currentSignatures.every(sig => {
-        return toolCallSignatures.filter(s => s === sig).length >= 2;
-      });
-
-      if (allRepeated) {
-        if (typeof onLog === 'function') {
-          onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
-        }
-        const loopWarning = `\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.`;
-        currentTurnText = (currentTurnText || '') + loopWarning;
-        if (turnBlock) {
-          turnBlock.innerHTML = parseMd(currentTurnText);
-          attachEvts(turnBlock);
-        }
-
-        chatHistory.push({
-          id: `${assistantMsgId}_final`,
-          role: 'assistant',
-          content: currentTurnText
-        });
-
-        finalAssistantText = currentTurnText;
-        finalStats = turnFinalStats;
-        if (finalStats && typeof onStats === 'function') onStats(finalStats);
-
-        return {
-          success: true,
-          loopDetected: true,
-          finalAssistantText,
-          accumulatedMarkdown: (accumulatedConversationMarkdown ? accumulatedConversationMarkdown : '') + currentTurnText,
-          stats: finalStats,
-          contextDiagnostics: lastContextDiagnostics,
-          chatHistory
-        };
-      }
-      for (const sig of currentSignatures) {
-        toolCallSignatures.push(sig);
-      }
-
-      // Limpiar llamadas a herramientas emitidas accidentalmente como texto crudo
-      const trimmedAcc = (currentTurnText || '').trim();
-      if (
-        trimmedAcc.startsWith('<|') ||
-        trimmedAcc.startsWith('<tool_call') ||
-        trimmedAcc.startsWith('<function_call') ||
-        trimmedAcc.startsWith('call:') ||
-        trimmedAcc.startsWith('{"name"') ||
-        trimmedAcc.startsWith('```json\n{"name"') ||
-        trimmedAcc.startsWith('download_pdf(') ||
-        trimmedAcc.startsWith('downloadpdf(') ||
-        trimmedAcc.startsWith('fetch_web_page(') ||
-        trimmedAcc.startsWith('fetchwebpage(') ||
-        trimmedAcc.startsWith('search_web(') ||
-        trimmedAcc.startsWith('searchweb(') ||
-        trimmedAcc.startsWith('execute_javascript(') ||
-        trimmedAcc.startsWith('executejs(')
-      ) {
-        currentTurnText = '';
-      }
-
-      if (currentTurnText && turnBlock) {
-        turnBlock.innerHTML = parseMd(currentTurnText);
-        attachEvts(turnBlock);
-      } else if (turnBlock) {
-        turnBlock.remove();
-      }
-
-      const executedResults = [];
-      for (let i = 0; i < turnToolCalls.length; i++) {
-        if (signal && signal.aborted) break;
-        const tc = turnToolCalls[i];
-        const rawFuncName = tc.function?.name || '';
-
-        if (typeof onToolCallStart === 'function') {
-          onToolCallStart({ turnIndex, toolCall: tc, toolIndex: i, totalTools: turnToolCalls.length });
-        }
-
-        let toolExecRes = null;
-        if (AgentCore && AgentCore.dispatchToolCall) {
-          toolExecRes = await AgentCore.dispatchToolCall(tc, {
-            container: container,
-            onLog: onLog,
-            attachListeners: attachEvts,
-            scrollToBottom: scrollFn,
-            language: appConfig.language || 'es',
-            signal: signal,
-            activeRagBranchId: resolvedActiveRagBranchId,
-            activeRagBranchIds: resolvedActiveRagBranchIds,
-            compactHistory: () => {
-              const ContextManager = getContextManager();
-              if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
-                const compacted = ContextManager.compactToolHistory(chatHistory);
-                chatHistory.length = 0;
-                chatHistory.push(...compacted);
-              }
-            }
-          });
-        } else {
-          toolExecRes = {
-            success: false,
-            resultText: 'Error: Módulo de ejecución de herramientas no disponible.',
-            markdownBlock: `> ❌ **${rawFuncName}**: Módulo de ejecución no disponible.`
-          };
-        }
-
-        if (typeof onToolCallEnd === 'function') {
-          onToolCallEnd({ turnIndex, toolCall: tc, result: toolExecRes, toolIndex: i, totalTools: turnToolCalls.length });
-        }
-        executedResults.push({ tc, toolExecRes, rawFuncName, index: i });
-      }
-
-      if (turnFinalStats && typeof onStats === 'function') onStats(turnFinalStats);
-      scrollFn();
-
-      // Guardar turno del asistente con la lista completa de tool_calls
-      chatHistory.push({
-        id: `${assistantMsgId}_turn_${turnIndex}_assistant`,
-        role: 'assistant',
-        content: currentTurnText || null,
-        tool_calls: turnToolCalls
-      });
-
-      const isCheckpointActive = Boolean(appConfig?.enabledTools?.agent_checkpoint);
-      let hasCheckpointInTurn = false;
-
-      // Guardar respuesta de cada herramienta ejecutada
-      let combinedMarkdownBlocks = '';
-      for (const item of executedResults) {
-        const { tc, toolExecRes, rawFuncName, index } = item;
-        const isCheckpoint = rawFuncName === 'agent_checkpoint' || rawFuncName === 'checkpoint';
-        if (isCheckpoint) {
-          hasCheckpointInTurn = true;
-        }
-
-        let toolContent = toolExecRes.resultText;
-
-        // Inyección agéntica activa si se encadenan consultas de datos sin checkpoint
-        if (isCheckpointActive) {
-          if (DATA_TOOL_NAMES.has(rawFuncName)) {
-            consecutiveDataCalls++;
-            if (consecutiveDataCalls >= 2) {
-              const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
-              toolContent = nudge + (toolContent || '');
-            }
-          } else if (isCheckpoint) {
-            consecutiveDataCalls = 0;
+        onLog: logData => {
+          if (typeof onLog === 'function' && logData?.type !== 'thinking') onLog(logData.type, logData.text);
+        },
+        onToolStart: (toolCall, _tool, turnIndex) => {
+          if (typeof onToolCallStart === 'function') onToolCallStart({ turnIndex, toolCall });
+        },
+        onToolComplete: (toolCall, execution, _content, turnIndex) => {
+          if (execution?.markdownBlock) {
+            getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
+          }
+          if (typeof onToolCallEnd === 'function') onToolCallEnd({ turnIndex, toolCall, result: execution });
+        },
+        onStepDone: (turnIndex, step) => {
+          const block = turnBlocks.get(turnIndex);
+          if (step.type === 'tool_execution') {
+            getTurnMarkdown(turnIndex).text = step.assistantMsg?.content || '';
+          }
+          if (!block) return;
+          const text = step.type === 'final_response' ? step.text : step.assistantMsg?.content;
+          if (text) {
+            block.innerHTML = parseMd(text);
+            attachEvts(block);
+          } else if (typeof block.remove === 'function') {
+            block.remove();
+            turnBlocks.delete(turnIndex);
+          }
+        },
+        onLoopDetected: () => {
+          if (typeof onLog === 'function') {
+            onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
+          }
+        },
+        onSynthesize: () => {
+          if (container && typeof document !== 'undefined') {
+            synthesisBlock = document.createElement('div');
+            synthesisBlock.className = 'agentic-turn-block';
+            container.appendChild(synthesisBlock);
+          }
+        },
+        onDone: finalText => {
+          const block = synthesisBlock || turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
+          if (block && finalText) {
+            block.innerHTML = parseMd(finalText);
+            attachEvts(block);
           }
         }
-
-        const toolMessage = {
-          id: `${assistantMsgId}_turn_${turnIndex}_tool_${tc.id || index}_${Date.now()}`,
-          role: 'tool',
-          tool_call_id: tc.id || `call_${Date.now()}_${index}`,
-          name: rawFuncName,
-          content: toolContent
-        };
-        if (rawFuncName === 'read_knowledge_image' && toolExecRes.result?.success && toolExecRes.result.dataUrl) {
-          toolMessage.images = [{
-            dataUrl: toolExecRes.result.dataUrl,
-            imageRef: toolExecRes.result.imageRef,
-            documentTitle: toolExecRes.result.documentTitle,
-            page: toolExecRes.result.page
-          }];
-        }
-        chatHistory.push(toolMessage);
-        if (toolExecRes.markdownBlock) {
-          combinedMarkdownBlocks += (combinedMarkdownBlocks ? '\n\n' : '') + toolExecRes.markdownBlock;
-        }
       }
+    });
 
-      // Si este turno ejecutó un checkpoint, compactar inmediatamente el historial de herramientas previas
-      if (hasCheckpointInTurn) {
-        const ContextManager = getContextManager();
-        if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
-          const compacted = ContextManager.compactToolHistory(chatHistory);
-          chatHistory.length = 0;
-          chatHistory.push(...compacted);
-        }
-      }
-
-      accumulatedConversationMarkdown += (currentTurnText ? currentTurnText + '\n\n' : '') + combinedMarkdownBlocks + '\n\n';
-
-      turnIndex++;
+    if (Array.isArray(result.history)) {
+      chatHistory.length = 0;
+      chatHistory.push(...result.history);
     }
-
-    // CASO C: Si se agotaron los turnos máximos tras una herramienta, síntesis final obligatoria
-    if (turnIndex >= maxAgentTurns && chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'tool' && !(signal && signal.aborted)) {
-      let finalSynthBlock = null;
-      if (container && typeof document !== 'undefined') {
-        finalSynthBlock = document.createElement('div');
-        finalSynthBlock.className = 'agentic-turn-block';
-        container.appendChild(finalSynthBlock);
-      }
-
-      let finalSynthText = '';
-      let finalSynthStats = null;
-      const synthMessages = buildEffectiveMessages(chatHistory, appConfig, {
-        currentRagSystemContext,
-        activeRagBranchId: resolvedActiveRagBranchId,
-        activeRagBranchIds: resolvedActiveRagBranchIds,
-        forceSystemPromptGuide: true
-      });
-
-      const isRagActive = Boolean(resolvedActiveRagBranchId || (resolvedActiveRagBranchIds && resolvedActiveRagBranchIds.length > 0));
-      const isRagUsed = isRagActive || chatHistory.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'read_knowledge_image' || m.name === 'list_documents');
-
-      const synthPrompt = isRagUsed
-        ? 'Based on the information gathered from the tools above, answer my initial question directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, instead of summarizing or dumping the consulted fragments.'
-        : 'Based on all the information gathered from the tools above, answer my initial question directly, clearly, and concisely. Cite sources briefly or via inline links without writing lengthy summaries or redundant explanations of the consulted sources.';
-
-      synthMessages.push({
-        role: 'user',
-        content: synthPrompt
-      });
-
-      try {
-        await API.streamChatCompletion({
-          apiUrl: apiUrl || appConfig.apiUrl,
-          apiType: apiType || appConfig.apiType,
-          apiKey: apiKey || appConfig.apiKey,
-          model: model || appConfig.model,
-          messages: synthMessages,
-          temperature: temperature !== undefined ? temperature : appConfig.temperature,
-          reasoningEffort: reasoningEffort || appConfig.reasoningEffort || 'none',
-          tools: [],
-          enableTools: false,
-          toolChoice: 'none',
-          activeRagBranchId: resolvedActiveRagBranchId || '',
-          activeRagBranchIds: resolvedActiveRagBranchIds,
-          signal: signal,
-
-          onReasoningChunk: function (chunk) {
-            if (typeof onReasoningChunk === 'function') {
-              onReasoningChunk(chunk);
-            } else if (typeof onLog === 'function') {
-              onLog('thinking', chunk);
-            }
-          },
-          onLog: function (logData) {
-            if (typeof onLog === 'function' && logData && logData.type !== 'thinking') onLog(logData.type, logData.text);
-          },
-          onChunk: function (fullTextSoFar, delta, stats) {
-            finalSynthText = fullTextSoFar;
-            if (finalSynthBlock) {
-              finalSynthBlock.innerHTML = injectStreamingCursor(parseMd(finalSynthText));
-              attachEvts(finalSynthBlock);
-            }
-            if (stats && typeof onStats === 'function') onStats(stats);
-            scrollFn();
-          },
-          onDone: function (finalText, stats) {
-            finalSynthText = finalText || finalSynthText;
-            finalSynthStats = stats;
-          }
-        });
-      } catch (synthErr) {
-        if (typeof onLog === 'function') onLog('warn', `Error en síntesis final: ${synthErr.message}`);
-      }
-
-      if (!finalSynthText || finalSynthText.trim() === '') {
-        if (isRagUsed) {
-          finalSynthText = 'No data was found in the consulted documents to answer your question.';
-        } else {
-          const toolResults = chatHistory
-            .filter(m => m.role === 'tool' && m.content)
-            .map(m => m.content)
-            .filter(Boolean);
-
-          if (toolResults.length > 0) {
-            finalSynthText = '### Summary of Consulted Information\n\n' + toolResults.join('\n\n---\n\n');
-          }
-        }
-      }
-
-      if (finalSynthText) {
-        if (finalSynthBlock) {
-          finalSynthBlock.innerHTML = parseMd(finalSynthText);
-          attachEvts(finalSynthBlock);
-        }
-        chatHistory.push({
-          id: `${assistantMsgId}_final`,
-          role: 'assistant',
-          content: finalSynthText
-        });
-      }
-
-      finalAssistantText = finalSynthText;
-      finalStats = finalSynthStats;
-      if (finalStats && typeof onStats === 'function') onStats(finalStats);
-    }
-
+    if (result.cancelled || result.status === 'cancelled') return { success: false, cancelled: true };
+    if (result.error) return { success: false, error: result.error };
+    const accumulatedMarkdown = [...turnMarkdown.entries()]
+      .sort(([left], [right]) => left - right)
+      .flatMap(([, turn]) => [turn.text, ...turn.toolBlocks])
+      .filter(Boolean)
+      .concat(result.finalText || '')
+      .filter(Boolean)
+      .join('\n\n');
     return {
-      success: true,
-      finalAssistantText,
-      accumulatedMarkdown: (accumulatedConversationMarkdown ? accumulatedConversationMarkdown : '') + finalAssistantText,
-      stats: finalStats,
+      success: result.success,
+      loopDetected: result.loopDetected,
+      finalAssistantText: result.finalText || '',
+      accumulatedMarkdown,
+      stats: result.stats,
       contextDiagnostics: lastContextDiagnostics,
-      chatHistory
+      chatHistory: result.history
     };
+  }
+
+  async function executeAgentTurnLoop(params = {}) {
+    return executeWithAgentRuntime(params);
   }
 
   return {

@@ -226,6 +226,80 @@ test('ChatEngine - executeAgentTurnLoop ejecuta llamadas a herramientas y genera
   ChatAPI.streamChatCompletion = originalStream;
 });
 
+test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  const originalDispatch = ChatAgentCore.dispatchToolCall;
+  let calls = 0;
+  let secondRequestMessages = null;
+
+  ChatAgentCore.dispatchToolCall = async () => ({
+    success: true,
+    result: {
+      dataUrl: 'data:image/png;base64,AA==',
+      mimeType: 'image/png',
+      imageRef: 'rag-image://doc_1:image_1',
+      documentTitle: 'manual.pdf',
+      page: 3
+    },
+    resultText: 'Image retrieved.',
+    markdownBlock: '> image'
+  });
+  ChatAPI.streamChatCompletion = async (params) => {
+    calls++;
+    if (calls === 1) {
+      const toolCalls = [{ id: 'image_call', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }];
+      params.onDone('', null, toolCalls);
+      return { accumulatedText: '', toolCalls, stats: null };
+    }
+    secondRequestMessages = params.messages;
+    params.onDone('I inspected the image.', null, null);
+    return { accumulatedText: 'I inspected the image.', toolCalls: null, stats: null };
+  };
+
+  try {
+    const history = [{ role: 'user', content: 'Inspect the diagram.' }];
+    await ChatEngine.executeAgentTurnLoop({
+      chatHistory: history,
+      appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model', activeRagBranchId: 'branch_1' }
+    });
+
+    assert.ok(history.find(message => message.role === 'tool')?.images?.[0]?.dataUrl);
+    assert.ok(secondRequestMessages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url')));
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    ChatAgentCore.dispatchToolCall = originalDispatch;
+  }
+});
+
+test('ChatEngine - copia el texto intermedio y los bloques de herramientas en orden', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  const originalDispatch = ChatAgentCore.dispatchToolCall;
+  let calls = 0;
+
+  ChatAgentCore.dispatchToolCall = async () => ({ success: true, result: { value: 4 }, resultText: '4', markdownBlock: '> tool result' });
+  ChatAPI.streamChatCompletion = async params => {
+    calls++;
+    if (calls === 1) {
+      const toolCalls = [{ id: 'calc_call', type: 'function', function: { name: 'execute_javascript', arguments: '{}' } }];
+      params.onDone('I will calculate it.', null, toolCalls);
+      return { accumulatedText: 'I will calculate it.', toolCalls, stats: null };
+    }
+    params.onDone('The result is 4.', null, null);
+    return { accumulatedText: 'The result is 4.', toolCalls: null, stats: null };
+  };
+
+  try {
+    const result = await ChatEngine.executeAgentTurnLoop({
+      chatHistory: [{ role: 'user', content: 'Calculate 2 + 2.' }],
+      appConfig: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model' }
+    });
+    assert.equal(result.accumulatedMarkdown, 'I will calculate it.\n\n> tool result\n\nThe result is 4.');
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    ChatAgentCore.dispatchToolCall = originalDispatch;
+  }
+});
+
 test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetidos', async (t) => {
   const originalStream = ChatAPI.streamChatCompletion;
 
@@ -269,6 +343,8 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
   assert.equal(res.success, true);
   assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'));
   assert.ok(errorLogs.some(msg => msg.includes('[Protección Bucle Infinito]')));
+  assert.equal(history.at(-1).role, 'assistant');
+  assert.equal(history.at(-1).content, res.finalAssistantText);
 
   ChatAPI.streamChatCompletion = originalStream;
 });
@@ -319,6 +395,8 @@ test('ChatEngine - executeAgentTurnLoop limpia el cursor inicial del contenedor 
   // El cursor inicial debe haberse limpiado antes de añadir el agentic-turn-block
   assert.equal(res.success, true);
   assert.equal(fakeContainer.innerHTML, '');
+  assert.match(fakeContainer.children[0].innerHTML, /Respuesta de prueba/);
+  assert.doesNotMatch(fakeContainer.children[0].innerHTML, /streaming-cursor/);
 
   ChatAPI.streamChatCompletion = originalStream;
   delete global.document;
@@ -668,4 +746,3 @@ test('ChatEngine - executeAgentTurnLoop emite advertencia de bucle infinito (Inf
 
   ChatAPI.streamChatCompletion = originalStream;
 });
-

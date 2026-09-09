@@ -32,6 +32,7 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
 });
 
 test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparado para MCP)', async () => {
+  const ToolSecurity = require('../js/tool-security.js');
   const registry = new AgentCoreModule.ToolRegistry();
 
   class CustomMcpMockProvider extends AgentCoreModule.BaseToolProvider {
@@ -63,6 +64,7 @@ test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparad
 
   assert.ok(registry.hasTool('read_file'));
   const executor = new AgentCoreModule.ToolExecutor(registry);
+  ToolSecurity.manager.setToolPolicy('read_file', 'allow');
 
   const res = await executor.executeToolCall({
     id: 'call_mcp_1',
@@ -76,6 +78,23 @@ test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparad
   assert.equal(res.success, true);
   assert.equal(res.result.content, 'Contenido de /home/user/test.txt');
   assert.equal(res.toolName, 'read_file');
+  ToolSecurity.manager.revokeToolPolicy('read_file');
+});
+
+test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita', async () => {
+  const registry = new AgentCoreModule.ToolRegistry();
+  registry.registerTool(new AgentCoreModule.Tool({
+    name: 'mcp__blocked__run',
+    category: 'mcp',
+    execute: async () => ({ success: true })
+  }));
+
+  const result = await new AgentCoreModule.ToolExecutor(registry).executeToolCall({
+    function: { name: 'mcp__blocked__run', arguments: '{}' }
+  });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /autorización explícita/i);
 });
 
 test('AgentCore - ToolExecutor parseo tolerante de argumentos y captura de errores', async () => {
@@ -260,4 +279,3 @@ test('AgentCore - Tool y ToolExecutor propagan displayMode a executionContext, m
   assert.equal(result.outcome?.meta?.displayMode, 'expanded');
   assert.equal(receivedContext?.displayMode, 'expanded');
 });
-

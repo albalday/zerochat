@@ -294,7 +294,7 @@ test('AgentRuntime - Detección de bucles infinitos (Loop Detection)', async () 
   assert.equal(result.status, 'loop_detected');
   assert.equal(result.loopDetected, true);
   assert.equal(loopDetectedEventFired, true);
-  assert.match(result.finalText, /bucle/i);
+  assert.match(result.finalText, /Infinite Loop Protection/);
 });
 
 test('AgentRuntime - Clean termination when model returns empty text after tools', async () => {

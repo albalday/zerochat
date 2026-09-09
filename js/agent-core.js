@@ -101,6 +101,15 @@
    * futuras herramientas autocontenidas usarán este contrato directamente.
    */
   const TOOL_CONTRACT_VERSION = 1;
+  const AUTHORIZED_EXECUTION = Symbol('authorized-tool-execution');
+  const DATA_TOOL_NAMES = new Set([
+    'search_knowledge_base',
+    'read_knowledge_chunk',
+    'list_documents',
+    'search_web',
+    'fetch_web_page',
+    'download_pdf'
+  ]);
 
   /**
    * Resultado normalizado de una ejecución. Mantiene el resultado nativo en
@@ -592,6 +601,33 @@
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       try {
+        if (!context[AUTHORIZED_EXECUTION]) {
+          const ToolSecurity = getToolSecurity();
+          const authEval = ToolSecurity?.manager?.evaluateAuthorization
+            ? ToolSecurity.manager.evaluateAuthorization(tool, parsedArgs, context)
+            : { status: 'allow', requiresApproval: false };
+          if (authEval.status === 'deny' || authEval.requiresApproval) {
+            const error = authEval.status === 'deny'
+              ? 'Herramienta bloqueada por política de seguridad.'
+              : 'La herramienta requiere autorización explícita del usuario.';
+            return {
+              success: false,
+              tool,
+              toolName: tool.name,
+              displayMode,
+              args: parsedArgs,
+              error,
+              executionTimeMs: 0,
+              result: null,
+              outcome: ToolOutcome.fromError(error, {
+                toolId: tool.id,
+                toolName: tool.name,
+                contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
+                executionTimeMs: 0
+              })
+            };
+          }
+        }
         if (context.signal && context.signal.aborted) {
           throw new Error('Ejecución de herramienta cancelada por el usuario.');
         }
@@ -692,35 +728,51 @@
       }
 
       if (authEval.requiresApproval) {
-        if (ToolCards && typeof ToolCards.promptToolAuthorization === 'function') {
-          if (typeof scrollToBottom === 'function') scrollToBottom();
-          const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
-            args: parsedArgs,
-            serverName: authEval.serverName,
-            toolName: rawFuncName,
-            signal: options.signal
-          });
+        if (!ToolCards || typeof ToolCards.promptToolAuthorization !== 'function') {
+          const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
+          return {
+            allowed: false,
+            response: {
+              success: false,
+              result: null,
+              resultText: `Error: ${denyMsg}`,
+              markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
+              cardElement: cardEl,
+              executionTimeMs: 0,
+              error: denyMsg,
+              toolName: rawFuncName,
+              args: parsedArgs
+            }
+          };
+        }
+        if (typeof scrollToBottom === 'function') scrollToBottom();
+        const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
+          args: parsedArgs,
+          serverName: authEval.serverName,
+          toolName: rawFuncName,
+          signal: options.signal
+        });
 
-          const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
-          const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
+        const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
+        const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
 
-          if (decisionType === 'deny') {
-            const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
-            return {
-              allowed: false,
-              response: {
-                success: false,
-                result: null,
-                resultText: `Error: ${denyMsg}`,
-                markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
-                cardElement: cardEl,
-                executionTimeMs: 0,
-                error: denyMsg,
-                toolName: rawFuncName,
-                args: parsedArgs
-              }
-            };
-          }
+        if (decisionType === 'deny') {
+          const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
+          return {
+            allowed: false,
+            response: {
+              success: false,
+              result: null,
+              resultText: `Error: ${denyMsg}`,
+              markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
+              cardElement: cardEl,
+              executionTimeMs: 0,
+              error: denyMsg,
+              toolName: rawFuncName,
+              args: parsedArgs
+            }
+          };
+        }
 
           if (decisionType === 'allow_always') {
             ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
@@ -729,7 +781,6 @@
               constraints
             });
           }
-        }
       }
 
       return { allowed: true };
@@ -790,7 +841,11 @@
       }
 
       // 3. Ejecutar la herramienta a través de executeToolCall
-      const execRes = await this.executeToolCall(toolCall, { lang: language, ...options });
+      const execRes = await this.executeToolCall(toolCall, {
+        lang: language,
+        ...options,
+        [AUTHORIZED_EXECUTION]: true
+      });
 
       // 4. Actualizar la tarjeta DOM con el resultado
       if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
@@ -931,7 +986,15 @@
         maxRetries = this.maxRetries,
         loopThreshold = this.loopThreshold,
         autoSynthesize = this.autoSynthesize,
+        synthesizeOnLoop = true,
         api: customApi = null,
+        prepareMessages = null,
+        resolveToolDefinitions = null,
+        dispatchToolCall = null,
+        isCheckpointEnabled = true,
+        createMessageId = null,
+        appendFinalMessage = false,
+        onBeforeRequest = null,
         callbacks = {}
       } = params;
 
@@ -998,7 +1061,21 @@
 
         // 1. Optimización dinámica de presupuesto de contexto (Context Budget)
         let stepMessages = workingMessages;
-        if (ContextManager && ContextManager.buildOptimizedContext) {
+        let contextDiagnostics = null;
+        if (typeof prepareMessages === 'function') {
+          const prepared = await prepareMessages(workingMessages, {
+            stepIndex,
+            model,
+            apiType,
+            isSynthesis: false
+          });
+          if (Array.isArray(prepared)) {
+            stepMessages = prepared;
+          } else if (prepared && Array.isArray(prepared.messages)) {
+            stepMessages = prepared.messages;
+            contextDiagnostics = prepared.diagnostics || null;
+          }
+        } else if (ContextManager && ContextManager.buildOptimizedContext) {
           try {
             const opt = ContextManager.buildOptimizedContext(workingMessages, {
               model,
@@ -1011,10 +1088,13 @@
             stepMessages = workingMessages;
           }
         }
+        if (callbacks.onContextPrepared) callbacks.onContextPrepared(contextDiagnostics, stepIndex);
 
         // 2. Definición de herramientas activas
         const activeToolDefs = enableTools
-          ? this.registry.getDefinitions(toolFilterOptions)
+          ? (typeof resolveToolDefinitions === 'function'
+            ? await resolveToolDefinitions({ stepIndex, workingMessages })
+            : this.registry.getDefinitions(toolFilterOptions))
           : [];
 
         let currentStepText = '';
@@ -1032,23 +1112,25 @@
             messages: stepMessages,
             temperature,
             reasoningEffort,
+            tools: activeToolDefs,
             enableTools: activeToolDefs.length > 0,
             enableAgentJs: toolFilterOptions.enableAgentJs !== false,
             enableAgentWeb: toolFilterOptions.enableAgentWeb !== false,
             enableAgentSearch: toolFilterOptions.enableAgentSearch !== false,
             enableAgentChart: toolFilterOptions.enableAgentChart !== false,
             signal: combinedSignal,
+            onBeforeRequest,
 
             onReasoningChunk: (chunk, accumulated) => {
               currentStepReasoning = accumulated;
-              if (callbacks.onReasoningChunk) callbacks.onReasoningChunk(chunk, accumulated);
+              if (callbacks.onReasoningChunk) callbacks.onReasoningChunk(chunk, accumulated, stepIndex);
             },
             onLog: (logData) => {
               if (callbacks.onLog) callbacks.onLog(logData);
             },
             onChunk: (fullTextSoFar, delta, stats) => {
               currentStepText = fullTextSoFar;
-              if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
+              if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats, stepIndex);
             },
             onDone: (finalText, stats, toolCalls, reasoning) => {
               currentStepText = finalText || currentStepText;
@@ -1094,6 +1176,15 @@
             }
 
             finalAccumulatedText = currentStepText;
+            if (appendFinalMessage) {
+              workingMessages.push({
+                id: typeof createMessageId === 'function'
+                  ? createMessageId('final', { stepIndex })
+                  : `msg_turn_${stepIndex}_final`,
+                role: 'assistant',
+                content: currentStepText
+              });
+            }
             if (callbacks.onStepDone) {
               callbacks.onStepDone(stepIndex, {
                 type: 'final_response',
@@ -1117,11 +1208,20 @@
             if (callbacks.onLoopDetected) {
               callbacks.onLoopDetected(stepToolCalls[0], loopThreshold + 1, stepIndex);
             }
-            const loopWarning = `\n\n> ⚠️ *[Protección de Bucle Infinito]*: Se han detectado llamadas a herramientas invocadas repetidamente (${loopThreshold + 1} veces) con los mismos parámetros. Deteniendo ciclo de ejecución.`;
+            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.';
             currentStepText = (currentStepText || '') + loopWarning;
             finalAccumulatedText = currentStepText;
+            if (appendFinalMessage) {
+              workingMessages.push({
+                id: typeof createMessageId === 'function'
+                  ? createMessageId('final', { stepIndex })
+                  : `msg_turn_${stepIndex}_final`,
+                role: 'assistant',
+                content: currentStepText
+              });
+            }
 
-            if (autoSynthesize && !combinedSignal.aborted) {
+            if (autoSynthesize && synthesizeOnLoop && !combinedSignal.aborted) {
               if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
               try {
                 const synthRes = await API.streamChatCompletion({
@@ -1154,12 +1254,30 @@
             toolCallSignatures.push(sig);
           }
 
+          const trimmedStepText = (currentStepText || '').trim();
+          if (
+            trimmedStepText.startsWith('<|') ||
+            trimmedStepText.startsWith('<tool_call') ||
+            trimmedStepText.startsWith('<function_call') ||
+            trimmedStepText.startsWith('call:') ||
+            trimmedStepText.startsWith('{"name"') ||
+            trimmedStepText.startsWith('```json\n{"name"') ||
+            trimmedStepText.startsWith('download_pdf(') ||
+            trimmedStepText.startsWith('downloadpdf(') ||
+            trimmedStepText.startsWith('fetch_web_page(') ||
+            trimmedStepText.startsWith('fetchwebpage(') ||
+            trimmedStepText.startsWith('search_web(') ||
+            trimmedStepText.startsWith('searchweb(') ||
+            trimmedStepText.startsWith('execute_javascript(') ||
+            trimmedStepText.startsWith('executejs(')
+          ) {
+            currentStepText = '';
+          }
+
           const executedToolMessages = [];
           const stepExecResults = [];
 
           let hasCheckpointCall = false;
-          const DATA_TOOL_NAMES = new Set(['search_knowledge_base', 'read_knowledge_chunk', 'list_documents', 'search_web', 'fetch_web_page', 'download_pdf']);
-
           for (let i = 0; i < stepToolCalls.length; i++) {
             if (combinedSignal.aborted) break;
             const call = stepToolCalls[i];
@@ -1172,60 +1290,53 @@
               callbacks.onToolStart(call, toolInstance, stepIndex);
             }
 
-            const execResult = await this.executeToolWithRetries(
-              call,
-              {
-                signal: combinedSignal,
-                compactHistory: () => {
-                  if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
-                    workingMessages = ContextManager.compactToolHistory(workingMessages);
-                  }
-                },
-                ...params
-              },
-              maxRetries,
-              (tc, attempt, total, err) => {
-                if (callbacks.onRetry) {
-                  callbacks.onRetry(tc, attempt, total, err, stepIndex);
+            const toolContext = {
+              signal: combinedSignal,
+              compactHistory: () => {
+                if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+                  workingMessages = ContextManager.compactToolHistory(workingMessages);
                 }
-              }
-            );
+              },
+              ...params
+            };
+            const execResult = typeof dispatchToolCall === 'function'
+              ? await dispatchToolCall(call, toolContext)
+              : await this.executeToolWithRetries(
+                call,
+                toolContext,
+                maxRetries,
+                (tc, attempt, total, err) => {
+                  if (callbacks.onRetry) {
+                    callbacks.onRetry(tc, attempt, total, err, stepIndex);
+                  }
+                }
+              );
             stepExecResults.push(execResult);
 
             let toolResponseContent = '';
+            let toolImages = null;
             if (execResult.success && execResult.result !== undefined) {
-              const serialized = execResult.tool.serializeResultForModel(execResult.args, execResult.result, execResult.outcome);
+              const serialized = execResult.resultText !== undefined
+                ? execResult.resultText
+                : execResult.tool.serializeResultForModel(execResult.args, execResult.result, execResult.outcome);
               const serializedText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
 
-              // Si el resultado incluye una imagen RAG (dataUrl), construir content multipart
-              // para que el LLM con visión nativa pueda inspeccionarla directamente.
-              // En proveedores sin visión, formatMessages aplana el array a texto automáticamente.
+              // Las imágenes RAG se preservan como metadatos del mensaje de herramienta.
+              // ChatEngine las transforma en evidencia multimodal en la siguiente petición.
               const ragDataUrl = execResult.result?.dataUrl;
               const ragMimeType = execResult.result?.mimeType;
               if (ragDataUrl && ragMimeType) {
-                toolResponseContent = [
-                  { type: 'text', text: serializedText },
-                  { type: 'image_url', image_url: { url: ragDataUrl } }
-                ];
+                toolResponseContent = serializedText;
+                toolImages = [{
+                  dataUrl: ragDataUrl,
+                  imageRef: execResult.result.imageRef,
+                  documentTitle: execResult.result.documentTitle,
+                  page: execResult.result.page
+                }];
               } else {
                 toolResponseContent = serializedText;
               }
 
-              // Sugerencia agéntica prepended si se encadenan múltiples consultas de datos sin checkpoint
-              if (DATA_TOOL_NAMES.has(toolFnName)) {
-                consecutiveDataCalls++;
-                if (consecutiveDataCalls >= 2 && !hasCheckpointCall) {
-                  const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
-                  if (Array.isArray(toolResponseContent)) {
-                    // content multipart (imagen RAG): prepend nudge al primer fragmento texto
-                    toolResponseContent = [{ type: 'text', text: nudge + (toolResponseContent[0]?.text || '') }, ...toolResponseContent.slice(1)];
-                  } else {
-                    toolResponseContent = nudge + toolResponseContent;
-                  }
-                }
-              } else if (isCheckpoint) {
-                consecutiveDataCalls = 0;
-              }
             } else {
               toolResponseContent = JSON.stringify({
                 success: false,
@@ -1234,6 +1345,20 @@
               if (callbacks.onToolError) {
                 callbacks.onToolError(call, execResult.error, stepIndex);
               }
+            }
+
+            if (isCheckpointEnabled && DATA_TOOL_NAMES.has(toolFnName)) {
+              consecutiveDataCalls++;
+              if (consecutiveDataCalls >= 2 && !hasCheckpointCall) {
+                const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
+                if (Array.isArray(toolResponseContent)) {
+                  toolResponseContent = [{ type: 'text', text: nudge + (toolResponseContent[0]?.text || '') }, ...toolResponseContent.slice(1)];
+                } else {
+                  toolResponseContent = nudge + toolResponseContent;
+                }
+              }
+            } else if (isCheckpointEnabled && isCheckpoint) {
+              consecutiveDataCalls = 0;
             }
 
             if (callbacks.onToolComplete) {
@@ -1250,23 +1375,29 @@
               error: execResult.error || null
             });
 
-            executedToolMessages.push({
-              id: `msg_turn_${stepIndex}_tool_${call.id || i}_${Date.now()}`,
+            const toolMessage = {
+              id: typeof createMessageId === 'function'
+                ? createMessageId('tool', { stepIndex, toolCall: call, toolIndex: i })
+                : `msg_turn_${stepIndex}_tool_${call.id || i}_${Date.now()}`,
               role: 'tool',
               tool_call_id: call.id || `call_${Date.now()}_${i}`,
               name: toolFnName || 'tool',
               content: toolResponseContent
-            });
+            };
+            if (toolImages) toolMessage.images = toolImages;
+            executedToolMessages.push(toolMessage);
           }
 
           // Si el paso incluyó un checkpoint, compactar el historial de trabajo activo
-          if (hasCheckpointCall && ContextManager && typeof ContextManager.compactToolHistory === 'function') {
+          if (isCheckpointEnabled && hasCheckpointCall && ContextManager && typeof ContextManager.compactToolHistory === 'function') {
             workingMessages = ContextManager.compactToolHistory(workingMessages);
           }
 
           // Actualizar historial asegurando el emparejamiento estricto assistant(tool_calls) <-> tool(results)
           const assistantMsg = {
-            id: `msg_turn_${stepIndex}_assistant`,
+            id: typeof createMessageId === 'function'
+              ? createMessageId('assistant', { stepIndex })
+              : `msg_turn_${stepIndex}_assistant`,
             role: 'assistant',
             content: currentStepText || null,
             tool_calls: stepToolCalls
@@ -1315,13 +1446,19 @@
               ? 'Based on the information obtained by the previous tools, answer my initial query directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, rather than summarizing everything or dumping consulted chunks.'
               : 'Please provide a complete, structured, and detailed final summary answering my query based on all the information obtained from the tools.';
 
-            const synthMessages = [
-              ...workingMessages,
-              {
-                role: 'user',
-                content: synthPrompt
-              }
-            ];
+            let synthMessages = workingMessages;
+            if (typeof prepareMessages === 'function') {
+              const prepared = await prepareMessages(workingMessages, {
+                stepIndex,
+                model,
+                apiType,
+                isSynthesis: true
+              });
+              synthMessages = Array.isArray(prepared)
+                ? prepared
+                : (Array.isArray(prepared?.messages) ? prepared.messages : workingMessages);
+            }
+            synthMessages = [...synthMessages, { role: 'user', content: synthPrompt }];
             const synthRes = await API.streamChatCompletion({
               apiUrl,
               apiType,
@@ -1330,9 +1467,10 @@
               messages: synthMessages,
               temperature,
               reasoningEffort,
-              enableTools: true,
+              enableTools: false,
               toolChoice: 'none',
               signal: combinedSignal,
+              onBeforeRequest,
               onChunk: (fullTextSoFar, delta, stats) => {
                 finalAccumulatedText = fullTextSoFar;
                 if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
@@ -1357,9 +1495,18 @@
                 .map(m => m.content)
                 .filter(Boolean);
               if (toolContents.length > 0) {
-                finalAccumulatedText = '### Queried Information Summary\n\n' + toolContents.join('\n\n---\n\n');
+                finalAccumulatedText = '### Summary of Consulted Information\n\n' + toolContents.join('\n\n---\n\n');
               }
             }
+          }
+          if (appendFinalMessage && finalAccumulatedText) {
+            workingMessages.push({
+              id: typeof createMessageId === 'function'
+                ? createMessageId('final', { stepIndex })
+                : `msg_turn_${stepIndex}_final`,
+              role: 'assistant',
+              content: finalAccumulatedText
+            });
           }
         }
       }

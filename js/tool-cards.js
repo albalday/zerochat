@@ -138,7 +138,7 @@
    */
   function promptToolAuthorization(card, toolCall, options = {}) {
     if (!card || typeof document === 'undefined') {
-      return Promise.resolve('allow_once');
+      return Promise.resolve('deny');
     }
 
     const tFn = (key, params) => t(key, params);
