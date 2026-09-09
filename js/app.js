@@ -662,22 +662,26 @@
 
   function removeMessage(wrapper) {
     if (!wrapper) return;
+    if (State.isConversationBusy?.()) return;
     const msgId = wrapper.getAttribute('data-msg-id') || '';
     const baseId = wrapper.getAttribute('data-base-id') || extractBaseId(msgId);
     const rawMsgIds = wrapper.getAttribute('data-msg-ids') || '';
     const explicitIds = rawMsgIds ? rawMsgIds.split(',').filter(Boolean) : [];
 
-    wrapper.remove();
-
+    let removedCount = 0;
     if (explicitIds.length > 0 || baseId || msgId) {
-      let removedCount = 0;
       if (State.removeTurn) {
         const res = State.removeTurn({ msgId, baseId, explicitIds });
+        if (!res || !res.ok) return;
         removedCount = res.removedCount || 0;
       }
-      if (removedCount > 0 && typeof addDebugLog === 'function') {
-        addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
-      }
+    }
+    if (removedCount === 0) return;
+
+    wrapper.remove();
+
+    if (typeof addDebugLog === 'function') {
+      addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
     }
 
     const remainingMessages = elements.messagesList.querySelectorAll('.message-wrapper');

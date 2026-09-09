@@ -1745,6 +1745,46 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
   }
 });
 
+test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estado', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const filePath = 'file://' + path.resolve(__dirname, '../index.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+
+    const result = await page.evaluate(async () => {
+      const sessionId = 'test_session_delete_streaming_' + Date.now();
+      const history = [
+        { id: 'usr_streaming_1', role: 'user', content: 'Mensaje que no debe borrarse' },
+        { id: 'ast_streaming_1', role: 'assistant', content: 'Respuesta previa' }
+      ];
+
+      await window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Streaming' }, history);
+      await window.ChatApp.switchToSession(sessionId);
+      window.ChatState.set('streaming', { isGenerating: true, status: 'streaming' });
+
+      const userWrapper = document.querySelector('.message-wrapper.user');
+      userWrapper?.querySelector('.btn-delete')?.click();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const persisted = await window.ChatStorage.getConversation(sessionId);
+      const stateMessages = window.ChatState.get('messages');
+      window.ChatState.set('streaming', { isGenerating: false, status: 'idle' });
+      return {
+        userWrapperPresent: !!document.querySelector('.message-wrapper.user'),
+        stateIds: stateMessages.map(message => message.id),
+        persistedIds: (persisted?.history || []).map(message => message.id)
+      };
+    });
+
+    assert.equal(result.userWrapperPresent, true, 'El mensaje debe permanecer visible durante streaming');
+    assert.deepEqual(result.stateIds, ['usr_streaming_1', 'ast_streaming_1'], 'El estado no debe modificarse durante streaming');
+    assert.deepEqual(result.persistedIds, ['usr_streaming_1', 'ast_streaming_1'], 'La conversación persistida no debe modificarse durante streaming');
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
