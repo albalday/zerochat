@@ -67,6 +67,7 @@ test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones'
   assert.equal(linuxHelp, 'LINUX HELP\n\npython3 zerochat_mcp.py');
   assert.equal(windowsHelp, 'WINDOWS HELP\n\npy zerochat_mcp.py');
   assert.equal(androidHelp, 'ANDROID HELP\n\npython3 zerochat_mcp.py');
+  assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
 });
 
 test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {

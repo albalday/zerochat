@@ -795,6 +795,10 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(updatedCommand.includes('--port 6395'), 'El comando debe actualizarse reactivamente a 6395');
     assert.equal(updatedEndpoint, 'http://127.0.0.1:6395/sse', 'El endpoint debe actualizarse reactivamente a 6395');
 
+    await page.selectOption('#mcp-os-select', 'android');
+    const androidInstructions = await page.$eval('#mcp-os-instructions', el => el.textContent.trim());
+    assert.ok(androidInstructions.includes('TERMUX'), 'Las instrucciones deben cambiar al seleccionar Android');
+
     // Cerrar el modal de configuración de MCP
     await page.click('#btn-close-mcp-setup-footer');
     await page.waitForFunction(() => !document.getElementById('mcp-setup-dialog')?.open);

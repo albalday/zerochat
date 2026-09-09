@@ -261,6 +261,7 @@
       mcpOsSelect: document.getElementById('mcp-os-select'),
       mcpEndpointPreview: document.getElementById('mcp-endpoint-preview'),
       mcpTerminalCommand: document.getElementById('mcp-terminal-command'),
+      mcpOsInstructions: document.getElementById('mcp-os-instructions'),
       btnMcpCopyCmd: document.getElementById('btn-mcp-copy-cmd'),
       btnMcpConfigure: document.getElementById('btn-mcp-configure'),
       mcpSetupDialog: document.getElementById('mcp-setup-dialog'),
@@ -2548,6 +2549,7 @@
         mcpOsSelect: elements.mcpOsSelect,
         endpointPreview: elements.mcpEndpointPreview,
         commandSnippet: elements.mcpTerminalCommand,
+        osInstructions: elements.mcpOsInstructions,
         btnCopyCmd: elements.btnMcpCopyCmd,
         toolsContainer: elements.mcpToolsContainer
       });

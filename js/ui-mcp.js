@@ -320,11 +320,18 @@ if __name__ == "__main__":
     return `${executable} zerochat_mcp.py${portArgument}`;
   }
 
+  function getOperatingSystemHelpKey(operatingSystem) {
+    const os = sanitizeOperatingSystem(operatingSystem);
+    return os === 'windows' ? 'mcp_copy_help_windows' : (os === 'android' ? 'mcp_copy_help_android' : 'mcp_copy_help_linux');
+  }
+
+  function generateOperatingSystemInstructions(operatingSystem = DEFAULT_OPERATING_SYSTEM, translator = t) {
+    return translator(getOperatingSystemHelpKey(operatingSystem));
+  }
+
   function generateClipboardCommand(port, operatingSystem = DEFAULT_OPERATING_SYSTEM, translator = t) {
     const os = sanitizeOperatingSystem(operatingSystem);
-    return `${translator(
-      os === 'windows' ? 'mcp_copy_help_windows' : (os === 'android' ? 'mcp_copy_help_android' : 'mcp_copy_help_linux')
-    )}\n\n${generateTerminalCommand(port, os)}`;
+    return `${generateOperatingSystemInstructions(os, translator)}\n\n${generateTerminalCommand(port, os)}`;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -624,12 +631,15 @@ if __name__ == "__main__":
     if (elements.hostInput && !elements.hostInput.value) elements.hostInput.value = currentConfig.mcpHost || DEFAULT_HOST;
     if (elements.portInput && !elements.portInput.value) elements.portInput.value = currentConfig.mcpPort || DEFAULT_PORT;
     const getOsInput = () => elements.osInput || elements.mcpOsSelect || (typeof document !== 'undefined' ? document.getElementById('mcp-os-select') : null);
+    const getOsInstructions = () => elements.osInstructions || (typeof document !== 'undefined' ? document.getElementById('mcp-os-instructions') : null);
 
     function updateCommandAndEndpoint() {
       const host = elements.hostInput?.value || DEFAULT_HOST;
       const port = elements.portInput?.value || DEFAULT_PORT;
       const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
       if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port, operatingSystem);
+      const instructions = getOsInstructions();
+      if (instructions) instructions.textContent = generateOperatingSystemInstructions(operatingSystem, t);
       if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
       Config?.update?.({ mcpHost: host, mcpPort: sanitizePort(port) });
     }
@@ -881,6 +891,7 @@ if __name__ == "__main__":
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
             </button>
           </div>
+          <pre id="mcp-os-instructions" class="mcp-command-box mcp-os-instructions"></pre>
         </div>
       </div>
     </div>
@@ -930,6 +941,7 @@ if __name__ == "__main__":
     sanitizeOperatingSystem,
     buildMcpEndpoint,
     generateTerminalCommand,
+    generateOperatingSystemInstructions,
     generateClipboardCommand,
     generateMcpServerScript,
     downloadMcpServerScript,
