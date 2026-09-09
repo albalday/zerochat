@@ -6,3 +6,4 @@ indicar descarga a file de zerochat.html
 por que sale 32k en servidor lmstudio
 aprendido: docs arquitectura, doc normas test exhaustivos
 puntos fuerts: rag financial, tool agentico,  
+sub agente (mismo-otro)
