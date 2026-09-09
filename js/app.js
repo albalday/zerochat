@@ -94,15 +94,20 @@
     getOwnPropertyDescriptor: (_target, key) => ({ enumerable: true, configurable: true, value: getRuntimeConfig()[key] })
   });
 
-  let currentRagSystemContext = '';
-  let chatHistory = [];
   let currentAbortController = null;
   let isGenerating = false;
-  let attachedFiles = [];
 
-  // Estado de sesiones múltiples (Sidebar)
-  let currentSessionId = 'session_' + Date.now();
-  let savedSessions = [];
+  function getChatHistory() {
+    return State.get ? (State.get('messages') || []) : [];
+  }
+
+  function getCurrentSessionId() {
+    return State.get ? (State.get('sessions')?.activeId || '') : '';
+  }
+
+  function getSavedSessions() {
+    return State.get ? (State.get('sessions')?.list || []) : [];
+  }
 
   // Referencias al DOM
   let elements = {};
@@ -265,24 +270,17 @@
     };
   }
 
-  function getToolsSystemPromptGuide() {
-    return Engine.getToolsSystemPromptGuide ? Engine.getToolsSystemPromptGuide(appConfig, appConfig.language || 'es') : '';
-  }
-
   function getConfiguredSystemPrompt(config = appConfig) {
     if (Engine.getConfiguredSystemPrompt) return Engine.getConfiguredSystemPrompt(config);
     return [config.systemPrompt, config.systemDataPrompt].map(value => String(value || '').trim()).filter(Boolean).join('\n\n');
   }
 
-  function buildEffectiveMessages(options = {}) {
-    if (Engine.buildEffectiveMessages) {
-      return Engine.buildEffectiveMessages(chatHistory, appConfig, {
-        currentRagSystemContext,
-        activeRagBranchId: appConfig.activeRagBranchId,
-        ...options
-      });
-    }
-    return chatHistory;
+  function getRagSystemContext() {
+    return State.get ? (State.get('agent')?.ragSystemContext || '') : '';
+  }
+
+  function setRagSystemContext(context) {
+    if (State.set) State.set('agent', { ragSystemContext: typeof context === 'string' ? context : '' });
   }
 
   function applyTheme(theme) {
@@ -313,6 +311,34 @@
     ];
   }
 
+  function initializeSessionState(sessionId, history, blockedMessageKey) {
+    const initialization = State.replaceConversation
+      ? State.replaceConversation({ sessionId, messages: history })
+      : (State.initializeConversation
+          ? State.initializeConversation({ sessionId, messages: history })
+          : { ok: true });
+
+    if (!initialization.ok) {
+      alert(t(blockedMessageKey));
+      return false;
+    }
+
+    clearAttachedFiles();
+    closeReasoningMenu();
+    clearDebugLogs();
+    setDebugStatus('idle');
+    toggleDebugPanel(false);
+    resetTelemetryDisplay({ syncState: false });
+    return true;
+  }
+
+  function blockSessionTransitionIfBusy(messageKey) {
+    const isBusy = State.isConversationBusy ? State.isConversationBusy() : isGenerating;
+    if (!isBusy) return false;
+    alert(t(messageKey));
+    return true;
+  }
+
   // ==========================================================================
   // Modelos y Consulta al Servidor (API Query & Combobox)
   // ==========================================================================
@@ -322,19 +348,6 @@
       return UIInspector.loadCachedModels(elements, appConfig);
     }
     return [];
-  }
-
-  function saveCachedModels(models) {
-    if (UIInspector.saveCachedModels) {
-      return UIInspector.saveCachedModels(models);
-    }
-    return [];
-  }
-
-  function populateModelList(models, selectFirstIfEmpty = false) {
-    if (UIInspector.populateModelList) {
-      UIInspector.populateModelList(elements, appConfig, models, selectFirstIfEmpty);
-    }
   }
 
   async function handleQueryServer() {
@@ -353,26 +366,9 @@
     }
   }
 
-  function renderInspectorReport(report) {
-    if (UIInspector.renderInspectorReport) {
-      UIInspector.renderInspectorReport(elements, report);
-    }
-  }
-
   // ==========================================================================
   // Control Dinámico de Nivel de Razonamiento (Thinking / CoT)
   // ==========================================================================
-
-  function getReasoningLevelLabel(lvl) {
-    if (UIReasoning.getReasoningLevelLabel) return UIReasoning.getReasoningLevelLabel(lvl);
-    return { icon: '⚙️', label: lvl, desc: '' };
-  }
-
-  function renderReasoningMenuOptions(reasoningInfo, activeLevel) {
-    if (UIReasoning.renderReasoningMenuOptions) {
-      UIReasoning.renderReasoningMenuOptions(elements, reasoningInfo, activeLevel, selectReasoningLevel);
-    }
-  }
 
   function positionReasoningMenu() {
     if (UIReasoning.positionReasoningMenu) {
@@ -391,12 +387,6 @@
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
       UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
-    }
-  }
-
-  function openReasoningMenu() {
-    if (UIReasoning.openReasoningMenu) {
-      UIReasoning.openReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
     }
   }
 
@@ -431,10 +421,6 @@
 
   function setDebugStatus(status, text) {
     if (Debug.setStatus) Debug.setStatus(status, text);
-  }
-
-  function getFormattedTime() {
-    return Debug.getFormattedTime ? Debug.getFormattedTime() : new Date().toTimeString().split(' ')[0];
   }
 
   function clearDebugLogs() {
@@ -552,22 +538,22 @@
       stats: effectiveStats,
       diagnostics: effectiveDiag,
       config: runtimeCfg,
-      chatHistory: chatHistory,
+      chatHistory: getChatHistory(),
       contextManager: CM
     });
 
     UITel.renderTelemetry(elements, vm, options, t);
   }
 
-  function resetTelemetryDisplay() {
+  function resetTelemetryDisplay({ syncState = true } = {}) {
     const UITel = getUITelemetry();
-    if (State.set) {
+    if (syncState && State.set) {
       State.set('telemetry', { stats: null, diagnostics: null, lastTurnStats: null });
     }
     if (UITel && elements.connectionTokensBadge) {
       const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
       const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
-      UITel.resetTelemetry(elements, runtimeCfg, chatHistory, CM, t);
+      UITel.resetTelemetry(elements, runtimeCfg, getChatHistory(), CM, t);
     }
   }
 
@@ -598,13 +584,6 @@
   function renderAttachedFiles() {
     if (Attachments.renderChips) {
       Attachments.renderChips(elements.attachmentsContainer, () => autoResizeTextarea());
-    }
-  }
-
-  function removeAttachedFile(index) {
-    if (Attachments.removeFileAt) {
-      Attachments.removeFileAt(index);
-      renderAttachedFiles();
     }
   }
 
@@ -670,47 +649,11 @@
     wrapper.remove();
 
     if (explicitIds.length > 0 || baseId || msgId) {
-      const initialCount = chatHistory.length;
-      const engine = window.ChatEngine || (typeof ChatEngine !== 'undefined' ? ChatEngine : null);
-      if (engine && typeof engine.removeTurnFromHistory === 'function') {
-        chatHistory = engine.removeTurnFromHistory(chatHistory, { msgId, baseId, explicitIds });
-      } else {
-        const idSet = new Set(explicitIds);
-        if (msgId) idSet.add(msgId);
-        if (baseId) idSet.add(baseId);
-        const delToolCalls = new Set();
-        chatHistory.forEach(m => {
-          if (!m) return;
-          const mid = m.id;
-          const match = (mid && (idSet.has(mid) || (baseId && (mid === baseId || mid.startsWith(`${baseId}_`))) || (msgId && (mid === msgId || mid.startsWith(`${msgId}_`)))));
-          if (match) {
-            if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
-              m.tool_calls.forEach(tc => { if (tc?.id) delToolCalls.add(tc.id); });
-            }
-            if (m.role === 'tool' && m.tool_call_id) delToolCalls.add(m.tool_call_id);
-          }
-        });
-        const unorphaned = chatHistory.filter(m => {
-          if (!m) return false;
-          const mid = m.id;
-          if (mid && (idSet.has(mid) || (baseId && (mid === baseId || mid.startsWith(`${baseId}_`))) || (msgId && (mid === msgId || mid.startsWith(`${msgId}_`))))) return false;
-          if (m.role === 'tool' && m.tool_call_id && delToolCalls.has(m.tool_call_id)) return false;
-          return true;
-        });
-        chatHistory = [];
-        for (let i = 0; i < unorphaned.length; i++) {
-          const c = unorphaned[i];
-          if (c && c.role === 'tool') {
-            const prev = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1] : null;
-            const ok = prev && prev.role === 'assistant' && Array.isArray(prev.tool_calls) &&
-              prev.tool_calls.some(tc => tc && (tc.id === c.tool_call_id || (tc.function && tc.function.name === c.name)));
-            if (ok) chatHistory.push(c);
-          } else {
-            chatHistory.push(c);
-          }
-        }
+      let removedCount = 0;
+      if (State.removeTurn) {
+        const res = State.removeTurn({ msgId, baseId, explicitIds });
+        removedCount = res.removedCount || 0;
       }
-      const removedCount = initialCount - chatHistory.length;
       if (removedCount > 0 && typeof addDebugLog === 'function') {
         addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
       }
@@ -910,7 +853,11 @@
     if (imageAttachments.length > 0) {
       historyEntry.images = imageAttachments;
     }
-    chatHistory.push(historyEntry);
+    if (State.appendMessage) {
+      State.appendMessage(historyEntry);
+    }
+
+    const generationSessionId = getCurrentSessionId();
 
     elements.userInput.value = '';
     clearAttachedFiles();
@@ -986,139 +933,180 @@
     // Cargar únicamente la instrucción compacta de las ramas activas.
     if (activeRagBranchIds.length > 0 && window.ChatRagService && window.ChatRagService.buildRagSystemContext) {
       try {
-        currentRagSystemContext = await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
+        setRagSystemContext(await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
           isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
           lang: runtimeConfig.language || 'es'
-        });
+        }));
       } catch (err) {
         console.warn('Error al cargar contexto inicial de RAG:', err);
-        currentRagSystemContext = '';
+        setRagSystemContext('');
       }
     } else {
-      currentRagSystemContext = '';
+      setRagSystemContext('');
     }
 
-    const runner = window.ChatEngine || Engine;
-    const loopResult = await runner.executeAgentTurnLoop({
-      apiUrl: runtimeConfig.apiUrl,
-      apiType: runtimeConfig.apiType,
-      apiKey: runtimeConfig.apiKey,
-      model: runtimeConfig.model,
-      temperature: runtimeConfig.temperature,
-      reasoningEffort: runtimeConfig.reasoningEffort || 'none',
-      maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
-      chatHistory: chatHistory,
-      appConfig: runtimeConfig,
-      assistantMsgId: assistantMsgId,
-      activeRagBranchId: activeRagBranchId,
-      activeRagBranchIds: activeRagBranchIds,
-      currentRagSystemContext: currentRagSystemContext,
-      signal: currentAbortController.signal,
-      container: content,
+    try {
+      const runner = window.ChatEngine || Engine;
+      const loopResult = await runner.executeAgentTurnLoop({
+        apiUrl: runtimeConfig.apiUrl,
+        apiType: runtimeConfig.apiType,
+        apiKey: runtimeConfig.apiKey,
+        model: runtimeConfig.model,
+        temperature: runtimeConfig.temperature,
+        reasoningEffort: runtimeConfig.reasoningEffort || 'none',
+        maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
+        chatHistory: getChatHistory(),
+        appConfig: runtimeConfig,
+        assistantMsgId: assistantMsgId,
+        activeRagBranchId: activeRagBranchId,
+        activeRagBranchIds: activeRagBranchIds,
+        currentRagSystemContext: getRagSystemContext(),
+        signal: currentAbortController.signal,
+        container: content,
 
-      onBeforeRequest: runtimeConfig.enableDebugMessages ? async function ({ endpoint, headers, payload }) {
-        return await openDebugInterceptorModal({ endpoint, headers, payload });
-      } : null,
+        onBeforeRequest: runtimeConfig.enableDebugMessages ? async function ({ endpoint, headers, payload }) {
+          return await openDebugInterceptorModal({ endpoint, headers, payload });
+        } : null,
 
-      onReasoningChunk: function (chunk) {
-        addDebugLog('thinking', chunk);
-        setDebugStatus('streaming', t('debug_status_thinking'));
-      },
+        onReasoningChunk: function (chunk) {
+          if (getCurrentSessionId() !== generationSessionId) return;
+          addDebugLog('thinking', chunk);
+          setDebugStatus('streaming', t('debug_status_thinking'));
+        },
 
-      onLog: function (type, text) {
-        addDebugLog(type, text);
-      },
+        onLog: function (type, text) {
+          if (getCurrentSessionId() !== generationSessionId) return;
+          addDebugLog(type, text);
+        },
 
-      onStats: function (stats) {
-        updateStatsDisplay(stats);
-      },
+        onStats: function (stats) {
+          if (getCurrentSessionId() !== generationSessionId) return;
+          updateStatsDisplay(stats);
+        },
 
-      onChunk: function ({ turnIndex, fullText, delta, stats }) {
-        if (stats) updateStatsDisplay(stats);
-        scrollToBottom();
-      },
+        onChunk: function ({ turnIndex, fullText, delta, stats }) {
+          if (getCurrentSessionId() !== generationSessionId) return;
+          if (stats) updateStatsDisplay(stats);
+          scrollToBottom();
+        },
 
-      scrollToBottom: () => scrollToBottom(),
-      attachListeners: (el) => attachListeners(el)
-    });
+        scrollToBottom: () => scrollToBottom(),
+        attachListeners: (el) => attachListeners(el)
+      });
 
-    if (loopResult && loopResult.cancelled) {
-      if (wrapper && !wrapper.querySelector('.agentic-turn-block') && wrapper.parentNode) {
-        wrapper.parentNode.removeChild(wrapper);
-      }
-      setDebugStatus('idle');
-      finishGeneration();
-      return;
-    }
-
-    if (loopResult && loopResult.error) {
-      if (currentAbortController && currentAbortController.signal.aborted) {
-        finishGeneration();
+      if (getCurrentSessionId() !== generationSessionId) {
+        console.warn('[ZeroChat] Inferencia descartada por cambio de sesión.');
         return;
       }
-      setDebugStatus('error', t('debug_status_error'));
-      addDebugLog('error', loopResult.error.message || String(loopResult.error));
-      row.classList.add('message-error');
-      content.innerHTML = `
-        <div class="network-error-card">
-          <span>⚠️</span>
-          <div>
-            <strong>${t('err_server_connect_title')}</strong>
-            <p style="margin-top: 0.25rem;">
-              ${Markdown.escapeHtml ? Markdown.escapeHtml(loopResult.error.message || String(loopResult.error)) : String(loopResult.error)}
-            </p>
-            <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-              ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
-            </p>
-          </div>
-        </div>
-      `;
-      actions.style.display = 'inline-flex';
-      finishGeneration();
-      return;
-    }
 
-    if (loopResult && loopResult.stats) {
-      updateStatsDisplay(loopResult.stats);
-      updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
-    }
-
-    actions.style.display = 'inline-flex';
-    btnCopy.onclick = async () => {
-      try {
-        const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
-        await navigator.clipboard.writeText(fullMd);
-        btnCopy.innerHTML = getMsgIcon('check', 14);
-        btnCopy.title = t('copied_text');
-        btnCopy.setAttribute('aria-label', t('copied_text'));
-        btnCopy.classList.add('copied');
-        setTimeout(() => {
-          btnCopy.innerHTML = getMsgIcon('copy', 14);
-          btnCopy.title = t('btn_copy_title');
-          btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-          btnCopy.classList.remove('copied');
-        }, 2000);
-      } catch (err) {
-        console.error('Error copying composite response:', err);
+      if (loopResult && Array.isArray(loopResult.chatHistory) && State.replaceMessages) {
+        State.replaceMessages(loopResult.chatHistory);
       }
-    };
 
-    setDebugStatus('done', t('debug_status_done'));
-    finishGeneration();
+      if (loopResult && loopResult.cancelled) {
+        if (wrapper && !wrapper.querySelector('.agentic-turn-block') && wrapper.parentNode) {
+          wrapper.parentNode.removeChild(wrapper);
+        }
+        setDebugStatus('idle');
+        return;
+      }
+
+      if (loopResult && loopResult.error) {
+        if (currentAbortController && currentAbortController.signal.aborted) {
+          return;
+        }
+        setDebugStatus('error', t('debug_status_error'));
+        addDebugLog('error', loopResult.error.message || String(loopResult.error));
+        row.classList.add('message-error');
+        content.innerHTML = `
+          <div class="network-error-card">
+            <span>⚠️</span>
+            <div>
+              <strong>${t('err_server_connect_title')}</strong>
+              <p style="margin-top: 0.25rem;">
+                ${Markdown.escapeHtml ? Markdown.escapeHtml(loopResult.error.message || String(loopResult.error)) : String(loopResult.error)}
+              </p>
+              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
+                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
+              </p>
+            </div>
+          </div>
+        `;
+        actions.style.display = 'inline-flex';
+        return;
+      }
+
+      if (loopResult && loopResult.stats) {
+        updateStatsDisplay(loopResult.stats);
+        updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
+      }
+
+      actions.style.display = 'inline-flex';
+      btnCopy.onclick = async () => {
+        try {
+          const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
+          await navigator.clipboard.writeText(fullMd);
+          btnCopy.innerHTML = getMsgIcon('check', 14);
+          btnCopy.title = t('copied_text');
+          btnCopy.setAttribute('aria-label', t('copied_text'));
+          btnCopy.classList.add('copied');
+          setTimeout(() => {
+            btnCopy.innerHTML = getMsgIcon('copy', 14);
+            btnCopy.title = t('btn_copy_title');
+            btnCopy.setAttribute('aria-label', t('btn_copy_title'));
+            btnCopy.classList.remove('copied');
+          }, 2000);
+        } catch (err) {
+          console.error('Error copying composite response:', err);
+        }
+      };
+
+      setDebugStatus('done', t('debug_status_done'));
+    } catch (err) {
+      console.error('[ZeroChat] Error durante inferencia agéntica:', err);
+      if (!(currentAbortController && currentAbortController.signal.aborted)) {
+        setDebugStatus('error', t('debug_status_error'));
+        addDebugLog('error', err.message || String(err));
+        row.classList.add('message-error');
+        content.innerHTML = `
+          <div class="network-error-card">
+            <span>⚠️</span>
+            <div>
+              <strong>${t('err_server_connect_title')}</strong>
+              <p style="margin-top: 0.25rem;">
+                ${Markdown.escapeHtml ? Markdown.escapeHtml(err.message || String(err)) : String(err)}
+              </p>
+              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
+                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
+              </p>
+            </div>
+          </div>
+        `;
+        actions.style.display = 'inline-flex';
+      }
+    } finally {
+      finishGeneration({ skipSave: getCurrentSessionId() !== generationSessionId });
+    }
   }
 
-  function finishGeneration() {
+  function finishGeneration({ skipSave = false } = {}) {
     removeTypingIndicator(); // Seguridad: limpiar si quedó activo
     if (State.set) {
       State.set('streaming', { isGenerating: false, status: 'idle' });
-    } else {
-      isGenerating = false;
-      if (elements.btnSend) elements.btnSend.disabled = false;
-      if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
     }
+    isGenerating = false;
+    if (elements.btnSend) elements.btnSend.disabled = false;
+    if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
+
     currentAbortController = null;
     if (elements.userInput) elements.userInput.focus();
-    saveCurrentSession();
+    if (!skipSave) {
+      try {
+        saveCurrentSession();
+      } catch (saveErr) {
+        console.warn('[ZeroChat] Error al guardar sesión en finishGeneration:', saveErr);
+      }
+    }
     scrollToBottom();
   }
 
@@ -1171,19 +1159,6 @@
     }
   }
 
-  function renderAgentToolsUI(container, currentEnabledTools = {}) {
-    if (UISettings.renderAgentToolsUI) {
-      UISettings.renderAgentToolsUI(container, currentEnabledTools);
-    }
-  }
-
-  function gatherEnabledToolsFromUI() {
-    if (UISettings.gatherEnabledToolsFromUI) {
-      return UISettings.gatherEnabledToolsFromUI(elements.agentToolsContainer);
-    }
-    return {};
-  }
-
   function applyProfileToForm(profileData) {
     if (UISettings.applyProfileToForm) {
       UISettings.applyProfileToForm(elements, profileData);
@@ -1207,8 +1182,12 @@
     const newConfig = gatherCurrentFormConfig();
     const savedConfig = Config.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
 
-    if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
-      chatHistory[0].content = getConfiguredSystemPrompt(savedConfig);
+    const currentHistory = getChatHistory();
+    if (currentHistory.length > 0 && currentHistory[0].role === 'system') {
+      currentHistory[0].content = getConfiguredSystemPrompt(savedConfig);
+      if (State.replaceMessages) {
+        State.replaceMessages(currentHistory);
+      }
     }
 
     updateUIFromConfig();
@@ -1389,59 +1368,69 @@
   // ==========================================================================
 
   async function loadSessionsFromStorage() {
+    let sessionsList = [];
     try {
       await Storage.initDB();
-      savedSessions = await Storage.getConversationsList();
+      sessionsList = await Storage.getConversationsList();
     } catch (e) {
       console.warn('Error al cargar sesiones de chat:', e);
-      savedSessions = [];
+      sessionsList = [];
     }
 
-    if (!Array.isArray(savedSessions)) {
-      savedSessions = [];
+    if (!Array.isArray(sessionsList)) {
+      sessionsList = [];
     }
 
     // Siempre iniciar en un chat nuevo al abrir o recargar la página (F5 / Ctrl+F5)
-    currentSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? 'session_' + crypto.randomUUID()
       : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    chatHistory = createInitialChatHistory();
+    const initialHistory = createInitialChatHistory();
 
-    renderSessionMessages(chatHistory);
+    if (State.initializeConversation) {
+      State.initializeConversation({ sessionId: nextSessionId, sessions: sessionsList, messages: initialHistory });
+    }
+
+    renderSessionMessages(getChatHistory());
     renderSidebarChats();
   }
 
   async function saveCurrentSession() {
+    const history = getChatHistory();
+    const currId = getCurrentSessionId();
+    const sessionsList = getSavedSessions();
+
     // Comprobar si hay preguntas reales del usuario además de los turnos de inicialización de fecha/hora
-    const hasRealUserMessages = Array.isArray(chatHistory) && chatHistory.some(m => {
+    const hasRealUserMessages = Array.isArray(history) && history.some(m => {
       if (!m || m.role !== 'user') return false;
       return !isDateTimeInitialTurn(m);
     });
     
     // Si la conversación no tiene preguntas reales del usuario, no guardarla como sesión activa en el sidebar
     if (!hasRealUserMessages) {
-      if (Array.isArray(savedSessions)) {
-        savedSessions = savedSessions.filter(s => s.id !== currentSessionId);
-        await Storage.deleteConversation(currentSessionId);
+      if (State.removeSession) {
+        State.removeSession(currId);
       }
+      await Storage.deleteConversation(currId);
       renderSidebarChats();
       return;
     }
 
-    let sess = savedSessions.find(s => s.id === currentSessionId);
+    let sess = sessionsList.find(s => s.id === currId);
     const now = Date.now();
     if (!sess) {
       sess = {
-        id: currentSessionId,
+        id: currId,
         title: t('chat_untitled') || 'Nueva conversación',
         createdAt: now,
         updatedAt: now,
-        messageCount: chatHistory.length
+        messageCount: history.length
       };
-      savedSessions.unshift(sess);
     } else {
-      sess.updatedAt = now;
-      sess.messageCount = chatHistory.length;
+      sess = Object.assign({}, sess, {
+        updatedAt: now,
+        messageCount: history.length
+      });
     }
 
     // Auto-generar título a partir del primer mensaje real del usuario
@@ -1450,8 +1439,8 @@
       sess.title === 'Nueva conversación' ||
       sess.title === 'New conversation';
 
-    if (isUntitled && chatHistory.length > 1) {
-      const firstRealUser = chatHistory.find(m => m.role === 'user' && !isDateTimeInitialTurn(m));
+    if (isUntitled && history.length > 1) {
+      const firstRealUser = history.find(m => m.role === 'user' && !isDateTimeInitialTurn(m));
       if (firstRealUser && firstRealUser.content) {
         const rawContent = typeof firstRealUser.content === 'string' ? firstRealUser.content : (firstRealUser.content[0]?.text || '');
         const candidate = rawContent.split('\n')[0].replace(/[#*`_>\[\]]/g, '').trim();
@@ -1461,17 +1450,17 @@
       }
     }
 
-    await Storage.saveConversation(sess, chatHistory);
-    if (State.setState) {
-      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
+    if (State.saveSessionMetadata) {
+      State.saveSessionMetadata(sess);
     }
+    await Storage.saveConversation(sess, history);
 
     renderSidebarChats();
   }
 
   function renderSidebarChats(filterText = '') {
     if (UISidebar.renderSidebarChats) {
-      UISidebar.renderSidebarChats(elements, savedSessions, currentSessionId, {
+      UISidebar.renderSidebarChats(elements, getSavedSessions(), getCurrentSessionId(), {
         onSwitchSession: switchToSession,
         onRenameSession: renameSession,
         onDeleteSession: deleteSession,
@@ -1484,7 +1473,8 @@
   }
 
   async function switchToSession(sessionId) {
-    if (sessionId === currentSessionId) return;
+    if (sessionId === getCurrentSessionId()) return;
+    if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
     await saveCurrentSession();
 
     let targetConv = null;
@@ -1493,46 +1483,39 @@
     }
 
     if (!targetConv) {
-      const found = savedSessions.find(s => s.id === sessionId);
+      const found = getSavedSessions().find(s => s.id === sessionId);
       if (found && found.history) targetConv = found;
     }
 
     if (!targetConv) return;
 
-    currentSessionId = targetConv.id;
-    chatHistory = targetConv.history && targetConv.history.length > 0 ? [...targetConv.history] : [
+    const restoredHistory = targetConv.history && targetConv.history.length > 0 ? [...targetConv.history] : [
       { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt() }
     ];
 
-    Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', targetConv.createdAt);
+    Engine.ensureConversationDate(restoredHistory, appConfig.language || 'es', targetConv.createdAt);
 
-    if (State.setState) {
-      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
-    }
-
-    resetTelemetryDisplay();
-    renderSessionMessages(chatHistory);
+    if (!initializeSessionState(targetConv.id, restoredHistory, 'chat_switch_blocked_generating')) return false;
+    renderSessionMessages(getChatHistory());
     renderSidebarChats();
 
     if (window.innerWidth < 900) {
       closeSidebar();
     }
+    return true;
   }
 
   async function createNewSession({ saveCurrent = true } = {}) {
+    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+
     if (saveCurrent) await saveCurrentSession();
 
-    currentSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? 'session_' + crypto.randomUUID()
       : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    chatHistory = createInitialChatHistory();
-
-    if (State.setState) {
-      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions }, messages: chatHistory });
-    }
-
-    resetTelemetryDisplay();
-    renderSessionMessages(chatHistory);
+    const nextHistory = createInitialChatHistory();
+    if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating')) return false;
+    renderSessionMessages(getChatHistory());
     renderSidebarChats();
 
     if (elements.userInput) {
@@ -1544,27 +1527,30 @@
     if (window.innerWidth < 900) {
       closeSidebar();
     }
+    return true;
   }
 
   async function deleteSession(sessionId, event) {
     if (event) event.stopPropagation();
     if (!confirm(t('chat_delete_confirm'))) return;
+    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
-    const idx = savedSessions.findIndex(s => s.id === sessionId);
-    if (idx === -1) return;
-
-    savedSessions.splice(idx, 1);
+    const currId = getCurrentSessionId();
+    if (State.removeSession) {
+      const res = State.removeSession(sessionId);
+      if (!res.ok && res.reason === 'generation-active') {
+        alert(t('chat_delete_blocked_generating'));
+        return;
+      }
+    }
 
     await Storage.deleteConversation(sessionId);
 
-    if (State.setState) {
-      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions } });
-    }
-
-    if (savedSessions.length === 0) {
+    const remainingSessions = getSavedSessions();
+    if (remainingSessions.length === 0) {
       await createNewSession({ saveCurrent: false });
-    } else if (currentSessionId === sessionId) {
-      const next = savedSessions[0];
+    } else if (currId === sessionId) {
+      const next = remainingSessions[0];
       await switchToSession(next.id);
     } else {
       renderSidebarChats();
@@ -1572,18 +1558,19 @@
   }
 
   async function deleteAllSessions() {
-    if (!savedSessions || savedSessions.length === 0) return;
+    const sessionsList = getSavedSessions();
+    if (!sessionsList || sessionsList.length === 0) return;
+    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     if (!confirm(t('chat_delete_all_confirm'))) return;
 
-    savedSessions = [];
     const deleted = await Storage.deleteAllConversations();
     if (!deleted) {
       alert(t('chat_delete_history_err'));
       return;
     }
 
-    if (State.setState) {
-      State.setState({ sessions: { activeId: null, list: [] } });
+    if (State.set) {
+      State.set('sessions', { activeId: null, list: [] });
     }
 
     await createNewSession({ saveCurrent: false });
@@ -1591,12 +1578,16 @@
 
   async function renameSession(sessionId, event) {
     if (event) event.stopPropagation();
-    const sess = savedSessions.find(s => s.id === sessionId);
+    const sess = getSavedSessions().find(s => s.id === sessionId);
     if (!sess) return;
 
     const newTitle = prompt(t('prompt_rename_conversation'), sess.title || '');
     if (newTitle !== null && newTitle.trim() !== '') {
       sess.title = newTitle.trim();
+      sess.updatedAt = Date.now();
+      if (State.saveSessionMetadata) {
+        State.saveSessionMetadata(sess);
+      }
       if (Storage.renameConversation) {
         await Storage.renameConversation(sessionId, sess.title);
       }
@@ -1797,12 +1788,12 @@
   // ==========================================================================
 
   function getExportTargetSessionId() {
-    return elements.exportModal?.dataset?.sessionId || currentSessionId;
+    return elements.exportModal?.dataset?.sessionId || getCurrentSessionId();
   }
 
   function openExportModal(targetSessionId = null) {
     if (elements.exportModal) {
-      elements.exportModal.dataset.sessionId = targetSessionId || currentSessionId;
+      elements.exportModal.dataset.sessionId = targetSessionId || getCurrentSessionId();
       if (typeof elements.exportModal.showModal === 'function') {
         elements.exportModal.showModal();
       } else {
@@ -1824,8 +1815,8 @@
 
   async function getSessionForExport() {
     const id = getExportTargetSessionId();
-    if (id === currentSessionId) {
-      return { sess: savedSessions.find(s => s.id === id), history: chatHistory };
+    if (id === getCurrentSessionId()) {
+      return { sess: getSavedSessions().find(s => s.id === id), history: getChatHistory() };
     }
     const conv = (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null;
     return { sess: conv, history: conv?.history || [] };
@@ -1856,7 +1847,7 @@
   async function exportConversationAsPrint() {
     const targetId = getExportTargetSessionId();
     closeExportModal();
-    if (targetId && targetId !== currentSessionId) {
+    if (targetId && targetId !== getCurrentSessionId()) {
       await switchToSession(targetId);
     }
     setTimeout(() => {
@@ -1868,19 +1859,28 @@
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
+    if (blockSessionTransitionIfBusy('chat_import_blocked_generating')) {
+      if (elements.importJsonInput) elements.importJsonInput.value = '';
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = function(evt) {
+    reader.onload = async function(evt) {
       try {
         const newSession = Export.parseImportedJson ? Export.parseImportedJson(evt.target.result, file.name.replace('.json', '')) : null;
         if (!newSession) throw new Error('Error al procesar el archivo');
 
-        savedSessions.unshift(newSession);
-        currentSessionId = newSession.id;
-        chatHistory = newSession.history;
-        Engine.ensureConversationDate(chatHistory, appConfig.language || 'es', newSession.createdAt);
+        Engine.ensureConversationDate(newSession.history, appConfig.language || 'es', newSession.createdAt);
 
-        renderSessionMessages(chatHistory);
-        saveCurrentSession();
+        if (State.importConversation) {
+          const res = State.importConversation(newSession, newSession.history);
+          if (!res.ok) {
+            throw new Error(res.reason);
+          }
+        }
+
+        renderSessionMessages(getChatHistory());
+        await saveCurrentSession();
         alert(t('chat_imported_success'));
       } catch (err) {
         alert(t('chat_import_json_err', { err: err.message || err }));
@@ -1904,7 +1904,7 @@
           e.preventDefault();
           if (FileParser.parseFile) {
             FileParser.parseFile(file).then(parsed => {
-              attachedFiles.push(parsed);
+              if (Attachments.addFile) Attachments.addFile(parsed);
               renderAttachedFiles();
             }).catch(err => {
               console.error('Error pasting image:', err);
@@ -2503,10 +2503,6 @@
     cacheDomElements();
     if (Debug.setElements) Debug.setElements(elements);
     if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(appConfig.enableRawLogs);
-
-    if (State.setState) {
-      State.setState({ sessions: { activeId: currentSessionId, list: savedSessions } });
-    }
 
     if (State.subscribe) {
       State.subscribe('streaming', (streamingState) => {

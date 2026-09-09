@@ -23,3 +23,22 @@ test('ChatAttachments - Gestión del estado de adjuntos y formateo de payload', 
   assert.equal(ChatAttachments.getFiles().length, 1);
   assert.equal(ChatAttachments.getFiles()[0].name, 'foto.png');
 });
+
+test('ChatAttachments - Sincronización transparente con ChatState.ui.attachedFiles', () => {
+  const ChatState = require('../js/state.js');
+  ChatAttachments.clearFiles();
+  assert.deepEqual(ChatState.get('ui').attachedFiles, []);
+
+  ChatAttachments.addFile({ name: 'directo.txt', size: 50, type: 'text', content: 'test' });
+  assert.equal(ChatState.get('ui').attachedFiles.length, 1);
+  assert.equal(ChatState.get('ui').attachedFiles[0].name, 'directo.txt');
+
+  ChatState.setAttachments([
+    { name: 'desde_state.pdf', size: 200, type: 'pdf', content: 'doc' }
+  ]);
+  assert.equal(ChatAttachments.getFiles().length, 1);
+  assert.equal(ChatAttachments.getFiles()[0].name, 'desde_state.pdf');
+
+  ChatAttachments.clearFiles();
+  assert.equal(ChatState.get('ui').attachedFiles.length, 0);
+});

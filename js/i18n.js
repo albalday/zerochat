@@ -540,6 +540,10 @@
       no_text_response: '(Sin respuesta de texto)',
       chat_imported_success: 'Conversación importada con éxito.',
       chat_import_json_err: 'Error al leer el archivo JSON: {err}',
+      chat_new_blocked_generating: 'No puedes crear una conversación nueva mientras se está generando una respuesta. Detén la generación e inténtalo de nuevo.',
+      chat_switch_blocked_generating: 'No puedes cambiar de conversación mientras se está generando una respuesta. Detén la generación e inténtalo de nuevo.',
+      chat_delete_blocked_generating: 'No puedes eliminar una conversación mientras se está generando una respuesta. Detén la generación e inténtalo de nuevo.',
+      chat_import_blocked_generating: 'No puedes importar una conversación mientras se está generando una respuesta. Detén la generación e inténtalo de nuevo.',
 
       // Modal de Exportación
       export_modal_title: 'Exportar Conversación',
@@ -1076,6 +1080,10 @@
       no_text_response: '(No text response)',
       chat_imported_success: 'Conversation imported successfully.',
       chat_import_json_err: 'Error reading JSON file: {err}',
+      chat_new_blocked_generating: 'You cannot create a new conversation while a response is being generated. Stop generation and try again.',
+      chat_switch_blocked_generating: 'You cannot switch conversations while a response is being generated. Stop generation and try again.',
+      chat_delete_blocked_generating: 'You cannot delete a conversation while a response is being generated. Stop generation and try again.',
+      chat_import_blocked_generating: 'You cannot import a conversation while a response is being generated. Stop generation and try again.',
 
       // Export Modal
       export_modal_title: 'Export Conversation',

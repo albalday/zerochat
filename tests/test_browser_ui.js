@@ -18,7 +18,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.5.3', 'El título de index.html debe ser ZeroChat v6.5.3');
+    assert.equal(await page.title(), 'ZeroChat v6.5.4', 'El título de index.html debe ser ZeroChat v6.5.4');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -50,7 +50,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.5.3', 'El título de zerochat.html debe ser ZeroChat v6.5.3');
+    assert.equal(title, 'ZeroChat v6.5.4', 'El título de zerochat.html debe ser ZeroChat v6.5.4');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -1561,9 +1561,15 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
 
       // Guardar conversación en el almacenamiento
       await window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Tools' }, history);
+      window.ChatState.setState({
+        agent: { activeTurnIndex: 3, currentTool: 'execute_javascript', loopWarning: true, ragSystemContext: 'stale context' },
+        telemetry: { stats: { tokens: 99 }, diagnostics: { used: 99 }, lastTurnStats: { tokens: 42 } },
+        ui: { reasoningMenuOpen: true, debugPanelOpen: true, attachedFiles: [{ name: 'stale.txt' }] }
+      });
+      window.ChatAttachments.addFile({ name: 'stale.txt', type: 'text', size: 1, content: 'x' });
 
       // Cargar la conversación en la UI
-      await window.ChatApp.switchToSession(sessionId);
+      const switched = await window.ChatApp.switchToSession(sessionId);
 
       // Esperar renderizado
       await new Promise(r => setTimeout(r, 100));
@@ -1571,9 +1577,14 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
       const deleteBtn = assistantWrapper?.querySelector('.btn-delete');
 
       const beforeDelete = {
+        switched,
         hasAssistantWrapper: !!assistantWrapper,
         hasDeleteBtn: !!deleteBtn,
-        initialHistoryCount: window.chatHistory ? window.chatHistory.length : -1
+        restoredMessages: window.ChatState.get('messages'),
+        restoredAgent: window.ChatState.get('agent'),
+        restoredTelemetry: window.ChatState.get('telemetry'),
+        restoredUi: window.ChatState.get('ui'),
+        attachedFilesCount: window.ChatAttachments.getFiles().length
       };
 
       if (deleteBtn) {
@@ -1598,8 +1609,16 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
       };
     });
 
+    assert.equal(result.beforeDelete.switched, true, 'La conversación guardada debe restaurarse desde el historial');
     assert.ok(result.beforeDelete.hasAssistantWrapper, 'El asistente con tools debe renderizarse inicialmente');
     assert.ok(result.beforeDelete.hasDeleteBtn, 'El botón de eliminar respuesta debe existir');
+    assert.equal(result.beforeDelete.restoredMessages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
+    assert.deepEqual(result.beforeDelete.restoredMessages[1].tool_calls, [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]);
+    assert.deepEqual(result.beforeDelete.restoredAgent, { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' });
+    assert.deepEqual(result.beforeDelete.restoredTelemetry, { stats: null, diagnostics: null, lastTurnStats: null });
+    assert.equal(result.beforeDelete.restoredUi.reasoningMenuOpen, false);
+    assert.equal(result.beforeDelete.restoredUi.debugPanelOpen, false);
+    assert.equal(result.beforeDelete.attachedFilesCount, 0, 'Los adjuntos transitorios no deben filtrarse al chat restaurado');
     assert.equal(result.hasAssistantWrapperAfter, false, 'El wrapper del asistente debe haber desaparecido del DOM');
     assert.equal(result.toolCountAfter, 0, 'No deben quedar respuestas de tool en el historial persistido');
     assert.equal(result.assistantCountAfter, 0, 'No deben quedar mensajes de asistente de la respuesta eliminada');
@@ -1815,4 +1834,83 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
   }
 });
 
+test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y sesiones', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const consoleErrors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') {
+        const text = msg.text();
+        if (!text.includes('favicon') && !text.includes('ERR_CONNECTION_REFUSED')) {
+          consoleErrors.push(text);
+        }
+      }
+    });
+    page.on('pageerror', err => consoleErrors.push(err.message));
+
+    const filePath = 'file://' + path.resolve(__dirname, '../index.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-banner');
+
+    // 1. Verificar contrato inicial de ChatState en el navegador
+    const stateAudit = await page.evaluate(() => {
+      const State = window.ChatState;
+      if (!State) return { ok: false, reason: 'no-state' };
+      const slices = State.CANONICAL_SLICES || [];
+      const state = State.getState();
+      const hasAllSlices = slices.every(k => k in state);
+      return {
+        ok: true,
+        hasAllSlices,
+        hasToolSecurity: 'toolSecurity' in state,
+        hasAttachedFiles: Array.isArray(state.ui?.attachedFiles),
+        hasSessions: Array.isArray(state.sessions?.list),
+        hasMessages: Array.isArray(state.messages),
+        hasMutators: typeof State.replaceConversation === 'function' &&
+                     typeof State.appendMessage === 'function' &&
+                     typeof State.removeTurn === 'function' &&
+                     typeof State.saveSessionMetadata === 'function' &&
+                     typeof State.removeSession === 'function' &&
+                     typeof State.importConversation === 'function' &&
+                     typeof State.setAttachments === 'function' &&
+                     typeof State.clearAttachments === 'function'
+      };
+    });
+
+    assert.equal(stateAudit.ok, true, 'ChatState debe estar disponible en window');
+    assert.equal(stateAudit.hasAllSlices, true, 'Todos los slices canónicos deben estar presentes');
+    assert.equal(stateAudit.hasToolSecurity, true, 'toolSecurity debe estar declarado en el estado');
+    assert.equal(stateAudit.hasAttachedFiles, true, 'ui.attachedFiles debe ser un array');
+    assert.equal(stateAudit.hasMutators, true, 'Todos los mutadores de dominio deben estar implementados');
+
+    // 2. Verificar sincronización de adjuntos sin estado local en ChatAttachments
+    await page.evaluate(() => {
+      window.ChatAttachments.addFile({ name: 'doc_browser.txt', size: 120, type: 'text', content: 'hola' });
+    });
+    const attachedCount = await page.evaluate(() => window.ChatState.get('ui').attachedFiles.length);
+    assert.equal(attachedCount, 1, 'ChatAttachments debe actualizar ChatState.ui.attachedFiles directamente');
+
+    await page.evaluate(() => {
+      window.ChatAttachments.clearFiles();
+    });
+    const attachedAfterClear = await page.evaluate(() => window.ChatState.get('ui').attachedFiles.length);
+    assert.equal(attachedAfterClear, 0, 'clearFiles debe vaciar ChatState.ui.attachedFiles');
+
+    // 3. Probar mutación de turnos a través de ChatState
+    const turnTest = await page.evaluate(() => {
+      const State = window.ChatState;
+      State.appendMessage({ role: 'user', content: 'Pregunta en browser' });
+      const count1 = State.get('messages').length;
+      State.removeTurn((m) => m.content === 'Pregunta en browser');
+      const count2 = State.get('messages').length;
+      return { count1, count2 };
+    });
+    assert.ok(turnTest.count1 > turnTest.count2, 'removeTurn debe reducir la lista de mensajes en ChatState');
+
+    assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
+  } finally {
+    await browser.close();
+  }
+});
 

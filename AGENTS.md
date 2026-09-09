@@ -47,6 +47,13 @@ por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messag
 `streaming`, `agent`, `telemetry`, `ui`, `toolSecurity`). Está prohibido usar variables globales de
 módulo que provoquen fugas de estado entre conversaciones.
 
+El mantenimiento y las modificaciones de `ChatState` deben realizarse exclusivamente
+mediante funciones de modificación de atributos y mutadores de dominio específicos
+(`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`,
+`replaceConversation`, `initializeConversation`, `setAttachments`, etc.) que garanticen cambios
+atómicos y sincronizados con el estado actual, impidiendo desincronizaciones, escrituras
+parciales no controladas o sobreescrituras arbitrarias.
+
 Los módulos reutilizables deben conservar el patrón UMD utilizado por el proyecto
 para poder ejecutarse en navegador y en las pruebas de Node.js.
 

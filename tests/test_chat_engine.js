@@ -267,7 +267,7 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
   });
 
   assert.equal(res.success, true);
-  assert.ok(res.finalAssistantText.includes('Protección de Bucle Infinito'));
+  assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'));
   assert.ok(errorLogs.some(msg => msg.includes('[Protección Bucle Infinito]')));
 
   ChatAPI.streamChatCompletion = originalStream;
@@ -578,6 +578,93 @@ test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningC
   // onLog no debe recibir logs de tipo 'thinking' puesto que onReasoningChunk los procesó
   const thinkingLogs = logEvents.filter(l => l.type === 'thinking');
   assert.equal(thinkingLogs.length, 0);
+
+  ChatAPI.streamChatCompletion = originalStream;
+});
+
+test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite de turnos (15) aunque falle la síntesis', async (t) => {
+  const originalStream = ChatAPI.streamChatCompletion;
+
+  let callCount = 0;
+  ChatAPI.streamChatCompletion = async (params) => {
+    callCount++;
+    if (params.enableTools === false) {
+      // Simular fallo de red o rechazo de servidor en la síntesis final
+      throw new Error('HTTP 500: Server synthesis failed');
+    }
+    const tc = [{
+      id: 'call_turn_' + callCount,
+      type: 'function',
+      function: {
+        name: 'execute_javascript',
+        arguments: JSON.stringify({ code: `let v = ${callCount}` })
+      }
+    }];
+    if (params.onDone) params.onDone('', null, tc);
+    return { accumulatedText: '', toolCalls: tc, stats: null };
+  };
+
+  const history = [{ role: 'user', content: 'Ejecuta 15 herramientas' }];
+  const appConfig = {
+    apiUrl: 'http://localhost:1234/v1',
+    apiType: 'openai',
+    model: 'test-model',
+    enableAgentJs: true,
+    language: 'es'
+  };
+
+  const res = await ChatEngine.executeAgentTurnLoop({
+    apiUrl: appConfig.apiUrl,
+    apiType: appConfig.apiType,
+    model: appConfig.model,
+    chatHistory: history,
+    appConfig: appConfig,
+    maxAgentTurns: 15
+  });
+
+  assert.equal(res.success, true);
+  assert.ok(callCount >= 15, 'Debe haber ejecutado al menos 15 llamadas');
+  assert.ok(res.finalAssistantText.includes('Summary of Consulted Information'), 'Debe generar el resumen de fallback en inglés');
+  assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
+
+  ChatAPI.streamChatCompletion = originalStream;
+});
+
+test('ChatEngine - executeAgentTurnLoop emite advertencia de bucle infinito (Infinite Loop Protection) en el diálogo', async (t) => {
+  const originalStream = ChatAPI.streamChatCompletion;
+
+  ChatAPI.streamChatCompletion = async (params) => {
+    const tc = [{
+      id: 'call_rep',
+      type: 'function',
+      function: {
+        name: 'execute_javascript',
+        arguments: JSON.stringify({ code: '1 + 1' })
+      }
+    }];
+    if (params.onDone) params.onDone('', null, tc);
+    return { accumulatedText: '', toolCalls: tc, stats: null };
+  };
+
+  const history = [{ role: 'user', content: 'Repeat' }];
+  const appConfig = {
+    apiUrl: 'http://localhost:1234/v1',
+    apiType: 'openai',
+    model: 'test-model',
+    enableAgentJs: true
+  };
+
+  const res = await ChatEngine.executeAgentTurnLoop({
+    apiUrl: appConfig.apiUrl,
+    apiType: appConfig.apiType,
+    model: appConfig.model,
+    chatHistory: history,
+    appConfig: appConfig
+  });
+
+  assert.equal(res.success, true);
+  assert.equal(res.loopDetected, true);
+  assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'), 'Debe emitir la advertencia en inglés');
 
   ChatAPI.streamChatCompletion = originalStream;
 });

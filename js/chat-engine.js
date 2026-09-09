@@ -40,19 +40,6 @@
       : (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return {}; } })() : {});
   }
 
-  function getI18n() {
-    return (typeof window !== 'undefined' && window.ChatI18n)
-      ? window.ChatI18n
-      : (typeof require !== 'undefined' ? (() => { try { return require('./i18n.js'); } catch (e) { return {}; } })() : {});
-  }
-
-  function tr(key, fallback, params) {
-    const I18n = getI18n();
-    if (I18n && I18n.t) {
-      return I18n.t(key, params);
-    }
-    return fallback || key;
-  }
 
   function serializeContent(content) {
     if (typeof content === 'string') return content;
@@ -629,7 +616,7 @@
         if (typeof onLog === 'function') {
           onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
         }
-        const loopWarning = `\n\n> ⚠️ *[Protección de Bucle Infinito]*: Las herramientas fueron invocadas repetidamente con los mismos parámetros sin progreso. Se finaliza la iteración.`;
+        const loopWarning = `\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.`;
         currentTurnText = (currentTurnText || '') + loopWarning;
         if (turnBlock) {
           turnBlock.innerHTML = parseMd(currentTurnText);
@@ -648,9 +635,11 @@
 
         return {
           success: true,
+          loopDetected: true,
           finalAssistantText,
-          accumulatedMarkdown: accumulatedConversationMarkdown + currentTurnText,
+          accumulatedMarkdown: (accumulatedConversationMarkdown ? accumulatedConversationMarkdown : '') + currentTurnText,
           stats: finalStats,
+          contextDiagnostics: lastContextDiagnostics,
           chatHistory
         };
       }
@@ -880,9 +869,7 @@
 
       if (!finalSynthText || finalSynthText.trim() === '') {
         if (isRagUsed) {
-          finalSynthText = isEn
-            ? 'No data was found in the consulted documents to answer your question.'
-            : 'No se han encontrado datos en los documentos consultados para responder a la pregunta.';
+          finalSynthText = 'No data was found in the consulted documents to answer your question.';
         } else {
           const toolResults = chatHistory
             .filter(m => m.role === 'tool' && m.content)
@@ -890,16 +877,16 @@
             .filter(Boolean);
 
           if (toolResults.length > 0) {
-            finalSynthText = isEn
-              ? '### Summary of Search Results\n\n' + toolResults.join('\n\n---\n\n')
-              : '### Resumen de la Información Consultada\n\n' + toolResults.join('\n\n---\n\n');
+            finalSynthText = '### Summary of Consulted Information\n\n' + toolResults.join('\n\n---\n\n');
           }
         }
       }
 
-      if (finalSynthText && finalSynthBlock) {
-        finalSynthBlock.innerHTML = parseMd(finalSynthText);
-        attachEvts(finalSynthBlock);
+      if (finalSynthText) {
+        if (finalSynthBlock) {
+          finalSynthBlock.innerHTML = parseMd(finalSynthText);
+          attachEvts(finalSynthBlock);
+        }
         chatHistory.push({
           id: `${assistantMsgId}_final`,
           role: 'assistant',

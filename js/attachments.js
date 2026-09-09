@@ -12,42 +12,71 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  function getState() {
+    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
+    if (typeof global !== 'undefined' && global.ChatState) return global.ChatState;
+    try {
+      return require('./state.js');
+    } catch (_) {
+      return null;
+    }
+  }
+
   function getFileParser() {
     return (typeof window !== 'undefined' && window.ChatFileParser) ? window.ChatFileParser : {
       formatBytes: (bytes) => `${bytes} B`
     };
   }
 
-  let attachedFiles = [];
-
   function getFiles() {
-    return [...attachedFiles];
+    const State = getState();
+    if (State && typeof State.get === 'function') {
+      const ui = State.get('ui');
+      return Array.isArray(ui?.attachedFiles) ? ui.attachedFiles : [];
+    }
+    return [];
   }
 
   function setFiles(files) {
-    attachedFiles = Array.isArray(files) ? [...files] : [];
+    const State = getState();
+    const cleanFiles = Array.isArray(files) ? [...files] : [];
+    if (State && typeof State.setAttachments === 'function') {
+      State.setAttachments(cleanFiles);
+    } else if (State && typeof State.set === 'function') {
+      State.set('ui', { attachedFiles: cleanFiles });
+    }
   }
 
   function clearFiles() {
-    attachedFiles = [];
+    const State = getState();
+    if (State && typeof State.clearAttachments === 'function') {
+      State.clearAttachments();
+    } else {
+      setFiles([]);
+    }
   }
 
   function removeFileAt(index) {
-    if (index >= 0 && index < attachedFiles.length) {
-      attachedFiles.splice(index, 1);
+    const files = getFiles();
+    if (index >= 0 && index < files.length) {
+      files.splice(index, 1);
+      setFiles(files);
     }
   }
 
   function addFile(fileObj) {
     if (fileObj && fileObj.name) {
-      attachedFiles.push(fileObj);
+      const files = getFiles();
+      files.push(fileObj);
+      setFiles(files);
     }
   }
 
   function renderChips(container, onRemoveCallback) {
     if (!container) return;
 
-    if (attachedFiles.length === 0) {
+    const files = getFiles();
+    if (files.length === 0) {
       container.innerHTML = '';
       container.style.display = 'none';
       return;
@@ -58,7 +87,7 @@
 
     const FileParser = getFileParser();
 
-    attachedFiles.forEach((file, index) => {
+    files.forEach((file, index) => {
       const chip = document.createElement('div');
       chip.className = 'file-chip';
 
@@ -95,21 +124,22 @@
   /**
    * Construye el prompt completo y el texto visual a partir del texto del usuario y los adjuntos.
    */
-  function buildAttachmentsPayload(rawText = '', files = attachedFiles) {
+  function buildAttachmentsPayload(rawText = '', files = null) {
+    const effectiveFiles = Array.isArray(files) ? files : getFiles();
     let fullPrompt = rawText;
     let displayText = rawText;
     let imageAttachments = [];
 
-    if (files.length > 0) {
+    if (effectiveFiles.length > 0) {
       const FileParser = getFileParser();
 
-      imageAttachments = files.filter(f => f.type === 'image' && f.dataUrl).map(f => ({
+      imageAttachments = effectiveFiles.filter(f => f.type === 'image' && f.dataUrl).map(f => ({
         name: f.name,
         dataUrl: f.dataUrl,
         mimeType: f.mimeType || 'image/jpeg'
       }));
 
-      const attachmentsText = files.map(file => {
+      const attachmentsText = effectiveFiles.map(file => {
         if (file.type === 'pdf') {
           return `\n\n--- PDF Document: ${file.name} (${FileParser.formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
         } else if (file.type === 'image') {
@@ -120,7 +150,7 @@
 
       fullPrompt = rawText ? `${rawText}\n${attachmentsText}` : `Attached files for analysis:${attachmentsText}`;
 
-      const fileNamesList = files.map(f => {
+      const fileNamesList = effectiveFiles.map(f => {
         const icon = f.type === 'pdf' ? '📕' : f.type === 'image' ? '🖼️' : '📎';
         return `${icon} ${f.name}`;
       }).join(', ');

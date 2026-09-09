@@ -307,9 +307,9 @@
 
     // Inyectar herramientas agénticas activadas si están disponibles
     let toolsList = [];
-    if (Array.isArray(params.tools) && params.tools.length > 0) {
+    if (Array.isArray(params.tools)) {
       toolsList = params.tools;
-    } else if (enableTools || toolChoice === 'none' || Boolean(activeRagBranchId)) {
+    } else if (enableTools || (Boolean(activeRagBranchId) && enableTools !== false)) {
       const AgentCore = typeof window !== 'undefined' ? window.ChatAgentCore : (typeof require !== 'undefined' ? (() => { try { return require('./agent-core.js'); } catch(e){ return null; } })() : null);
       if (AgentCore && AgentCore.registry && typeof AgentCore.registry.getActiveDefinitions === 'function') {
         toolsList = AgentCore.registry.getActiveDefinitions(params);

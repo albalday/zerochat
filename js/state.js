@@ -37,6 +37,18 @@
     return true;
   }
 
+  const CANONICAL_SLICES = Object.freeze([
+    'config',
+    'sessions',
+    'messages',
+    'streaming',
+    'agent',
+    'telemetry',
+    'ui',
+    'mcp',
+    'toolSecurity'
+  ]);
+
   function createInitialState(overrides = {}) {
     const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
     const defaultState = {
@@ -94,7 +106,8 @@
       agent: {
         activeTurnIndex: 0,
         currentTool: null,
-        loopWarning: false
+        loopWarning: false,
+        ragSystemContext: ''
       },
 
       // 6. Telemetría de Contexto y Tokens
@@ -124,11 +137,21 @@
         lastConnected: null,
         latencyMs: null,
         error: null
+      },
+
+      // 9. Políticas de Seguridad de Herramientas (MCP y Built-in)
+      toolSecurity: {
+        globalMcpPolicy: 'ask',
+        authorizedCount: 0,
+        tools: {}
       }
     };
 
     if (overrides && typeof overrides === 'object') {
       for (const k of Object.keys(overrides)) {
+        if (!CANONICAL_SLICES.includes(k)) {
+          throw new Error(`[ChatState] Slice no canónico en overrides: "${k}". Slices permitidos: ${CANONICAL_SLICES.join(', ')}`);
+        }
         if (typeof overrides[k] === 'object' && overrides[k] !== null && !Array.isArray(overrides[k])) {
           defaultState[k] = Object.assign({}, defaultState[k], overrides[k]);
         } else {
@@ -144,6 +167,12 @@
     let state = createInitialState(initialConfigOverrides);
     const listeners = new Set();
     let isEmitting = false;
+
+    function validateSliceKey(key) {
+      if (!CANONICAL_SLICES.includes(key)) {
+        throw new Error(`[ChatState] Intento de escritura en slice no canónico: "${key}". Slices permitidos: ${CANONICAL_SLICES.join(', ')}`);
+      }
+    }
 
     /**
      * Retorna una instantánea inmutable/clonada del estado global completo.
@@ -178,6 +207,7 @@
       const nextState = Object.assign({}, state);
 
       for (const key of Object.keys(updates)) {
+        validateSliceKey(key);
         const prevVal = state[key];
         const nextVal = updates[key];
 
@@ -211,6 +241,7 @@
      */
     function set(sliceKey, update) {
       if (typeof sliceKey !== 'string') return getState();
+      validateSliceKey(sliceKey);
 
       const prevSlice = state[sliceKey];
       let nextSlice;
@@ -312,13 +343,294 @@
       return getState();
     }
 
+    function isConversationBusy() {
+      return Boolean(state.streaming && state.streaming.isGenerating);
+    }
+
+    /**
+     * Inicializa una conversación nueva sin alterar configuración ni conexiones.
+     * Se deniega durante una inferencia para evitar que callbacks pendientes
+     * escriban sobre la sesión nueva.
+     */
+    function initializeConversation({ sessionId, sessions = [], messages = [] } = {}) {
+      if (isConversationBusy()) return { ok: false, reason: 'generation-active' };
+      if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: 'invalid-session-id' };
+      if (!Array.isArray(sessions) || !Array.isArray(messages)) return { ok: false, reason: 'invalid-conversation-state' };
+
+      setState({
+        sessions: { activeId: sessionId, list: clone(sessions) },
+        messages: clone(messages),
+        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
+        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+      });
+
+      return { ok: true, state: getState() };
+    }
+
+    /**
+     * Reemplaza o conmuta la conversación activa de forma atómica y segura.
+     * Acepta { sessionId, messages, sessions } o argumentos posicionales (sessionId, messages, sessions).
+     */
+    function replaceConversation(firstArg, optionalMessages, optionalSessions) {
+      let sessionId, messages, sessions;
+      if (firstArg && typeof firstArg === 'object' && !Array.isArray(firstArg)) {
+        sessionId = firstArg.sessionId;
+        messages = firstArg.messages;
+        sessions = firstArg.sessions;
+      } else {
+        sessionId = firstArg;
+        messages = optionalMessages;
+        sessions = optionalSessions;
+      }
+
+      if (isConversationBusy()) return { ok: false, reason: 'generation-active' };
+      if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: 'invalid-session-id' };
+      if (messages !== undefined && !Array.isArray(messages)) return { ok: false, reason: 'invalid-messages' };
+      if (sessions !== undefined && !Array.isArray(sessions)) return { ok: false, reason: 'invalid-sessions' };
+
+      const nextSessions = {
+        activeId: sessionId,
+        list: sessions !== undefined ? clone(sessions) : clone(state.sessions.list)
+      };
+
+      setState({
+        sessions: nextSessions,
+        messages: Array.isArray(messages) ? clone(messages) : [],
+        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
+        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+      });
+
+      return { ok: true, state: getState() };
+    }
+
+    /**
+     * Añade un mensaje individual al historial de la sesión activa tras validación.
+     */
+    function appendMessage(message) {
+      if (!message || typeof message !== 'object') {
+        throw new Error('[ChatState] appendMessage: El mensaje debe ser un objeto válido.');
+      }
+      if (!message.role || typeof message.role !== 'string') {
+        throw new Error('[ChatState] appendMessage: El mensaje debe tener una propiedad "role" válida.');
+      }
+      const cloned = clone(message);
+      if (!cloned.id) {
+        cloned.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      }
+      setState({ messages: [...state.messages, cloned] });
+      return cloned;
+    }
+
+    /**
+     * Reemplaza el historial de mensajes completo de la sesión activa.
+     */
+    function replaceMessages(messages) {
+      if (!Array.isArray(messages)) {
+        throw new Error('[ChatState] replaceMessages: messages debe ser un Array.');
+      }
+      setState({ messages: clone(messages) });
+      return getState().messages;
+    }
+
+    /**
+     * Elimina un turno de conversación y sanea tool calls y respuestas huérfanas.
+     */
+    function removeTurn(criteria = {}) {
+      if (isConversationBusy()) return { ok: false, reason: 'generation-active', removedCount: 0 };
+      const currentMessages = state.messages;
+      const initialCount = currentMessages.length;
+
+      let filtered;
+      if (typeof criteria === 'function') {
+        filtered = currentMessages.filter((m, idx) => !criteria(m, idx));
+      } else {
+        const msgId = criteria.msgId || '';
+        const baseId = criteria.baseId || (msgId && msgId.includes('_') ? msgId.split('_').slice(0, 2).join('_') : '');
+        const explicitIds = new Set(
+          Array.isArray(criteria.explicitIds)
+            ? criteria.explicitIds
+            : (criteria.explicitIds instanceof Set ? criteria.explicitIds : [])
+        );
+        if (msgId) explicitIds.add(msgId);
+        if (baseId) explicitIds.add(baseId);
+
+        const isTargetMessage = (m) => {
+          if (!m) return false;
+          const mid = m.id;
+          if (mid) {
+            if (explicitIds.has(mid)) return true;
+            if (baseId && (mid === baseId || mid.startsWith(`${baseId}_`))) return true;
+            if (msgId && (mid === msgId || mid.startsWith(`${msgId}_`))) return true;
+          }
+          return false;
+        };
+
+        const deletedToolCallIds = new Set();
+        currentMessages.forEach(m => {
+          if (m && isTargetMessage(m)) {
+            if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+              m.tool_calls.forEach(tc => {
+                if (tc && tc.id) deletedToolCallIds.add(tc.id);
+              });
+            }
+            if (m.role === 'tool' && m.tool_call_id) {
+              deletedToolCallIds.add(m.tool_call_id);
+            }
+          }
+        });
+
+        const intermediate = currentMessages.filter(m => {
+          if (!m) return false;
+          if (isTargetMessage(m)) return false;
+          if (m.role === 'tool' && m.tool_call_id && deletedToolCallIds.has(m.tool_call_id)) {
+            return false;
+          }
+          return true;
+        });
+
+        filtered = [];
+        for (let i = 0; i < intermediate.length; i++) {
+          const current = intermediate[i];
+          if (current && current.role === 'tool') {
+            const prev = filtered.length > 0 ? filtered[filtered.length - 1] : null;
+            const hasMatchingCall = prev && prev.role === 'assistant' && Array.isArray(prev.tool_calls) &&
+              prev.tool_calls.some(tc => tc && (tc.id === current.tool_call_id || (tc.function && tc.function.name === current.name)));
+            if (hasMatchingCall) filtered.push(current);
+          } else {
+            filtered.push(current);
+          }
+        }
+      }
+
+      const removedCount = initialCount - filtered.length;
+      if (removedCount > 0) {
+        setState({ messages: filtered });
+      }
+      return { ok: true, removedCount, messages: getState().messages };
+    }
+
+    /**
+     * Guarda o actualiza los metadatos de una sesión en el listado de sesiones.
+     */
+    function saveSessionMetadata(sessionMeta) {
+      if (!sessionMeta || typeof sessionMeta !== 'object' || !sessionMeta.id) {
+        throw new Error('[ChatState] saveSessionMetadata: Se requiere un objeto de sesión con id válido.');
+      }
+      const list = clone(state.sessions.list);
+      const idx = list.findIndex(s => s.id === sessionMeta.id);
+      const clonedMeta = clone(sessionMeta);
+      if (idx >= 0) {
+        list[idx] = Object.assign({}, list[idx], clonedMeta);
+      } else {
+        list.unshift(clonedMeta);
+      }
+      setState({
+        sessions: {
+          activeId: state.sessions.activeId,
+          list
+        }
+      });
+      return clonedMeta;
+    }
+
+    /**
+     * Elimina una sesión del listado. Si es la activa, pasa a la siguiente o null.
+     */
+    function removeSession(sessionId) {
+      if (typeof sessionId !== 'string' || !sessionId) return { ok: false, reason: 'invalid-id' };
+      if (isConversationBusy() && state.sessions.activeId === sessionId) {
+        return { ok: false, reason: 'generation-active' };
+      }
+      const list = state.sessions.list.filter(s => s.id !== sessionId);
+      let nextActiveId = state.sessions.activeId;
+      if (nextActiveId === sessionId) {
+        nextActiveId = list.length > 0 ? list[0].id : null;
+      }
+      setState({
+        sessions: {
+          activeId: nextActiveId,
+          list
+        }
+      });
+      return { ok: true, activeId: nextActiveId, list };
+    }
+
+    /**
+     * Importa una conversación con sus metadatos e historial de forma atómica.
+     */
+    function importConversation(sessionMeta, history = []) {
+      if (isConversationBusy()) return { ok: false, reason: 'generation-active' };
+      if (!sessionMeta || typeof sessionMeta !== 'object' || !sessionMeta.id) {
+        return { ok: false, reason: 'invalid-session-meta' };
+      }
+      if (!Array.isArray(history)) {
+        return { ok: false, reason: 'invalid-history' };
+      }
+
+      const list = clone(state.sessions.list);
+      const idx = list.findIndex(s => s.id === sessionMeta.id);
+      const clonedMeta = clone(sessionMeta);
+      if (idx >= 0) {
+        list[idx] = Object.assign({}, list[idx], clonedMeta);
+      } else {
+        list.unshift(clonedMeta);
+      }
+
+      setState({
+        sessions: { activeId: clonedMeta.id, list },
+        messages: clone(history),
+        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
+        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+      });
+
+      return { ok: true, state: getState() };
+    }
+
+    /**
+     * Define los archivos adjuntos de la UI en el slice `ui.attachedFiles`.
+     */
+    function setAttachments(files) {
+      if (!Array.isArray(files)) {
+        throw new Error('[ChatState] setAttachments: files debe ser un Array.');
+      }
+      setState({
+        ui: Object.assign({}, state.ui, { attachedFiles: clone(files) })
+      });
+      return getState().ui.attachedFiles;
+    }
+
+    /**
+     * Limpia los archivos adjuntos de la UI.
+     */
+    function clearAttachments() {
+      return setAttachments([]);
+    }
+
     return {
       getState,
       get,
       setState,
       set,
       subscribe,
-      reset
+      reset,
+      isConversationBusy,
+      initializeConversation,
+      replaceConversation,
+      appendMessage,
+      replaceMessages,
+      removeTurn,
+      saveSessionMetadata,
+      removeSession,
+      importConversation,
+      setAttachments,
+      clearAttachments,
+      CANONICAL_SLICES
     };
   }
 
@@ -328,11 +640,23 @@
   return {
     createStore,
     createInitialState,
+    CANONICAL_SLICES,
     getState: defaultStore.getState,
     get: defaultStore.get,
     setState: defaultStore.setState,
     set: defaultStore.set,
     subscribe: defaultStore.subscribe,
-    reset: defaultStore.reset
+    reset: defaultStore.reset,
+    isConversationBusy: defaultStore.isConversationBusy,
+    initializeConversation: defaultStore.initializeConversation,
+    replaceConversation: defaultStore.replaceConversation,
+    appendMessage: defaultStore.appendMessage,
+    replaceMessages: defaultStore.replaceMessages,
+    removeTurn: defaultStore.removeTurn,
+    saveSessionMetadata: defaultStore.saveSessionMetadata,
+    removeSession: defaultStore.removeSession,
+    importConversation: defaultStore.importConversation,
+    setAttachments: defaultStore.setAttachments,
+    clearAttachments: defaultStore.clearAttachments
   };
 }));
