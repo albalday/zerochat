@@ -55,91 +55,18 @@ test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplifica
   assert.equal(cmdInvalid, 'python3 zerochat_mcp.py');
 });
 
-test('ChatUIMcp - añade instrucciones Termux al copiar desde Android', () => {
-  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/120 Mobile' },
-    configurable: true,
-    writable: true
-  });
+test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones', () => {
+  assert.equal(ChatUIMcp.DEFAULT_OPERATING_SYSTEM, 'linux');
+  assert.equal(ChatUIMcp.sanitizeOperatingSystem('unknown'), 'linux');
+  assert.equal(ChatUIMcp.generateTerminalCommand(6388, 'linux'), 'python3 zerochat_mcp.py');
+  assert.equal(ChatUIMcp.generateTerminalCommand(6395, 'windows'), 'py zerochat_mcp.py --port 6395');
 
-  try {
-    assert.equal(ChatUIMcp.isAndroid(), true);
-    const copied = ChatUIMcp.generateClipboardCommand(6388, () => 'TERMUX HELP');
-    assert.equal(copied, 'TERMUX HELP\n\npython3 zerochat_mcp.py');
-  } finally {
-    if (originalDesc) {
-      Object.defineProperty(globalThis, 'navigator', originalDesc);
-    } else {
-      delete globalThis.navigator;
-    }
-  }
-});
-
-test('ChatUIMcp - no añade instrucciones Termux fuera de Android', () => {
-  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', {
-    value: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/120' },
-    configurable: true,
-    writable: true
-  });
-
-  try {
-    assert.equal(ChatUIMcp.isAndroid(), false);
-    assert.equal(ChatUIMcp.generateClipboardCommand(6395, () => 'TERMUX HELP'), 'python3 zerochat_mcp.py --port 6395');
-  } finally {
-    if (originalDesc) {
-      Object.defineProperty(globalThis, 'navigator', originalDesc);
-    } else {
-      delete globalThis.navigator;
-    }
-  }
-});
-
-test('ChatUIMcp - detecta Android mediante User-Agent Client Hints', () => {
-  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', {
-    value: {
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-      platform: 'Linux x86_64',
-      userAgentData: { mobile: false, platform: 'Android' }
-    },
-    configurable: true,
-    writable: true
-  });
-
-  try {
-    assert.equal(ChatUIMcp.isAndroid(), true);
-  } finally {
-    if (originalDesc) {
-      Object.defineProperty(globalThis, 'navigator', originalDesc);
-    } else {
-      delete globalThis.navigator;
-    }
-  }
-});
-
-test('ChatUIMcp - detecta Android táctil con User-Agent de escritorio', () => {
-  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', {
-    value: {
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-      platform: 'Linux x86_64',
-      maxTouchPoints: 5
-    },
-    configurable: true,
-    writable: true
-  });
-
-  try {
-    assert.equal(ChatUIMcp.isAndroid(), true);
-  } finally {
-    if (originalDesc) {
-      Object.defineProperty(globalThis, 'navigator', originalDesc);
-    } else {
-      delete globalThis.navigator;
-    }
-  }
+  const linuxHelp = ChatUIMcp.generateClipboardCommand(6388, 'linux', () => 'LINUX HELP');
+  const windowsHelp = ChatUIMcp.generateClipboardCommand(6388, 'windows', () => 'WINDOWS HELP');
+  const androidHelp = ChatUIMcp.generateClipboardCommand(6388, 'android', () => 'ANDROID HELP');
+  assert.equal(linuxHelp, 'LINUX HELP\n\npython3 zerochat_mcp.py');
+  assert.equal(windowsHelp, 'WINDOWS HELP\n\npy zerochat_mcp.py');
+  assert.equal(androidHelp, 'ANDROID HELP\n\npython3 zerochat_mcp.py');
 });
 
 test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {

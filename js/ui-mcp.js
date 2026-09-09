@@ -20,6 +20,7 @@
 
   const DEFAULT_HOST = '127.0.0.1';
   const DEFAULT_PORT = 6388;
+  const DEFAULT_OPERATING_SYSTEM = 'linux';
 
   const resolveDep = (name, path) => (typeof window !== 'undefined' && window.ChatUtils?.resolveDep ? window.ChatUtils.resolveDep(name, path) : ((typeof window !== 'undefined' && window[name]) || (typeof require !== 'undefined' ? (() => { try { return require(path); } catch (e) { return null; } })() : null)));
   const getUtils = () => resolveDep('ChatUtils', './utils.js');
@@ -305,37 +306,25 @@ if __name__ == "__main__":
     return false;
   }
 
-  function generateTerminalCommand(port) {
+  function sanitizeOperatingSystem(operatingSystem) {
+    return ['linux', 'windows', 'android'].includes(String(operatingSystem || '').toLowerCase())
+      ? String(operatingSystem).toLowerCase()
+      : DEFAULT_OPERATING_SYSTEM;
+  }
+
+  function generateTerminalCommand(port, operatingSystem = DEFAULT_OPERATING_SYSTEM) {
     const normalizedPort = sanitizePort(port);
-    return normalizedPort === DEFAULT_PORT
-      ? 'python3 zerochat_mcp.py'
-      : `python3 zerochat_mcp.py --port ${normalizedPort}`;
+    const os = sanitizeOperatingSystem(operatingSystem);
+    const executable = os === 'windows' ? 'py' : 'python3';
+    const portArgument = normalizedPort === DEFAULT_PORT ? '' : ` --port ${normalizedPort}`;
+    return `${executable} zerochat_mcp.py${portArgument}`;
   }
 
-  function isAndroid() {
-    if (typeof navigator === 'undefined') return false;
-    const userAgent = String(navigator.userAgent || '');
-    const platform = String(navigator.platform || '');
-    const userAgentDataPlatform = String(navigator.userAgentData?.platform || '');
-    return /Android/i.test(userAgent)
-      || /Android/i.test(platform)
-      || /Android/i.test(userAgentDataPlatform)
-      || (navigator.userAgentData?.mobile === true && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`))
-      || (navigator.maxTouchPoints > 0 && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`));
-  }
-
-  function generateClipboardCommand(port, translator = t) {
-    const command = generateTerminalCommand(port);
-    if (!isAndroid()) return command;
-    return `${translator('mcp_termux_copy_help')}\n\n${command}`;
-  }
-
-  function updateAndroidHelp(translator = t, element = null) {
-    const help = element || (typeof document !== 'undefined' ? document.getElementById('mcp-android-help') : null);
-    if (!help) return;
-    const detected = isAndroid();
-    help.style.display = detected ? 'block' : 'none';
-    if (detected) help.textContent = translator('mcp_android_detected');
+  function generateClipboardCommand(port, operatingSystem = DEFAULT_OPERATING_SYSTEM, translator = t) {
+    const os = sanitizeOperatingSystem(operatingSystem);
+    return `${translator(
+      os === 'windows' ? 'mcp_copy_help_windows' : (os === 'android' ? 'mcp_copy_help_android' : 'mcp_copy_help_linux')
+    )}\n\n${generateTerminalCommand(port, os)}`;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -541,9 +530,9 @@ if __name__ == "__main__":
 
     const host = elements.hostInput?.value || state.host || DEFAULT_HOST;
     const port = elements.portInput?.value || state.port || DEFAULT_PORT;
-    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
+    const operatingSystem = elements.osInput?.value || elements.mcpOsSelect?.value || DEFAULT_OPERATING_SYSTEM;
+    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port, operatingSystem);
     if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
-    updateAndroidHelp(translator, elements.androidHelp);
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
@@ -634,17 +623,20 @@ if __name__ == "__main__":
     const currentConfig = Config?.get?.() || {};
     if (elements.hostInput && !elements.hostInput.value) elements.hostInput.value = currentConfig.mcpHost || DEFAULT_HOST;
     if (elements.portInput && !elements.portInput.value) elements.portInput.value = currentConfig.mcpPort || DEFAULT_PORT;
+    const getOsInput = () => elements.osInput || elements.mcpOsSelect || (typeof document !== 'undefined' ? document.getElementById('mcp-os-select') : null);
 
     function updateCommandAndEndpoint() {
       const host = elements.hostInput?.value || DEFAULT_HOST;
       const port = elements.portInput?.value || DEFAULT_PORT;
-      if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
+      const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
+      if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port, operatingSystem);
       if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
       Config?.update?.({ mcpHost: host, mcpPort: sanitizePort(port) });
     }
 
     elements.portInput?.addEventListener?.('input', updateCommandAndEndpoint);
     elements.hostInput?.addEventListener?.('input', updateCommandAndEndpoint);
+    getOsInput()?.addEventListener?.('change', updateCommandAndEndpoint);
 
     const openModal = () => {
       elements.mcpSetupDialog?.showModal?.();
@@ -735,10 +727,10 @@ if __name__ == "__main__":
     });
 
     elements.btnCopyCmd?.addEventListener?.('click', () => {
-      const cmd = generateClipboardCommand(elements.portInput?.value);
+      const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
+      const cmd = generateClipboardCommand(elements.portInput?.value, operatingSystem, t);
       copyCommandToClipboard(cmd, elements.btnCopyCmd, t);
     });
-    updateAndroidHelp(t, elements.androidHelp);
 
     elements.btnConnect?.addEventListener?.('click', async () => {
       const host = elements.hostInput?.value || DEFAULT_HOST;
@@ -803,6 +795,14 @@ if __name__ == "__main__":
           <div class="form-field">
             <label for="mcp-port-input" data-i18n="mcp_field_port">Puerto (Rango 63xx recomendado)</label>
             <input type="number" id="mcp-port-input" class="form-input" value="6388" min="1024" max="65535" placeholder="6388">
+          </div>
+          <div class="form-field">
+            <label for="mcp-os-select" data-i18n="mcp_field_os">Sistema operativo local</label>
+            <select id="mcp-os-select" class="form-input">
+              <option value="linux" data-i18n="mcp_os_linux">Linux</option>
+              <option value="windows" data-i18n="mcp_os_windows">Windows</option>
+              <option value="android" data-i18n="mcp_os_android">Android / Termux</option>
+            </select>
           </div>
         </div>
         <div class="mcp-endpoint-row">
@@ -881,7 +881,6 @@ if __name__ == "__main__":
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
             </button>
           </div>
-          <p id="mcp-android-help" class="label-hint mcp-android-help" style="display: none;"></p>
         </div>
       </div>
     </div>
@@ -925,11 +924,12 @@ if __name__ == "__main__":
   return {
     DEFAULT_HOST,
     DEFAULT_PORT,
+    DEFAULT_OPERATING_SYSTEM,
     sanitizePort,
     sanitizeHost,
+    sanitizeOperatingSystem,
     buildMcpEndpoint,
     generateTerminalCommand,
-    isAndroid,
     generateClipboardCommand,
     generateMcpServerScript,
     downloadMcpServerScript,
