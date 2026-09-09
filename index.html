@@ -404,6 +404,12 @@
   <dialog id="debug-interceptor-dialog" class="debug-interceptor-modal"></dialog>
   <dialog id="rag-modal" class="settings-modal rag-modal"></dialog>
 
+  <dialog id="notice-dialog" class="settings-modal notice-dialog" aria-labelledby="notice-title" aria-describedby="notice-message">
+    <div class="modal-header"><h3 id="notice-title"></h3></div>
+    <div class="modal-body" id="notice-message"></div>
+    <div class="modal-footer"><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
+  </dialog>
+
   <!-- Scripts de la aplicación (compatibles con file:// y http://) -->
   <script src="js/vendor/orama.browser.js"></script>
   <script src="js/utils.js"></script>
@@ -417,6 +423,7 @@
   <script src="js/rag-ui.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/icons.js"></script>
+  <script src="js/ui-dialogs.js"></script>
   <script src="js/sandbox.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/web-browser.js"></script>

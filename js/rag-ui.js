@@ -567,7 +567,7 @@
       if (btnExport) btnExport.textContent = '¡Exportado!';
       await new Promise(resolve => setTimeout(resolve, 1500));
     } catch (error) {
-      alert(`Error al exportar la rama: ${error.message || error}`);
+      ChatDialogs.alert(t('notice_export_error', { err: error.message || error }), { type: 'error' });
     } finally {
       if (btnExport) {
         btnExport.disabled = false;
@@ -604,11 +604,8 @@
       await renderManageTab(branch.id);
       await renderActiveTab();
       await updateQuota();
-      alert(`Rama "${branch.name}" restaurada con éxito.`);
+      ChatDialogs.alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
       return branch;
-    } catch (error) {
-      alert(`Error al restaurar: ${error.message || error}`);
-      throw error;
     } finally {
       if (btnImport) {
         btnImport.disabled = false;
@@ -685,12 +682,12 @@
     document.getElementById('rag-branch-desc-input')?.addEventListener('keydown', handleBranchKeyEnter);
 
     document.getElementById('btn-rag-delete-branch')?.addEventListener('click', deleteBranch);
-    document.getElementById('btn-rag-export-branch')?.addEventListener('click', () => exportBranch().catch(error => alert(error.message)));
+    document.getElementById('btn-rag-export-branch')?.addEventListener('click', () => exportBranch().catch(error => ChatDialogs.alert(t('notice_export_error', { err: error.message || error }), { type: 'error' })));
     const importInput = document.getElementById('rag-import-input');
     document.getElementById('btn-rag-import-branch')?.addEventListener('click', () => importInput?.click());
     importInput?.addEventListener('change', async () => {
       try { await importBranchFile(importInput.files?.[0]); }
-      catch (error) { alert(error.message); }
+      catch (error) { ChatDialogs.alert(t('notice_import_error', { err: error.message || error }), { type: 'error' }); }
       finally { importInput.value = ''; }
     });
     document.getElementById('rag-manage-branch-select')?.addEventListener('change', event => renderWorkspace(event.target.value));

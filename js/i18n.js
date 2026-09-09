@@ -23,6 +23,14 @@
 
   const TRANSLATIONS = {
     es: {
+      notice_accept: 'Aceptar',
+      notice_info: 'Información',
+      notice_success: 'Operación completada',
+      notice_error: 'Error',
+      notice_export_error: 'Error al exportar la rama: {err}',
+      notice_branch_restored: 'Rama "{name}" restaurada con éxito.',
+      notice_import_error: 'Error al restaurar: {err}',
+
       // Metadatos y Encabezados
       app_title: `ZeroChat v${APP_VERSION}`,
       app_description: 'Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
@@ -563,6 +571,14 @@
     },
 
     en: {
+      notice_accept: 'OK',
+      notice_info: 'Information',
+      notice_success: 'Operation completed',
+      notice_error: 'Error',
+      notice_export_error: 'Could not export branch: {err}',
+      notice_branch_restored: 'Branch "{name}" restored successfully.',
+      notice_import_error: 'Could not restore: {err}',
+
       // Metadata & Headers
       app_title: `ZeroChat v${APP_VERSION}`,
       app_description: 'Universal, zero-install, standalone web chat client, autonomous AI agent and local RAG in a single file',

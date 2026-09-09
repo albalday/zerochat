@@ -909,3 +909,13 @@ input:checked + .slider:before {
   .rag-ingestion-progress-item { grid-template-columns: 1fr; }
   .rag-ingestion-global-progress { grid-template-columns: 1fr; }
 }
+
+.notice-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+}
+.notice-dialog #notice-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+}

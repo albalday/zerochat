@@ -11,3 +11,5 @@ los mensajes de alert pueden acabar siendo quitados sin quere por el usaurio en 
 mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
 clave de prueba openai, gemini y claude
+port por defecto mcp, no pasar por parametro
+rag permitir parar importacio, tratar ficheros duplicados

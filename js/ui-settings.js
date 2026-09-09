@@ -349,7 +349,7 @@
       try { sessionStorage.clear(); } catch (e) {}
     }
     if (cleared === false) {
-      alert('No se pudo borrar el historial de chats. Revisa la consola para más detalles.');
+      ChatDialogs.alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
     if (typeof window !== 'undefined' && window.location) {

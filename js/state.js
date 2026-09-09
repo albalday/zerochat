@@ -119,6 +119,8 @@
 
       // 7. Estado de la Interfaz (UI)
       ui: {
+        notices: [],
+        noticeSequence: 0,
         sidebarOpen: false,
         reasoningMenuOpen: false,
         debugPanelOpen: false,
@@ -363,7 +365,7 @@
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
         agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });
 
       return { ok: true, state: getState() };
@@ -401,7 +403,7 @@
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
         agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });
 
       return { ok: true, state: getState() };
@@ -554,7 +556,8 @@
         sessions: {
           activeId: nextActiveId,
           list
-        }
+        },
+        ui: Object.assign({}, state.ui, { notices: nextActiveId === state.sessions.activeId ? state.ui.notices : [] })
       });
       return { ok: true, activeId: nextActiveId, list };
     }
@@ -586,15 +589,31 @@
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
         agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [] })
+        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });
 
       return { ok: true, state: getState() };
     }
 
-    /**
-     * Define los archivos adjuntos de la UI en el slice `ui.attachedFiles`.
-     */
+    function enqueueNotice(notice) {
+      if (!notice || typeof notice.message !== 'string' || typeof notice.title !== 'string' ||
+          !['info', 'success', 'error'].includes(notice.type)) throw new TypeError('Invalid notice');
+      notice = { ...notice, message: notice.message.slice(0, 10000), title: notice.title.slice(0, 200) };
+      const queue = state.ui.notices || [];
+      const existing = queue.find(item => item.message === notice.message && item.title === notice.title && item.type === notice.type);
+      if (existing) return existing.id;
+      if (queue.length >= 50) throw new RangeError('Notice queue is full');
+      const id = (state.ui.noticeSequence || 0) + 1;
+      const item = { id, message: notice.message, title: notice.title, type: notice.type };
+      setState({ ui: Object.assign({}, state.ui, { notices: queue.concat(item), noticeSequence: id }) });
+      return id;
+    }
+
+    function dismissNotice(id) {
+      setState({ ui: Object.assign({}, state.ui, { notices: (state.ui.notices || []).filter(item => item.id !== id) }) });
+    }
+
+    /** Define los archivos adjuntos de la UI en el slice `ui.attachedFiles`. */
     function setAttachments(files) {
       if (!Array.isArray(files)) {
         throw new Error('[ChatState] setAttachments: files debe ser un Array.');
@@ -630,6 +649,8 @@
       importConversation,
       setAttachments,
       clearAttachments,
+      enqueueNotice,
+      dismissNotice,
       CANONICAL_SLICES
     };
   }
@@ -657,6 +678,8 @@
     removeSession: defaultStore.removeSession,
     importConversation: defaultStore.importConversation,
     setAttachments: defaultStore.setAttachments,
+    enqueueNotice: defaultStore.enqueueNotice,
+    dismissNotice: defaultStore.dismissNotice,
     clearAttachments: defaultStore.clearAttachments
   };
 }));

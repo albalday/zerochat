@@ -1914,3 +1914,54 @@ test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y ses
   }
 });
 
+
+test('Browser UI - Internal notices queue safely above modals and restore focus', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
+      ? { status: 204, body: '' }
+      : { status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    page.on('dialog', dialog => { errors.push('Native dialog: ' + dialog.type()); dialog.dismiss(); });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'));
+    await page.waitForFunction(() => window.ChatState?.get('messages').length > 0);
+    await page.evaluate(() => {
+      const settings = document.getElementById('settings-dialog');
+      settings.showModal();
+      const button = settings.querySelector('button');
+      button.focus();
+      window.noticeFocus = button;
+      window.noticeDone = 0;
+      ChatDialogs.alert('<img src=x onerror="window.injected=true">').then(() => window.noticeDone++);
+      ChatDialogs.alert('<img src=x onerror="window.injected=true">').then(() => window.noticeDone++);
+      ChatDialogs.alert('Second', { type: 'error' }).then(() => window.noticeDone++);
+    });
+    assert.equal(await page.locator('#notice-message img').count(), 0);
+    assert.match(await page.locator('#notice-message').textContent(), /<img/);
+    assert.equal(await page.evaluate(() => ChatState.get('ui').notices.length), 2);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#notice-message').textContent(), 'Second');
+    assert.equal(await page.evaluate(() => window.noticeDone), 2);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
+    assert.equal(await page.evaluate(() => document.activeElement === window.noticeFocus), true);
+    await page.evaluate(() => {
+      ChatDialogs.alert('Stale').then(() => window.noticeDone++);
+      ChatState.replaceConversation({ sessionId: 'notice-test', messages: [] });
+    });
+    assert.equal(await page.evaluate(() => window.noticeDone), 4);
+    assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
+    await page.locator('#rag-import-input').setInputFiles({
+      name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('invalid JSON')
+    });
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.equal(await page.evaluate(() => ChatState.get('ui').notices.length), 1);
+    assert.equal(await page.locator('#notice-dialog').getAttribute('data-type'), 'error');
+    await page.locator('#notice-accept').click();
+    assert.equal(await page.locator('#rag-import-input').inputValue(), '');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});

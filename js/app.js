@@ -319,7 +319,7 @@
           : { ok: true });
 
     if (!initialization.ok) {
-      alert(t(blockedMessageKey));
+      ChatDialogs.alert(t(blockedMessageKey));
       return false;
     }
 
@@ -335,7 +335,7 @@
   function blockSessionTransitionIfBusy(messageKey) {
     const isBusy = State.isConversationBusy ? State.isConversationBusy() : isGenerating;
     if (!isBusy) return false;
-    alert(t(messageKey));
+    ChatDialogs.alert(t(messageKey));
     return true;
   }
 
@@ -614,7 +614,7 @@
         if (Attachments.addFile) Attachments.addFile(parsed);
       } catch (err) {
         console.error(`Error processing file ${file.name}:`, err);
-        alert(t('err_file_process', { name: file.name, err: err.message || err }));
+        ChatDialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
       }
     }
     renderAttachedFiles();
@@ -1539,7 +1539,7 @@
     if (State.removeSession) {
       const res = State.removeSession(sessionId);
       if (!res.ok && res.reason === 'generation-active') {
-        alert(t('chat_delete_blocked_generating'));
+        ChatDialogs.alert(t('chat_delete_blocked_generating'));
         return;
       }
     }
@@ -1565,7 +1565,7 @@
 
     const deleted = await Storage.deleteAllConversations();
     if (!deleted) {
-      alert(t('chat_delete_history_err'));
+      ChatDialogs.alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
 
@@ -1881,9 +1881,9 @@
 
         renderSessionMessages(getChatHistory());
         await saveCurrentSession();
-        alert(t('chat_imported_success'));
+        ChatDialogs.alert(t('chat_imported_success'), { type: 'success' });
       } catch (err) {
-        alert(t('chat_import_json_err', { err: err.message || err }));
+        ChatDialogs.alert(t('chat_import_json_err', { err: err.message || err }), { type: 'error' });
       }
       if (elements.importJsonInput) elements.importJsonInput.value = '';
     };
@@ -2012,7 +2012,7 @@
   function setupLightDismissDialogs() {
     // Fallback para navegadores sin soporte de closedby="any"
     // Solo actúa si el atributo no está soportado
-    document.querySelectorAll('dialog').forEach(dialog => {
+    document.querySelectorAll('dialog:not(#notice-dialog)').forEach(dialog => {
       dialog.addEventListener('click', e => {
         // Si el clic fue directamente en el fondo del dialog (no en su contenido)
         if (e.target === dialog) {
