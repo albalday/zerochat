@@ -313,7 +313,14 @@ if __name__ == "__main__":
   }
 
   function isAndroid() {
-    return typeof navigator !== 'undefined' && /Android/i.test(String(navigator.userAgent || ''));
+    if (typeof navigator === 'undefined') return false;
+    const userAgent = String(navigator.userAgent || '');
+    const platform = String(navigator.platform || '');
+    const userAgentDataPlatform = String(navigator.userAgentData?.platform || '');
+    return /Android/i.test(userAgent)
+      || /Android/i.test(platform)
+      || /Android/i.test(userAgentDataPlatform)
+      || (navigator.userAgentData?.mobile === true && /Linux/i.test(`${userAgent} ${platform} ${userAgentDataPlatform}`));
   }
 
   function generateClipboardCommand(port, translator = t) {
