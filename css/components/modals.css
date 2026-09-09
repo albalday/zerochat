@@ -919,3 +919,14 @@ input:checked + .slider:before {
   overflow-wrap: anywhere;
   overflow-y: auto;
 }
+
+/* Al cerrar, no mantener visible el diálogo sin los estilos de [open]. */
+.notice-dialog:not([open]) {
+  transition: none;
+}
+
+#notice-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 1rem;
+}

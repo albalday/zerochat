@@ -677,8 +677,9 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
 
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
-    page.once('dialog', dialog => dialog.accept('Perfil Temporal Playwright'));
     await page.click('#btn-new-profile');
+    await page.fill('#notice-input', 'Perfil Temporal Playwright');
+    await page.click('#notice-accept');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://playwright-test:1234/v1');
     await page.click('#btn-save-profile');
@@ -1954,6 +1955,63 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
     });
     assert.equal(await page.evaluate(() => window.noticeDone), 4);
     assert.equal(await page.evaluate(() => document.getElementById('notice-dialog').open), false);
+    await page.evaluate(() => {
+      window.confirmResults = [];
+      ChatDialogs.confirm('Delete?').then(value => window.confirmResults.push(value));
+    });
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notice-cancel');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.confirmResults), [false]);
+    await page.evaluate(() => {
+      ChatDialogs.confirm('Delete?').then(value => window.confirmResults.push(value));
+    });
+    await page.locator('#notice-accept').click();
+    assert.deepEqual(await page.evaluate(() => window.confirmResults), [false, true]);
+    await page.evaluate(() => {
+      ChatDialogs.confirm('Delete?').then(value => window.confirmResults.push(value));
+    });
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.confirmResults), [false, true, false]);
+    await page.evaluate(() => {
+      ChatDialogs.confirm('Stale deletion?').then(value => window.confirmResults.push(value));
+      ChatState.replaceConversation({ sessionId: 'cancel-confirm', messages: [] });
+    });
+    assert.deepEqual(await page.evaluate(() => window.confirmResults), [false, true, false, false]);
+    await page.evaluate(() => {
+      window.deletedProfiles = [];
+      window.requestProfileDeletion = () => ChatUISettings.handleDeleteProfile(
+        { settingProfileName: { value: 'Example' } },
+        name => { window.deletedProfiles.push(name); return true; }
+      );
+      window.requestProfileDeletion();
+    });
+    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), []);
+    await page.locator('#notice-cancel').click();
+    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), []);
+    await page.evaluate(() => { window.requestProfileDeletion(); });
+    await page.locator('#notice-accept').click();
+    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), ['Example']);
+    await page.evaluate(() => {
+      window.promptResults = [];
+      ChatDialogs.prompt('Name <img src=x>', 'Initial').then(value => window.promptResults.push(value));
+    });
+    assert.equal(await page.locator('#notice-input').inputValue(), 'Initial');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'notice-input');
+    await page.locator('#notice-input').fill('New name');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name']);
+    await page.evaluate(() => { ChatDialogs.prompt('Name').then(value => window.promptResults.push(value)); });
+    await page.locator('#notice-accept').click();
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '']);
+    await page.evaluate(() => { ChatDialogs.prompt('Name', 'Discard').then(value => window.promptResults.push(value)); });
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '', null]);
+    await page.evaluate(() => {
+      ChatDialogs.prompt('Name', 'Stale').then(value => window.promptResults.push(value));
+      ChatState.replaceConversation({ sessionId: 'cancel-prompt', messages: [] });
+    });
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '', null, null]);
+    assert.equal(await page.locator('#notice-input').inputValue(), '');
     await page.locator('#rag-import-input').setInputFiles({
       name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('invalid JSON')
     });
@@ -1963,5 +2021,55 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
     await page.locator('#notice-accept').click();
     assert.equal(await page.locator('#rag-import-input').inputValue(), '');
     assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - Notices disappear immediately after a blocked import and confirmation', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const file of ['index.html', 'zerochat.html']) {
+      const page = await browser.newPage();
+      await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
+        ? { status: 204, body: '' }
+        : { status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      page.on('dialog', dialog => { errors.push('Native dialog'); dialog.dismiss(); });
+      await page.goto('file://' + path.resolve(__dirname, '..', file));
+      await page.waitForFunction(() => window.ChatState?.get('messages').length > 0);
+      const before = await page.evaluate(() => {
+        ChatState.set('streaming', { isGenerating: true });
+        return { messages: ChatState.get('messages'), session: ChatState.get('sessions').activeId };
+      });
+      await page.locator('#import-json-input').setInputFiles({
+        name: 'blocked.json', mimeType: 'application/json', buffer: Buffer.from('{}')
+      });
+      assert.equal(await page.locator('#notice-message').textContent(), await page.evaluate(() => ChatI18n.t('chat_import_blocked_generating')));
+      assert.equal(await page.locator('#import-json-input').inputValue(), '');
+      for (const mode of ['alert', 'confirm']) {
+        if (mode === 'confirm') await page.evaluate(() => { ChatDialogs.confirm('Continue?'); });
+        // Esperar a que termine la entrada para comprobar la antigua transición de salida.
+        await page.evaluate(async () => {
+          const dialog = document.getElementById('notice-dialog');
+          getComputedStyle(dialog).opacity;
+          await Promise.all(dialog.getAnimations().map(animation => animation.finished));
+        });
+        const frames = await page.evaluate(async () => {
+          const dialog = document.getElementById('notice-dialog');
+          document.getElementById('notice-accept').click();
+          const frames = [];
+          for (let i = 0; i < 18; i++) {
+            await new Promise(requestAnimationFrame);
+            frames.push({ open: dialog.open, height: dialog.getBoundingClientRect().height, display: getComputedStyle(dialog).display });
+          }
+          return frames;
+        });
+        assert.ok(frames.every(frame => !frame.open && frame.height === 0 && frame.display === 'none'), file + ': closed notice must never remain visible');
+      }
+      assert.deepEqual(await page.evaluate(() => ({ messages: ChatState.get('messages'), session: ChatState.get('sessions').activeId })), before);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
   } finally { await browser.close(); }
 });

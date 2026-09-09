@@ -248,7 +248,7 @@
     return currentConfig;
   }
 
-  function handleDeleteProfile(elements, removeProfile) {
+  async function handleDeleteProfile(elements, removeProfile) {
     const name = (elements?.settingProfileName && elements.settingProfileName.value.trim())
       ? elements.settingProfileName.value.trim()
       : ((elements?.profileSelectHelper && elements.profileSelectHelper.value)
@@ -257,7 +257,7 @@
     if (!name) return;
 
     const confirmMsg = t('confirm_delete_profile', { name }) || `¿Estás seguro de que deseas eliminar el perfil "${name}"?`;
-    if (!confirm(confirmMsg)) return;
+    if (!await ChatDialogs.confirm(confirmMsg)) return;
 
     if (typeof removeProfile === 'function' && removeProfile(name)) {
       showProfileFeedback(elements, t('msg_profile_deleted', { name }) || `Perfil "${name}" eliminado.`, 'success');
@@ -334,7 +334,7 @@
   }
 
   async function handleClearAllData() {
-    if (!confirm(t('confirm_clear_all_data'))) return;
+    if (!await ChatDialogs.confirm(t('confirm_clear_all_data'))) return;
     const Storage = getStorage();
     let cleared = true;
     if (Storage?.clearAllStorage) {

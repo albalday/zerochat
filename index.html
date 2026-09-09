@@ -406,8 +406,8 @@
 
   <dialog id="notice-dialog" class="settings-modal notice-dialog" aria-labelledby="notice-title" aria-describedby="notice-message">
     <div class="modal-header"><h3 id="notice-title"></h3></div>
-    <div class="modal-body" id="notice-message"></div>
-    <div class="modal-footer"><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
+    <div class="modal-body"><div id="notice-message"></div><input id="notice-input" type="text" maxlength="10000" aria-labelledby="notice-message" autocomplete="off" hidden></div>
+    <div class="modal-footer"><button type="button" id="notice-cancel" class="btn-secondary" data-i18n="notice_cancel" hidden></button><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
   </dialog>
 
   <!-- Scripts de la aplicación (compatibles con file:// y http://) -->

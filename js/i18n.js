@@ -24,6 +24,9 @@
   const TRANSLATIONS = {
     es: {
       notice_accept: 'Aceptar',
+      notice_cancel: 'Cancelar',
+      notice_confirm: 'Confirmación',
+      notice_prompt: 'Introducir texto',
       notice_info: 'Información',
       notice_success: 'Operación completada',
       notice_error: 'Error',
@@ -572,6 +575,9 @@
 
     en: {
       notice_accept: 'OK',
+      notice_cancel: 'Cancel',
+      notice_confirm: 'Confirmation',
+      notice_prompt: 'Enter text',
       notice_info: 'Information',
       notice_success: 'Operation completed',
       notice_error: 'Error',

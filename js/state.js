@@ -121,6 +121,7 @@
       ui: {
         notices: [],
         noticeSequence: 0,
+        noticeResult: null,
         sidebarOpen: false,
         reasoningMenuOpen: false,
         debugPanelOpen: false,
@@ -597,20 +598,27 @@
 
     function enqueueNotice(notice) {
       if (!notice || typeof notice.message !== 'string' || typeof notice.title !== 'string' ||
-          !['info', 'success', 'error'].includes(notice.type)) throw new TypeError('Invalid notice');
-      notice = { ...notice, message: notice.message.slice(0, 10000), title: notice.title.slice(0, 200) };
+          !['info', 'success', 'error'].includes(notice.type) ||
+          (notice.mode !== undefined && !['alert', 'confirm', 'prompt'].includes(notice.mode))) throw new TypeError('Invalid notice');
+      notice = { ...notice, mode: notice.mode || 'alert', message: notice.message.slice(0, 10000), title: notice.title.slice(0, 200) };
       const queue = state.ui.notices || [];
-      const existing = queue.find(item => item.message === notice.message && item.title === notice.title && item.type === notice.type);
+      const existing = notice.mode === 'alert' && queue.find(item => item.mode === 'alert' && item.message === notice.message && item.title === notice.title && item.type === notice.type);
       if (existing) return existing.id;
       if (queue.length >= 50) throw new RangeError('Notice queue is full');
       const id = (state.ui.noticeSequence || 0) + 1;
-      const item = { id, message: notice.message, title: notice.title, type: notice.type };
+      const item = { id, message: notice.message, title: notice.title, type: notice.type, mode: notice.mode };
+      if (notice.mode === 'prompt') item.value = String(notice.value ?? '').slice(0, 10000);
       setState({ ui: Object.assign({}, state.ui, { notices: queue.concat(item), noticeSequence: id }) });
       return id;
     }
 
-    function dismissNotice(id) {
-      setState({ ui: Object.assign({}, state.ui, { notices: (state.ui.notices || []).filter(item => item.id !== id) }) });
+    function dismissNotice(id, accepted = false, value = null) {
+      if (!(state.ui.notices || []).some(item => item.id === id)) return;
+      const result = { id, accepted: accepted === true };
+      if (state.ui.notices.find(item => item.id === id).mode === 'prompt') {
+        result.value = accepted === true ? String(value ?? '').slice(0, 10000) : null;
+      }
+      setState({ ui: Object.assign({}, state.ui, { notices: state.ui.notices.filter(item => item.id !== id), noticeResult: result }) });
     }
 
     /** Define los archivos adjuntos de la UI en el slice `ui.attachedFiles`. */

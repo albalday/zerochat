@@ -66,6 +66,14 @@ manteniendo los adjuntos pesados (como imágenes Base64) aislados del árbol de 
 El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
 añadirse simultáneamente a los diccionarios español e inglés.
 
+Los avisos, confirmaciones y solicitudes de texto deben utilizar exclusivamente
+`ChatDialogs.alert`, `ChatDialogs.confirm` y `ChatDialogs.prompt` (`js/ui-dialogs.js`).
+Está prohibido llamar a los diálogos nativos del navegador `alert()`, `confirm()`
+y `prompt()`, también mediante alias o propiedades de `window`/`globalThis`.
+Las confirmaciones y solicitudes de texto deben esperar su resultado con `await`,
+respetar la cancelación y revalidar el estado antes de efectuar cambios cuando
+pueda haber variado durante la espera. Los textos deben pasar por `ChatI18n`.
+
 Los mensajes inyectados programáticamente en la conversación deben redactarse en
 inglés.
 

@@ -1257,10 +1257,10 @@
     updateUIFromConfig();
   }
 
-  function handleDeleteProfile() {
+  async function handleDeleteProfile() {
     const id = elements.profileSelectHelper?.value || '';
     const profile = Profiles.get ? Profiles.get(id) : null;
-    if (!profile || !confirm(t('confirm_delete_profile', { name: profile.name }))) return;
+    if (!profile || !await ChatDialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
     if (Profiles.remove?.(profile.id)) {
       populateProfileSelector('');
       showProfileFeedback(t('msg_profile_deleted', { name: profile.name }) || `Perfil "${profile.name}" eliminado.`, 'success');
@@ -1268,8 +1268,8 @@
     }
   }
 
-  function requestNewProfileName(message) {
-    const name = String(prompt(message) || '').trim();
+  async function requestNewProfileName(message) {
+    const name = String(await ChatDialogs.prompt(message) || '').trim();
     if (!name) return null;
     if (Profiles.findByName?.(name)) {
       showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
@@ -1292,20 +1292,20 @@
     return saved;
   }
 
-  function handleNewProfile() {
-    const name = requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
+  async function handleNewProfile() {
+    const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
     if (!name) return;
     const saved = saveProfileRecord(name, Profiles.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', apiKey: '', model: '' });
     if (saved) showProfileFeedback(t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
   }
 
-  function handleCloneProfile() {
+  async function handleCloneProfile() {
     const source = Profiles.get?.(elements.profileSelectHelper?.value || '');
     if (!source) {
       showProfileFeedback(t('err_profile_select_to_clone') || 'Selecciona un perfil para clonarlo.', 'error');
       return;
     }
-    const name = requestNewProfileName(t('prompt_clone_profile_name', { name: source.name }) || `Nombre de la copia de "${source.name}":`);
+    const name = await requestNewProfileName(t('prompt_clone_profile_name', { name: source.name }) || `Nombre de la copia de "${source.name}":`);
     if (!name) return;
     const saved = saveProfileRecord(name, source.settings, source.description || '');
     if (saved) showProfileFeedback(t('msg_profile_cloned', { name }) || `Perfil clonado como "${name}".`, 'success');
@@ -1532,7 +1532,7 @@
 
   async function deleteSession(sessionId, event) {
     if (event) event.stopPropagation();
-    if (!confirm(t('chat_delete_confirm'))) return;
+    if (!await ChatDialogs.confirm(t('chat_delete_confirm'))) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const currId = getCurrentSessionId();
@@ -1561,7 +1561,8 @@
     const sessionsList = getSavedSessions();
     if (!sessionsList || sessionsList.length === 0) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    if (!confirm(t('chat_delete_all_confirm'))) return;
+    if (!await ChatDialogs.confirm(t('chat_delete_all_confirm'))) return;
+    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const deleted = await Storage.deleteAllConversations();
     if (!deleted) {
@@ -1578,11 +1579,13 @@
 
   async function renameSession(sessionId, event) {
     if (event) event.stopPropagation();
-    const sess = getSavedSessions().find(s => s.id === sessionId);
+    let sess = getSavedSessions().find(s => s.id === sessionId);
     if (!sess) return;
 
-    const newTitle = prompt(t('prompt_rename_conversation'), sess.title || '');
+    const newTitle = await ChatDialogs.prompt(t('prompt_rename_conversation'), sess.title || '');
     if (newTitle !== null && newTitle.trim() !== '') {
+      sess = getSavedSessions().find(s => s.id === sessionId);
+      if (!sess) return;
       sess.title = newTitle.trim();
       sess.updatedAt = Date.now();
       if (State.saveSessionMetadata) {

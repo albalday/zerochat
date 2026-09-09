@@ -298,7 +298,7 @@
     }
     workspace.querySelectorAll('[data-delete-document]').forEach(button => button.addEventListener('click', async () => {
       const confirmMsg = t('rag_delete_doc_confirm') || '¿Eliminar este documento y todos sus fragmentos?';
-      if (!confirm(confirmMsg)) return;
+      if (!await ChatDialogs.confirm(confirmMsg)) return;
       await storage().deleteDocument(button.dataset.deleteDocument);
       indexer()?.invalidateBranch(branchId);
       await renderWorkspace(branchId);
@@ -506,7 +506,7 @@
     const select = document.getElementById('rag-manage-branch-select');
     const id = select?.value;
     const confirmMsg = t('rag_delete_branch_confirm') || '¿Eliminar la rama y todos sus documentos?';
-    if (!id || !confirm(confirmMsg)) return;
+    if (!id || !await ChatDialogs.confirm(confirmMsg)) return;
     await storage().deleteBranch(id);
     indexer()?.invalidateBranch(id);
     if (activeBranchIds.has(id)) {
