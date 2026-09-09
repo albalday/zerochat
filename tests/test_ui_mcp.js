@@ -81,6 +81,8 @@ test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para F
   assert.ok(pyScript.includes('create_mcp_app'));
   assert.ok(pyScript.includes('PrivateNetworkAccessMiddleware'));
   assert.ok(pyScript.includes('CORSMiddleware'));
+  assert.ok(pyScript.includes('run_termux_server'));
+  assert.ok(pyScript.includes('termux-stdlib'));
   assert.ok(pyScript.includes('host: str = "127.0.0.1"'));
   assert.ok(pyScript.includes('port: int = 6388'));
 
