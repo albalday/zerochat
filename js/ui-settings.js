@@ -248,22 +248,6 @@
     return currentConfig;
   }
 
-  async function handleDeleteProfile(elements, removeProfile) {
-    const name = (elements?.settingProfileName && elements.settingProfileName.value.trim())
-      ? elements.settingProfileName.value.trim()
-      : ((elements?.profileSelectHelper && elements.profileSelectHelper.value)
-        ? elements.profileSelectHelper.value
-        : '');
-    if (!name) return;
-
-    const confirmMsg = t('confirm_delete_profile', { name }) || `¿Estás seguro de que deseas eliminar el perfil "${name}"?`;
-    if (!await ChatDialogs.confirm(confirmMsg)) return;
-
-    if (typeof removeProfile === 'function' && removeProfile(name)) {
-      showProfileFeedback(elements, t('msg_profile_deleted', { name }) || `Perfil "${name}" eliminado.`, 'success');
-    }
-  }
-
   function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-general') {
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
@@ -677,7 +661,6 @@
     gatherCurrentFormConfig,
     showProfileFeedback,
     handleSaveProfile,
-    handleDeleteProfile,
     openSettingsModal,
     closeSettingsModal,
     handleResetSettings,

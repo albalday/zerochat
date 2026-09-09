@@ -297,9 +297,12 @@
       dropzone.addEventListener('drop', event => { event.preventDefault(); dropzone.classList.remove('drag-over'); handleFiles(event.dataTransfer.files); });
     }
     workspace.querySelectorAll('[data-delete-document]').forEach(button => button.addEventListener('click', async () => {
+      const documentId = button.dataset.deleteDocument;
       const confirmMsg = t('rag_delete_doc_confirm') || '¿Eliminar este documento y todos sus fragmentos?';
       if (!await ChatDialogs.confirm(confirmMsg)) return;
-      await storage().deleteDocument(button.dataset.deleteDocument);
+      const document = await storage().getDocumentById(documentId);
+      if (!document || document.branchId !== branchId || !(await storage().getBranchById(branchId))) return;
+      await storage().deleteDocument(documentId);
       indexer()?.invalidateBranch(branchId);
       await renderWorkspace(branchId);
       await updateQuota();
@@ -507,6 +510,7 @@
     const id = select?.value;
     const confirmMsg = t('rag_delete_branch_confirm') || '¿Eliminar la rama y todos sus documentos?';
     if (!id || !await ChatDialogs.confirm(confirmMsg)) return;
+    if (!(await storage().getBranchById(id))) return;
     await storage().deleteBranch(id);
     indexer()?.invalidateBranch(id);
     if (activeBranchIds.has(id)) {

@@ -18,7 +18,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-    assert.equal(await page.title(), 'ZeroChat v6.5.4', 'El título de index.html debe ser ZeroChat v6.5.4');
+    assert.equal(await page.title(), 'ZeroChat v6.5.5', 'El título de index.html debe ser ZeroChat v6.5.5');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -50,7 +50,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, 'ZeroChat v6.5.4', 'El título de zerochat.html debe ser ZeroChat v6.5.4');
+    assert.equal(title, 'ZeroChat v6.5.5', 'El título de zerochat.html debe ser ZeroChat v6.5.5');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -1990,20 +1990,6 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
       ChatState.replaceConversation({ sessionId: 'cancel-confirm', messages: [] });
     });
     assert.deepEqual(await page.evaluate(() => window.confirmResults), [false, true, false, false]);
-    await page.evaluate(() => {
-      window.deletedProfiles = [];
-      window.requestProfileDeletion = () => ChatUISettings.handleDeleteProfile(
-        { settingProfileName: { value: 'Example' } },
-        name => { window.deletedProfiles.push(name); return true; }
-      );
-      window.requestProfileDeletion();
-    });
-    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), []);
-    await page.locator('#notice-cancel').click();
-    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), []);
-    await page.evaluate(() => { window.requestProfileDeletion(); });
-    await page.locator('#notice-accept').click();
-    assert.deepEqual(await page.evaluate(() => window.deletedProfiles), ['Example']);
     await page.evaluate(() => {
       window.promptResults = [];
       ChatDialogs.prompt('Name <img src=x>', 'Initial').then(value => window.promptResults.push(value));

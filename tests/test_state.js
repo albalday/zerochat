@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const ChatState = require('../js/state.js');
 
 test('ChatState - Inicialización con valores por defecto', () => {
@@ -14,6 +16,12 @@ test('ChatState - Inicialización con valores por defecto', () => {
   assert.ok(Array.isArray(state.messages));
   assert.equal(state.messages.length, 0);
   assert.ok(state.sessions.activeId);
+});
+
+test('ChatState - app.js no mantiene una copia mutable del estado de generación', () => {
+  const appSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  assert.doesNotMatch(appSource, /let\s+isGenerating\s*=/);
+  assert.match(appSource, /State\.isConversationBusy/);
 });
 
 test('ChatState - Actualizaciones parciales y atómicas', () => {

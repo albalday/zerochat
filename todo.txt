@@ -1,3 +1,5 @@
+fichero de uso del programador como recordatorio. no analizar
+
 comprobar que borrado de una respuesta o mensaje deja el estado en una situacion coherente
 estudiar chats simultaneos como opcion y como algo que ahce el usuario por pestañas ventanas paralelas
 iconos copiar y pegar respuesta pone izda estadisticas
@@ -7,9 +9,9 @@ aprendido: docs arquitectura, doc normas test exhaustivos agentes solucionan pro
 aprendido: multiples agents, niveles, uso git desde agente o herramienta
 puntos fuerts: rag financial, tool agentico,  
 sub agente (mismo-otro)
-los mensajes de alert pueden acabar siendo quitados sin quere por el usaurio en el check. poner funcion de alert
 mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
 clave de prueba openai, gemini y claude
-port por defecto mcp, no pasar por parametro
 rag permitir parar importacio, tratar ficheros duplicados
+ui para movil (botoneras)
+mcp android

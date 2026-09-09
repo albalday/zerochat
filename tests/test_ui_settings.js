@@ -140,3 +140,7 @@ test('UISettings - handleSaveProfile delega el guardado al editor sin mutar la c
 
   assert.equal(elements.profileActionFeedback.style.display, 'block');
 });
+
+test('UISettings - no coordina el borrado de perfiles, que corresponde a app.js', () => {
+  assert.equal(UISettings.handleDeleteProfile, undefined);
+});

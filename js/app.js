@@ -95,7 +95,6 @@
   });
 
   let currentAbortController = null;
-  let isGenerating = false;
 
   function getChatHistory() {
     return State.get ? (State.get('messages') || []) : [];
@@ -335,7 +334,7 @@
   }
 
   function blockSessionTransitionIfBusy(messageKey) {
-    const isBusy = State.isConversationBusy ? State.isConversationBusy() : isGenerating;
+    const isBusy = State.isConversationBusy?.() === true;
     if (!isBusy) return false;
     ChatDialogs.alert(t(messageKey));
     return true;
@@ -841,7 +840,7 @@
   async function handleSendMessage() {
     const rawText = elements.userInput.value.trim();
     const currentFiles = Attachments.getFiles ? Attachments.getFiles() : [];
-    if ((!rawText && currentFiles.length === 0) || isGenerating) return;
+    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy?.()) return;
     // One immutable snapshot per turn prevents profile changes from modifying
     // an in-flight request.
     const runtimeConfig = getRuntimeConfig();
@@ -866,13 +865,7 @@
     autoResizeTextarea();
     closeReasoningMenu();
 
-    if (State.set) {
-      State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
-    } else {
-      isGenerating = true;
-      elements.btnSend.disabled = true;
-      elements.btnStopStream.style.display = 'inline-flex';
-    }
+    State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
 
     currentAbortController = new AbortController();
     // Mostrar indicador de escritura hasta que llegue el primer chunk
@@ -1093,10 +1086,7 @@
 
   function finishGeneration({ skipSave = false } = {}) {
     removeTypingIndicator(); // Seguridad: limpiar si quedó activo
-    if (State.set) {
-      State.set('streaming', { isGenerating: false, status: 'idle' });
-    }
-    isGenerating = false;
+    State.set('streaming', { isGenerating: false, status: 'idle' });
     if (elements.btnSend) elements.btnSend.disabled = false;
     if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
 
@@ -1263,9 +1253,11 @@
     const id = elements.profileSelectHelper?.value || '';
     const profile = Profiles.get ? Profiles.get(id) : null;
     if (!profile || !await ChatDialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
-    if (Profiles.remove?.(profile.id)) {
+    const currentProfile = Profiles.get ? Profiles.get(id) : null;
+    if (!currentProfile || currentProfile.name !== profile.name) return;
+    if (Profiles.remove?.(currentProfile.id)) {
       populateProfileSelector('');
-      showProfileFeedback(t('msg_profile_deleted', { name: profile.name }) || `Perfil "${profile.name}" eliminado.`, 'success');
+      showProfileFeedback(t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
       updateUIFromConfig();
     }
   }
@@ -2511,7 +2503,7 @@
 
     if (State.subscribe) {
       State.subscribe('streaming', (streamingState) => {
-        isGenerating = Boolean(streamingState.isGenerating);
+        const isGenerating = Boolean(streamingState.isGenerating);
         if (elements.btnSend) elements.btnSend.disabled = isGenerating;
         if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
       });
