@@ -911,6 +911,7 @@
         resolveToolDefinitions = null,
         dispatchToolCall = null,
         summarizeHistory = null,
+        contextOptions = {},
         createMessageId = null,
         appendFinalMessage = false,
         onBeforeRequest = null,
@@ -923,6 +924,9 @@
       }
 
       const ContextManager = getContextManager();
+      const safeContextOptions = contextOptions && typeof contextOptions === 'object'
+        ? contextOptions
+        : {};
 
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
@@ -964,6 +968,7 @@
       let lastStats = null;
       const toolExecutions = [];
       const toolCallSignatures = [];
+      let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
 
@@ -978,19 +983,24 @@
           callbacks.onStepStart(stepIndex);
         }
 
-        // The runtime decides only when to compact. ContextManager gives the
-        // model the previous checkpoint plus the complete later dialogue and
-        // atomically replaces that interval with the returned checkpoint.
-        if (ContextManager && typeof ContextManager.shouldCompress === 'function' &&
+        // Automatic context compaction is independent from the agent_checkpoint
+        // tool. It replaces the previous checkpoint and later dialogue atomically.
+        if (!compressionUnavailable && ContextManager && typeof ContextManager.shouldCompress === 'function' &&
           typeof ContextManager.compressHistory === 'function' &&
           typeof summarizeHistory === 'function' &&
-          ContextManager.shouldCompress(workingMessages, { model, providerType: apiType })) {
+          ContextManager.shouldCompress(workingMessages, { ...safeContextOptions, model, providerType: apiType })) {
           const compacted = await ContextManager.compressHistory({
             messages: workingMessages,
             summarizeFn: summarizeHistory,
-            options: { model, providerType: apiType }
+            options: { ...safeContextOptions, model, providerType: apiType }
           });
-          if (compacted.compressed) workingMessages = compacted.messages;
+          if (compacted.compressed) {
+            workingMessages = compacted.messages;
+          } else {
+            // A failed or unavailable summarizer cannot make progress during
+            // this execution; retrying it before every agent step only adds calls.
+            compressionUnavailable = true;
+          }
         }
 
         // 1. Optimización dinámica de presupuesto de contexto (Context Budget)

@@ -247,9 +247,10 @@ test('ContextManager - un checkpoint sin system prompt persistente no se pierde 
   assert.equal(prepared[1]._isSummaryBlock, true);
 });
 
-test('ContextManager - Protección contra bucles de summarization y pérdida de memoria previa', () => {
-  const historyWithExistingSummary = [
-    { role: 'system', content: 'Sistema' },
+test('ContextManager - no recompone un checkpoint sin diálogo nuevo suficiente', () => {
+  const historyWithExistingSummary = Array.from({ length: 6 }, (_, index) => (
+    { role: 'system', content: `Sistema permanente ${index}` }
+  )).concat([
     {
       role: 'system',
       content: 'Memoria previa',
@@ -258,13 +259,14 @@ test('ContextManager - Protección contra bucles de summarization y pérdida de 
     },
     { role: 'user', content: 'Turno 9' },
     { role: 'assistant', content: 'Respuesta 9' }
-  ];
+  ]);
 
-  // Solo han pasado 2 turnos desde el último resumen (< cooldownTurns)
   const should = ChatContextManager.shouldCompress(historyWithExistingSummary, {
-    cooldownTurns: 4
+    maxInputTokens: 20,
+    compressionThresholdRatio: 0.1,
+    minMessagesToCompress: 3
   });
-  assert.equal(should, false, 'Debe respetar el periodo de enfriamiento (cooldown) para evitar bucles');
+  assert.equal(should, false, 'No debe reemplazar un checkpoint con solo dos mensajes nuevos');
 });
 
 test('ContextManager - truncateToolContent preserva todos los fragmentos en salidas multisección de RAG', () => {

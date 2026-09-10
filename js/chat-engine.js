@@ -466,6 +466,9 @@
       synthesizeOnLoop: false,
       appendFinalMessage: true,
       isCheckpointEnabled: Boolean(appConfig.enabledTools?.agent_checkpoint),
+      contextOptions: {
+        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride
+      },
       summarizeHistory: async ({ systemPrompt, messages }) => {
         const API = getAPI();
         const response = await API.streamChatCompletion({

@@ -25,6 +25,74 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
   assert.equal(executions, 0);
 });
 
+test('AgentRuntime - compacta con el límite de contexto configurado y conserva el checkpoint', async () => {
+  const history = [];
+  for (let index = 0; index < 4; index++) {
+    history.push(
+      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(30)}` },
+      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(30)}` }
+    );
+  }
+
+  let summaryCalls = 0;
+  const runtime = new AgentRuntime({ registry: new ToolRegistry() });
+  const result = await runtime.execute({
+    api: {
+      streamChatCompletion: async params => {
+        assert.equal(params.messages.length, 1);
+        assert.equal(params.messages[0]._isSummaryBlock, true);
+        return { accumulatedText: 'Respuesta final.', toolCalls: [], stats: { tokens: 12 } };
+      }
+    },
+    messages: history,
+    appendFinalMessage: true,
+    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    summarizeHistory: async ({ messages }) => {
+      summaryCalls++;
+      assert.equal(messages.length, history.length);
+      return 'Checkpoint acumulativo.';
+    }
+  });
+
+  assert.equal(summaryCalls, 1);
+  assert.equal(result.history[0]._isSummaryBlock, true);
+  assert.equal(result.history[1].content, 'Respuesta final.');
+});
+
+test('AgentRuntime - no reintenta una compactación fallida durante el mismo ciclo', async () => {
+  const registry = new ToolRegistry();
+  registry.registerTool(new Tool({ name: 'lookup', execute: async () => 'dato' }));
+  const history = [];
+  for (let index = 0; index < 4; index++) {
+    history.push(
+      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(30)}` },
+      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(30)}` }
+    );
+  }
+
+  let apiCalls = 0;
+  let summaryCalls = 0;
+  const result = await new AgentRuntime({ registry }).execute({
+    api: {
+      streamChatCompletion: async () => {
+        apiCalls++;
+        return apiCalls === 1
+          ? { accumulatedText: '', toolCalls: [{ id: 'call_lookup', function: { name: 'lookup', arguments: '{}' } }] }
+          : { accumulatedText: 'Respuesta final.', toolCalls: [] };
+      }
+    },
+    messages: history,
+    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    summarizeHistory: async () => {
+      summaryCalls++;
+      return '';
+    }
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(summaryCalls, 1);
+});
+
 test('AgentRuntime - Tool call normal con resolución y respuesta final', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({
