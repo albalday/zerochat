@@ -754,7 +754,7 @@
           <span class="rag-active-tip-icon">💡</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
-            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y evitar la saturación de contexto.</span>
+            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y mantener un plan de investigación claro.</span>
           </div>
         </div>
       </div>
@@ -830,7 +830,7 @@
           </div>
           <div class="setting-card">
             <div class="setting-card-title"><strong data-i18n="rag_help_checkpoint_title">Punto de control agéntico para modelos de poco contexto</strong></div>
-            <p class="setting-card-desc" data-i18n-html="rag_help_checkpoint_desc">Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios, descargue la memoria de trabajo y continúe investigando sin perder coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.</p>
+            <p class="setting-card-desc" data-i18n-html="rag_help_checkpoint_desc">Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios y registre el siguiente paso para continuar investigando con coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.</p>
           </div>
         </div>
       </div>

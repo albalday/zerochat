@@ -86,25 +86,19 @@ test('AgentCheckpoint Tool - UIReasoning syncCheckpointToggle sincroniza y notif
 
 test('AgentCheckpoint Tool - Ejecución con ready_to_respond: true (conclude)', async () => {
   const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
-  let compactCalled = false;
 
   const args = {
     findings: 'Se confirmó que el ratio de liquidez es 1.45 y la deuda neta bajó un 12%.',
     ready_to_respond: true
   };
 
-  const context = {
-    compactHistory: () => { compactCalled = true; }
-  };
-
-  const result = await tool.execute(args, context);
+  const result = await tool.execute(args);
 
   assert.equal(result.success, true);
   assert.equal(result.action, 'conclude');
   assert.equal(result.status, 'acknowledged');
   assert.equal(result.findings, args.findings);
   assert.ok(result.guidance.includes('final answer'));
-  assert.equal(compactCalled, true, 'Debe invocar context.compactHistory');
 
   const serialized = tool.serializeResultForModel(args, result);
   assert.ok(serialized.includes('conclude'));
@@ -113,7 +107,6 @@ test('AgentCheckpoint Tool - Ejecución con ready_to_respond: true (conclude)', 
 
 test('AgentCheckpoint Tool - Ejecución con ready_to_respond: false (continue)', async () => {
   const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
-  let compactedArgs = null;
 
   const args = {
     findings: 'Se obtuvo el balance del año 2023.',
@@ -122,68 +115,22 @@ test('AgentCheckpoint Tool - Ejecución con ready_to_respond: false (continue)',
     ready_to_respond: false
   };
 
-  const context = {
-    compactHistory: (info) => { compactedArgs = info; }
-  };
-
-  const result = await tool.execute(args, context);
+  const result = await tool.execute(args);
 
   assert.equal(result.success, true);
   assert.equal(result.action, 'continue');
   assert.equal(result.missing_info, args.missing_info);
   assert.equal(result.next_action, args.next_action);
   assert.ok(result.guidance.includes(args.next_action));
-  assert.deepEqual(compactedArgs, { findings: args.findings, isReady: false });
+  assert.ok(!result.guidance.includes('memory compacted'));
 });
 
-test('ContextManager - compactToolHistory compacta mensajes de herramientas conservando tool_call_id', () => {
-  const messages = [
-    { id: 'msg_1', role: 'user', content: 'Analiza el documento y compara ventas.' },
-    {
-      id: 'msg_2',
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_rag_1', function: { name: 'search_knowledge_base', arguments: '{"query":"ventas"}' } }]
-    },
-    {
-      id: 'msg_3',
-      role: 'tool',
-      tool_call_id: 'call_rag_1',
-      name: 'search_knowledge_base',
-      content: 'A'.repeat(5000) // Payload extenso de 5000 chars
-    },
-    {
-      id: 'msg_4',
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_cp_1', function: { name: 'agent_checkpoint', arguments: '{"findings":"Ventas subieron 10%","ready_to_respond":true}' } }]
-    },
-    {
-      id: 'msg_5',
-      role: 'tool',
-      tool_call_id: 'call_cp_1',
-      name: 'agent_checkpoint',
-      content: JSON.stringify({ success: true, action: 'conclude', findings: 'Ventas subieron 10%' })
-    }
-  ];
-
-  const compacted = ContextManager.compactToolHistory(messages);
-
-  assert.equal(compacted.length, messages.length);
-  assert.equal(compacted[0].content, messages[0].content);
-  assert.equal(compacted[1].tool_calls[0].id, 'call_rag_1');
-
-  // El mensaje tool extenso debe haber sido compactado
-  assert.equal(compacted[2].role, 'tool');
-  assert.equal(compacted[2].tool_call_id, 'call_rag_1');
-  assert.equal(compacted[2].name, 'search_knowledge_base');
-  assert.ok(compacted[2].content.length < 300);
-  assert.ok(compacted[2].content.includes('compactada en punto de control'));
-  assert.equal(compacted[2]._compactedByCheckpoint, true);
-
-  // El mensaje de agent_checkpoint no debe ser truncado
-  assert.equal(compacted[4].name, 'agent_checkpoint');
-  assert.ok(compacted[4].content.includes('Ventas subieron 10%'));
+test('AgentCheckpoint Tool - describe consolidación semántica, no compactación inmediata', () => {
+  const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
+  assert.ok(!tool.description.includes('memory consolidation'));
+  assert.ok(!tool.promptGuide().includes('compacts working memory'));
+  assert.ok(!I18n.TRANSLATIONS.es.agent_checkpoint_desc.includes('podar'));
+  assert.ok(!I18n.TRANSLATIONS.en.agent_checkpoint_desc.includes('prune'));
 });
 
 test('AgentCheckpoint Tool - ChatEngine inyecta instrucción de checkpoint en toolsGuide solo si está activo', () => {
@@ -220,7 +167,7 @@ test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de c
 
   const contextWithCp = await RagService.buildRagSystemContext(branch.id, { isCheckpointEnabled: true });
   assert.ok(contextWithCp.includes('agent_checkpoint'));
-  assert.ok(contextWithCp.includes('consolidate findings and clear working memory'));
+  assert.ok(contextWithCp.includes('consolidate findings and record the next step'));
 });
 
 test('ContextManager - usa el límite publicado y un único fallback cuando falta', () => {
@@ -228,7 +175,7 @@ test('ContextManager - usa el límite publicado y un único fallback cuando falt
   assert.equal(ContextManager.getModelContextLimit(), 1000000);
 });
 
-test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas consecutivas y compacta al recibir checkpoint', async () => {
+test('ChatEngine - executeAgentTurnLoop no clasifica consultas para forzar checkpoints', async () => {
   const ChatAPI = require('../js/api.js');
   const originalStream = ChatAPI.streamChatCompletion;
 
@@ -260,7 +207,7 @@ test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas c
         stats: { completionTokens: 10 }
       };
     } else if (turn === 3) {
-      // Turno 3: el modelo atiende al aviso y llama a agent_checkpoint
+      // Turno 3: el modelo puede crear el checkpoint por iniciativa propia.
       if (options.onDone) {
         options.onDone('', { completionTokens: 10 }, [
           {
@@ -315,14 +262,12 @@ test('ChatEngine - executeAgentTurnLoop inyecta aviso agéntico tras consultas c
   ChatAPI.streamChatCompletion = originalStream;
 
   assert.equal(res.success, true);
-  // Verificar que la herramienta en turno 2 (search_web) recibió el aviso agéntico obligatorio
+  // Las herramientas se envían tal cual: el runtime no las clasifica ni les inyecta avisos.
   const webToolMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');
   assert.ok(webToolMsg, 'Debe existir el mensaje tool de search_web');
-  assert.ok(webToolMsg.content.includes('MANDATORY AGENT NOTICE'), 'Debe incluir el aviso agéntico obligatorio');
+  assert.ok(!webToolMsg.content.includes('MANDATORY AGENT NOTICE'));
 
-  // Verificar que al procesar agent_checkpoint se compactó el historial
-  const compactedWebMsg = history.find(m => m.role === 'tool' && m.name === 'search_web');
-  // Si el contenido supera 250 caracteres, se compacta; en search_web mock o real:
+  // Invocar la herramienta no aplica poda selectiva al historial.
   const cpToolMsg = history.find(m => m.role === 'tool' && m.name === 'agent_checkpoint');
   assert.ok(cpToolMsg, 'Debe existir el mensaje tool de agent_checkpoint');
   assert.ok(cpToolMsg.content.includes('Datos parciales de 2018 recuperados'));

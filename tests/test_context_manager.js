@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatContextManager = require('../js/context-manager.js');
+const ChatEngine = require('../js/chat-engine.js');
 
 test('ContextManager - Estimación de tokens para texto, código y multimodales', () => {
   const shortText = 'Hola, ¿cómo estás?';
@@ -152,7 +153,7 @@ test('ContextManager - shouldCompress detecta cuándo una conversación supera l
   assert.equal(should, true, 'Debe activar compresión para historiales densos que superan el umbral');
 });
 
-test('ContextManager - compressHistory consolida mensajes antiguos con summarizeFn simulada', async () => {
+test('ContextManager - compressHistory crea un checkpoint acumulativo con el diálogo completo', async () => {
   const history = [
     { role: 'system', content: 'Eres un tutor de programación.' },
     { role: 'user', content: 'Quiero crear una API REST con Node.js y SQLite.' },
@@ -165,22 +166,19 @@ test('ContextManager - compressHistory consolida mensajes antiguos con summarize
   ];
 
   let simulatedSummarizeCalled = false;
-  const mockSummarizeFn = async ({ systemPrompt, userPrompt }) => {
+  const mockSummarizeFn = async ({ systemPrompt, checkpoint, dialogue, messages }) => {
     simulatedSummarizeCalled = true;
-    assert.ok(systemPrompt.includes('MEMORIA ESTRUCTURADA'));
-    assert.ok(userPrompt.includes('API REST'));
-    return `### [MEMORIA ESTRUCTURADA DE TURNOS ANTERIORES]
-- **Requisitos y Objetivos:** API REST Node.js con SQLite y auth JWT.
-- **Decisiones Clave:** Express, better-sqlite3, bcrypt y jsonwebtoken.
-- **Datos y Hechos Establecidos:** Tabla users con id y email.
-- **Tareas Pendientes:** Endpoint de login.
-- **Contexto Técnico:** Node.js, Express, SQLite.`;
+    assert.ok(systemPrompt.includes('cumulative'));
+    assert.equal(checkpoint, null);
+    assert.equal(dialogue.length, 7);
+    assert.deepEqual(messages, dialogue);
+    return 'Checkpoint: API REST Node.js con SQLite y auth JWT; pendiente el endpoint de login.';
   };
 
   const res = await ChatContextManager.compressHistory({
     messages: history,
     summarizeFn: mockSummarizeFn,
-    options: { recentTurnsToKeep: 2 }
+    options: {}
   });
 
   assert.equal(res.compressed, true);
@@ -189,13 +187,13 @@ test('ContextManager - compressHistory consolida mensajes antiguos con summarize
   assert.equal(res.memoryBlock._isSummaryBlock, true);
   assert.ok(res.diagnostics.savedTokens > 0);
 
-  // Verificar preservación de System Prompt y turnos recientes
+  // El checkpoint sustituye todo el intervalo compacto, sin retener turnos recientes.
   assert.equal(res.messages[0].content, 'Eres un tutor de programación.');
   assert.equal(res.messages[1]._isSummaryBlock, true);
-  assert.equal(res.messages[res.messages.length - 1].content, 'Ahora implementemos el endpoint de login.');
+  assert.equal(res.messages.length, 2);
 });
 
-test('ContextManager - compressHistory fallback determinista sin llamadas de red', async () => {
+test('ContextManager - compressHistory conserva el historial si el modelo no está disponible', async () => {
   const history = [
     { role: 'system', content: 'Sistema' },
     { role: 'user', content: 'Buscar información de vuelos' },
@@ -205,16 +203,48 @@ test('ContextManager - compressHistory fallback determinista sin llamadas de red
     { role: 'user', content: 'Reservar el primero.' }
   ];
 
+  const res = await ChatContextManager.compressHistory({ messages: history, summarizeFn: null });
+
+  assert.equal(res.compressed, false);
+  assert.equal(res.reason, 'summarizer_unavailable');
+  assert.equal(res.messages, history);
+});
+
+test('ContextManager - el siguiente checkpoint recibe el anterior y todas las llamadas y resultados posteriores', async () => {
+  const checkpoint = { role: 'system', content: 'Checkpoint anterior', _isSummaryBlock: true };
+  const toolResult = 'resultado completo '.repeat(500);
+  const history = [
+    { role: 'system', content: 'Sistema permanente' },
+    checkpoint,
+    { role: 'user', content: 'Consulta nueva' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', function: { name: 'any_tool', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call_1', name: 'any_tool', content: toolResult },
+    { role: 'assistant', content: 'Resultado analizado' }
+  ];
+  let received;
   const res = await ChatContextManager.compressHistory({
     messages: history,
-    summarizeFn: null, // Sin LLM
-    options: { recentTurnsToKeep: 1 }
+    summarizeFn: async input => {
+      received = input;
+      return 'Checkpoint acumulativo nuevo';
+    }
   });
 
-  assert.equal(res.compressed, true);
-  assert.ok(res.memoryBlock);
-  assert.ok(res.memoryBlock.content.includes('MEMORIA ESTRUCTURADA'));
-  assert.ok(res.memoryBlock.content.includes('search_web'));
+  assert.equal(received.checkpoint, checkpoint);
+  assert.deepEqual(received.dialogue, history.slice(2));
+  assert.equal(received.dialogue[2].content, toolResult);
+  assert.deepEqual(received.messages, [checkpoint, ...history.slice(2)]);
+  assert.equal(res.messages.length, 2);
+  assert.equal(res.messages[1].content, 'Checkpoint acumulativo nuevo');
+});
+
+test('ContextManager - un checkpoint sin system prompt persistente no se pierde al preparar el contexto', () => {
+  const history = [{ role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true }];
+  const prepared = ChatEngine.buildEffectiveMessages(history, { systemPrompt: 'Sistema de la aplicación' });
+
+  assert.ok(prepared[0].content.includes('Sistema de la aplicación'));
+  assert.equal(prepared[1].content, 'Checkpoint acumulativo');
+  assert.equal(prepared[1]._isSummaryBlock, true);
 });
 
 test('ContextManager - Protección contra bucles de summarization y pérdida de memoria previa', () => {

@@ -1,7 +1,5 @@
 fichero de uso del programador como recordatorio. no analizar
 
-comprobar que borrado de una respuesta o mensaje deja el estado en una situacion coherente
-estudiar chats simultaneos como opcion y como algo que ahce el usuario por pestañas ventanas paralelas
 iconos copiar y pegar respuesta pone izda estadisticas
 indicar descarga a file de zerochat.html
 aprendido: docs arquitectura, doc normas test exhaustivos agentes solucionan problema concreto se suelen saltar la infraestructura
@@ -10,7 +8,7 @@ puntos fuerts: rag financial, tool agentico,
 sub agente (mismo-otro)
 mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
-clave de prueba openai, gemini y claude
+clave de prueba openai, gemini, openrouter y claude
 rag permitir parar importacio, tratar ficheros duplicados
 ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
 mcp android

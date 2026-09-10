@@ -300,7 +300,11 @@
           });
         }
       } else if (m.role === 'system') {
-        messages.push({ role: 'system', content: m.content || '' });
+        messages.push({
+          role: 'system',
+          content: m.content || '',
+          ...(m._isSummaryBlock ? { _isSummaryBlock: true } : {})
+        });
       }
     });
 
@@ -328,7 +332,7 @@
       } else {
         const isCheckpointActive = !!(appConfig?.enabledTools?.agent_checkpoint);
         const checkpointGuidance = isCheckpointActive
-          ? '\n*Agent checkpoint:* When gathering information from multiple searches or documents, or before concluding, invoke "agent_checkpoint" to consolidate facts and clear working memory.'
+          ? '\n*Agent checkpoint:* When gathering information from multiple searches or documents, or before concluding, invoke "agent_checkpoint" to consolidate facts and record the current plan.'
           : '';
         toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.${checkpointGuidance}`;
       }
@@ -359,7 +363,7 @@
     const dateAnchor = ensureConversationDate(chatHistory, lang);
     fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${dateAnchor}` : dateAnchor;
 
-    if (messages.length > 0 && messages[0].role === 'system') {
+    if (messages.length > 0 && messages[0].role === 'system' && !messages[0]._isSummaryBlock) {
       if (fullSystemPrompt) {
         messages[0].content = fullSystemPrompt;
       } else {
@@ -462,6 +466,27 @@
       synthesizeOnLoop: false,
       appendFinalMessage: true,
       isCheckpointEnabled: Boolean(appConfig.enabledTools?.agent_checkpoint),
+      summarizeHistory: async ({ systemPrompt, messages }) => {
+        const API = getAPI();
+        const response = await API.streamChatCompletion({
+          apiUrl: params.apiUrl || appConfig.apiUrl,
+          apiType: params.apiType || appConfig.apiType,
+          apiKey: params.apiKey || appConfig.apiKey,
+          model: params.model || appConfig.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages,
+            { role: 'user', content: 'Generate the replacement checkpoint now.' }
+          ],
+          temperature: 0,
+          reasoningEffort: 'none',
+          enableTools: false,
+          toolChoice: 'none',
+          signal: params.signal,
+          onBeforeRequest
+        });
+        return response?.accumulatedText || '';
+      },
       onBeforeRequest,
       createMessageId: (kind, info) => {
         if (kind === 'final') return `${assistantMsgId}_final`;

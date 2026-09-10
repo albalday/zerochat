@@ -4,6 +4,27 @@ const assert = require('node:assert/strict');
 const AgentCoreModule = require('../js/agent-core.js');
 const { AgentRuntime, Tool, ToolRegistry, ToolExecutor } = AgentCoreModule;
 
+test('AgentRuntime - el camino directo de reintentos no omite la política de tools', async () => {
+  const registry = new ToolRegistry();
+  let executions = 0;
+  registry.registerTool(new Tool({
+    name: 'mcp__test__sensitive_action',
+    category: 'mcp',
+    execute: async () => {
+      executions++;
+      return { success: true };
+    }
+  }));
+
+  const result = await new AgentRuntime({ registry }).executeToolWithRetries({
+    function: { name: 'mcp__test__sensitive_action', arguments: '{}' }
+  });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /autorización explícita/i);
+  assert.equal(executions, 0);
+});
+
 test('AgentRuntime - Tool call normal con resolución y respuesta final', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({

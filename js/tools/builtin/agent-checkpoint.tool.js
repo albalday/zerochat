@@ -7,7 +7,7 @@
 
   const definition = {
     name: 'agent_checkpoint',
-    description: 'Agentic checkpoint and memory consolidation: invoke it after querying data sources to cross-check findings, verify whether information is sufficient, or validate the final answer before delivering it.',
+    description: 'Agentic checkpoint for consolidating findings and recording the next step: invoke it after querying sources, verifying whether information is sufficient, or validating the final answer.',
     parameters: {
       type: 'object',
       properties: {
@@ -127,29 +127,19 @@
       metadata: { icon: 'milestone', label: definition.name },
       settings: {
         titleKey: 'agent_checkpoint_title',
-        titleFallback: 'Punto de Control y Compactación de Memoria',
+        titleFallback: 'Punto de Control Agéntico',
         descKey: 'agent_checkpoint_desc',
-        descFallback: 'Permite al modelo consolidar hallazgos, solicitar asistencia y podar memoria pesada de herramientas para razonar sin pérdida de foco.',
+        descFallback: 'Permite al modelo consolidar hallazgos, solicitar asistencia y registrar el siguiente paso para razonar sin pérdida de foco.',
         icon: 'milestone',
         defaultEnabled: false,
         showInSettings: true
       },
-      promptGuide: () => '- `agent_checkpoint(findings="...", ready_to_respond=true|false, missing_info="...", next_action="...")`: Consolidates multi-step findings, compacts working memory, and verifies whether to conclude or continue searching.',
+      promptGuide: () => '- `agent_checkpoint(findings="...", ready_to_respond=true|false, missing_info="...", next_action="...")`: Consolidates multi-step findings, records the current plan, and verifies whether to conclude or continue searching.',
       execute: async (args = {}, context = {}) => {
         const isReady = args.ready_to_respond === true || args.ready_to_respond === 'true';
         const findings = String(args.findings || args.summary || args.state || '').trim();
         const missingInfo = String(args.missing_info || args.missing || '').trim();
         const nextAction = String(args.next_action || args.hypothesis || args.next || '').trim();
-
-        if (typeof context.compactHistory === 'function') {
-          try {
-            context.compactHistory({ findings, isReady });
-          } catch (e) {
-            if (typeof console !== 'undefined' && console.warn) {
-              console.warn('[agent_checkpoint] Error al compactar contexto:', e);
-            }
-          }
-        }
 
         if (isReady) {
           return {
@@ -168,7 +158,7 @@
           findings,
           missing_info: missingInfo,
           next_action: nextAction,
-          guidance: `Checkpoint recorded and previous memory compacted. Proceed with your planned next action: ${nextAction || 'perform the pending query.'}`
+          guidance: `Checkpoint recorded. Proceed with your planned next action: ${nextAction || 'perform the pending query.'}`
         };
       },
       result: {
@@ -218,4 +208,3 @@
 
   return toolModule;
 });
-

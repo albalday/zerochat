@@ -101,15 +101,6 @@
    * futuras herramientas autocontenidas usarán este contrato directamente.
    */
   const TOOL_CONTRACT_VERSION = 1;
-  const AUTHORIZED_EXECUTION = Symbol('authorized-tool-execution');
-  const DATA_TOOL_NAMES = new Set([
-    'search_knowledge_base',
-    'read_knowledge_chunk',
-    'list_documents',
-    'search_web',
-    'fetch_web_page',
-    'download_pdf'
-  ]);
 
   /**
    * Resultado normalizado de una ejecución. Mantiene el resultado nativo en
@@ -315,7 +306,7 @@
       tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));
       tools.push(createBuiltinTool('read_knowledge_image', 'ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'));
 
-      // 9. Punto de control y compactación agéntica multipropósito
+      // 9. Punto de control agéntico multipropósito
       tools.push(createBuiltinTool('agent_checkpoint', 'ChatBuiltinAgentCheckpointTool', './tools/builtin/agent-checkpoint.tool.js'));
 
       return tools;
@@ -573,6 +564,55 @@
     }
 
     /**
+     * Aplica la política de ejecución antes de invocar una herramienta. La UI
+     * puede aportar `requestToolAuthorization`, pero no puede omitir este
+     * punto de control.
+     * @private
+     */
+    async _authorizeToolCall(tool, args, toolCall, context) {
+      const ToolSecurity = getToolSecurity();
+      const I18n = getI18n();
+      const t = (key, fallback) => (I18n?.t ? I18n.t(key) : fallback);
+      const authEval = ToolSecurity?.manager?.evaluateAuthorization
+        ? ToolSecurity.manager.evaluateAuthorization(tool, args, context)
+        : { status: 'allow', requiresApproval: false };
+
+      if (authEval.status === 'deny') {
+        return { allowed: false, error: t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.') };
+      }
+
+      if (!authEval.requiresApproval) {
+        return { allowed: true };
+      }
+
+      if (typeof context.requestToolAuthorization !== 'function') {
+        return { allowed: false, error: 'La herramienta requiere autorización explícita del usuario.' };
+      }
+
+      const decision = await context.requestToolAuthorization(toolCall, {
+        args,
+        serverName: authEval.serverName,
+        toolName: tool.name,
+        signal: context.signal
+      });
+      const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
+
+      if (decisionType !== 'allow_once' && decisionType !== 'allow_always') {
+        return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
+      }
+
+      if (decisionType === 'allow_always') {
+        ToolSecurity.manager.setToolPolicy(authEval.toolId || tool.name, 'allow', {
+          serverName: authEval.serverName,
+          originalName: authEval.originalName,
+          constraints: (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null
+        });
+      }
+
+      return { allowed: true };
+    }
+
+    /**
      * Ejecuta una llamada a herramienta con control de tiempo, métricas y manejo de errores.
      */
     async executeToolCall(toolCall, context = {}) {
@@ -601,32 +641,24 @@
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       try {
-        if (!context[AUTHORIZED_EXECUTION]) {
-          const ToolSecurity = getToolSecurity();
-          const authEval = ToolSecurity?.manager?.evaluateAuthorization
-            ? ToolSecurity.manager.evaluateAuthorization(tool, parsedArgs, context)
-            : { status: 'allow', requiresApproval: false };
-          if (authEval.status === 'deny' || authEval.requiresApproval) {
-            const error = authEval.status === 'deny'
-              ? 'Herramienta bloqueada por política de seguridad.'
-              : 'La herramienta requiere autorización explícita del usuario.';
-            return {
-              success: false,
-              tool,
+        const authorization = await this._authorizeToolCall(tool, parsedArgs, toolCall, context);
+        if (!authorization.allowed) {
+          return {
+            success: false,
+            tool,
+            toolName: tool.name,
+            displayMode,
+            args: parsedArgs,
+            error: authorization.error,
+            executionTimeMs: 0,
+            result: null,
+            outcome: ToolOutcome.fromError(authorization.error, {
+              toolId: tool.id,
               toolName: tool.name,
-              displayMode,
-              args: parsedArgs,
-              error,
-              executionTimeMs: 0,
-              result: null,
-              outcome: ToolOutcome.fromError(error, {
-                toolId: tool.id,
-                toolName: tool.name,
-                contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-                executionTimeMs: 0
-              })
-            };
-          }
+              contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
+              executionTimeMs: 0
+            })
+          };
         }
         if (context.signal && context.signal.aborted) {
           throw new Error('Ejecución de herramienta cancelada por el usuario.');
@@ -684,109 +716,6 @@
     }
 
     /**
-     * Evalúa políticas de seguridad y solicita autorización al usuario si procede.
-     * @private
-     */
-    async _evaluateAndAuthorizeToolCall({
-      toolCall,
-      rawFuncName,
-      parsedArgs,
-      cardEl,
-      options,
-      scrollToBottom,
-      ToolCards
-    }) {
-      const targetTool = this.registry.getTool(rawFuncName);
-      const ToolSecurity = getToolSecurity();
-      if (!ToolSecurity || !ToolSecurity.manager || typeof ToolSecurity.manager.evaluateAuthorization !== 'function') {
-        return { allowed: true };
-      }
-
-      const I18n = getI18n();
-      const t = (k, fb) => (I18n?.t ? I18n.t(k) : fb);
-      const authEval = ToolSecurity.manager.evaluateAuthorization(targetTool || rawFuncName, parsedArgs, options);
-
-      if (authEval.status === 'deny') {
-        const denyError = t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.');
-        if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
-          ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, { success: false, error: denyError }, 0, { displayMode: 'collapsed' });
-        }
-        return {
-          allowed: false,
-          response: {
-            success: false,
-            result: null,
-            resultText: `Error: ${denyError}`,
-            markdownBlock: `> 🛑 **${rawFuncName}**: ${denyError}`,
-            cardElement: cardEl,
-            executionTimeMs: 0,
-            error: denyError,
-            toolName: rawFuncName,
-            args: parsedArgs
-          }
-        };
-      }
-
-      if (authEval.requiresApproval) {
-        if (!ToolCards || typeof ToolCards.promptToolAuthorization !== 'function') {
-          const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
-          return {
-            allowed: false,
-            response: {
-              success: false,
-              result: null,
-              resultText: `Error: ${denyMsg}`,
-              markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
-              cardElement: cardEl,
-              executionTimeMs: 0,
-              error: denyMsg,
-              toolName: rawFuncName,
-              args: parsedArgs
-            }
-          };
-        }
-        if (typeof scrollToBottom === 'function') scrollToBottom();
-        const userDecision = await ToolCards.promptToolAuthorization(cardEl, toolCall, {
-          args: parsedArgs,
-          serverName: authEval.serverName,
-          toolName: rawFuncName,
-          signal: options.signal
-        });
-
-        const decisionType = (typeof userDecision === 'object' && userDecision !== null) ? userDecision.decision : userDecision;
-        const constraints = (typeof userDecision === 'object' && userDecision !== null) ? (userDecision.constraints || null) : null;
-
-        if (decisionType === 'deny') {
-          const denyMsg = t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.');
-          return {
-            allowed: false,
-            response: {
-              success: false,
-              result: null,
-              resultText: `Error: ${denyMsg}`,
-              markdownBlock: `> 🛑 **${rawFuncName}**: ${denyMsg}`,
-              cardElement: cardEl,
-              executionTimeMs: 0,
-              error: denyMsg,
-              toolName: rawFuncName,
-              args: parsedArgs
-            }
-          };
-        }
-
-          if (decisionType === 'allow_always') {
-            ToolSecurity.manager.setToolPolicy(authEval.toolId || rawFuncName, 'allow', {
-              serverName: authEval.serverName,
-              originalName: authEval.originalName,
-              constraints
-            });
-          }
-      }
-
-      return { allowed: true };
-    }
-
-    /**
      * Despacha una llamada a herramienta gestionando el ciclo completo:
      * - Parseo seguro de argumentos
      * - Creación inicial e inserción de la tarjeta DOM en vivo
@@ -825,26 +754,16 @@
         onLog('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
       }
 
-      // 2.1 Verificación de Seguridad y Autorización de Ejecución
-      const authCheck = await this._evaluateAndAuthorizeToolCall({
-        toolCall,
-        rawFuncName,
-        parsedArgs,
-        cardEl,
-        options,
-        scrollToBottom,
-        ToolCards
-      });
-
-      if (!authCheck.allowed) {
-        return authCheck.response;
-      }
-
       // 3. Ejecutar la herramienta a través de executeToolCall
       const execRes = await this.executeToolCall(toolCall, {
         lang: language,
         ...options,
-        [AUTHORIZED_EXECUTION]: true
+        requestToolAuthorization: ToolCards?.promptToolAuthorization
+          ? async (pendingToolCall, authorization) => {
+            if (typeof scrollToBottom === 'function') scrollToBottom();
+            return ToolCards.promptToolAuthorization(cardEl, pendingToolCall, authorization);
+          }
+          : undefined
       });
 
       // 4. Actualizar la tarjeta DOM con el resultado
@@ -991,7 +910,7 @@
         prepareMessages = null,
         resolveToolDefinitions = null,
         dispatchToolCall = null,
-        isCheckpointEnabled = true,
+        summarizeHistory = null,
         createMessageId = null,
         appendFinalMessage = false,
         onBeforeRequest = null,
@@ -1004,6 +923,7 @@
       }
 
       const ContextManager = getContextManager();
+
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       // Configuración de cancelación y timeouts
@@ -1038,7 +958,6 @@
       const combinedSignal = internalAbortController.signal;
 
       let stepIndex = 0;
-      let consecutiveDataCalls = 0;
       let workingMessages = [...messages];
       let finalAccumulatedText = '';
       let finalReasoningText = '';
@@ -1057,6 +976,21 @@
 
         if (callbacks.onStepStart) {
           callbacks.onStepStart(stepIndex);
+        }
+
+        // The runtime decides only when to compact. ContextManager gives the
+        // model the previous checkpoint plus the complete later dialogue and
+        // atomically replaces that interval with the returned checkpoint.
+        if (ContextManager && typeof ContextManager.shouldCompress === 'function' &&
+          typeof ContextManager.compressHistory === 'function' &&
+          typeof summarizeHistory === 'function' &&
+          ContextManager.shouldCompress(workingMessages, { model, providerType: apiType })) {
+          const compacted = await ContextManager.compressHistory({
+            messages: workingMessages,
+            summarizeFn: summarizeHistory,
+            options: { model, providerType: apiType }
+          });
+          if (compacted.compressed) workingMessages = compacted.messages;
         }
 
         // 1. Optimización dinámica de presupuesto de contexto (Context Budget)
@@ -1277,13 +1211,10 @@
           const executedToolMessages = [];
           const stepExecResults = [];
 
-          let hasCheckpointCall = false;
           for (let i = 0; i < stepToolCalls.length; i++) {
             if (combinedSignal.aborted) break;
             const call = stepToolCalls[i];
             const toolFnName = call.function?.name || '';
-            const isCheckpoint = toolFnName === 'agent_checkpoint' || toolFnName === 'checkpoint';
-            if (isCheckpoint) hasCheckpointCall = true;
 
             if (callbacks.onToolStart) {
               const toolInstance = this.registry.getTool(toolFnName);
@@ -1292,11 +1223,6 @@
 
             const toolContext = {
               signal: combinedSignal,
-              compactHistory: () => {
-                if (ContextManager && typeof ContextManager.compactToolHistory === 'function') {
-                  workingMessages = ContextManager.compactToolHistory(workingMessages);
-                }
-              },
               ...params
             };
             const execResult = typeof dispatchToolCall === 'function'
@@ -1347,20 +1273,6 @@
               }
             }
 
-            if (isCheckpointEnabled && DATA_TOOL_NAMES.has(toolFnName)) {
-              consecutiveDataCalls++;
-              if (consecutiveDataCalls >= 2 && !hasCheckpointCall) {
-                const nudge = '[MANDATORY AGENT NOTICE: You have queried data sources across multiple turns. Before answering or if you still need more data (e.g. other years or documents), you MUST invoke the "agent_checkpoint" tool detailing your findings so far and what information is missing.]\n\n';
-                if (Array.isArray(toolResponseContent)) {
-                  toolResponseContent = [{ type: 'text', text: nudge + (toolResponseContent[0]?.text || '') }, ...toolResponseContent.slice(1)];
-                } else {
-                  toolResponseContent = nudge + toolResponseContent;
-                }
-              }
-            } else if (isCheckpointEnabled && isCheckpoint) {
-              consecutiveDataCalls = 0;
-            }
-
             if (callbacks.onToolComplete) {
               callbacks.onToolComplete(call, execResult, toolResponseContent, stepIndex);
             }
@@ -1386,11 +1298,6 @@
             };
             if (toolImages) toolMessage.images = toolImages;
             executedToolMessages.push(toolMessage);
-          }
-
-          // Si el paso incluyó un checkpoint, compactar el historial de trabajo activo
-          if (isCheckpointEnabled && hasCheckpointCall && ContextManager && typeof ContextManager.compactToolHistory === 'function') {
-            workingMessages = ContextManager.compactToolHistory(workingMessages);
           }
 
           // Actualizar historial asegurando el emparejamiento estricto assistant(tool_calls) <-> tool(results)
