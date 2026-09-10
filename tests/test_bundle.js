@@ -11,6 +11,12 @@ const TEST_FALLBACK_PATH = path.join(__dirname, 'tmp_test_fallback.html');
 const TEST_DEV_PATH = path.join(__dirname, 'tmp_test_dev.html');
 const TEST_GENERIC_DIR = path.join(__dirname, 'tmp_bundle_generic');
 
+test('Bundler - usa únicamente el esbuild instalado', () => {
+  const source = fs.readFileSync(path.join(ROOT_DIR, 'bundle.py'), 'utf-8');
+  assert.match(source, /\['npx', '--no-install', 'esbuild'/);
+  assert.doesNotMatch(source, /\['npx', '--yes', 'esbuild'/);
+});
+
 function getIndexScriptPaths() {
   const html = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf-8');
   return Array.from(html.matchAll(/<script[^>]+src=["'](js\/[^"']+)["']/gi), match => match[1]);

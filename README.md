@@ -19,8 +19,9 @@ se abre desde el composer y admite navegación con flechas y cierre con Escape.
 
 En perfiles Gemini, **Free Tier** introduce el marcador `FREE-TIER`. La resolución
 de claves se centraliza para chat, consulta de modelos e inspección, independientemente
-del proveedor. La integración `freeApi()` está pendiente: actualmente devuelve vacío
-y el marcador produce un error antes de acceder a red. No hay una clave compartida
+del proveedor. `freeApi()` obtiene la clave de `ChatStorage` con el nombre
+`free_tier_api_key` (en `localStorage`, `zerochat_free_tier_api_key`). Si no existe,
+el marcador produce un error antes de acceder a red. No hay una clave compartida
 incorporada ni una variable global para proporcionarla.
 
 ## Desarrollo

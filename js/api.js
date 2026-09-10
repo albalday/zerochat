@@ -18,6 +18,7 @@
   const WebSearch = typeof window !== 'undefined' ? (window.ChatWebSearch || {}) : {};
   const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
+  const FREE_TIER_API_KEY_STORAGE_KEY = 'free_tier_api_key';
 
   const TOOL_NAME_MAP = Object.freeze({
     // 1. Descarga y extracción de PDF
@@ -117,8 +118,10 @@
   });
 
   function freeApi() {
-    // Reserved for the future Free Tier credential integration.
-    return '';
+    const storage = typeof window !== 'undefined'
+      ? window.ChatStorage
+      : (typeof require !== 'undefined' ? (() => { try { return require('./cookies.js'); } catch (e) { return null; } })() : null);
+    return String(storage?.getStorageItem?.(FREE_TIER_API_KEY_STORAGE_KEY) || '').trim();
   }
 
   function freeTierUnavailableMessage() {
@@ -805,6 +808,7 @@
     STANDARD_REASONING_MODES,
     streamChatCompletion,
     freeApi,
+    FREE_TIER_API_KEY_STORAGE_KEY,
     resolveApiKey,
     estimateTokens,
     normalizeToolName,

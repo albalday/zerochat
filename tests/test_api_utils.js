@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Api = require('../js/api.js');
+const Storage = require('../js/cookies.js');
 
 test('Api - Detección automática de tipo de proveedor', () => {
   assert.equal(Api.detectApiType('http://localhost:11434'), 'ollama');
@@ -52,18 +53,23 @@ test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red'
   }
 });
 
-test('Api - Free Tier sin clave configurada no intenta enviar la petición', async () => {
+test('Api - Free Tier usa la clave de almacenamiento y no usa la red si no existe', async () => {
   const originalFetch = global.fetch;
   let fetchCalled = false;
   global.fetch = async () => { fetchCalled = true; };
   try {
+    Storage.deleteStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY);
     const response = await Api.streamChatCompletion({
       apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
       apiType: 'gemini', apiKey: 'FREE-TIER', model: 'gemini-test', messages: []
     });
     assert.equal(fetchCalled, false);
     assert.match(response.error.message, /Free Tier no está configurado/);
+    Storage.setStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY, 'stored-free-tier-key');
+    assert.equal(Api.freeApi(), 'stored-free-tier-key');
+    assert.equal(Api.resolveApiKey('FREE-TIER'), 'stored-free-tier-key');
   } finally {
+    Storage.deleteStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY);
     global.fetch = originalFetch;
   }
 });

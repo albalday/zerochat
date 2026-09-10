@@ -220,7 +220,7 @@ def minify_css_external(css: str) -> Optional[str]:
     """
     try:
         res = subprocess.run(
-            ['npx', '--yes', 'esbuild', '--minify', '--loader=css'],
+            ['npx', '--no-install', 'esbuild', '--minify', '--loader=css'],
             input=css,
             capture_output=True,
             text=True,
@@ -239,7 +239,7 @@ def minify_js_external(js: str) -> Optional[str]:
     """
     try:
         res = subprocess.run(
-            ['npx', '--yes', 'esbuild', '--minify', '--target=es2022'],
+            ['npx', '--no-install', 'esbuild', '--minify', '--target=es2022'],
             input=js,
             capture_output=True,
             text=True,
