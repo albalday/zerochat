@@ -1606,10 +1606,10 @@
     }
   }
 
-  async function switchToSession(sessionId) {
-    if (sessionId === getCurrentSessionId()) return;
+  async function switchToSession(sessionId, { force = false, saveCurrent = true } = {}) {
+    if (!force && sessionId === getCurrentSessionId()) return;
     if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
-    await saveCurrentSession();
+    if (saveCurrent) await saveCurrentSession();
 
     let targetConv = null;
     if (Storage.getConversation) {
@@ -1776,7 +1776,9 @@
       await createNewSession({ saveCurrent: false });
     } else if (currId === sessionId) {
       const next = remainingSessions[0];
-      await switchToSession(next.id);
+      // removeSession ya actualiza la sesión activa. Forzamos la restauración
+      // para reemplazar en pantalla el historial recién eliminado.
+      await switchToSession(next.id, { force: true, saveCurrent: false });
     } else {
       renderSidebarChats();
     }

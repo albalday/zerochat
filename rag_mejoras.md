@@ -1,5 +1,7 @@
 # Propuesta de mejora del RAG para modelos locales
 
+Doc interno del desarrollador
+
 Mi propuesta sería distinta: para modelos locales, no confiaría en que el modelo organice un ciclo corpus → selección → lectura. Haría un RAG anticipado que entregue un paquete de evidencias suficientemente completo antes de la primera inferencia.
 
 La ruta habitual pasaría de:

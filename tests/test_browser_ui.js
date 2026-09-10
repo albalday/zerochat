@@ -1895,6 +1895,56 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
   }
 });
 
+test('Browser UI - borrar la conversación activa carga la siguiente y limpia su historial visible', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
+
+    const result = await page.evaluate(async () => {
+      const suffix = Date.now().toString();
+      const activeId = `test_session_active_${suffix}`;
+      const nextId = `test_session_next_${suffix}`;
+      const activeHistory = [{ id: 'active_message', role: 'user', content: 'Conversación que se elimina' }];
+      const nextHistory = [{ id: 'next_message', role: 'user', content: 'Conversación que debe mostrarse' }];
+      const sessions = [
+        { id: activeId, title: 'Activa', createdAt: Date.now(), updatedAt: Date.now() },
+        { id: nextId, title: 'Siguiente', createdAt: Date.now() - 1, updatedAt: Date.now() - 1 }
+      ];
+
+      await window.ChatStorage.saveConversation(sessions[0], activeHistory);
+      await window.ChatStorage.saveConversation(sessions[1], nextHistory);
+      window.ChatState.initializeConversation({ sessionId: nextId, sessions, messages: nextHistory });
+      await window.ChatApp.switchToSession(activeId);
+
+      const originalConfirm = window.ChatDialogs.confirm;
+      window.ChatDialogs.confirm = async () => true;
+      try {
+        await window.ChatApp.deleteSession(activeId);
+      } finally {
+        window.ChatDialogs.confirm = originalConfirm;
+      }
+
+      return {
+        activeId: window.ChatState.get('sessions').activeId,
+        listedIds: window.ChatState.get('sessions').list.map(session => session.id),
+        messageIds: window.ChatState.get('messages').map(message => message.id),
+        deletedConversation: await window.ChatStorage.getConversation(activeId),
+        visibleText: document.getElementById('messages-list').textContent
+      };
+    });
+
+    assert.equal(result.activeId, result.listedIds[0], 'La siguiente sesión debe quedar activa');
+    assert.equal(result.listedIds.length, 1, 'La conversación eliminada debe desaparecer de la lista');
+    assert.deepEqual(result.messageIds, ['next_message'], 'Debe cargarse el historial de la siguiente conversación');
+    assert.equal(result.deletedConversation, null, 'La conversación eliminada no debe permanecer en IndexedDB');
+    assert.match(result.visibleText, /Conversación que debe mostrarse/, 'La vista debe reemplazar el chat eliminado');
+    assert.doesNotMatch(result.visibleText, /Conversación que se elimina/, 'La vista no debe conservar el chat eliminado');
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
