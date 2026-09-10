@@ -132,7 +132,12 @@
       btnExportJson: document.getElementById('btn-export-json'),
       btnExportPrint: document.getElementById('btn-export-print'),
 
-      activeProfileSelect: document.getElementById('active-profile-select'),
+      activeProfileMenu: document.getElementById('active-profile-menu'),
+      activeProfileTrigger: document.getElementById('active-profile-trigger'),
+      activeProfileName: document.getElementById('active-profile-name'),
+      activeProfilePopover: document.getElementById('active-profile-popover'),
+      activeProfileList: document.getElementById('active-profile-list'),
+      btnEditProfiles: document.getElementById('btn-edit-profiles'),
       connectionTokensBadge: document.getElementById('connection-tokens-badge'),
       connectionTokensText: document.getElementById('connection-tokens-text'),
       contextHubCachePill: document.getElementById('context-hub-cache-pill'),
@@ -221,6 +226,7 @@
       btnResetSettings: document.getElementById('btn-reset-settings'),
       btnClearAllData: document.getElementById('btn-clear-all-data'),
       btnToggleKey: document.getElementById('btn-toggle-key'),
+      btnFreeTier: document.getElementById('btn-free-tier'),
       profilesDialog: document.getElementById('profiles-dialog'),
       profilesForm: document.getElementById('profiles-form'),
       btnManageProfiles: document.getElementById('btn-manage-profiles'),
@@ -537,20 +543,16 @@
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
-    if (elements.activeProfileSelect && Profiles.list) {
-      const active = config.activeProfile?.id || '';
-      const editLabel = ChatI18n?.t ? ChatI18n.t('edit_profiles') : 'Editar perfiles';
-      const profileOptions = Profiles.list().map(profile => `<option value="${Markdown.escapeHtml(profile.id)}"${profile.id === active ? ' selected' : ''}>${Markdown.escapeHtml(profile.name)}</option>`).join('');
-      elements.activeProfileSelect.innerHTML = `${profileOptions}<option value="__edit_profiles__">${Markdown.escapeHtml(editLabel)}</option>`;
-      if (active) {
-        elements.activeProfileSelect.value = active;
-      }
+    if (elements.activeProfileName) elements.activeProfileName.textContent = config.activeProfile?.name || 'Espejo';
+    if (elements.activeProfilePopover && !elements.activeProfilePopover.hidden) {
+      UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
     }
     if (elements.settingsActiveProfileName) {
-      elements.settingsActiveProfileName.textContent = config.activeProfile?.name || t('connection_no_active_profile');
+      elements.settingsActiveProfileName.textContent = config.activeProfile?.name || Profiles.get?.(Profiles.READONLY_PROFILE_ID)?.name || 'Espejo';
     }
     if (elements.settingApiType) {
       elements.settingApiType.value = config.apiType || 'openai';
+      syncFreeTierButton();
     }
     if (elements.settingApiUrl) {
       elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
@@ -1312,7 +1314,15 @@
     const name = String(elements.settingProfileName?.value || '').trim();
     if (!name || !Profiles.save) return false;
     const selected = Profiles.get?.(elements.profileSelectHelper?.value || '') || null;
+    if (selected?.id === Profiles.READONLY_PROFILE_ID) {
+      showProfileFeedback(t('err_profile_read_only'), 'error');
+      return false;
+    }
     const sameName = Profiles.findByName?.(name) || null;
+    if (sameName?.id === Profiles.READONLY_PROFILE_ID) {
+      showProfileFeedback(t('err_profile_read_only'), 'error');
+      return false;
+    }
     if (selected && sameName && sameName.id !== selected.id) {
       showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
       return false;
@@ -1352,6 +1362,13 @@
     if (elements.profileSaveQueryHint) {
       elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'profile_query_required');
     }
+    UISettings.syncProfileEditor?.(elements, elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID);
+    syncFreeTierButton();
+  }
+
+  function syncFreeTierButton() {
+    if (!elements.btnFreeTier) return;
+    elements.btnFreeTier.hidden = elements.settingApiType?.value !== 'gemini';
   }
 
   function activateProfileTab(tabBtn) {
@@ -1381,14 +1398,37 @@
     resetTelemetryDisplay();
   }
 
+  function setProfileMenuOpen(open) {
+    if (!elements.activeProfileTrigger || !elements.activeProfilePopover) return;
+    elements.activeProfileTrigger.setAttribute('aria-expanded', String(open));
+    elements.activeProfilePopover.hidden = !open;
+  }
+
+  function openProfileMenu() {
+    UISettings.renderProfileMenu(elements, Profiles.list(), getRuntimeConfig().activeProfile?.id);
+    setProfileMenuOpen(true);
+  }
+
+  function closeProfileMenu() {
+    setProfileMenuOpen(false);
+  }
+
   async function handleDeleteProfile() {
     const id = elements.profileSelectHelper?.value || '';
     const profile = Profiles.get ? Profiles.get(id) : null;
+    if (profile?.id === Profiles.READONLY_PROFILE_ID) {
+      showProfileFeedback(t('err_profile_read_only'), 'error');
+      return;
+    }
     if (!profile || !await ChatDialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
     const currentProfile = Profiles.get ? Profiles.get(id) : null;
     if (!currentProfile || currentProfile.name !== profile.name) return;
     if (Profiles.remove?.(currentProfile.id)) {
-      populateProfileSelector('');
+      if (getRuntimeConfig().activeProfile?.id === currentProfile.id) {
+        Config.activateFallbackProfile?.();
+      }
+      populateProfileSelector(getRuntimeConfig().activeProfile?.id || '');
+      applyProfileToForm(getRuntimeConfig());
       setProfileQueryState(false);
       showProfileFeedback(t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
       updateUIFromConfig();
@@ -2322,12 +2362,6 @@
     window.addEventListener('zerochat:languagechange', () => {
       updateComposerMcpState(State.get('mcp'));
       updateExecutionInfo();
-      if (elements.activeProfileSelect) {
-        const editOpt = elements.activeProfileSelect.querySelector('option[value="__edit_profiles__"]');
-        if (editOpt) {
-          editOpt.textContent = ChatI18n?.t ? ChatI18n.t('edit_profiles') : 'Editar perfiles';
-        }
-      }
     });
 
 
@@ -2335,35 +2369,50 @@
     if (elements.btnToggleSidebar) {
       elements.btnToggleSidebar.addEventListener('click', toggleSidebar);
     }
-    if (elements.activeProfileSelect) {
-      const profileBadge = elements.activeProfileSelect.closest('.composer-profile-badge');
-      if (profileBadge) {
-        profileBadge.addEventListener('click', (event) => {
-          if (event.target !== elements.activeProfileSelect) {
-            if (typeof elements.activeProfileSelect.showPicker === 'function') {
-              try {
-                elements.activeProfileSelect.showPicker();
-              } catch (_) {}
-            }
-          }
-        });
-      }
-      elements.activeProfileSelect.addEventListener('change', function () {
-        if (!this.value) return;
-        if (this.value === '__edit_profiles__') {
-          const activeId = getRuntimeConfig().activeProfile?.id || '';
-          const hasOption = Array.from(this.options).some(o => o.value === activeId);
-          if (activeId && hasOption) {
-            this.value = activeId;
-          } else if (this.options.length > 1) {
-            this.selectedIndex = 0;
-          }
-          openProfilesModal();
-          return;
-        }
-        activateConnectionProfile(this.value);
+    if (elements.activeProfileTrigger) {
+      elements.activeProfileTrigger.addEventListener('click', () => {
+        const isOpen = elements.activeProfileTrigger.getAttribute('aria-expanded') === 'true';
+        if (isOpen) closeProfileMenu();
+        else openProfileMenu();
       });
     }
+    if (elements.activeProfileList) {
+      elements.activeProfileList.addEventListener('click', (event) => {
+        const option = event.target.closest('[data-profile-id]');
+        if (!option || !elements.activeProfileList.contains(option)) return;
+        if (!Profiles.get(option.dataset.profileId)) return;
+        activateConnectionProfile(option.dataset.profileId);
+        closeProfileMenu();
+        elements.activeProfileTrigger.focus();
+      });
+    }
+    elements.activeProfileMenu?.addEventListener('keydown', event => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      if (elements.activeProfilePopover.hidden) openProfileMenu();
+      const buttons = [...elements.activeProfileList.querySelectorAll('button'), elements.btnEditProfiles];
+      const index = buttons.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+        : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    });
+    elements.activeProfileMenu?.addEventListener('focusout', event => {
+      if (!elements.activeProfileMenu.contains(event.relatedTarget)) closeProfileMenu();
+    });
+    if (elements.btnEditProfiles) {
+      elements.btnEditProfiles.addEventListener('click', () => {
+        closeProfileMenu();
+        openProfilesModal();
+      });
+    }
+    document.addEventListener('click', (event) => {
+      if (elements.activeProfileMenu && !elements.activeProfileMenu.contains(event.target)) closeProfileMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || elements.activeProfileTrigger?.getAttribute('aria-expanded') !== 'true') return;
+      closeProfileMenu();
+      elements.activeProfileTrigger.focus();
+    });
     if (elements.btnCloseSidebar) {
       elements.btnCloseSidebar.addEventListener('click', closeSidebar);
     }
@@ -2612,6 +2661,7 @@
     if (elements.settingApiType) {
       elements.settingApiType.addEventListener('change', function () {
         setProfileQueryState(false);
+        syncFreeTierButton();
         const val = this.value;
         const currentUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : '';
 
@@ -2630,6 +2680,13 @@
           else if (val === 'claude') elements.settingApiUrl.value = 'https://api.anthropic.com/v1';
           else if (val === 'gemini') elements.settingApiUrl.value = 'https://generativelanguage.googleapis.com/v1beta/openai';
         }
+      });
+    }
+    if (elements.btnFreeTier) {
+      elements.btnFreeTier.addEventListener('click', () => {
+        if (elements.settingApiType?.value !== 'gemini') return;
+        if (elements.settingApiKey) elements.settingApiKey.value = 'FREE-TIER';
+        setProfileQueryState(false);
       });
     }
     [elements.settingApiUrl, elements.settingApiKey].forEach(input => {
@@ -2729,7 +2786,7 @@
     elements.btnToggleKey.addEventListener('click', function () {
       const isPass = elements.settingApiKey.type === 'password';
       elements.settingApiKey.type = isPass ? 'text' : 'password';
-      elements.btnToggleKey.textContent = isPass ? '🔒' : '👁️';
+      elements.btnToggleKey.innerHTML = getMsgIcon(isPass ? 'eye-off' : 'eye', 15);
     });
 
     elements.settingsDialog.addEventListener('click', function (e) {

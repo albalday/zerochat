@@ -89,3 +89,40 @@ test('ChatConfig - cambiar de conexión descarta el límite detectado anterior',
 
   assert.equal(config.modelContextLimit, null);
 });
+
+test('ChatConfig - el perfil de respaldo sustituye una selección ausente', () => {
+  const { store } = createFixture();
+  store.initialize();
+  const config = store.activateFallbackProfile();
+
+  assert.equal(config.activeProfile.name, 'Servidor Oficina');
+  assert.equal(config.apiUrl, 'http://office.test/v1');
+  assert.equal(config.model, 'qwen-office');
+});
+
+test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credenciales del perfil anterior', () => {
+  const Profiles = require('../js/profile-repository.js');
+  const values = new Map();
+  let persisted = { activeProfile: { id: 'deleted', name: 'Old' }, model: 'old', apiKey: 'test-only', theme: 'dark', language: 'en' };
+  const storage = {
+    getStorageItem: key => values.get(key), setStorageItem: (key, value) => values.set(key, value),
+    loadRuntimeConfigV2: () => persisted, saveRuntimeConfigV2: value => { persisted = value; }
+  };
+  const profiles = Profiles.createRepository(storage);
+  const state = State.createStore();
+  let updates = 0;
+  state.subscribe('config', () => updates++);
+  const store = ChatConfig.createConfigStore({ state, storage, profiles: { ...profiles, READONLY_PROFILE_ID: Profiles.READONLY_PROFILE_ID } });
+  const config = store.initialize();
+  assert.equal(updates, 1);
+  assert.equal(config.apiType, 'mirror');
+  assert.equal(config.apiKey, '');
+  assert.equal(config.theme, 'dark');
+  profiles.save({ id: 'test', name: 'Test', settings: { apiKey: 'test-only', model: 'test' } });
+  store.activateProfile('test');
+  profiles.remove('test');
+  const fallback = store.activateFallbackProfile();
+  assert.equal(fallback.activeProfile.id, Profiles.READONLY_PROFILE_ID);
+  assert.equal(fallback.apiKey, '');
+  assert.equal(fallback.language, 'en');
+});

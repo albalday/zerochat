@@ -164,12 +164,15 @@ test('ContextCache - Arquitectura: Perfiles de conexión persisten en config y l
   };
 
   const profileRepo = ChatProfileRepository.createRepository(mockStorage);
-  const profiles = profileRepo.list();
-  assert.ok(profiles.length >= 2);
-  assert.equal(profiles[0].settings.enableContextCache, true);
+  assert.equal(profileRepo.list().length, 1);
+  const targetProfile = profileRepo.save({
+    id: 'profile:cache-test',
+    name: 'Cache test',
+    settings: { enableContextCache: true }
+  });
+  assert.equal(targetProfile.settings.enableContextCache, true);
 
   // 2. Modificar el perfil para desactivar la caché mediante save
-  const targetProfile = profiles[0];
   const updated = profileRepo.save({
     ...targetProfile,
     settings: { ...targetProfile.settings, enableContextCache: false }

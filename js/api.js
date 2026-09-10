@@ -116,6 +116,25 @@
     buscarendocumentos: 'search_knowledge_base'
   });
 
+  function freeApi() {
+    // Reserved for the future Free Tier credential integration.
+    return '';
+  }
+
+  function freeTierUnavailableMessage() {
+    const i18n = typeof window !== 'undefined' ? window.ChatI18n : require('./i18n.js');
+    return i18n.t('err_free_tier_unavailable');
+  }
+
+  function resolveApiKey(apiKey) {
+    const requestedApiKey = String(apiKey || '').trim();
+    return requestedApiKey === 'FREE-TIER' ? freeApi() : requestedApiKey;
+  }
+
+  function isUnavailableFreeTier(apiKey, resolvedApiKey) {
+    return String(apiKey || '').trim() === 'FREE-TIER' && !resolvedApiKey;
+  }
+
   /**
    * Normaliza los nombres de las herramientas admitiendo variaciones con y sin guiones bajos.
    */
@@ -205,6 +224,10 @@
    * Consulta los modelos disponibles en el servidor delegando en el adaptador.
    */
   async function fetchServerModels(rawUrl, apiKey, explicitType) {
+    const resolvedApiKey = resolveApiKey(apiKey);
+    if (isUnavailableFreeTier(apiKey, resolvedApiKey)) {
+      return { success: false, error: freeTierUnavailableMessage() };
+    }
     let cleanUrl = (rawUrl || 'http://localhost:1234/v1').trim();
     if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
     if (cleanUrl.endsWith('/chat/completions')) cleanUrl = cleanUrl.replace(/\/chat\/completions$/, '');
@@ -221,10 +244,7 @@
     }
     const candidateEndpoints = adapter ? adapter.getModelEndpoints(cleanUrl) : [`${cleanUrl}/v1/models`];
 
-    const headers = { 'Accept': 'application/json' };
-    if (apiKey && apiKey.trim() !== '') {
-      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
-    }
+    const headers = { ...adapter?.buildHeaders(resolvedApiKey), Accept: 'application/json' };
 
     let lastError = null;
 
@@ -300,10 +320,17 @@
       onError
     } = params;
 
+    const effectiveApiKey = resolveApiKey(apiKey);
+    if (isUnavailableFreeTier(apiKey, effectiveApiKey)) {
+      const error = new Error(freeTierUnavailableMessage());
+      if (onError) onError(error);
+      return { accumulatedText: '', accumulatedReasoning: '', stats: null, toolCalls: null, error };
+    }
+
     const adapter = registry ? registry.resolve(apiUrl, apiType) : null;
     const endpoint = adapter ? adapter.normalizeEndpoint(apiUrl) : normalizeApiUrl(apiUrl, apiType);
     const detectedType = adapter ? adapter.id : detectApiType(apiUrl, apiType);
-    const headers = adapter ? adapter.buildHeaders(apiKey) : { 'Content-Type': 'application/json' };
+    const headers = adapter ? adapter.buildHeaders(effectiveApiKey) : { 'Content-Type': 'application/json' };
 
     // Inyectar herramientas agénticas activadas si están disponibles
     let toolsList = [];
@@ -359,6 +386,27 @@
       } catch (err) {
         console.warn('ChatAPI: Error en callback onBeforeRequest:', err);
       }
+    }
+
+    if (signal?.aborted) {
+      return { aborted: true, cancelled: true, accumulatedText: '', toolCalls: null, stats: null };
+    }
+
+    if (detectedType === 'mirror') {
+      const accumulatedText = `${JSON.stringify(payload)}\n\n---\nPerfile espejo para pruebas.\nDefine un perfil de conexion para usar un modelo local o remoto.`;
+      const stats = {
+        ttftSec: '0.00', generationSec: '0.00', totalSec: '0.00',
+        tokens: estimateTokens(accumulatedText, 1), tokensPerSec: '0.0',
+        cachedTokens: 0, cacheCreationTokens: 0, promptTokens: 0,
+        completionTokens: 0, totalTokens: 0, reasoningTokens: 0, isEstimated: true
+      };
+      if (onLog) {
+        onLog({ type: 'network', text: `MIRROR POST ${endpoint} [OPENAI] | La petición no se ha enviado.` });
+        onLog({ type: 'raw', subtype: 'outgoing', text: `>>> MIRROR POST ${endpoint}\n${accumulatedText}` });
+      }
+      if (onChunk) onChunk(accumulatedText, accumulatedText, stats);
+      if (onDone) await onDone(accumulatedText, stats, null, '');
+      return { accumulatedText, accumulatedReasoning: '', stats, toolCalls: null };
     }
 
     if (onLog) {
@@ -732,12 +780,16 @@
    */
   async function inspectProvider(config = {}, options = {}) {
     const { apiUrl, apiType, apiKey, model } = config;
+    const effectiveApiKey = resolveApiKey(apiKey);
+    if (isUnavailableFreeTier(apiKey, effectiveApiKey)) {
+      return { success: false, error: freeTierUnavailableMessage() };
+    }
     if (registry && registry.inspect) {
-      return registry.inspect(apiUrl, apiKey, model, apiType, options);
+      return registry.inspect(apiUrl, effectiveApiKey, model, apiType, options);
     }
     const adapter = registry ? registry.resolve(apiUrl, apiType) : null;
     if (adapter && adapter.inspect) {
-      return adapter.inspect({ apiUrl, apiKey, model, ...options });
+      return adapter.inspect({ ...options, apiUrl, apiKey: effectiveApiKey, model });
     }
     return {
       success: false,
@@ -752,6 +804,8 @@
     getStandardReasoningOptions,
     STANDARD_REASONING_MODES,
     streamChatCompletion,
+    freeApi,
+    resolveApiKey,
     estimateTokens,
     normalizeToolName,
     getProviderCapabilities,

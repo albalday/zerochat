@@ -8,8 +8,20 @@ directamente mediante `file://`.
 
 1. Descarga `zerochat.html`.
 2. Ábrelo en un navegador moderno.
-3. Configura el proveedor, endpoint, clave y modelo.
+3. En el selector del cuadro de mensaje, abre **Editar perfiles** y crea un perfil con proveedor, endpoint, clave y modelo. Consulta el servidor antes de guardarlo.
 4. Para usar documentos, abre **Conocimiento**, crea una rama, carga los archivos y actívala.
+
+La primera ejecución activa **Espejo**, un perfil incorporado de solo lectura.
+Devuelve el cuerpo JSON compacto de la petición compatible con OpenAI y un aviso de
+pruebas, sin consultar servidores ni ejecutar herramientas. También es el respaldo
+al eliminar un perfil activo o recuperar una selección que ya no existe. La lista
+se abre desde el composer y admite navegación con flechas y cierre con Escape.
+
+En perfiles Gemini, **Free Tier** introduce el marcador `FREE-TIER`. La resolución
+de claves se centraliza para chat, consulta de modelos e inspección, independientemente
+del proveedor. La integración `freeApi()` está pendiente: actualmente devuelve vacío
+y el marcador produce un error antes de acceder a red. No hay una clave compartida
+incorporada ni una variable global para proporcionarla.
 
 ## Desarrollo
 
@@ -63,4 +75,3 @@ la suite de navegador.
 
 La aplicación no debe registrar claves API, tokens ni datos privados en el código,
 las pruebas o la consola.
-

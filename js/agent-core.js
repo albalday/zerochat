@@ -597,6 +597,11 @@
       });
       const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
 
+      if (context.signal?.aborted) return { allowed: false, error: 'Tool execution cancelled.' };
+      if (ToolSecurity?.manager?.evaluateAuthorization(tool, args, context).status === 'deny') {
+        return { allowed: false, error: t('tool_security_policy_blocked', 'Tool blocked by security policy.') };
+      }
+
       if (decisionType !== 'allow_once' && decisionType !== 'allow_always') {
         return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
       }
@@ -1022,6 +1027,7 @@
         } else if (ContextManager && ContextManager.buildOptimizedContext) {
           try {
             const opt = ContextManager.buildOptimizedContext(workingMessages, {
+              ...safeContextOptions,
               model,
               providerType: apiType
             });

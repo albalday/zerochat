@@ -601,7 +601,30 @@ input:checked + .slider:before {
 }
 
 .input-password-wrapper input {
-  padding-right: 2.75rem;
+  padding-right: 8.5rem;
+}
+
+.btn-free-tier {
+  position: absolute;
+  right: 2.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: 26px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.btn-free-tier:hover,
+.btn-free-tier:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
 }
 
 .btn-toggle-visibility {

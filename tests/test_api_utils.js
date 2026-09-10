@@ -25,6 +25,74 @@ test('Api - Estimación aproximada de tokens', () => {
   assert.ok(count > 0 && count < 10);
 });
 
+test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {
+  const originalFetch = global.fetch;
+  let fetchCalled = false;
+  global.fetch = async () => {
+    fetchCalled = true;
+    throw new Error('Espejo no debe llamar a fetch');
+  };
+  try {
+    const response = await Api.streamChatCompletion({
+      apiUrl: 'mirror://local',
+      apiType: 'mirror',
+      model: 'mirror',
+      messages: [{ role: 'user', content: 'Refleja esta petición' }]
+    });
+    const [payloadText, footer] = response.accumulatedText.split('\n\n---\n');
+    const payload = JSON.parse(payloadText);
+    assert.equal(fetchCalled, false);
+    assert.equal(payload.model, 'mirror');
+    assert.equal(payload.messages[0].content, 'Refleja esta petición');
+    assert.equal(payload.stream, true);
+    assert.equal(payloadText.includes('\n'), false, 'Espejo debe reflejar el mismo JSON compacto enviado al servidor');
+    assert.equal(footer, 'Perfile espejo para pruebas.\nDefine un perfil de conexion para usar un modelo local o remoto.');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('Api - Free Tier sin clave configurada no intenta enviar la petición', async () => {
+  const originalFetch = global.fetch;
+  let fetchCalled = false;
+  global.fetch = async () => { fetchCalled = true; };
+  try {
+    const response = await Api.streamChatCompletion({
+      apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiType: 'gemini', apiKey: 'FREE-TIER', model: 'gemini-test', messages: []
+    });
+    assert.equal(fetchCalled, false);
+    assert.match(response.error.message, /Free Tier no está configurado/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
+  const originalFetch = global.fetch;
+  let network = 0;
+  global.fetch = async () => { network++; throw new Error('Unexpected network'); };
+  try {
+    const input = { apiType: 'mirror', model: 'mirror', messages: [{ role: 'user', content: '<script>test</script>' }] };
+    let chunk;
+    const response = await Api.streamChatCompletion({ ...input, onChunk: (...args) => { chunk = args; } });
+    assert.equal(chunk[0], response.accumulatedText);
+    assert.equal(chunk[1], response.accumulatedText);
+    assert.equal(chunk[2], response.stats);
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await Api.streamChatCompletion({ ...input, signal: controller.signal, onChunk: () => assert.fail('Cancelled callback') });
+    assert.equal(cancelled.cancelled, true);
+    assert.equal((await Api.fetchServerModels('mirror://local', '', 'mirror')).success, false);
+    assert.equal((await Api.inspectProvider(input)).success, false);
+    for (const apiType of ['openai', 'gemini', 'claude']) {
+      assert.equal((await Api.fetchServerModels('https://example.test', 'FREE-TIER', apiType)).success, false);
+      assert.equal((await Api.inspectProvider({ apiType, apiKey: 'FREE-TIER' })).success, false);
+    }
+    assert.equal(network, 0);
+  } finally { global.fetch = originalFetch; }
+});
+
 test('Api - Intercepción y modificación de payload con onBeforeRequest (Debug Messages)', async () => {
   let interceptedEndpoint = '';
   const originalFetch = global.fetch;
@@ -159,4 +227,3 @@ test('ChatAPI - streamChatCompletion no duplica tokens de razonamiento en onLog 
     global.fetch = originalFetch;
   }
 });
-

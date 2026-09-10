@@ -1391,6 +1391,18 @@
   /**
    * Registro central de adaptadores de proveedor (ProviderRegistry).
    */
+  class MirrorProviderAdapter extends BaseProviderAdapter {
+    constructor() {
+      super({ id: 'mirror', label: 'Espejo', capabilities: { modelListing: false, embeddings: false } });
+    }
+
+    normalizeEndpoint() { return 'mirror://local'; }
+
+    async inspect() {
+      return { success: false, error: 'Mirror is a local request preview and has no server to inspect.' };
+    }
+  }
+
   class ProviderRegistry {
     constructor() {
       this.adapters = new Map();
@@ -1403,6 +1415,7 @@
       this.register(new OllamaProviderAdapter());
       this.register(new OpenRouterProviderAdapter());
       this.register(new BaseProviderAdapter({ id: 'custom', label: 'Personalizado' }));
+      this.register(new MirrorProviderAdapter());
     }
 
     /**
@@ -1470,10 +1483,10 @@
     async inspect(rawUrl, apiKey, model, explicitType, options = {}) {
       const adapter = this.resolve(rawUrl, explicitType);
       return adapter.inspect({
+        ...options,
         apiUrl: rawUrl,
         apiKey: apiKey,
-        model: model,
-        ...options
+        model: model
       });
     }
   }
@@ -1483,6 +1496,7 @@
   return {
     DEFAULT_CAPABILITIES,
     BaseProviderAdapter,
+    MirrorProviderAdapter,
     ClaudeProviderAdapter,
     GeminiProviderAdapter,
     OllamaProviderAdapter,

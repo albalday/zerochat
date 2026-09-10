@@ -10,10 +10,9 @@ clave de prueba openai, gemini, openrouter y claude
 rag permitir parar importacio, tratar ficheros duplicados
 ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
 mcp android
-Mcp Primera vez pa no asustar no
-Que indique que va a acceder
+Mcp Primera vez pa no asustar Que indique que va a acceder
 Git y editar fichero minimos
 Leer tramos fichero
-Fastmcp 3.0
-Nuevo orama
+Fastmcp 3.0 o 4 antes de otros cambios
 Oauth modelos
+mcp ejecutar. coje el sistema operativo para informar?

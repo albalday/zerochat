@@ -25,6 +25,24 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
   assert.equal(executions, 0);
 });
 
+test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanente', async () => {
+  const security = require('../js/tool-security.js');
+  const registry = new ToolRegistry();
+  const controller = new AbortController();
+  registry.registerTool(new Tool({ name: 'mcp__test__cancelled', category: 'mcp', execute: async () => assert.fail('Cancelled tool executed') }));
+  const previous = security.manager.setToolPolicy;
+  let saved = false;
+  security.manager.setToolPolicy = () => { saved = true; };
+  try {
+    const result = await new ToolExecutor(registry).executeToolCall({ function: { name: 'mcp__test__cancelled', arguments: '{}' } }, {
+      signal: controller.signal,
+      requestToolAuthorization: async () => { controller.abort(); return 'allow_always'; }
+    });
+    assert.equal(result.success, false);
+    assert.equal(saved, false);
+  } finally { security.manager.setToolPolicy = previous; }
+});
+
 test('AgentRuntime - compacta con el límite de contexto configurado y conserva el checkpoint', async () => {
   const history = [];
   for (let index = 0; index < 4; index++) {

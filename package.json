@@ -1,7 +1,7 @@
 {
   "name": "zerochat",
   "private": true,
-  "version": "6.5.7",
+  "version": "6.6.0",
   "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local embebido en un solo archivo",
   "scripts": {
     "build:vendor": "node scripts/build-orama.mjs",

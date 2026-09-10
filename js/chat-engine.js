@@ -54,8 +54,6 @@
     return String(content);
   }
 
-  let lastContextDiagnostics = null;
-
   /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local (siempre en inglés para el modelo). */
   function getConversationDateAnchor(lang = 'en', startedAt = Date.now()) {
     let date = new Date(startedAt);
@@ -394,7 +392,7 @@
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
         ...options
       });
-      lastContextDiagnostics = optimization.diagnostics || null;
+      options.onContextPrepared?.(optimization.diagnostics || null);
       return optimization.messages;
     }
 
@@ -436,6 +434,7 @@
     const parseMd = Markdown.parseMarkdown || (text => text);
     const attachEvts = attachListeners || Markdown.attachCopyCodeListeners || (() => {});
     const scrollFn = scrollToBottom || (() => {});
+    let lastContextDiagnostics = null;
     const resolvedBranchIds = Array.isArray(activeRagBranchIds) && activeRagBranchIds.length > 0
       ? activeRagBranchIds
       : (activeRagBranchId ? [activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
@@ -501,7 +500,8 @@
           currentRagSystemContext,
           activeRagBranchId: resolvedBranchId,
           activeRagBranchIds: resolvedBranchIds,
-          forceSystemPromptGuide: Boolean(options.isSynthesis)
+          forceSystemPromptGuide: Boolean(options.isSynthesis),
+          onContextPrepared: diagnostics => { lastContextDiagnostics = diagnostics; }
         }),
         diagnostics: lastContextDiagnostics
       }),
@@ -629,7 +629,6 @@
     injectStreamingCursor,
     buildEffectiveMessages,
     executeAgentTurnLoop,
-    getLastContextDiagnostics: () => lastContextDiagnostics,
     extractBaseId,
     removeTurnFromHistory
   };

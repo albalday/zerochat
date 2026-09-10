@@ -79,6 +79,7 @@
 
 /* Formulario Omnibox Flotante */
 .chat-input-container {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -697,6 +698,8 @@
   user-select: none;
   box-shadow: none;
   outline: none;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .composer-telemetry-btn:hover {
@@ -711,6 +714,7 @@
 .composer-tokens-text {
   font-weight: 500;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .composer-tokens-cache {
@@ -915,111 +919,175 @@
 /* ==========================================================================
    Selector de Perfiles Integrado en Composer (Fila Inferior)
    ========================================================================== */
-.composer-profile-badge {
-  position: relative;
+.composer-profile-menu {
+  flex: 0 1 260px;
+  min-width: 0;
+}
+
+.composer-profile-trigger {
   display: inline-flex;
   align-items: center;
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  padding: 0 0.55rem;
+  border: 1px solid transparent;
   border-radius: var(--radius-full);
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-  max-width: 300px;
-  height: 28px;
-  user-select: none;
-  box-shadow: none;
-  flex-shrink: 0;
-  padding: 0;
-}
-
-.composer-profile-badge:hover,
-.composer-profile-badge:focus-within {
   background-color: var(--bg-hover);
-  color: var(--text-main);
-  border: none;
-  box-shadow: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
+.composer-profile-trigger:hover,
+.composer-profile-trigger:focus-visible,
+.composer-profile-trigger[aria-expanded="true"] {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+  color: var(--text-main);
+  outline: none;
+}
 
-.composer-profile-badge .profile-icon {
-  position: absolute;
-  left: 0.45rem;
-  top: 50%;
-  transform: translateY(-50%);
+.composer-profile-trigger .profile-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--primary);
-  pointer-events: none;
-  z-index: 1;
   flex-shrink: 0;
 }
 
-.composer-profile-badge .profile-chevron {
-  position: absolute;
-  right: 0.45rem;
-  top: 50%;
-  transform: translateY(-50%);
+.composer-profile-name {
+  min-width: 0;
+  margin: 0 0.45rem;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-profile-trigger .profile-chevron {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  pointer-events: none;
-  z-index: 1;
   flex-shrink: 0;
   transition: color var(--transition-fast);
 }
 
-.composer-profile-badge:hover .profile-chevron,
-.composer-profile-badge:focus-within .profile-chevron {
+.composer-profile-trigger:hover .profile-chevron,
+.composer-profile-trigger:focus-visible .profile-chevron,
+.composer-profile-trigger[aria-expanded="true"] .profile-chevron {
   color: var(--text-main);
 }
 
-.composer-profile-select {
+.composer-profile-popover {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  width: min(320px, calc(100vw - 2rem));
+  padding: 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.18);
+}
+
+.composer-profile-popover[hidden] {
+  display: none;
+}
+
+.composer-profile-popover-header {
+  padding: 0.35rem 0.45rem 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.composer-profile-list {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.composer-profile-option {
+  display: grid;
+  gap: 0.12rem;
   width: 100%;
-  height: 100%;
-  border: none;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  outline: none;
-  padding-left: 1.5rem;
-  padding-right: 1.35rem;
-  text-overflow: ellipsis;
-  max-width: 240px;
-  line-height: 28px;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  position: relative;
-  z-index: 2;
-}
-
-.composer-profile-select:focus {
-  outline: none;
-}
-
-.composer-profile-select option {
-  background-color: var(--bg-surface);
   color: var(--text-main);
-  font-size: 0.785rem;
-  padding: 0.35rem 0.5rem;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-profile-option:hover,
+.composer-profile-option:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.composer-profile-option.active {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
+}
+
+.composer-profile-option-name {
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-profile-option-description {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-profile-popover-footer {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.composer-profile-edit {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.composer-profile-edit:hover,
+.composer-profile-edit:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
 }
 
 @media (max-width: 640px) {
-  .composer-profile-badge {
+  .composer-profile-menu {
     max-width: 175px;
   }
 
-  .composer-profile-select {
-    max-width: 140px;
-    padding-left: 1.35rem;
-    padding-right: 1.2rem;
+  .composer-profile-popover {
+    width: min(300px, calc(100vw - 1.5rem));
   }
 }

@@ -4,6 +4,68 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { version } = require('../package.json');
+
+async function seedConnectionProfiles(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('zerochat_profiles_v1', JSON.stringify({
+      schemaVersion: 1,
+      profiles: [
+        { id: 'profile:local', name: 'Local chat', settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'google/gemma-4-26b-a4b-qat', enableContextCache: true } },
+        { id: 'profile:remote', name: 'Remoto chat', settings: { apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiType: 'gemini', model: 'gemini-3.8-flash', enableContextCache: true } }
+      ]
+    }));
+  });
+}
+
+test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y borrado', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await seedConnectionProfiles(page);
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.focus('#active-profile-trigger');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('[data-profile-id="profile:mirror"]').evaluate(el => el === document.activeElement), true);
+    const alignment = await page.evaluate(() => {
+      const menu = document.getElementById('active-profile-popover').getBoundingClientRect();
+      const composer = document.querySelector('.chat-input-container').getBoundingClientRect();
+      return Math.abs(menu.right - composer.right);
+    });
+    assert.ok(alignment <= 2);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
+    assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
+    assert.equal(await page.locator('#btn-delete-profile').isDisabled(), true);
+    await page.selectOption('#profile-select-helper', 'profile:remote');
+    await page.click('#profile-tab-settings');
+    assert.equal(await page.locator('#setting-api-key').isEnabled(), true);
+    await page.click('#btn-free-tier');
+    assert.equal(await page.inputValue('#setting-api-key'), 'FREE-TIER');
+    await page.selectOption('#setting-api-type', 'openai');
+    assert.equal(await page.locator('#btn-free-tier').isVisible(), false);
+    await page.click('#profile-tab-name');
+    await page.click('#btn-delete-profile');
+    await page.click('#notice-accept');
+    await page.click('#btn-close-profiles');
+    assert.equal(await page.textContent('#active-profile-name'), 'Espejo');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().apiKey), '');
+    await page.reload({ waitUntil: 'load' });
+    assert.equal(await page.textContent('#active-profile-name'), 'Espejo');
+    await page.fill('#user-input', 'Mirror regression test');
+    await page.click('#btn-send');
+    await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+    const reply = await page.evaluate(() => window.ChatState.get('messages').findLast(message => message.role === 'assistant')?.content);
+    const payload = JSON.parse(reply.split('\n\n---\n')[0]);
+    assert.ok(payload.messages.some(message => message.content === 'Mirror regression test'));
+    assert.ok(Array.isArray(payload.tools));
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
 
 test('Browser UI - informa del alcance de almacenamiento y deriva la descarga HTTP', async () => {
   const bundle = fs.readFileSync(path.resolve(__dirname, '../zerochat.html'));
@@ -61,18 +123,22 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    await seedConnectionProfiles(page);
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.waitForTimeout(250);
-    await page.selectOption('#active-profile-select', 'profile:remote');
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:remote"]');
     await page.fill('#user-input', 'test');
 
     const formState = await page.evaluate(() => ({
       valid: document.getElementById('chat-form').checkValidity(),
-      fallback: document.getElementById('context-limit-override-input').value
+      fallback: document.getElementById('context-limit-override-input').value,
+      activeProfileName: document.getElementById('active-profile-name').textContent
     }));
 
     assert.equal(formState.fallback, '1000K');
     assert.equal(formState.valid, true);
+    assert.equal(formState.activeProfileName, 'Remoto chat', 'El selector debe reflejar el perfil activo tras aplicarlo');
   } finally {
     await browser.close();
   }
@@ -82,6 +148,8 @@ test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
     await page.click('#btn-manage-profiles');
@@ -102,6 +170,8 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar', async
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
     await page.click('#btn-manage-profiles');
@@ -140,12 +210,15 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
         }
       }));
     });
+    await seedConnectionProfiles(page);
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.waitForTimeout(250);
-    await page.selectOption('#active-profile-select', 'profile:remote');
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:remote"]');
     const remoteContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
     assert.equal(remoteContext, null);
-    await page.selectOption('#active-profile-select', 'profile:local');
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:local"]');
 
     const context = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
     assert.equal(context, 90112);
@@ -169,7 +242,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
-        assert.equal(await page.title(), 'ZeroChat v6.5.7', 'El título de index.html debe ser ZeroChat v6.5.7');
+    assert.equal(await page.title(), `ZeroChat v${version}`, 'El título de index.html debe coincidir con la versión del proyecto');
     const runtime = await page.evaluate(() => ({
       chatIcons: typeof window.ChatIcons?.get === 'function',
       iconStyles: getComputedStyle(document.querySelector('.ui-icon')).display
@@ -201,7 +274,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-        assert.equal(title, 'ZeroChat v6.5.7', 'El título de zerochat.html debe ser ZeroChat v6.5.7');
+    assert.equal(title, `ZeroChat v${version}`, 'El título de zerochat.html debe coincidir con la versión del proyecto');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);
@@ -330,21 +403,20 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
 
-    // 4. Selector de perfiles activo en el composer e integración de 'Editar perfiles'
-    const hasProfileSelect = await page.$eval('.chat-input-container #active-profile-select', el => !!el);
-    assert.ok(hasProfileSelect, 'El selector de perfil debe residir dentro del composer');
+    // 4. Menú de perfiles activo en el composer e integración de 'Editar perfiles'
+    const hasProfileMenu = await page.$eval('.chat-input-container #active-profile-menu', el => !!el);
+    assert.ok(hasProfileMenu, 'El selector de perfil debe residir dentro del composer');
 
-    const profileStyle = await page.$eval('.composer-profile-badge', el => {
+    const profileStyle = await page.$eval('.composer-profile-trigger', el => {
       const computed = getComputedStyle(el);
-      const selectComputed = getComputedStyle(el.querySelector('select'));
       return {
         borderStyle: computed.borderStyle,
-        fontSize: selectComputed.fontSize,
-        maxWidth: selectComputed.maxWidth
+        fontSize: computed.fontSize,
+        maxWidth: getComputedStyle(el.closest('.composer-profile-menu')).maxWidth
       };
     });
-    assert.equal(profileStyle.borderStyle, 'none', 'El combo debe ser sin enmarcar (border: none)');
-    assert.equal(profileStyle.maxWidth, '240px', 'El ancho debe ser un 25% mayor que el original (240px)');
+    assert.equal(profileStyle.borderStyle, 'solid', 'El disparador debe tener un borde sutil');
+    assert.equal(profileStyle.maxWidth, 'none', 'El menú debe poder adaptarse al nombre del perfil');
 
     // Botón de editar perfiles en cabecera removido
     const hasBtnOpenProfiles = await page.$eval('#btn-open-profiles', el => !!el).catch(() => false);
@@ -354,21 +426,21 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const hasDisclaimer = await page.$eval('.chat-disclaimer', el => !!el).catch(() => false);
     assert.equal(hasDisclaimer, false, 'La línea de ayuda/disclaimer debajo del prompt debe haber sido eliminada');
 
-    // Opción 'Editar perfiles' en el selector
-    const editOption = await page.$eval('#active-profile-select option[value="__edit_profiles__"]', el => ({
-      exists: !!el,
-      text: el.textContent
+    // El menú muestra perfiles y una acción explícita para editarlos.
+    await page.click('#active-profile-trigger');
+    const menuState = await page.evaluate(() => ({
+      open: document.getElementById('active-profile-trigger').getAttribute('aria-expanded'),
+      list: document.getElementById('active-profile-list').textContent,
+      editText: document.getElementById('btn-edit-profiles').textContent
     }));
-    assert.ok(editOption.exists, 'El selector de perfil debe contener la opción para editar perfiles');
-    assert.equal(editOption.text, 'Editar perfiles', 'El texto de la opción debe ser "Editar perfiles"');
+    assert.equal(menuState.open, 'true', 'El disparador debe abrir el menú de perfiles');
+    assert.match(menuState.list, /Espejo/, 'La primera instalación debe incluir el perfil Espejo');
+    assert.equal(menuState.editText, 'Editar perfiles', 'El menú debe incluir el botón para editar perfiles');
 
-    // Seleccionar 'Editar perfiles' debe abrir el diálogo de perfiles y reestablecer la selección
-    await page.selectOption('#active-profile-select', '__edit_profiles__');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
     const isProfilesOpen = await page.$eval('#profiles-dialog', el => el.open);
-    assert.ok(isProfilesOpen, 'Seleccionar "Editar perfiles" en el selector debe abrir #profiles-dialog');
-    const selectedAfterEdit = await page.$eval('#active-profile-select', el => el.value);
-    assert.notEqual(selectedAfterEdit, '__edit_profiles__', 'El selector no debe quedar con __edit_profiles__ seleccionado');
+    assert.ok(isProfilesOpen, 'Pulsar "Editar perfiles" debe abrir #profiles-dialog');
     await page.click('#btn-close-profiles');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
 
@@ -911,11 +983,12 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(profileSaveResult.savedUrl, 'http://playwright-test:1234/v1', 'Debe persistir el perfil en su repositorio');
     assert.equal(profileSaveResult.runtimeUrl, 'http://playwright-test:1234/v1', 'El perfil guardado debe quedar activo por defecto');
 
-    // Renombrar el perfil activo actualiza el mismo registro y recarga sus datos.
+    // Renombrar el perfil creado actualiza el mismo registro y recarga sus datos.
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
-    await page.selectOption('#profile-select-helper', 'profile:local');
-    await page.fill('#setting-profile-name', 'Local chat renombrado');
+    const createdProfileId = await page.evaluate(() => window.ChatProfileRepository.findByName('Perfil Temporal Playwright').id);
+    await page.selectOption('#profile-select-helper', createdProfileId);
+    await page.fill('#setting-profile-name', 'Perfil Temporal renombrado');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://active-profile-test:1234/v1');
     await page.evaluate(() => { window.ChatUIInspector.handleQueryServer = async () => true; });
@@ -926,15 +999,15 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
       const profiles = window.ChatProfileRepository?.list?.() || [];
       const runtime = window.ChatConfig?.getActive?.();
       return {
-        renamedCount: profiles.filter(profile => profile.name === 'Local chat renombrado').length,
-        oldNameExists: profiles.some(profile => profile.name === 'Local chat'),
+        renamedCount: profiles.filter(profile => profile.name === 'Perfil Temporal renombrado').length,
+        oldNameExists: profiles.some(profile => profile.name === 'Perfil Temporal Playwright'),
         runtimeName: runtime?.activeProfile?.name,
         runtimeUrl: runtime?.apiUrl
       };
     });
     assert.equal(renamedActiveResult.renamedCount, 1, 'Renombrar no debe duplicar el perfil');
     assert.equal(renamedActiveResult.oldNameExists, false, 'El nombre anterior debe desaparecer del selector');
-    assert.equal(renamedActiveResult.runtimeName, 'Local chat renombrado', 'El perfil activo debe reflejar el nuevo nombre');
+    assert.equal(renamedActiveResult.runtimeName, 'Perfil Temporal renombrado', 'El perfil activo debe reflejar el nuevo nombre');
     assert.equal(renamedActiveResult.runtimeUrl, 'http://active-profile-test:1234/v1', 'Los cambios del perfil activo deben recargarse');
 
     // 2c. Verificar pestaña MCP (mcp-proxy) al lado de Agente, modal de configuración reactivo y comando
@@ -1160,7 +1233,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 
     // 1. Validar iconos SVG en el Header
     const headerIcons = await page.evaluate(() => {
-      const profileSvg = document.querySelector('.badge-profile .profile-icon svg');
+      const profileSvg = document.querySelector('.composer-profile-trigger .profile-icon svg');
       const ragSvg = document.querySelector('#btn-open-rag svg');
       const debugSvg = document.querySelector('#btn-toggle-debug svg');
       const reasoningSvg = document.querySelector('#btn-reasoning svg');

@@ -254,7 +254,7 @@
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
     if (elements.settingsActiveProfileName) {
-      elements.settingsActiveProfileName.textContent = appConfig?.activeProfile?.name || t('connection_no_active_profile');
+      elements.settingsActiveProfileName.textContent = appConfig?.activeProfile?.name || 'Espejo';
     }
     if (elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
 
@@ -572,6 +572,51 @@
     </form>`;
   }
 
+  function renderProfileMenu(elements, profiles, activeId) {
+    const list = elements.activeProfileList;
+    if (!list) return;
+    const descriptionFor = profile => profile.id === 'profile:mirror' ? t('profile_mirror_description') : profile.description;
+    const existing = [...list.children];
+    if (existing.length === profiles.length && profiles.every((profile, index) => {
+      const option = existing[index];
+      return option.dataset.profileId === profile.id
+        && option.getAttribute('aria-checked') === String(profile.id === activeId)
+        && option.querySelector('.composer-profile-option-name')?.textContent === profile.name
+        && (option.querySelector('.composer-profile-option-description')?.textContent || '') === (descriptionFor(profile) || '');
+    })) return;
+    list.replaceChildren();
+    profiles.forEach(profile => {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'composer-profile-option' + (profile.id === activeId ? ' active' : '');
+      option.dataset.profileId = profile.id;
+      option.setAttribute('role', 'menuitemradio');
+      option.setAttribute('aria-checked', String(profile.id === activeId));
+      const name = document.createElement('span');
+      name.className = 'composer-profile-option-name';
+      name.textContent = profile.name;
+      option.appendChild(name);
+      if (profile.description) {
+        const description = document.createElement('span');
+        description.className = 'composer-profile-option-description';
+        description.textContent = descriptionFor(profile);
+        option.appendChild(description);
+      }
+      list.appendChild(option);
+    });
+  }
+
+  function syncProfileEditor(elements, readOnly) {
+    elements.profilesDialog?.querySelectorAll('.modal-tab-pane input, .modal-tab-pane textarea, .modal-tab-pane select, .modal-tab-pane button').forEach(input => {
+      if (input !== elements.profileSelectHelper) input.disabled = readOnly;
+    });
+    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly;
+    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || elements.profilesDialog?.dataset.queryReady !== 'true';
+    if (elements.profileSaveQueryHint) {
+      elements.profileSaveQueryHint.textContent = t(readOnly ? 'err_profile_read_only' : (elements.profilesDialog?.dataset.queryReady === 'true' ? 'profile_query_save_pending' : 'profile_query_required'));
+    }
+  }
+
   function getProfilesDialogHTML() {
     return `<div class="modal-header">
       <div class="modal-title">
@@ -601,9 +646,9 @@
         </div>
         <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
         <div class="profile-values-card">
-          <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option></select></div>
+          <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
           <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
-          <div class="form-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
+          <div class="form-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-free-tier" class="btn-free-tier" data-i18n="btn_free_tier" hidden>Free Tier</button><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
           <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
         </div>
         </div>
@@ -656,6 +701,8 @@
 
   return {
     applyTheme,
+    renderProfileMenu,
+    syncProfileEditor,
     applyLanguage,
     renderAgentToolsUI,
     gatherEnabledToolsFromUI,

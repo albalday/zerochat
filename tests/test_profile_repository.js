@@ -11,17 +11,17 @@ function createStorage(legacyProfiles = {}) {
   };
 }
 
-test('ProfileRepository - inicializa un catálogo versionado con perfiles semilla', () => {
+test('ProfileRepository - inicializa únicamente el perfil Espejo de solo lectura', () => {
   const storage = createStorage();
   const repository = Profiles.createRepository(storage);
 
   const profiles = repository.list();
-  assert.equal(profiles.length, 2);
-  assert.equal(profiles[0].name, 'Local chat');
-  assert.equal(profiles.some(profile => profile.name === 'Nuevo'), false);
-  assert.equal(profiles[0].schemaVersion, 1);
-  assert.equal(profiles[0].settings.apiUrl, 'http://localhost:1234/v1');
-  assert.equal(profiles[0].settings.enabledTools.search_web, true);
+  assert.equal(profiles.length, 1);
+  assert.equal(profiles[0].id, Profiles.READONLY_PROFILE_ID);
+  assert.equal(profiles[0].name, 'Espejo');
+  assert.equal(profiles[0].settings.apiType, 'mirror');
+  assert.equal(repository.remove(Profiles.READONLY_PROFILE_ID), false);
+  assert.throws(() => repository.save({ ...profiles[0], settings: { ...profiles[0].settings, model: 'other' } }));
 });
 
 test('ProfileRepository - guarda versiones sin exponer referencias mutables', () => {

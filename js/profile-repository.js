@@ -13,6 +13,7 @@
 
   const STORAGE_KEY = 'profiles_v1';
   const SCHEMA_VERSION = 1;
+  const READONLY_PROFILE_ID = 'profile:mirror';
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'apiKey', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'maxAgentTurns', 'modelReasoningConfig', 'enabledTools',
@@ -34,10 +35,14 @@
     enableRawLogs: false, enableContextCache: true, contextLimitOverride: null
   });
 
-  const DEFAULT_PROFILES = Object.freeze([
-    { id: 'profile:local', name: 'Local chat', settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: 'google/gemma-4-26b-a4b-qat', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, enableContextCache: true, contextLimitOverride: null } },
-    { id: 'profile:remote', name: 'Remoto chat', settings: { apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiType: 'gemini', apiKey: '', model: 'gemini-3.8-flash', systemPrompt: '', temperature: '0.7', reasoningEffort: 'none', maxAgentTurns: 15, modelReasoningConfig: null, enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }, enableRawLogs: false, enableContextCache: true, contextLimitOverride: null } }
-  ]);
+  const MIRROR_PROFILE = Object.freeze({
+    id: READONLY_PROFILE_ID,
+    name: 'Espejo',
+    description: 'Muestra la petición OpenAI sin enviarla.',
+    settings: {
+      ...NEW_PROFILE_SETTINGS, apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror'
+    }
+  });
 
   function normalizeSettings(source = {}) {
     const settings = {};
@@ -84,10 +89,15 @@
 
     function initialize() {
       const existing = readDocument();
-      if (existing) return clone(existing);
+      if (existing) {
+        if (!existing.profiles.some(profile => profile.id === READONLY_PROFILE_ID)) {
+          existing.profiles.unshift(normalizeRecord(MIRROR_PROFILE));
+          writeDocument(existing);
+        }
+        return clone(existing);
+      }
 
-      const profiles = DEFAULT_PROFILES.map(normalizeRecord);
-      const document = { schemaVersion: SCHEMA_VERSION, profiles };
+      const document = { schemaVersion: SCHEMA_VERSION, profiles: [normalizeRecord(MIRROR_PROFILE)] };
       writeDocument(document);
       return clone(document);
     }
@@ -109,6 +119,9 @@
     function save(record) {
       const current = initialize();
       const normalized = normalizeRecord(record);
+      if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
+        throw new Error('El perfil Espejo no se puede modificar.');
+      }
       const index = current.profiles.findIndex(profile => profile.id === normalized.id);
       if (index >= 0) {
         normalized.version = current.profiles[index].version + 1;
@@ -121,6 +134,7 @@
     }
 
     function remove(id) {
+      if (String(id || '') === READONLY_PROFILE_ID) return false;
       const current = initialize();
       const index = current.profiles.findIndex(profile => profile.id === String(id || ''));
       if (index < 0) return false;
@@ -133,5 +147,5 @@
   }
 
   const defaultRepository = createRepository();
-  return { STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS), DEFAULT_PROFILES: clone(DEFAULT_PROFILES), createRepository, ...defaultRepository };
+  return { STORAGE_KEY, SCHEMA_VERSION, PROFILE_FIELDS, READONLY_PROFILE_ID, MIRROR_PROFILE: clone(MIRROR_PROFILE), NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS), createRepository, ...defaultRepository };
 }));

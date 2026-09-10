@@ -99,10 +99,13 @@
     function initialize() {
       profiles?.initialize?.();
       const stored = storage?.loadRuntimeConfigV2?.();
-      if (stored) return commit({ ...stored, modelContextLimit: null });
+      const fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+      if (stored) {
+        const config = { ...stored, modelContextLimit: null };
+        return commit(!profiles?.get?.(config.activeProfile?.id) && fallbackProfile ? applyProfile(config, fallbackProfile) : config);
+      }
 
-      const initialProfile = profiles?.list?.()[0] || null;
-      return initialProfile ? activateProfile(initialProfile.id) : commit(DEFAULTS);
+      return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
     }
 
     function getActive() {
@@ -129,17 +132,26 @@
     function activateProfile(profileId) {
       const profile = profiles?.get?.(profileId);
       if (!profile) throw new Error('El perfil seleccionado no existe.');
+      return commit(applyProfile(getActive(), profile));
+    }
+
+    function applyProfile(config, profile) {
       const patch = {};
       PROFILE_FIELDS.forEach(field => {
-        if (profile.settings[field] !== undefined) patch[field] = clone(profile.settings[field]);
+        patch[field] = clone(profile.settings[field] !== undefined ? profile.settings[field] : DEFAULTS[field]);
       });
-      return commit({
-        ...getActive(),
+      return {
+        ...config,
         ...patch,
         modelContextLimit: null,
         contextLimitOverride: profile.settings.contextLimitOverride ?? null,
         activeProfile: profileMetadata(profile)
-      });
+      };
+    }
+
+    function activateFallbackProfile() {
+      const fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+      return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
     }
 
     function subscribe(listener) {
@@ -148,7 +160,8 @@
     }
 
     function resetRuntime() {
-      return commit(DEFAULTS);
+      const mirror = profiles?.get?.(profiles?.READONLY_PROFILE_ID);
+      return commit(mirror ? applyProfile(DEFAULTS, mirror) : DEFAULTS);
     }
 
     return {
@@ -159,6 +172,7 @@
       updateGeneral,
       update: updateRuntime,
       activateProfile,
+      activateFallbackProfile,
       subscribe,
       resetRuntime
     };

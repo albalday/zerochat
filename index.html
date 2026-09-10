@@ -10,7 +10,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v6.5.7</title>
+  <title>ZeroChat v6.6.0</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -321,11 +321,20 @@
             </div>
 
             <!-- Selector de Perfil Activo en Composer -->
-            <label class="badge-profile composer-profile-badge" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
-              <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
-              <select id="active-profile-select" class="composer-profile-select" data-i18n-aria="profile_badge_title" aria-label="Perfil de conexión activo"></select>
-              <span class="profile-chevron"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
-            </label>
+            <div id="active-profile-menu" class="composer-profile-menu">
+              <button type="button" id="active-profile-trigger" class="composer-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
+                <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
+                <span id="active-profile-name" class="composer-profile-name">Espejo</span>
+                <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
+              </button>
+              <div id="active-profile-popover" class="composer-profile-popover" hidden>
+                <div id="profile-menu-title" class="composer-profile-popover-header" data-i18n="profile_menu_title">Perfiles de conexión</div>
+                <div id="active-profile-list" class="composer-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
+                <div class="composer-profile-popover-footer">
+                  <button type="button" id="btn-edit-profiles" class="composer-profile-edit" data-i18n="edit_profiles">Editar perfiles</button>
+                </div>
+              </div>
+            </div>
 
             <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" title="Detener respuesta">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg>
