@@ -107,61 +107,16 @@
     return typeof DOMException === 'function' ? new DOMException('Aborted', 'AbortError') : Object.assign(new Error('Aborted'), { name: 'AbortError' });
   }
 
-  function createMainThreadEngine(webllm, modelId, appConfig, onProgress, signal) {
-    if (signal?.aborted) return Promise.reject(abortError());
-    const creation = Promise.resolve().then(() => webllm.CreateMLCEngine(modelId, {
-      appConfig,
-      initProgressCallback: progress => emitProgress(onProgress, progress)
-    }));
-
-    // CreateMLCEngine does not accept an AbortSignal.  Reject the caller as
-    // soon as it cancels, then unload an engine that completes in the
-    // background so it cannot remain active after a cancelled conversation.
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const cleanup = () => signal?.removeEventListener('abort', abort);
-      const abort = () => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(abortError());
-      };
-
-      signal?.addEventListener('abort', abort, { once: true });
-      if (signal?.aborted) {
-        abort();
-        return;
-      }
-
-      creation.then(engine => {
-        if (settled || signal?.aborted) {
-          return Promise.resolve(engine?.unload?.()).catch(() => {});
-        }
-        settled = true;
-        cleanup();
-        resolve({ engine, release: () => engine.unload?.() });
-      }, error => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(error);
-      });
-    });
-  }
-
-  async function createMainThreadFallback(webllm, modelId, appConfig, onProgress, signal, workerError) {
-    emitProgress(onProgress, 'main-thread-fallback');
-    try {
-      return await createMainThreadEngine(webllm, modelId, appConfig, onProgress, signal);
-    } catch (error) {
-      if (error && error.cause === undefined) error.cause = workerError;
-      throw error;
-    }
+  function workerError(detail) {
+    const suffix = detail ? ` (${detail})` : '';
+    const error = new Error(`WebLLM could not start its dedicated worker${suffix}. Local inference was not started to keep the browser responsive.`);
+    error.code = 'WEBLLM_WORKER_UNAVAILABLE';
+    return error;
   }
 
   function createWorkerEngine(webllm, modelId, appConfig, onProgress, signal) {
     if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof webllm.CreateWebWorkerMLCEngine !== 'function') {
-      return createMainThreadEngine(webllm, modelId, appConfig, onProgress, signal);
+      return Promise.reject(workerError('Dedicated Web Worker support is unavailable'));
     }
     const source = `import * as webllm from ${JSON.stringify(WEBLLM_URL)};\nconst handler = new webllm.WebWorkerMLCEngineHandler();\nself.onmessage = event => handler.onmessage(event);`;
     const workerUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
@@ -170,12 +125,11 @@
       worker = new Worker(workerUrl, { type: 'module' });
     } catch (error) {
       URL.revokeObjectURL(workerUrl);
-      return createMainThreadFallback(webllm, modelId, appConfig, onProgress, signal, error);
+      return Promise.reject(workerError(error?.message || 'The worker constructor failed'));
     }
     return new Promise((resolve, reject) => {
       let settled = false;
-      let receivedProgress = false;
-      const workerFailure = event => fail(event, !receivedProgress);
+      const workerFailure = event => fail(event);
       const abort = () => fail(abortError(), false);
       const cleanup = () => {
         worker.removeEventListener('error', workerFailure);
@@ -186,18 +140,16 @@
         worker.terminate();
         URL.revokeObjectURL(workerUrl);
       };
-      const fail = (event, bootstrapFailure = false) => {
+      const fail = event => {
         if (settled) return;
         settled = true;
         cleanup();
         discard();
         const detail = event?.message || event?.error?.message || event?.messageText || '';
-        const error = event?.name === 'AbortError' ? event : new Error(`WebLLM worker failed${detail ? `: ${detail}` : '.'}`);
-        if (bootstrapFailure) error.code = 'WEBLLM_WORKER_BOOTSTRAP';
+        const error = event?.name === 'AbortError' ? event : workerError(detail || 'The worker stopped during initialization');
         reject(error);
       };
       const notifyProgress = progress => {
-        receivedProgress = true;
         emitProgress(onProgress, progress);
       };
       worker.addEventListener('error', workerFailure, { once: true });
@@ -220,9 +172,6 @@
           });
         })
         .catch(error => fail(error, false));
-    }).catch(async error => {
-      if (error?.code !== 'WEBLLM_WORKER_BOOTSTRAP') throw error;
-      return createMainThreadFallback(webllm, modelId, appConfig, onProgress, signal, error);
     });
   }
 

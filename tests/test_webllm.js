@@ -140,13 +140,20 @@ test('WebLLM - no fuerza valores de razonamiento distintos de none', () => {
 test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', async () => {
   cached = true;
   storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
-  const adapter = new WebLLM.WebLLMProviderAdapter();
-  const originalCreate = (await WebLLM.loadWebLLM()).CreateMLCEngine;
-  const webllm = await WebLLM.loadWebLLM();
-  webllm.CreateMLCEngine = async (...args) => {
+  const manager = new WebLLM.WebLLMEngineManager(async () => {
     createdEngines += 1;
-    return originalCreate(...args);
-  };
+    return {
+      engine: {
+        unload: async () => {},
+        chat: { completions: { create: async function* (payload) {
+          completionPayloads.push(payload);
+          yield { choices: [{ delta: { content: 'ok' } }] };
+        } } }
+      },
+      release: async () => {}
+    };
+  });
+  const adapter = new WebLLM.WebLLMProviderAdapter({ engineManager: manager });
   try {
     completionPayloads.length = 0;
     const request = content => adapter.createStreamResponse({ payload: { model: 'test-model', messages: [{ role: 'user', content }] } });
@@ -157,7 +164,6 @@ test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', asy
     assert.equal(createdEngines, 1);
     assert.deepEqual(completionPayloads.map(payload => payload.messages[0].content), ['first conversation', 'second conversation']);
   } finally {
-    webllm.CreateMLCEngine = originalCreate;
     await adapter.disposeActiveEngine();
   }
 });
@@ -205,27 +211,21 @@ test('WebLLM - el gestor cancela una preparación pendiente al desactivarse', as
   assert.equal(cancelled, true);
 });
 
-test('WebLLM - cancelar la preparación en hilo principal libera el motor tardío', async () => {
+test('WebLLM - rechaza sin iniciar un motor principal si no hay Web Worker', async () => {
   const originalWorker = global.Worker;
-  let resolveEngine;
-  let unloaded = false;
+  let mainThreadEngineCreated = false;
   global.Worker = undefined;
-  const controller = new AbortController();
   try {
-    const pending = WebLLM.createWorkerEngine({
-      CreateMLCEngine: () => new Promise(resolve => { resolveEngine = resolve; })
-    }, 'test-model', {}, () => {}, controller.signal);
-    controller.abort();
-    await assert.rejects(pending, error => error.name === 'AbortError');
-    resolveEngine({ unload: async () => { unloaded = true; } });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(unloaded, true);
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateMLCEngine: async () => { mainThreadEngineCreated = true; }
+    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
+    assert.equal(mainThreadEngineCreated, false);
   } finally {
     global.Worker = originalWorker;
   }
 });
 
-test('WebLLM - usa el motor principal si el worker no puede arrancar', async () => {
+test('WebLLM - no usa el motor principal si el worker no puede arrancar', async () => {
   const originalWorker = global.Worker;
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
@@ -243,16 +243,15 @@ test('WebLLM - usa el motor principal si el worker no puede arrancar', async () 
   URL.revokeObjectURL = () => {};
   try {
     let mainThreadEngineCreated = false;
-    const result = await WebLLM.createWorkerEngine({
+    await assert.rejects(WebLLM.createWorkerEngine({
       CreateWebWorkerMLCEngine: async () => new Promise(() => {}),
       CreateMLCEngine: async () => {
         mainThreadEngineCreated = true;
         return { unload: async () => {} };
       }
-    }, 'test-model', {}, () => {});
-    assert.equal(mainThreadEngineCreated, true);
+    }, 'test-model', {}, () => {}), error => error.code === 'WEBLLM_WORKER_UNAVAILABLE');
+    assert.equal(mainThreadEngineCreated, false);
     assert.equal(terminated, true);
-    await result.release();
   } finally {
     global.Worker = originalWorker;
     URL.createObjectURL = originalCreateObjectURL;

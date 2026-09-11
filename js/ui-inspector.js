@@ -375,12 +375,11 @@
     const loadingMatch = rawText.match(/Loading model from cache\[(\d+)\/(\d+)\]/i);
     const phase = progress?.phase || '';
     const text = phase === 'starting' ? t('webllm_starting')
-      : (phase === 'main-thread-fallback' ? t('webllm_main_thread_fallback')
       : (phase === 'ready' ? t('webllm_ready')
       : (shaderMatch
       ? t('webllm_gpu_shaders', { current: shaderMatch[1], total: shaderMatch[2], percent: percent === null ? '' : ` · ${Math.round(percent)} %`, elapsed: elapsed ? ` · ${elapsed}` : '' })
       : (loadingMatch ? t('webllm_loading_model', { current: loadingMatch[1], total: loadingMatch[2], percent: percent === null ? '' : ` · ${Math.round(percent)} %`, elapsed: elapsed ? ` · ${elapsed}` : '' })
-      : (phase === 'loading' ? t('webllm_loading_parameters') : t('webllm_preparing'))))));
+      : (phase === 'loading' ? t('webllm_loading_parameters') : t('webllm_preparing')))));
     return { text, percent: Number.isFinite(percent) ? percent : null };
   }
 

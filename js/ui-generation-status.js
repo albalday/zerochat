@@ -32,7 +32,6 @@
     const labels = {
       connecting: t('generation_status_connecting'),
       preparing: t('generation_status_preparing'),
-      'main-thread-fallback': t('generation_status_preparing'),
       loading: t('generation_status_loading'),
       compiling: t('generation_status_compiling'),
       ready: t('generation_status_generating'),
