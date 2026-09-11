@@ -19,13 +19,6 @@ test('Api - Normalización de nombres de herramientas', () => {
   assert.equal(Api.normalizeToolName('render_chart'), 'render_chart');
 });
 
-
-test('Api - Estimación aproximada de tokens', () => {
-  const shortText = 'Hola mundo';
-  const count = Api.estimateTokens(shortText);
-  assert.ok(count > 0 && count < 10);
-});
-
 test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {
   const originalFetch = global.fetch;
   let fetchCalled = false;

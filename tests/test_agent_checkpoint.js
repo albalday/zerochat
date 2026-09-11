@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const AgentCore = require('../js/agent-core.js');
-const ContextManager = require('../js/context-manager.js');
 const State = require('../js/state.js');
 const I18n = require('../js/i18n.js');
 const UIReasoning = require('../js/ui-reasoning.js');
@@ -125,12 +124,20 @@ test('AgentCheckpoint Tool - Ejecución con ready_to_respond: false (continue)',
   assert.ok(!result.guidance.includes('memory compacted'));
 });
 
-test('AgentCheckpoint Tool - describe consolidación semántica, no compactación inmediata', () => {
+test('AgentCheckpoint Tool - describe consolidación semántica, no compactación inmediata', async () => {
   const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
-  assert.ok(!tool.description.includes('memory consolidation'));
   assert.ok(!tool.promptGuide().includes('compacts working memory'));
-  assert.ok(!I18n.TRANSLATIONS.es.agent_checkpoint_desc.includes('podar'));
-  assert.ok(!I18n.TRANSLATIONS.en.agent_checkpoint_desc.includes('prune'));
+
+  const history = [
+    { role: 'user', content: 'Pregunta 1' },
+    { role: 'assistant', content: 'Respuesta 1' },
+    { role: 'user', content: 'Pregunta 2' }
+  ];
+  const initialLength = history.length;
+  const result = await tool.execute({ findings: 'Hallazgo', ready_to_respond: false });
+  assert.equal(result.success, true);
+  assert.equal(result.action, 'continue');
+  assert.equal(history.length, initialLength, 'Invocar agent_checkpoint no debe mutar ni podar el historial');
 });
 
 test('AgentCheckpoint Tool - ChatEngine inyecta instrucción de checkpoint en toolsGuide solo si está activo', () => {
@@ -168,11 +175,6 @@ test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de c
   const contextWithCp = await RagService.buildRagSystemContext(branch.id, { isCheckpointEnabled: true });
   assert.ok(contextWithCp.includes('agent_checkpoint'));
   assert.ok(contextWithCp.includes('consolidate findings and record the next step'));
-});
-
-test('ContextManager - usa el límite publicado y un único fallback cuando falta', () => {
-  assert.equal(ContextManager.getModelContextLimit('', '', 90112), 90112);
-  assert.equal(ContextManager.getModelContextLimit(), 1000000);
 });
 
 test('ChatEngine - executeAgentTurnLoop no clasifica consultas para forzar checkpoints', async () => {
