@@ -111,6 +111,7 @@
   width: 100%;
   display: flex;
   align-items: flex-start;
+  position: relative;
 }
 
 /* Fila Inferior: Barra de herramientas, estado y acciones */
@@ -398,6 +399,16 @@
   gap: 2px;
 }
 
+.reasoning-transport-heading {
+  margin: 0.5rem 0 0.15rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .reasoning-option {
   display: flex;
   align-items: center;
@@ -598,6 +609,36 @@
   margin-bottom: 0;
 }
 
+.generation-status {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: min(220px, calc(100% - 0.4rem));
+  padding: 0.2rem 0.35rem;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.generation-status[hidden] { display: none; }
+
+.generation-status-icon { flex: 0 0 auto; animation: generationStatusSpin 1s linear infinite; }
+.generation-status-text { overflow: hidden; text-overflow: ellipsis; }
+.generation-status-progress { width: 46px; height: 3px; accent-color: var(--primary); }
+@keyframes generationStatusSpin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  .generation-status { max-width: 108px; }
+  .generation-status-progress { display: none; }
+}
+
 /* Botones Circulares de Acción del Composer */
 .btn-send,
 .btn-stop-stream {
@@ -666,7 +707,7 @@
 }
 
 /* Metamorfosis: cuando stop está activo, oculta el botón de send */
-.btn-stop-stream:not([style*="none"]) + .btn-send {
+.btn-stop-stream:not([style*="none"]) ~ .btn-send {
   display: none !important;
 }
 

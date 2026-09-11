@@ -808,7 +808,7 @@ if __name__ == "__main__":
           </div>
           <div class="form-field">
             <label for="mcp-os-select" data-i18n="mcp_field_os">Sistema operativo local</label>
-            <select id="mcp-os-select" class="form-input">
+            <select id="mcp-os-select" class="combobox-select-helper form-input" style="width: 100%; max-width: 100%;">
               <option value="linux" data-i18n="mcp_os_linux">Linux</option>
               <option value="windows" data-i18n="mcp_os_windows">Windows</option>
               <option value="android" data-i18n="mcp_os_android">Android / Termux</option>

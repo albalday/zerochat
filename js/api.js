@@ -129,6 +129,18 @@
     return i18n.t('err_free_tier_unavailable');
   }
 
+  function mirrorResponse(payload) {
+    const i18n = typeof window !== 'undefined' ? window.ChatI18n : require('./i18n.js');
+    const guidance = [
+      i18n.t('mirror_response_intro'),
+      i18n.t('mirror_response_about'),
+      i18n.t('mirror_response_profile'),
+      i18n.t('mirror_response_webllm'),
+      i18n.t('mirror_response_request')
+    ].join('\n\n');
+    return `${guidance}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
+  }
+
   function resolveApiKey(apiKey) {
     const requestedApiKey = String(apiKey || '').trim();
     return requestedApiKey === 'FREE-TIER' ? freeApi() : requestedApiKey;
@@ -245,6 +257,9 @@
         };
       }
     }
+    if (adapter && typeof adapter.listModels === 'function') {
+      return adapter.listModels();
+    }
     const candidateEndpoints = adapter ? adapter.getModelEndpoints(cleanUrl) : [`${cleanUrl}/v1/models`];
 
     const headers = { ...adapter?.buildHeaders(resolvedApiKey), Accept: 'application/json' };
@@ -294,6 +309,28 @@
     };
   }
 
+  async function downloadLocalModel(model, onProgress, providerId = 'webllm') {
+    const adapter = registry?.get(providerId);
+    if (!adapter || typeof adapter.downloadModel !== 'function') {
+      throw new Error('The configured provider does not support local model downloads.');
+    }
+    return adapter.downloadModel(model, onProgress);
+  }
+
+  async function deleteLocalModel(model, providerId = 'webllm') {
+    const adapter = registry?.get(providerId);
+    if (!adapter || typeof adapter.deleteModel !== 'function') {
+      throw new Error('The configured provider does not support deleting local models.');
+    }
+    return adapter.deleteModel(model);
+  }
+
+  async function cancelLocalModelOperation(model, providerId = 'webllm') {
+    const adapter = registry?.get(providerId);
+    if (!adapter || typeof adapter.cancelModelOperation !== 'function') return;
+    return adapter.cancelModelOperation(model);
+  }
+
   /**
    * Orquestador común de streaming HTTP/SSE.
    */
@@ -306,6 +343,7 @@
       messages,
       temperature = 0.7,
       reasoningEffort = 'none',
+      reasoningTransport = 'auto',
       enableTools = false,
       toolChoice = 'auto',
       enableAgentJs = false,
@@ -317,6 +355,7 @@
       onBeforeRequest,
       onChunk,
       onReasoningChunk,
+      onGenerationStatus,
       onToolCallDelta,
       onLog,
       onDone,
@@ -352,6 +391,7 @@
       messages,
       temperature,
       reasoningEffort,
+      reasoningTransport,
       toolsList,
       toolChoice: toolChoice || 'auto'
     }) : {
@@ -396,7 +436,7 @@
     }
 
     if (detectedType === 'mirror') {
-      const accumulatedText = `${JSON.stringify(payload)}\n\n---\nPerfile espejo para pruebas.\nDefine un perfil de conexion para usar un modelo local o remoto.`;
+      const accumulatedText = mirrorResponse(payload);
       const stats = {
         ttftSec: '0.00', generationSec: '0.00', totalSec: '0.00',
         tokens: estimateTokens(accumulatedText, 1), tokensPerSec: '0.0',
@@ -437,6 +477,14 @@
     let serverReasoningTokens = 0;
     const requestStartTime = performance.now();
     let firstTokenTime = null;
+    let generationStatus = { phase: '', percent: null, detail: '' };
+    function publishGenerationStatus(update = {}) {
+      const next = { ...generationStatus, ...update };
+      if (next.phase === generationStatus.phase && next.percent === generationStatus.percent && next.detail === generationStatus.detail) return;
+      generationStatus = next;
+      onGenerationStatus?.(next);
+    }
+    publishGenerationStatus({ phase: 'connecting' });
 
     function getStats() {
       const now = performance.now();
@@ -499,12 +547,16 @@
     }
 
     try {
-      let response = await fetch(endpoint, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(payload),
-        signal: signal
-      });
+      let response = adapter?.createStreamResponse
+        ? await adapter.createStreamResponse({
+          payload,
+          signal,
+          onProgress: progress => {
+            publishGenerationStatus(progress);
+            onLog?.({ type: 'info', text: `${adapter.label || adapter.id}: ${String(progress?.detail || progress?.phase || 'preparing')}` });
+          }
+        })
+        : await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload), signal });
 
       if (!response.ok) {
         let serverErrorMsg = '';
@@ -611,6 +663,7 @@
 
               // Tokens de razonamiento específicos
               if (chunkData.reasoningChunk) {
+                publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                 if (!firstTokenTime) firstTokenTime = performance.now();
                 accumulatedReasoning += chunkData.reasoningChunk;
                 if (onReasoningChunk) {
@@ -632,6 +685,7 @@
                     if (openMatch) {
                       const preText = remaining.slice(0, openMatch.index);
                       if (preText) {
+                        publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
                         accumulatedText += preText;
                         chunkCount++;
                         if (onChunk) onChunk(accumulatedText, preText, getStats());
@@ -639,6 +693,7 @@
                       activeReasoningTag = openMatch[1].toLowerCase();
                       remaining = remaining.slice(openMatch.index + openMatch[0].length);
                     } else {
+                      publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
                       accumulatedText += remaining;
                       chunkCount++;
                       if (onChunk) onChunk(accumulatedText, remaining, getStats());
@@ -650,6 +705,7 @@
                     if (closeMatch) {
                       const rText = remaining.slice(0, closeMatch.index);
                       if (rText) {
+                        publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                         accumulatedReasoning += rText;
                         if (onReasoningChunk) {
                           onReasoningChunk(rText, accumulatedReasoning);
@@ -660,6 +716,7 @@
                       activeReasoningTag = null;
                       remaining = remaining.slice(closeMatch.index + closeMatch[0].length);
                     } else {
+                      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                       accumulatedReasoning += remaining;
                       if (onReasoningChunk) {
                         onReasoningChunk(remaining, accumulatedReasoning);
@@ -804,6 +861,9 @@
     detectApiType,
     normalizeApiUrl,
     fetchServerModels,
+    downloadLocalModel,
+    deleteLocalModel,
+    cancelLocalModelOperation,
     getStandardReasoningOptions,
     STANDARD_REASONING_MODES,
     streamChatCompletion,

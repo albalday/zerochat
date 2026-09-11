@@ -826,9 +826,10 @@
   line-height: 1.2;
 }
 
+.mcp-auth-select:focus,
 .mcp-auth-select:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: none;
 }
 
 .mcp-auth-select.status-allowed {

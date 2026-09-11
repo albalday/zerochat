@@ -18,6 +18,22 @@ async function seedConnectionProfiles(page) {
   });
 }
 
+test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.evaluate(() => window.ChatConfig.updateRuntime({
+      apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none', reasoningTransport: 'auto'
+    }));
+    await page.click('#btn-reasoning');
+    await page.waitForSelector('[data-reasoning-transport="send-none"]');
+    assert.equal(await page.locator('[data-reasoning-transport="omit"]').getAttribute('aria-checked'), 'true');
+    await page.click('[data-reasoning-transport="send-none"]');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().reasoningTransport), 'send-none');
+  } finally { await browser.close(); }
+});
 test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y borrado', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -46,7 +62,34 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     assert.equal(await page.locator('#setting-api-key').isEnabled(), true);
     await page.click('#btn-free-tier');
     assert.equal(await page.inputValue('#setting-api-key'), 'FREE-TIER');
+    await page.selectOption('#setting-api-type', 'webllm');
+    assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
+    assert.equal(await page.locator('.api-key-field').isHidden(), true);
+    await page.evaluate(() => {
+      window.ChatAPI.fetchServerModels = async () => {
+        // Una actualización concurrente de la conexión activa no puede
+        // sobrescribir el borrador que se está validando en el editor.
+        window.ChatConfig.updateRuntime({ modelContextLimit: 8192 });
+        return {
+          success: true,
+          count: 2,
+          endpoint: 'webllm://local',
+          models: [
+            { id: 'model-cached', details: { webllmCache: 'cached', webllmVramMB: 512 } },
+            { id: 'model-missing', details: { webllmCache: 'missing', webllmVramMB: 768 } }
+          ]
+        };
+      };
+    });
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.dataset.queryReady === 'true');
+    assert.equal(await page.inputValue('#setting-api-type'), 'webllm', 'Query no debe reaplicar el perfil activo sobre el editor');
+    assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
+    assert.equal(await page.inputValue('#setting-model'), 'model-cached');
+    assert.deepEqual(await page.locator('#model-select-helper option').evaluateAll(options => options.map(option => option.value)), ['', 'model-cached']);
     await page.selectOption('#setting-api-type', 'openai');
+    assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
+    assert.equal(await page.locator('.api-key-field').isVisible(), true);
     assert.equal(await page.locator('#btn-free-tier').isVisible(), false);
     await page.click('#profile-tab-name');
     await page.click('#btn-delete-profile');
@@ -60,9 +103,11 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     await page.click('#btn-send');
     await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
     const reply = await page.evaluate(() => window.ChatState.get('messages').findLast(message => message.role === 'assistant')?.content);
-    const payload = JSON.parse(reply.split('\n\n---\n')[0]);
+    const payload = JSON.parse(reply.match(/```json\n([^\n]+)\n```$/)[1]);
     assert.ok(payload.messages.some(message => message.content === 'Mirror regression test'));
     assert.ok(Array.isArray(payload.tools));
+    assert.match(reply, /^# Bienvenido a ZeroChat/m);
+    assert.match(reply, /WebLLM \(experimental\)/);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
@@ -309,6 +354,7 @@ test('Browser UI - Modo Oscuro y resolución de Design Tokens', async () => {
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // 1. Validar tokens en modo claro
     await page.evaluate(() => {
@@ -792,6 +838,7 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
       return getComputedStyle(sendBtn).display !== 'none';
     });
     assert.ok(isSendVisibleAgain, 'Al terminar el streaming, el botón de envío vuelve a ser visible');
+
   } finally {
     await browser.close();
   }
@@ -2446,4 +2493,127 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
       await page.close();
     }
   } finally { await browser.close(); }
+});
+
+test('Browser UI - Los campos select/combo no presentan remarcado azul al recibir el foco', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // 1. Probar combos del modal de configuración
+    await page.evaluate(() => {
+      document.getElementById('settings-dialog').showModal();
+    });
+
+    const settingsComboIds = ['setting-api-type', 'profile-select-helper', 'model-select-helper'];
+    for (const id of settingsComboIds) {
+      await page.focus('#' + id);
+      const style = await page.evaluate((elId) => {
+        const s = getComputedStyle(document.getElementById(elId));
+        return {
+          outlineStyle: s.outlineStyle,
+          borderColor: s.borderColor,
+          boxShadow: s.boxShadow
+        };
+      }, id);
+      assert.equal(style.outlineStyle, 'none', `El combo #${id} no debe tener outline en foco`);
+      assert.notEqual(style.borderColor, 'rgb(37, 99, 235)', `El combo #${id} no debe tener borde azul primario`);
+      assert.notEqual(style.borderColor, 'rgb(96, 165, 250)', `El combo #${id} no debe tener borde azul claro`);
+      assert.equal(style.boxShadow, 'none', `El combo #${id} no debe tener box-shadow`);
+    }
+
+    // 2. Probar combo de MCP en mcp-setup-dialog
+    await page.evaluate(() => {
+      document.getElementById('settings-dialog').close();
+      document.getElementById('mcp-setup-dialog').showModal();
+    });
+    await page.focus('#mcp-os-select');
+    const mcpStyle = await page.evaluate(() => {
+      const s = getComputedStyle(document.getElementById('mcp-os-select'));
+      return {
+        outlineStyle: s.outlineStyle,
+        borderColor: s.borderColor,
+        boxShadow: s.boxShadow
+      };
+    });
+    assert.equal(mcpStyle.outlineStyle, 'none', 'El combo #mcp-os-select no debe tener outline en foco');
+    assert.notEqual(mcpStyle.borderColor, 'rgb(37, 99, 235)', 'El combo #mcp-os-select no debe tener borde azul primario');
+    assert.equal(mcpStyle.boxShadow, 'none', 'El combo #mcp-os-select no debe tener box-shadow');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('UI - Indicador de progreso de generación es invisible sin ciclo activo y visible durante el ciclo', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // 1. En reposo (sin generar), el elemento debe estar invisible
+    const initialVisibility = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      const isGenerating = window.ChatState.get('streaming')?.isGenerating;
+      return {
+        hidden: el.hidden,
+        display: getComputedStyle(el).display,
+        isGenerating: Boolean(isGenerating)
+      };
+    });
+    assert.equal(initialVisibility.hidden, true, 'El indicador debe estar oculto en reposo');
+    assert.equal(initialVisibility.display, 'none', 'El indicador debe tener display none');
+    assert.equal(initialVisibility.isGenerating, false, 'No debe haber ciclo de generación activo');
+
+    // 2. Intentar emitir estado sin ciclo activo debe ser ignorado (infraestructura general protegida)
+    await page.evaluate(() => {
+      window.ChatApp.setGenerationStatus('Mensaje fuera de ciclo');
+    });
+    const ignoredOutsideCycle = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      return el.hidden;
+    });
+    assert.equal(ignoredOutsideCycle, true, 'No debe volverse visible si no hay un ciclo de chat en proceso');
+
+    // 3. Al activarse el ciclo de chat, se hace visible y refleja mensajes de cualquier módulo
+    await page.evaluate(() => {
+      window.ChatState.set('streaming', { isGenerating: true, status: 'streaming' });
+      window.ChatApp.setGenerationStatus('Analizando documentos con RAG...');
+    });
+    const ragState = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      const text = el.querySelector('.generation-status-text')?.textContent;
+      return { hidden: el.hidden, text };
+    });
+    assert.equal(ragState.hidden, false, 'El indicador debe ser visible durante el ciclo');
+    assert.equal(ragState.text, 'Analizando documentos con RAG...');
+
+    // 4. Otro módulo (ej. herramientas/agente) anuncia un nuevo estado
+    await page.evaluate(() => {
+      window.ChatApp.setGenerationStatus({ phase: 'tool', text: 'Ejecutando web_search...' });
+    });
+    const toolText = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      return el.querySelector('.generation-status-text')?.textContent;
+    });
+    assert.equal(toolText, 'Ejecutando web_search...');
+
+    // 5. Al finalizar el ciclo de chat, vuelve inmediatamente a invisible
+    await page.evaluate(() => {
+      window.ChatState.set('streaming', { isGenerating: false, status: 'idle' });
+    });
+    const finalVisibility = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      return {
+        hidden: el.hidden,
+        display: getComputedStyle(el).display
+      };
+    });
+    assert.equal(finalVisibility.hidden, true, 'El indicador debe volver a estar oculto al finalizar el ciclo');
+    assert.equal(finalVisibility.display, 'none');
+  } finally {
+    await browser.close();
+  }
 });

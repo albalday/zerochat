@@ -22,6 +22,7 @@
   const getStorage = () => resolveDep('ChatStorage', './cookies.js') || (typeof globalThis !== 'undefined' ? globalThis.Storage : null);
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
+  const getProviders = () => resolveDep('ChatProviders', './providers.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -192,6 +193,28 @@
     if (elements.settingEnableContextCache && profileData.enableContextCache !== undefined) {
       elements.settingEnableContextCache.checked = profileData.enableContextCache !== false;
     }
+    syncProviderFields(elements);
+  }
+
+  function syncProviderFields(elements) {
+    const providerId = elements?.settingApiType?.value || 'openai';
+    const adapter = getProviders()?.registry?.get?.(providerId);
+    const connection = adapter?.getConnectionConfig?.() || {};
+    const local = connection.localModelManagement === true;
+    if (connection.endpointReadOnly && connection.endpoint && elements.settingApiUrl) {
+      elements.settingApiUrl.value = connection.endpoint;
+    }
+    if (elements?.settingApiUrl) {
+      elements.settingApiUrl.readOnly = connection.endpointReadOnly === true;
+      elements.settingApiUrl.required = connection.endpointReadOnly !== true;
+    }
+    if (elements?.settingApiKey) elements.settingApiKey.disabled = connection.credentials === false;
+    const apiKeyField = elements?.settingApiKey?.closest?.('.api-key-field');
+    if (apiKeyField) apiKeyField.hidden = connection.credentials === false;
+    const field = typeof elements?.settingApiUrl?.closest === 'function'
+      ? elements.settingApiUrl.closest('.form-field') : null;
+    const hint = field?.querySelector('.webllm-local-hint');
+    if (hint) hint.hidden = !local;
   }
 
   function gatherCurrentFormConfig(elements, appConfig) {
@@ -214,6 +237,7 @@
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
       temperature: appConfig?.temperature || '0.7',
       reasoningEffort: appConfig?.reasoningEffort || 'none',
+      reasoningTransport: appConfig?.reasoningTransport || 'auto',
       maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 15),
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
       theme: appConfig?.theme || 'light',
@@ -633,7 +657,7 @@
     <form id="profiles-form" class="settings-form-wrapper">
       <div class="modal-body">
         <div id="profile-tab-name-pane" class="modal-tab-pane active" role="tabpanel" aria-labelledby="profile-tab-name">
-        <div class="form-field profile-selection-field">
+          <div class="form-field profile-selection-field">
           <label for="profile-select-helper"><strong data-i18n="field_profile">Perfil de Conexión / Servidor</strong></label>
           <div class="combobox-wrapper profile-combobox-wrapper">
             <select id="profile-select-helper" class="combobox-select-helper" title="Seleccionar perfil existente" style="flex: 1; max-width: 100%;"><option value="" disabled selected data-i18n="profile_select_default">▾ Elegir perfil guardado...</option></select>
@@ -646,9 +670,9 @@
         </div>
         <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
         <div class="profile-values-card">
-          <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
-          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
-          <div class="form-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-free-tier" class="btn-free-tier" data-i18n="btn_free_tier" hidden>Free Tier</button><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
+          <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
+          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
+          <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-free-tier" class="btn-free-tier" data-i18n="btn_free_tier" hidden>Free Tier</button><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
           <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
         </div>
         </div>
@@ -707,6 +731,7 @@
     renderAgentToolsUI,
     gatherEnabledToolsFromUI,
     applyProfileToForm,
+    syncProviderFields,
     gatherCurrentFormConfig,
     showProfileFeedback,
     handleSaveProfile,

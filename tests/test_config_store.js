@@ -57,6 +57,13 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
 });
 
+test('ChatConfig - conserva una estrategia de transporte de razonamiento válida', () => {
+  const { store } = createFixture();
+  store.initialize();
+  assert.equal(store.updateRuntime({ reasoningTransport: 'send-none' }).reasoningTransport, 'send-none');
+  assert.equal(store.updateRuntime({ reasoningTransport: 'untrusted' }).reasoningTransport, 'auto');
+});
+
 test('ChatConfig - snapshots no permiten mutar el estado interno', () => {
   const { store } = createFixture();
   store.initialize();

@@ -901,6 +901,7 @@
         messages = [],
         temperature = 0.7,
         reasoningEffort = 'none',
+        reasoningTransport = 'auto',
         enableTools = true,
         toolFilterOptions = {},
         signal = null,
@@ -1062,6 +1063,7 @@
             messages: stepMessages,
             temperature,
             reasoningEffort,
+            reasoningTransport,
             tools: activeToolDefs,
             enableTools: activeToolDefs.length > 0,
             enableAgentJs: toolFilterOptions.enableAgentJs !== false,
@@ -1070,6 +1072,7 @@
             enableAgentChart: toolFilterOptions.enableAgentChart !== false,
             signal: combinedSignal,
             onBeforeRequest,
+            onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
 
             onReasoningChunk: (chunk, accumulated) => {
               currentStepReasoning = accumulated;
@@ -1185,8 +1188,10 @@
                   ],
                   temperature,
                   reasoningEffort,
+                  reasoningTransport,
                   enableTools: false,
                   signal: combinedSignal,
+                  onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
                   onChunk: (fullTextSoFar, delta, stats) => {
                     finalAccumulatedText = fullTextSoFar;
                     if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
@@ -1390,10 +1395,12 @@
               messages: synthMessages,
               temperature,
               reasoningEffort,
+              reasoningTransport,
               enableTools: false,
               toolChoice: 'none',
               signal: combinedSignal,
               onBeforeRequest,
+              onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
               onChunk: (fullTextSoFar, delta, stats) => {
                 finalAccumulatedText = fullTextSoFar;
                 if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);

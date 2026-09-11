@@ -40,14 +40,49 @@ test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red'
       model: 'mirror',
       messages: [{ role: 'user', content: 'Refleja esta petición' }]
     });
-    const [payloadText, footer] = response.accumulatedText.split('\n\n---\n');
+    const payloadText = response.accumulatedText.match(/```json\n([^\n]+)\n```$/)[1];
     const payload = JSON.parse(payloadText);
     assert.equal(fetchCalled, false);
     assert.equal(payload.model, 'mirror');
     assert.equal(payload.messages[0].content, 'Refleja esta petición');
     assert.equal(payload.stream, true);
     assert.equal(payloadText.includes('\n'), false, 'Espejo debe reflejar el mismo JSON compacto enviado al servidor');
-    assert.equal(footer, 'Perfile espejo para pruebas.\nDefine un perfil de conexion para usar un modelo local o remoto.');
+    assert.match(response.accumulatedText, /^# Bienvenido a ZeroChat/m);
+    assert.match(response.accumulatedText, /## Continúa con un perfil/);
+    assert.match(response.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('Api - Espejo localiza su mensaje de orientación', async () => {
+  const I18n = require('../js/i18n.js');
+  const previousLanguage = I18n.getLanguage();
+  try {
+    I18n.setLanguage('en', false);
+    const response = await Api.streamChatCompletion({
+      apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
+    });
+    assert.match(response.accumulatedText, /^# Welcome to ZeroChat/m);
+    assert.match(response.accumulatedText, /## Continue with a profile/);
+    assert.match(response.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
+    assert.match(response.accumulatedText, /## Prepared request \(not sent\)/);
+  } finally {
+    I18n.setLanguage(previousLanguage, false);
+  }
+});
+
+test('Api - publica estados de conexión, pensamiento y generación sin exponer el contenido', async () => {
+  const originalFetch = global.fetch;
+  const states = [];
+  global.fetch = async () => new Response('data: {"choices":[{"delta":{"reasoning":"private chain"}}]}\n\ndata: {"choices":[{"delta":{"content":"Visible"}}]}\n\ndata: [DONE]\n\n');
+  try {
+    await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [],
+      onGenerationStatus: status => states.push(status)
+    });
+    assert.deepEqual(states.map(status => status.phase), ['connecting', 'thinking', 'generating']);
+    assert.equal(states.some(status => JSON.stringify(status).includes('private chain')), false);
   } finally {
     global.fetch = originalFetch;
   }

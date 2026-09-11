@@ -64,6 +64,7 @@
         systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT,
         temperature: '0.7',
         reasoningEffort: 'none',
+        reasoningTransport: 'auto',
         maxAgentTurns: 15,
         theme: 'light',
         language: 'es',
@@ -126,7 +127,9 @@
         reasoningMenuOpen: false,
         debugPanelOpen: false,
         activeModal: null, // null | 'settings' | 'export' | 'debug_interceptor'
-        attachedFiles: []
+        attachedFiles: [],
+        webllm: { catalog: [], contextKey: '', operation: null },
+        generationStatus: { phase: 'idle', percent: null, startedAt: null }
       },
 
       // 8. Estado de Integración MCP (mcp-proxy)
@@ -639,6 +642,37 @@
       return setAttachments([]);
     }
 
+    /**
+     * Actualiza el estado de progreso general de generación en `ui.generationStatus`.
+     */
+    function setGenerationStatus(update = {}) {
+      const raw = typeof update === 'string' ? { text: update } : (update || {});
+      const current = (state.ui && state.ui.generationStatus) || { phase: 'idle', percent: null, startedAt: null };
+      const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : current.phase || 'idle'));
+      const phaseChanged = raw.phase && raw.phase !== current.phase;
+      const next = {
+        ...current,
+        ...raw,
+        phase,
+        startedAt: phaseChanged ? Date.now() : current.startedAt
+      };
+      setState({
+        ui: Object.assign({}, state.ui, { generationStatus: next })
+      });
+      return getState().ui.generationStatus;
+    }
+
+    /**
+     * Limpia y reinicia el estado de progreso general de generación a inactivo.
+     */
+    function clearGenerationStatus() {
+      const next = { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null };
+      setState({
+        ui: Object.assign({}, state.ui, { generationStatus: next })
+      });
+      return getState().ui.generationStatus;
+    }
+
     return {
       getState,
       get,
@@ -657,6 +691,8 @@
       importConversation,
       setAttachments,
       clearAttachments,
+      setGenerationStatus,
+      clearGenerationStatus,
       enqueueNotice,
       dismissNotice,
       CANONICAL_SLICES
@@ -686,8 +722,10 @@
     removeSession: defaultStore.removeSession,
     importConversation: defaultStore.importConversation,
     setAttachments: defaultStore.setAttachments,
+    clearAttachments: defaultStore.clearAttachments,
+    setGenerationStatus: defaultStore.setGenerationStatus,
+    clearGenerationStatus: defaultStore.clearGenerationStatus,
     enqueueNotice: defaultStore.enqueueNotice,
-    dismissNotice: defaultStore.dismissNotice,
-    clearAttachments: defaultStore.clearAttachments
+    dismissNotice: defaultStore.dismissNotice
   };
 }));

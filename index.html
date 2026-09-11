@@ -7,7 +7,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
   <title>ZeroChat v6.6.0</title>
@@ -164,6 +164,11 @@
             placeholder="Envía un mensaje o arrastra un archivo... (Enter para enviar, Shift+Enter para nueva línea)"
             required
           ></textarea>
+          <div id="generation-status" class="generation-status" aria-live="polite" hidden>
+            <svg class="ui-icon generation-status-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-spinner"></use></svg>
+            <span class="generation-status-text"></span>
+            <progress class="generation-status-progress" max="100" value="0" hidden></progress>
+          </div>
         </div>
 
         <!-- Zona Inferior: Controles de estado y acciones -->
@@ -472,12 +477,14 @@
   <script src="js/i18n.js"></script>
   <script src="js/icons.js"></script>
   <script src="js/ui-dialogs.js"></script>
+  <script src="js/ui-generation-status.js"></script>
   <script src="js/sandbox.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/web-browser.js"></script>
   <script src="js/web-search.js"></script>
   <script src="js/markdown.js"></script>
   <script src="js/providers.js"></script>
+  <script src="js/providers-webllm.js"></script>
   <script src="js/api.js"></script>
   <script src="js/file-parser.js"></script>
   <script src="js/tools/tool-runtime.js"></script>

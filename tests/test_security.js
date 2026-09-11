@@ -76,6 +76,7 @@ test('Security - Presencia de Content Security Policy (CSP) en index.html', () =
   const html = fs.readFileSync(indexPath, 'utf8');
 
   assert.ok(html.includes('http-equiv="Content-Security-Policy"'), 'Debe contener la etiqueta meta CSP');
+  assert.ok(html.includes('https://esm.run'), 'La CSP debe permitir el módulo WebLLM fijado');
   assert.ok(html.includes("object-src 'none'"), 'CSP debe bloquear objetos embebidos');
   assert.ok(html.includes("base-uri 'self'"), 'CSP debe restringir base-uri');
 });

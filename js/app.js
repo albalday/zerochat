@@ -38,11 +38,13 @@
   const AgentCore = window.ChatAgentCore || {};
   const Engine = window.ChatEngine || {};
   const UIReasoning = window.ChatUIReasoning || {};
+  const GenerationStatus = window.ChatUIGenerationStatus || {};
   const UIInspector = window.ChatUIInspector || {};
   const UISidebar = window.ChatUISidebar || {};
   const UISettings = window.ChatUISettings || {};
   const Config = window.ChatConfig || {};
   const Profiles = window.ChatProfileRepository || {};
+  const Providers = window.ChatProviders || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -66,6 +68,7 @@
     systemDataPrompt: '',
     temperature: '0.7',
     reasoningEffort: 'none',
+    reasoningTransport: 'auto',
     theme: 'light',
     language: 'es',
     enabledTools: {
@@ -165,6 +168,7 @@
       userInput: document.getElementById('user-input'),
       btnSend: document.getElementById('btn-send'),
       btnStopStream: document.getElementById('btn-stop-stream'),
+      generationStatus: document.getElementById('generation-status'),
       btnComposerTools: document.getElementById('btn-composer-tools'),
       btnComposerMcp: document.getElementById('btn-composer-mcp'),
 
@@ -427,7 +431,6 @@
       const querySucceeded = await UIInspector.handleQueryServer(elements, appConfig);
       if (querySucceeded) {
         setProfileQueryState(true);
-        syncPublishedModelContextLimit();
       }
       return querySucceeded;
     }
@@ -464,7 +467,7 @@
 
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
+      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent, selectReasoningTransport);
     }
   }
 
@@ -474,6 +477,11 @@
         if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort });
       });
     }
+  }
+
+  function selectReasoningTransport(reasoningTransport) {
+    if (Config.updateRuntime) Config.updateRuntime({ reasoningTransport });
+    closeReasoningMenu();
   }
 
   function updateReasoningUI(level) {
@@ -513,6 +521,36 @@
     if (Debug.addLog) Debug.addLog(type, text, rawData);
   }
 
+  function setGenerationStatus(update = {}) {
+    const raw = typeof update === 'string' ? { text: update } : (update || {});
+    const isGenerating = Boolean(State.get?.('streaming')?.isGenerating);
+    const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
+    // Si no se está procesando un ciclo de chat, el indicador permanece invisible y no se reactiva.
+    if (!isGenerating && phase !== 'idle') return;
+
+    let next;
+    if (State.setGenerationStatus) {
+      next = State.setGenerationStatus(raw);
+    } else {
+      const ui = State.get?.('ui') || {};
+      const current = ui.generationStatus || { phase: 'idle', percent: null, startedAt: null };
+      const phaseChanged = raw.phase && raw.phase !== current.phase;
+      next = { ...current, ...raw, phase, startedAt: phaseChanged ? Date.now() : current.startedAt };
+      State.set('ui', { ...ui, generationStatus: next });
+    }
+    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, next);
+  }
+
+  function clearGenerationStatus() {
+    if (State.clearGenerationStatus) {
+      State.clearGenerationStatus();
+    } else {
+      const ui = State.get?.('ui') || {};
+      State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
+    }
+    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, { phase: 'idle' });
+  }
+
   function filterDebugLogs(tabId) {
     if (Debug.filterLogs) Debug.filterLogs(tabId);
   }
@@ -543,6 +581,9 @@
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
+    // El diálogo contiene un borrador de perfil. Las notificaciones de la
+    // configuración activa (telemetría, caché, etc.) no deben sobrescribirlo.
+    const profileEditorOpen = elements.profilesDialog?.open === true;
     if (elements.activeProfileName) elements.activeProfileName.textContent = config.activeProfile?.name || 'Espejo';
     if (elements.activeProfilePopover && !elements.activeProfilePopover.hidden) {
       UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
@@ -550,21 +591,23 @@
     if (elements.settingsActiveProfileName) {
       elements.settingsActiveProfileName.textContent = config.activeProfile?.name || Profiles.get?.(Profiles.READONLY_PROFILE_ID)?.name || 'Espejo';
     }
-    if (elements.settingApiType) {
-      elements.settingApiType.value = config.apiType || 'openai';
-      syncFreeTierButton();
-    }
-    if (elements.settingApiUrl) {
-      elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
-    }
-    if (elements.settingApiKey) {
-      elements.settingApiKey.value = config.apiKey || '';
-    }
-    if (elements.settingModel) {
-      elements.settingModel.value = config.model || '';
-    }
-    if (elements.modelSelectHelper && config.model) {
-      elements.modelSelectHelper.value = config.model;
+    if (!profileEditorOpen) {
+      if (elements.settingApiType) {
+        elements.settingApiType.value = config.apiType || 'openai';
+        syncFreeTierButton();
+      }
+      if (elements.settingApiUrl) {
+        elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
+      }
+      if (elements.settingApiKey) {
+        elements.settingApiKey.value = config.apiKey || '';
+      }
+      if (elements.settingModel) {
+        elements.settingModel.value = config.model || '';
+      }
+      if (elements.modelSelectHelper && config.model) {
+        elements.modelSelectHelper.value = config.model;
+      }
     }
     updateReasoningUI(config.reasoningEffort || 'none');
     applyTheme(config.theme || 'light');
@@ -977,6 +1020,7 @@
     closeReasoningMenu();
 
     State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
+    setGenerationStatus({ phase: 'generating' });
 
     currentAbortController = new AbortController();
     // Mostrar indicador de escritura hasta que llegue el primer chunk
@@ -1038,6 +1082,7 @@
 
     // Cargar únicamente la instrucción compacta de las ramas activas.
     if (activeRagBranchIds.length > 0 && window.ChatRagService && window.ChatRagService.buildRagSystemContext) {
+      setGenerationStatus({ phase: 'rag', text: t('generation_status_rag') });
       try {
         setRagSystemContext(await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
           isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
@@ -1060,6 +1105,7 @@
         model: runtimeConfig.model,
         temperature: runtimeConfig.temperature,
         reasoningEffort: runtimeConfig.reasoningEffort || 'none',
+        reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
         maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
         chatHistory: getChatHistory(),
         appConfig: runtimeConfig,
@@ -1078,6 +1124,11 @@
           if (getCurrentSessionId() !== generationSessionId) return;
           addDebugLog('thinking', chunk);
           setDebugStatus('streaming', t('debug_status_thinking'));
+        },
+
+        onGenerationStatus: function (status) {
+          if (getCurrentSessionId() !== generationSessionId) return;
+          setGenerationStatus(status);
         },
 
         onLog: function (type, text) {
@@ -1198,6 +1249,7 @@
 
   function finishGeneration({ skipSave = false } = {}) {
     removeTypingIndicator(); // Seguridad: limpiar si quedó activo
+    clearGenerationStatus();
     State.set('streaming', { isGenerating: false, status: 'idle' });
     if (elements.btnSend) elements.btnSend.disabled = false;
     if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
@@ -2665,21 +2717,14 @@
         const val = this.value;
         const currentUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : '';
 
-        const isDefaultOrEmpty = !currentUrl ||
-          currentUrl === 'http://localhost:1234/v1' ||
-          currentUrl === 'http://localhost:11434' ||
-          currentUrl === 'https://api.openai.com/v1' ||
-          currentUrl === 'https://openrouter.ai/api/v1' ||
-          currentUrl === 'https://api.anthropic.com/v1' ||
-          currentUrl === 'https://generativelanguage.googleapis.com/v1beta/openai';
+        const knownEndpoints = Providers.registry?.getConnectionEndpoints?.() || [];
+        const isDefaultOrEmpty = !currentUrl || knownEndpoints.includes(currentUrl);
 
         if (isDefaultOrEmpty && elements.settingApiUrl) {
-          if (val === 'openai') elements.settingApiUrl.value = 'http://localhost:1234/v1';
-          else if (val === 'ollama') elements.settingApiUrl.value = 'http://localhost:11434';
-          else if (val === 'openrouter') elements.settingApiUrl.value = 'https://openrouter.ai/api/v1';
-          else if (val === 'claude') elements.settingApiUrl.value = 'https://api.anthropic.com/v1';
-          else if (val === 'gemini') elements.settingApiUrl.value = 'https://generativelanguage.googleapis.com/v1beta/openai';
+          const endpoint = Providers.registry?.get?.(val)?.getConnectionConfig?.().endpoint;
+          if (endpoint) elements.settingApiUrl.value = endpoint;
         }
+        UISettings.syncProviderFields?.(elements);
       });
     }
     if (elements.btnFreeTier) {
@@ -2714,6 +2759,7 @@
         }
       });
     }
+
 
     if (elements.settingModel) {
       elements.settingModel.addEventListener('input', function () {
@@ -2842,15 +2888,24 @@
     if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(appConfig.enableRawLogs);
 
     if (State.subscribe) {
-      State.subscribe('streaming', (streamingState) => {
+      const syncGenerationControls = (streamingState) => {
         const isGenerating = Boolean(streamingState.isGenerating);
         if (elements.btnSend) elements.btnSend.disabled = isGenerating;
         if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
-      });
+        // El indicador comparte exactamente el mismo ciclo que Stop/Enviar.
+        // Nunca depende de que un proveedor concrete emita una señal terminal.
+        if (!isGenerating) clearGenerationStatus();
+      };
+      State.subscribe('streaming', syncGenerationControls);
+      syncGenerationControls(State.get?.('streaming') || {});
     }
 
     if (Config.subscribe) {
-      Config.subscribe((nextConfig) => {
+      Config.subscribe((nextConfig, previousConfig) => {
+        if (previousConfig?.apiType && previousConfig.apiType !== nextConfig?.apiType) {
+          Promise.resolve(Providers.registry?.get?.(previousConfig.apiType)?.deactivate?.())
+            .catch(error => console.error('Provider cleanup failed:', error));
+        }
         updateUIFromConfig();
       });
     }
@@ -2902,6 +2957,8 @@
       addDebugLog,
       clearDebugLogs,
       setDebugStatus,
+      setGenerationStatus,
+      clearGenerationStatus,
       applyLanguage,
       switchToSession,
       createNewSession,

@@ -369,7 +369,9 @@
 }
 
 /* Modo Oscuro: Combobox y Hints */
-[data-theme="dark"] .combobox-select-helper {
+[data-theme="dark"] .combobox-select-helper,
+[data-theme="dark"] select.form-input,
+[data-theme="dark"] .form-field select {
   background-color: #0b1120;
   border-color: var(--border-color);
   color: var(--text-main);

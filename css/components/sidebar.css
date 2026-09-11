@@ -157,9 +157,9 @@
 }
 
 .sidebar-search-input:focus {
-  border-color: var(--primary);
-  background-color: var(--bg-surface);
-  box-shadow: 0 0 0 2px var(--primary-light);
+  border-color: var(--border-color);
+  background-color: var(--bg-surface-subtle);
+  box-shadow: none;
 }
 
 /* Encabezados de Agrupación Cronológica (Hoy, Ayer, Últimos 7 días, etc.) */

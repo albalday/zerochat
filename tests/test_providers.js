@@ -23,6 +23,13 @@ test('ProviderRegistry - Detección y resolución de adaptadores', () => {
   assert.equal(registry.resolve('http://localhost:1234/v1').id, 'openai');
 });
 
+test('ProviderRegistry - declara configuración de conexión sin lógica de UI por proveedor', () => {
+  assert.equal(registry.get('ollama').getConnectionConfig().endpoint, 'http://localhost:11434');
+  assert.equal(registry.get('claude').getConnectionConfig().endpoint, 'https://api.anthropic.com/v1');
+  assert.ok(registry.getConnectionEndpoints().includes('https://api.openai.com/v1'));
+  assert.equal(registry.get('mirror').getConnectionConfig().credentials, false);
+});
+
 test('OpenAIAdapter - Normalización de endpoint y payload', () => {
   const adapter = new BaseProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('http://localhost:1234/v1'), 'http://localhost:1234/v1/chat/completions');

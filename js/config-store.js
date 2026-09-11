@@ -18,7 +18,7 @@
     schemaVersion: SCHEMA_VERSION,
     activeProfile: null,
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '', modelContextLimit: null, contextLimitOverride: null,
-    systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'none',
+    systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'none', reasoningTransport: 'auto',
     maxAgentTurns: 15,
     modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
@@ -57,6 +57,7 @@
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
     next.reasoningEffort = ['off', 'none'].includes(String(next.reasoningEffort).toLowerCase()) ? 'none' : String(next.reasoningEffort || 'none');
+    next.reasoningTransport = ['omit', 'send-none'].includes(next.reasoningTransport) ? next.reasoningTransport : 'auto';
     const parsedTurns = Number(next.maxAgentTurns);
     next.maxAgentTurns = Number.isInteger(parsedTurns) && parsedTurns >= 1 ? Math.min(50, Math.max(1, parsedTurns)) : 15;
     next.theme = next.theme === 'dark' ? 'dark' : 'light';

@@ -45,11 +45,9 @@ Elegir el tipo no descargará nada. La descarga del JavaScript empezará únicam
 La acción Query del perfil WebLLM seguirá esta secuencia:
 
 1. Comprobar WebGPU y las APIs de almacenamiento requeridas.
-2. Buscar el JavaScript de una versión de WebLLM fijada en la caché propia.
-3. Si falta, descargarlo de forma progresiva, sin usar una versión `latest`.
-4. Verificar la integridad fijada antes de almacenarlo y ejecutarlo.
-5. Cargar el módulo y obtener su configuración precompilada.
-6. Consultar el catálogo de modelos y el estado local de cada uno.
+2. Importar desde el CDN la versión fijada de WebLLM, una vez por pestaña.
+3. Cargar su configuración precompilada.
+4. Consultar el catálogo de modelos y el estado local de cada uno.
 
 El estado del editor informará de forma breve:
 
@@ -59,9 +57,7 @@ Preparando WebLLM…
 WebLLM preparado. Modelos disponibles: …
 ```
 
-Cuando el servidor informe una longitud fiable, se mostrará porcentaje; de lo contrario, se mostrarán bytes descargados o un indicador indeterminado. La caché del JavaScript será separada de la caché de artefactos de modelos que administra WebLLM.
-
-La implementación fijará versión, URL e integridad. Se validará que el formato de distribución elegido puede cargarse en navegador desde el bundle de ZeroChat y que las dependencias del módulo conservan URLs resolubles tras la carga.
+El módulo remoto queda fijado a una versión concreta. Su caché HTTP pertenece al navegador y es independiente de IndexedDB, donde WebLLM conserva los artefactos de modelos. ZeroChat no implementa actualmente una descarga propia ni una comprobación de integridad adicional del módulo JavaScript.
 
 ## Catálogo y estado de modelos
 
@@ -75,30 +71,24 @@ Cada modelo se convertirá al formato consumido por el selector existente, mante
 | Identificador del modelo | Descargado | — |
 | Identificador del modelo | Descargando, 46 % | Cancelar |
 
-Cuando los metadatos lo publiquen, podrá mostrarse el requisito estimado de VRAM. Esa cifra no se presentará como tamaño de descarga ni como garantía de memoria disponible.
+Cuando los metadatos lo publiquen, se mostrará el requisito estimado de VRAM. Esa cifra no se presenta como tamaño de descarga ni como garantía de memoria disponible.
 
-Para conocer el estado inicial se usará `hasModelInCache(modelId, appConfig)`. Puesto que esa función verifica los tensores y no todos los artefactos necesarios, el estado completo deberá validar también configuración, tokenizer y WASM para la versión fijada. Si no se puede asegurar el resultado se presentará como «Incompleto» o «No comprobado», no como descargado.
+Para conocer el estado inicial se combina `hasModelInCache(modelId, appConfig)` con un registro local escrito únicamente después de que el motor haya terminado de preparar el modelo. Si existen tensores sin ese registro, el estado es «Incompleto»; si no puede consultarse el almacenamiento, es «No comprobado». La ejecución solo acepta el estado confirmado. La API pública de WebLLM no permite inspeccionar de forma independiente cada artefacto auxiliar, por lo que una eventual eliminación parcial por parte del navegador se detectará definitivamente cuando WebLLM intente abrir el modelo.
 
 La lista se volverá a comprobar en cada Query; no se persistirá un booleano de descarga dentro del perfil.
 
 ## Descargar modelos
 
-El botón Descargar usará el flujo oficial:
-
-```js
-await engine.reload(modelId);
-```
-
-`initProgressCallback` actualizará el estado y la barra de progreso. Como esta operación descarga y prepara recursos, el texto será «Descargando y preparando…», sin atribuir todo el tiempo a la transferencia.
+El botón Descargar crea el motor mediante la API oficial. `initProgressCallback` se normaliza a fases estructuradas y actualiza el estado y la barra de progreso. Como esta operación descarga y prepara recursos, el texto es «Descargando y preparando…», sin atribuir todo el tiempo a la transferencia.
 
 El motor se ejecutará en un Web Worker privado del adaptador para no bloquear la interfaz. El worker será un detalle interno del proveedor.
 
 Reglas de operación:
 
-- una descarga activa por editor de perfiles;
-- cancelar termina el worker de esa operación y vuelve a comprobar la caché;
+- una sola preparación activa en el gestor del proveedor;
+- cancelar termina el worker de esa operación y deja el modelo como incompleto;
 - una descarga interrumpida no se mostrará como completa;
-- al terminar se libera el motor de GPU, pero los archivos permanecen cacheados;
+- al terminar se conserva el motor si el modelo continúa activo, para evitar otra carga antes del primer mensaje;
 - si se cambia de perfil durante la operación, su resultado no podrá modificar el nuevo perfil;
 - los errores de espacio, red o GPU aparecerán en el panel y permitirán reintentar.
 
@@ -131,9 +121,11 @@ Si el modelo no está descargado, el envío devolverá un error localizado que i
 
 ## Estado y aislamiento
 
-El estado compartido que sea necesario deberá usar los slices y mutadores existentes de `ChatState`. No se introducirán variables globales de módulo con historial de conversación.
+El catálogo, el contexto del editor y la operación visible se mantienen en `ChatState.ui.webllm`. Los recursos no serializables —worker, motor y `GPUDevice`— pertenecen a un gestor privado del adaptador.
 
-La primera versión usará un motor por petición y lo liberará al finalizar. Esto evita historial oculto entre conversaciones y cambios en el sistema de sesiones. La preparación del modelo en GPU puede repetirse, aunque sus archivos ya estarán cacheados.
+El gestor conserva un único motor mientras se use el mismo modelo. Cambiar de proveedor, cambiar de modelo, borrar el modelo o cancelar su preparación libera el recurso. El historial continúa llegando explícitamente en cada petición, por lo que el motor no conserva una conversación oculta.
+
+Se intenta primero el worker privado. Si el worker no llega a arrancar y no ha emitido progreso, se usa el motor en la pestaña como compatibilidad basada en capacidades. Los errores posteriores de modelo, almacenamiento o GPU se propagan sin repetir la preparación en otro modo.
 
 Antes de considerar compatible el proveedor se probará desde el modo habitual de la aplicación y, si el proyecto lo soporta, desde `file://`. WebGPU, caché y workers se comprobarán en navegador real. Cuando falte una capacidad, el perfil explicará el motivo concreto.
 
@@ -141,7 +133,7 @@ Antes de considerar compatible el proveedor se probará desde el modo habitual d
 
 Se añadirán o ajustarán pruebas para:
 
-- carga diferida y reutilización de la caché del JavaScript;
+- carga diferida del módulo JavaScript;
 - catálogo de modelos y estado descargado, incompleto o desconocido;
 - progreso, cancelación y reintento de descarga;
 - cambio de perfil durante Query;
@@ -149,7 +141,7 @@ Se añadirán o ajustarán pruebas para:
 - streaming, estadísticas, cancelación y errores del transporte WebLLM;
 - ausencia de tráfico HTTP en las completions WebLLM;
 - regresión de los proveedores HTTP existentes;
-- separación de conversaciones.
+- separación de conversaciones y reutilización completa del motor entre turnos.
 
 La validación final, en la rama `dev`, será:
 
@@ -166,4 +158,3 @@ La validación final, en la rama `dev`, será:
 - `hasModelInCache()` verifica los tensores del modelo, por lo que la interfaz deberá completar esa comprobación para comunicar una descarga totalmente disponible.
 - WebLLM ofrece APIs de Web Worker para descargar y ejecutar la inferencia sin bloquear el hilo de interfaz.
 - La caché predeterminada de WebLLM es Cache Storage; también admite IndexedDB, OPFS y almacenamiento cross-origin según la configuración elegida.
-

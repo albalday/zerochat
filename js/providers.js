@@ -44,6 +44,13 @@
       this.label = options.label || 'OpenAI / LM Studio';
       this.description = options.description || 'Estándar OpenAI / LM Studio (reasoning_effort: none, low, medium, high, xhigh)';
       this.reasoningLevels = options.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
+      this.connection = {
+        endpoint: options.connection?.endpoint || 'http://localhost:1234/v1',
+        knownEndpoints: Array.isArray(options.connection?.knownEndpoints) ? [...options.connection.knownEndpoints] : [],
+        endpointReadOnly: options.connection?.endpointReadOnly === true,
+        credentials: options.connection?.credentials !== false,
+        localModelManagement: options.connection?.localModelManagement === true
+      };
       this.capabilities = {
         ...DEFAULT_CAPABILITIES,
         ...(options.capabilities || {})
@@ -56,6 +63,12 @@
     getCapabilities(model) {
       return { ...this.capabilities };
     }
+
+    getConnectionConfig() {
+      return { ...this.connection, knownEndpoints: [...this.connection.knownEndpoints] };
+    }
+
+    async deactivate() {}
 
     /**
      * Normaliza la URL base al endpoint de chat del proveedor.
@@ -158,6 +171,7 @@
         messages = [],
         temperature = 0.7,
         reasoningEffort = 'none',
+        reasoningTransport = 'auto',
         toolsList = [],
         toolChoice = 'auto',
         stream = true,
@@ -180,7 +194,7 @@
         }
       }
 
-      if (capabilities.reasoning) {
+      if (capabilities.reasoning || (reasoningTransport === 'send-none' && String(reasoningEffort).toLowerCase() === 'none')) {
         this.applyReasoning(payload, reasoningEffort);
       }
 
@@ -340,6 +354,7 @@
         type: this.id,
         label: this.label,
         levels: this.reasoningLevels,
+        transportOptions: this.capabilities.reasoning ? [] : ['omit', 'send-none'],
         description: this.description
       };
     }
@@ -782,6 +797,7 @@
       super({
         id: 'claude',
         label: 'Anthropic Claude',
+        connection: { endpoint: 'https://api.anthropic.com/v1' },
         description: 'Estándar Claude (thinking budget: disabled, 1k, 2k, 4k, 8k tokens)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
@@ -1048,6 +1064,7 @@
       super({
         id: 'gemini',
         label: 'Google Gemini',
+        connection: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai' },
         description: 'Google Gemini (OpenAI compatible endpoint)',
         reasoningLevels: ['none'],
         capabilities: {
@@ -1237,6 +1254,7 @@
       super({
         id: 'ollama',
         label: 'Ollama',
+        connection: { endpoint: 'http://localhost:11434' },
         description: 'Estándar Ollama (reasoning_effort: none, low, medium, high, xhigh)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
@@ -1289,6 +1307,7 @@
       super({
         id: 'openrouter',
         label: 'OpenRouter',
+        connection: { endpoint: 'https://openrouter.ai/api/v1' },
         description: 'Estándar OpenRouter (reasoning.effort: none, low, medium, high, xhigh)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
@@ -1393,7 +1412,7 @@
    */
   class MirrorProviderAdapter extends BaseProviderAdapter {
     constructor() {
-      super({ id: 'mirror', label: 'Espejo', capabilities: { modelListing: false, embeddings: false } });
+      super({ id: 'mirror', label: 'Espejo', connection: { endpoint: 'mirror://local', endpointReadOnly: true, credentials: false }, capabilities: { modelListing: false, embeddings: false } });
     }
 
     normalizeEndpoint() { return 'mirror://local'; }
@@ -1409,7 +1428,7 @@
       this.defaultAdapter = new BaseProviderAdapter();
 
       // Registro inicial de adaptadores oficiales
-      this.register(new BaseProviderAdapter({ id: 'openai', label: 'OpenAI / LM Studio' }));
+      this.register(new BaseProviderAdapter({ id: 'openai', label: 'OpenAI / LM Studio', connection: { endpoint: 'http://localhost:1234/v1', knownEndpoints: ['https://api.openai.com/v1'] } }));
       this.register(new ClaudeProviderAdapter());
       this.register(new GeminiProviderAdapter());
       this.register(new OllamaProviderAdapter());
@@ -1475,6 +1494,15 @@
         modes[id] = adapter.getReasoningConfig();
       }
       return modes;
+    }
+
+    getConnectionEndpoints() {
+      return Array.from(this.adapters.values())
+        .flatMap(adapter => {
+          const connection = adapter.getConnectionConfig?.() || {};
+          return [connection.endpoint, ...(connection.knownEndpoints || [])];
+        })
+        .filter(Boolean);
     }
 
     /**

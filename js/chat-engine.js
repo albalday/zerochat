@@ -419,6 +419,7 @@
       onLog,
       onStats,
       onBeforeRequest,
+      onGenerationStatus,
       onToolCallStart,
       onToolCallEnd,
       scrollToBottom,
@@ -457,6 +458,7 @@
       model: params.model || appConfig.model,
       temperature: params.temperature !== undefined ? params.temperature : appConfig.temperature,
       reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'none',
+      reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
       messages: chatHistory,
       signal: params.signal,
       maxSteps: params.maxAgentTurns || appConfig.maxAgentTurns || 15,
@@ -490,6 +492,7 @@
         return response?.accumulatedText || '';
       },
       onBeforeRequest,
+      onGenerationStatus,
       createMessageId: (kind, info) => {
         if (kind === 'final') return `${assistantMsgId}_final`;
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
@@ -521,6 +524,7 @@
         ...context
       }),
       callbacks: {
+        onGenerationStatus: status => onGenerationStatus?.(status),
         onStepStart: turnIndex => {
           if (container && typeof document !== 'undefined') {
             if (turnIndex === 0) container.innerHTML = '';
@@ -548,6 +552,10 @@
           if (typeof onLog === 'function' && logData?.type !== 'thinking') onLog(logData.type, logData.text);
         },
         onToolStart: (toolCall, _tool, turnIndex) => {
+          const toolName = toolCall?.function?.name || _tool?.name || 'tool';
+          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
+          const statusText = i18n?.t ? i18n.t('generation_status_tool', { name: toolName }) : `Ejecutando ${toolName}...`;
+          onGenerationStatus?.({ phase: 'tool', text: statusText });
           if (typeof onToolCallStart === 'function') onToolCallStart({ turnIndex, toolCall });
         },
         onToolComplete: (toolCall, execution, _content, turnIndex) => {

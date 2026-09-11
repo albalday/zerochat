@@ -25,6 +25,10 @@
   const getStorage = () => resolveDep('ChatStorage', './cookies.js');
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
+  const getIcons = () => resolveDep('ChatIcons', './icons.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getState = () => resolveDep('ChatState', './state.js');
+  const getProviders = () => resolveDep('ChatProviders', './providers.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -54,6 +58,37 @@
     if (Debug && typeof Debug.addLog === 'function') {
       Debug.addLog(type, text, rawData);
     }
+  }
+
+  function getWebLLMState() {
+    return getState()?.get?.('ui')?.webllm || { catalog: [], contextKey: '', operation: null };
+  }
+
+  function setWebLLMState(update) {
+    const State = getState();
+    if (!State?.set) return { ...getWebLLMState(), ...update };
+    State.set('ui', ui => ({
+      ...ui,
+      webllm: { ...(ui.webllm || { catalog: [], contextKey: '', operation: null }), ...update }
+    }));
+    return getWebLLMState();
+  }
+
+  function getEditorContextKey(elements) {
+    return [
+      elements?.profileSelectHelper?.value || '',
+      elements?.settingApiType?.value || '',
+      elements?.settingApiUrl?.value || ''
+    ].join('|');
+  }
+
+  function updateWebLLMModel(modelId, status) {
+    const state = getWebLLMState();
+    const catalog = state.catalog.map(model => model?.id === modelId
+      ? { ...model, details: { ...(model.details || {}), webllmCache: status } }
+      : model);
+    setWebLLMState({ catalog });
+    return catalog;
   }
 
   function getOllamaConnectionHelp(apiType, error) {
@@ -186,6 +221,186 @@
     }
   }
 
+  function renderWebLLMModels(elements, models = getWebLLMState().catalog) {
+    const status = elements?.serverQueryStatus;
+    if (!status || !Array.isArray(models)) return;
+    const operation = getWebLLMState().operation;
+    status.querySelector?.('.webllm-model-list')?.remove();
+    const doc = status.ownerDocument;
+    const list = doc.createElement('div');
+    list.className = 'webllm-model-list';
+    models.forEach(model => {
+      const id = String(model?.id || '').trim();
+      if (!id) return;
+      const row = doc.createElement('div');
+      row.className = 'webllm-model-row';
+      const state = model?.details?.webllmCache;
+      const label = doc.createElement('span');
+      const stateLabel = text => `${id} · ${text}${formatWebLLMVram(model)}`;
+      const stateKey = state === 'cached' ? 'webllm_model_cached'
+        : (state === 'incomplete' ? 'webllm_model_incomplete' : (state === 'unknown' ? 'webllm_model_unknown' : 'webllm_model_missing'));
+      label.textContent = stateLabel(t(stateKey));
+      row.appendChild(label);
+      const progressBar = doc.createElement('progress');
+      progressBar.className = 'webllm-model-progress';
+      progressBar.max = 100;
+      progressBar.hidden = true;
+      row.appendChild(progressBar);
+      const createAction = (icon, labelKey, handler, disabled = false) => {
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = 'webllm-model-action';
+        const labelText = t(labelKey);
+        button.title = labelText;
+        button.setAttribute('aria-label', labelText);
+        button.innerHTML = getIcons()?.get?.(icon, { size: 14 }) || labelText;
+        button.disabled = disabled;
+        button.addEventListener('click', handler);
+        return button;
+      };
+      const actions = doc.createElement('div');
+      actions.className = 'webllm-model-actions';
+      const downloadModel = async event => {
+          const button = event.currentTarget;
+          const API = getApi();
+          const activeOperation = getWebLLMState().operation;
+          if (activeOperation?.modelId === id) {
+            button.disabled = true;
+            label.textContent = stateLabel(t('webllm_cancelling'));
+            await API.cancelLocalModelOperation?.(id, elements?.settingApiType?.value);
+            return;
+          }
+          const contextKey = getEditorContextKey(elements);
+          const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          setWebLLMState({ operation: { id: operationId, modelId: id, contextKey } });
+          list.querySelectorAll('button').forEach(action => { action.disabled = true; });
+          button.disabled = false;
+          button.title = t('webllm_cancel');
+          button.setAttribute('aria-label', t('webllm_cancel'));
+          button.innerHTML = getIcons()?.get?.('stop', { size: 14 }) || t('webllm_cancel');
+          label.textContent = stateLabel(t('webllm_preparing'));
+          progressBar.hidden = false;
+          progressBar.removeAttribute('value');
+          const update = progress => {
+            const current = getWebLLMState().operation;
+            if (current?.id !== operationId || getEditorContextKey(elements) !== contextKey) return;
+            const feedback = parseWebLLMProgress(progress);
+            label.textContent = stateLabel(feedback.text);
+            if (feedback.percent === null) progressBar.removeAttribute('value');
+            else progressBar.value = feedback.percent;
+          };
+          try {
+            const complete = await API.downloadLocalModel(id, update, elements?.settingApiType?.value);
+            if (!complete) throw new Error(t('webllm_model_incomplete'));
+            if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
+              const catalog = updateWebLLMModel(id, 'cached');
+              setWebLLMState({ operation: null });
+              refreshSelectableModels(elements, catalog);
+              renderWebLLMModels(elements, catalog);
+            }
+          } catch (error) {
+            if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
+              const catalog = updateWebLLMModel(id, 'incomplete');
+              setWebLLMState({ operation: null });
+              renderWebLLMModels(elements, catalog);
+              const currentRow = Array.from(elements.serverQueryStatus.querySelectorAll('.webllm-model-row'))
+                .find(item => item.querySelector('span')?.textContent?.startsWith(`${id} ·`));
+              if (currentRow) currentRow.querySelector('span').textContent = stateLabel(error.message || String(error));
+            }
+          } finally {
+            if (getWebLLMState().operation?.id === operationId) setWebLLMState({ operation: null });
+          }
+      };
+      const deleteModel = async event => {
+          const button = event.currentTarget;
+          const Dialogs = getDialogs();
+          if (!Dialogs?.confirm || !await Dialogs.confirm(t('confirm_webllm_delete', { model: id }))) return;
+          const contextKey = getEditorContextKey(elements);
+          const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          setWebLLMState({ operation: { id: operationId, modelId: id, contextKey } });
+          list.querySelectorAll('button').forEach(action => { action.disabled = true; });
+          button.dataset.loading = 'true';
+          button.innerHTML = getIcons()?.get?.('spinner', { size: 14 }) || t('webllm_deleting');
+          const API = getApi();
+          label.textContent = stateLabel(t('webllm_deleting'));
+          progressBar.hidden = false;
+          progressBar.removeAttribute('value');
+          try {
+            const removed = await API.deleteLocalModel(id, elements?.settingApiType?.value);
+            if (!removed) throw new Error(t('webllm_delete_failed'));
+            if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
+              const catalog = updateWebLLMModel(id, 'missing');
+              setWebLLMState({ operation: null });
+              refreshSelectableModels(elements, catalog);
+              renderWebLLMModels(elements, catalog);
+            }
+          } catch (error) {
+            if (getEditorContextKey(elements) === contextKey) {
+              label.textContent = stateLabel(error.message || String(error));
+              progressBar.hidden = true;
+              button.disabled = false;
+              delete button.dataset.loading;
+            }
+          } finally {
+            if (getWebLLMState().operation?.id === operationId) setWebLLMState({ operation: null });
+          }
+      };
+      const renderActions = status => {
+        if (status === 'cached') {
+          actions.replaceChildren(createAction('trash', 'webllm_delete', deleteModel, !!operation));
+          return;
+        }
+        actions.replaceChildren(
+          createAction('download', 'webllm_download', downloadModel, !!operation),
+          createAction('trash', 'webllm_delete', deleteModel, !!operation || status !== 'incomplete')
+        );
+      };
+      renderActions(state === 'cached' ? 'cached' : 'missing');
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+    status.appendChild(list);
+  }
+
+  function parseWebLLMProgress(progress) {
+    const rawText = String(progress?.detail || progress?.text || '').trim();
+    const percentMatch = rawText.match(/(\d+(?:\.\d+)?)%\s+completed/i);
+    const shaderMatch = rawText.match(/Loading GPU shader modules\s*\[(\d+)\/(\d+)\]/i);
+    const elapsedMatch = rawText.match(/(\d+(?:\.\d+)?)\s+secs?\s+elapsed/i);
+    const explicitPercent = progress?.percent === null || progress?.percent === undefined ? NaN : Number(progress.percent);
+    const percent = Number.isFinite(explicitPercent)
+      ? Math.min(100, Math.max(0, explicitPercent))
+      : (percentMatch ? Math.min(100, Math.max(0, Number(percentMatch[1]))) : null);
+    const elapsed = elapsedMatch ? t('webllm_elapsed_seconds', { seconds: Math.round(Number(elapsedMatch[1])) }) : '';
+    const loadingMatch = rawText.match(/Loading model from cache\[(\d+)\/(\d+)\]/i);
+    const phase = progress?.phase || '';
+    const text = phase === 'starting' ? t('webllm_starting')
+      : (phase === 'main-thread-fallback' ? t('webllm_main_thread_fallback')
+      : (phase === 'ready' ? t('webllm_ready')
+      : (shaderMatch
+      ? t('webllm_gpu_shaders', { current: shaderMatch[1], total: shaderMatch[2], percent: percent === null ? '' : ` · ${Math.round(percent)} %`, elapsed: elapsed ? ` · ${elapsed}` : '' })
+      : (loadingMatch ? t('webllm_loading_model', { current: loadingMatch[1], total: loadingMatch[2], percent: percent === null ? '' : ` · ${Math.round(percent)} %`, elapsed: elapsed ? ` · ${elapsed}` : '' })
+      : (phase === 'loading' ? t('webllm_loading_parameters') : t('webllm_preparing'))))));
+    return { text, percent: Number.isFinite(percent) ? percent : null };
+  }
+
+  function formatWebLLMVram(model) {
+    const megabytes = Number(model?.details?.webllmVramMB);
+    if (!Number.isFinite(megabytes) || megabytes <= 0) return '';
+    const size = megabytes >= 1024
+      ? `${(megabytes / 1024).toFixed(1).replace(/\.0$/, '')} GB`
+      : `${Math.round(megabytes)} MB`;
+    return ` · ${t('webllm_vram_required', { size })}`;
+  }
+
+  function refreshSelectableModels(elements, models) {
+    const downloaded = models.filter(model => model?.details?.webllmCache === 'cached');
+    if (elements?.settingModel && !downloaded.some(model => model.id === elements.settingModel.value.trim())) {
+      elements.settingModel.value = '';
+    }
+    populateModelList(elements, null, downloaded, true);
+  }
+
   async function handleQueryServer(elements, appConfig) {
     if (!elements || !elements.btnQueryServer) return false;
 
@@ -225,12 +440,26 @@
       addDebugLog('raw', `<<< INCOMING (fetchServerModels):\n${JSON.stringify(res, null, 2)}`);
 
       if (res.success && res.models && res.models.length > 0) {
-        saveCachedModels(res.models, { apiUrl, apiType });
-        populateModelList(elements, appConfig, res.models, true);
+        const locallyManaged = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().localModelManagement === true;
+        const selectableModels = locallyManaged
+          ? res.models.filter(model => model?.details?.webllmCache === 'cached') : res.models;
+        saveCachedModels(selectableModels, { apiUrl, apiType });
+        if (locallyManaged) refreshSelectableModels(elements, res.models);
+        else populateModelList(elements, appConfig, selectableModels, true);
 
         if (elements.serverQueryStatus) {
           elements.serverQueryStatus.className = 'server-query-status status-success';
-          elements.serverQueryStatus.innerHTML = t('msg_models_success', { count: res.count, endpoint: res.endpoint });
+          elements.serverQueryStatus.textContent = t('msg_models_success_text', { count: res.count, endpoint: res.endpoint });
+          if (locallyManaged) {
+            const contextKey = getEditorContextKey(elements);
+            const current = getWebLLMState();
+            setWebLLMState({
+              catalog: res.models,
+              contextKey,
+              operation: current.operation?.contextKey === contextKey ? current.operation : null
+            });
+            renderWebLLMModels(elements, res.models);
+          }
         }
         return true;
       } else {
@@ -442,6 +671,12 @@
     getCachedModels,
     getModelContextLimit,
     populateModelList,
+    renderWebLLMModels,
+    getWebLLMState,
+    setWebLLMState,
+    updateWebLLMModel,
+    formatWebLLMVram,
+    parseWebLLMProgress,
     handleQueryServer,
     handleRunInspector,
     renderInspectorReport,

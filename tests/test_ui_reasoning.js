@@ -64,6 +64,23 @@ test('UIReasoning - renderReasoningMenuOptions crea botones interactivos', () =>
   assert.equal(selectedLevel, 'medium');
 });
 
+test('UIReasoning - ofrece el transporte experimental solo cuando el adaptador lo declara', () => {
+  const created = [];
+  const container = {
+    ownerDocument: { createElement: () => {
+      const element = { className: '', attributes: {}, classList: { add: () => {} }, setAttribute: (name, value) => { element.attributes[name] = value; }, addEventListener: (_event, handler) => { element.handler = handler; } };
+      return element;
+    } },
+    appendChild: element => created.push(element)
+  };
+  let selected = '';
+  UIReasoning.renderReasoningTransportOptions({ reasoningOptionsContainer: container }, { transportOptions: ['omit', 'send-none'] }, 'auto', value => { selected = value; });
+  const sendNone = created.find(element => element.attributes['data-reasoning-transport'] === 'send-none');
+  assert.ok(sendNone);
+  sendNone.handler({ stopPropagation: () => {} });
+  assert.equal(selected, 'send-none');
+});
+
 test('UIReasoning - selectReasoningLevel normaliza y emite la intención sin mutar configuración', () => {
   const appConfig = { reasoningEffort: 'none' };
   const labelEl = { textContent: '' };

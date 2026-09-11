@@ -101,6 +101,35 @@
     });
   }
 
+  function renderReasoningTransportOptions(elements, reasoningInfo, activeTransport, onSelect) {
+    const options = Array.isArray(reasoningInfo?.transportOptions) ? reasoningInfo.transportOptions : [];
+    if (!elements?.reasoningOptionsContainer || options.length === 0) return;
+    const doc = elements.reasoningOptionsContainer.ownerDocument || document;
+    const heading = doc.createElement('div');
+    heading.className = 'reasoning-transport-heading';
+    heading.textContent = t('reasoning_transport_title');
+    elements.reasoningOptionsContainer.appendChild(heading);
+
+    options.forEach(transport => {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'reasoning-option reasoning-transport-option';
+      button.setAttribute('data-reasoning-transport', transport);
+      button.setAttribute('role', 'menuitemradio');
+      const selected = transport === activeTransport || (activeTransport === 'auto' && transport === 'omit');
+      button.setAttribute('aria-checked', selected ? 'true' : 'false');
+      if (selected) button.classList.add('active');
+      const titleKey = transport === 'send-none' ? 'reasoning_transport_send_none' : 'reasoning_transport_omit';
+      const descKey = transport === 'send-none' ? 'reasoning_transport_send_none_desc' : 'reasoning_transport_omit_desc';
+      button.innerHTML = `<div class="option-text"><strong class="option-title">${t(titleKey)}</strong><small class="option-desc">${t(descKey)}</small></div>`;
+      button.addEventListener('click', event => {
+        event?.stopPropagation?.();
+        if (typeof onSelect === 'function') onSelect(transport);
+      });
+      elements.reasoningOptionsContainer.appendChild(button);
+    });
+  }
+
   function initReasoningKeyboardNav(elements) {
     if (!elements || !elements.reasoningMenu || typeof elements.reasoningMenu.addEventListener !== 'function' || elements.reasoningMenu._hasKeyNav) return;
     elements.reasoningMenu._hasKeyNav = true;
@@ -178,7 +207,7 @@
     elements.reasoningMenu.style.maxHeight = `${Math.round(maxHeight)}px`;
   }
 
-  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect) {
     if (!elements || !elements.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'flex';
 
@@ -198,6 +227,7 @@
     }
 
     renderReasoningMenuOptions(elements, reasoningConfig, appConfig?.reasoningEffort || 'off', onSelect);
+    renderReasoningTransportOptions(elements, reasoningConfig, appConfig?.reasoningTransport || 'auto', onTransportSelect);
     syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
     positionReasoningMenu(elements);
     initReasoningKeyboardNav(elements);
@@ -239,13 +269,13 @@
     }
   }
 
-  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect) {
     if (!elements || !elements.reasoningMenu) return;
     const isVisible = elements.reasoningMenu.style.display === 'flex' || elements.reasoningMenu.style.display === 'block';
     if (isVisible) {
       closeReasoningMenu(elements);
     } else {
-      openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint);
+      openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect);
     }
   }
 
@@ -306,6 +336,7 @@
   return {
     getReasoningLevelLabel,
     renderReasoningMenuOptions,
+    renderReasoningTransportOptions,
     positionReasoningMenu,
     openReasoningMenu,
     closeReasoningMenu,

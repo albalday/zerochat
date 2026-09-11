@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const UIInspector = require('../js/ui-inspector.js');
 const Storage = require('../js/cookies.js');
 const API = require('../js/api.js');
+const State = require('../js/state.js');
 
 test('UIInspector - getBadgeClass, getBadgeIcon y getStatusLabel', () => {
   assert.equal(UIInspector.getBadgeClass('confirmed'), 'cap-badge cap-badge-confirmed');
@@ -13,6 +14,34 @@ test('UIInspector - getBadgeClass, getBadgeIcon y getStatusLabel', () => {
   assert.equal(UIInspector.getBadgeIcon('unsupported'), '✕');
 
   assert.ok(UIInspector.getStatusLabel('confirmed'));
+});
+
+test('UIInspector - formatea la VRAM publicada por WebLLM sin presentarla como descarga', () => {
+  assert.equal(UIInspector.formatWebLLMVram({ details: { webllmVramMB: 1536 } }), ' · VRAM aprox. 1.5 GB');
+  assert.equal(UIInspector.formatWebLLMVram({ details: { webllmVramMB: null } }), '');
+});
+
+test('UIInspector - transforma progreso de shaders WebLLM en porcentaje y estado legible', () => {
+  assert.deepEqual(UIInspector.parseWebLLMProgress({ text: 'Loading GPU shader modules [35/38]: 92% completed, 3 secs elapsed.' }), {
+    text: 'Compilando módulos GPU 35/38 · 92 % · 3 s', percent: 92
+  });
+});
+
+test('UIInspector - mantiene el catálogo WebLLM canónico al completar varios modelos', () => {
+  State.reset();
+  UIInspector.setWebLLMState({
+    catalog: [
+      { id: 'model-a', details: { webllmCache: 'incomplete' } },
+      { id: 'model-b', details: { webllmCache: 'cached' } }
+    ],
+    contextKey: 'profile:webllm|webllm|webllm://local',
+    operation: null
+  });
+  UIInspector.updateWebLLMModel('model-a', 'cached');
+  assert.deepEqual(UIInspector.getWebLLMState().catalog.map(model => [model.id, model.details.webllmCache]), [
+    ['model-a', 'cached'],
+    ['model-b', 'cached']
+  ]);
 });
 
 test('UIInspector - identifica el bloqueo CORS de Ollama y muestra una solución breve', () => {
