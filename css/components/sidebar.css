@@ -148,18 +148,25 @@
   width: 100%;
   padding: 0.45rem 0.65rem 0.45rem 2rem;
   border-radius: var(--radius-full);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--input-border);
+  background-color: var(--input-bg-subtle);
   color: var(--text-main);
+  font-family: inherit;
   font-size: 0.8rem;
   outline: none;
-  transition: all 0.15s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
-.sidebar-search-input:focus {
-  border-color: var(--border-color);
-  background-color: var(--bg-surface-subtle);
-  box-shadow: none;
+.sidebar-search-input:hover {
+  border-color: var(--input-border-hover);
+}
+
+.sidebar-search-input:focus,
+.sidebar-search-input:focus-visible {
+  border-color: var(--input-border-focus);
+  background-color: var(--input-bg);
+  box-shadow: var(--input-focus-ring);
+  outline: none;
 }
 
 /* Encabezados de Agrupación Cronológica (Hoy, Ayer, Últimos 7 días, etc.) */

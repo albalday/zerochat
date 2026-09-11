@@ -456,16 +456,30 @@ input:checked + .slider:before {
 select.form-input {
   max-width: 200px;
   width: auto;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-color);
+  min-height: 2.375rem;
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
   outline: none;
-  background-color: var(--bg-surface-subtle);
+  background-color: var(--input-bg-subtle);
   color: var(--text-main);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 14px 14px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
+}
+
+.combobox-select-helper:hover,
+.form-field select:hover,
+select.form-input:hover {
+  border-color: var(--input-border-hover);
 }
 
 .combobox-select-helper:focus,
@@ -647,24 +661,60 @@ select.form-input:focus-visible {
 .form-field input[type="text"],
 .form-field input[type="url"],
 .form-field input[type="password"],
-.form-field textarea {
+.form-field input[type="number"],
+.form-field input[type="search"],
+.form-field textarea,
+input.form-input,
+#notice-input {
   width: 100%;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--border-color);
+  box-sizing: border-box;
+  min-height: 2.375rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
   outline: none;
-  background-color: #ffffff;
+  background-color: var(--input-bg);
   color: var(--text-main);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
-.form-field input:focus,
+.form-field textarea {
+  min-height: auto;
+}
+
+.form-field input[type="text"]:hover,
+.form-field input[type="url"]:hover,
+.form-field input[type="password"]:hover,
+.form-field input[type="number"]:hover,
+.form-field input[type="search"]:hover,
+.form-field textarea:hover,
+input.form-input:hover,
+#notice-input:hover {
+  border-color: var(--input-border-hover);
+}
+
+.form-field input[type="text"]:focus,
+.form-field input[type="url"]:focus,
+.form-field input[type="password"]:focus,
+.form-field input[type="number"]:focus,
+.form-field input[type="search"]:focus,
 .form-field textarea:focus,
-.form-field select:focus {
-  border-color: var(--border-color);
-  box-shadow: none;
+input.form-input:focus,
+#notice-input:focus,
+.form-field input[type="text"]:focus-visible,
+.form-field input[type="url"]:focus-visible,
+.form-field input[type="password"]:focus-visible,
+.form-field input[type="number"]:focus-visible,
+.form-field input[type="search"]:focus-visible,
+.form-field textarea:focus-visible,
+input.form-input:focus-visible,
+#notice-input:focus-visible {
+  border-color: var(--input-border-focus);
+  box-shadow: var(--input-focus-ring);
+  outline: none;
 }
 
 .input-password-wrapper {
@@ -1021,7 +1071,5 @@ select.form-input:focus-visible {
 }
 
 #notice-input {
-  width: 100%;
-  box-sizing: border-box;
   margin-top: 1rem;
 }

@@ -77,3 +77,27 @@ test('UI Modernization - Imágenes en chat redimensionadas como máximo al ancho
   assert.match(markdownCss, /\.chat-embedded-image\s*\{[^}]*max-width:\s*100%/);
   assert.match(markdownCss, /\.chat-image-figure\s*\{[^}]*max-width:\s*100%/);
 });
+
+test('UI Modernization - Estándar unificado de UI para textboxes y combos', () => {
+  const tokensCss = fs.readFileSync(path.resolve(__dirname, '../css/tokens.css'), 'utf8');
+  assert.ok(tokensCss.includes('--input-bg:'), 'tokens.css debe definir --input-bg');
+  assert.ok(tokensCss.includes('--input-border-focus:'), 'tokens.css debe definir --input-border-focus');
+  assert.ok(tokensCss.includes('--input-focus-ring:'), 'tokens.css debe definir --input-focus-ring');
+
+  const modalsCss = fs.readFileSync(path.resolve(__dirname, '../css/components/modals.css'), 'utf8');
+  assert.ok(modalsCss.includes('#notice-input'), 'modals.css debe incluir #notice-input en la regla unificada');
+  assert.ok(modalsCss.includes('input[type="number"]'), 'modals.css debe incluir input[type="number"]');
+  assert.ok(modalsCss.includes('.combobox-select-helper'), 'modals.css debe estilizar .combobox-select-helper');
+  assert.ok(modalsCss.includes('var(--input-focus-ring)'), 'modals.css debe aplicar el anillo de foco accesible');
+  assert.ok(modalsCss.includes("background-image: url(\"data:image/svg+xml"), 'modals.css debe aplicar chevron SVG en selects');
+
+  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../index.html'), 'utf8');
+  assert.match(indexHtml, /id="notice-input"[^>]*class="form-input"/, 'index.html debe declarar class="form-input" en notice-input');
+
+  const composerCss = fs.readFileSync(path.resolve(__dirname, '../css/components/composer.css'), 'utf8');
+  assert.ok(composerCss.includes('.context-limit-control input:focus'), 'composer.css debe definir foco accesible en context-limit input');
+
+  const sidebarCss = fs.readFileSync(path.resolve(__dirname, '../css/components/sidebar.css'), 'utf8');
+  assert.ok(sidebarCss.includes('.sidebar-search-input:focus'), 'sidebar.css debe definir foco accesible en búsqueda de sidebar');
+});
+

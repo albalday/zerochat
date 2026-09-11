@@ -76,8 +76,8 @@
 }
 
 [data-theme="dark"] .chat-input-container:focus-within {
-  border-color: #475569;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 2px 6px -1px rgba(0, 0, 0, 0.35);
+  border-color: var(--input-border-focus);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(var(--primary-rgb), 0.2);
 }
 
 [data-theme="dark"] .btn-reasoning {
@@ -175,14 +175,6 @@
   color: var(--text-main);
 }
 
-[data-theme="dark"] .form-field input[type="text"],
-[data-theme="dark"] .form-field input[type="url"],
-[data-theme="dark"] .form-field input[type="password"],
-[data-theme="dark"] .form-field textarea {
-  background-color: #0b1120;
-  border-color: var(--border-color);
-  color: var(--text-main);
-}
 
 [data-theme="dark"] .btn-secondary {
   background-color: #182238;
@@ -368,13 +360,11 @@
   color: #f87171;
 }
 
-/* Modo Oscuro: Combobox y Hints */
+/* Modo Oscuro: Flecha SVG para Selects y Combos */
 [data-theme="dark"] .combobox-select-helper,
 [data-theme="dark"] select.form-input,
 [data-theme="dark"] .form-field select {
-  background-color: #0b1120;
-  border-color: var(--border-color);
-  color: var(--text-main);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] .model-reasoning-hint.hint-supported {

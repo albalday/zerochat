@@ -372,6 +372,10 @@
   background: #070b14;
 }
 
+.debug-payload-textarea:focus-visible {
+  outline: 1px solid var(--input-border-focus);
+}
+
 .debug-json-error {
   padding: 0.5rem 0.75rem;
   background: rgba(239, 68, 68, 0.15);

@@ -29,6 +29,15 @@
   --border-color: #e2e8f0;
   --border-subtle: #edf2f7;
   --border-focus: #2563eb;
+  --border-hover: #cbd5e1;
+
+  /* Controles de Formulario (Inputs y Combos) */
+  --input-bg: var(--bg-surface);
+  --input-bg-subtle: var(--bg-surface-subtle);
+  --input-border: var(--border-color);
+  --input-border-hover: var(--border-hover);
+  --input-border-focus: var(--border-focus);
+  --input-focus-ring: 0 0 0 3px rgba(var(--primary-rgb), 0.16);
 
   /* Estados de Notificación / Acción */
   --danger: #ef4444;
@@ -118,6 +127,15 @@
   --border-color: #27354f;
   --border-subtle: #1e293b;
   --border-focus: #60a5fa;
+  --border-hover: #3b4d6b;
+
+  /* Controles de Formulario Modo Oscuro */
+  --input-bg: #0b1120;
+  --input-bg-subtle: #182238;
+  --input-border: var(--border-color);
+  --input-border-hover: var(--border-hover);
+  --input-border-focus: var(--border-focus);
+  --input-focus-ring: 0 0 0 3px rgba(var(--primary-rgb), 0.25);
 
   --danger: #f87171;
   --danger-hover: #ef4444;

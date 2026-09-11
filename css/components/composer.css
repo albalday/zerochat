@@ -96,8 +96,8 @@
 }
 
 .chat-input-container:focus-within {
-  border-color: #94a3b8;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.1), 0 2px 6px -1px rgba(0, 0, 0, 0.05);
+  border-color: var(--input-border-focus);
+  box-shadow: var(--shadow-composer), 0 0 0 1px var(--input-border-focus);
 }
 
 .chat-input-container.drag-over {
@@ -867,11 +867,26 @@
 .context-limit-control input {
   min-width: 0;
   flex: 1;
-  padding: 0.3rem 0.4rem;
-  border: 1px solid var(--border-color);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
-  background: var(--bg-main);
+  background: var(--input-bg);
   color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.context-limit-control input:hover {
+  border-color: var(--input-border-hover);
+}
+
+.context-limit-control input:focus,
+.context-limit-control input:focus-visible {
+  border-color: var(--input-border-focus);
+  box-shadow: var(--input-focus-ring);
+  outline: none;
 }
 
 .context-section-title {
