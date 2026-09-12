@@ -535,6 +535,11 @@
   background: rgba(239, 68, 68, 0.07);
 }
 
+.debug-entry.debug-entry-warning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.07);
+}
+
 .debug-entry.debug-entry-system {
   border-left-color: #64748b;
   background: rgba(100, 116, 139, 0.04);
@@ -587,6 +592,11 @@
   color: #fca5a5;
 }
 
+.debug-tag.warning {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fde68a;
+}
+
 .debug-tag.system {
   background: rgba(100, 116, 139, 0.25);
   color: #cbd5e1;
@@ -606,6 +616,10 @@
 
 .debug-entry-error .debug-msg {
   color: #fca5a5;
+}
+
+.debug-entry-warning .debug-msg {
+  color: #fde68a;
 }
 
 .debug-entry.debug-entry-raw {

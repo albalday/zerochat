@@ -1031,6 +1031,7 @@
     }
 
     const generationSessionId = getCurrentSessionId();
+    let generationError = null;
 
     elements.userInput.value = '';
     clearAttachedFiles();
@@ -1050,7 +1051,7 @@
     if (!API.streamChatCompletion) {
       row.classList.add('message-error');
       content.innerHTML = 'Error: Chat API module not loaded.';
-      finishGeneration();
+      finishGeneration({ error: 'Error: Chat API module not loaded.' });
       return;
     }
 
@@ -1066,7 +1067,7 @@
         </div>
       `;
       actions.style.display = 'inline-flex';
-      finishGeneration();
+      finishGeneration({ error: t('err_no_model_title') });
       return;
     }
 
@@ -1108,6 +1109,7 @@
         }));
       } catch (err) {
         console.warn('Error al cargar contexto inicial de RAG:', err);
+        addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
         setRagSystemContext('');
       }
     } else {
@@ -1240,9 +1242,11 @@
       setDebugStatus('done', t('debug_status_done'));
     } catch (err) {
       console.error('[ZeroChat] Error durante inferencia agéntica:', err);
-      if (!(currentAbortController && currentAbortController.signal.aborted)) {
+      const isAborted = Boolean(currentAbortController && currentAbortController.signal.aborted) || err?.name === 'AbortError';
+      if (!isAborted) {
+        generationError = err?.message || String(err);
         setDebugStatus('error', t('debug_status_error'));
-        addDebugLog('error', err.message || String(err));
+        addDebugLog('error', generationError);
         row.classList.add('message-error');
         content.innerHTML = `
           <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
@@ -1250,7 +1254,7 @@
             <div>
               <strong>${t('err_server_connect_title')}</strong>
               <p style="margin-top: 0.25rem;">
-                ${Markdown.escapeHtml ? Markdown.escapeHtml(err.message || String(err)) : String(err)}
+                ${Markdown.escapeHtml ? Markdown.escapeHtml(generationError) : String(generationError)}
               </p>
               <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
                 ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
@@ -1261,14 +1265,21 @@
         actions.style.display = 'inline-flex';
       }
     } finally {
-      finishGeneration({ skipSave: getCurrentSessionId() !== generationSessionId });
+      finishGeneration({
+        skipSave: getCurrentSessionId() !== generationSessionId,
+        error: generationError
+      });
     }
   }
 
-  function finishGeneration({ skipSave = false } = {}) {
+  function finishGeneration({ skipSave = false, error = null } = {}) {
     removeTypingIndicator(); // Seguridad: limpiar si quedó activo
     clearGenerationStatus();
-    State.set('streaming', { isGenerating: false, status: 'idle' });
+    if (error) {
+      State.set('streaming', { isGenerating: false, status: 'error', error: String(error) });
+    } else {
+      State.set('streaming', { isGenerating: false, status: 'idle', error: null });
+    }
     if (elements.btnSend) elements.btnSend.disabled = false;
     if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
 
@@ -3001,6 +3012,7 @@
     cacheDomElements();
     if (Debug.setElements) Debug.setElements(elements);
     if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(appConfig.enableRawLogs);
+    if (Debug.registerGlobalErrorHandlers && typeof window !== 'undefined') Debug.registerGlobalErrorHandlers(window);
 
     if (State.subscribe) {
       const syncGenerationControls = (streamingState) => {

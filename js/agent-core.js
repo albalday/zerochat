@@ -1415,7 +1415,14 @@
             if (synthRes && synthRes.accumulatedText) {
               finalAccumulatedText = synthRes.accumulatedText;
             }
-          } catch (e) {}
+          } catch (e) {
+            if (typeof console !== 'undefined' && console.warn) {
+              console.warn('[ChatAgentCore] Error during auto-synthesis:', e);
+            }
+            if (callbacks && typeof callbacks.onLog === 'function') {
+              callbacks.onLog({ type: 'warning', text: `[Auto-synthesis] Fallback activado tras error: ${e?.message || String(e)}` });
+            }
+          }
 
           if (!finalAccumulatedText || finalAccumulatedText.trim() === '') {
             const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');

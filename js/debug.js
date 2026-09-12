@@ -121,15 +121,23 @@
     }
   }
 
+  function getDoc() {
+    if (typeof document !== 'undefined') return document;
+    if (typeof window !== 'undefined' && window.document) return window.document;
+    return null;
+  }
+
   function addLog(type, text, rawData) {
     if (!dom.debugLogContent) return;
+    const doc = getDoc();
+    if (!doc || typeof doc.createElement !== 'function') return;
     const Markdown = getMarkdown();
 
     // 1. Logs RAW
     if (type === 'raw') {
       if (!rawLogsEnabled) return;
 
-      const entry = document.createElement('div');
+      const entry = doc.createElement('div');
       const isOutgoing = (rawData && rawData.subtype === 'outgoing') || String(text).startsWith('>>>');
       entry.className = `debug-entry debug-entry-raw ${isOutgoing ? 'raw-outgoing' : 'raw-incoming'}`;
       entry.setAttribute('data-type', 'raw');
@@ -156,7 +164,7 @@
     // 2. Logs de Razonamiento / Thinking
     if (type === 'thinking') {
       if (!activeThinkingBlock) {
-        const entry = document.createElement('div');
+        const entry = doc.createElement('div');
         entry.className = 'debug-entry debug-entry-thinking';
         entry.setAttribute('data-type', 'thinking');
         entry.innerHTML = `
@@ -187,7 +195,7 @@
     // 3. Otros tipos (network, tool, stats, error, system, info)
     activeThinkingBlock = null;
 
-    const entry = document.createElement('div');
+    const entry = doc.createElement('div');
     entry.className = `debug-entry debug-entry-${type || 'info'}`;
     entry.setAttribute('data-type', type || 'info');
 
@@ -196,6 +204,7 @@
     else if (type === 'tool') tagLabel = t('debug_tag_tool');
     else if (type === 'stats') tagLabel = t('debug_tag_stats');
     else if (type === 'error') tagLabel = t('debug_tag_error');
+    else if (type === 'warning') tagLabel = t('debug_tag_warning');
     else if (type === 'system') tagLabel = t('debug_tag_system');
 
     entry.innerHTML = `
@@ -211,7 +220,7 @@
     } else if (activeFilter !== 'all') {
       const match = (activeFilter === type) ||
                     (activeFilter === 'tool' && type === 'tool') ||
-                    (activeFilter === 'network' && (type === 'network' || type === 'stats' || type === 'error'));
+                    (activeFilter === 'network' && (type === 'network' || type === 'stats' || type === 'error' || type === 'warning'));
       if (!match) entry.style.display = 'none';
     }
 
@@ -235,7 +244,7 @@
       } else if (tabId === 'tool') {
         entry.style.display = (type === 'tool') ? 'flex' : 'none';
       } else if (tabId === 'network') {
-        entry.style.display = (type === 'network' || type === 'stats' || type === 'error') ? 'flex' : 'none';
+        entry.style.display = (type === 'network' || type === 'stats' || type === 'error' || type === 'warning') ? 'flex' : 'none';
       } else if (tabId === 'raw') {
         entry.style.display = (type === 'raw') ? 'flex' : 'none';
       }
@@ -427,12 +436,43 @@
     }
   }
 
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
-    } else {
-      ensureDialogMarkup();
+  let globalHandlersRegistered = false;
+
+  function registerGlobalErrorHandlers(targetWindow = (typeof window !== 'undefined' ? window : null)) {
+    if (!targetWindow || typeof targetWindow.addEventListener !== 'function') return false;
+    const isDefaultWindow = typeof window !== 'undefined' && targetWindow === window;
+    if (isDefaultWindow) {
+      if (globalHandlersRegistered) return true;
+      globalHandlersRegistered = true;
     }
+
+    targetWindow.addEventListener('unhandledrejection', (event) => {
+      try {
+        const reason = event?.reason;
+        if (reason && (reason.name === 'AbortError' || (typeof reason.message === 'string' && reason.message.includes('aborted')))) {
+          return;
+        }
+        const text = reason?.stack || reason?.message || String(reason || 'Unknown unhandled rejection');
+        addLog('error', `[Unhandled Promise] ${text}`);
+      } catch (_) {}
+    });
+
+    targetWindow.addEventListener('error', (event) => {
+      try {
+        if (event?.error && (event.error.name === 'AbortError' || (typeof event.error.message === 'string' && event.error.message.includes('aborted')))) {
+          return;
+        }
+        const msg = event?.message || event?.error?.message || 'Runtime error';
+        const source = event?.filename ? ` at ${event.filename}:${event.lineno || 0}` : '';
+        addLog('error', `[Runtime Error] ${msg}${source}`);
+      } catch (_) {}
+    });
+
+    return true;
+  }
+
+  if (typeof window !== 'undefined') {
+    registerGlobalErrorHandlers(window);
   }
 
   return {
@@ -449,6 +489,7 @@
     filterLogs,
     openInterceptorModal,
     ensureDialogMarkup,
-    getDebugInterceptorDialogHTML
+    getDebugInterceptorDialogHTML,
+    registerGlobalErrorHandlers
   };
 }));

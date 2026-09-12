@@ -238,6 +238,63 @@ li {
   color: var(--text-main);
 }
 
+/* Bloque y botón de descarga del bundle */
+.download-action-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 1.25rem 0;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.btn-download-bundle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  box-shadow: var(--shadow);
+  transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-download-bundle:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  color: #ffffff;
+}
+
+.btn-download-bundle:active {
+  transform: translateY(0);
+}
+
+.btn-download-bundle svg {
+  flex-shrink: 0;
+}
+
+.download-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-download-bundle {
+    color: #0b0f19;
+  }
+  .btn-download-bundle:hover {
+    color: #0b0f19;
+  }
+}
+
 /* Cuadrícula de características para el índice */
 .features-grid {
   display: grid;

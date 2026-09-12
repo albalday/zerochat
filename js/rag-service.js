@@ -130,7 +130,10 @@
         : '';
 
       return `${label}\n\nDocument retrieval protocol:${langNote}\n- Start with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- Choose scope before searching: use scope="document" with documentHint for one exact document; use scope="corpus" for comparisons, multiple documents, companies, or years; use scope="auto" only when neither intent is clear.\n- For multi-document retrieval, make one scope="corpus" search. Do not repeat the same query with different documentHint values.\n- Consult list_documents (optionally specifying filter, e.g. filter="Walmart") only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- After finding relevant chunks, use read_knowledge_chunk with chunkIds for deeper or adjacent content; do not re-search for it.\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.${checkpointRule}\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
-    } catch (_) {
+    } catch (err) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[ChatRagService] Error building RAG system context:', err);
+      }
       return '';
     }
   }
