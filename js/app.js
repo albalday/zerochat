@@ -801,7 +801,7 @@
     const remainingMessages = elements.messagesList.querySelectorAll('.message-wrapper');
     if (remainingMessages.length === 0 && elements.welcomeBanner) {
       elements.messagesList.appendChild(elements.welcomeBanner);
-      elements.welcomeBanner.style.display = 'block';
+      elements.welcomeBanner.style.display = '';
     }
 
     // Persistir eliminación en el almacenamiento de la sesión
@@ -2057,7 +2057,7 @@
     if (validMessages.length === 0) {
       if (elements.welcomeBanner) {
         elements.messagesList.appendChild(elements.welcomeBanner);
-        elements.welcomeBanner.style.display = 'block';
+        elements.welcomeBanner.style.display = '';
       }
       resetTelemetryDisplay();
       return;

@@ -213,7 +213,16 @@
   }
 
   function populateModelList(elements, appConfig, models, selectFirstIfEmpty = false) {
-    const modelList = Array.isArray(models) ? models : [];
+    const apiType = String(elements?.settingApiType?.value || appConfig?.apiType || '').trim().toLowerCase();
+    let modelList = Array.isArray(models) ? models : [];
+
+    if (apiType === 'webllm') {
+      const completed = new Set(getWebLLMCompletedModelIds());
+      modelList = modelList.filter(m => {
+        const id = (typeof m === 'string' ? m : (m?.id || m?.name || '')).trim();
+        return m?.details?.webllmCache === 'cached' || completed.has(id);
+      });
+    }
 
     const doc = elements?.modelDatalist?.ownerDocument || elements?.modelSelectHelper?.ownerDocument || (typeof document !== 'undefined' ? document : null);
     if (!doc) return;
@@ -260,10 +269,19 @@
       });
     }
 
-    if (selectFirstIfEmpty && elements?.settingModel) {
+    if (elements?.settingModel) {
       const currentVal = elements.settingModel.value.trim();
       const firstId = (typeof modelList[0] === 'string' ? modelList[0] : (modelList[0]?.id || modelList[0]?.name || '')).trim();
-      if (!currentVal && firstId) {
+      if (apiType === 'webllm') {
+        const isCurrentDownloaded = modelList.some(m => {
+          const id = (typeof m === 'string' ? m : (m?.id || m?.name || '')).trim();
+          return id === currentVal;
+        });
+        if (!isCurrentDownloaded) {
+          elements.settingModel.value = firstId || '';
+          if (elements.modelSelectHelper) elements.modelSelectHelper.value = firstId || '';
+        }
+      } else if (selectFirstIfEmpty && !currentVal && firstId) {
         elements.settingModel.value = firstId;
         if (elements.modelSelectHelper) elements.modelSelectHelper.value = firstId;
       }
@@ -449,12 +467,14 @@
       const id = typeof m === 'string' ? m : (m?.id || m?.name || '');
       return m?.details?.webllmCache === 'cached' || completed.has(id);
     });
-    if (elements?.settingModel && !downloaded.some(model => model.id === elements.settingModel.value.trim())) {
+    if (elements?.settingModel && !downloaded.some(model => (typeof model === 'string' ? model : model?.id || model?.name) === elements.settingModel.value.trim())) {
       if (downloaded.length > 0) {
-        elements.settingModel.value = downloaded[0].id;
+        elements.settingModel.value = typeof downloaded[0] === 'string' ? downloaded[0] : (downloaded[0]?.id || downloaded[0]?.name || '');
+      } else {
+        elements.settingModel.value = '';
       }
     }
-    populateModelList(elements, null, sorted, !elements?.settingModel?.value);
+    populateModelList(elements, null, downloaded, !elements?.settingModel?.value);
   }
 
   async function handleQueryServer(elements, appConfig) {

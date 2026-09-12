@@ -26,6 +26,7 @@
   const memoryStorage = new Map();
   const memoryConversations = new Map();
   const memoryMessages = new Map();
+  let lastClearAllStorageError = '';
 
   function isLocalStorageAvailable() {
     try {
@@ -130,24 +131,19 @@
   }
 
   async function clearAllStorage() {
+    const failures = [];
+    lastClearAllStorageError = '';
     if (hasLocalStorage) {
       try {
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith(STORAGE_PREFIX)) {
-            keysToRemove.push(k);
-          }
-        }
-        keysToRemove.forEach(k => localStorage.removeItem(k));
-      } catch (e) {}
+        localStorage.clear();
+      } catch (e) { failures.push(e); }
     }
 
     try {
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.clear();
       }
-    } catch (e) {}
+    } catch (e) { failures.push(e); }
 
     if (typeof document !== 'undefined') {
       try {
@@ -161,16 +157,63 @@
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=;SameSite=Lax`;
           }
         }
-      } catch (e) {}
+      } catch (e) { failures.push(e); }
     }
 
     memoryStorage.clear();
     memoryConversations.clear();
     memoryMessages.clear();
 
-    // Las conversaciones se guardan en IndexedDB, no en localStorage. Esperar a
-    // que se complete el borrado evita que reaparezcan tras la recarga.
-    return deleteAllConversations();
+    const operations = [
+      ['IndexedDB de ZeroChat', () => Database?.deleteOriginDatabases?.()],
+      ['Cache Storage', async () => {
+        if (typeof caches === 'undefined') return;
+        const results = await Promise.allSettled((await caches.keys()).map(name => caches.delete(name)));
+        if (results.some(result => result.status === 'rejected')) throw new Error('Cache Storage deletion failed.');
+      }],
+      ['OPFS', async () => {
+        if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return;
+        try {
+          const root = await navigator.storage.getDirectory();
+          const removals = [];
+          for await (const name of root.keys()) removals.push(root.removeEntry(name, { recursive: true }));
+          const results = await Promise.allSettled(removals);
+          if (results.some(result => result.status === 'rejected')) throw new Error('OPFS deletion failed.');
+        } catch (error) {
+          // Chromium exposes OPFS on some file:// contexts but rejects access to it.
+          // ZeroChat never writes there, so an unavailable OPFS cannot retain its data.
+          if (!['SecurityError', 'NotSupportedError', 'InvalidStateError'].includes(error?.name)) throw error;
+        }
+      }],
+      ['Service Workers', async () => {
+        if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistrations) return;
+        try {
+          await Promise.all((await navigator.serviceWorker.getRegistrations()).map(registration => registration.unregister()));
+        } catch (error) {
+          // Chromium rejects Service Worker queries for the opaque file:// origin.
+          // ZeroChat cannot register a worker there, so there is nothing to remove.
+          if (!['SecurityError', 'NotSupportedError', 'InvalidStateError'].includes(error?.name)
+            && !/origin .*not supported|URL protocol .*not supported/i.test(error?.message || '')) throw error;
+        }
+      }]
+    ];
+    const results = await Promise.allSettled(operations.map(([, run]) => run()));
+    const operationFailures = results
+      .map((result, index) => result.status === 'rejected'
+        ? `${operations[index][0]}: ${result.reason?.message || result.reason || 'unknown error'}`
+        : '')
+      .filter(Boolean);
+    const allFailures = [...failures, ...operationFailures];
+    if (allFailures.length) {
+      lastClearAllStorageError = allFailures.map(error => error?.message || String(error)).join(' · ');
+      console.warn('[ZeroChat] Complete local-data reset failed:', lastClearAllStorageError);
+      return false;
+    }
+    return true;
+  }
+
+  function getLastClearAllStorageError() {
+    return lastClearAllStorageError;
   }
 
   // ==========================================================================
@@ -545,6 +588,7 @@
     loadRuntimeConfigV2,
     saveRuntimeConfigV2,
     clearAllStorage,
+    getLastClearAllStorageError,
 
     // Persistencia Asíncrona en IndexedDB (Conversaciones & Mensajes)
     initDB,

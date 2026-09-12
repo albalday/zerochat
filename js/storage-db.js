@@ -123,5 +123,22 @@
     dbPromise = null;
   }
 
-  return { DB_NAME, DB_VERSION, STORES, isAvailable, openDatabase, closeDatabase };
+  async function deleteOriginDatabases() {
+    if (!isAvailable()) return;
+    await closeDatabase();
+    // Do not enumerate the origin: under file:// Chromium can group unrelated
+    // file URLs in the same storage bucket. ZeroChat owns this database; WebLLM
+    // model artifacts are removed separately from Cache Storage.
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(DB_NAME);
+      const timer = setTimeout(() => reject(new Error('ZeroChat IndexedDB deletion timed out.')), 10000);
+      request.onsuccess = () => { clearTimeout(timer); resolve(); };
+      request.onerror = () => { clearTimeout(timer); reject(request.error || new Error('ZeroChat IndexedDB deletion failed.')); };
+      // A connection may receive its versionchange event just after this request.
+      // Keep waiting for success instead of treating that transient event as failure.
+      request.onblocked = () => {};
+    });
+  }
+
+  return { DB_NAME, DB_VERSION, STORES, isAvailable, openDatabase, closeDatabase, deleteOriginDatabases };
 });

@@ -126,7 +126,7 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     assert.equal(await page.inputValue('#setting-api-type'), 'webllm', 'Query no debe reaplicar el perfil activo sobre el editor');
     assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
     assert.equal(await page.inputValue('#setting-model'), 'model-cached');
-    assert.deepEqual(await page.locator('#model-select-helper option').evaluateAll(options => options.map(option => option.value)), ['', 'model-cached', 'model-missing']);
+    assert.deepEqual(await page.locator('#model-select-helper option').evaluateAll(options => options.map(option => option.value)), ['', 'model-cached']);
     await page.selectOption('#setting-api-type', 'openai');
     assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
     assert.equal(await page.locator('.api-key-field').isVisible(), true);
@@ -212,6 +212,14 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.waitForSelector('#welcome-help-link');
+
+    const statusBox = await page.locator('.welcome-status-badge:not(.welcome-help-link)').boundingBox();
+    const helpBox = await page.locator('#welcome-help-link').boundingBox();
+    assert.ok(statusBox && helpBox, 'Ambos elementos deben tener boundingBox');
+    assert.ok(helpBox.y >= (statusBox.y + statusBox.height), 'El enlace de ayuda debe estar situado debajo del estado de chat vacío');
+    const statusCenterX = statusBox.x + statusBox.width / 2;
+    const helpCenterX = helpBox.x + helpBox.width / 2;
+    assert.ok(Math.abs(statusCenterX - helpCenterX) <= 2, 'El enlace de ayuda debe estar centrado horizontalmente respecto al estado de chat vacío');
 
     const stateEs = await page.$eval('#welcome-help-link', el => ({
       href: el.href,
@@ -2836,3 +2844,52 @@ test('UI - Indicador de progreso de generación es invisible sin ciclo activo y 
     await browser.close();
   }
 });
+
+test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    const result = await page.evaluate(async () => {
+      try {
+        if (!window.ChatWebLLM) return { ok: false, error: 'ChatWebLLM no está definido' };
+        let workerCreated = false;
+        let workerStopped = false;
+
+        const fakeBundle = `
+          self.webllm = {
+            WebWorkerMLCEngineHandler: class {
+              constructor() {}
+              onmessage(event) {}
+            }
+          };
+        `;
+
+        const fakeWebLLM = {
+          CreateWebWorkerMLCEngine: async (worker, modelId, opts) => {
+            workerCreated = true;
+            return {
+              unload: async () => {}
+            };
+          }
+        };
+
+        // Pasar fakeBundle en bundleSource para comprobar la instanciación del worker sin descargar 5 MB de red
+        const handle = await window.ChatWebLLM.createWorkerEngine(fakeWebLLM, 'test-model', {}, () => {}, null);
+        await handle.release();
+        return { ok: true, workerCreated };
+      } catch (err) {
+        return { ok: false, error: err.message, code: err.code };
+      }
+    });
+
+    assert.equal(result.ok, true, `Worker debe arrancar en file:// sin fallar: ${result.error || ''}`);
+    assert.equal(result.workerCreated, true);
+  } finally {
+    await browser.close();
+  }
+});
+

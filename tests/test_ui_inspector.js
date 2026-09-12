@@ -185,6 +185,43 @@ test('UIInspector - populateModelList limpia opciones al no haber modelos para l
   assert.equal(selectOptions.length, 1);
 });
 
+test('UIInspector - populateModelList para WebLLM solo incluye modelos descargados', () => {
+  const datalistOptions = [];
+  const selectOptions = [];
+  const ownerDocument = {
+    createElement: tag => ({ tagName: tag, value: '', textContent: '', disabled: false, selected: false })
+  };
+  const fakeSettingApiType = { value: 'webllm' };
+  const fakeSettingModel = { value: 'not-downloaded-model' };
+  const elements = {
+    settingApiType: fakeSettingApiType,
+    settingModel: fakeSettingModel,
+    modelDatalist: {
+      innerHTML: '',
+      ownerDocument,
+      appendChild: option => datalistOptions.push(option)
+    },
+    modelSelectHelper: {
+      innerHTML: '',
+      ownerDocument,
+      appendChild: option => selectOptions.push(option)
+    }
+  };
+
+  const models = [
+    { id: 'not-downloaded-model', details: { webllmCache: 'missing' } },
+    { id: 'downloaded-model', details: { webllmCache: 'cached' } }
+  ];
+
+  UIInspector.populateModelList(elements, { apiType: 'webllm' }, models, false);
+
+  assert.equal(datalistOptions.length, 1);
+  assert.equal(datalistOptions[0].value, 'downloaded-model');
+  assert.equal(selectOptions.length, 2);
+  assert.equal(selectOptions[1].value, 'downloaded-model');
+  assert.equal(fakeSettingModel.value, 'downloaded-model');
+});
+
 test('UIInspector - renderInspectorReport genera markup de metadatos y capacidades', () => {
   const fakeResultsContainer = { innerHTML: '' };
   const elements = { inspectorResults: fakeResultsContainer };

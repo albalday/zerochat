@@ -131,6 +131,15 @@
           </li>
 
           <li>
+            <strong>WebGPU Interoperability on Linux (Recommended for Linux and Wayland):</strong>
+            <p>On Linux (especially when running Wayland or dedicated NVIDIA/AMD GPUs), enable this setting to connect WebGPU compute directly to the browser window without overloading the CPU:</p>
+            <div class="code-box">
+              <code>chrome://flags/#force-enable-webgpu-interop</code>
+              <button class="btn-copy" onclick="copyText('chrome://flags/#force-enable-webgpu-interop', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
             <strong>Check GPU diagnostics:</strong>
             <p>Open the internal graphics status page and verify that <em>WebGPU</em> is listed as <em>"Hardware accelerated"</em>:</p>
             <div class="code-box">
@@ -139,14 +148,6 @@
             </div>
           </li>
         </ol>
-
-        <div class="alert alert-warning">
-          <strong>On Linux:</strong> If WebGPU fails to activate automatically under OpenGL, start Chromium with Vulkan support:
-          <div class="code-box" style="margin-top:0.4rem;">
-            <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>
-            <button class="btn-copy" onclick="copyText('--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan', this)">Copy</button>
-          </div>
-        </div>
       </div>
 
       <!-- Mozilla Firefox -->
@@ -243,10 +244,6 @@
           <strong>Hardware Acceleration:</strong>
           <p>In <code>chrome://settings/system</code>, you can toggle <em>"Use hardware acceleration when available"</em> according to your standard preference.</p>
         </li>
-        <li>
-          <strong>Terminal / Launch Arguments on Linux:</strong>
-          <p>If you added <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code> to your terminal command or desktop launcher (<code>.desktop</code> file), simply remove those arguments to revert Chromium to its standard graphics backend (OpenGL/EGL).</p>
-        </li>
       </ul>
 
       <h3>2. Mozilla Firefox</h3>
@@ -299,7 +296,10 @@
     </div>
 
     <div class="card">
-      <h2>Troubleshooting Common Issues</h2>
+      <h2>Troubleshooting Common Issues &amp; Compatibility</h2>
+      <p>ZeroChat executes WebLLM through an in-memory self-contained classic Web Worker, ensuring full compatibility in both Google Chrome and Mozilla Firefox directly under the <code>file://</code> protocol (without requiring a local server or special browser flags). The JavaScript runtime is persistently cached in <em>Cache Storage</em> and automatically refreshed every 7 days when an active internet connection is available (with seamless offline fallback when disconnected).</p>
+      <p>Settings → Clear all data deletes storage for the current origin, including RAG, attachments, downloaded models, IndexedDB, Cache Storage and browser-private files. Close other tabs before confirming. Deletion is irreversible and affects applications sharing the origin. Repeat it for each HTTP or file:// origin you used. It does not delete files downloaded to your computer, HttpOnly cookies or the browser's internal HTTP cache.</p>
+      <p>If preparation fails, the model row displays the error detail received from WebLLM. When comparing <code>file://</code> with a local HTTP server, copy the complete message to diagnose resource and storage access.</p>
       <ul>
         <li>
           <strong>"WebGPU is not available in this browser":</strong> Ensure you are running the latest browser version with WebGPU flags enabled as described above.

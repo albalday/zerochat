@@ -33,6 +33,9 @@
 
 /* Estado de Bienvenida */
 .welcome-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   margin: auto auto;
   text-align: center;
   padding: 3rem 1.5rem;
@@ -74,6 +77,7 @@
 .welcome-status-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.45rem 1rem;
   background-color: var(--bg-surface);
@@ -89,6 +93,7 @@
 .welcome-help-link {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   width: fit-content;
   margin: 0.75rem auto 0;

@@ -219,13 +219,24 @@ test('WebLLM - no oculta como fallback un error real de preparación', async () 
   URL.createObjectURL = () => 'blob:test-webllm-worker';
   URL.revokeObjectURL = () => {};
   try {
+    const originalError = new Error('GPU allocation failed');
     await assert.rejects(WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => { throw new Error('GPU allocation failed'); },
+      CreateWebWorkerMLCEngine: async () => { throw originalError; },
       CreateMLCEngine: async () => {
         mainThreadEngineCreated = true;
         return { unload: async () => {} };
       }
-    }, 'test-model', {}, () => {}), /GPU allocation failed/);
+    }, 'test-model', {}, () => {}), error => error === originalError);
+    for (const detail of ['SecurityError: Cache Storage access denied', 'NS_ERROR_FILE_NO_DEVICE_SPACE']) {
+      await assert.rejects(WebLLM.createWorkerEngine({
+        CreateWebWorkerMLCEngine: async () => { throw detail; }
+      }, 'test-model', {}, () => {}), error => {
+        assert.equal(error.message, detail);
+        assert.equal(error.cause, detail);
+        assert.notEqual(error.code, 'WEBLLM_WORKER_UNAVAILABLE');
+        return true;
+      });
+    }
     assert.equal(mainThreadEngineCreated, false);
   } finally {
     global.Worker = originalWorker;
@@ -321,3 +332,124 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
     global.fetch = originalFetch;
   }
 });
+
+test('WebLLM - transformEsmToClassic convierte exportaciones a asignación global self.webllm', () => {
+  const esm = 'const x = 1, y = 2;\nexport { x as Chat, y as Engine };\n//# sourceMappingURL=test.map\n';
+  const classic = WebLLM.transformEsmToClassic(esm);
+  assert.equal(classic.includes('export {'), false);
+  assert.equal(classic.includes('"Chat": x'), true);
+  assert.equal(classic.includes('"Engine": y'), true);
+  assert.equal(classic.includes('self.webllm = exp'), true);
+
+  // Si no hay export, devuelve el código intacto
+  assert.equal(WebLLM.transformEsmToClassic('console.log("no export");'), 'console.log("no export");');
+});
+
+test('WebLLM - getOrFetchClassicBundle respeta la política de caché semanal (7 días) y fallback offline', async () => {
+  const originalFetch = global.fetch;
+  const originalCaches = global.caches;
+  WebLLM.resetMemoryBundle();
+
+  let fetchCalls = 0;
+  let returnedEsm = 'const a = 1; export { a as WebWorkerMLCEngineHandler };';
+  global.fetch = async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      text: async () => returnedEsm
+    };
+  };
+
+  const cacheStorageMap = new Map();
+  Object.defineProperty(global, 'caches', {
+    value: {
+      open: async (name) => ({
+        match: async (url) => cacheStorageMap.get(`${name}:${url}`) || null,
+        put: async (url, response) => {
+          const body = await response.text();
+          cacheStorageMap.set(`${name}:${url}`, {
+            text: async () => body,
+            headers: {
+              get: (h) => h === 'x-cached-at' ? response.headers.get('x-cached-at') : null
+            }
+          });
+        }
+      })
+    },
+    configurable: true
+  });
+
+  try {
+    // 1. Primera llamada: debe realizar fetch y guardar en caché
+    const first = await WebLLM.getOrFetchClassicBundle({ forceRefresh: true });
+    assert.equal(fetchCalls, 1);
+    assert.equal(first.includes('self.webllm = exp'), true);
+
+    // 2. Segunda llamada dentro del TTL: debe usar la versión cacheada sin llamar a fetch
+    const second = await WebLLM.getOrFetchClassicBundle();
+    assert.equal(fetchCalls, 1);
+    assert.equal(second, first);
+
+    // 3. Simular expiración de TTL (> 7 días) y limpiar memoria
+    WebLLM.resetMemoryBundle();
+    const oldTimestamp = (Date.now() - (WebLLM.CACHE_TTL_MS + 10000)).toString();
+    const cachedEntry = cacheStorageMap.get(`${WebLLM.BUNDLE_CACHE_NAME}:https://zerochat.local/webllm-runtime-bundle.js`);
+    assert.ok(cachedEntry, 'Debe existir la entrada en cacheStorageMap');
+    cachedEntry.headers.get = (h) => h === 'x-cached-at' ? oldTimestamp : null;
+
+    // 4. Llamada tras expiración: debe llamar a fetch de nuevo
+    returnedEsm = 'const b = 2; export { b as WebWorkerMLCEngineHandler };';
+    const refreshed = await WebLLM.getOrFetchClassicBundle();
+    assert.equal(fetchCalls, 2);
+    assert.equal(refreshed.includes('"WebWorkerMLCEngineHandler": b'), true);
+
+    // 5. Fallback offline: expira el TTL pero la red falla -> debe retornar la versión en caché sin lanzar error
+    WebLLM.resetMemoryBundle();
+    cachedEntry.headers.get = (h) => h === 'x-cached-at' ? oldTimestamp : null;
+    global.fetch = async () => { throw new Error('Offline / Network error'); };
+    const offlineFallback = await WebLLM.getOrFetchClassicBundle();
+    assert.equal(offlineFallback.includes('"WebWorkerMLCEngineHandler": b'), true);
+  } finally {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'caches', { value: originalCaches, configurable: true });
+    WebLLM.resetMemoryBundle();
+  }
+});
+
+test('WebLLM - createWorkerEngine no incluye type: module en el Worker para compatibilidad con file:// en Chrome', async () => {
+  const originalWorker = global.Worker;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+
+  let workerConstructorOptions = 'UNSET';
+  global.Worker = class {
+    constructor(url, options) {
+      workerConstructorOptions = options;
+      this.listeners = new Map();
+    }
+    addEventListener(type, handler) { this.listeners.set(type, handler); }
+    removeEventListener(type) { this.listeners.delete(type); }
+    terminate() {}
+  };
+  URL.createObjectURL = () => 'blob:test-classic-worker';
+  URL.revokeObjectURL = () => {};
+
+  try {
+    let engineCreated = false;
+    await WebLLM.createWorkerEngine({
+      CreateWebWorkerMLCEngine: async () => {
+        engineCreated = true;
+        return { unload: async () => {} };
+      }
+    }, 'test-model', {}, () => {});
+
+    assert.equal(engineCreated, true);
+    assert.equal(workerConstructorOptions, undefined, 'El worker clásico no debe pasar { type: "module" }');
+  } finally {
+    global.Worker = originalWorker;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
+});
+

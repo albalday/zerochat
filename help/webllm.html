@@ -134,6 +134,15 @@
           </li>
 
           <li>
+            <strong>Interoperabilidad WebGPU en Linux (Recomendado en Linux y Wayland):</strong>
+            <p>En Linux (especialmente con Wayland o gráficas dedicadas NVIDIA/AMD), activa esta opción para conectar el cómputo de WebGPU directamente con la ventana del navegador sin sobrecargar la CPU:</p>
+            <div class="code-box">
+              <code>chrome://flags/#force-enable-webgpu-interop</code>
+              <button class="btn-copy" onclick="copyText('chrome://flags/#force-enable-webgpu-interop', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
             <strong>Comprobar el estado de la GPU:</strong>
             <p>Abre el panel de diagnóstico y verifica que <em>WebGPU</em> figure como <em>"Hardware accelerated"</em>:</p>
             <div class="code-box">
@@ -142,14 +151,6 @@
             </div>
           </li>
         </ol>
-
-        <div class="alert alert-warning">
-          <strong>En Linux:</strong> Si WebGPU no se activa automáticamente con OpenGL, inicia Chromium con soporte Vulkan:
-          <div class="code-box" style="margin-top:0.4rem;">
-            <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>
-            <button class="btn-copy" onclick="copyText('--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan', this)">Copiar</button>
-          </div>
-        </div>
       </div>
 
       <!-- Mozilla Firefox -->
@@ -246,10 +247,6 @@
           <strong>Aceleración por hardware:</strong>
           <p>En <code>chrome://settings/system</code>, puedes volver a marcar o desmarcar la opción <em>"Usar aceleración por hardware cuando esté disponible"</em> según tu preferencia habitual.</p>
         </li>
-        <li>
-          <strong>Parámetros de terminal en Linux:</strong>
-          <p>Si iniciaste Chromium con parámetros adicionales como <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>, simplemente elimínalos de tu comando de terminal o del lanzador de escritorio (archivo <code>.desktop</code>).</p>
-        </li>
       </ul>
 
       <h3>2. Mozilla Firefox</h3>
@@ -302,7 +299,10 @@
     </div>
 
     <div class="card">
-      <h2>Resolución de Problemas Frecuentes</h2>
+      <h2>Resolución de Problemas Frecuentes y Compatibilidad</h2>
+      <p>ZeroChat ejecuta WebLLM mediante un Web Worker clásico autocontenido en memoria, garantizando compatibilidad total tanto en Google Chrome como en Mozilla Firefox directamente bajo el protocolo <code>file://</code> (sin requerir servidores locales ni flags especiales). El runtime de JavaScript se almacena de forma persistente en <em>Cache Storage</em> y se actualiza periódicamente de manera automática cada 7 días siempre que haya conexión disponible (con respaldo <em>offline</em> transparente si no hay red).</p>
+      <p>Configuración → Borrar todo elimina los datos del origen actual, incluidos RAG, adjuntos, modelos descargados, IndexedDB, Cache Storage y archivos privados del navegador. Cierra las otras pestañas antes de confirmar. El borrado es irreversible y afecta a aplicaciones que compartan el origen. Repite la operación en cada origen HTTP o file:// que hayas utilizado. No elimina archivos descargados en tu ordenador, cookies HttpOnly ni la caché HTTP interna del navegador.</p>
+      <p>Si la preparación falla, la fila del modelo muestra el detalle del error recibido de WebLLM. Al comparar la apertura mediante <code>file://</code> con un servidor HTTP local, copia ese mensaje completo para diagnosticar el acceso a los recursos y al almacenamiento.</p>
       <ul>
         <li>
           <strong>"WebGPU no está disponible en este navegador":</strong> Comprueba que tu navegador esté actualizado a la última versión y que los flags de WebGPU indicados arriba estén habilitados.
@@ -339,4 +339,3 @@
   <script src="help.js"></script>
 </body>
 </html>
-

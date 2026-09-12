@@ -355,6 +355,12 @@
     if (!await ChatDialogs.confirm(t('confirm_clear_all_data'))) return;
     const Storage = getStorage();
     let cleared = true;
+    try {
+      await getProviders()?.registry?.get?.('webllm')?.deactivate?.();
+    } catch (_) {
+      await ChatDialogs.alert(t('clear_all_data_failed'), { type: 'error' });
+      return;
+    }
     if (Storage?.clearAllStorage) {
       try {
         cleared = await Storage.clearAllStorage();
@@ -367,7 +373,8 @@
       try { sessionStorage.clear(); } catch (e) {}
     }
     if (cleared === false) {
-      ChatDialogs.alert(t('chat_delete_history_err'), { type: 'error' });
+      const detail = Storage?.getLastClearAllStorageError?.();
+      await ChatDialogs.alert(detail ? t('clear_all_data_failed_detail', { detail }) : t('clear_all_data_failed'), { type: 'error' });
       return;
     }
     if (typeof window !== 'undefined' && window.location) {
