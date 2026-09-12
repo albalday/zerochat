@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modo Agente y Herramientas Nativas · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía del ciclo agéntico autónomo en ZeroChat: ejecución segura de JavaScript en sandbox, búsqueda web, descarga de páginas, gráficas interactivas y seguridad.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Modo Agente y Herramientas Nativas</h1>
+      <p class="subtitle">Convierte a los modelos de lenguaje en asistentes activos capaces de razonar, ejecutar código, buscar información y dibujar gráficos.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. ¿Qué es el Modo Agente en ZeroChat?</h2>
+      <p>
+        El <strong>Modo Agente</strong> transforma la interacción pasiva de pregunta-respuesta en un bucle autónomo multivuelta (<em>Agentic Loop</em>).
+      </p>
+      <p>
+        Cuando planteas una tarea compleja, el modelo evalúa qué herramientas necesita, emite una llamada estructurada (Function Calling), ZeroChat ejecuta la herramienta de forma segura en tu navegador y devuelve el resultado al modelo para que continúe resolviendo el problema hasta completar el objetivo.
+      </p>
+      <div class="alert alert-info">
+        <strong>Límite de turnos de seguridad (<code>maxAgentTurns</code>):</strong> En la configuración puedes definir el número máximo de turnos continuos que el agente puede encadenar (por defecto entre 5 y 10), impidiendo bucles infinitos y consumo desmedido de tokens.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Catálogo de Herramientas Integradas (Built-in Tools)</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Herramienta</th>
+              <th>Descripción y Capacidades</th>
+              <th>Entorno de Ejecución</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>execute_javascript</code></td>
+              <td>Ejecuta código JavaScript de forma aislada para cálculos matemáticos, algoritmos, transformaciones de datos o procesamiento de cadenas.</td>
+              <td>Web Worker aislado (Sandbox seguro)</td>
+            </tr>
+            <tr>
+              <td><code>search_web</code></td>
+              <td>Realiza búsquedas en tiempo real en Internet para obtener información de actualidad o documentación técnica reciente.</td>
+              <td>SearXNG o DuckDuckGo sin API key</td>
+            </tr>
+            <tr>
+              <td><code>fetch_web_page</code></td>
+              <td>Descarga el contenido de una URL pública y lo convierte a Markdown limpio eliminando publicidad y scripts innecesarios.</td>
+              <td>Cliente HTTP con protección anti-SSRF</td>
+            </tr>
+            <tr>
+              <td><code>download_pdf</code></td>
+              <td>Descarga un documento PDF desde una URL y extrae su texto para que el modelo pueda consultarlo.</td>
+              <td>Parser PDF en el navegador</td>
+            </tr>
+            <tr>
+              <td><code>render_chart</code></td>
+              <td>Genera visualizaciones gráficas interactivas nativas en SVG (líneas, barras, dispersión, etc.) insertadas directamente en la conversación.</td>
+              <td>Motor SVG cliente (<code>charts.js</code>)</td>
+            </tr>
+            <tr>
+              <td><code>list_documents</code><br><code>search_knowledge_base</code><br><code>read_knowledge_chunk</code></td>
+              <td>Herramientas para inspeccionar, buscar e indexar fragmentos de documentos cargados en la base de conocimiento local (RAG).</td>
+              <td>Motor Orama & IndexedDB local</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Seguridad del Sandbox de JavaScript</h2>
+      <p>
+        La ejecución de código arbitrario generado por un modelo de lenguaje es un vector crítico. En ZeroChat, el ejecutor de JavaScript (<code>sandbox.js</code>) implementa rigurosas medidas de contención:
+      </p>
+      <ul>
+        <li><strong>Aislamiento en Web Worker:</strong> El código no se ejecuta en el hilo principal ni tiene acceso al objeto <code>window</code>, <code>document</code>, cookies, almacenamiento local ni el árbol DOM.</li>
+        <li><strong>Restricción de APIs peligrosas:</strong> Las APIs de red (<code>fetch</code>, <code>XMLHttpRequest</code>, <code>WebSocket</code>) están desactivadas dentro del sandbox.</li>
+        <li><strong>Límites de tiempo (Timeout):</strong> Si un script generado contiene un bucle infinito o tarda más de lo estipulado (por ejemplo, 5 segundos), el worker se destruye automáticamente.</li>
+        <li><strong>Límites de memoria y tamaño de salida:</strong> Previene bloqueos del navegador por saturación de memoria o cadenas masivas.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Tarjetas de Herramientas Interactivas (Tool Cards)</h2>
+      <p>
+        Cuando el agente invoca una herramienta durante una conversación, ZeroChat muestra una <strong>Tool Card</strong> en el flujo de mensajes que refleja el estado de la operación en tiempo real:
+      </p>
+      <ul>
+        <li><strong>Cabecera con estado:</strong> Muestra un spinner animado durante la ejecución y un check verde o icono de alerta al terminar.</li>
+        <li><strong>Entrada y salida colapsables:</strong> Puedes desplegar la tarjeta para ver los argumentos exactos pasados a la función y el resultado devuelto por la herramienta.</li>
+        <li><strong>Persistencia en historial:</strong> Si recargas la página o navegas entre conversaciones, las tarjetas de herramientas se restauran fielmente con sus desplegables operativos.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="reasoning-telemetry.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Razonamiento y Telemetría</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="rag.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Conocimiento Local (RAG)</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

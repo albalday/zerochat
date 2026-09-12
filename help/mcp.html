@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía de integración de MCP en ZeroChat: conexión con servidores externos SSE/HTTP, generador de scripts Python FastMCP y políticas de autorización de herramientas.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Protocolo MCP (Model Context Protocol)</h1>
+      <p class="subtitle">Conecta ZeroChat con tus herramientas externas, bases de datos o servicios del sistema operativo mediante el estándar abierto MCP.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. ¿Qué es MCP?</h2>
+      <p>
+        El <strong>Model Context Protocol (MCP)</strong> es un estándar abierto promovido por Anthropic para conectar modelos de inteligencia artificial con fuentes de datos y herramientas del mundo real de manera uniforme.
+      </p>
+      <p>
+        ZeroChat implementa un <strong>cliente MCP completo sobre SSE (Server-Sent Events) y HTTP</strong>. Esto te permite conectar el navegador con cualquier servidor MCP que ejecutes en tu máquina (por ejemplo, en Python, Node.js o Go) para dar al modelo acceso a bases de datos SQL, sistemas de archivos, APIs internas de tu empresa o utilidades de línea de comandos.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>2. Conexión y Estado en la Interfaz</h2>
+      <p>
+        En la barra inferior del composer encontrarás el botón indicador de <strong>MCP</strong>:
+      </p>
+      <ul>
+        <li><strong>Punto gris / desconectado:</strong> No hay ningún servidor MCP activo.</li>
+        <li><strong>Punto verde / conectado:</strong> ZeroChat ha establecido conexión con el servidor y ha descubierto sus herramientas.</li>
+      </ul>
+      <p>
+        Al hacer clic en el botón MCP se abre el modal de configuración, donde puedes especificar el host y el puerto de tu servidor local (por defecto <code>http://127.0.0.1:8000/sse</code>) y pulsar <em>"Conectar"</em>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>3. Generador de Servidor FastMCP Integrado</h2>
+      <p>
+        Para que no tengas que escribir un servidor desde cero, ZeroChat incluye en el propio diálogo de configuración un <strong>generador automático de código Python FastMCP</strong>.
+      </p>
+      <p>
+        Selecciona tu sistema operativo (Linux, macOS o Windows) y verás:
+      </p>
+      <ol>
+        <li>El comando para instalar FastMCP con pip o uv.</li>
+        <li>El script completo en Python con funciones de ejemplo listas para usar (como consultas meteorológicas, cálculos o utilidades).</li>
+        <li>El comando exacto para arrancar el servidor en terminal con soporte de CORS activado.</li>
+      </ol>
+      <div class="code-wrapper">
+        <pre><code># Arrancar un servidor FastMCP en Python para ZeroChat
+uv run fastmcp run server.py --transport sse --port 8000</code></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Control de Permisos y Autorización por Herramienta</h2>
+      <p>
+        Dado que las herramientas MCP externas pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o consultar bases de datos), ZeroChat incorpora un panel de control granular para cada herramienta descubierta:
+      </p>
+      <ul>
+        <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta por el servidor MCP sin necesidad de reiniciar el servicio.</li>
+        <li><strong>Política de autorización:</strong>
+          <ul>
+            <li><em>Automático:</em> El agente puede ejecutar la herramienta de forma transparente.</li>
+            <li><em>Pedir confirmación:</em> ZeroChat pausará la ejecución y solicitará tu aprobación explícita mediante un diálogo modal antes de permitir la invocación.</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="alert alert-warning">
+        <strong>Seguridad en red local:</strong> Asegúrate de que tu servidor MCP escuche únicamente en la interfaz local <code>127.0.0.1</code> y no en <code>0.0.0.0</code> si estás conectado a una red pública no confiable.
+      </div>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="rag.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Conocimiento Local (RAG)</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="debug.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Depuración e Interceptor</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>

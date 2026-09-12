@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Base de Conocimiento Local (RAG) · Ayuda de ZeroChat</title>
+  <meta name="description" content="Manual de RAG (Generación Aumentada por Recuperación) en ZeroChat: ramas de conocimiento, indexación de documentos con Orama, búsqueda híbrida e imágenes.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Base de Conocimiento Local (RAG)</h1>
+      <p class="subtitle">Consulta tus propios documentos de forma privada sin subirlos a la nube gracias al motor RAG integrado en el navegador.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. ¿Qué es RAG y por qué en ZeroChat es diferente?</h2>
+      <p>
+        <strong>RAG</strong> (<em>Retrieval-Augmented Generation</em> o Generación Aumentada por Recuperación) es una técnica que permite al modelo de lenguaje responder preguntas basándose en tus propios manuales, libros, notas o documentación técnica.
+      </p>
+      <p>
+        En la inmensa mayoría de herramientas comerciales, tus documentos se suben a servidores externos para ser vectorizados. En ZeroChat, <strong>todo el proceso de ingesta, particionado (chunking) e indexación se realiza localmente en tu ordenador</strong> dentro del navegador utilizando el motor de búsqueda <strong>Orama</strong> y almacenamiento persistente en <strong>IndexedDB</strong>.
+      </p>
+      <div class="alert alert-success">
+        <strong>Confidencialidad absoluta:</strong> Tus contratos, código propietario o datos médicos jamás abandonan tu equipo. Solo los fragmentos relevantes seleccionados para responder a tu pregunta se envían al modelo de lenguaje que elijas.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Ramas de Conocimiento (Knowledge Branches)</h2>
+      <p>
+        Para mantener tus proyectos organizados, ZeroChat estructura el conocimiento en <strong>Ramas</strong> independientes:
+      </p>
+      <ul>
+        <li>Puedes crear diferentes ramas según la temática (por ejemplo: <em>"Documentación API"</em>, <em>"Finanzas 2026"</em>, <em>"Apuntes de Física"</em>).</li>
+        <li>Una rama puede activarse o desactivarse con un simple clic desde el botón <strong>RAG</strong> de la barra inferior.</li>
+        <li>Cuando una rama está activa, el agente o el chat tienen acceso directo a los documentos contenidos en ella.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Ingestión y Procesamiento de Documentos</h2>
+      <p>
+        Dentro del modal de gestión RAG puedes arrastrar archivos o pulsar sobre el área de carga:
+      </p>
+      <ul>
+        <li><strong>PDFs y Libros:</strong> Se analiza cada página, se extrae el texto continuo y se identifican las posibles imágenes o esquemas relevantes.</li>
+        <li><strong>Markdown y Texto Plano:</strong> Se respetan los títulos (<code>#</code>, <code>##</code>, <code>###</code>) para realizar divisiones semánticas naturales.</li>
+        <li><strong>Archivos de Código Fuente:</strong> Se agrupan respetando funciones y clases para que el contexto técnico no se rompa al dividirse en fragmentos.</li>
+        <li><strong>Chunking Inteligente:</strong> El motor divide los textos en fragmentos de tamaño óptimo con solapamiento (overlap) para asegurar que ninguna idea clave quede cortada a la mitad.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Búsqueda y Herramientas Agénticas de Consulta</h2>
+      <p>
+        El modelo puede interactuar con tus documentos mediante dos estrategias complementarias:
+      </p>
+      <ol>
+        <li>
+          <strong>Inyección Contextual Automática:</strong> Antes de responder, ZeroChat busca los fragmentos más pertinentes en la rama activa y los inyecta en el prompt del sistema.
+        </li>
+        <li>
+          <strong>Consulta Activa por Herramientas (Tool Calling):</strong> El modelo invoca dinámicamente las herramientas del agente:
+          <ul>
+            <li><code>list_documents</code>: Conoce los documentos disponibles en la rama.</li>
+            <li><code>search_knowledge_base</code>: Realiza búsquedas específicas con términos clave.</li>
+            <li><code>read_knowledge_chunk</code>: Lee un fragmento concreto en profundidad.</li>
+            <li><code>read_knowledge_image</code>: Si un PDF contenía diagramas o figuras, el modelo puede solicitar ver la imagen para analizarla visualmente.</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="tools-agent.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Modo Agente y Herramientas</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="mcp.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Protocolo MCP</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

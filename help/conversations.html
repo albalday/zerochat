@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversaciones, Historial y Ramas · Ayuda de ZeroChat</title>
+  <meta name="description" content="Manual para organizar chats en ZeroChat: barra lateral cronológica, búsqueda de conversaciones, ramificación (branching) y exportación/importación segura.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Conversaciones, Historial y Ramas</h1>
+      <p class="subtitle">Aprende a gestionar tus sesiones de chat, explorar caminos alternativos con branching y respaldar tus datos.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. La Barra Lateral de Conversaciones</h2>
+      <p>
+        En la parte izquierda de la pantalla encontrarás la <strong>Barra Lateral</strong> (accesible en dispositivos móviles mediante el icono de menú superior).
+      </p>
+      <p>Características principales de la barra lateral:</p>
+      <ul>
+        <li><strong>Nueva conversación:</strong> Botón directo para iniciar un chat limpio conservando el perfil seleccionado.</li>
+        <li><strong>Agrupación cronológica inteligente:</strong> Las conversaciones se ordenan automáticamente en secciones temporales legibles: <em>Hoy</em>, <em>Ayer</em>, <em>Últimos 7 días</em>, <em>Este mes</em> y <em>Anteriores</em>.</li>
+        <li><strong>Búsqueda en tiempo real:</strong> Escribe en el cuadro de búsqueda para filtrar al instante cualquier conversación por su título.</li>
+        <li><strong>Acciones rápidas por sesión:</strong> Al pasar el ratón por cada chat, dispones de botones para exportar esa conversación individual o borrarla.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2. Ramificación de Conversaciones (Branching)</h2>
+      <p>
+        El <strong>Branching</strong> o ramificación es una de las funcionalidades más potentes de ZeroChat para explorar ideas sin perder el contexto original.
+      </p>
+      <h3>¿Cómo funciona?</h3>
+      <ol>
+        <li>Bajo cualquier respuesta del asistente verás el botón de ramificación con el icono de bifurcación (<em>Branch</em>).</li>
+        <li>Al pulsar sobre él, ZeroChat crea una <strong>nueva conversación independiente</strong> que contiene el historial exacto hasta ese punto seleccionado.</li>
+        <li>Los turnos posteriores de la conversación original se descartan en la nueva rama, permitiéndote formular una pregunta distinta, cambiar de modelo o probar una hipótesis alternativa.</li>
+        <li>La conversación origen permanece intacta y ambas ramas pueden consultarse y continuarse en cualquier momento desde la barra lateral.</li>
+      </ol>
+      <div class="alert alert-info">
+        <strong>Caso de uso típico:</strong> Imagina que el asistente te da dos posibles soluciones a un problema. Puedes ramificar en esa respuesta para seguir desarrollando la "Opción A" en una conversación y la "Opción B" en otra diferente.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Exportación de Conversaciones</h2>
+      <p>
+        ZeroChat te permite exportar tus conversaciones en múltiples formatos estándar para compartirlas, archivarlas o usarlas en informes:
+      </p>
+      <ul>
+        <li><strong>JSON Completo de Sesión:</strong> Incluye los mensajes de usuario y asistente, metadatos, perfil utilizado, uso de tokens y llamadas a herramientas. Este archivo sirve además como copia de seguridad exacta que puedes importar de vuelta.</li>
+        <li><strong>Markdown (.md):</strong> Formato de texto estructurado listo para publicar en GitHub, Obsidian, Notion o tu editor favorito, preservando encabezados, bloques de código, tablas y fórmulas matemáticas.</li>
+        <li><strong>Texto Plano (.txt):</strong> Transcripción limpia y ligera de la conversación para lectura rápida.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Importación y Copia de Seguridad</h2>
+      <p>
+        En el pie de la barra lateral dispones del botón <strong>"Importar conversación"</strong>. Permite seleccionar cualquier archivo <code>.json</code> exportado previamente por ZeroChat.
+      </p>
+      <p>
+        Al importar, la conversación se valida de forma estricta, se sanitiza para prevenir inyecciones maliciosas y se almacena en tu base de datos IndexedDB local, apareciendo al instante en la lista de chats.
+      </p>
+      <div class="alert alert-warning">
+        <strong>Borrado masivo seguro:</strong> El botón con icono de papelera en el pie de la barra lateral permite eliminar todas las conversaciones de golpe. Antes de proceder, ZeroChat solicitará tu confirmación explícita para evitar pérdidas accidentales.
+      </div>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="webllm.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Inferencia Local WebLLM</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="composer.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Composer y Multimedia</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

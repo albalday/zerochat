@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Razonamiento (Thinking) y Telemetría de Contexto · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía sobre modelos de razonamiento (Thinking) y monitorización de tokens, caché de contexto y velocidad en tiempo real en ZeroChat.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Razonamiento (Thinking) y Telemetría</h1>
+      <p class="subtitle">Descubre cómo controlar el esfuerzo de reflexión de los modelos y supervisar la ventana de contexto y el consumo de tokens en tiempo real.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. Modelos con Capacidad de Razonamiento</h2>
+      <p>
+        Los modelos de última generación (como DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Sonnet con thinking o Qwen QwQ) generan una cadena de pensamiento interna previa a emitir su respuesta final.
+      </p>
+      <p>
+        ZeroChat captura estos fragmentos de pensamiento en tiempo real (<code>reasoning_content</code> / <code>thinking</code>) a través de los adaptadores de proveedor y los presenta en un bloque visual independiente y colapsable en el chat.
+      </p>
+      <h3>El Selector de Nivel de Razonamiento</h3>
+      <p>
+        En la barra inferior del composer encontrarás el botón con el icono de cerebro. Al hacer clic se despliega el menú de configuración de esfuerzo:
+      </p>
+      <ul>
+        <li><strong>None (Desactivado):</strong> El modelo responde directamente sin generar cadena de pensamiento extendida (ideal para respuestas rápidas y concisas).</li>
+        <li><strong>Low / Medium / High:</strong> Gradúa el presupuesto de tokens asignado a la deliberación interna del modelo según la complejidad de la tarea.</li>
+        <li><strong>send-none experimental:</strong> Para proveedores o servidores locales (como WebLLM o ciertas instancias vLLM) que requieren declarar explícitamente el parámetro <code>reasoning_effort: "none"</code>.</li>
+      </ul>
+      <div class="alert alert-info">
+        <strong>Punto de Control Agéntico (<code>agent_checkpoint</code>):</strong> En el menú de razonamiento puedes activar esta herramienta especial. Permite al modelo guardar reflexiones o hallazgos clave antes de ejecutar acciones complejas o búsquedas documentales.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. El Hub Unificado de Telemetría (Context Hub)</h2>
+      <p>
+        Junto al selector de perfil se muestra un botón indicador de telemetría (por ejemplo, <code>1.4k / 128k</code>). Este botón sintetiza la salud de la ventana de contexto de la conversación activa mediante un código de colores tipo semáforo:
+      </p>
+      <ul>
+        <li><strong>Verde (Óptimo):</strong> Menos del 75% de la capacidad de contexto utilizada.</li>
+        <li><strong>Ámbar (Advertencia):</strong> Entre el 75% y el 90% de la capacidad consumida. Conviene podar mensajes o ramificar la conversación.</li>
+        <li><strong>Rojo (Crítico):</strong> Por encima del 90% del límite del modelo. Riesgo inminente de truncado o fallo en la API.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Métricas Detalladas del Popover de Telemetría</h2>
+      <p>
+        Al pulsar sobre la píldora de tokens, se despliega el <strong>Context Hub Popover</strong>, ofreciendo tres secciones de diagnóstico exhaustivo:
+      </p>
+
+      <h3>Sección 1: Ventana de Contexto Global</h3>
+      <ul>
+        <li><strong>Barra de progreso visual:</strong> Muestra el porcentaje exacto de ocupación de la ventana de contexto.</li>
+        <li><strong>Tokens usados, capacidad y disponibles:</strong> Cifras exactas calculadas con el tokenizer y las respuestas del servidor.</li>
+        <li><strong>Ajuste de capacidad asumida:</strong> Si tu servidor local no anuncia su límite de contexto o deseas limitar artificialmente la ventana (por ejemplo, a 8k o 32k), puedes escribir el valor y pulsar <em>"Usar"</em> para ajustar el semáforo al instante.</li>
+      </ul>
+
+      <h3>Sección 2: Ahorro por Caché de Contexto (Prompt Caching / KV)</h3>
+      <p>
+        En modelos que soportan reutilización de prefijos (como Anthropic Claude, OpenAI o DeepSeek):
+      </p>
+      <ul>
+        <li><strong>Tokens leídos de caché (Ahorro):</strong> Tokens recuperados de la memoria intermedia del proveedor sin coste completo o con descuento masivo de latencia y precio.</li>
+        <li><strong>Tokens escritos en caché:</strong> Bloques recién indexados para acelerar los siguientes turnos de la sesión.</li>
+      </ul>
+
+      <h3>Sección 3: Rendimiento del Último Turno</h3>
+      <ul>
+        <li><strong>Tokens de entrada (Prompt) y salida (Completion):</strong> Desglose exacto del último mensaje intercambiado.</li>
+        <li><strong>Velocidad de generación:</strong> Medida en tokens por segundo (<code>tok/s</code>).</li>
+        <li><strong>Latencia TTFT (Time To First Token):</strong> Tiempo transcurrido en milisegundos desde que envías el mensaje hasta que el servidor emite el primer token útil.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="composer.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Composer y Multimedia</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="tools-agent.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Modo Agente y Herramientas</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

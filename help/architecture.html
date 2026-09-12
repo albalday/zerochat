@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arquitectura y Portabilidad · Ayuda de ZeroChat</title>
+  <meta name="description" content="Detalles de la arquitectura técnica de ZeroChat: distribución en archivo único, ejecución offline bajo file://, almacenamiento local en IndexedDB y privacidad.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Arquitectura y Portabilidad</h1>
+      <p class="subtitle">Descubre cómo funciona ZeroChat como aplicación web autónoma, independiente de servidor y 100% portable.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. El Concepto de Archivo Único Autónomo</h2>
+      <p>
+        ZeroChat está diseñado bajo una premisa fundamental: <strong>máxima portabilidad sin sacrificar capacidades avanzadas</strong>.
+      </p>
+      <p>
+        El producto final se compila en un único archivo distribuible denominado <code>zerochat.html</code>. Este archivo contiene todo el código HTML, los estilos CSS minificados y comprimidos con Gzip L9 en Base64, los módulos JavaScript de la aplicación y las bibliotecas cliente esenciales (incluyendo el motor de búsqueda Orama).
+      </p>
+      <p>
+        Al abrir <code>zerochat.html</code>, un bootstrap ultraligero descomprime en milisegundos los componentes utilizando la API nativa <code>DecompressionStream</code> del navegador, permitiendo que la aplicación arranque de inmediato.
+      </p>
+      <div class="alert alert-success">
+        <strong>Ventaja clave:</strong> Puedes guardar <code>zerochat.html</code> en una memoria USB, en tu escritorio, enviártelo por correo o WhatsApp y ejecutarlo en cualquier navegador moderno sin necesidad de instalar Node.js, Python, Docker ni dependencias del sistema operativo.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Ejecución con Protocolo file:// vs Servidor Web</h2>
+      <p>ZeroChat está adaptado para funcionar con total normalidad bajo dos modos de despliegue:</p>
+      <ul>
+        <li>
+          <strong>Protocolo local <code>file://</code>:</strong> Haciendo doble clic directamente sobre el archivo en tu explorador de archivos. No requiere levantar ningún servidor local. Las peticiones a APIs remotas o a servidores locales (como Ollama o LM Studio) se realizan mediante <code>fetch</code> directo desde el navegador (con soporte de CORS habilitado en el proveedor).
+        </li>
+        <li>
+          <strong>Servidor estático o GitHub Pages (HTTP/HTTPS):</strong> Hospedado en cualquier servidor web básico (Nginx, Apache, Caddy, Vercel o GitHub Pages). En este modo se cuenta además con acceso completo a APIs modernas como <code>navigator.storage.persist()</code> y facilidades adicionales de seguridad de contexto seguro.
+        </li>
+      </ul>
+      <div class="alert alert-warning">
+        <strong>Nota sobre restricciones en <code>file://</code>:</strong> Algunos navegadores limitan ciertas capacidades en el origen <code>file://</code> (como la descarga automática del propio bundle o ciertos accesos a Service Workers). Para la máxima potencia en modelos locales WebGPU o RAG pesado, se recomienda un origen HTTP local o HTTPS.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Almacenamiento Local y Privacidad de Datos</h2>
+      <p>
+        La arquitectura de datos de ZeroChat sigue el principio de <strong>soberanía del usuario</strong>. La aplicación nunca envía historiales de conversación, credenciales ni documentos a ningún servidor centralizado de telemetría.
+      </p>
+      <h3>Capas de almacenamiento en el cliente:</h3>
+      <ul>
+        <li>
+          <strong>IndexedDB (ZeroChatDB):</strong> Base de datos estructurada en el navegador donde se guardan las sesiones de chat, los mensajes, metadatos, configuraciones de perfiles de usuario y las ramas del motor RAG.
+        </li>
+        <li>
+          <strong>Almacenamiento aislado de adjuntos:</strong> Las imágenes Base64 y los documentos pesados se aíslan en almacenes específicos de IndexedDB para que el árbol de mensajes permanezca rápido, ligero y fluido.
+        </li>
+        <li>
+          <strong>Cache Storage API:</strong> Utilizada por el motor WebLLM para almacenar de forma persistente los pesos y parámetros de modelos locales de lenguaje descargados.
+        </li>
+        <li>
+          <strong>LocalStorage / Cookies de sesión (ChatStorage):</strong> Gestiona estados efímeros, la clave de Gemini Free Tier (si se define localmente) y preferencias de interfaz (como el tema oscuro o claro activo).
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. El Estado Canónico (ChatState)</h2>
+      <p>
+        Para evitar fugas de memoria o desincronizaciones entre componentes, ZeroChat utiliza un almacén de estado único y centralizado denominado <code>ChatState</code>.
+      </p>
+      <p>
+        Todo cambio en el ciclo de vida de la aplicación (cambio de sesión, inserción de un mensaje por streaming, progreso de inferencia o invocación de herramientas) se realiza mediante mutadores atómicos de dominio (como <code>appendMessage</code>, <code>replaceMessages</code> o <code>saveSessionMetadata</code>). De este modo, la interfaz se actualiza de manera reactiva y consistente en todo momento.
+      </p>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <div class="nav-button disabled">
+        <span class="nav-direction">Primera página</span>
+        <span class="nav-title">—</span>
+      </div>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="profiles.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Perfiles y Proveedores</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

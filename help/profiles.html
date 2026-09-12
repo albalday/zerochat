@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Perfiles y Proveedores de IA · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía para configurar perfiles de conexión en ZeroChat: OpenAI, Ollama, LM Studio, OpenRouter, Anthropic Claude, Google Gemini, WebLLM y perfil Espejo.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Perfiles y Proveedores de IA</h1>
+      <p class="subtitle">Aprende a conectar ZeroChat con cualquier modelo de lenguaje, ya sea en tu ordenador o en la nube.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. Gestión de Perfiles de Conexión</h2>
+      <p>
+        ZeroChat te permite definir múltiples <strong>perfiles de conexión</strong>. Un perfil encapsula la interfaz/protocolo de la API, la URL del servidor o endpoint, la clave de acceso (opcional en servidores locales) y el modelo seleccionado.
+      </p>
+      <p>
+        Para gestionar perfiles, haz clic en el botón con el nombre del perfil activo situado en la esquina inferior derecha del área de entrada (composer) y pulsa <strong>"Editar perfiles"</strong>, o abre el panel de configuración general desde la barra lateral.
+      </p>
+      <div class="alert alert-info">
+        <strong>Conmutación instantánea:</strong> Puedes cambiar de modelo o de proveedor entre mensajes sin perder el hilo de la conversación. Solo tienes que desplegar el menú de perfil y elegir otro.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Proveedores y Protocolos Compatibles</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Tipo de Interfaz</th>
+              <th>Servidores / Servicios Habituales</th>
+              <th>Endpoint Típico</th>
+              <th>Clave de API</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>OpenAI / Compatible</strong></td>
+              <td>LM Studio, LocalAI, vLLM, OpenAI oficial</td>
+              <td><code>http://localhost:1234/v1</code></td>
+              <td>Opcional en local / Requerida en OpenAI</td>
+            </tr>
+            <tr>
+              <td><strong>Ollama</strong></td>
+              <td>Servidor local Ollama</td>
+              <td><code>http://localhost:11434</code></td>
+              <td>No requerida</td>
+            </tr>
+            <tr>
+              <td><strong>OpenRouter</strong></td>
+              <td>Plataforma multimodelo OpenRouter</td>
+              <td><code>https://openrouter.ai/api/v1</code></td>
+              <td>Requerida (<code>sk-or-...</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Anthropic Claude</strong></td>
+              <td>API oficial de Anthropic</td>
+              <td><code>https://api.anthropic.com/v1</code></td>
+              <td>Requerida (<code>sk-ant-...</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Google Gemini</strong></td>
+              <td>Google AI Studio</td>
+              <td>Endpoint OpenAI-compatible de Gemini</td>
+              <td>Requerida o botón Free Tier</td>
+            </tr>
+            <tr>
+              <td><strong>WebLLM</strong></td>
+              <td>Navegador web directo (WebGPU)</td>
+              <td><code>webllm://local</code> (automático)</td>
+              <td>No aplicable (100% local)</td>
+            </tr>
+            <tr>
+              <td><strong>Espejo (Mirror)</strong></td>
+              <td>Pruebas internas sin conexión</td>
+              <td>Sin endpoint (modo simulado)</td>
+              <td>No aplicable</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Consulta de Servidor (Botón Query) y Validación</h2>
+      <p>
+        Al crear o editar un perfil, ZeroChat incorpora el botón <strong>Query</strong> junto al campo de URL. Esta función realiza una inspección activa del servidor antes de guardar:
+      </p>
+      <ul>
+        <li><strong>Detección de modelos:</strong> Descarga la lista oficial de modelos alojados o disponibles en el servidor y rellena el desplegable automáticamente.</li>
+        <li><strong>Inspección de capacidades:</strong> Detecta si el modelo soporta visión multimodal, herramientas (function calling), razonamiento nativo y la capacidad de ventana de contexto anunciada por el servidor.</li>
+        <li><strong>Protección de guardado:</strong> En proveedores que dependen de red externa o servidores locales, ZeroChat exige una consulta satisfactoria antes de guardar para garantizar que la conexión funciona y evitar errores durante el chat.</li>
+      </ul>
+      <div class="alert alert-success">
+        <strong>Excepción ágil en WebLLM:</strong> Si utilizas WebLLM y seleccionas un modelo que ya ha sido descargado previamente en la caché del navegador, el botón <em>Query</em> se vuelve opcional y puedes guardar el perfil de inmediato.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Configuración Especial para Ollama (CORS)</h2>
+      <p>
+        Si utilizas <strong>Ollama</strong>, el navegador puede bloquear las peticiones debido a la política de seguridad CORS (Cross-Origin Resource Sharing) si Ollama solo escucha en su origen por defecto.
+      </p>
+      <p>Para solucionarlo, inicia el servicio de Ollama permitiendo el origen de tu navegador:</p>
+      <div class="code-wrapper">
+        <pre><code># En Linux / macOS (terminal)
+OLLAMA_ORIGINS="*" ollama serve
+
+# En Windows (PowerShell)
+$env:OLLAMA_ORIGINS="*"
+ollama serve</code></pre>
+      </div>
+      <p>Si ejecutas Ollama como servicio de systemd en Linux, añade <code>Environment="OLLAMA_ORIGINS=*"</code> en la sección <code>[Service]</code> de su configuración.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. El Perfil "Espejo" (Mirror) para Pruebas</h2>
+      <p>
+        ZeroChat incluye de serie el perfil de solo lectura <strong>Espejo</strong>. Este perfil es ideal para pruebas de interfaz y diagnóstico:
+      </p>
+      <ul>
+        <li>No realiza ninguna petición a la red ni requiere servidores locales encendidos.</li>
+        <li>Devuelve de inmediato un resumen formateado del mensaje enviado y de la estructura de la petición OpenAI normalizada.</li>
+        <li>Actúa como perfil de respaldo seguro si eliminas el perfil activo o si un perfil configurado no está accesible.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="architecture.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Arquitectura y Portabilidad</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="webllm.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Inferencia Local WebLLM</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>

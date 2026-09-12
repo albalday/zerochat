@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Composer, Atajos y Archivos Adjuntos · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía del cuadro de entrada de ZeroChat: autoexpansión de texto, atajos de teclado y adjuntos multimedia como imágenes para visión, PDFs, código y CSV.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Composer, Atajos y Archivos Adjuntos</h1>
+      <p class="subtitle">Aprende a redactar mensajes con comodidad, utilizar atajos rápidos y enviar archivos multimedia o código al modelo.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. El Composer Flotante Inteligente</h2>
+      <p>
+        El área de entrada o <strong>Composer</strong> de ZeroChat está diseñada para ofrecer una experiencia moderna, limpia y fluida, inspirada en las mejores interfaces de chat de IA.
+      </p>
+      <ul>
+        <li><strong>Auto-expansión suave:</strong> El campo de texto crece dinámicamente conforme escribes párrafos largos (utilizando la directiva moderna <code>field-sizing: content</code> con soporte de fallback automático), sin desbordar la ventana ni tapar los mensajes previos.</li>
+        <li><strong>Barra inferior integrada:</strong> Agrupa de forma compacta el botón de adjuntar archivos, el selector de razonamiento, los accesos a herramientas (Tools), el estado MCP, el botón RAG, la telemetría de contexto y el selector de perfil activo.</li>
+        <li><strong>Botón de detención (Stop):</strong> Durante la generación en tiempo real (streaming SSE), el botón de envío se convierte en un botón de parada instantánea para cancelar la respuesta en cualquier momento.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2. Atajos de Teclado Esenciales</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Atajo</th>
+              <th>Contexto</th>
+              <th>Acción realizada</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Enter</code></td>
+              <td>En el cuadro de texto</td>
+              <td>Enviar el mensaje actual al modelo.</td>
+            </tr>
+            <tr>
+              <td><code>Shift + Enter</code></td>
+              <td>En el cuadro de texto</td>
+              <td>Insertar un salto de línea sin enviar.</td>
+            </tr>
+            <tr>
+              <td><code>Escape</code></td>
+              <td>En cualquier modal o menú</td>
+              <td>Cerrar el diálogo emergente o desplegable activo.</td>
+            </tr>
+            <tr>
+              <td><code>Flechas ↑ / ↓</code></td>
+              <td>En el selector de perfiles</td>
+              <td>Navegar entre los perfiles disponibles de la lista.</td>
+            </tr>
+            <tr>
+              <td><code>Ctrl / Cmd + V</code></td>
+              <td>En la ventana del chat</td>
+              <td>Pegar imágenes o texto directamente desde el portapapeles.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Adjuntar Archivos y Documentos</h2>
+      <p>
+        ZeroChat cuenta con un potente motor cliente de procesamiento de archivos (<code>file-parser.js</code>). Puedes añadir archivos pulsando el icono del clip o simplemente <strong>arrastrándolos y soltándolos</strong> (Drag & Drop) sobre el área del chat.
+      </p>
+      <h3>Formatos compatibles:</h3>
+      <ul>
+        <li><strong>Imágenes (PNG, JPEG, WebP, GIF):</strong> Si el modelo activo soporta capacidades multimodales de visión (como GPT-4o, Claude 3.5/3.7 Sonnet o Gemini Flash/Pro), la imagen se procesa y se envía al modelo para que pueda analizarla, describirla o extraer información de ella.</li>
+        <li><strong>Documentos PDF:</strong> El texto del PDF se extrae localmente en el navegador y se adjunta de forma estructurada al mensaje con su nombre y recuento de páginas.</li>
+        <li><strong>Código Fuente y Scripts:</strong> Archivos <code>.js</code>, <code>.ts</code>, <code>.py</code>, <code>.html</code>, <code>.css</code>, <code>.json</code>, <code>.sql</code>, <code>.c</code>, <code>.cpp</code>, <code>.rs</code>, <code>.go</code>, <code>.sh</code> y más. Se preparan como bloques de código con marcado de sintaxis.</li>
+        <li><strong>Tablas y Datos:</strong> Archivos <code>.csv</code> y <code>.tsv</code> que el modelo puede parsear e interpretar para análisis de datos o generación de gráficos.</li>
+        <li><strong>Documentos de Texto:</strong> <code>.md</code> (Markdown), <code>.txt</code>, <code>.xml</code>, <code>.yaml</code>.</li>
+      </ul>
+      <div class="alert alert-info">
+        <strong>Previsualización y eliminación:</strong> Antes de pulsar enviar, verás miniaturas interactivas de cada archivo adjunto con su nombre y tamaño. Puedes eliminar cualquiera de ellos pulsando su botón "X".
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Renderizado Enriquecido de Mensajes</h2>
+      <p>
+        Las respuestas del asistente se procesan con un motor Markdown completo de alto rendimiento que incluye:
+      </p>
+      <ul>
+        <li>Resaltado de sintaxis en bloques de código con botón de copia rápida al portapapeles.</li>
+        <li>Tablas formateadas con alineación de columnas.</li>
+        <li>Fórmulas matemáticas en formato LaTeX (KaTeX) inline y en bloque.</li>
+        <li>Bloques colapsables de razonamiento (Thinking) con contador de tiempo de reflexión.</li>
+        <li>Tarjetas interactivas de herramientas (Tool Cards) para ejecuciones del agente.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="conversations.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Conversaciones y Ramas</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="reasoning-telemetry.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Razonamiento y Telemetría</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+
