@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Model Context Protocol (MCP) · ZeroChat Help</title>
-  <meta name="description" content="Guide for connecting external MCP servers over SSE/HTTP in ZeroChat: FastMCP Python generator and tool authorization policies.">
+  <meta name="description" content="Guide for connecting private local MCP server over SSE/HTTP in ZeroChat: software development tools and tool authorization policies.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -44,24 +44,29 @@
         <li><strong>Green indicator / Connected:</strong> ZeroChat has connected to the server and discovered its exposed tools.</li>
       </ul>
       <p>
-        Click the MCP button to open the setup modal, configure your endpoint (default: <code>http://127.0.0.1:8000/sse</code>), and click <em>"Connect"</em>.
+        Click the MCP button to open the setup modal, configure your endpoint (default: <code>http://127.0.0.1:6388/sse</code>), and click <em>"Connect"</em>.
       </p>
     </div>
 
     <div class="card">
-      <h2>3. Built-in FastMCP Python Server Generator</h2>
+      <h2>3. Local Python Server (Zero Dependencies)</h2>
       <p>
-        ZeroChat includes a one-click <strong>Python FastMCP script generator</strong> directly inside the configuration modal:
+        ZeroChat includes a one-click <strong>auto-generated Python local server script</strong> (<code>zerochat_mcp.py</code>) directly inside the configuration modal.
       </p>
-      <ol>
-        <li>Select your operating system (Linux, macOS, or Windows).</li>
-        <li>Copy the installation command (via pip or uv).</li>
-        <li>Copy the ready-to-run Python server template with example functions.</li>
-        <li>Run the server in terminal with CORS enabled:</li>
-      </ol>
+      <p>
+        Unlike complex external frameworks, this server runs on the <strong>Python 3 standard library with zero external dependencies</strong> or virtual environments required for its core services:
+      </p>
+      <ul>
+        <li><strong><code>execute_command</code>:</strong> Unified shell terminal for Git, CLI, test execution, and compilation, with automatic OS and environment detection.</li>
+        <li><strong><code>read_file</code>:</strong> Safe file reading with line range slicing and context token limits.</li>
+        <li><strong><code>search_files</code>:</strong> Fast project file search by glob pattern and code text grep matching.</li>
+        <li><strong><code>edit_file</code>:</strong> Atomic file writing and editing (overwrite, append, or chunk replacement).</li>
+        <li><strong><code>list_directory</code>:</strong> Structured folder tree and metadata exploration.</li>
+        <li><strong><code>browser_navigate</code>:</strong> Web navigation and automation via Playwright (optional, installable via <code>pip install playwright && playwright install chromium</code>).</li>
+      </ul>
       <div class="code-wrapper">
-        <pre><code># Start a FastMCP Python server for ZeroChat
-uv run fastmcp run server.py --transport sse --port 8000</code></pre>
+        <pre><code># Start the local Python server for ZeroChat (port 6388 by default)
+python3 zerochat_mcp.py</code></pre>
       </div>
     </div>
 

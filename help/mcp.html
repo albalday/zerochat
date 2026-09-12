@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía de integración de MCP en ZeroChat: conexión con servidores externos SSE/HTTP, generador de scripts Python FastMCP y políticas de autorización de herramientas.">
+  <meta name="description" content="Guía de integración de MCP en ZeroChat: conexión con servidor local privado SSE/HTTP, herramientas de desarrollo de software y políticas de autorización.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -44,26 +44,29 @@
         <li><strong>Punto verde / conectado:</strong> ZeroChat ha establecido conexión con el servidor y ha descubierto sus herramientas.</li>
       </ul>
       <p>
-        Al hacer clic en el botón MCP se abre el modal de configuración, donde puedes especificar el host y el puerto de tu servidor local (por defecto <code>http://127.0.0.1:8000/sse</code>) y pulsar <em>"Conectar"</em>.
+        Al hacer clic en el botón MCP se abre el modal de configuración, donde puedes especificar el host y el puerto de tu servidor local (por defecto <code>http://127.0.0.1:6388/sse</code>) y pulsar <em>"Conectar"</em>.
       </p>
     </div>
 
     <div class="card">
-      <h2>3. Generador de Servidor FastMCP Integrado</h2>
+      <h2>3. Servidor Local en Python (Zero Dependencias)</h2>
       <p>
-        Para que no tengas que escribir un servidor desde cero, ZeroChat incluye en el propio diálogo de configuración un <strong>generador automático de código Python FastMCP</strong>.
+        Para que no tengas que escribir un servidor desde cero, ZeroChat incluye en el propio diálogo de configuración un <strong>generador automático de código Python para el servidor local</strong> (<code>zerochat_mcp.py</code>).
       </p>
       <p>
-        Selecciona tu sistema operativo (Linux, macOS o Windows) y verás:
+        A diferencia de soluciones pesadas, este servidor opera con la <strong>librería estándar de Python 3 sin requerir dependencias externas</strong> ni entornos virtuales para sus servicios principales:
       </p>
-      <ol>
-        <li>El comando para instalar FastMCP con pip o uv.</li>
-        <li>El script completo en Python con funciones de ejemplo listas para usar (como consultas meteorológicas, cálculos o utilidades).</li>
-        <li>El comando exacto para arrancar el servidor en terminal con soporte de CORS activado.</li>
-      </ol>
+      <ul>
+        <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
+        <li><strong><code>read_file</code>:</strong> Lectura de archivos con rangos de líneas y límites seguros de contexto.</li>
+        <li><strong><code>search_files</code>:</strong> Búsqueda rápida de archivos por patrón glob y búsqueda de texto dentro del código.</li>
+        <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
+        <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos.</li>
+        <li><strong><code>browser_navigate</code>:</strong> Navegación web y automatización mediante Playwright (opcional, habilitable con <code>pip install playwright && playwright install chromium</code>).</li>
+      </ul>
       <div class="code-wrapper">
-        <pre><code># Arrancar un servidor FastMCP en Python para ZeroChat
-uv run fastmcp run server.py --transport sse --port 8000</code></pre>
+        <pre><code># Arrancar el servidor local en Python para ZeroChat (puerto 6388 por defecto)
+python3 zerochat_mcp.py</code></pre>
       </div>
     </div>
 

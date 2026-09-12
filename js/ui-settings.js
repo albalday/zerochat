@@ -483,7 +483,7 @@
           <div id="agent-tools-container" class="agent-tools-container"></div>
         </div>
 
-        <!-- Pestaña 4: Gestor MCP (FastMCP) -->
+        <!-- Pestaña 4: Servidor Local (MCP) -->
         <div id="tab-mcp" class="modal-tab-pane">
           <!-- Tarjeta de Estado y Conexión Principal -->
           <div class="mcp-status-card">
@@ -493,9 +493,9 @@
                   <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
                 </span>
                 <div>
-                  <strong data-i18n="mcp_connection_title">Gestor MCP (FastMCP)</strong>
+                  <strong data-i18n="mcp_connection_title">Servidor Local (MCP)</strong>
                   <p class="label-hint" style="margin-top: 0.2rem;" data-i18n="mcp_connection_desc">
-                    Servidor local para conectar ZeroChat con herramientas del sistema vía Model Context Protocol (MCP) nativo (HTTP/SSE).
+                    Servidor local privado para conectar ZeroChat con herramientas del sistema (archivos, terminal, git y automatización) vía protocolo estandarizado.
                   </p>
                 </div>
               </div>

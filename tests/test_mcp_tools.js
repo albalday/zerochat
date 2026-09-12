@@ -288,7 +288,7 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     assert.ok(sqlTool);
     assert.ok(vecTool);
 
-    // Verificamos que conserven sus descripciones nativas de FastMCP y el icono uniforme plug
+    // Verificamos que conserven sus descripciones nativas de MCP y el icono uniforme plug
     assert.equal(sqlTool.metadata.icon, 'plug');
     assert.equal(vecTool.metadata.icon, 'plug');
     assert.equal(sqlTool.metadata.description, 'Ejecuta una consulta SQL en la base de datos PostgreSQL remota.');
@@ -303,4 +303,104 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     global.fetch = originalFetch;
   }
 });
+
+test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, edit_file, browser_navigate, execute_command con os_info)', async () => {
+  const originalFetch = global.fetch;
+
+  try {
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      if (body.method === 'initialize') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'ZeroChat Local Server', version: '1.0.0' },
+              capabilities: { tools: {} }
+            }
+          })
+        };
+      }
+      if (body.method === 'tools/list') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              tools: [
+                { name: 'list_directory', description: 'Explora directorios', inputSchema: { type: 'object' } },
+                { name: 'read_file', description: 'Lee archivos con rangos', inputSchema: { type: 'object', required: ['path'] } },
+                { name: 'search_files', description: 'Busca por nombre y contenido', inputSchema: { type: 'object' } },
+                { name: 'edit_file', description: 'Edición atómica de archivos', inputSchema: { type: 'object', required: ['path', 'content'] } },
+                { name: 'execute_command', description: 'Terminal con SO detectado: Linux x86_64', inputSchema: { type: 'object', required: ['command'] } },
+                { name: 'browser_navigate', description: 'Navegación Playwright', inputSchema: { type: 'object', required: ['url'] } }
+              ]
+            }
+          })
+        };
+      }
+      if (body.method === 'tools/call') {
+        if (body.params?.name === 'execute_command') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              jsonrpc: '2.0',
+              id: body.id,
+              result: {
+                content: [{
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    command: body.params.arguments.command,
+                    stdout: 'v6.7.0\n',
+                    os_info: { system: 'Linux', machine: 'x86_64', shell: '/bin/bash' }
+                  })
+                }],
+                isError: false
+              }
+            })
+          };
+        }
+      }
+      return { ok: false, status: 404 };
+    };
+
+    const client = new MCP.McpClient({
+      id: 'mcp_proxy',
+      name: 'ZeroChat Local Server',
+      url: 'http://127.0.0.1:6388/sse'
+    });
+
+    const provider = new MCP.McpToolProvider(client);
+    const tools = await provider.discoverTools();
+
+    assert.equal(tools.length, 6);
+
+    const searchTool = tools.find(t => t.aliases.includes('search_files'));
+    const editTool = tools.find(t => t.aliases.includes('edit_file'));
+    const browserTool = tools.find(t => t.aliases.includes('browser_navigate'));
+    const execTool = tools.find(t => t.aliases.includes('execute_command'));
+
+    assert.ok(searchTool, 'search_files debe estar registrada');
+    assert.ok(editTool, 'edit_file debe estar registrada');
+    assert.ok(browserTool, 'browser_navigate debe estar registrada');
+    assert.ok(execTool, 'execute_command debe estar registrada');
+
+    // Ejecutar execute_command y validar retorno con os_info
+    const callResult = await client.callTool('execute_command', { command: 'git --version' });
+    assert.equal(callResult.success, true);
+    assert.ok(callResult.content.includes('os_info'));
+    assert.ok(callResult.content.includes('Linux'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 

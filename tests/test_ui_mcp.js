@@ -70,23 +70,24 @@ test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones'
   assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
 });
 
-test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para FastMCP', () => {
+test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para el Servidor Local', () => {
   const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
   assert.ok(pyScript.includes('#!/usr/bin/env python3'));
-  assert.ok(pyScript.includes('FastMCP'));
+  assert.ok(!pyScript.includes('FastMCP'));
   assert.ok(pyScript.includes('list_directory'));
   assert.ok(pyScript.includes('read_file'));
+  assert.ok(pyScript.includes('search_files'));
+  assert.ok(pyScript.includes('edit_file'));
   assert.ok(pyScript.includes('execute_command'));
-  assert.ok(pyScript.includes('ensure_dependencies'));
-  assert.ok(pyScript.includes('create_mcp_app'));
-  assert.ok(pyScript.includes('PrivateNetworkAccessMiddleware'));
-  assert.ok(pyScript.includes('CORSMiddleware'));
-  assert.ok(pyScript.includes('host: str = "127.0.0.1"'));
-  assert.ok(pyScript.includes('port: int = 6388'));
+  assert.ok(pyScript.includes('browser_navigate'));
+  assert.ok(pyScript.includes('ZeroChatLocalServerHandler'));
+  assert.ok(pyScript.includes('ThreadingHTTPServer'));
+  assert.ok(pyScript.includes('DEFAULT_PORT = 6388'));
+  assert.ok(pyScript.includes('default="127.0.0.1"'));
 
   const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
-  assert.ok(pyCustom.includes('host: str = "0.0.0.0"'));
-  assert.ok(pyCustom.includes('port: int = 6399'));
+  assert.ok(pyCustom.includes('DEFAULT_PORT = 6399'));
+  assert.ok(pyCustom.includes('default="0.0.0.0"'));
 });
 
 test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
@@ -335,7 +336,7 @@ test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconect
   ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
   assert.equal(container.style.display, 'block');
   assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-  assert.ok(container.innerHTML.includes('FastMCP'));
+  assert.ok(container.innerHTML.includes('servidor Python local'));
 });
 
 test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura cambios', () => {
@@ -426,7 +427,7 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
 
     assert.equal(container.style.display, 'block');
     assert.ok(container.innerHTML.includes('mcp-tools-header'));
-    assert.ok(container.innerHTML.includes('Herramientas MCP Disponibles'));
+    assert.ok(container.innerHTML.includes('Herramientas Disponibles del Sistema'));
     assert.ok(container.innerHTML.includes('3 detectadas'));
 
     // Verificar markup de las tools
