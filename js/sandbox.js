@@ -72,17 +72,40 @@
     try {
       const blockedGlobals = [
         'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
-        'importScripts', 'indexedDB', 'Worker', 'SharedWorker', 'ServiceWorker'
+        'importScripts', 'indexedDB', 'Worker', 'SharedWorker', 'ServiceWorker',
+        'postMessage', 'addEventListener', 'removeEventListener'
       ];
 
-      // Neutralizar en self y globalThis dentro del Worker para mitigar llamadas accidentales a red o sub-workers
-      blockedGlobals.forEach(function(name) {
-        try { self[name] = undefined; } catch (e) {}
-        try { if (typeof globalThis !== 'undefined') globalThis[name] = undefined; } catch (e) {}
-      });
+      // 1. Neutralizar recursivamente en la cadena de prototipos del Worker (WorkerGlobalScope, etc.)
+      const rootObj = typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : null);
+      if (rootObj) {
+        let currentProto = rootObj;
+        while (currentProto && currentProto !== Object.prototype) {
+          blockedGlobals.forEach(function(name) {
+            try {
+              Object.defineProperty(currentProto, name, {
+                value: undefined,
+                writable: false,
+                configurable: false
+              });
+            } catch (err) {
+              try { currentProto[name] = undefined; } catch (_) {}
+            }
+          });
+          currentProto = Object.getPrototypeOf(currentProto);
+        }
+      }
 
-      const paramNames = ['console', ...blockedGlobals, 'postMessage', 'addEventListener', 'removeEventListener'];
-      const paramValues = [customConsole, ...blockedGlobals.map(() => undefined), undefined, undefined, undefined];
+      // 2. Eliminar explícitamente importScripts de self y prototipos
+      try {
+        if (typeof self !== 'undefined') delete self.importScripts;
+        if (typeof WorkerGlobalScope !== 'undefined') {
+          delete WorkerGlobalScope.prototype.importScripts;
+        }
+      } catch (_) {}
+
+      const paramNames = ['console', ...blockedGlobals];
+      const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
 
       const trimmed = (code || '').trim();
       let wrappedBody;
@@ -93,7 +116,19 @@
       }
 
       const runner = new Function(...paramNames, wrappedBody);
-      const rawResult = runner.apply(null, paramValues);
+
+      // 3. Desactivar invocación de Function.prototype.constructor durante la ejecución
+      // para neutralizar vectores de escape vía prototipos como ({}).constructor.constructor('return this')()
+      const origFunctionConstructor = Function.prototype.constructor;
+      let rawResult;
+      try {
+        Function.prototype.constructor = function() {
+          throw new Error('La creación dinámica de funciones está restringida en el sandbox.');
+        };
+        rawResult = runner.apply(null, paramValues);
+      } finally {
+        try { Function.prototype.constructor = origFunctionConstructor; } catch (_) {}
+      }
 
       Promise.resolve(rawResult).then(function(resolvedResult) {
         let formattedResult = resolvedResult !== undefined ? formatValue(resolvedResult) : (logs.length > 0 ? logs.join('\\n') : 'undefined');

@@ -270,5 +270,103 @@ console.log(results.map(r => r.toString()));
   }
 });
 
+test('Sandbox - Neutralización de escape por prototipos ({}.constructor.constructor) en Worker', async () => {
+  let workerBlobCode = '';
+  global.Blob = class MockBlob {
+    constructor(chunks) {
+      workerBlobCode = chunks.join('');
+      this.chunks = chunks;
+    }
+  };
+  global.URL = {
+    createObjectURL: () => 'blob:mock-worker-url',
+    revokeObjectURL: () => {}
+  };
+
+  global.Worker = class MockWorker {
+    constructor() {
+      const mockSelf = {
+        onmessage: null,
+        postMessage: (data) => {
+          if (this.onmessage) this.onmessage({ data });
+        }
+      };
+      const initWorker = new Function('self', workerBlobCode);
+      initWorker(mockSelf);
+      this._mockSelf = mockSelf;
+    }
+    postMessage(data) {
+      if (this._mockSelf.onmessage) {
+        this._mockSelf.onmessage({ data });
+      }
+    }
+    terminate() {}
+  };
+
+  try {
+    const escapeCode = 'return ({}).constructor.constructor("return 42")();';
+    const res = await Sandbox.execute(escapeCode);
+    assert.equal(res.success, false);
+    assert.match(res.error, /creación dinámica de funciones está restringida/i);
+  } finally {
+    delete global.Worker;
+    delete global.Blob;
+    delete global.URL;
+  }
+});
+
+test('Sandbox - Neutralización de APIs de red y Worker en prototipo de Worker', async () => {
+  let workerBlobCode = '';
+  global.Blob = class MockBlob {
+    constructor(chunks) {
+      workerBlobCode = chunks.join('');
+      this.chunks = chunks;
+    }
+  };
+  global.URL = {
+    createObjectURL: () => 'blob:mock-worker-url',
+    revokeObjectURL: () => {}
+  };
+
+  const mockSelf = {
+    fetch: () => 'leak',
+    importScripts: () => 'leak',
+    onmessage: null,
+    postMessage: (data) => {}
+  };
+  global.self = mockSelf;
+
+  global.Worker = class MockWorker {
+    constructor() {
+      mockSelf.postMessage = (data) => {
+        if (this.onmessage) this.onmessage({ data });
+      };
+      const initWorker = new Function('self', workerBlobCode);
+      initWorker(mockSelf);
+      this._mockSelf = mockSelf;
+    }
+    postMessage(data) {
+      if (this._mockSelf.onmessage) {
+        this._mockSelf.onmessage({ data });
+      }
+    }
+    terminate() {}
+  };
+
+  try {
+    const probeCode = 'return { fetchType: typeof fetch, importScriptsType: typeof importScripts, selfFetch: typeof self.fetch };';
+    const res = await Sandbox.execute(probeCode);
+    assert.equal(res.success, true);
+    assert.match(res.result, /"fetchType":\s*"undefined"/);
+    assert.match(res.result, /"importScriptsType":\s*"undefined"/);
+    assert.match(res.result, /"selfFetch":\s*"undefined"/);
+  } finally {
+    delete global.Worker;
+    delete global.Blob;
+    delete global.URL;
+    delete global.self;
+  }
+});
+
 
 
