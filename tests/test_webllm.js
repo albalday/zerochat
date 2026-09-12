@@ -90,6 +90,44 @@ test('WebLLM - el catálogo exige una descarga confirmada antes de ofrecer el mo
   }
 });
 
+test('WebLLM - expone getCompletedModelIds e isModelCompleted y ordena descargados al inicio', async () => {
+  const originalStorage = global.ChatStorage;
+  const values = new Map([[WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["model-b"]']]);
+  global.ChatStorage = {
+    getStorageItem: key => values.get(key) || null,
+    setStorageItem: (key, value) => values.set(key, value)
+  };
+  const webllm = await WebLLM.loadWebLLM();
+  const previousModelList = webllm.prebuiltAppConfig.model_list;
+  const previousHasModel = webllm.hasModelInCache;
+  try {
+    assert.deepEqual(WebLLM.getCompletedModelIds(), ['model-b']);
+    assert.equal(WebLLM.isModelCompleted('model-b'), true);
+    assert.equal(WebLLM.isModelCompleted('model-a'), false);
+
+    assert.deepEqual(WebLLM.adapter.getCompletedModelIds(), ['model-b']);
+    assert.equal(WebLLM.adapter.isModelCompleted('model-b'), true);
+    assert.equal(WebLLM.adapter.isModelCompleted('model-a'), false);
+
+    webllm.prebuiltAppConfig.model_list = [
+      { model_id: 'model-a', vram_required_MB: 1024 },
+      { model_id: 'model-b', vram_required_MB: 2048 }
+    ];
+    webllm.hasModelInCache = async (id) => id === 'model-b';
+
+    const result = await WebLLM.listModels();
+
+    assert.equal(result.models.length, 2);
+    assert.equal(result.models[0].id, 'model-b');
+    assert.equal(result.models[0].details.webllmCache, 'cached');
+    assert.equal(result.models[1].id, 'model-a');
+  } finally {
+    webllm.prebuiltAppConfig.model_list = previousModelList;
+    webllm.hasModelInCache = previousHasModel;
+    global.ChatStorage = originalStorage;
+  }
+});
+
 test('WebLLM - la ejecución incompleta falla antes de crear un motor', async () => {
   const webllm = await WebLLM.loadWebLLM();
   const originalCreate = webllm.CreateMLCEngine;

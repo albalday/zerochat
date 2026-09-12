@@ -378,6 +378,35 @@ input:checked + .slider:before {
   color: #991b1b;
 }
 
+.webllm-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.webllm-help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.webllm-help-link:hover {
+  text-decoration: underline;
+  color: var(--primary-hover, var(--primary));
+}
+
+.webllm-help-link .ui-icon {
+  flex-shrink: 0;
+}
+
 .webllm-model-list {
   display: grid;
   gap: 0.35rem;

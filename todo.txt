@@ -16,4 +16,3 @@ Leer tramos fichero
 Fastmcp 3.0 o 4 antes de otros cambios
 Oauth modelos
 mcp ejecutar. coje el sistema operativo para informar?
-ventana de perfiles, cancelar va mal

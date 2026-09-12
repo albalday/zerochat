@@ -213,8 +213,10 @@
     if (apiKeyField) apiKeyField.hidden = connection.credentials === false;
     const field = typeof elements?.settingApiUrl?.closest === 'function'
       ? elements.settingApiUrl.closest('.form-field') : null;
-    const hint = field?.querySelector('.webllm-local-hint');
+    const hint = field?.querySelector('.webllm-local-hint') || elements?.webllmLocalHint;
     if (hint) hint.hidden = !local;
+    const helpLink = field?.querySelector('.webllm-help-link') || elements?.webllmHelpLink || (typeof document !== 'undefined' ? document.getElementById('webllm-help-link') : null);
+    if (helpLink) helpLink.hidden = !local;
   }
 
   function gatherCurrentFormConfig(elements, appConfig) {
@@ -630,14 +632,19 @@
     });
   }
 
-  function syncProfileEditor(elements, readOnly) {
+  function syncProfileEditor(elements, readOnly, canSave = null) {
     elements.profilesDialog?.querySelectorAll('.modal-tab-pane input, .modal-tab-pane textarea, .modal-tab-pane select, .modal-tab-pane button').forEach(input => {
       if (input !== elements.profileSelectHelper) input.disabled = readOnly;
     });
     if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly;
-    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || elements.profilesDialog?.dataset.queryReady !== 'true';
+    const saveAllowed = canSave !== null ? Boolean(canSave) : (elements.profilesDialog?.dataset.queryReady === 'true');
+    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || !saveAllowed;
     if (elements.profileSaveQueryHint) {
-      elements.profileSaveQueryHint.textContent = t(readOnly ? 'err_profile_read_only' : (elements.profilesDialog?.dataset.queryReady === 'true' ? 'profile_query_save_pending' : 'profile_query_required'));
+      if (readOnly) {
+        elements.profileSaveQueryHint.textContent = t('err_profile_read_only');
+      } else if (elements.profilesDialog?.dataset.queryReady === 'true') {
+        elements.profileSaveQueryHint.textContent = t('profile_query_save_pending');
+      }
     }
   }
 
@@ -671,7 +678,7 @@
         <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
         <div class="profile-values-card">
           <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
-          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
+          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
           <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-free-tier" class="btn-free-tier" data-i18n="btn_free_tier" hidden>Free Tier</button><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
           <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
         </div>

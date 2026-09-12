@@ -46,6 +46,16 @@
     }
   }
 
+  function getCompletedModelIds() {
+    const models = completedModels();
+    return models ? Array.from(models) : [];
+  }
+
+  function isModelCompleted(modelId) {
+    const models = completedModels();
+    return models ? models.has(modelId) : false;
+  }
+
   function setModelCompleted(modelId, completed) {
     const Storage = getStorage();
     if (!Storage?.setStorageItem) return false;
@@ -239,6 +249,11 @@
         }
       };
     }));
+    models.sort((a, b) => {
+      const aCached = a?.details?.webllmCache === 'cached' ? 1 : 0;
+      const bCached = b?.details?.webllmCache === 'cached' ? 1 : 0;
+      return bCached - aCached;
+    });
     return { success: true, models, count: models.length, endpoint: 'webllm://local' };
   }
 
@@ -353,9 +368,30 @@
     async cancelModelOperation(modelId) {
       await this.engines.dispose(modelId);
     }
+
+    getCompletedModelIds() {
+      return getCompletedModelIds();
+    }
+
+    isModelCompleted(modelId) {
+      return isModelCompleted(modelId);
+    }
   }
 
   const adapter = new WebLLMProviderAdapter();
   Providers?.registry?.register(adapter);
-  return { WEBLLM_URL, COMPLETED_MODELS_STORAGE_KEY, WebLLMEngineManager, WebLLMProviderAdapter, adapter, loadWebLLM, listModels, getModelAvailability, normalizeProgress, createWorkerEngine };
+  return {
+    WEBLLM_URL,
+    COMPLETED_MODELS_STORAGE_KEY,
+    WebLLMEngineManager,
+    WebLLMProviderAdapter,
+    adapter,
+    loadWebLLM,
+    listModels,
+    getModelAvailability,
+    getCompletedModelIds,
+    isModelCompleted,
+    normalizeProgress,
+    createWorkerEngine
+  };
 });

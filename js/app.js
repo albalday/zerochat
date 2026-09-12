@@ -413,9 +413,13 @@
   // Modelos y Consulta al Servidor (API Query & Combobox)
   // ==========================================================================
 
-  function loadCachedModels() {
+  function loadCachedModels(targetConfig) {
     if (UIInspector.loadCachedModels) {
-      const models = UIInspector.loadCachedModels(elements, appConfig);
+      const config = targetConfig || {
+        apiUrl: elements.settingApiUrl?.value || appConfig?.apiUrl,
+        apiType: elements.settingApiType?.value || appConfig?.apiType
+      };
+      const models = UIInspector.loadCachedModels(elements, config);
       syncPublishedModelContextLimit();
       return models;
     }
@@ -1369,8 +1373,62 @@
     }
   }
 
+  function isDownloadedWebLLMModel(modelId) {
+    if (!modelId) return false;
+    const adapter = Providers.registry?.get?.('webllm');
+    if (typeof adapter?.isModelCompleted === 'function') {
+      return adapter.isModelCompleted(modelId);
+    }
+    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
+    if (typeof WebLLM?.isModelCompleted === 'function') {
+      return WebLLM.isModelCompleted(modelId);
+    }
+    const Storage = typeof ChatStorage !== 'undefined' ? ChatStorage : (typeof globalThis !== 'undefined' ? globalThis.ChatStorage : null);
+    if (!Storage?.getStorageItem) return false;
+    try {
+      const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
+      const raw = Storage.getStorageItem(key);
+      const list = JSON.parse(raw || '[]');
+      return Array.isArray(list) && list.includes(modelId);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function canSaveProfile() {
+    if (isProfileQueryReady()) return true;
+    const apiType = elements.settingApiType?.value || '';
+    if (apiType === 'webllm') {
+      const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
+      if (selectedModel && isDownloadedWebLLMModel(selectedModel)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function syncProfileSaveState() {
+    const ready = isProfileQueryReady();
+    const canSave = canSaveProfile();
+    const isReadOnly = elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID;
+    UISettings.syncProfileEditor?.(elements, isReadOnly, canSave);
+    if (!isReadOnly) {
+      if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !canSave;
+      if (elements.profileSaveQueryHint) {
+        const apiType = elements.settingApiType?.value || '';
+        const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
+        if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
+          elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'webllm_query_optional');
+        } else {
+          elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'profile_query_required');
+        }
+      }
+    }
+    syncFreeTierButton();
+  }
+
   function handleSaveProfile() {
-    if (!isProfileQueryReady()) {
+    if (!canSaveProfile()) {
       showProfileFeedback(t('profile_query_required'), 'error');
       return false;
     }
@@ -1421,12 +1479,7 @@
 
   function setProfileQueryState(ready) {
     if (elements.profilesDialog) elements.profilesDialog.dataset.queryReady = String(ready);
-    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !ready;
-    if (elements.profileSaveQueryHint) {
-      elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'profile_query_required');
-    }
-    UISettings.syncProfileEditor?.(elements, elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID);
-    syncFreeTierButton();
+    syncProfileSaveState();
   }
 
   function syncFreeTierButton() {
@@ -1563,14 +1616,36 @@
     setProfileQueryState(false);
     activateProfileTab(document.getElementById('profile-tab-name'));
     if (typeof loadCachedModels === 'function') loadCachedModels();
+    syncProfileSaveState();
     if (typeof elements.profilesDialog.showModal === 'function') elements.profilesDialog.showModal();
   }
 
-  function closeProfilesModal() {
-    if (isProfileQueryReady()) {
-      ChatDialogs.alert(t('err_profile_query_not_saved'), { type: 'error' });
-      return false;
+  let isClosingProfilesModal = false;
+
+  function resetProfileFormToSelected() {
+    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
+    const profile = Profiles.get?.(selectedId);
+    applyProfileToForm(profile?.settings || getRuntimeConfig());
+    if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
+    if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
+  }
+
+  async function closeProfilesModal(force = false) {
+    if (isClosingProfilesModal) return false;
+    if (!force && isProfileQueryReady()) {
+      isClosingProfilesModal = true;
+      try {
+        const confirmed = await ChatDialogs.confirm(t('confirm_profile_query_not_saved'));
+        if (!confirmed) {
+          elements.btnSaveProfile?.focus();
+          return false;
+        }
+      } finally {
+        isClosingProfilesModal = false;
+      }
     }
+    setProfileQueryState(false);
+    resetProfileFormToSelected();
     if (elements.profilesDialog?.open && typeof elements.profilesDialog.close === 'function') {
       elements.profilesDialog.close();
     }
@@ -2351,11 +2426,16 @@
 
   function setupLightDismissDialogs() {
     // Fallback para navegadores sin soporte de closedby="any"
-    // Solo actúa si el atributo no está soportado
-    document.querySelectorAll('dialog:not(#notice-dialog)').forEach(dialog => {
+    // Solo actúa si el atributo no está soportado nativamente
+    if ('closedBy' in HTMLDialogElement.prototype) return;
+    document.querySelectorAll('dialog[closedby="any"]:not(#notice-dialog)').forEach(dialog => {
       dialog.addEventListener('click', e => {
         // Si el clic fue directamente en el fondo del dialog (no en su contenido)
         if (e.target === dialog) {
+          if (dialog.id === 'profiles-dialog') {
+            closeProfilesModal();
+            return;
+          }
           dialog.close();
         }
       });
@@ -2652,19 +2732,23 @@
       elements.btnManageProfiles.addEventListener('click', openProfilesModal);
     }
     if (elements.btnCloseProfiles) {
-      elements.btnCloseProfiles.addEventListener('click', closeProfilesModal);
+      elements.btnCloseProfiles.addEventListener('click', () => {
+        closeProfilesModal();
+      });
     }
     if (elements.btnCancelProfiles) {
-      elements.btnCancelProfiles.addEventListener('click', closeProfilesModal);
+      elements.btnCancelProfiles.addEventListener('click', () => {
+        closeProfilesModal();
+      });
     }
     if (elements.profilesDialog) {
-      elements.profilesDialog.addEventListener('click', function (e) {
-        if (e.target === elements.profilesDialog) closeProfilesModal();
-      });
       elements.profilesDialog.addEventListener('cancel', function (e) {
-        if (!isProfileQueryReady()) return;
+        if (!isProfileQueryReady()) {
+          setProfileQueryState(false);
+          return;
+        }
         e.preventDefault();
-        ChatDialogs.alert(t('err_profile_query_not_saved'), { type: 'error' });
+        closeProfilesModal();
       });
     }
 
@@ -2682,6 +2766,8 @@
         applyProfileToForm(profile.settings);
         setSelectedProfileAsDefault(profile);
         setProfileQueryState(false);
+        if (typeof loadCachedModels === 'function') loadCachedModels();
+        syncProfileSaveState();
       });
     }
 
@@ -2701,6 +2787,8 @@
             }
             setSelectedProfileAsDefault(profile);
             setProfileQueryState(false);
+            if (typeof loadCachedModels === 'function') loadCachedModels();
+            syncProfileSaveState();
           }
         }
       });
@@ -2709,7 +2797,7 @@
     if (elements.btnSaveProfile) {
       elements.btnSaveProfile.addEventListener('click', (e) => {
         e.preventDefault();
-        if (handleSaveProfile()) closeProfilesModal();
+        if (handleSaveProfile()) closeProfilesModal(true);
       });
     }
 
@@ -2743,6 +2831,10 @@
           if (endpoint) elements.settingApiUrl.value = endpoint;
         }
         UISettings.syncProviderFields?.(elements);
+        if (typeof loadCachedModels === 'function') {
+          loadCachedModels();
+        }
+        syncProfileSaveState();
       });
     }
     if (elements.btnFreeTier) {
@@ -2775,9 +2867,9 @@
         if (this.value) {
           elements.settingModel.value = this.value;
         }
+        syncProfileSaveState();
       });
     }
-
 
     if (elements.settingModel) {
       elements.settingModel.addEventListener('input', function () {
@@ -2785,6 +2877,7 @@
         if (elements.modelSelectHelper) {
           elements.modelSelectHelper.value = val;
         }
+        syncProfileSaveState();
       });
 
       elements.settingModel.addEventListener('change', function () {
@@ -2792,6 +2885,7 @@
         if (elements.modelSelectHelper) {
           elements.modelSelectHelper.value = val;
         }
+        syncProfileSaveState();
       });
     }
 

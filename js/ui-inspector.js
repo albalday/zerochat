@@ -104,22 +104,71 @@
     return apiUrl ? `${apiType}:${apiUrl}` : '';
   }
 
+  function getWebLLMCompletedModelIds() {
+    const Providers = getProviders();
+    const adapter = Providers?.registry?.get?.('webllm');
+    if (typeof adapter?.getCompletedModelIds === 'function') {
+      return adapter.getCompletedModelIds();
+    }
+    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
+    if (typeof WebLLM?.getCompletedModelIds === 'function') {
+      return WebLLM.getCompletedModelIds();
+    }
+    const Storage = getStorage();
+    if (Storage?.getStorageItem) {
+      try {
+        const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
+        const parsed = JSON.parse(Storage.getStorageItem(key) || '[]');
+        return Array.isArray(parsed) ? parsed.filter(m => typeof m === 'string') : [];
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  function sortWebLLMModels(models) {
+    if (!Array.isArray(models)) return [];
+    const completed = new Set(getWebLLMCompletedModelIds());
+    return [...models].sort((a, b) => {
+      const aId = typeof a === 'string' ? a : (a?.id || a?.name || '');
+      const bId = typeof b === 'string' ? b : (b?.id || b?.name || '');
+      const aCached = (a?.details?.webllmCache === 'cached' || completed.has(aId)) ? 1 : 0;
+      const bCached = (b?.details?.webllmCache === 'cached' || completed.has(bId)) ? 1 : 0;
+      return bCached - aCached;
+    });
+  }
+
   function loadCachedModels(elements, appConfig) {
     discoveredModels = [];
     try {
       const Storage = getStorage();
       const cached = Storage?.getStorageItem ? Storage.getStorageItem('cached_models') : null;
+      const apiType = String(appConfig?.apiType || elements?.settingApiType?.value || 'openai').trim().toLowerCase();
+      const isWebLLM = apiType === 'webllm';
+      const cacheKey = getConnectionCacheKey(appConfig || { apiType, apiUrl: elements?.settingApiUrl?.value });
+
       if (cached) {
         const document = JSON.parse(cached);
-        const cacheKey = getConnectionCacheKey(appConfig);
         if (document?.version !== MODEL_CACHE_VERSION || !document.connections || typeof document.connections !== 'object') {
           Storage?.deleteStorageItem?.('cached_models');
           return discoveredModels;
         }
         discoveredModels = cacheKey ? (document.connections[cacheKey] || []) : [];
-        if (Array.isArray(discoveredModels) && discoveredModels.length > 0) {
-          populateModelList(elements, appConfig, discoveredModels, false);
-        }
+      }
+
+      if (isWebLLM) {
+        const completed = getWebLLMCompletedModelIds();
+        const existingIds = new Set(discoveredModels.map(m => typeof m === 'string' ? m : (m?.id || m?.name || '')));
+        completed.forEach(id => {
+          if (!existingIds.has(id)) {
+            discoveredModels.push({ id, name: id, details: { webllmCache: 'cached' } });
+            existingIds.add(id);
+          }
+        });
+        discoveredModels = sortWebLLMModels(discoveredModels);
+      }
+
+      if (Array.isArray(discoveredModels) && discoveredModels.length > 0) {
+        populateModelList(elements, appConfig, discoveredModels, false);
       }
     } catch (e) {
       discoveredModels = [];
@@ -221,9 +270,10 @@
     }
   }
 
-  function renderWebLLMModels(elements, models = getWebLLMState().catalog) {
+  function renderWebLLMModels(elements, rawModels = getWebLLMState().catalog) {
     const status = elements?.serverQueryStatus;
-    if (!status || !Array.isArray(models)) return;
+    if (!status || !Array.isArray(rawModels)) return;
+    const models = sortWebLLMModels(rawModels);
     const operation = getWebLLMState().operation;
     status.querySelector?.('.webllm-model-list')?.remove();
     const doc = status.ownerDocument;
@@ -393,11 +443,18 @@
   }
 
   function refreshSelectableModels(elements, models) {
-    const downloaded = models.filter(model => model?.details?.webllmCache === 'cached');
+    const sorted = sortWebLLMModels(models);
+    const completed = new Set(getWebLLMCompletedModelIds());
+    const downloaded = sorted.filter(m => {
+      const id = typeof m === 'string' ? m : (m?.id || m?.name || '');
+      return m?.details?.webllmCache === 'cached' || completed.has(id);
+    });
     if (elements?.settingModel && !downloaded.some(model => model.id === elements.settingModel.value.trim())) {
-      elements.settingModel.value = '';
+      if (downloaded.length > 0) {
+        elements.settingModel.value = downloaded[0].id;
+      }
     }
-    populateModelList(elements, null, downloaded, true);
+    populateModelList(elements, null, sorted, !elements?.settingModel?.value);
   }
 
   async function handleQueryServer(elements, appConfig) {
@@ -440,11 +497,10 @@
 
       if (res.success && res.models && res.models.length > 0) {
         const locallyManaged = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().localModelManagement === true;
-        const selectableModels = locallyManaged
-          ? res.models.filter(model => model?.details?.webllmCache === 'cached') : res.models;
-        saveCachedModels(selectableModels, { apiUrl, apiType });
-        if (locallyManaged) refreshSelectableModels(elements, res.models);
-        else populateModelList(elements, appConfig, selectableModels, true);
+        const sortedModels = locallyManaged ? sortWebLLMModels(res.models) : res.models;
+        saveCachedModels(sortedModels, { apiUrl, apiType });
+        if (locallyManaged) refreshSelectableModels(elements, sortedModels);
+        else populateModelList(elements, appConfig, sortedModels, true);
 
         if (elements.serverQueryStatus) {
           elements.serverQueryStatus.className = 'server-query-status status-success';
@@ -453,11 +509,11 @@
             const contextKey = getEditorContextKey(elements);
             const current = getWebLLMState();
             setWebLLMState({
-              catalog: res.models,
+              catalog: sortedModels,
               contextKey,
               operation: current.operation?.contextKey === contextKey ? current.operation : null
             });
-            renderWebLLMModels(elements, res.models);
+            renderWebLLMModels(elements, sortedModels);
           }
         }
         return true;
@@ -683,6 +739,8 @@
     getOllamaConnectionHelp,
     getBadgeClass,
     getBadgeIcon,
-    getStatusLabel
+    getStatusLabel,
+    sortWebLLMModels,
+    getWebLLMCompletedModelIds
   };
 });

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Centro de Ayuda y Documentación · ZeroChat</title>
+  <meta name="description" content="Manual de usuario y documentación técnica completa de ZeroChat: cliente web universal, autónomo y privado para modelos de IA y agentes locales.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <span class="top-nav-link">Versión 6.x</span>
+      </div>
+      <h1>Centro de Ayuda de ZeroChat</h1>
+      <p class="subtitle">Guía de referencia y documentación técnica para exprimir al máximo tu cliente de IA portátil y privado.</p>
+    </header>
+
+    <div class="card">
+      <h2>¿Qué es ZeroChat?</h2>
+      <p>
+        <strong>ZeroChat</strong> es un cliente web autónomo, seguro y portátil para interactuar con modelos de inteligencia artificial, orquestar agentes autónomos y consultar bases de conocimiento documental locales.
+      </p>
+      <p>
+        A diferencia de las plataformas habituales, ZeroChat se distribuye en un único archivo HTML (<code>zerochat.html</code>) que funciona directamente desde el protocolo <code>file://</code> o cualquier servidor estático sin dependencias, bases de datos remotas ni intermediarios. Toda la información personal, conversaciones, configuraciones y documentos indexados permanecen estrictamente bajo tu control dentro de tu propio navegador.
+      </p>
+      <div class="alert alert-info">
+        <strong>Privacidad por diseño:</strong> ZeroChat no recopila telemetría ni envía datos a servidores propios. Tus peticiones viajan directamente desde tu navegador al proveedor que configures o se ejecutan de forma local en tu hardware mediante WebGPU.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Funcionalidades del Sistema</h2>
+      <p>Explora cada uno de los módulos de ZeroChat. Haz clic en cualquier tarjeta para acceder a su guía técnica detallada:</p>
+
+      <div class="features-grid">
+        <!-- 1. Arquitectura y Portabilidad -->
+        <a href="architecture.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="feature-title">Arquitectura y Portabilidad</div>
+          <div class="feature-desc">Distribución en archivo único autónomo (<code>file://</code>), persistencia local en IndexedDB y soberanía absoluta de datos sin servidores intermedios.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 2. Perfiles de Conexión -->
+        <a href="profiles.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div class="feature-title">Perfiles y Proveedores</div>
+          <div class="feature-desc">Conexión con OpenAI, Ollama, OpenRouter, Claude, Gemini Free Tier y Espejo local con detección automática de modelos y capacidades.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 3. WebLLM y WebGPU -->
+        <a href="webllm.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <div class="feature-title">Inferencia Local WebLLM</div>
+          <div class="feature-desc">Ejecución 100% en el navegador aprovechando la GPU vía WebGPU, con catálogo integrado, descarga progresiva y persistencia en caché.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 4. Conversaciones e Historial -->
+        <a href="conversations.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="feature-title">Conversaciones y Ramas</div>
+          <div class="feature-desc">Organización cronológica en barra lateral, búsqueda de chats, ramificación (branching) en respuestas y exportación/importación en JSON o Markdown.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 5. Entrada de Mensajes y Adjuntos -->
+        <a href="composer.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </div>
+          <div class="feature-title">Composer y Multimedia</div>
+          <div class="feature-desc">Cuadro de entrada autoexpansible, atajos de teclado y adjuntos multiformato (imágenes para visión, PDFs, código fuente, CSV y texto).</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 6. Razonamiento y Telemetría -->
+        <a href="reasoning-telemetry.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"/></svg>
+          </div>
+          <div class="feature-title">Razonamiento y Telemetría</div>
+          <div class="feature-desc">Control del nivel de pensamiento (Thinking), punto de control agéntico y monitorización en tiempo real de tokens, caché y ventana de contexto.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 7. Modo Agente y Herramientas -->
+        <a href="tools-agent.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+          </div>
+          <div class="feature-title">Modo Agente y Herramientas</div>
+          <div class="feature-desc">Ciclo autónomo multivuelta con ejecución de JavaScript en sandbox seguro, búsqueda en la web, extracción de páginas y gráficas interactivas SVG.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 8. Base de Conocimiento RAG -->
+        <a href="rag.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </div>
+          <div class="feature-title">Conocimiento Local (RAG)</div>
+          <div class="feature-desc">Ingestión de PDFs y documentos en ramas independientes con indexación vectorial y léxica mediante Orama en el navegador.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 9. Protocolo MCP -->
+        <a href="mcp.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          </div>
+          <div class="feature-title">Protocolo MCP</div>
+          <div class="feature-desc">Integración cliente del Model Context Protocol (SSE/HTTP), servidor FastMCP en Python integrado y control selectivo de permisos por herramienta.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+
+        <!-- 10. Depuración y Logs -->
+        <a href="debug.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </div>
+          <div class="feature-title">Depuración e Interceptor</div>
+          <div class="feature-desc">Consola de depuración en vivo con filtrado de eventos, inspección de streaming Raw SSE y modificación interactiva de mensajes antes del envío.</div>
+          <div class="feature-link">Ver guía detallada →</div>
+        </a>
+      </div>
+    </div>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+    </footer>
+  </div>
+</body>
+</html>
+

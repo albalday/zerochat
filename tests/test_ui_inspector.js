@@ -44,6 +44,17 @@ test('UIInspector - mantiene el catálogo WebLLM canónico al completar varios m
   ]);
 });
 
+test('UIInspector - sortWebLLMModels y loadCachedModels sitúan los modelos descargados en primer lugar', () => {
+  const models = [
+    { id: 'model-x', details: { webllmCache: 'missing' } },
+    { id: 'model-y', details: { webllmCache: 'cached' } },
+    { id: 'model-z', details: { webllmCache: 'incomplete' } }
+  ];
+  const sorted = UIInspector.sortWebLLMModels(models);
+  assert.equal(sorted[0].id, 'model-y');
+  assert.equal(sorted[0].details.webllmCache, 'cached');
+});
+
 test('UIInspector - identifica el bloqueo CORS de Ollama y muestra una solución breve', () => {
   const help = UIInspector.getOllamaConnectionHelp('ollama', new Error('NetworkError when attempting to fetch resource.'));
   assert.ok(help.includes('OLLAMA_ORIGINS=*'));

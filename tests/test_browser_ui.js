@@ -126,7 +126,7 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     assert.equal(await page.inputValue('#setting-api-type'), 'webllm', 'Query no debe reaplicar el perfil activo sobre el editor');
     assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
     assert.equal(await page.inputValue('#setting-model'), 'model-cached');
-    assert.deepEqual(await page.locator('#model-select-helper option').evaluateAll(options => options.map(option => option.value)), ['', 'model-cached']);
+    assert.deepEqual(await page.locator('#model-select-helper option').evaluateAll(options => options.map(option => option.value)), ['', 'model-cached', 'model-missing']);
     await page.selectOption('#setting-api-type', 'openai');
     assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
     assert.equal(await page.locator('.api-key-field').isVisible(), true);
@@ -251,7 +251,85 @@ test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
   }
 });
 
-test('Browser UI - una consulta de perfil debe guardarse antes de cerrar', async () => {
+test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros proveedores', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.click('#profile-tab-settings');
+
+    // Inicialmente con OpenAI el enlace de ayuda está oculto
+    const initialLinkHidden = await page.$eval('#webllm-help-link', el => el.hidden);
+    assert.equal(initialLinkHidden, true);
+
+    // Cambiar a WebLLM muestra el enlace de ayuda con target=_blank y rel seguro
+    await page.selectOption('#setting-api-type', 'webllm');
+    const webllmLinkState = await page.$eval('#webllm-help-link', el => ({
+      hidden: el.hidden,
+      href: el.getAttribute('href'),
+      target: el.getAttribute('target'),
+      rel: el.getAttribute('rel')
+    }));
+    assert.equal(webllmLinkState.hidden, false);
+    assert.equal(webllmLinkState.href, 'http://albalday.github.io/zerochat/help/webllm.html');
+    assert.equal(webllmLinkState.target, '_blank');
+    assert.ok(webllmLinkState.rel.includes('noopener'));
+
+    // Cambiar de nuevo a OpenAI oculta el enlace
+    await page.selectOption('#setting-api-type', 'openai');
+    const finalLinkHidden = await page.$eval('#webllm-help-link', el => el.hidden);
+    assert.equal(finalLinkHidden, true);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y muestra modelos descargados primero', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => {
+      localStorage.setItem("zerochat_webllm_completed_models_v1", JSON.stringify(["test-downloaded-model"]));
+      localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" }));
+    });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.click('#profile-tab-settings');
+
+    // Cambiar a WebLLM
+    await page.selectOption('#setting-api-type', 'webllm');
+
+    // Verificar que el modelo descargado aparece en el helper
+    const options = await page.$$eval('#model-select-helper option', opts => opts.map(o => o.value));
+    assert.ok(options.includes('test-downloaded-model'), 'El modelo descargado debe figurar en las opciones');
+
+    // Seleccionar el modelo descargado
+    await page.selectOption('#model-select-helper', 'test-downloaded-model');
+
+    // Comprobar que guardar se habilita sin necesidad de Query
+    const saveState = await page.evaluate(() => ({
+      disabled: document.getElementById('btn-save-profile').disabled,
+      hint: document.getElementById('profile-save-query-hint').textContent
+    }));
+    assert.equal(saveState.disabled, false, 'El botón Guardar debe habilitarse con modelo descargado');
+    assert.match(saveState.hint, /opcional/i, 'La pista debe indicar que la consulta es opcional');
+
+    // Guardar el perfil y verificar que se guarda y se cierra
+    await page.click('#btn-save-profile');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confirmar descarte', async () => {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
@@ -266,15 +344,65 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar', async
     await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
     await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
+
+    // 1. Pulsar botón Cerrar con consulta pendiente abre diálogo de confirmación (con Cancelar y Aceptar)
     await page.click('#btn-cancel-profiles');
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
 
-    const state = await page.evaluate(() => ({
+    const stateNotice = await page.evaluate(() => ({
       profilesOpen: document.getElementById('profiles-dialog').open,
-      notice: document.getElementById('notice-message').textContent
+      notice: document.getElementById('notice-message').textContent,
+      cancelVisible: !document.getElementById('notice-cancel').hidden
     }));
-    assert.equal(state.profilesOpen, true);
-    assert.match(state.notice, /no se ha guardado/);
+    assert.equal(stateNotice.profilesOpen, true, 'El modal de perfiles no debe cerrarse al mostrar la confirmación');
+    assert.match(stateNotice.notice, /no se ha guardado/);
+    assert.equal(stateNotice.cancelVisible, true, 'La confirmación debe ofrecer botón Cancelar');
+
+    // 2. Pulsar Cancelar en el diálogo mantiene el modal de perfiles abierto y el estado queryReady
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    const stateAfterCancel = await page.evaluate(() => ({
+      profilesOpen: document.getElementById('profiles-dialog').open,
+      queryReady: document.getElementById('profiles-dialog').dataset.queryReady
+    }));
+    assert.equal(stateAfterCancel.profilesOpen, true, 'Pulsar Cancelar debe mantener el modal de perfiles abierto');
+    assert.equal(stateAfterCancel.queryReady, 'true', 'queryReady debe conservarse para permitir guardar');
+
+    // 3. Pulsar Cerrar y luego Aceptar descarta la consulta y cierra el modal
+    await page.click('#btn-cancel-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    const stateAfterAccept = await page.evaluate(() => ({
+      profilesOpen: document.getElementById('profiles-dialog').open,
+      queryReady: document.getElementById('profiles-dialog').dataset.queryReady
+    }));
+    assert.equal(stateAfterAccept.profilesOpen, false, 'Pulsar Aceptar debe cerrar el modal de perfiles');
+    assert.equal(stateAfterAccept.queryReady, 'false', 'queryReady debe resetearse a false al descartar');
+
+    // 4. Probar clic fuera (backdrop) con consulta pendiente: no debe cerrar prematuramente
+    await page.click('#btn-manage-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    await page.click('#profile-tab-settings');
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
+
+    // Clic en el backdrop
+    await page.mouse.click(10, 10);
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Clic en el backdrop no debe cerrar profiles-dialog antes de confirmar');
+
+    // Cancelar en backdrop confirm
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Cancelar confirmación de backdrop debe mantener abierto el modal');
+
+    // Clic en backdrop de nuevo y Aceptar descarte
+    await page.mouse.click(10, 10);
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Aceptar confirmación de backdrop debe cerrar el modal');
   } finally {
     await browser.close();
   }

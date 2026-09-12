@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuración de WebLLM y WebGPU · Ayuda de ZeroChat</title>
+  <meta name="description" content="Guía de configuración técnica para ejecutar modelos locales en el navegador mediante WebLLM y WebGPU en ZeroChat.">
+  <link rel="stylesheet" href="help.css">
+  <style>
+    .browser-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    @media (min-width: 768px) {
+      .browser-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .spec-table th, .spec-table td {
+      border: 1px solid var(--border-color);
+      padding: 0.6rem 0.85rem;
+      text-align: left;
+    }
+    .spec-table th {
+      background: var(--bg-card-subtle);
+      font-weight: 600;
+    }
+    .icon-inline {
+      display: inline-block;
+      vertical-align: -0.15em;
+      width: 1.1em;
+      height: 1.1em;
+      stroke-width: 2;
+      stroke: currentColor;
+      fill: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <a href="index.html" class="top-nav-link">← Volver al Índice</a>
+      </div>
+      <h1>Configuración de WebLLM y WebGPU</h1>
+      <p class="subtitle">Guía de preparación técnica para la ejecución local de modelos de Inteligencia Artificial directamente en tu navegador mediante la GPU.</p>
+    </header>
+
+    <div class="card">
+      <h2>¿Qué es WebLLM y qué ventajas ofrece?</h2>
+      <p>
+        <strong>WebLLM</strong> es una tecnología que ejecuta modelos de lenguaje (LLM) íntegramente dentro del navegador web aprovechando la tarjeta gráfica (GPU) mediante la API estándar <strong>WebGPU</strong>.
+      </p>
+      <ul>
+        <li><strong>Privacidad absoluta:</strong> Las preguntas y respuestas nunca salen de tu ordenador; no hay servidores intermedios recopilando datos.</li>
+        <li><strong>Sin costes ni suscripciones:</strong> No requiere claves API de pago ni infraestructuras de backend externas.</li>
+        <li><strong>Operación sin conexión:</strong> Una vez descargado el modelo en la caché local del navegador (Cache Storage), funciona incluso sin conexión a Internet.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Requisitos Previos de Hardware</h2>
+      <p>WebGPU requiere compatibilidad gráfica y memoria de vídeo (VRAM) adecuada según el tamaño del modelo seleccionado:</p>
+      <table class="spec-table">
+        <thead>
+          <tr>
+            <th>Tamaño de Modelo</th>
+            <th>VRAM recomendada</th>
+            <th>Ejemplos disponibles</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>0.5B – 1.5B</strong></td>
+            <td>~1.0 GB a 1.8 GB</td>
+            <td>Qwen2.5-0.5B, Llama-3.2-1B, SmolLM2-1.7B</td>
+          </tr>
+          <tr>
+            <td><strong>3B – 4B</strong></td>
+            <td>~2.5 GB a 3.5 GB</td>
+            <td>Llama-3.2-3B, Phi-3.5-mini-instruct</td>
+          </tr>
+          <tr>
+            <td><strong>7B – 8B</strong></td>
+            <td>~5.0 GB a 6.5 GB</td>
+            <td>Llama-3.1-8B-Instruct, Mistral-7B-Instruct</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="alert alert-info">
+        <strong>Nota:</strong> Los adaptadores gráficos modernos (NVIDIA, AMD Radeon, Apple Silicon M1/M2/M3/M4 e Intel Iris Xe/Arc) cuentan con soporte nativo de WebGPU con los controladores oficiales actualizados.
+      </div>
+    </div>
+
+    <h2>Configuración por Navegador</h2>
+    <div class="browser-grid">
+
+      <!-- Google Chrome / Edge / Brave -->
+      <div class="card">
+        <h3>Google Chrome, Edge y Chromium</h3>
+        <p>Los navegadores basados en Chromium ofrecen el mejor rendimiento con WebGPU.</p>
+
+        <ol>
+          <li>
+            <strong>Activa la aceleración por hardware:</strong>
+            <p>Ve a Configuración &gt; Sistema y asegúrate de activar <em>"Usar aceleración por hardware cuando esté disponible"</em>.</p>
+            <div class="code-box">
+              <code>chrome://settings/system</code>
+              <button class="btn-copy" onclick="copyText('chrome://settings/system', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Habilitar WebGPU no seguro (Recomendado para máxima compatibilidad):</strong>
+            <p>Pega en la barra de direcciones, cambia el valor a <strong>Enabled</strong> y reinicia el navegador:</p>
+            <div class="code-box">
+              <code>chrome://flags/#enable-unsafe-webgpu</code>
+              <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Comprobar el estado de la GPU:</strong>
+            <p>Abre el panel de diagnóstico y verifica que <em>WebGPU</em> figure como <em>"Hardware accelerated"</em>:</p>
+            <div class="code-box">
+              <code>chrome://gpu</code>
+              <button class="btn-copy" onclick="copyText('chrome://gpu', this)">Copiar</button>
+            </div>
+          </li>
+        </ol>
+
+        <div class="alert alert-warning">
+          <strong>En Linux:</strong> Si WebGPU no se activa automáticamente con OpenGL, inicia Chromium con soporte Vulkan:
+          <div class="code-box" style="margin-top:0.4rem;">
+            <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>
+            <button class="btn-copy" onclick="copyText('--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan', this)">Copiar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mozilla Firefox -->
+      <div class="card">
+        <h3>Mozilla Firefox</h3>
+        <p>WebGPU está en fase de despliegue activo en Firefox y requiere habilitar parámetros específicos:</p>
+
+        <ol>
+          <li>
+            <strong>Accede al editor de configuración avanzada:</strong>
+            <p>Escribe en la barra de direcciones y pulsa <em>"Aceptar el riesgo y continuar"</em>:</p>
+            <div class="code-box">
+              <code>about:config</code>
+              <button class="btn-copy" onclick="copyText('about:config', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Habilita la API WebGPU:</strong>
+            <p>Busca este parámetro y asegúrate de que esté configurado como <strong>true</strong>:</p>
+            <div class="code-box">
+              <code>dom.webgpu.enabled</code>
+              <button class="btn-copy" onclick="copyText('dom.webgpu.enabled', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Ignorar lista de bloqueo de controladores (Recomendado en Linux/Windows):</strong>
+            <p>Permite a Firefox utilizar WebGPU incluso si el controlador no está verificado en la lista oficial:</p>
+            <div class="code-box">
+              <code>gfx.webgpu.ignore-status</code>
+              <button class="btn-copy" onclick="copyText('gfx.webgpu.ignore-status', this)">Copiar</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Comprobar estado en Firefox:</strong>
+            <p>Revisa la sección <em>Gráficos &gt; WebGPU</em> para confirmar la detección del adaptador:</p>
+            <div class="code-box">
+              <code>about:support</code>
+              <button class="btn-copy" onclick="copyText('about:support', this)">Copiar</button>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <h2>Cómo usar WebLLM en ZeroChat</h2>
+      <ol>
+        <li>En ZeroChat, abre la ventana de <strong>Mantenimiento de Perfiles</strong>.</li>
+        <li>Selecciona el tipo de API <strong>WebLLM (local)</strong>.</li>
+        <li>
+          <strong>Si ya tienes modelos descargados:</strong>
+          Aparecerán automáticamente como los primeros de la lista en el combo de selección. Puedes escoger cualquiera de ellos y guardar el perfil directamente sin necesidad de pulsar <em>Query</em>.
+        </li>
+        <li>
+          <strong>Para descargar un nuevo modelo:</strong>
+          Pulsa el botón <strong>Query</strong>. Se desplegará el catálogo de modelos disponibles con sus requisitos de memoria VRAM. Pulsa el icono de descarga junto al modelo deseado y espera a que termine la compilación de shaders.
+        </li>
+        <li>
+          Una vez completada la descarga, el modelo quedará marcado como <em>"En caché"</em> y guardado permanentemente en el navegador.
+        </li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Resolución de Problemas Frecuentes</h2>
+      <ul>
+        <li>
+          <strong>"WebGPU no está disponible en este navegador":</strong> Comprueba que tu navegador esté actualizado a la última versión y que los flags de WebGPU indicados arriba estén habilitados.
+        </li>
+        <li>
+          <strong>Error por memoria insuficiente (Out of Memory):</strong> Si el navegador se bloquea o recarga durante la compilación, selecciona un modelo más ligero (por ejemplo, de 0.5B a 1.5B) o cierra pestañas pesadas que utilicen aceleración 3D.
+        </li>
+        <li>
+          <strong>Navegación Privada / Modo Incógnito:</strong> Los modos de incógnito limitan o borran la caché al cerrar la ventana. Para conservar los modelos descargados permanentemente, utiliza una ventana normal de navegación.
+        </li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="profiles.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Perfiles y Proveedores</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="conversations.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Conversaciones y Ramas</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Cliente Web Universal de IA · Ayuda online para la versión 6.x</p>
+    </footer>
+  </div>
+
+  <script src="help.js"></script>
+</body>
+</html>
+
