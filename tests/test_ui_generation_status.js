@@ -97,6 +97,28 @@ test('GenerationStatus - integración con ChatState mutators', () => {
   assert.equal(s2.phase, 'tool');
   assert.equal(s2.text, 'Buscando en web...');
 
+  // Transición de herramienta a pensamiento: debe limpiar el texto de la herramienta
+  const s3 = store.setGenerationStatus({ phase: 'thinking' });
+  assert.equal(s3.phase, 'thinking');
+  assert.equal(s3.text, '', 'El texto de la herramienta previa no debe heredarse');
+  assert.equal(store.get('ui').generationStatus.text, '');
+  assert.ok(s3.startedAt, 'Debe registrar la marca de tiempo de inicio de pensamiento');
+
+  // getViewModel debe formatear 'Pensando' / 'Thinking' con el tiempo transcurrido sin residuos del tool
+  const vmThinking = Status.getViewModel(s3, s3.startedAt + 5000);
+  assert.equal(vmThinking.phase, 'thinking');
+  assert.match(vmThinking.text, /Pensando|Thinking/i);
+  assert.match(vmThinking.text, /5\s*s/);
+  assert.equal(vmThinking.text.includes('Buscando'), false, 'No debe mostrar el texto del tool previo');
+
+  // Transición de pensamiento a generación: debe mostrar generando y no conservar el estado de pensamiento
+  const s4 = store.setGenerationStatus({ phase: 'generating' });
+  assert.equal(s4.phase, 'generating');
+  assert.equal(s4.text, '');
+  const vmGenerating = Status.getViewModel(s4);
+  assert.equal(vmGenerating.phase, 'generating');
+  assert.match(vmGenerating.text, /Generando|Generating/i);
+
   // Limpieza
   const cleared = store.clearGenerationStatus();
   assert.equal(cleared.phase, 'idle');

@@ -692,6 +692,7 @@
                       }
                       activeReasoningTag = openMatch[1].toLowerCase();
                       remaining = remaining.slice(openMatch.index + openMatch[0].length);
+                      publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                     } else {
                       publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
                       accumulatedText += remaining;

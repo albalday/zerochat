@@ -538,8 +538,10 @@
     } else {
       const ui = State.get?.('ui') || {};
       const current = ui.generationStatus || { phase: 'idle', percent: null, startedAt: null };
-      const phaseChanged = raw.phase && raw.phase !== current.phase;
-      next = { ...current, ...raw, phase, startedAt: phaseChanged ? Date.now() : current.startedAt };
+      const phaseChanged = phase !== current.phase;
+      next = phaseChanged
+        ? { text: '', message: '', detail: '', percent: null, ...raw, phase, startedAt: Date.now() }
+        : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
       State.set('ui', { ...ui, generationStatus: next });
     }
     (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, next);

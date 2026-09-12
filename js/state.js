@@ -649,13 +649,23 @@
       const raw = typeof update === 'string' ? { text: update } : (update || {});
       const current = (state.ui && state.ui.generationStatus) || { phase: 'idle', percent: null, startedAt: null };
       const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : current.phase || 'idle'));
-      const phaseChanged = raw.phase && raw.phase !== current.phase;
-      const next = {
-        ...current,
-        ...raw,
-        phase,
-        startedAt: phaseChanged ? Date.now() : current.startedAt
-      };
+      const phaseChanged = phase !== current.phase;
+      const next = phaseChanged
+        ? {
+            text: '',
+            message: '',
+            detail: '',
+            percent: null,
+            ...raw,
+            phase,
+            startedAt: Date.now()
+          }
+        : {
+            ...current,
+            ...raw,
+            phase,
+            startedAt: current.startedAt || Date.now()
+          };
       setState({
         ui: Object.assign({}, state.ui, { generationStatus: next })
       });

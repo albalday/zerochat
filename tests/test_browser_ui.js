@@ -2640,6 +2640,19 @@ test('UI - Indicador de progreso de generación es invisible sin ciclo activo y 
     });
     assert.equal(toolText, 'Ejecutando web_search...');
 
+    // 4b. Transición de herramienta a pensamiento: debe cambiar a pensando y no mantener el texto de la herramienta
+    await page.evaluate(() => {
+      window.ChatApp.setGenerationStatus({ phase: 'thinking' });
+    });
+    const thinkingState = await page.evaluate(() => {
+      const el = document.getElementById('generation-status');
+      const text = el.querySelector('.generation-status-text')?.textContent || '';
+      return { phase: el.dataset.phase, text, includesToolText: text.includes('web_search') };
+    });
+    assert.equal(thinkingState.phase, 'thinking');
+    assert.match(thinkingState.text, /Pensando|Thinking/i);
+    assert.equal(thinkingState.includesToolText, false, 'El texto del tool no debe persistir durante la fase de pensamiento');
+
     // 5. Al finalizar el ciclo de chat, vuelve inmediatamente a invisible
     await page.evaluate(() => {
       window.ChatState.set('streaming', { isGenerating: false, status: 'idle' });
