@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Knowledge Base (RAG) · ZeroChat Help</title>
+  <meta name="description" content="Guide for local Retrieval-Augmented Generation (RAG) in ZeroChat: knowledge branches, document ingestion, Orama search, and image analysis.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../rag.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Local Knowledge Base (RAG)</h1>
+      <p class="subtitle">Query your own documents privately without uploading them to the cloud using the built-in browser RAG engine.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. What is RAG and Why ZeroChat is Unique?</h2>
+      <p>
+        <strong>RAG</strong> (<em>Retrieval-Augmented Generation</em>) is a method that allows language models to ground their answers in your personal documents, manuals, codebases, or technical notes.
+      </p>
+      <p>
+        While typical SaaS tools require uploading sensitive files to remote servers, ZeroChat executes <strong>all document ingestion, chunking, and search indexing locally inside your browser</strong> using the <strong>Orama</strong> search engine backed by <strong>IndexedDB</strong>.
+      </p>
+      <div class="alert alert-success">
+        <strong>Absolute confidentiality:</strong> Your proprietary source code, internal agreements, or confidential records never leave your machine. Only the specific retrieved chunks relevant to answering your question are passed to your chosen model.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Knowledge Branches</h2>
+      <p>
+        To keep distinct projects cleanly separated, ZeroChat organizes knowledge into independent <strong>Branches</strong>:
+      </p>
+      <ul>
+        <li>Create topic-specific branches (e.g., <em>"API Specs"</em>, <em>"Financial Reports"</em>, <em>"Research Papers"</em>).</li>
+        <li>Switch or toggle branches on and off with a single click from the <strong>RAG</strong> button in the composer toolbar.</li>
+        <li>When a branch is active, the chat engine and agents gain direct retrieval access to its documents.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Document Ingestion & Chunking</h2>
+      <p>
+        Drop files into the RAG modal or select them from disk:
+      </p>
+      <ul>
+        <li><strong>PDFs & Books:</strong> Parses text per page and captures embedded figures and diagrams.</li>
+        <li><strong>Markdown & Plain Text:</strong> Respects heading structures (<code>#</code>, <code>##</code>) for semantic boundary division.</li>
+        <li><strong>Source Code Files:</strong> Groups code blocks respecting function and class scopes so technical context is preserved.</li>
+        <li><strong>Intelligent Chunking:</strong> Divides content into optimal token windows with configured overlap to ensure complete contextual coherence.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Retrieval Strategies & Agent Tools</h2>
+      <p>
+        ZeroChat supports dual retrieval mechanisms:
+      </p>
+      <ol>
+        <li>
+          <strong>Automatic Context Injection:</strong> Automatically queries the active branch for relevant text snippets and injects them into the system prompt.
+        </li>
+        <li>
+          <strong>Active Agent Tool Calling:</strong> The model dynamically queries the database using specialized tools:
+          <ul>
+            <li><code>list_documents</code>: Discovers available documents in the branch.</li>
+            <li><code>search_knowledge_base</code>: Searches for specific terms and semantic matches.</li>
+            <li><code>read_knowledge_chunk</code>: Reads a specific section in high resolution.</li>
+            <li><code>read_knowledge_image</code>: Inspects embedded figures or chart images visually.</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="tools-agent.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Agent Mode & Tools</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="mcp.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">MCP Protocol</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

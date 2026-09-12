@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Model Context Protocol (MCP) · ZeroChat Help</title>
+  <meta name="description" content="Guide for connecting external MCP servers over SSE/HTTP in ZeroChat: FastMCP Python generator and tool authorization policies.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../mcp.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Model Context Protocol (MCP)</h1>
+      <p class="subtitle">Connect ZeroChat with your external tools, databases, or operating system utilities via the open MCP standard.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. What is MCP?</h2>
+      <p>
+        The <strong>Model Context Protocol (MCP)</strong> is an open protocol championed by Anthropic to bridge AI models with external tools and databases through a standardized interface.
+      </p>
+      <p>
+        ZeroChat implements a <strong>full client MCP engine over SSE (Server-Sent Events) and HTTP</strong>. This lets your browser connect to any local or remote MCP server (written in Python, Node.js, Go, etc.) to give models access to local filesystems, SQL databases, internal company APIs, or CLI commands.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>2. Connection & UI Indicators</h2>
+      <p>
+        In the composer bottom toolbar, locate the <strong>MCP</strong> status chip:
+      </p>
+      <ul>
+        <li><strong>Grey indicator / Disconnected:</strong> No active MCP connection.</li>
+        <li><strong>Green indicator / Connected:</strong> ZeroChat has connected to the server and discovered its exposed tools.</li>
+      </ul>
+      <p>
+        Click the MCP button to open the setup modal, configure your endpoint (default: <code>http://127.0.0.1:8000/sse</code>), and click <em>"Connect"</em>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>3. Built-in FastMCP Python Server Generator</h2>
+      <p>
+        ZeroChat includes a one-click <strong>Python FastMCP script generator</strong> directly inside the configuration modal:
+      </p>
+      <ol>
+        <li>Select your operating system (Linux, macOS, or Windows).</li>
+        <li>Copy the installation command (via pip or uv).</li>
+        <li>Copy the ready-to-run Python server template with example functions.</li>
+        <li>Run the server in terminal with CORS enabled:</li>
+      </ol>
+      <div class="code-wrapper">
+        <pre><code># Start a FastMCP Python server for ZeroChat
+uv run fastmcp run server.py --transport sse --port 8000</code></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Tool Permissions & Authorization Policies</h2>
+      <p>
+        Because external MCP tools can perform sensitive operations on your system, ZeroChat provides granular security controls for each tool:
+      </p>
+      <ul>
+        <li><strong>On/Off Switches:</strong> Enable or disable individual tools without restarting the MCP server process.</li>
+        <li><strong>Authorization Policy:</strong>
+          <ul>
+            <li><em>Automatic:</em> The agent invokes the tool without user interruption.</li>
+            <li><em>Ask confirmation:</em> ZeroChat halts execution and displays a modal prompt asking for explicit approval before running the tool.</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="alert alert-warning">
+        <strong>Local network security:</strong> Make sure your MCP server binds strictly to the loopback interface <code>127.0.0.1</code> and not <code>0.0.0.0</code> when working on untrusted public networks.
+      </div>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="rag.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Local Knowledge (RAG)</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="debug.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Debugging & Interceptor</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

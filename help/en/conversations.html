@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversations, History & Branching · ZeroChat Help</title>
+  <meta name="description" content="Guide for organizing conversations in ZeroChat: chronological sidebar, instant search, turn branching, and secure session export/import.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../conversations.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Conversations, History & Branching</h1>
+      <p class="subtitle">Manage chat sessions, explore alternative answers with branching, and safely back up your conversations.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. The Conversations Sidebar</h2>
+      <p>
+        The left-hand sidebar (accessible on mobile via the top-left menu button) houses your complete chat archive.
+      </p>
+      <ul>
+        <li><strong>New Chat:</strong> Instantly creates a clean chat session preserving your active profile.</li>
+        <li><strong>Chronological Grouping:</strong> Chats are organized into clear time buckets: <em>Today</em>, <em>Yesterday</em>, <em>Previous 7 Days</em>, <em>This Month</em>, and <em>Older</em>.</li>
+        <li><strong>Real-time Search:</strong> Filter your chat history instantly by title.</li>
+        <li><strong>Quick Session Actions:</strong> Hover over any session to export or delete it individually.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2. Turn Branching</h2>
+      <p>
+        <strong>Branching</strong> lets you explore alternative lines of thought without losing previous context.
+      </p>
+      <h3>How it works:</h3>
+      <ol>
+        <li>Click the branch icon button beneath any assistant response.</li>
+        <li>ZeroChat creates a <strong>new independent chat</strong> containing the conversation history up to that point.</li>
+        <li>Subsequent messages from the original conversation are omitted in the new branch, allowing you to ask a different follow-up or test an alternative model.</li>
+        <li>The original conversation remains completely intact and accessible from the sidebar.</li>
+      </ol>
+      <div class="alert alert-info">
+        <strong>Typical use case:</strong> When an assistant offers two approaches to a problem, branch at that turn to explore "Option A" in one chat and "Option B" in another.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Exporting Conversations</h2>
+      <p>
+        Export your chat sessions into standard formats:
+      </p>
+      <ul>
+        <li><strong>Full Session JSON:</strong> Contains messages, metadata, tool calls, and profile settings. Functions as a 1:1 backup that can be imported back into ZeroChat.</li>
+        <li><strong>Markdown (.md):</strong> Formatted text ready for Obsidian, GitHub, Notion, or personal wikis, preserving headers, code blocks, tables, and math equations.</li>
+        <li><strong>Plain Text (.txt):</strong> Lightweight transcript for quick reading and sharing.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Session Import & Safe Purge</h2>
+      <p>
+        Click <strong>"Import chat"</strong> in the sidebar footer to load any exported ZeroChat <code>.json</code> file.
+      </p>
+      <p>
+        Imported sessions are validated, sanitized, and stored directly into your browser's IndexedDB database.
+      </p>
+      <div class="alert alert-warning">
+        <strong>Safe Bulk Deletion:</strong> The trash icon in the sidebar footer lets you delete all stored chats at once. ZeroChat prompts for confirmation before wiping data.
+      </div>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="debug.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Debugging & Interceptor</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="composer.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Composer & Multimedia</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

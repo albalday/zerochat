@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture & Portability · ZeroChat Help</title>
+  <meta name="description" content="Technical architecture of ZeroChat: single-file bundle distribution, offline execution via file://, local IndexedDB storage, and data privacy.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../architecture.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Architecture & Portability</h1>
+      <p class="subtitle">Learn how ZeroChat operates as a server-independent, fully autonomous, 100% portable web application.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. The Autonomous Single-File Concept</h2>
+      <p>
+        ZeroChat is built on a fundamental premise: <strong>maximum portability without compromising advanced capabilities</strong>.
+      </p>
+      <p>
+        The final production build is bundled into a single distributable file called <code>zerochat.html</code>. This file packs the HTML structure, minified CSS compressed using Gzip level 9 in Base64, application JavaScript modules, and essential client-side libraries (including the Orama search engine).
+      </p>
+      <p>
+        When you open <code>zerochat.html</code>, an ultralight native bootstrap decompresses the payload in milliseconds using the browser's <code>DecompressionStream</code> API, allowing instant startup.
+      </p>
+      <div class="alert alert-success">
+        <strong>Key advantage:</strong> You can keep <code>zerochat.html</code> on a USB flash drive, on your desktop, or email it to yourself and run it in any modern browser without installing Node.js, Python, Docker, or system dependencies.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. file:// Protocol vs Web Server Hosting</h2>
+      <p>ZeroChat is engineered to run seamlessly in two deployment environments:</p>
+      <ul>
+        <li>
+          <strong>Local <code>file://</code> protocol:</strong> Double-click the file in your desktop file manager. No local web server required. Requests to external APIs or local backends (like Ollama or LM Studio) are performed directly using browser <code>fetch</code> (with CORS enabled on the provider).
+        </li>
+        <li>
+          <strong>Static web server or GitHub Pages (HTTP/HTTPS):</strong> Hosted on standard web servers (Nginx, Apache, Caddy, Vercel, or GitHub Pages). This mode additionally benefits from full access to modern storage persistence APIs (<code>navigator.storage.persist()</code>) and secure context features.
+        </li>
+      </ul>
+      <div class="alert alert-warning">
+        <strong>Note on <code>file://</code> restrictions:</strong> Certain browser engines restrict specific web APIs on the <code>file://</code> origin (such as automatic self-downloading or certain Service Worker features). For maximum WebGPU or heavy RAG performance, an HTTP or HTTPS origin is recommended.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Local Storage & Data Privacy</h2>
+      <p>
+        ZeroChat's storage architecture strictly respects <strong>user data sovereignty</strong>. The application never transmits conversation history, credentials, or documents to any telemetry backend.
+      </p>
+      <h3>Client-side storage layers:</h3>
+      <ul>
+        <li>
+          <strong>IndexedDB (ZeroChatDB):</strong> Structured browser database storing chat sessions, messages, metadata, user profile configurations, and local RAG branches.
+        </li>
+        <li>
+          <strong>Isolated Attachment Store:</strong> Large Base64 images and uploaded documents are isolated in dedicated IndexedDB object stores to keep the active message tree fast, responsive, and lightweight.
+        </li>
+        <li>
+          <strong>Cache Storage API:</strong> Used by WebLLM to persist downloaded local model weights and shader modules.
+        </li>
+        <li>
+          <strong>LocalStorage / Session Cookies (ChatStorage):</strong> Manages UI state, the Gemini Free Tier key (when configured locally), and interface preferences (such as the active color theme).
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Canonical State (ChatState)</h2>
+      <p>
+        To prevent memory leaks or state desynchronization across components, ZeroChat uses a single canonical state store: <code>ChatState</code>.
+      </p>
+      <p>
+        Every lifecycle change (switching sessions, appending streamed tokens, tracking inference progress, or executing tools) occurs through domain mutators (such as <code>appendMessage</code>, <code>replaceMessages</code>, or <code>saveSessionMetadata</code>). This ensures reactive, synchronized updates throughout the UI.
+      </p>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <div class="nav-button disabled">
+        <span class="nav-direction">First page</span>
+        <span class="nav-title">—</span>
+      </div>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="profiles.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Profiles & Providers</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reasoning (Thinking) & Context Telemetry · ZeroChat Help</title>
+  <meta name="description" content="Guide for reasoning models (Thinking) and real-time monitoring of tokens, context cache hits, and generation speed in ZeroChat.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../reasoning-telemetry.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Reasoning (Thinking) & Telemetry</h1>
+      <p class="subtitle">Learn how to control model deliberation effort and supervise context window consumption and token metrics in real time.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. Reasoning-Capable Models</h2>
+      <p>
+        Next-generation models (such as DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Sonnet with thinking, and Qwen QwQ) generate internal thought chains prior to answering.
+      </p>
+      <p>
+        ZeroChat streams these thinking chunks in real time, rendering them inside collapsible thought blocks with timers.
+      </p>
+      <h3>The Reasoning Effort Selector</h3>
+      <p>
+        Click the brain icon button in the composer toolbar to adjust thinking effort:
+      </p>
+      <ul>
+        <li><strong>None (Off):</strong> Direct answers without extended deliberation tokens.</li>
+        <li><strong>Low / Medium / High:</strong> Allocates token budgets for deeper multi-step analysis.</li>
+        <li><strong>send-none (Experimental):</strong> For local backends (like WebLLM or vLLM) that require explicitly passing <code>reasoning_effort: "none"</code>.</li>
+      </ul>
+      <div class="alert alert-info">
+        <strong>Agent Checkpoint (<code>agent_checkpoint</code>):</strong> Enable this tool from the reasoning menu to let models store intermediate conclusions before complex tool loops or RAG searches.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Unified Context Hub</h2>
+      <p>
+        Next to the profile selector, the telemetry chip (e.g., <code>1.4k / 128k</code>) reflects context health via color-coded status:
+      </p>
+      <ul>
+        <li><strong>Green (Optimal):</strong> Under 75% of context limit used.</li>
+        <li><strong>Amber (Warning):</strong> Between 75% and 90% consumed; consider pruning or branching.</li>
+        <li><strong>Red (Critical):</strong> Over 90% capacity used; truncation risk is imminent.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Context Hub Popover Diagnostics</h2>
+      <p>
+        Click the token pill to open the comprehensive telemetry diagnostic view:
+      </p>
+
+      <h3>Section 1: Global Context Window</h3>
+      <ul>
+        <li><strong>Progress Bar:</strong> Visual percentage of context window used.</li>
+        <li><strong>Used, Limit, and Available Tokens:</strong> Exact token metrics synthesized from server usage data and client tokenizer estimates.</li>
+        <li><strong>Assumed Capacity Override:</strong> Manually input custom limits (e.g., 8k or 32k) if your local server does not publish its capacity.</li>
+      </ul>
+
+      <h3>Section 2: Prompt Cache Savings (KV Cache)</h3>
+      <ul>
+        <li><strong>Cached Read Tokens (Savings):</strong> Tokens served from cache with reduced pricing and latency.</li>
+        <li><strong>Cached Write Tokens:</strong> New prefix tokens cached for subsequent turns.</li>
+      </ul>
+
+      <h3>Section 3: Last Turn Performance</h3>
+      <ul>
+        <li><strong>Prompt & Completion Tokens:</strong> Token breakdown for the latest message.</li>
+        <li><strong>Generation Speed:</strong> Measured in tokens per second (<code>tok/s</code>).</li>
+        <li><strong>Latency (TTFT):</strong> Time to First Token in milliseconds.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="composer.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Composer & Multimedia</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <div class="nav-button disabled">
+        <span class="nav-direction">Last page</span>
+        <span class="nav-title">—</span>
+      </div>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profiles & AI Providers · ZeroChat Help</title>
+  <meta name="description" content="Guide for configuring connection profiles in ZeroChat: OpenAI, Ollama, LM Studio, OpenRouter, Anthropic Claude, Google Gemini, WebLLM, and Mirror profile.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../profiles.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Profiles & AI Providers</h1>
+      <p class="subtitle">Learn how to connect ZeroChat with any language model, running either on your machine or in the cloud.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. Connection Profile Management</h2>
+      <p>
+        ZeroChat lets you define multiple <strong>connection profiles</strong>. A profile encapsulates the API protocol type, server endpoint URL, authentication key (optional for local servers), and selected model name.
+      </p>
+      <p>
+        To manage profiles, click the active profile name button located in the bottom-right corner of the composer and choose <strong>"Edit profiles"</strong>, or open the settings dialog from the sidebar.
+      </p>
+      <div class="alert alert-info">
+        <strong>Instant switching:</strong> You can switch models or providers mid-conversation without losing context. Simply open the profile dropdown and select another one.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Supported Providers & Protocols</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Interface Type</th>
+              <th>Common Servers & Services</th>
+              <th>Typical Endpoint</th>
+              <th>API Key</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>OpenAI / Compatible</strong></td>
+              <td>LM Studio, LocalAI, vLLM, official OpenAI</td>
+              <td><code>http://localhost:1234/v1</code></td>
+              <td>Optional on local / Required on OpenAI</td>
+            </tr>
+            <tr>
+              <td><strong>Ollama</strong></td>
+              <td>Local Ollama server</td>
+              <td><code>http://localhost:11434</code></td>
+              <td>Not required</td>
+            </tr>
+            <tr>
+              <td><strong>OpenRouter</strong></td>
+              <td>OpenRouter multi-model gateway</td>
+              <td><code>https://openrouter.ai/api/v1</code></td>
+              <td>Required (<code>sk-or-...</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Anthropic Claude</strong></td>
+              <td>Official Anthropic API</td>
+              <td><code>https://api.anthropic.com/v1</code></td>
+              <td>Required (<code>sk-ant-...</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Google Gemini</strong></td>
+              <td>Google AI Studio</td>
+              <td>Gemini OpenAI-compatible endpoint</td>
+              <td>Required or Free Tier button</td>
+            </tr>
+            <tr>
+              <td><strong>WebLLM</strong></td>
+              <td>In-browser direct (WebGPU)</td>
+              <td><code>webllm://local</code> (automated)</td>
+              <td>Not applicable (100% local)</td>
+            </tr>
+            <tr>
+              <td><strong>Mirror (Espejo)</strong></td>
+              <td>Internal offline testing</td>
+              <td>No endpoint (simulated mode)</td>
+              <td>Not applicable</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Server Inspection (Query Button) & Validation</h2>
+      <p>
+        When creating or editing a profile, ZeroChat provides a <strong>Query</strong> button next to the URL input. This inspects the server before saving:
+      </p>
+      <ul>
+        <li><strong>Model discovery:</strong> Fetches the available models catalog and populates the dropdown automatically.</li>
+        <li><strong>Capability inspection:</strong> Verifies if the model supports vision, function calling (tools), native reasoning, and advertised context capacity.</li>
+        <li><strong>Save protection:</strong> For remote APIs or local HTTP endpoints, ZeroChat requires a successful Query before saving to ensure the connection works properly.</li>
+      </ul>
+      <div class="alert alert-success">
+        <strong>Fast save on WebLLM:</strong> When selecting an already downloaded WebLLM model from local cache, the <em>Query</em> button is optional, allowing you to save the profile immediately.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Special Configuration for Ollama (CORS)</h2>
+      <p>
+        When connecting to <strong>Ollama</strong>, browsers will block requests due to CORS (Cross-Origin Resource Sharing) unless Ollama is started with cross-origin access enabled:
+      </p>
+      <div class="code-wrapper">
+        <pre><code># On Linux / macOS (terminal)
+OLLAMA_ORIGINS="*" ollama serve
+
+# On Windows (PowerShell)
+$env:OLLAMA_ORIGINS="*"
+ollama serve</code></pre>
+      </div>
+      <p>If running Ollama as a systemd service on Linux, add <code>Environment="OLLAMA_ORIGINS=*"</code> under the <code>[Service]</code> section.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. The Built-in "Mirror" Profile</h2>
+      <p>
+        ZeroChat includes a read-only <strong>Mirror (Espejo)</strong> profile. It is ideal for UI testing and troubleshooting:
+      </p>
+      <ul>
+        <li>Makes zero network calls and needs no local server running.</li>
+        <li>Returns an immediate formatted preview of the normalized OpenAI-compatible payload.</li>
+        <li>Serves as a reliable fallback whenever an active profile is deleted or inaccessible.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="architecture.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Architecture & Portability</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="webllm.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Local WebLLM Inference</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

@@ -116,6 +116,42 @@ header {
   color: var(--primary);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  color: var(--text-muted);
+}
+
+.lang-current {
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.lang-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.lang-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
 h1 {
   font-size: 2rem;
   font-weight: 700;
