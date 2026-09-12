@@ -1,15 +1,17 @@
 /**
- * Módulo de ejecución de JavaScript local en entorno aislado (ChatSandbox).
- * - Aislamiento mediante Web Worker en hilo independiente cuando está disponible (evita bloqueos del hilo principal).
- * - Límite de tiempo real (Timeout) con terminación forzada del Worker (worker.terminate()).
- * - Control estricto de salida máxima (truncamiento de texto y límite de logs de consola).
- * - APIs restringidas (sin acceso a red, almacenamiento ni DOM principal).
+ * Módulo de ejecución de JavaScript local (ChatSandbox).
+ * 
+ * - Ejecución desacoplada mediante Web Worker en hilo independiente cuando está disponible (evita bloqueos del hilo principal).
+ * - Control de tiempo de ejecución (Timeout) con terminación forzada del Worker (worker.terminate()).
+ * - Límites de salida y protección de flujo (truncamiento de texto y límite de logs de consola).
+ * - Mitigación en el Worker de APIs no deseadas para cálculos (red y sub-workers).
  * - Fallback controlado para entornos sin soporte nativo de Web Worker.
  * 
- * NOTA DE SEGURIDAD:
- * Este módulo proporciona aislamiento de ejecución, control de recursos y prevención de bucles
- * infinitos para proteger la fluidez de la aplicación. No debe considerarse un sandbox de aislamiento
- * a nivel de kernel/sistema operativo.
+ * NOTA DE SEGURIDAD Y VIGILANCIA TÉCNICA:
+ * Este módulo es una herramienta de apoyo para facilitar cálculos matemáticos, manipulación de
+ * datos y algoritmos del modelo. No debe considerarse un sandbox de seguridad a nivel de sistema
+ * operativo ni un entorno de ejecución hostil aislado. Su uso está pensado bajo el conocimiento,
+ * supervisión y vigilancia consciente de un usuario técnico.
  */
 
 (function (root, factory) {
@@ -72,6 +74,12 @@
         'postMessage', 'addEventListener', 'removeEventListener'
       ];
 
+      // Neutralizar en self y globalThis dentro del Worker para mitigar llamadas accidentales a red o sub-workers
+      blockedGlobals.forEach(function(name) {
+        try { self[name] = undefined; } catch (e) {}
+        try { if (typeof globalThis !== 'undefined') globalThis[name] = undefined; } catch (e) {}
+      });
+
       const paramNames = ['console', ...blockedGlobals];
       const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
 
@@ -86,16 +94,26 @@
       const runner = new Function(...paramNames, wrappedBody);
       const rawResult = runner.apply(null, paramValues);
 
-      let formattedResult = rawResult !== undefined ? formatValue(rawResult) : (logs.length > 0 ? logs.join('\\n') : 'undefined');
-      if (formattedResult && formattedResult.length > maxOutputLength) {
-        formattedResult = formattedResult.substring(0, maxOutputLength) + '... [Salida truncada por límite de tamaño]';
-      }
+      Promise.resolve(rawResult).then(function(resolvedResult) {
+        let formattedResult = resolvedResult !== undefined ? formatValue(resolvedResult) : (logs.length > 0 ? logs.join('\\n') : 'undefined');
+        if (formattedResult && formattedResult.length > maxOutputLength) {
+          formattedResult = formattedResult.substring(0, maxOutputLength) + '... [Salida truncada por límite de tamaño]';
+        }
 
-      self.postMessage({
-        id: id,
-        success: true,
-        result: formattedResult,
-        logs: logs
+        self.postMessage({
+          id: id,
+          success: true,
+          result: formattedResult,
+          logs: logs
+        });
+      }).catch(function(asyncErr) {
+        self.postMessage({
+          id: id,
+          success: false,
+          result: '',
+          logs: logs,
+          error: (asyncErr && (asyncErr.message || asyncErr.toString())) || 'Error en ejecución asíncrona'
+        });
       });
     } catch (err) {
       self.postMessage({
@@ -287,21 +305,36 @@
         const runner = new Function(...paramNames, wrappedBody);
         const rawResult = runner.apply(null, paramValues);
 
-        clearTimeout(timer);
-        if (!isResolved) {
-          isResolved = true;
-          const elapsed = (performance.now() - startTime).toFixed(2);
-          let formattedResult = rawResult !== undefined ? formatValue(rawResult) : (logs.length > 0 ? logs.join('\n') : 'undefined');
-          if (formattedResult && formattedResult.length > MAX_OUTPUT_LENGTH) {
-            formattedResult = formattedResult.substring(0, MAX_OUTPUT_LENGTH) + '... [Salida truncada por límite de tamaño]';
+        Promise.resolve(rawResult).then(function(resolvedResult) {
+          clearTimeout(timer);
+          if (!isResolved) {
+            isResolved = true;
+            const elapsed = (performance.now() - startTime).toFixed(2);
+            let formattedResult = resolvedResult !== undefined ? formatValue(resolvedResult) : (logs.length > 0 ? logs.join('\n') : 'undefined');
+            if (formattedResult && formattedResult.length > MAX_OUTPUT_LENGTH) {
+              formattedResult = formattedResult.substring(0, MAX_OUTPUT_LENGTH) + '... [Salida truncada por límite de tamaño]';
+            }
+            resolve({
+              success: true,
+              result: formattedResult,
+              logs: logs,
+              executionTimeMs: parseFloat(elapsed)
+            });
           }
-          resolve({
-            success: true,
-            result: formattedResult,
-            logs: logs,
-            executionTimeMs: parseFloat(elapsed)
-          });
-        }
+        }).catch(function(asyncErr) {
+          clearTimeout(timer);
+          if (!isResolved) {
+            isResolved = true;
+            const elapsed = (performance.now() - startTime).toFixed(2);
+            resolve({
+              success: false,
+              result: '',
+              logs: logs,
+              executionTimeMs: parseFloat(elapsed),
+              error: (asyncErr && (asyncErr.message || asyncErr.toString())) || 'Error en ejecución asíncrona'
+            });
+          }
+        });
       } catch (err) {
         clearTimeout(timer);
         if (!isResolved) {

@@ -107,8 +107,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
       btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
-      serverDetails: { style: {}, innerHTML: '' },
-      errorMessage: { style: {}, innerHTML: '' },
+      serverDetails: { style: {}, innerHTML: '', textContent: '' },
+      errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
       portInput: { value: '6388' },
       endpointPreview: { textContent: '' },
@@ -155,9 +155,9 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
   assert.equal(elements.serverDetails.style.display, 'flex');
-  assert.ok(elements.serverDetails.innerHTML.includes('mcp-proxy v0.4.0'));
-  assert.ok(elements.serverDetails.innerHTML.includes('15ms'));
-  assert.ok(elements.serverDetails.innerHTML.includes('2 herramientas'));
+  assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
+  assert.ok(elements.serverDetails.textContent.includes('15ms'));
+  assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
 
   // 4. Estado error
   ChatUIMcp.renderConnectionStatus(elements, {
@@ -173,7 +173,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.style.display, 'inline-flex');
   assert.equal(elements.btnConnect.disabled, false);
   assert.equal(elements.errorMessage.style.display, 'flex');
-  assert.ok(elements.errorMessage.innerHTML.includes('Conexión rechazada'));
+  assert.ok(elements.errorMessage.textContent.includes('Conexión rechazada'));
 
   // 5. Estado error con caracteres HTML potencialmente peligrosos (prevenir XSS)
   ChatUIMcp.renderConnectionStatus(elements, {
@@ -182,8 +182,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
     port: 6388,
     error: '<script>alert("xss")</script>'
   }, t);
-  assert.equal(elements.errorMessage.innerHTML.includes('<script>'), false);
-  assert.ok(elements.errorMessage.innerHTML.includes('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'));
+  assert.equal(elements.errorMessage.textContent, '<script>alert("xss")</script>');
 });
 
 test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {

@@ -31,6 +31,59 @@
   }
 
   /**
+   * Asigna contenido no confiable como texto, sin interpretarlo como HTML.
+   * @param {Element|Object|null|undefined} element
+   * @param {*} value
+   * @returns {Element|Object|null|undefined}
+   */
+  function setText(element, value) {
+    if (element) element.textContent = value === null || value === undefined ? '' : String(value);
+    return element;
+  }
+
+  /**
+   * Elimina el contenido de un contenedor sin analizar HTML.
+   * @param {Element|Object|null|undefined} element
+   * @returns {Element|Object|null|undefined}
+   */
+  function clearElement(element) {
+    if (!element) return element;
+    if (typeof element.replaceChildren === 'function') element.replaceChildren();
+    else setText(element, '');
+    return element;
+  }
+
+  /**
+   * Añade un elemento cuyo contenido se asigna siempre mediante textContent.
+   * @param {Element|null|undefined} parent
+   * @param {string} tagName
+   * @param {*} value
+   * @param {{ className?: string }} [options]
+   * @returns {Element|null}
+   */
+  function appendTextElement(parent, tagName, value, options = {}) {
+    const doc = parent?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!parent || !doc?.createElement || typeof parent.appendChild !== 'function') return null;
+    const element = doc.createElement(tagName);
+    if (options.className) element.className = options.className;
+    setText(element, value);
+    parent.appendChild(element);
+    return element;
+  }
+
+  /**
+   * Inserta HTML generado exclusivamente por código propio (por ejemplo SVGs).
+   * Nunca debe recibir datos de red, proveedores, herramientas o usuarios.
+   * @param {Element|Object|null|undefined} element
+   * @param {string} html
+   * @returns {Element|Object|null|undefined}
+   */
+  function setTrustedHtml(element, html) {
+    if (element) element.innerHTML = html || '';
+    return element;
+  }
+
+  /**
    * Realiza una petición fetch con timeout configurable.
    * @param {string|Request} resource 
    * @param {Object} [options={}] 
@@ -129,6 +182,10 @@
 
   return {
     escapeHtml,
+    setText,
+    clearElement,
+    appendTextElement,
+    setTrustedHtml,
     fetchWithTimeout,
     serializeContent,
     clone,
@@ -136,4 +193,3 @@
     resolveDep
   };
 });
-

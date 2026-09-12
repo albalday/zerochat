@@ -16,7 +16,7 @@ test('ChatToolSecurity - Herramientas integradas (Built-in) se autorizan directa
   assert.equal(evalSearch.status, 'allow');
   assert.equal(evalSearch.reason, 'builtin_tool');
 
-  const evalJs = manager.evaluateAuthorization({ name: 'execute_javascript', category: 'sandbox' }, { code: '1+1' });
+  const evalJs = manager.evaluateAuthorization({ name: 'execute_javascript', category: 'computation' }, { code: '1+1' });
   assert.equal(evalJs.requiresApproval, false);
   assert.equal(evalJs.status, 'allow');
 });

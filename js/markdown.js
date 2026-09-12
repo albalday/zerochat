@@ -354,7 +354,7 @@
     let codeLines = [];
     let textBuffer = [];
 
-    const runTitle = getI18n().uiText('md_run_js_title', 'Ejecutar en sandbox local (sin red ni archivos)');
+    const runTitle = getI18n().uiText('md_run_js_title', 'Ejecutar JavaScript (en worker local)');
     const runBtn = getI18n().uiText('md_run_js_btn', 'Ejecutar JS');
     const copyTitle = getI18n().uiText('md_copy_code_title', 'Copiar código');
     const copyBtn = getI18n().uiText('md_copy_code_btn', 'Copiar');
@@ -479,7 +479,7 @@
         }
 
         outputContainer.style.display = 'block';
-          outputContainer.innerHTML = '<div class="output-header"><span>' + getI18n().uiText('agent_js_title', 'Ejecutando en sandbox local...') + '</span></div>';
+          outputContainer.innerHTML = '<div class="output-header"><span>' + getI18n().uiText('agent_js_title', 'Ejecutando código JavaScript...') + '</span></div>';
 
         const sandboxRunner = window.ChatSandbox || Sandbox;
         if (sandboxRunner && sandboxRunner.execute) {

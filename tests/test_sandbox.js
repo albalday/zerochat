@@ -175,3 +175,14 @@ return fact100.toString();
   assert.ok(res.result.startsWith('93326215443944152681699238856266700490715968264381621468592963895217599993229915608941463976156518286253697920827223758251185210916864000000000000000000000000'));
 });
 
+test('Sandbox - Soporte de resolución de Promesas y expresiones asíncronas', async () => {
+  const res = await Sandbox.execute('return Promise.resolve(12345);');
+  assert.equal(res.success, true);
+  assert.equal(res.result, '12345');
+
+  const resAsync = await Sandbox.execute('return (async () => { return "resultado asíncrono"; })()');
+  assert.equal(resAsync.success, true);
+  assert.equal(resAsync.result, 'resultado asíncrono');
+});
+
+

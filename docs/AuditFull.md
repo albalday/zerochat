@@ -72,6 +72,19 @@ Comprobar que el código respeta estas fronteras:
 Cuando sea posible, convertir los hallazgos recurrentes en pruebas de arquitectura
 que impidan reintroducir la infracción.
 
+### Límite de contenido externo y HTML
+
+Todo dato de red, proveedores, MCP, herramientas, documentos, configuración o
+usuario es texto no confiable. Para presentarlo en la interfaz, usar las
+primitivas de `ChatUtils` (`setText`, `clearElement` y `appendTextElement`) o
+`textContent`; no interpolarlo en `innerHTML`.
+
+`ChatUtils.setTrustedHtml` queda reservado a fragmentos producidos por el propio
+código y revisados como SVG de `ChatIcons`. Markdown mantiene su sanitización
+como frontera independiente. Cada superficie nueva que muestre datos externos
+debe tener una prueba de inyección que compruebe que el payload se conserva como
+texto y no crea nodos ni ejecuta atributos.
+
 ### Estabilidad y mantenibilidad
 
 Revisar límites de tamaño y tiempo, errores explícitos, validación de entradas,

@@ -34,6 +34,32 @@
   const t = (k, p) => getI18n()?.t ? getI18n().t(k, p) : k;
   const escapeHtml = (s) => (getUtils()?.escapeHtml ? getUtils().escapeHtml(s) : (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')));
 
+  function clearSafeContent(element) {
+    const Utils = getUtils();
+    if (Utils?.clearElement) return Utils.clearElement(element);
+    if (element) element.textContent = '';
+    return element;
+  }
+
+  function appendSafeText(parent, tagName, value, options) {
+    const Utils = getUtils();
+    const child = Utils?.appendTextElement?.(parent, tagName, value, options);
+    // Los mocks de Node no implementan DOM; el navegador siempre usa la ruta
+    // anterior, que crea nodos y asigna textContent.
+    if (!child && parent) parent.textContent = `${parent.textContent || ''}${value == null ? '' : String(value)}`;
+    return child;
+  }
+
+  function appendTrustedIcon(parent, icon) {
+    if (!parent || !icon || typeof document === 'undefined') return;
+    const host = document.createElement('span');
+    host.setAttribute('aria-hidden', 'true');
+    const Utils = getUtils();
+    if (Utils?.setTrustedHtml) Utils.setTrustedHtml(host, icon);
+    else host.innerHTML = icon;
+    parent.appendChild(host);
+  }
+
   function sanitizePort(port) {
     const p = parseInt(port, 10);
     return (Number.isInteger(p) && p >= 1024 && p <= 65535) ? p : DEFAULT_PORT;
@@ -514,25 +540,29 @@ if __name__ == "__main__":
 
     if (elements.serverDetails) {
       elements.serverDetails.style.display = isConn ? 'flex' : 'none';
+      clearSafeContent(elements.serverDetails);
       if (isConn) {
         const name = state.serverInfo?.name || 'mcp-proxy';
         const ver = state.serverInfo?.version ? ` v${state.serverInfo.version}` : '';
-        const lat = state.latencyMs ? ` · ${state.latencyMs}ms` : '';
-        const count = state.tools?.length || 0;
+        const latency = Number(state.latencyMs);
+        const lat = Number.isFinite(latency) && latency > 0 ? ` · ${latency}ms` : '';
+        const count = Array.isArray(state.tools) ? state.tools.length : 0;
         const toolLabel = count > 0 ? translator('mcp_tools_discovered', { count }) : translator('mcp_no_tools');
-        elements.serverDetails.innerHTML = `
-          <span class="mcp-detail-item"><strong>${name}${ver}</strong></span>
-          ${lat ? `<span class="mcp-detail-item mcp-latency-tag">${lat}</span>` : ''}
-          <span class="mcp-detail-item mcp-tools-tag">${toolLabel}</span>`;
-      } else {
-        elements.serverDetails.innerHTML = '';
+        const nameItem = appendSafeText(elements.serverDetails, 'span', '', { className: 'mcp-detail-item' });
+        appendSafeText(nameItem || elements.serverDetails, 'strong', `${name}${ver}`);
+        if (lat) appendSafeText(elements.serverDetails, 'span', lat, { className: 'mcp-detail-item mcp-latency-tag' });
+        appendSafeText(elements.serverDetails, 'span', toolLabel, { className: 'mcp-detail-item mcp-tools-tag' });
       }
     }
 
     if (elements.errorMessage) {
       const showErr = status === 'error' && state.error;
       elements.errorMessage.style.display = showErr ? 'flex' : 'none';
-      elements.errorMessage.innerHTML = showErr ? `${Icons?.get?.('alert-circle', { size: 16 }) || ''} <span>${escapeHtml(state.error)}</span>` : '';
+      clearSafeContent(elements.errorMessage);
+      if (showErr) {
+        appendTrustedIcon(elements.errorMessage, Icons?.get?.('alert-circle', { size: 16 }) || '');
+        appendSafeText(elements.errorMessage, 'span', state.error);
+      }
     }
 
     const host = elements.hostInput?.value || state.host || DEFAULT_HOST;

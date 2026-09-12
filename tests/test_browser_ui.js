@@ -18,6 +18,46 @@ async function seedConnectionProfiles(page) {
   });
 }
 
+test('Browser UI - los metadatos MCP externos se renderizan como texto', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(() => {
+      const serverDetails = document.createElement('div');
+      const errorMessage = document.createElement('div');
+      const elements = {
+        statusBadge: document.createElement('div'),
+        statusText: document.createElement('span'),
+        btnConnect: document.createElement('button'),
+        btnDisconnect: document.createElement('button'),
+        serverDetails,
+        errorMessage
+      };
+      const payload = '<img data-xss-probe="mcp" src=x onerror="window.__mcpXss=true">';
+      window.ChatUIMcp.renderConnectionStatus(elements, {
+        status: 'connected',
+        serverInfo: { name: payload, version: payload },
+        tools: []
+      }, key => key);
+      const detailsSafe = !serverDetails.querySelector('[data-xss-probe]') && serverDetails.textContent.includes(payload);
+      window.ChatUIMcp.renderConnectionStatus(elements, {
+        status: 'error',
+        error: payload
+      }, key => key);
+      return {
+        detailsSafe,
+        errorSafe: !errorMessage.querySelector('[data-xss-probe]') && errorMessage.textContent.includes(payload),
+        executed: Boolean(window.__mcpXss)
+      };
+    });
+    assert.equal(result.detailsSafe, true);
+    assert.equal(result.errorSafe, true);
+    assert.equal(result.executed, false);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async () => {
   const browser = await chromium.launch({ headless: true });
   try {

@@ -1,7 +1,7 @@
 /**
  * Tool autocontenida: execute_javascript.
  *
- * La dependencia de Sandbox se recibe desde ToolExecutionContext.services;
+ * La dependencia del ejecutor de JavaScript se recibe desde ToolExecutionContext.services;
  * este módulo no depende de globals ni de resolutores del núcleo agéntico.
  */
 (function (root, factory) {
@@ -15,7 +15,7 @@
 
   const definition = {
     name: 'execute_javascript',
-    description: 'Executes JavaScript locally in a sandbox. Always use return or console.log() to emit the result.',
+    description: 'Executes JavaScript code in an isolated local worker to assist with calculations and data processing under technical user supervision. Always use return <value> or console.log() to emit the result.',
     parameters: {
       type: 'object',
       properties: {
@@ -26,7 +26,13 @@
   };
 
   function getCode(args) {
-    return args?.code || args?.javascript || args?.js || args?.script || args?.input || (typeof args === 'string' ? args : '');
+    const raw = args?.code || args?.javascript || args?.js || args?.script || args?.input || (typeof args === 'string' ? args : '');
+    if (typeof raw !== 'string') return '';
+    let code = raw.trim();
+    if (code.startsWith('```')) {
+      code = code.replace(/^```(?:javascript|js)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+    return code;
   }
 
   function toModel(_args, result, outcome) {
@@ -85,7 +91,7 @@
         <div class="tool-card-collapsible-body">
           <pre class="tool-card-code"><code>${Markdown.escapeHtml(code)}</code></pre>
           <div class="tool-card-result">
-            <div class="tool-loading-placeholder">${spinner} <span>${t('tool_loading_js') || 'Ejecutando código en sandbox local...'}</span></div>
+            <div class="tool-loading-placeholder">${spinner} <span>${t('tool_loading_js') || 'Ejecutando código JavaScript...'}</span></div>
           </div>
         </div>
       </div>
@@ -110,7 +116,7 @@
         ? (result.result || (result.logs && result.logs.length > 0 ? result.logs.join('\n') : 'undefined'))
         : `Error: ${result.error || 'Error de ejecución'}`;
       const cleanOutput = String(output ?? '').trim();
-      resContainer.innerHTML = `<div class="tool-result-label">${t('tool_sandbox_output') || 'Salida del Sandbox:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre>`;
+      resContainer.innerHTML = `<div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre>`;
     }
   }
 
@@ -141,7 +147,7 @@
         </div>
         <div class="tool-card-collapsible-body">
           <pre class="tool-card-code"><code>${Markdown.escapeHtml(getCode(args).trim())}</code></pre>
-          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output') || 'Salida del Sandbox:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>
+          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>
         </div>
       </div>
     `;
@@ -157,22 +163,22 @@
       id: definition.name,
       definition,
       aliases: ['executejs', 'execute_js', 'run_javascript', 'run_js', 'javascript', 'evaljs'],
-      category: 'sandbox',
+      category: 'computation',
       metadata: { icon: 'zap', label: definition.name },
       settings: {
         titleKey: 'agent_js_title',
-        titleFallback: 'Ejecución de JavaScript Local (Sandbox)',
+        titleFallback: 'Ejecución de JavaScript (Cálculos locales)',
         descKey: 'agent_js_desc',
-        descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos directamente en el navegador (seguridad estándar del navegador).',
+        descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos directamente en el navegador bajo supervisión técnica.',
         icon: 'zap',
         defaultEnabled: true,
         showInSettings: true
       },
-      promptGuide: () => '- `execute_javascript(code="...")`: Runs JavaScript locally in sandbox. Always use `return <value>` or `console.log(...)` to output results.',
+      promptGuide: () => '- `execute_javascript(code="...")`: Runs JavaScript locally in an isolated worker to assist with calculations and logic. Always use `return <value>` or `console.log(...)` to output results.',
       execute: async (args, context = {}) => {
         const Sandbox = context.services?.sandbox;
         if (!Sandbox || !Sandbox.execute) {
-          return { success: false, error: 'Módulo Sandbox no disponible.' };
+          return { success: false, error: 'Módulo de ejecución de JavaScript no disponible.' };
         }
         const timeoutMs = typeof context.timeoutMs === 'number'
           ? context.timeoutMs

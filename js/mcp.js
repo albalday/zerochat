@@ -12,8 +12,8 @@
  *
  * 2. Aislamiento de Credenciales y Seguridad:
  *    - Las cabeceras y tokens de autenticación de cada servidor MCP se gestionan exclusivamente en
- *      el cliente HTTP y NUNCA se inyectan en el prompt del sistema ni son accesibles para el sandbox
- *      de ejecución de JavaScript.
+ *      el cliente HTTP y NUNCA se inyectan en el prompt del sistema ni son accesibles para el ejecutor
+ *      de código JavaScript.
  *    - Cada herramienta MCP indica explícitamente el servidor de procedencia para mantener la
  *      trazabilidad de ejecución en todo momento.
  *    - Se aplica control estricto de timeout (AbortController) y truncado de respuestas para evitar

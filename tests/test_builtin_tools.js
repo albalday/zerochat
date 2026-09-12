@@ -42,11 +42,11 @@ test('Builtin Tools - index.html carga exactamente los módulos builtin disponib
   assert.deepEqual(loaded.sort(), available);
 });
 
-test('Builtin Tools - execute_javascript ejecuta con sandbox inyectado y conserva formatos', async () => {
+test('Builtin Tools - execute_javascript ejecuta con servicio inyectado, limpia markdown fences y conserva formatos', async () => {
   const tool = ExecuteJavascriptTool.createTool(AgentCore.Tool);
   let receivedCode = '';
   let receivedTimeout = null;
-  const result = await tool.execute({ javascript: 'return 21 * 2;' }, {
+  const result = await tool.execute({ javascript: '```javascript\nreturn 21 * 2;\n```' }, {
     timeoutMs: 123,
     services: {
       sandbox: {
@@ -59,11 +59,15 @@ test('Builtin Tools - execute_javascript ejecuta con sandbox inyectado y conserv
     }
   });
 
-  assert.equal(receivedCode, 'return 21 * 2;');
+  assert.equal(receivedCode, 'return 21 * 2;', 'Debe despojar las markdown code fences');
   assert.equal(receivedTimeout, 123);
   assert.equal(tool.serializeResultForModel({}, result), '42');
   assert.match(tool.formatDispatchMarkdown({ code: 'return 21 * 2;' }, result), /execute_javascript/);
   assert.ok(tool.aliases.includes('executejs'));
+  assert.equal(tool.category, 'computation');
+  assert.ok(!tool.description.toLowerCase().includes('sandbox'), 'La descripción de la instancia no debe mencionar sandbox');
+  assert.ok(!ExecuteJavascriptTool.definition.description.toLowerCase().includes('sandbox'), 'La definición del módulo no debe mencionar sandbox');
+  assert.ok(!tool.promptGuide().toLowerCase().includes('sandbox'), 'La guía no debe mencionar sandbox');
 });
 
 test('Builtin Tools - search_web ejecuta contra servicio inyectado y preserva serialización', async () => {
