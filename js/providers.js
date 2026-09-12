@@ -440,18 +440,21 @@
       const modelEndpoints = this.getModelEndpoints(cleanBase);
       const headers = this.buildHeaders(apiKey);
 
-      if (typeof fetch === 'function') {
+      if (runProbes && typeof fetch === 'function') {
         for (const endpoint of modelEndpoints) {
-          if (runProbes) connectionAttempted = true;
+          connectionAttempted = true;
+          let timer = null;
           try {
             const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+            if (controller) {
+              timer = setTimeout(() => controller.abort(), timeoutMs);
+              if (typeof timer?.unref === 'function') timer.unref();
+            }
             const res = await fetch(endpoint, {
               method: 'GET',
               headers: { Accept: 'application/json', ...headers },
               signal: controller ? controller.signal : undefined
             });
-            if (timer) clearTimeout(timer);
 
             lastHttpStatus = res.status;
             if (res.ok) {
@@ -473,6 +476,8 @@
             }
           } catch (e) {
             lastNetworkError = e;
+          } finally {
+            if (timer) clearTimeout(timer);
           }
         }
       }
@@ -528,9 +533,13 @@
 
         // Micro-sonda A: Streaming & Chat básico
         connectionAttempted = true;
+        let timerA = null;
         try {
           const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+          if (controller) {
+            timerA = setTimeout(() => controller.abort(), timeoutMs);
+            if (typeof timerA?.unref === 'function') timerA.unref();
+          }
           
           const probePayload = this.buildPayload({
             model: probeModel,
@@ -547,7 +556,6 @@
             body: JSON.stringify(probePayload),
             signal: controller ? controller.signal : undefined
           });
-          if (timer) clearTimeout(timer);
 
           lastHttpStatus = res.status;
           if (res.ok) {
@@ -575,13 +583,19 @@
           }
         } catch (probeErr) {
           lastNetworkError = probeErr;
+        } finally {
+          if (timerA) clearTimeout(timerA);
         }
 
         // Micro-sonda B: Tools / Function Calling
         connectionAttempted = true;
+        let timerB = null;
         try {
           const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+          if (controller) {
+            timerB = setTimeout(() => controller.abort(), timeoutMs);
+            if (typeof timerB?.unref === 'function') timerB.unref();
+          }
 
           const toolPayload = this.buildPayload({
             model: probeModel,
@@ -605,7 +619,6 @@
             body: JSON.stringify(toolPayload),
             signal: controller ? controller.signal : undefined
           });
-          if (timer) clearTimeout(timer);
 
           lastHttpStatus = res.status;
           if (res.ok) {
@@ -630,13 +643,19 @@
           }
         } catch (e) {
           lastNetworkError = e;
+        } finally {
+          if (timerB) clearTimeout(timerB);
         }
 
         // Micro-sonda C: JSON Mode
         connectionAttempted = true;
+        let timerC = null;
         try {
           const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+          if (controller) {
+            timerC = setTimeout(() => controller.abort(), timeoutMs);
+            if (typeof timerC?.unref === 'function') timerC.unref();
+          }
 
           const jsonPayload = this.buildPayload({
             model: probeModel,
@@ -652,7 +671,6 @@
             body: JSON.stringify(jsonPayload),
             signal: controller ? controller.signal : undefined
           });
-          if (timer) clearTimeout(timer);
 
           lastHttpStatus = res.status;
           if (res.ok) {
@@ -677,13 +695,19 @@
           }
         } catch (e) {
           lastNetworkError = e;
+        } finally {
+          if (timerC) clearTimeout(timerC);
         }
 
         // Micro-sonda D: Embeddings endpoint check
+        let timerD = null;
         try {
           const embUrl = cleanBase.endsWith('/v1') ? `${cleanBase}/embeddings` : `${cleanBase}/v1/embeddings`;
           const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+          if (controller) {
+            timerD = setTimeout(() => controller.abort(), timeoutMs);
+            if (typeof timerD?.unref === 'function') timerD.unref();
+          }
 
           const res = await fetch(embUrl, {
             method: 'POST',
@@ -691,7 +715,6 @@
             body: JSON.stringify({ input: 'ping', model: probeModel }),
             signal: controller ? controller.signal : undefined
           });
-          if (timer) clearTimeout(timer);
 
           if (res.ok) {
             connectionSuccess = true;
@@ -711,7 +734,9 @@
           } else if (res.status === 400 || res.status === 422) {
             connectionSuccess = true;
           }
-        } catch (e) {}
+        } catch (e) {} finally {
+          if (timerD) clearTimeout(timerD);
+        }
       }
 
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();

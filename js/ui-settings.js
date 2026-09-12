@@ -267,11 +267,12 @@
     elements.profileActionFeedback.style.display = 'block';
     elements.profileActionFeedback.className = `server-query-status status-${type}`;
     elements.profileActionFeedback.textContent = msg;
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (elements.profileActionFeedback) {
         elements.profileActionFeedback.style.display = 'none';
       }
     }, 4000);
+    if (typeof timer?.unref === 'function') timer.unref();
   }
 
   function handleSaveProfile(elements, appConfig, saveProfile) {

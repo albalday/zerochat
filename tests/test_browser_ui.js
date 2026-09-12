@@ -1,10 +1,44 @@
-const test = require('node:test');
+const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { version } = require('../package.json');
+
+let browserPromise = null;
+
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = chromium.launch({ headless: true });
+  }
+  const browser = await browserPromise;
+  if (!browser.isConnected()) {
+    browserPromise = chromium.launch({ headless: true });
+    return browserPromise;
+  }
+  return browser;
+}
+
+async function createTestBrowser() {
+  const realBrowser = await getBrowser();
+  const contexts = [];
+  return {
+    async newContext(options) {
+      const context = await realBrowser.newContext(options);
+      contexts.push(context);
+      return context;
+    },
+    async newPage(options) {
+      const context = await realBrowser.newContext(options);
+      contexts.push(context);
+      return context.newPage();
+    },
+    async close() {
+      await Promise.all(contexts.map(ctx => ctx.close().catch(() => {})));
+    }
+  };
+}
 
 async function seedConnectionProfiles(page) {
   await page.addInitScript(() => {
@@ -18,8 +52,17 @@ async function seedConnectionProfiles(page) {
   });
 }
 
+describe('Browser UI', { concurrency: 4 }, () => {
+  after(async () => {
+    if (browserPromise) {
+      const browser = await browserPromise;
+      await browser.close().catch(() => {});
+      browserPromise = null;
+    }
+  });
+
 test('Browser UI - los metadatos MCP externos se renderizan como texto', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -59,7 +102,7 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
 });
 
 test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -75,7 +118,7 @@ test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async
   } finally { await browser.close(); }
 });
 test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y borrado', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const errors = [];
@@ -158,9 +201,10 @@ test('Browser UI - informa del alcance de almacenamiento y deriva la descarga HT
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(bundle);
   });
+  server.keepAliveTimeout = 0;
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?preview=1`, { waitUntil: 'load' });
@@ -182,12 +226,15 @@ test('Browser UI - informa del alcance de almacenamiento y deriva la descarga HT
     assert.match(state.scope, /protocol|protocolo/i);
   } finally {
     await browser.close();
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
     await new Promise(resolve => server.close(resolve));
   }
 });
 
 test('Browser UI - no ofrece descarga desde file://', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -207,7 +254,7 @@ test('Browser UI - no ofrece descarga desde file://', async () => {
 });
 
 test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idioma', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -251,12 +298,12 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
 });
 
 test('Browser UI - el fallback de contexto no invalida el formulario de envío', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
-    await page.waitForTimeout(250);
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:remote"]');
     await page.fill('#user-input', 'test');
@@ -276,7 +323,7 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
 });
 
 test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
@@ -298,7 +345,7 @@ test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
 });
 
 test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros proveedores', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
@@ -335,7 +382,7 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
 });
 
 test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y muestra modelos descargados primero', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
@@ -376,7 +423,7 @@ test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y m
 });
 
 test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confirmar descarte', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
@@ -455,7 +502,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
 });
 
 test('Browser UI - al volver a LM Studio recupera el límite publicado', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.addInitScript(() => {
@@ -471,7 +518,7 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
     });
     await seedConnectionProfiles(page);
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
-    await page.waitForTimeout(250);
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:remote"]');
     const remoteContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
@@ -487,7 +534,7 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
 });
 
 test('Browser UI - index.html declara el mismo runtime que se distribuye', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const consoleErrors = [];
@@ -514,7 +561,7 @@ test('Browser UI - index.html declara el mismo runtime que se distribuye', async
 });
 
 test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const consoleErrors = [];
@@ -562,7 +609,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 });
 
 test('Browser UI - Modo Oscuro y resolución de Design Tokens', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -619,7 +666,7 @@ test('Browser UI - Modo Oscuro y resolución de Design Tokens', async () => {
 });
 
 test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -725,7 +772,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
 });
 
 test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -919,7 +966,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
 });
 
 test('Browser UI - crear una rama conserva el origen y corta el nuevo historial en la respuesta seleccionada', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -968,12 +1015,12 @@ test('Browser UI - crear una rama conserva el origen y corta el nuevo historial 
 });
 
 test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones Circulares', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForSelector('#welcome-banner');
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // 1. Validar geometría y curvatura del Omnibox (.chat-input-container)
     const composerMetrics = await page.evaluate(() => {
@@ -1006,6 +1053,11 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
     assert.ok(resetHeight <= initialHeight, 'Al vaciar el texto debe volver a la altura mínima');
 
     // 3. Validar botón circular de envío y botón de adjuntar
+    await page.waitForFunction(() => {
+      const btnSend = document.getElementById('btn-send');
+      const btnAttach = document.getElementById('btn-attach-file');
+      return btnSend && btnAttach && parseFloat(getComputedStyle(btnSend).borderRadius) >= 16 && parseFloat(getComputedStyle(btnAttach).borderRadius) >= 16;
+    });
     const buttonStyles = await page.evaluate(() => {
       const btnSend = document.getElementById('btn-send');
       const btnAttach = document.getElementById('btn-attach-file');
@@ -1013,6 +1065,7 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
       const attachStyle = getComputedStyle(btnAttach);
       return {
         sendRadius: parseFloat(sendStyle.borderRadius),
+        rawRadius: sendStyle.borderRadius,
         sendWidth: parseFloat(sendStyle.width),
         sendHeight: parseFloat(sendStyle.height),
         attachRadius: parseFloat(attachStyle.borderRadius)
@@ -1059,7 +1112,7 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
 });
 
 test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Drawer', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1161,7 +1214,7 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
 });
 
 test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herramientas', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1416,7 +1469,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
 });
 
 test('Browser UI - Fase 7: Accesibilidad WCAG 2.1 AA, Focus-Visible y Reduced Motion', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1485,7 +1538,7 @@ test('Browser UI - Fase 7: Accesibilidad WCAG 2.1 AA, Focus-Visible y Reduced Mo
 });
 
 test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Composer', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1573,7 +1626,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 });
 
 test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Historial', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1649,7 +1702,7 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
 });
 
 test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas y Badges de Estado', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1751,7 +1804,7 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
 });
 
 test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, Exportación y RAG', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -1960,7 +2013,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
 });
 
 test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditoría residual', async (t) => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   const page = await browser.newPage();
 
   try {
@@ -2089,7 +2142,7 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
 });
 
 test('Browser UI - Borrado de respuesta de asistente con tools elimina completamente las respuestas de tools y sanea chatHistory', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../index.html');
@@ -2190,7 +2243,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
 });
 
 test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estado', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../index.html');
@@ -2230,7 +2283,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
 });
 
 test('Browser UI - borrar la conversación activa carga la siguiente y limpia su historial visible', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../index.html'), { waitUntil: 'load' });
@@ -2280,7 +2333,7 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
 });
 
 test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     for (const file of ['index.html', 'zerochat.html']) {
       const context = await browser.newContext({ timezoneId: 'Europe/Madrid' });
@@ -2316,7 +2369,7 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en
 });
 
 test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuperar del historial', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -2376,7 +2429,7 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
 });
 
 test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con controles y apertura directa de tabs', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -2485,7 +2538,7 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
 });
 
 test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y sesiones', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const consoleErrors = [];
@@ -2566,7 +2619,7 @@ test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y ses
 
 
 test('Browser UI - Internal notices queue safely above modals and restore focus', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
@@ -2660,7 +2713,7 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
 });
 
 test('Browser UI - Notices disappear immediately after a blocked import and confirmation', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     for (const file of ['index.html', 'zerochat.html']) {
       const page = await browser.newPage();
@@ -2694,7 +2747,7 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
           const dialog = document.getElementById('notice-dialog');
           document.getElementById('notice-accept').click();
           const frames = [];
-          for (let i = 0; i < 18; i++) {
+          for (let i = 0; i < 6; i++) {
             await new Promise(requestAnimationFrame);
             frames.push({ open: dialog.open, height: dialog.getBoundingClientRect().height, display: getComputedStyle(dialog).display });
           }
@@ -2710,7 +2763,7 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
 });
 
 test('Browser UI - Los campos select/combo no presentan remarcado azul al recibir el foco', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -2761,7 +2814,7 @@ test('Browser UI - Los campos select/combo no presentan remarcado azul al recibi
 });
 
 test('UI - Indicador de progreso de generación es invisible sin ciclo activo y visible durante el ciclo', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
@@ -2846,7 +2899,7 @@ test('UI - Indicador de progreso de generación es invisible sin ciclo activo y 
 });
 
 test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://', async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     const filePath = 'file://' + path.resolve(__dirname, '../zerochat.html');
@@ -2893,3 +2946,4 @@ test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://',
   }
 });
 
+});

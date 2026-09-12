@@ -371,7 +371,8 @@ if __name__ == "__main__":
       const check = getIcons()?.get ? getIcons().get('check', { size: 14 }) : '';
       btnElement.innerHTML = `${check} <span>${translator('mcp_cmd_copied')}</span>`;
       btnElement.classList.add('btn-copied');
-      setTimeout(() => { btnElement.innerHTML = orig; btnElement.classList.remove('btn-copied'); }, 2000);
+      const timer = setTimeout(() => { btnElement.innerHTML = orig; btnElement.classList.remove('btn-copied'); }, 2000);
+      if (typeof timer?.unref === 'function') timer.unref();
     }
     return ok;
   }

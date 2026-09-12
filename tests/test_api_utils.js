@@ -53,13 +53,22 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
   const previousLanguage = I18n.getLanguage();
   try {
     I18n.setLanguage('en', false);
-    const response = await Api.streamChatCompletion({
+    const responseEn = await Api.streamChatCompletion({
       apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
     });
-    assert.match(response.accumulatedText, /^# Welcome to ZeroChat/m);
-    assert.match(response.accumulatedText, /## Continue with a profile/);
-    assert.match(response.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
-    assert.match(response.accumulatedText, /## Prepared request \(not sent\)/);
+    assert.match(responseEn.accumulatedText, /^# Welcome to ZeroChat/m);
+    assert.match(responseEn.accumulatedText, /## Continue with a profile/);
+    assert.match(responseEn.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
+    assert.match(responseEn.accumulatedText, /## Prepared request \(not sent\)/);
+    assert.match(responseEn.accumulatedText, /http:\/\/albalday\.github\.io\/zerochat\/help\/en\/index\.html/);
+
+    I18n.setLanguage('es', false);
+    const responseEs = await Api.streamChatCompletion({
+      apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
+    });
+    assert.match(responseEs.accumulatedText, /^# Bienvenido a ZeroChat/m);
+    assert.match(responseEs.accumulatedText, /## Continúa con un perfil/);
+    assert.match(responseEs.accumulatedText, /http:\/\/albalday\.github\.io\/zerochat\/help\/index\.html/);
   } finally {
     I18n.setLanguage(previousLanguage, false);
   }

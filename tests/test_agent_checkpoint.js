@@ -179,7 +179,15 @@ test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de c
 
 test('ChatEngine - executeAgentTurnLoop no clasifica consultas para forzar checkpoints', async () => {
   const ChatAPI = require('../js/api.js');
+  const WebSearch = require('../js/web-search.js');
   const originalStream = ChatAPI.streamChatCompletion;
+  const originalSearch = WebSearch.search;
+  WebSearch.search = async () => ({
+    success: true,
+    count: 1,
+    results: [{ title: 'Walmart EBITDA', snippet: 'Walmart 2018 EBITDA was $32B', url: 'https://example.com' }],
+    markdown: 'Walmart EBITDA 2018: $32B'
+  });
 
   let turn = 0;
   ChatAPI.streamChatCompletion = async (options) => {
@@ -248,20 +256,24 @@ test('ChatEngine - executeAgentTurnLoop no clasifica consultas para forzar check
   };
 
   const history = [{ role: 'user', content: 'Calcula EBITDA Walmart' }];
-  const res = await Engine.executeAgentTurnLoop({
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'configured-model',
-    chatHistory: history,
-    appConfig: {
+  let res;
+  try {
+    res = await Engine.executeAgentTurnLoop({
       apiUrl: 'http://localhost:1234/v1',
+      apiType: 'openai',
       model: 'configured-model',
-      language: 'es',
-      enabledTools: { agent_checkpoint: true, search_web: true, list_documents: true }
-    }
-  });
-
-  ChatAPI.streamChatCompletion = originalStream;
+      chatHistory: history,
+      appConfig: {
+        apiUrl: 'http://localhost:1234/v1',
+        model: 'configured-model',
+        language: 'es',
+        enabledTools: { agent_checkpoint: true, search_web: true, list_documents: true }
+      }
+    });
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    WebSearch.search = originalSearch;
+  }
 
   assert.equal(res.success, true);
   // Las herramientas se envían tal cual: el runtime no las clasifica ni les inyecta avisos.
