@@ -185,4 +185,90 @@ test('Sandbox - Soporte de resolución de Promesas y expresiones asíncronas', a
   assert.equal(resAsync.result, 'resultado asíncrono');
 });
 
+test('Sandbox - Factorial con BigInt y array map en console.log (código del usuario)', async () => {
+  const code = `
+function factorial(n) {
+  let res = BigInt(1);
+  for (let i = 2; i <= n; i++) res *= BigInt(i);
+  return res;
+}
+
+const numbers = [22, 23, 24, 25, 26];
+const results = numbers.map(n => {
+  return factorial(n) + 333n;
+});
+
+console.log(results.map(r => r.toString()));
+`;
+  const res = await Sandbox.execute(code);
+  assert.equal(res.success, true);
+  assert.ok(res.logs.length > 0);
+  assert.ok(res.logs[0].includes('1124000727777607680333'));
+});
+
+test('Sandbox - Ejecución de WORKER_CODE real dentro de un Worker con postMessage activo', async () => {
+  let workerBlobCode = '';
+  global.Blob = class MockBlob {
+    constructor(chunks) {
+      workerBlobCode = chunks.join('');
+      this.chunks = chunks;
+    }
+  };
+
+  global.URL = {
+    createObjectURL: () => 'blob:mock-worker-url',
+    revokeObjectURL: () => {}
+  };
+
+  let terminated = false;
+  global.Worker = class MockWorker {
+    constructor() {
+      const mockSelf = {
+        onmessage: null,
+        postMessage: (data) => {
+          if (this.onmessage) this.onmessage({ data });
+        }
+      };
+      const initWorker = new Function('self', workerBlobCode);
+      initWorker(mockSelf);
+      this._mockSelf = mockSelf;
+    }
+    postMessage(data) {
+      if (this._mockSelf.onmessage) {
+        this._mockSelf.onmessage({ data });
+      }
+    }
+    terminate() {
+      terminated = true;
+    }
+  };
+
+  try {
+    const userCode = `
+function factorial(n) {
+  let res = BigInt(1);
+  for (let i = 2; i <= n; i++) res *= BigInt(i);
+  return res;
+}
+
+const numbers = [22, 23, 24, 25, 26];
+const results = numbers.map(n => {
+  return factorial(n) + 333n;
+});
+
+console.log(results.map(r => r.toString()));
+`;
+    const res = await Sandbox.execute(userCode);
+    assert.equal(res.success, true);
+    assert.ok(res.logs.length > 0);
+    assert.ok(res.logs[0].includes('1124000727777607680333'));
+    assert.equal(terminated, true);
+  } finally {
+    delete global.Worker;
+    delete global.Blob;
+    delete global.URL;
+  }
+});
+
+
 

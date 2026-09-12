@@ -32,15 +32,19 @@
    */
   const WORKER_CODE = `
   self.onmessage = function(e) {
+    const notifyParent = typeof self.postMessage === 'function' ? self.postMessage.bind(self) : null;
     const { id, code, maxOutputLength, maxLogEntries } = e.data;
     const logs = [];
 
     function formatValue(v) {
       if (v === null) return 'null';
       if (v === undefined) return 'undefined';
+      if (typeof v === 'bigint') return v.toString();
       if (typeof v === 'object') {
         try {
-          return JSON.stringify(v, null, 2);
+          return JSON.stringify(v, function(key, value) {
+            return typeof value === 'bigint' ? value.toString() : value;
+          }, 2);
         } catch (err) {
           return String(v);
         }
@@ -68,10 +72,7 @@
     try {
       const blockedGlobals = [
         'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
-        'importScripts', 'indexedDB', 'location', 'navigator',
-        'Worker', 'SharedWorker', 'ServiceWorker',
-        'FileReader', 'DecompressionStream', 'CompressionStream',
-        'postMessage', 'addEventListener', 'removeEventListener'
+        'importScripts', 'indexedDB', 'Worker', 'SharedWorker', 'ServiceWorker'
       ];
 
       // Neutralizar en self y globalThis dentro del Worker para mitigar llamadas accidentales a red o sub-workers
@@ -80,8 +81,8 @@
         try { if (typeof globalThis !== 'undefined') globalThis[name] = undefined; } catch (e) {}
       });
 
-      const paramNames = ['console', ...blockedGlobals];
-      const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
+      const paramNames = ['console', ...blockedGlobals, 'postMessage', 'addEventListener', 'removeEventListener'];
+      const paramValues = [customConsole, ...blockedGlobals.map(() => undefined), undefined, undefined, undefined];
 
       const trimmed = (code || '').trim();
       let wrappedBody;
@@ -100,29 +101,35 @@
           formattedResult = formattedResult.substring(0, maxOutputLength) + '... [Salida truncada por límite de tamaño]';
         }
 
-        self.postMessage({
+        const msg = {
           id: id,
           success: true,
           result: formattedResult,
           logs: logs
-        });
+        };
+        if (notifyParent) notifyParent(msg);
+        else self.postMessage(msg);
       }).catch(function(asyncErr) {
-        self.postMessage({
+        const msg = {
           id: id,
           success: false,
           result: '',
           logs: logs,
           error: (asyncErr && (asyncErr.message || asyncErr.toString())) || 'Error en ejecución asíncrona'
-        });
+        };
+        if (notifyParent) notifyParent(msg);
+        else self.postMessage(msg);
       });
     } catch (err) {
-      self.postMessage({
+      const msg = {
         id: id,
         success: false,
         result: '',
         logs: logs,
         error: err.toString()
-      });
+      };
+      if (notifyParent) notifyParent(msg);
+      else self.postMessage(msg);
     }
   };
   `;
@@ -241,9 +248,12 @@
       function formatValue(v) {
         if (v === null) return 'null';
         if (v === undefined) return 'undefined';
+        if (typeof v === 'bigint') return v.toString();
         if (typeof v === 'object') {
           try {
-            return JSON.stringify(v, null, 2);
+            return JSON.stringify(v, function(key, value) {
+              return typeof value === 'bigint' ? value.toString() : value;
+            }, 2);
           } catch (e) {
             return String(v);
           }
