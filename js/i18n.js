@@ -42,6 +42,9 @@
       welcome_heading: 'ZeroChat',
       welcome_desc: 'Entorno conversacional y agente autónomo local.',
       welcome_status: 'Chat vacío · A la espera de un comando',
+      welcome_help_link: 'Ayuda y Documentación',
+      welcome_help_title: 'Abrir centro de ayuda y documentación online',
+      welcome_help_href: 'http://albalday.github.io/zerochat/help/index.html',
       execution_info_open: 'Modo de ejecución y almacenamiento',
       execution_info_open_title: 'Información sobre el modo de ejecución y el almacenamiento',
       execution_info_title: 'Modo de ejecución y almacenamiento',
@@ -651,6 +654,9 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       welcome_heading: 'ZeroChat',
       welcome_desc: 'Conversational environment & local autonomous agent.',
       welcome_status: 'Empty chat · Awaiting a command',
+      welcome_help_link: 'Help & Documentation',
+      welcome_help_title: 'Open online help and documentation center',
+      welcome_help_href: 'http://albalday.github.io/zerochat/help/en/index.html',
       execution_info_open: 'Execution mode and storage',
       execution_info_open_title: 'Information about execution mode and storage',
       execution_info_title: 'Execution mode and storage',
@@ -1361,7 +1367,8 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
     { attr: 'data-i18n-html', prop: 'innerHTML' },
     { attr: 'data-i18n-title', targetAttr: 'title' },
     { attr: 'data-i18n-placeholder', targetAttr: 'placeholder' },
-    { attr: 'data-i18n-aria', targetAttr: 'aria-label' }
+    { attr: 'data-i18n-aria', targetAttr: 'aria-label' },
+    { attr: 'data-i18n-href', targetAttr: 'href' }
   ];
 
   /**

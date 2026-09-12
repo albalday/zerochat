@@ -217,6 +217,9 @@
       fileInput: document.getElementById('file-input'),
       attachmentsContainer: document.getElementById('attachments-container'),
 
+      // Ayuda y documentación
+      welcomeHelpLink: document.getElementById('welcome-help-link'),
+
       // Información sobre ejecución y almacenamiento
       btnOpenExecutionInfo: document.getElementById('btn-open-execution-info'),
       executionInfoDialog: document.getElementById('execution-info-dialog'),

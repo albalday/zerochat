@@ -85,11 +85,24 @@
   box-shadow: var(--shadow-sm);
 }
 
-.welcome-execution-btn {
-  display: flex;
+.welcome-execution-btn,
+.welcome-help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   width: fit-content;
   margin: 0.75rem auto 0;
   cursor: pointer;
+  text-decoration: none;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.welcome-help-link:hover,
+.welcome-execution-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background-color: var(--primary-light);
 }
 
 .execution-info-body {

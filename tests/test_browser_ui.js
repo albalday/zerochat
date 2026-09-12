@@ -164,7 +164,8 @@ test('Browser UI - informa del alcance de almacenamiento y deriva la descarga HT
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?preview=1`, { waitUntil: 'load' });
-    await page.click('#btn-open-execution-info');
+    await page.waitForFunction(() => !!window.ChatApp);
+    await page.evaluate(() => window.ChatApp.openExecutionInfo());
 
     const state = await page.evaluate(() => ({
       open: document.getElementById('execution-info-dialog').open,
@@ -190,7 +191,8 @@ test('Browser UI - no ofrece descarga desde file://', async () => {
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-execution-info');
+    await page.waitForFunction(() => !!window.ChatApp);
+    await page.evaluate(() => window.ChatApp.openExecutionInfo());
     const state = await page.evaluate(() => ({
       hidden: document.getElementById('btn-download-standalone').hidden,
       href: document.getElementById('btn-download-standalone').getAttribute('href'),
@@ -199,6 +201,42 @@ test('Browser UI - no ofrece descarga desde file://', async () => {
     assert.equal(state.hidden, true);
     assert.equal(state.href, null);
     assert.equal(state.display, 'none');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idioma', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-help-link');
+
+    const stateEs = await page.$eval('#welcome-help-link', el => ({
+      href: el.href,
+      target: el.target,
+      rel: el.rel,
+      text: el.textContent.trim(),
+      title: el.title
+    }));
+
+    assert.equal(stateEs.href, 'http://albalday.github.io/zerochat/help/index.html');
+    assert.equal(stateEs.target, '_blank');
+    assert.match(stateEs.rel, /noopener/);
+    assert.match(stateEs.text, /Ayuda|Help/);
+
+    // Cambiar idioma a inglés
+    await page.evaluate(() => window.ChatApp.applyLanguage('en'));
+
+    const stateEn = await page.$eval('#welcome-help-link', el => ({
+      href: el.href,
+      text: el.textContent.trim(),
+      title: el.title
+    }));
+
+    assert.equal(stateEn.href, 'http://albalday.github.io/zerochat/help/en/index.html');
+    assert.match(stateEn.text, /Help & Documentation/);
   } finally {
     await browser.close();
   }

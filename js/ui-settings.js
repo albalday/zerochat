@@ -97,6 +97,12 @@
     if (elements?.settingSystemDataPrompt) {
       elements.settingSystemDataPrompt.setAttribute('placeholder', t('field_system_data_prompt_placeholder'));
     }
+    const welcomeHelp = elements?.welcomeHelpLink || (typeof document !== 'undefined' ? document.getElementById('welcome-help-link') : null);
+    if (welcomeHelp) {
+      welcomeHelp.href = (target === 'en')
+        ? 'http://albalday.github.io/zerochat/help/en/index.html'
+        : 'http://albalday.github.io/zerochat/help/index.html';
+    }
     return target;
   }
 
