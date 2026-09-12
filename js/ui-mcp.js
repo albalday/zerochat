@@ -532,7 +532,7 @@ if __name__ == "__main__":
     if (elements.errorMessage) {
       const showErr = status === 'error' && state.error;
       elements.errorMessage.style.display = showErr ? 'flex' : 'none';
-      elements.errorMessage.innerHTML = showErr ? `${Icons?.get?.('alert-circle', { size: 16 }) || ''} <span>${state.error}</span>` : '';
+      elements.errorMessage.innerHTML = showErr ? `${Icons?.get?.('alert-circle', { size: 16 }) || ''} <span>${escapeHtml(state.error)}</span>` : '';
     }
 
     const host = elements.hostInput?.value || state.host || DEFAULT_HOST;

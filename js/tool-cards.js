@@ -3,8 +3,8 @@
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
   else root.ChatToolCards = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
-  'use strict';
-  const getMarkdown = () => (typeof window !== 'undefined' && window.ChatMarkdown) || { escapeHtml: value => String(value || '') };
+  const safeEscapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const getMarkdown = () => (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
   const t = (key, params) => (typeof window !== 'undefined' && window.ChatI18n?.t) ? window.ChatI18n.t(key, params) : key;
   const normalizeName = name => String(name || '').trim().toLowerCase().replace(/_/g, '');
   const getView = name => (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name)?.view : null;

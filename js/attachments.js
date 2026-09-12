@@ -28,6 +28,18 @@
     };
   }
 
+  function getUtils() {
+    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
+    if (typeof global !== 'undefined' && global.ChatUtils) return global.ChatUtils;
+    try {
+      return require('./utils.js');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const escapeHtml = (s) => (getUtils()?.escapeHtml ? getUtils().escapeHtml(s) : (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')));
+
   function getFiles() {
     const State = getState();
     if (State && typeof State.get === 'function') {
@@ -100,7 +112,7 @@
       const iconSvg = Icons ? Icons.get(iconName, { size: 14 }) : '';
       const closeSvg = Icons ? Icons.get('close', { size: 12 }) : '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>';
       const removeTitle = (I18n && typeof I18n.t === 'function') ? I18n.t('btn_delete') : 'Eliminar';
-      const safeName = String(file.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const safeName = escapeHtml(file.name || '');
 
       chip.innerHTML = `
         <span class="file-chip-icon">${iconSvg}</span>

@@ -575,10 +575,6 @@ select.form-input:focus-visible {
   font-size: 0.825rem;
 }
 
-.btn-profile-action.btn-icon-only {
-  padding: 0.65rem 0.75rem;
-}
-
 .btn-save-profile {
   background-color: var(--bg-surface);
   color: var(--primary);

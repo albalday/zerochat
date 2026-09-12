@@ -43,10 +43,12 @@
     return cardDiv;
   }
 
+  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function createLiveCard(args, ui) {
     const cardDiv = createCardWrapper(ui);
     if (!cardDiv) return null;
-    const Markdown = ui?.markdown || { escapeHtml: (v) => String(v || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const chevron = ui?.CHEVRON_SVG || '';
@@ -59,7 +61,7 @@
 
   function updateLiveCard(cardDiv, args, result = {}, elapsedMs = 0, ui) {
     if (!cardDiv) return;
-    const Markdown = ui?.markdown || { escapeHtml: (v) => String(v || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key) => key);
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';

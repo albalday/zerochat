@@ -250,3 +250,20 @@ test('Builtin Tools - read_knowledge_image escapa HTML en tarjetas en vivo e his
   assert.ok(liveCard.innerHTML.includes('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'));
   assert.equal(liveCard.innerHTML.includes('<script>'), false);
 });
+
+test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML con fallback seguro ante ausencia de ui.markdown', () => {
+  const fakeDoc = {
+    createElement: () => ({ className: '', innerHTML: '' })
+  };
+  const uiWithoutMarkdown = { document: fakeDoc };
+
+  // render_chart
+  const card = RenderChartTool.view.createLiveCard({ title: '<img src=x onerror=alert(1)>' }, uiWithoutMarkdown);
+  assert.ok(card.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.equal(card.innerHTML.includes('<img src=x'), false);
+
+  // search_web
+  const swCard = SearchWebTool.view.createLiveCard({ query: '<script>alert(1)</script>' }, uiWithoutMarkdown);
+  assert.ok(swCard.innerHTML.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  assert.equal(swCard.innerHTML.includes('<script>'), false);
+});

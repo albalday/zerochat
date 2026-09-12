@@ -47,10 +47,12 @@
 
   const DOC_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
 
+  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function createLiveCard(args, ui) {
     const card = createCardWrapper(ui);
     if (!card) return null;
-    const Markdown = ui?.markdown || { escapeHtml: value => String(value || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const chevron = ui?.CHEVRON_SVG || '';
@@ -69,7 +71,7 @@
   function updateLiveCard(card, _args, result = {}, _elapsedMs, ui) {
     if (!card) return;
     const t = ui?.t || ((key, params) => key);
-    const Markdown = ui?.markdown || { escapeHtml: value => String(value || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';
     const success = result?.success !== false && !result?.error;
@@ -81,7 +83,7 @@
     const notFoundLabel = result?.error || t('tool_rag_read_not_found') || 'No encontrado';
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = success ? `${checkSvg} <span>${retrievedLabel}</span>` : `${errorSvg} <span>${notFoundLabel}</span>`;
+      badge.innerHTML = success ? `${checkSvg} <span>${retrievedLabel}</span>` : `${errorSvg} <span>${Markdown.escapeHtml(notFoundLabel)}</span>`;
     }
     const body = card.querySelector('.tool-card-result');
     if (body) body.innerHTML = `<pre class="tool-result-pre"><code>${Markdown.escapeHtml(content.slice(0, 3000))}${content.length > 3000 ? '\n…' : ''}</code></pre>`;

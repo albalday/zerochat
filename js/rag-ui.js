@@ -193,12 +193,13 @@
       const formatted = formatBranchMetrics(metrics);
       const loadedText = t('rag_branch_loaded', { summary: formatted }) || `Esta rama cargó ${formatted}`;
       const descText = branch.description || t('rag_branch_no_desc') || 'Sin descripción';
-      const badgeText = isActive ? (t('rag_branch_active_badge') || '✓ Activa') : (t('rag_branch_activate_badge') || '+ Activar');
+      const badgeIcon = isActive ? getIcon('check', { size: 12 }) : getIcon('plus', { size: 12 });
+      const badgeText = isActive ? (t('rag_branch_active_badge') || 'Activa') : (t('rag_branch_activate_badge') || 'Activar');
       const langLabel = formatBranchLanguage(branch.language);
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
         <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline" style="display:inline-flex; align-items:center; gap:0.25rem;">${getIcon('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
-        <span class="rag-branch-badge-status">${badgeText}</span>
+        <span class="rag-branch-badge-status" style="display:inline-flex; align-items:center; gap:0.25rem;">${badgeIcon} <span>${escapeHtml(badgeText)}</span></span>
       </button>`;
     }).join('');
     list.querySelectorAll('[data-branch-id]').forEach(button => button.addEventListener('click', async () => {

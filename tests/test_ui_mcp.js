@@ -174,6 +174,16 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.disabled, false);
   assert.equal(elements.errorMessage.style.display, 'flex');
   assert.ok(elements.errorMessage.innerHTML.includes('Conexión rechazada'));
+
+  // 5. Estado error con caracteres HTML potencialmente peligrosos (prevenir XSS)
+  ChatUIMcp.renderConnectionStatus(elements, {
+    status: 'error',
+    host: '127.0.0.1',
+    port: 6388,
+    error: '<script>alert("xss")</script>'
+  }, t);
+  assert.equal(elements.errorMessage.innerHTML.includes('<script>'), false);
+  assert.ok(elements.errorMessage.innerHTML.includes('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'));
 });
 
 test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {

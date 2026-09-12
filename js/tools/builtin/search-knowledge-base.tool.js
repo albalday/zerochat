@@ -53,10 +53,12 @@
     return card;
   }
 
+  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function createLiveCard(args, ui) {
     const card = createCardWrapper(ui);
     if (!card) return null;
-    const Markdown = ui?.markdown || { escapeHtml: (v) => String(v || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const chevron = ui?.CHEVRON_SVG || '';
@@ -71,7 +73,7 @@
   function updateLiveCard(card, _args, result = {}, elapsedMs = 0, ui) {
     if (!card) return;
     const t = ui?.t || ((key, params) => key);
-    const Markdown = ui?.markdown || { escapeHtml: (v) => String(v || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';
     const success = result?.success !== false && !result?.error;
@@ -82,7 +84,7 @@
     const errorLabel = result?.error || t('tool_err_query') || 'Error al consultar';
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = success ? `${checkSvg} <span>${matchesLabel} (${elapsedMs || 0}ms)</span>` : `${errorSvg} <span>${errorLabel}</span>`;
+      badge.innerHTML = success ? `${checkSvg} <span>${matchesLabel} (${elapsedMs || 0}ms)</span>` : `${errorSvg} <span>${Markdown.escapeHtml(errorLabel)}</span>`;
     }
     const body = card.querySelector('.tool-card-result');
     if (body) body.innerHTML = `<pre class="tool-result-pre"><code>${Markdown.escapeHtml(text.slice(0, 3000))}${text.length > 3000 ? '\n... (texto completo truncado en tarjeta)' : ''}</code></pre>`;

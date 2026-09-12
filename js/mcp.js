@@ -630,7 +630,7 @@
         const badge = cardDiv.querySelector('.tool-card-badge');
         if (badge) {
           badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
-          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || '✔'} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || '✖'} <span>Error (${elapsedMs}ms)</span>`;
+          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || ''} <span>Error (${elapsedMs}ms)</span>`;
         }
         const resEl = cardDiv.querySelector('.tool-card-result');
         if (resEl) {
@@ -642,7 +642,7 @@
         if (typeof document === 'undefined') return null;
         const esc = ui?.markdown?.escapeHtml || String;
         const t = ui?.t || (k => k);
-        const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || '✔'} <span>${t('tool_status_success') || 'OK'}</span></span>`;
+        const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'}</span></span>`;
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
         return renderCard(args, `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`, badge, ui, true);
       }

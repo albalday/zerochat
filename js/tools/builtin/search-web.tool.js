@@ -31,10 +31,12 @@
   const SEARCH_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
   const LINK_ICON_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
 
+  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function createLiveCard(args, ui) {
     const cardDiv = createCardWrapper(ui);
     if (!cardDiv) return null;
-    const Markdown = ui?.markdown || { escapeHtml: (value) => String(value || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml, sanitizeUrl: (v) => String(v || ''), renderMarkdown: (v) => safeEscapeHtml(v) };
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const chevron = ui?.CHEVRON_SVG || '';
@@ -44,7 +46,7 @@
 
   function updateLiveCard(cardDiv, _args, result = {}, elapsedMs = 0, ui) {
     if (!cardDiv) return;
-    const Markdown = ui?.markdown || { escapeHtml: (value) => String(value || ''), sanitizeUrl: (value) => String(value || ''), renderMarkdown: (value) => String(value || '') };
+    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml, sanitizeUrl: (v) => String(v || ''), renderMarkdown: (v) => safeEscapeHtml(v) };
     const t = ui?.t || ((key) => key);
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';

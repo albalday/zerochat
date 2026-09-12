@@ -61,3 +61,31 @@ test('ChatAttachments - Validación de tamaño máximo de archivo', () => {
   const customLimit = ChatAttachments.validateFileSize({ size: 100 }, 50);
   assert.equal(customLimit.valid, false);
 });
+
+test('ChatAttachments - renderChips escapa caracteres peligrosos y comillas en nombres de archivo', () => {
+  const container = {
+    innerHTML: '',
+    style: {},
+    children: [],
+    appendChild: (child) => container.children.push(child)
+  };
+  global.document = {
+    createElement: () => ({
+      className: '',
+      innerHTML: '',
+      querySelector: () => ({ addEventListener: () => {} })
+    })
+  };
+
+  ChatAttachments.clearFiles();
+  ChatAttachments.addFile({ name: "archivo<script>'\"&.pdf", size: 1024, type: 'pdf' });
+  ChatAttachments.renderChips(container);
+
+  assert.equal(container.children.length, 1);
+  const chipHtml = container.children[0].innerHTML;
+  assert.ok(chipHtml.includes('&lt;script&gt;'));
+  assert.ok(chipHtml.includes('&#39;'));
+  assert.ok(chipHtml.includes('&quot;'));
+  assert.ok(chipHtml.includes('&amp;'));
+  assert.equal(chipHtml.includes('<script>'), false);
+});

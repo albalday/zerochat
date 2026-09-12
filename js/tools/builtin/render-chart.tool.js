@@ -30,10 +30,12 @@
     return cardDiv;
   }
 
+  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function renderChart(args, ui) {
     const Charts = ui?.charts || null;
     if (Charts?.renderChartCard) return Charts.renderChartCard(args);
-    const escapeHtml = ui?.markdown?.escapeHtml || ((value) => String(value || ''));
+    const escapeHtml = ui?.markdown?.escapeHtml || (typeof window !== 'undefined' && window.ChatMarkdown?.escapeHtml) || (typeof window !== 'undefined' && window.ChatUtils?.escapeHtml) || safeEscapeHtml;
     const chartIconSvg = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>';
     return `<div class="chat-chart-card">${chartIconSvg} ${escapeHtml(args.title || 'Gráfico')}</div>`;
   }

@@ -97,11 +97,6 @@
   transform: scale(0.98);
 }
 
-.btn-new-chat-icon {
-  font-size: 0.85rem;
-  line-height: 1;
-}
-
 /* Botones de acción en cabecera de barra lateral (sin enmarcado) */
 .btn-sidebar-icon,
 .btn-sidebar-close {
