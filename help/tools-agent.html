@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Modo Agente y Herramientas Nativas · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía del ciclo agéntico autónomo en ZeroChat: ejecución segura de JavaScript en sandbox, búsqueda web, descarga de páginas, gráficas interactivas y seguridad.">
+  <meta name="description" content="Guía del ciclo agéntico autónomo en ZeroChat: ejecución de JavaScript bajo supervisión técnica, búsqueda web, descarga de páginas y gráficas interactivas.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -30,7 +30,7 @@
         El <strong>Modo Agente</strong> transforma la interacción pasiva de pregunta-respuesta en un bucle autónomo multivuelta (<em>Agentic Loop</em>).
       </p>
       <p>
-        Cuando planteas una tarea compleja, el modelo evalúa qué herramientas necesita, emite una llamada estructurada (Function Calling), ZeroChat ejecuta la herramienta de forma segura en tu navegador y devuelve el resultado al modelo para que continúe resolviendo el problema hasta completar el objetivo.
+        Cuando planteas una tarea compleja, el modelo evalúa qué herramientas necesita, emite una llamada estructurada (Function Calling), ZeroChat ejecuta la herramienta en tu navegador y devuelve el resultado al modelo para que continúe resolviendo el problema hasta completar el objetivo.
       </p>
       <div class="alert alert-info">
         <strong>Límite de turnos de seguridad (<code>maxAgentTurns</code>):</strong> En la configuración puedes definir el número máximo de turnos continuos que el agente puede encadenar (por defecto entre 5 y 10), impidiendo bucles infinitos y consumo desmedido de tokens.
@@ -51,8 +51,8 @@
           <tbody>
             <tr>
               <td><code>execute_javascript</code></td>
-              <td>Ejecuta código JavaScript de forma aislada para cálculos matemáticos, algoritmos, transformaciones de datos o procesamiento de cadenas.</td>
-              <td>Web Worker aislado (Sandbox seguro)</td>
+              <td>Ejecuta JavaScript local para cálculos matemáticos, algoritmos, transformaciones de datos o procesamiento de cadenas, bajo supervisión técnica.</td>
+              <td>Web Worker local con límites de ejecución</td>
             </tr>
             <tr>
               <td><code>search_web</code></td>
@@ -85,15 +85,15 @@
     </div>
 
     <div class="card">
-      <h2>3. Seguridad del Sandbox de JavaScript</h2>
+      <h2>3. Ejecución de JavaScript bajo supervisión técnica</h2>
       <p>
-        La ejecución de código arbitrario generado por un modelo de lenguaje es un vector crítico. En ZeroChat, el ejecutor de JavaScript (<code>sandbox.js</code>) implementa rigurosas medidas de contención:
+        <code>execute_javascript</code> es una herramienta de apoyo para cálculos, procesamiento de datos y algoritmos. Su uso requiere el conocimiento y la supervisión activa de una persona usuaria técnica, que puede habilitarla o deshabilitarla desde la configuración.
       </p>
       <ul>
-        <li><strong>Aislamiento en Web Worker:</strong> El código no se ejecuta en el hilo principal ni tiene acceso al objeto <code>window</code>, <code>document</code>, cookies, almacenamiento local ni el árbol DOM.</li>
-        <li><strong>Restricción de APIs peligrosas:</strong> Las APIs de red (<code>fetch</code>, <code>XMLHttpRequest</code>, <code>WebSocket</code>) están desactivadas dentro del sandbox.</li>
-        <li><strong>Límites de tiempo (Timeout):</strong> Si un script generado contiene un bucle infinito o tarda más de lo estipulado (por ejemplo, 5 segundos), el worker se destruye automáticamente.</li>
-        <li><strong>Límites de memoria y tamaño de salida:</strong> Previene bloqueos del navegador por saturación de memoria o cadenas masivas.</li>
+        <li><strong>Ejecución en Web Worker:</strong> Normalmente se realiza en un hilo independiente para no bloquear la interfaz durante cálculos o algoritmos pesados.</li>
+        <li><strong>Límite de tiempo:</strong> Si el script supera el tiempo configurado, ZeroChat detiene el Worker.</li>
+        <li><strong>Límites de salida:</strong> Se truncan los resultados excesivos y se limita el número de mensajes de consola para preservar la capacidad de respuesta.</li>
+        <li><strong>APIs restringidas para cálculos:</strong> El Worker neutraliza APIs de red y de creación de subprocesos que no son necesarias para esta herramienta.</li>
       </ul>
     </div>
 
@@ -130,4 +130,3 @@
   </div>
 </body>
 </html>
-
