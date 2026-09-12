@@ -145,7 +145,6 @@ select:focus-visible {
 /* ==========================================================================
    Fundación UI y Consolidación de Clases Base
    ========================================================================== */
-.btn-base,
 .btn-primary,
 .btn-secondary,
 .btn-close,
@@ -166,7 +165,6 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.btn-base,
 .btn-primary,
 .btn-secondary,
 .btn-close,
@@ -182,7 +180,6 @@ select:focus-visible {
   transition: all 0.15s ease;
 }
 
-.card-base,
 .chat-chart-card,
 .inspector-intro-card,
 .setting-toggle-card,
@@ -199,7 +196,6 @@ select:focus-visible {
   border-radius: var(--radius-md);
 }
 
-.card-base,
 .chat-chart-card,
 .inspector-intro-card,
 .mcp-status-card,
@@ -208,11 +204,4 @@ select:focus-visible {
   border-radius: var(--radius-lg);
   padding: 1rem;
   box-shadow: var(--shadow-sm);
-}
-
-.surface-glass {
-  background: rgba(var(--bg-surface-rgb, 255, 255, 255), var(--surface-alpha, 0.85));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color);
 }

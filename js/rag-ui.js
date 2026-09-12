@@ -302,7 +302,10 @@
     const dropzone = document.getElementById('rag-dropzone');
     const progress = document.getElementById('rag-ingestion-progress');
     if (progress && ingestionResult) progress.innerHTML = ingestionResultMarkup(ingestionResult);
-    const handleFiles = files => ingestFiles(Array.from(files || []), branchId);
+    const handleFiles = files => {
+      ingestFiles(Array.from(files || []), branchId);
+      if (input) input.value = '';
+    };
     if (input) input.addEventListener('change', () => handleFiles(input.files));
     if (dropzone) {
       dropzone.addEventListener('dragover', event => { event.preventDefault(); dropzone.classList.add('drag-over'); });
@@ -324,9 +327,27 @@
 
   async function ingestFiles(files, branchId) {
     if (!files.length) return;
+    const maxBytes = 50 * 1024 * 1024;
+    const validFiles = [];
+    const oversizedFiles = [];
+    for (const f of files) {
+      if (f && typeof f.size === 'number' && f.size > maxBytes) {
+        oversizedFiles.push(f);
+      } else {
+        validFiles.push(f);
+      }
+    }
+    if (oversizedFiles.length > 0) {
+      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+      if (Dialogs?.alert) {
+        const names = oversizedFiles.map(f => f.name || 'documento').join(', ');
+        await Dialogs.alert(t('err_file_too_large', { name: names, max: '50 MB' }), { type: 'error' });
+      }
+    }
+    if (!validFiles.length) return;
     const container = document.getElementById('rag-ingestion-progress');
     const events = new Map();
-    const result = await ingestion().processDocumentQueue(files, branchId, event => {
+    const result = await ingestion().processDocumentQueue(validFiles, branchId, event => {
       events.set(event.fileIndex, event);
       if (container) {
         const recentEvents = Array.from(events.values()).slice(-12).reverse();

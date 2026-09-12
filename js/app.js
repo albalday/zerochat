@@ -2186,11 +2186,18 @@
     }, 200);
   }
 
-  function handleImportFileSelected(e) {
+  async function handleImportFileSelected(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
     if (blockSessionTransitionIfBusy('chat_import_blocked_generating')) {
+      if (elements.importJsonInput) elements.importJsonInput.value = '';
+      return;
+    }
+
+    const maxBytes = (typeof Attachments !== 'undefined' && Attachments?.MAX_FILE_SIZE) || (50 * 1024 * 1024);
+    if (file.size > maxBytes) {
+      await ChatDialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
       if (elements.importJsonInput) elements.importJsonInput.value = '';
       return;
     }

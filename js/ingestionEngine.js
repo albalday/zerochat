@@ -264,6 +264,8 @@
     return controls <= Math.max(1, Math.floor(text.length * 0.01));
   }
 
+  const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024; // 50 MB límite por documento
+
   async function processDocumentQueue(files, branchId, onProgress, options = {}) {
     const queue = Array.isArray(files) ? files : Array.from(files || []);
     const storage = getRagStorage();
@@ -271,6 +273,7 @@
     if (!storage) throw new Error('El almacenamiento RAG no está disponible.');
     if (!branchId) throw new Error('Se requiere una rama de destino.');
     const result = { total: queue.length, processed: 0, failed: 0, documents: [], errors: [] };
+    const maxFileSize = Number(options.maxFileSize) || MAX_DOCUMENT_SIZE;
     const emit = (fileIndex, fileName, status, message, percent, errorDetails) => {
       if (typeof onProgress === 'function') {
         const finishedFiles = result.processed + result.failed;
@@ -289,6 +292,9 @@
       const fileName = file?.name || `documento_${fileIndex + 1}.txt`;
       const fileType = detectFileType(file);
       try {
+        if (file && typeof file.size === 'number' && file.size > maxFileSize) {
+          throw new Error('El archivo supera el tamaño máximo permitido (50 MB).');
+        }
         if (!fileType) throw new Error('El archivo no parece contener texto legible.');
         emit(fileIndex, fileName, 'extracting', `Extrayendo texto de ${fileName}…`, 10);
         const { text: extracted, images } = await extractDocumentContent(file, fileType);
@@ -322,5 +328,5 @@
     return result;
   }
 
-  return { normalizeExtractedText, extractTextFromPlainText, extractTextFromPDF, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue };
+  return { normalizeExtractedText, extractTextFromPlainText, extractTextFromPDF, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue, MAX_DOCUMENT_SIZE };
 });
