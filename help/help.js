@@ -23,7 +23,8 @@ function copyText(text, btn) {
 function markCopied(btn) {
   if (!btn) return;
   const originalText = btn.textContent;
-  btn.textContent = '¡Copiado!';
+  const isEn = document.documentElement.lang === 'en';
+  btn.textContent = isEn ? 'Copied!' : '¡Copiado!';
   btn.classList.add('copied');
   setTimeout(() => {
     btn.textContent = originalText;
@@ -32,6 +33,7 @@ function markCopied(btn) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const isEn = document.documentElement.lang === 'en';
   document.querySelectorAll('.code-wrapper').forEach(wrapper => {
     if (wrapper.querySelector('.btn-copy')) return;
     const pre = wrapper.querySelector('pre');
@@ -39,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn-copy';
-    btn.textContent = 'Copiar';
+    btn.textContent = isEn ? 'Copy' : 'Copiar';
     btn.addEventListener('click', () => {
       copyText(pre.textContent.trim(), btn);
     });

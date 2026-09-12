@@ -218,6 +218,90 @@
     </div>
 
     <div class="card">
+      <h2>Cómo revertir los cambios y restaurar la configuración por defecto</h2>
+      <p>
+        Si deseas deshacer las modificaciones técnicas realizadas en tu navegador o en ZeroChat y regresar a los valores predeterminados de fábrica, sigue estos pasos según tu navegador:
+      </p>
+
+      <h3>1. Google Chrome, Microsoft Edge y navegadores Chromium</h3>
+      <ul>
+        <li>
+          <strong>Restablecer el flag de WebGPU específico:</strong>
+          <p>Accede de nuevo a la dirección del flag y selecciona <strong>Default</strong> en el selector desplegable:</p>
+          <div class="code-box">
+            <code>chrome://flags/#enable-unsafe-webgpu</code>
+            <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copiar</button>
+          </div>
+          <p>Pulsa el botón <strong>Relaunch</strong> (Reiniciar) que aparecerá en la parte inferior para reiniciar el navegador con la configuración por defecto.</p>
+        </li>
+        <li>
+          <strong>Restablecer todos los flags experimentales:</strong>
+          <p>Si modificaste varios parámetros y deseas devolver todos los flags a su estado de fábrica, visita la página principal de flags y haz clic en el botón <strong>"Reset all"</strong> (o <em>"Restablecer todo"</em>) en la esquina superior derecha:</p>
+          <div class="code-box">
+            <code>chrome://flags</code>
+            <button class="btn-copy" onclick="copyText('chrome://flags', this)">Copiar</button>
+          </div>
+        </li>
+        <li>
+          <strong>Aceleración por hardware:</strong>
+          <p>En <code>chrome://settings/system</code>, puedes volver a marcar o desmarcar la opción <em>"Usar aceleración por hardware cuando esté disponible"</em> según tu preferencia habitual.</p>
+        </li>
+        <li>
+          <strong>Parámetros de terminal en Linux:</strong>
+          <p>Si iniciaste Chromium con parámetros adicionales como <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>, simplemente elimínalos de tu comando de terminal o del lanzador de escritorio (archivo <code>.desktop</code>).</p>
+        </li>
+      </ul>
+
+      <h3>2. Mozilla Firefox</h3>
+      <ul>
+        <li>
+          <strong>Acceder a la configuración avanzada:</strong>
+          <p>Escribe en la barra de direcciones y acepta la advertencia:</p>
+          <div class="code-box">
+            <code>about:config</code>
+            <button class="btn-copy" onclick="copyText('about:config', this)">Copiar</button>
+          </div>
+        </li>
+        <li>
+          <strong>Restablecer las preferencias modificadas:</strong>
+          <p>Busca cada parámetro modificado. Verás que su nombre figura en <strong>negrita</strong>, lo que indica que tiene un valor personalizado distinto del predeterminado:</p>
+          <ul>
+            <li><code>dom.webgpu.enabled</code> (valor predeterminado de fábrica: <strong>false</strong>)</li>
+            <li><code>gfx.webgpu.ignore-status</code> (valor predeterminado de fábrica: <strong>false</strong> o inexistente)</li>
+          </ul>
+          <p>Haz clic en el botón <strong>Restablecer</strong> (icono de flecha curva hacia atrás a la derecha de la fila) o haz doble clic para que regrese a <code>false</code> y deje de mostrarse en negrita.</p>
+        </li>
+        <li>
+          <strong>Reiniciar el navegador:</strong>
+          <p>Cierra y vuelve a abrir Firefox para que el subsistema gráfico se reinicie con la configuración por defecto.</p>
+        </li>
+      </ul>
+
+      <h3>3. Liberar espacio en disco (Eliminar modelos descargados de la caché)</h3>
+      <p>
+        Los modelos locales de WebLLM se almacenan en el almacenamiento persistente del navegador (<em>Cache Storage</em> / <em>IndexedDB</em>) y pueden ocupar varios gigabytes. Si deseas eliminarlos para recuperar espacio en disco:
+      </p>
+      <ul>
+        <li>
+          <strong>En Google Chrome, Edge y Chromium:</strong>
+          <ol>
+            <li>Haz clic en el icono de información/candado o ajustes a la izquierda de la barra de direcciones mientras estás en ZeroChat.</li>
+            <li>Entra en <em>"Configuración del sitio"</em> y haz clic en <strong>"Borrar datos"</strong>.</li>
+            <li>De manera alternativa, pulsa <kbd>F12</kbd> &gt; pestaña <strong>Application</strong> &gt; apartado <strong>Storage</strong> &gt; botón <strong>"Clear site data"</strong>.</li>
+          </ol>
+        </li>
+        <li>
+          <strong>En Mozilla Firefox:</strong>
+          <ol>
+            <li>Ve a Ajustes &gt; sección <em>Privacidad y Seguridad</em> &gt; <em>Cookies y datos del sitio</em>.</li>
+            <li>Haz clic en <strong>"Administrar datos..."</strong>, busca el dominio de ZeroChat y pulsa <strong>"Eliminar los seleccionados"</strong>.</li>
+            <li>De manera alternativa, pulsa <kbd>F12</kbd> &gt; pestaña <strong>Almacenamiento</strong> &gt; sección <strong>Almacenamiento en caché</strong>, haz clic derecho sobre las entradas <code>webllm/model</code> y pulsa <strong>Eliminar</strong>.</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
       <h2>Resolución de Problemas Frecuentes</h2>
       <ul>
         <li>

@@ -103,53 +103,199 @@
       </table>
     </div>
 
-    <div class="card">
-      <h2>Browser Configuration: WebGPU Setup</h2>
-      <div class="browser-grid">
-        <div>
-          <h3>Chromium / Chrome / Edge / Brave</h3>
-          <ol>
-            <li>Enable hardware acceleration in browser settings.</li>
-            <li>
-              Enable unsafe WebGPU flag if your platform requires it:
-              <div class="code-wrapper">
-                <pre><code>chrome://flags/#enable-unsafe-webgpu</code></pre>
-              </div>
-            </li>
-            <li>Restart your browser to apply changes.</li>
-          </ol>
-        </div>
+    <h2>Browser Configuration &amp; WebGPU Setup</h2>
+    <div class="browser-grid">
 
-        <div>
-          <h3>Mozilla Firefox</h3>
-          <ol>
-            <li>Open a new tab and navigate to <code>about:config</code>.</li>
-            <li>
-              Search for and set the following flag to <code>true</code>:
-              <div class="code-wrapper">
-                <pre><code>dom.webgpu.enabled = true</code></pre>
-              </div>
-            </li>
-            <li>Verify WebGPU status under <code>about:support</code>.</li>
-          </ol>
+      <!-- Google Chrome / Edge / Brave -->
+      <div class="card">
+        <h3>Google Chrome, Edge and Chromium</h3>
+        <p>Chromium-based browsers provide top-tier performance and reliability with WebGPU.</p>
+
+        <ol>
+          <li>
+            <strong>Enable hardware acceleration:</strong>
+            <p>Go to Settings &gt; System and ensure <em>"Use hardware acceleration when available"</em> is enabled.</p>
+            <div class="code-box">
+              <code>chrome://settings/system</code>
+              <button class="btn-copy" onclick="copyText('chrome://settings/system', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Enable unsafe WebGPU (Recommended for maximum compatibility):</strong>
+            <p>Paste into your address bar, set the flag to <strong>Enabled</strong>, and relaunch your browser:</p>
+            <div class="code-box">
+              <code>chrome://flags/#enable-unsafe-webgpu</code>
+              <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Check GPU diagnostics:</strong>
+            <p>Open the internal graphics status page and verify that <em>WebGPU</em> is listed as <em>"Hardware accelerated"</em>:</p>
+            <div class="code-box">
+              <code>chrome://gpu</code>
+              <button class="btn-copy" onclick="copyText('chrome://gpu', this)">Copy</button>
+            </div>
+          </li>
+        </ol>
+
+        <div class="alert alert-warning">
+          <strong>On Linux:</strong> If WebGPU fails to activate automatically under OpenGL, start Chromium with Vulkan support:
+          <div class="code-box" style="margin-top:0.4rem;">
+            <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code>
+            <button class="btn-copy" onclick="copyText('--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan', this)">Copy</button>
+          </div>
         </div>
       </div>
+
+      <!-- Mozilla Firefox -->
+      <div class="card">
+        <h3>Mozilla Firefox</h3>
+        <p>WebGPU is in active rollout in Firefox and requires enabling specific preferences:</p>
+
+        <ol>
+          <li>
+            <strong>Open the advanced preferences editor:</strong>
+            <p>Type into the address bar and click <em>"Accept the Risk and Continue"</em>:</p>
+            <div class="code-box">
+              <code>about:config</code>
+              <button class="btn-copy" onclick="copyText('about:config', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Enable the WebGPU API:</strong>
+            <p>Search for this preference and toggle its value to <strong>true</strong>:</p>
+            <div class="code-box">
+              <code>dom.webgpu.enabled</code>
+              <button class="btn-copy" onclick="copyText('dom.webgpu.enabled', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Ignore driver blocklist (Recommended on Linux/Windows):</strong>
+            <p>Allows Firefox to use WebGPU even if your driver is not yet on the official whitelist:</p>
+            <div class="code-box">
+              <code>gfx.webgpu.ignore-status</code>
+              <button class="btn-copy" onclick="copyText('gfx.webgpu.ignore-status', this)">Copy</button>
+            </div>
+          </li>
+
+          <li>
+            <strong>Check Firefox GPU status:</strong>
+            <p>Review the <em>Graphics &gt; WebGPU</em> section to confirm hardware adapter detection:</p>
+            <div class="code-box">
+              <code>about:support</code>
+              <button class="btn-copy" onclick="copyText('about:support', this)">Copy</button>
+            </div>
+          </li>
+        </ol>
+      </div>
+
     </div>
 
     <div class="card">
       <h2>How to Use WebLLM in ZeroChat</h2>
       <ol>
-        <li>Open the <strong>Profile Management</strong> dialog in ZeroChat.</li>
+        <li>In ZeroChat, open the <strong>Profile Management</strong> dialog.</li>
         <li>Select the <strong>WebLLM (local WebGPU)</strong> interface type.</li>
         <li>
           <strong>If you already have downloaded models:</strong>
-          They appear automatically at the top of the model selection combo. Pick any downloaded model and save immediately without querying.
+          They appear automatically at the top of the model dropdown. Pick any downloaded model and save the profile immediately without needing to click <em>Query</em>.
         </li>
         <li>
           <strong>To download a new model:</strong>
-          Click <strong>Query</strong>. Browse the catalog with required VRAM metrics, click the download icon next to your desired model, and wait for shader compilation to finish.
+          Click the <strong>Query</strong> button. Browse the available catalog with required VRAM metrics, click the download icon next to your desired model, and wait for shader compilation to finish.
+        </li>
+        <li>
+          Once download completes, the model will be tagged as <em>"Cached"</em> and stored permanently in your browser.
         </li>
       </ol>
+    </div>
+
+    <div class="card">
+      <h2>How to Revert Changes and Restore Default Configuration</h2>
+      <p>
+        If you wish to undo the technical changes made to your browser or ZeroChat and return to factory defaults, follow the instructions below:
+      </p>
+
+      <h3>1. Google Chrome, Microsoft Edge, and Chromium</h3>
+      <ul>
+        <li>
+          <strong>Restore the specific WebGPU flag:</strong>
+          <p>Navigate back to the flag URL and select <strong>Default</strong> from the dropdown menu:</p>
+          <div class="code-box">
+            <code>chrome://flags/#enable-unsafe-webgpu</code>
+            <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copy</button>
+          </div>
+          <p>Click the <strong>Relaunch</strong> button that appears at the bottom of the screen to restart the browser with default settings.</p>
+        </li>
+        <li>
+          <strong>Reset all experimental flags:</strong>
+          <p>If you adjusted multiple parameters and want to return everything to out-of-the-box defaults, open the main flags page and click the <strong>"Reset all"</strong> button in the upper-right corner:</p>
+          <div class="code-box">
+            <code>chrome://flags</code>
+            <button class="btn-copy" onclick="copyText('chrome://flags', this)">Copy</button>
+          </div>
+        </li>
+        <li>
+          <strong>Hardware Acceleration:</strong>
+          <p>In <code>chrome://settings/system</code>, you can toggle <em>"Use hardware acceleration when available"</em> according to your standard preference.</p>
+        </li>
+        <li>
+          <strong>Terminal / Launch Arguments on Linux:</strong>
+          <p>If you added <code>--enable-features=Vulkan,DefaultANGLEVulkan --use-vulkan</code> to your terminal command or desktop launcher (<code>.desktop</code> file), simply remove those arguments to revert Chromium to its standard graphics backend (OpenGL/EGL).</p>
+        </li>
+      </ul>
+
+      <h3>2. Mozilla Firefox</h3>
+      <ul>
+        <li>
+          <strong>Open advanced configuration:</strong>
+          <p>Type into your address bar and accept the warning:</p>
+          <div class="code-box">
+            <code>about:config</code>
+            <button class="btn-copy" onclick="copyText('about:config', this)">Copy</button>
+          </div>
+        </li>
+        <li>
+          <strong>Reset modified preferences:</strong>
+          <p>Search for each modified preference (they will be displayed in <strong>bold</strong>, indicating a custom non-default value):</p>
+          <ul>
+            <li><code>dom.webgpu.enabled</code> (factory default: <strong>false</strong>)</li>
+            <li><code>gfx.webgpu.ignore-status</code> (factory default: <strong>false</strong> or non-existent)</li>
+          </ul>
+          <p>Click the <strong>Reset</strong> button (the curved back-arrow icon at the right edge of the row) or double-click the row so it returns to <code>false</code> and is no longer bold.</p>
+        </li>
+        <li>
+          <strong>Restart the browser:</strong>
+          <p>Close and restart Firefox so that graphics and GPU subsystems reinitialize under default parameters.</p>
+        </li>
+      </ul>
+
+      <h3>3. Freeing Disk Space (Deleting Downloaded Models from Cache)</h3>
+      <p>
+        Local WebLLM models are stored in the browser's persistent storage (<em>Cache Storage</em> / <em>IndexedDB</em>) and can take up several gigabytes. If you want to delete them to reclaim disk space:
+      </p>
+      <ul>
+        <li>
+          <strong>In Google Chrome, Edge, and Chromium:</strong>
+          <ol>
+            <li>Click the tune/padlock site settings icon to the left of the address bar while visiting ZeroChat.</li>
+            <li>Select <em>"Site settings"</em> and click <strong>"Clear data"</strong>.</li>
+            <li>Alternatively, press <kbd>F12</kbd> &gt; <strong>Application</strong> tab &gt; <strong>Storage</strong> section &gt; click <strong>"Clear site data"</strong>.</li>
+          </ol>
+        </li>
+        <li>
+          <strong>In Mozilla Firefox:</strong>
+          <ol>
+            <li>Open Settings &gt; <em>Privacy &amp; Security</em> section &gt; <em>Cookies and Site Data</em>.</li>
+            <li>Click <strong>"Manage Data..."</strong>, search for the ZeroChat domain, and click <strong>"Remove Selected"</strong>.</li>
+            <li>Alternatively, press <kbd>F12</kbd> &gt; <strong>Storage</strong> tab &gt; <strong>Cache Storage</strong>, right-click any <code>webllm/model</code> entries, and click <strong>Delete</strong>.</li>
+          </ol>
+        </li>
+      </ul>
     </div>
 
     <div class="card">

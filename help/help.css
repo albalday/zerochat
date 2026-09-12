@@ -365,6 +365,40 @@ pre code {
   border-color: var(--success);
 }
 
+.code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--code-bg);
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  margin: 0.4rem 0 0.8rem;
+}
+
+.code-box code {
+  color: var(--code-text);
+  background: transparent;
+  padding: 0;
+  overflow-x: auto;
+}
+
+.code-box .btn-copy {
+  position: static;
+  flex-shrink: 0;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color-subtle);
+  border-bottom: 2px solid var(--border-color-subtle);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: var(--text-main);
+}
+
 /* Tablas */
 .table-responsive {
   overflow-x: auto;
