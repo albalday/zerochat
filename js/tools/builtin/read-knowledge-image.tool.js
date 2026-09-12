@@ -16,6 +16,20 @@
     return null;
   }
   function getBranchIds(context = {}) { return context.activeRagBranchIds || context.activeRagBranchId || context.branchId || context.config?.activeRagBranchIds || context.config?.activeRagBranchId || ''; }
+  function getMarkdown(ui) {
+    if (ui?.markdown?.escapeHtml) return ui.markdown;
+    if (typeof window !== 'undefined' && window.ChatMarkdown?.escapeHtml) return window.ChatMarkdown;
+    if (typeof require !== 'undefined') {
+      try {
+        const md = require('../../markdown.js');
+        if (md?.escapeHtml) return md;
+      } catch (_) {}
+    }
+    return {
+      escapeHtml: value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+    };
+  }
+
   function createLiveCard(args, ui) {
     if (ui?.createCardWrapper) return ui.createCardWrapper();
     const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
@@ -23,15 +37,20 @@
     const cardDiv = doc.createElement('div');
     cardDiv.className = 'tool-card-wrapper';
     const t = ui?.t || ((key) => key);
-    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${args?.imageRef || ''}</code></div></div>`;
+    const md = getMarkdown(ui);
+    const safeRef = md.escapeHtml(args?.imageRef || '');
+    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${safeRef}</code></div></div>`;
     return cardDiv;
   }
 
   function updateLiveCard(cardDiv, args, result, _elapsedMs, ui) {
     if (!cardDiv) return;
     const t = ui?.t || ((key) => key);
+    const md = getMarkdown(ui);
+    const safeRef = md.escapeHtml(args?.imageRef || '');
     const content = result?.success ? (result.documentTitle || result.imageRef) : (result?.error || 'Error');
-    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${args?.imageRef || ''}</code></div><div class="rag-card-body">${content}</div></div>`;
+    const safeContent = md.escapeHtml(content || '');
+    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${safeRef}</code></div><div class="rag-card-body">${safeContent}</div></div>`;
   }
 
   function renderHistoricalCard(args, toolMessage, ui) {

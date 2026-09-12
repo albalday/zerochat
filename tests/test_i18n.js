@@ -87,3 +87,32 @@ test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
   // Restaurar idioma por defecto
   I18n.setLanguage('es', false);
 });
+
+test('I18n - Simetría completa de diccionarios es y en y claves de auditoría', () => {
+  const esKeys = Object.keys(I18n.TRANSLATIONS.es);
+  const enKeys = Object.keys(I18n.TRANSLATIONS.en);
+  const esSet = new Set(esKeys);
+  const enSet = new Set(enKeys);
+
+  const missingInEn = esKeys.filter(k => !enSet.has(k));
+  const missingInEs = enKeys.filter(k => !esSet.has(k));
+
+  assert.deepEqual(missingInEn, [], 'No debe haber claves en español faltantes en inglés');
+  assert.deepEqual(missingInEs, [], 'No debe haber claves en inglés faltantes en español');
+
+  const requiredAuditKeys = [
+    'err_server_connect_title',
+    'err_file_too_large',
+    'not_specified',
+    'role_user',
+    'role_assistant',
+    'export_date',
+    'tool_rag_image_title',
+    'tool_search_sources_label'
+  ];
+
+  for (const key of requiredAuditKeys) {
+    assert.ok(esSet.has(key), `Clave requerida en es: ${key}`);
+    assert.ok(enSet.has(key), `Clave requerida en en: ${key}`);
+  }
+});

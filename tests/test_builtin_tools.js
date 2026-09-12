@@ -232,3 +232,21 @@ test('Builtin Tools - list_documents declara parámetro filter y lo propaga a Ra
   const mdUnfiltered = tool.formatDispatchMarkdown({}, { count: 5 });
   assert.doesNotMatch(mdUnfiltered, /filtrado por/);
 });
+
+test('Builtin Tools - read_knowledge_image escapa HTML en tarjetas en vivo e históricas para evitar XSS', () => {
+  const ReadKnowledgeImageTool = BUILTIN_BY_ID.get('read_knowledge_image');
+  const fakeDoc = {
+    createElement: () => ({ className: '', innerHTML: '' })
+  };
+  const ui = { document: fakeDoc };
+
+  const maliciousRef = 'rag-image://doc<img src=x onerror=alert(1)>:img1';
+  const liveCard = ReadKnowledgeImageTool.view.createLiveCard({ imageRef: maliciousRef }, ui);
+  assert.ok(liveCard.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.equal(liveCard.innerHTML.includes('<img src=x'), false);
+
+  const maliciousContent = { success: true, documentTitle: '<script>alert("xss")</script>' };
+  ReadKnowledgeImageTool.view.updateLiveCard(liveCard, { imageRef: maliciousRef }, maliciousContent, 0, ui);
+  assert.ok(liveCard.innerHTML.includes('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'));
+  assert.equal(liveCard.innerHTML.includes('<script>'), false);
+});

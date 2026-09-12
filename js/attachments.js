@@ -165,7 +165,20 @@
     };
   }
 
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB límite por archivo
+
+  function validateFileSize(file, maxBytes = MAX_FILE_SIZE) {
+    if (!file) return { valid: false, reason: 'empty' };
+    const size = typeof file.size === 'number' ? file.size : 0;
+    if (size > maxBytes) {
+      return { valid: false, size, maxBytes, reason: 'too_large' };
+    }
+    return { valid: true, size, maxBytes };
+  }
+
   return {
+    MAX_FILE_SIZE,
+    validateFileSize,
     getFiles,
     setFiles,
     clearFiles,

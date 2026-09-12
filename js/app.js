@@ -55,6 +55,10 @@
     if (typeof window !== 'undefined' && window.ChatIcons && window.ChatIcons.has(name)) {
       return window.ChatIcons.get(name, { size });
     }
+    try {
+      const icons = require('./icons.js');
+      if (icons && icons.has(name)) return icons.get(name, { size });
+    } catch (_) {}
     return '';
   }
 
@@ -713,8 +717,13 @@
   }
 
   async function processFiles(files) {
+    const maxBytes = Attachments.MAX_FILE_SIZE || (50 * 1024 * 1024);
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      if (file && typeof file.size === 'number' && file.size > maxBytes) {
+        await ChatDialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
+        continue;
+      }
       try {
         let parsed;
         if (FileParser.parseFile) {
@@ -1040,7 +1049,7 @@
       row.classList.add('message-error');
       content.innerHTML = `
         <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-          <span>⚠️</span>
+          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
           <div>
             <strong>${t('err_no_model_title')}</strong>
             <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: runtimeConfig.apiUrl })}</p>
@@ -1177,8 +1186,8 @@
         addDebugLog('error', loopResult.error.message || String(loopResult.error));
         row.classList.add('message-error');
         content.innerHTML = `
-          <div class="network-error-card">
-            <span>⚠️</span>
+          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
+            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
             <div>
               <strong>${t('err_server_connect_title')}</strong>
               <p style="margin-top: 0.25rem;">
@@ -1227,8 +1236,8 @@
         addDebugLog('error', err.message || String(err));
         row.classList.add('message-error');
         content.innerHTML = `
-          <div class="network-error-card">
-            <span>⚠️</span>
+          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
+            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
             <div>
               <strong>${t('err_server_connect_title')}</strong>
               <p style="margin-top: 0.25rem;">

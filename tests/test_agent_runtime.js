@@ -502,3 +502,37 @@ test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mism
   assert.equal(result.toolExecutions.length, 2);
   assert.equal(result.finalText, 'Métricas recuperadas: 100 y 200.');
 });
+
+test('AgentRuntime - execute limpia el listener abort del signal al finalizar', async () => {
+  const runtime = new AgentRuntime({ registry: new ToolRegistry() });
+  const controller = new AbortController();
+  const signal = controller.signal;
+
+  let addedCount = 0;
+  let removedCount = 0;
+  const originalAdd = signal.addEventListener.bind(signal);
+  const originalRemove = signal.removeEventListener.bind(signal);
+
+  signal.addEventListener = (type, listener, options) => {
+    if (type === 'abort') addedCount++;
+    return originalAdd(type, listener, options);
+  };
+  signal.removeEventListener = (type, listener, options) => {
+    if (type === 'abort') removedCount++;
+    return originalRemove(type, listener, options);
+  };
+
+  const mockApi = {
+    streamChatCompletion: async () => ({ accumulatedText: 'Respuesta', toolCalls: [] })
+  };
+
+  const result = await runtime.execute({
+    api: mockApi,
+    messages: [{ role: 'user', content: 'Hola' }],
+    signal
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(addedCount, 1);
+  assert.equal(removedCount, 1);
+});

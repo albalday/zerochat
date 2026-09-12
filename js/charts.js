@@ -319,59 +319,10 @@
     `;
   }
 
-  /**
-   * Definición estándar de herramienta agéntica (Tool Calling) para modelos LLM.
-   */
-  const CHART_TOOL_DEFINITION = {
-    type: 'function',
-    function: {
-      name: 'render_chart',
-      description: 'Genera y muestra un gráfico interactivo (barras, líneas, donut o sectores) a partir de datos analizados o tablas numéricas.',
-      parameters: {
-        type: 'object',
-        properties: {
-          type: {
-            type: 'string',
-            enum: ['bar', 'line', 'pie', 'doughnut'],
-            description: 'Tipo de gráfico: "bar" (barras), "line" (líneas o series temporales), "doughnut" (donut) o "pie" (sectores).'
-          },
-          title: {
-            type: 'string',
-            description: 'Título descriptivo del gráfico (ej: "Evolución Población Ceuta 2020-2026").'
-          },
-          description: {
-            type: 'string',
-            description: 'Breve explicación o conclusión de los datos mostrados.'
-          },
-          labels: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Etiquetas del eje X o categorías (ej: ["2020", "2021", "2022", ...]).'
-          },
-          datasets: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                label: { type: 'string', description: 'Nombre de la serie' },
-                data: { type: 'array', items: { type: 'number' }, description: 'Valores numéricos correspondientes a cada etiqueta' },
-                color: { type: 'string', description: 'Color hexadecimal opcional (ej: "#3b82f6")' }
-              },
-              required: ['label', 'data']
-            },
-            description: 'Series de datos numéricos a graficar.'
-          }
-        },
-        required: ['type', 'title', 'labels', 'datasets']
-      }
-    }
-  };
-
   return {
     renderBarChart,
     renderLineChart,
     renderPieOrDonutChart,
-    renderChartCard,
-    CHART_TOOL_DEFINITION
+    renderChartCard
   };
 });

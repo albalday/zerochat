@@ -360,32 +360,10 @@
     }
   }
 
-  /**
-   * Definición estándar de herramienta (Tool/Function Calling) para modelos LLM.
-   */
-  const JAVASCRIPT_TOOL_DEFINITION = {
-    type: 'function',
-    function: {
-      name: 'execute_javascript',
-      description: 'Ejecuta JavaScript local para cálculos o lógica (ej: "return 2+2").',
-      parameters: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: 'Código JS ejecutable.'
-          }
-        },
-        required: ['code']
-      }
-    }
-  };
-
   return {
     execute,
     executeWithWorker,
     executeWithFallback,
-    JAVASCRIPT_TOOL_DEFINITION,
     MAX_OUTPUT_LENGTH,
     MAX_LOG_ENTRIES
   };

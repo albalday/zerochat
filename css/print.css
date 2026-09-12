@@ -27,9 +27,7 @@
   .input-toolbar-top,
   .message-actions,
   .btn-msg-action,
-  .btn-top-left-sidebar,
   .welcome-banner,
-  .modal-dialog,
   dialog {
     display: none !important;
   }

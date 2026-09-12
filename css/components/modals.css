@@ -635,28 +635,6 @@ select.form-input:focus-visible {
   color: #fca5a5;
 }
 
-.model-reasoning-hint {
-  font-size: 0.775rem;
-  color: var(--text-muted);
-  padding: 0.35rem 0.65rem;
-  background-color: #f8fafc;
-  border-radius: var(--radius-sm);
-  border-left: 3px solid var(--primary);
-  line-height: 1.35;
-  animation: fadeIn 0.15s ease-out;
-}
-
-.model-reasoning-hint.hint-supported {
-  border-left-color: var(--success);
-  background-color: #f0fdf4;
-  color: #166534;
-}
-
-.model-reasoning-hint.hint-standard {
-  border-left-color: #94a3b8;
-  background-color: #f8fafc;
-  color: #475569;
-}
 
 .form-field input[type="text"],
 .form-field input[type="url"],

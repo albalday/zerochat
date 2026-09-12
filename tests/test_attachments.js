@@ -42,3 +42,22 @@ test('ChatAttachments - Sincronización transparente con ChatState.ui.attachedFi
   ChatAttachments.clearFiles();
   assert.equal(ChatState.get('ui').attachedFiles.length, 0);
 });
+
+test('ChatAttachments - Validación de tamaño máximo de archivo', () => {
+  assert.equal(ChatAttachments.MAX_FILE_SIZE, 50 * 1024 * 1024);
+
+  // Archivo aceptable (10 MB)
+  const okFile = { name: 'documento.pdf', size: 10 * 1024 * 1024 };
+  const resOk = ChatAttachments.validateFileSize(okFile);
+  assert.equal(resOk.valid, true);
+
+  // Archivo demasiado grande (51 MB)
+  const largeFile = { name: 'video.mp4', size: 51 * 1024 * 1024 };
+  const resLarge = ChatAttachments.validateFileSize(largeFile);
+  assert.equal(resLarge.valid, false);
+  assert.equal(resLarge.reason, 'too_large');
+
+  // Límite personalizado
+  const customLimit = ChatAttachments.validateFileSize({ size: 100 }, 50);
+  assert.equal(customLimit.valid, false);
+});

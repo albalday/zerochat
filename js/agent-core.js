@@ -952,16 +952,18 @@
         }, timeoutMs);
       }
 
+      let onSignalAbort = null;
       if (signal) {
         if (signal.aborted) {
           isCancelled = true;
           internalAbortController.abort();
         } else {
-          signal.addEventListener('abort', () => {
+          onSignalAbort = () => {
             isCancelled = true;
             internalAbortController.abort();
             if (callbacks.onAbort) callbacks.onAbort();
-          });
+          };
+          signal.addEventListener('abort', onSignalAbort, { once: true });
         }
       }
 
@@ -1443,6 +1445,9 @@
 
       if (timeoutTimer) {
         clearTimeout(timeoutTimer);
+      }
+      if (signal && onSignalAbort && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', onSignalAbort);
       }
 
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();

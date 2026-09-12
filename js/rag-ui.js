@@ -41,6 +41,18 @@
     return '';
   }
 
+  function getIcon(name, options) {
+    if (typeof window !== 'undefined' && window.ChatIcons?.get) {
+      return window.ChatIcons.get(name, options);
+    }
+    try {
+      const icons = require('./icons.js');
+      return icons?.get?.(name, options) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function getBranchMetrics(branches) {
     const metrics = await Promise.all((branches || []).map(async branch => {
       const documents = await storage().getDocumentsByBranch(branch.id);
@@ -185,7 +197,7 @@
       const langLabel = formatBranchLanguage(branch.language);
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
-        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · 🌐 ${escapeHtml(langLabel)}</span></span>
+        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline" style="display:inline-flex; align-items:center; gap:0.25rem;">${getIcon('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
         <span class="rag-branch-badge-status">${badgeText}</span>
       </button>`;
     }).join('');
@@ -271,7 +283,7 @@
     workspace.innerHTML = `
       <div class="rag-workspace-header-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
         <span>${escapeHtml(t('rag_branch_label') || 'Rama:')} <strong>${escapeHtml(branch?.name || '')}</strong></span>
-        <span>🌐 ${escapeHtml(t('rag_branch_lang') || 'Idioma de la documentación:')} <strong>${escapeHtml(langLabel)}</strong></span>
+        <span style="display:inline-flex; align-items:center; gap:0.35rem;">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang') || 'Idioma de la documentación:')} <strong>${escapeHtml(langLabel)}</strong></span>
       </div>
       <label class="rag-dropzone" id="rag-dropzone">
         <strong>${escapeHtml(dropzoneTitle)}</strong>
@@ -751,7 +763,7 @@
           <div id="rag-active-branch-list" class="rag-active-branch-list"></div>
         </div>
         <div class="rag-active-tip-card">
-          <span class="rag-active-tip-icon">💡</span>
+          <span class="rag-active-tip-icon" style="color: var(--accent, #f59e0b); display: inline-flex; align-items: center;">${getIcon('lightbulb', { size: 18 })}</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
             <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y mantener un plan de investigación claro.</span>
