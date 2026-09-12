@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debugging, Logs & Message Interceptor · ZeroChat Help</title>
+  <meta name="description" content="Guide for developer diagnostics in ZeroChat: live event logging, Raw SSE streaming inspection, and interactive outgoing message interception.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../debug.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Debugging, Logs & Interceptor</h1>
+      <p class="subtitle">Inspect internal inference events, monitor network traffic, and modify payloads in flight with the interactive interceptor.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. The Debug Panel</h2>
+      <p>
+        ZeroChat includes a right-hand sidebar designed for developers, security researchers, and power users. Click the terminal icon in the top-right header to toggle the panel.
+      </p>
+      <p>
+        The panel provides a live, monospace console streaming system events in real time.
+      </p>
+      <h3>Event Filter Tabs:</h3>
+      <ul>
+        <li><strong>All:</strong> Unified log view containing system, network, and tool execution messages.</li>
+        <li><strong>Thinking:</strong> Isolates native model reasoning and chain-of-thought blocks.</li>
+        <li><strong>Tool:</strong> Tracks function invocations, parameter bindings, and return values.</li>
+        <li><strong>Network:</strong> Displays HTTP calls, header payloads, status codes, and connection latency.</li>
+        <li><strong>Raw:</strong> Captures unprocessed Server-Sent Events (SSE) chunks directly from the stream.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2. Console Utilities</h2>
+      <ul>
+        <li><strong>Copy Logs:</strong> Copies the formatted log history with timestamps to your clipboard for bug reporting.</li>
+        <li><strong>Clear Console:</strong> Clears the active log view to begin a fresh debugging session.</li>
+        <li><strong>Auto-scroll:</strong> Toggles following latest events automatically or pausing to inspect past entries.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Message Interceptor Mode (Debug Messages)</h2>
+      <p>
+        The <strong>Message Interceptor</strong> pauses outgoing requests right before transmission when the <em>"Debug messages"</em> switch is enabled.
+      </p>
+      <h3>How it works:</h3>
+      <ol>
+        <li>Type a prompt and press Send. The request is <strong>held before reaching the network</strong>.</li>
+        <li>An inspection dialog opens showing the exact <strong>JSON payload</strong> (system prompts, message history, registered tool schemas, temperature, etc.).</li>
+        <li>You can inspect fields, manually edit parameters, or test prompt mutations directly.</li>
+        <li>Choose between:
+          <ul>
+            <li><strong>Continue / Send:</strong> Sends the edited payload to the provider.</li>
+            <li><strong>Cancel:</strong> Aborts the request cleanly with zero tokens spent.</li>
+          </ul>
+        </li>
+      </ol>
+      <div class="alert alert-info">
+        <strong>Ideal for developers:</strong> Test model robustness against adversarial prompts or verify tool call schema definitions without writing custom proxy code.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Full Raw Log Mode</h2>
+      <p>
+        Activating <em>"Full Raw Log"</em> captures every SSE packet without client-side noise filtering. It is especially useful when testing local models (via vLLM, Ollama, or LM Studio) to inspect delta stream tokens and finish reasons.
+      </p>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="mcp.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">MCP Protocol</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="conversations.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Conversations & Branching</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

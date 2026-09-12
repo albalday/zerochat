@@ -151,6 +151,10 @@ La validación automática mínima para un pase a `master` debe incluir:
 Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
 `master` debe ser únicamente el estado validado y liberado, no una rama de trabajo.
 
+### Excepción para documentación en `/help`
+
+Los archivos de ayuda y documentación contenidos en el subdirectorio `/help/` no forman parte del bundle distribuible de la aplicación y están destinados a su publicación en línea para GitHub Pages en `master`. Se autoriza la publicación o sincronización directa a `master` de cambios exclusivos de `/help/` sin requerir incremento de versión del producto ni la ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
+
 ## 8. Finalización
 
 Un cambio está terminado cuando:
@@ -159,6 +163,7 @@ Un cambio está terminado cuando:
 - conserva la compatibilidad existente, salvo decisión explícita;
 - tiene pruebas adecuadas;
 - mantiene español e inglés cuando afecta a la interfaz;
+- actualiza y mantiene automáticamente la documentación de `/help` en formato bilingüe (español e inglés) ante cualquier actualización o cambio de funcionalidades;
 - no deja errores de consola en los tests de navegador;
 - actualiza el bundle distribuible;
 - deja la documentación coherente con el comportamiento real.

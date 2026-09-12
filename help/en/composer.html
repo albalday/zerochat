@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Composer, Shortcuts & Attachments · ZeroChat Help</title>
+  <meta name="description" content="Guide for ZeroChat composer: auto-expanding input, keyboard shortcuts, and multi-format attachments (vision images, PDFs, code, CSV).">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../composer.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Composer, Shortcuts & Attachments</h1>
+      <p class="subtitle">Compose prompts comfortably, use keyboard shortcuts, and attach multi-format files and source code.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. The Floating Composer</h2>
+      <p>
+        ZeroChat's input area is built for a responsive, fluid typing experience:
+      </p>
+      <ul>
+        <li><strong>Smooth Auto-expansion:</strong> The input box grows as you type longer prompts (using <code>field-sizing: content</code> with fallback) without overflowing the viewport.</li>
+        <li><strong>Integrated Controls Bar:</strong> Groups attachment upload, thinking controls, agent tools, MCP status, RAG knowledge, telemetry, and active profile selection.</li>
+        <li><strong>Stop Stream Button:</strong> During real-time token generation, the send button switches to an instant stop control.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2. Essential Keyboard Shortcuts</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Shortcut</th>
+              <th>Context</th>
+              <th>Action Performed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Enter</code></td>
+              <td>In prompt textarea</td>
+              <td>Send message to model.</td>
+            </tr>
+            <tr>
+              <td><code>Shift + Enter</code></td>
+              <td>In prompt textarea</td>
+              <td>Insert a new line without sending.</td>
+            </tr>
+            <tr>
+              <td><code>Escape</code></td>
+              <td>In any open modal or menu</td>
+              <td>Close active popup or dialog.</td>
+            </tr>
+            <tr>
+              <td><code>Arrow Keys ↑ / ↓</code></td>
+              <td>In profile selection menu</td>
+              <td>Navigate through available profiles.</td>
+            </tr>
+            <tr>
+              <td><code>Ctrl / Cmd + V</code></td>
+              <td>Anywhere in chat window</td>
+              <td>Paste images or text directly from clipboard.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Attaching Files & Documents</h2>
+      <p>
+        ZeroChat includes a client-side file ingestion engine (<code>file-parser.js</code>). Attach files via the paperclip icon or by <strong>dragging and dropping</strong> them into the window.
+      </p>
+      <h3>Supported Formats:</h3>
+      <ul>
+        <li><strong>Images (PNG, JPEG, WebP, GIF):</strong> For vision-capable models (e.g., GPT-4o, Claude 3.5/3.7, Gemini Flash/Pro).</li>
+        <li><strong>PDF Documents:</strong> Text is extracted client-side with page count and title metadata.</li>
+        <li><strong>Source Code & Scripts:</strong> <code>.js</code>, <code>.ts</code>, <code>.py</code>, <code>.html</code>, <code>.css</code>, <code>.json</code>, <code>.sql</code>, <code>.c</code>, <code>.rs</code>, <code>.go</code>, <code>.sh</code> with syntax highlighting.</li>
+        <li><strong>Data Tables:</strong> <code>.csv</code> and <code>.tsv</code> files for data extraction and charting.</li>
+        <li><strong>Text Files:</strong> <code>.md</code>, <code>.txt</code>, <code>.xml</code>, <code>.yaml</code>.</li>
+      </ul>
+      <div class="alert alert-info">
+        <strong>Preview & Removal:</strong> Miniatures show file name and size before sending. Click the "X" on any item to discard it.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Rich Message Formatting</h2>
+      <p>
+        Assistant responses are rendered with a high-performance Markdown engine featuring:
+      </p>
+      <ul>
+        <li>Syntax-highlighted code blocks with a quick copy button.</li>
+        <li>Formatted tables with alignment styling.</li>
+        <li>LaTeX math equations (KaTeX) inline and in block mode.</li>
+        <li>Collapsible Thinking blocks with deliberation timers.</li>
+        <li>Interactive Tool Cards for agent executions.</li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="conversations.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Conversations & Branching</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="reasoning-telemetry.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Reasoning & Telemetry</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+</body>
+</html>

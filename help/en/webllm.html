@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebLLM & WebGPU Setup Guide · ZeroChat Help</title>
+  <meta name="description" content="Technical guide for running local AI models directly in the browser using WebLLM and WebGPU in ZeroChat.">
+  <link rel="stylesheet" href="../help.css">
+  <style>
+    .browser-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    @media (min-width: 768px) {
+      .browser-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .spec-table th, .spec-table td {
+      border: 1px solid var(--border-color);
+      padding: 0.6rem 0.85rem;
+      text-align: left;
+    }
+    .spec-table th {
+      background: var(--bg-card-subtle);
+      font-weight: 600;
+    }
+    .icon-inline {
+      display: inline-block;
+      vertical-align: -0.15em;
+      width: 1.1em;
+      height: 1.1em;
+      stroke-width: 2;
+      stroke: currentColor;
+      fill: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../webllm.html" class="top-nav-link">Español 🌐</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>WebLLM & WebGPU Configuration</h1>
+      <p class="subtitle">Step-by-step setup guide for running AI models directly on your hardware GPU inside the browser.</p>
+    </header>
+
+    <div class="card">
+      <h2>What is WebLLM and what are its advantages?</h2>
+      <p>
+        <strong>WebLLM</strong> is a cutting-edge engine that executes Large Language Models entirely inside the web browser utilizing your graphics card (GPU) through the standardized <strong>WebGPU</strong> API.
+      </p>
+      <ul>
+        <li><strong>Complete privacy:</strong> Prompts and responses never leave your device; there is zero telemetry or intermediary servers.</li>
+        <li><strong>Zero cost or subscription:</strong> Requires no paid API keys or cloud server infrastructure.</li>
+        <li><strong>Offline functionality:</strong> Once a model is downloaded into your browser's persistent Cache Storage, it runs even without internet access.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Hardware Requirements & VRAM Guidelines</h2>
+      <p>WebGPU performance depends on available GPU video memory (VRAM):</p>
+      <table class="spec-table">
+        <thead>
+          <tr>
+            <th>Model Parameter Size</th>
+            <th>Recommended VRAM</th>
+            <th>Sample Models in Catalog</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>0.5B – 1.5B (Lightweight)</strong></td>
+            <td>1.5 GB – 2.5 GB</td>
+            <td>Qwen2.5-0.5B, SmolLM2-1.7B, Qwen2.5-1.5B</td>
+          </tr>
+          <tr>
+            <td><strong>3B – 4B (Balanced)</strong></td>
+            <td>3 GB – 4.5 GB</td>
+            <td>Llama-3.2-3B, Phi-3.5-mini</td>
+          </tr>
+          <tr>
+            <td><strong>7B – 8B (High Quality)</strong></td>
+            <td>6 GB – 8 GB</td>
+            <td>Llama-3.1-8B-Instruct, Mistral-7B-Instruct</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Browser Configuration: WebGPU Setup</h2>
+      <div class="browser-grid">
+        <div>
+          <h3>Chromium / Chrome / Edge / Brave</h3>
+          <ol>
+            <li>Enable hardware acceleration in browser settings.</li>
+            <li>
+              Enable unsafe WebGPU flag if your platform requires it:
+              <div class="code-wrapper">
+                <pre><code>chrome://flags/#enable-unsafe-webgpu</code></pre>
+              </div>
+            </li>
+            <li>Restart your browser to apply changes.</li>
+          </ol>
+        </div>
+
+        <div>
+          <h3>Mozilla Firefox</h3>
+          <ol>
+            <li>Open a new tab and navigate to <code>about:config</code>.</li>
+            <li>
+              Search for and set the following flag to <code>true</code>:
+              <div class="code-wrapper">
+                <pre><code>dom.webgpu.enabled = true</code></pre>
+              </div>
+            </li>
+            <li>Verify WebGPU status under <code>about:support</code>.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>How to Use WebLLM in ZeroChat</h2>
+      <ol>
+        <li>Open the <strong>Profile Management</strong> dialog in ZeroChat.</li>
+        <li>Select the <strong>WebLLM (local WebGPU)</strong> interface type.</li>
+        <li>
+          <strong>If you already have downloaded models:</strong>
+          They appear automatically at the top of the model selection combo. Pick any downloaded model and save immediately without querying.
+        </li>
+        <li>
+          <strong>To download a new model:</strong>
+          Click <strong>Query</strong>. Browse the catalog with required VRAM metrics, click the download icon next to your desired model, and wait for shader compilation to finish.
+        </li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Troubleshooting Common Issues</h2>
+      <ul>
+        <li>
+          <strong>"WebGPU is not available in this browser":</strong> Ensure you are running the latest browser version with WebGPU flags enabled as described above.
+        </li>
+        <li>
+          <strong>Out of Memory (OOM) Errors:</strong> If the tab crashes or reloads during shader compilation, select a lighter model (0.5B – 1.5B) or close other GPU-intensive tabs.
+        </li>
+        <li>
+          <strong>Private Browsing / Incognito Mode:</strong> Incognito mode may wipe browser cache on exit. Use a regular browsing window to keep downloaded models permanently cached.
+        </li>
+      </ul>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="profiles.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Profiles & Providers</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="tools-agent.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Agent Mode & Tools</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+    </footer>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>
