@@ -381,6 +381,52 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
   }
 });
 
+test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta panel', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.click('#profile-tab-settings');
+
+    // Inicialmente con OpenAI el botón de parámetros y el panel están ocultos
+    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), true);
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
+
+    // Cambiar a WebLLM muestra el botón de engranaje
+    await page.selectOption('#setting-api-type', 'webllm');
+    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), false);
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
+
+    // Pulsar el botón abre el panel
+    await page.click('#btn-webllm-params');
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), false);
+    assert.equal(await page.$eval('#btn-webllm-params', el => el.classList.contains('active')), true);
+
+    // Seleccionar valores en los desplegables
+    await page.selectOption('#setting-webllm-context-window', '8192');
+    await page.selectOption('#setting-webllm-prefill-chunk', '2048');
+    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '8192');
+    assert.equal(await page.$eval('#setting-webllm-prefill-chunk', el => el.value), '2048');
+
+    // Pulsar el botón de nuevo lo oculta
+    await page.click('#btn-webllm-params');
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
+    assert.equal(await page.$eval('#btn-webllm-params', el => el.classList.contains('active')), false);
+
+    // Cambiar a OpenAI oculta tanto el botón como el panel
+    await page.selectOption('#setting-api-type', 'openai');
+    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), true);
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y muestra modelos descargados primero', async () => {
   const browser = await createTestBrowser();
   try {
@@ -501,6 +547,62 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
   }
 });
 
+test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmación antes de cerrar', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+
+    // 1. Sin cambios: cerrar con botón Cancelar cierra de inmediato sin confirmación
+    await page.click('#btn-cancel-profiles');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Sin cambios debe cerrar sin confirmar');
+    assert.equal(await page.$eval('#notice-dialog', el => el.open), false, 'No debe abrir notice-dialog sin cambios');
+
+    // 2. Modificar un campo y pulsar Cerrar: debe pedir confirmación
+    await page.click('#btn-manage-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    await page.fill('#setting-profile-description', 'Modificación de prueba sin guardar');
+
+    await page.click('#btn-cancel-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+
+    const stateNotice = await page.evaluate(() => ({
+      profilesOpen: document.getElementById('profiles-dialog').open,
+      notice: document.getElementById('notice-message').textContent,
+      cancelVisible: !document.getElementById('notice-cancel').hidden
+    }));
+    assert.equal(stateNotice.profilesOpen, true, 'El modal de perfiles debe seguir abierto mientras se confirma');
+    assert.match(stateNotice.notice, /cambios sin guardar/i, 'El mensaje debe advertir de cambios sin guardar');
+    assert.equal(stateNotice.cancelVisible, true, 'Debe mostrar botón Cancelar');
+
+    // 3. Cancelar en el diálogo: el modal de perfiles permanece abierto
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), true, 'Cancelar confirmación debe mantener el modal abierto');
+
+    // 4. Probar con el botón X de cabecera (#btn-close-profiles) y aceptar descarte
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Aceptar confirmación debe cerrar el modal de perfiles');
+
+    // 5. Reabrir y verificar que los cambios no guardados fueron descartados
+    await page.click('#btn-manage-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    const reloadedDesc = await page.$eval('#setting-profile-description', el => el.value);
+    assert.notEqual(reloadedDesc, 'Modificación de prueba sin guardar', 'Los cambios descartados no deben persistir');
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - al volver a LM Studio recupera el límite publicado', async () => {
   const browser = await createTestBrowser();
   try {
@@ -528,6 +630,66 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
 
     const context = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
     assert.equal(context, 90112);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los parámetros avanzados', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.setItem('zerochat_profiles_v1', JSON.stringify({
+        schemaVersion: 1,
+        profiles: [
+          {
+            id: 'profile:webllm',
+            name: 'WebLLM local',
+            settings: {
+              apiType: 'webllm',
+              apiUrl: 'webllm://local',
+              model: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+              webllmConfig: { context_window_size: 'default', prefill_chunk_size: 'default' }
+            }
+          },
+          {
+            id: 'profile:webllm-8k',
+            name: 'WebLLM 8K',
+            settings: {
+              apiType: 'webllm',
+              apiUrl: 'webllm://local',
+              model: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+              webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' }
+            }
+          }
+        ]
+      }));
+      localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
+        activeProfile: { id: 'profile:webllm', name: 'WebLLM local' },
+        apiType: 'webllm',
+        apiUrl: 'webllm://local',
+        model: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+        webllmConfig: { context_window_size: 'default', prefill_chunk_size: 'default' }
+      }));
+    });
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // 1. Con 'default', el límite publicado se sincroniza a 4096 y el badge muestra 4.1k (no 1M)
+    const defaultContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
+    assert.equal(defaultContext, 4096);
+    const badgeText = await page.$eval('#connection-tokens-text', el => el.textContent);
+    assert.match(badgeText, /4(\.1)?k/i);
+    assert.doesNotMatch(badgeText, /1M/);
+
+    // 2. Al cambiar a perfil con parámetro avanzado 8192, el límite se actualiza a 8192 y badge a 8.2k
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:webllm-8k"]');
+    const customContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
+    assert.equal(customContext, 8192);
+    const updatedBadge = await page.$eval('#connection-tokens-text', el => el.textContent);
+    assert.match(updatedBadge, /8(\.2)?k/i);
   } finally {
     await browser.close();
   }

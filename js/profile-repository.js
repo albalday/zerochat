@@ -17,7 +17,7 @@
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'apiKey', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'reasoningTransport', 'maxAgentTurns', 'modelReasoningConfig', 'enabledTools',
-    'enableRawLogs', 'enableContextCache', 'contextLimitOverride'
+    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig'
   ]);
 
   function clone(value) {
@@ -32,7 +32,11 @@
     apiUrl: '', apiType: 'openai', apiKey: '', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'none', reasoningTransport: 'auto', maxAgentTurns: 15, modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
-    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null
+    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null,
+    webllmConfig: {
+      context_window_size: 'default',
+      prefill_chunk_size: 'default'
+    }
   });
 
   const MIRROR_PROFILE = Object.freeze({

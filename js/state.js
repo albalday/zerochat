@@ -83,7 +83,11 @@
         activeRagBranchIds: [],
         modelReasoningConfig: null,
         mcpHost: '127.0.0.1',
-        mcpPort: 6388
+        mcpPort: 6388,
+        webllmConfig: {
+          context_window_size: 'default',
+          prefill_chunk_size: 'default'
+        }
       },
 
       // 2. Sesiones y Conversación Activa

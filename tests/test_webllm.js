@@ -61,7 +61,12 @@ test('WebLLM - el catálogo usa Cache Storage por defecto sin requerir IndexedDB
   assert.equal(Object.hasOwn(observedAppConfig, 'useIndexedDBCache'), false);
   assert.equal(result.endpoint, 'webllm://local');
   assert.deepEqual(result.models[0], {
-    id: 'test-model', name: 'test-model', details: { webllmCache: 'cached', webllmVramMB: 1536 }
+    id: 'test-model', name: 'test-model', details: {
+      webllmCache: 'cached',
+      webllmVramMB: 1536,
+      loaded_context_length: 4096,
+      max_context_length: 4096
+    }
   });
 });
 
@@ -453,3 +458,138 @@ test('WebLLM - createWorkerEngine no incluye type: module en el Worker para comp
   }
 });
 
+test('WebLLM - createWorkerEngine no propaga [object Object] y genera mensaje descriptivo', async () => {
+  const originalWorker = global.Worker;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  global.Worker = class {
+    addEventListener() {}
+    removeEventListener() {}
+    terminate() {}
+  };
+  URL.createObjectURL = () => 'blob:test-webllm-worker';
+  URL.revokeObjectURL = () => {};
+
+  try {
+    // 1. Error con cadena '[object Object]'
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateWebWorkerMLCEngine: async () => { throw '[object Object]'; }
+    }, 'test-model', {}, () => {}), error => {
+      assert.notEqual(error.message, '[object Object]');
+      assert.match(error.message, /WebLLM model preparation failed/i);
+      return true;
+    });
+
+    // 2. Error con Error('[object Object]')
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateWebWorkerMLCEngine: async () => { throw new Error('[object Object]'); }
+    }, 'test-model', {}, () => {}), error => {
+      assert.notEqual(error.message, '[object Object]');
+      assert.match(error.message, /WebLLM model preparation failed/i);
+      return true;
+    });
+
+    // 3. Error con objeto anidado { error: { message: 'WebGPU compilation error' } }
+    await assert.rejects(WebLLM.createWorkerEngine({
+      CreateWebWorkerMLCEngine: async () => { throw { error: { message: 'WebGPU compilation error' } }; }
+    }, 'test-model', {}, () => {}), error => {
+      assert.equal(error.message, 'WebGPU compilation error');
+      return true;
+    });
+  } finally {
+    global.Worker = originalWorker;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
+});
+
+test('WebLLM - extractOverrides extrae números e ignora default, vacíos o no numéricos', () => {
+  assert.equal(WebLLM.extractOverrides(null), null);
+  assert.equal(WebLLM.extractOverrides({}), null);
+  assert.equal(WebLLM.extractOverrides({
+    context_window_size: 'default',
+    prefill_chunk_size: null
+  }), null);
+
+  const overrides = WebLLM.extractOverrides({
+    context_window_size: '8192',
+    prefill_chunk_size: '2048'
+  });
+  assert.deepEqual(overrides, {
+    context_window_size: 8192,
+    prefill_chunk_size: 2048
+  });
+});
+
+test('WebLLM - applyModelOverrides clona appConfig e inyecta overrides en el modelo seleccionado', () => {
+  const originalAppConfig = {
+    model_list: [
+      { model_id: 'model-a', overrides: { existing: 1 } },
+      { model_id: 'model-b' }
+    ]
+  };
+  const overrides = { context_window_size: 16384, prefill_chunk_size: 2048 };
+  const updated = WebLLM.applyModelOverrides(originalAppConfig, 'model-a', overrides);
+
+  // No debe mutar el original
+  assert.equal(originalAppConfig.model_list[0].overrides.context_window_size, undefined);
+
+  // Debe inyectar en el clon
+  assert.deepEqual(updated.model_list[0].overrides, {
+    existing: 1,
+    context_window_size: 16384,
+    prefill_chunk_size: 2048
+  });
+  assert.equal(updated.model_list[1].overrides, undefined);
+});
+
+test('WebLLM - createWorkerEngine pasa chatOpts a CreateWebWorkerMLCEngine', async () => {
+  const originalWorker = global.Worker;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  global.Worker = class {
+    addEventListener() {}
+    removeEventListener() {}
+    terminate() {}
+  };
+  URL.createObjectURL = () => 'blob:test-webllm-worker';
+  URL.revokeObjectURL = () => {};
+
+  let receivedChatOpts = null;
+  const mockWebLLM = {
+    CreateWebWorkerMLCEngine: async (worker, modelId, engineConfig, chatOpts) => {
+      receivedChatOpts = chatOpts;
+      return { unload: async () => {} };
+    }
+  };
+
+  try {
+    const chatOpts = { context_window_size: 8192 };
+    await WebLLM.createWorkerEngine(mockWebLLM, 'test-model', {}, () => {}, null, chatOpts);
+    assert.deepEqual(receivedChatOpts, { context_window_size: 8192 });
+  } finally {
+    global.Worker = originalWorker;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
+});
+
+test('WebLLM - listModels extrae context_window_size de overrides si está disponible', async () => {
+  const webllm = await WebLLM.loadWebLLM();
+  const previousModelList = webllm.prebuiltAppConfig.model_list;
+  try {
+    webllm.prebuiltAppConfig.model_list = [
+      { model_id: 'model-custom-ctx', vram_required_MB: 2000, overrides: { context_window_size: 2048 } },
+      { model_id: 'model-default-ctx', vram_required_MB: 1000 }
+    ];
+    const result = await WebLLM.listModels();
+    const customModel = result.models.find(m => m.id === 'model-custom-ctx');
+    const defaultModel = result.models.find(m => m.id === 'model-default-ctx');
+    assert.equal(customModel.details.loaded_context_length, 2048);
+    assert.equal(customModel.details.max_context_length, 2048);
+    assert.equal(defaultModel.details.loaded_context_length, 4096);
+    assert.equal(defaultModel.details.max_context_length, 4096);
+  } finally {
+    webllm.prebuiltAppConfig.model_list = previousModelList;
+  }
+});

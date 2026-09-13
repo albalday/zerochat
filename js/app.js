@@ -263,6 +263,10 @@
       settingModel: document.getElementById('setting-model'),
       modelDatalist: document.getElementById('model-datalist'),
       modelSelectHelper: document.getElementById('model-select-helper'),
+      btnWebllmParams: document.getElementById('btn-webllm-params'),
+      webllmParamsPanel: document.getElementById('webllm-params-panel'),
+      settingWebllmContextWindow: document.getElementById('setting-webllm-context-window'),
+      settingWebllmPrefillChunk: document.getElementById('setting-webllm-prefill-chunk'),
       settingSystemPrompt: document.getElementById('setting-system-prompt'),
       settingSystemDataPrompt: document.getElementById('setting-system-data-prompt'),
       settingTemperature: document.getElementById('setting-temperature'),
@@ -431,7 +435,17 @@
 
   function syncPublishedModelContextLimit() {
     const config = getRuntimeConfig();
-    const publishedLimit = UIInspector.getModelContextLimit?.(config.model);
+    let publishedLimit = null;
+    if (config.apiType === 'webllm') {
+      const customSize = Number(config.webllmConfig?.context_window_size);
+      if (Number.isFinite(customSize) && customSize > 0) {
+        publishedLimit = Math.floor(customSize);
+      } else {
+        publishedLimit = UIInspector.getModelContextLimit?.(config.model) || 4096;
+      }
+    } else {
+      publishedLimit = UIInspector.getModelContextLimit?.(config.model);
+    }
     if (!publishedLimit || config.modelContextLimit === publishedLimit || !Config.updateRuntime) return false;
     Config.updateRuntime({ modelContextLimit: publishedLimit });
     return true;
@@ -1465,6 +1479,7 @@
     // El selector mantiene la identidad del perfil en edición, incluso si se renombra.
     const existing = selected || sameName;
     const baseSettings = existing?.settings || getRuntimeConfig();
+    const formConfig = gatherCurrentFormConfig();
     const saved = Profiles.save({
       id: existing?.id || `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
@@ -1477,7 +1492,11 @@
         model: elements.settingModel?.value.trim() || '',
         systemPrompt: elements.settingSystemPrompt?.value.trim() || '',
         temperature: elements.settingTemperature?.value || baseSettings.temperature || '0.7',
-        maxAgentTurns: elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15)
+        maxAgentTurns: elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15),
+        webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
+          context_window_size: 'default',
+          prefill_chunk_size: 'default'
+        }
       }
     });
     populateProfileSelector(saved.id);
@@ -1489,6 +1508,80 @@
 
   function isProfileQueryReady() {
     return elements.profilesDialog?.dataset.queryReady === 'true';
+  }
+
+  function isProfileFormDirty() {
+    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
+    const profile = Profiles.get ? Profiles.get(selectedId) : null;
+    const baseSettings = profile?.settings || getRuntimeConfig();
+
+    if (elements.settingProfileName) {
+      const currentName = elements.settingProfileName.value.trim();
+      const baseName = (profile?.name || '').trim();
+      if (currentName !== baseName) return true;
+    }
+
+    if (elements.settingProfileDescription) {
+      const currentDesc = elements.settingProfileDescription.value.trim();
+      const baseDesc = (profile?.description || '').trim();
+      if (currentDesc !== baseDesc) return true;
+    }
+
+    if (elements.settingApiType) {
+      const currentType = elements.settingApiType.value;
+      const baseType = baseSettings.apiType || 'openai';
+      if (currentType !== baseType) return true;
+    }
+
+    if (elements.settingApiUrl) {
+      const currentUrl = elements.settingApiUrl.value.trim();
+      const baseUrl = (baseSettings.apiUrl || '').trim();
+      if (currentUrl !== baseUrl) return true;
+    }
+
+    if (elements.settingApiKey) {
+      const currentKey = elements.settingApiKey.value.trim();
+      const baseKey = (baseSettings.apiKey || '').trim();
+      if (currentKey !== baseKey) return true;
+    }
+
+    if (elements.settingModel) {
+      const currentModel = elements.settingModel.value.trim();
+      const baseModel = (baseSettings.model || '').trim();
+      if (currentModel !== baseModel) return true;
+    }
+
+    if (elements.settingSystemPrompt) {
+      const currentPrompt = elements.settingSystemPrompt.value.trim();
+      const basePrompt = (baseSettings.systemPrompt || '').trim();
+      if (currentPrompt !== basePrompt) return true;
+    }
+
+    if (elements.settingTemperature) {
+      const currentTemp = Number(elements.settingTemperature.value);
+      const baseTemp = Number(baseSettings.temperature ?? 0.7);
+      if (!Number.isNaN(currentTemp) && !Number.isNaN(baseTemp)) {
+        if (Math.abs(currentTemp - baseTemp) > 0.001) return true;
+      } else if (String(elements.settingTemperature.value) !== String(baseSettings.temperature ?? '0.7')) {
+        return true;
+      }
+    }
+
+    if (elements.settingWebllmContextWindow) {
+      const currentVal = elements.settingWebllmContextWindow.value || 'default';
+      const rawBase = baseSettings.webllmConfig?.context_window_size;
+      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
+      if (currentVal !== baseVal) return true;
+    }
+
+    if (elements.settingWebllmPrefillChunk) {
+      const currentVal = elements.settingWebllmPrefillChunk.value || 'default';
+      const rawBase = baseSettings.webllmConfig?.prefill_chunk_size;
+      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
+      if (currentVal !== baseVal) return true;
+    }
+
+    return false;
   }
 
   function setProfileQueryState(ready) {
@@ -1523,6 +1616,8 @@
 
   function activateConnectionProfile(profileId) {
     if (!profileId || !Config.activateProfile) return;
+    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
+    WebLLM?.adapter?.disposeActiveEngine?.().catch?.(() => {});
     Config.activateProfile(profileId);
     loadCachedModels();
     resetTelemetryDisplay();
@@ -1646,10 +1741,14 @@
 
   async function closeProfilesModal(force = false) {
     if (isClosingProfilesModal) return false;
-    if (!force && isProfileQueryReady()) {
+    const hasUnsavedQuery = isProfileQueryReady();
+    const hasUnsavedChanges = isProfileFormDirty();
+
+    if (!force && (hasUnsavedQuery || hasUnsavedChanges)) {
       isClosingProfilesModal = true;
       try {
-        const confirmed = await ChatDialogs.confirm(t('confirm_profile_query_not_saved'));
+        const msgKey = hasUnsavedQuery ? 'confirm_profile_query_not_saved' : 'confirm_profile_unsaved_changes';
+        const confirmed = await ChatDialogs.confirm(t(msgKey));
         if (!confirmed) {
           elements.btnSaveProfile?.focus();
           return false;
@@ -2757,8 +2856,9 @@
     }
     if (elements.profilesDialog) {
       elements.profilesDialog.addEventListener('cancel', function (e) {
-        if (!isProfileQueryReady()) {
+        if (!isProfileQueryReady() && !isProfileFormDirty()) {
           setProfileQueryState(false);
+          resetProfileFormToSelected();
           return;
         }
         e.preventDefault();
@@ -2960,6 +3060,14 @@
       elements.settingApiKey.type = isPass ? 'text' : 'password';
       elements.btnToggleKey.innerHTML = getMsgIcon(isPass ? 'eye-off' : 'eye', 15);
     });
+
+    if (elements.btnWebllmParams && elements.webllmParamsPanel) {
+      elements.btnWebllmParams.addEventListener('click', function () {
+        const isHidden = elements.webllmParamsPanel.hidden;
+        elements.webllmParamsPanel.hidden = !isHidden;
+        elements.btnWebllmParams.classList.toggle('active', isHidden);
+      });
+    }
 
     elements.settingsDialog.addEventListener('click', function (e) {
       if (e.target === elements.settingsDialog) {

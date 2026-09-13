@@ -42,3 +42,16 @@ test('ProfileRepository - conserva la descripción del perfil', () => {
 
   assert.equal(repository.get('lab').description, 'Servidor de pruebas');
 });
+
+test('ProfileRepository - conserva y normaliza webllmConfig en settings', () => {
+  const repository = Profiles.createRepository(createStorage());
+  const webllmConfig = {
+    context_window_size: '16384',
+    prefill_chunk_size: '2048'
+  };
+  repository.save({ id: 'webllm-profile', name: 'WebLLM High-End', settings: { apiType: 'webllm', webllmConfig } });
+
+  const retrieved = repository.get('webllm-profile');
+  assert.deepEqual(retrieved.settings.webllmConfig, webllmConfig);
+});
+

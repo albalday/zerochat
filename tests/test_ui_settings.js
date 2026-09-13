@@ -144,3 +144,37 @@ test('UISettings - handleSaveProfile delega el guardado al editor sin mutar la c
 test('UISettings - no coordina el borrado de perfiles, que corresponde a app.js', () => {
   assert.equal(UISettings.handleDeleteProfile, undefined);
 });
+
+test('UISettings - gatherCurrentFormConfig extrae webllmConfig y asigna default si está vacío', () => {
+  const elements = {
+    settingModel: { value: 'Llama-3.2-1B' },
+    settingWebllmContextWindow: { value: '8192' },
+    settingWebllmPrefillChunk: { value: '2048' }
+  };
+  const config = UISettings.gatherCurrentFormConfig(elements, {});
+  assert.deepEqual(config.webllmConfig, {
+    context_window_size: '8192',
+    prefill_chunk_size: '2048'
+  });
+});
+
+test('UISettings - applyProfileToForm mapea webllmConfig a selects asignando default si es necesario', () => {
+  const elements = {
+    settingApiType: { value: 'webllm' },
+    settingWebllmContextWindow: { value: '' },
+    settingWebllmPrefillChunk: { value: '' },
+    webllmParamsPanel: { hidden: false },
+    btnWebllmParams: { classList: { remove: () => {} } }
+  };
+  const profileData = {
+    webllmConfig: {
+      context_window_size: '16384',
+      prefill_chunk_size: 'default'
+    }
+  };
+  UISettings.applyProfileToForm(elements, profileData);
+  assert.equal(elements.settingWebllmContextWindow.value, '16384');
+  assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
+  assert.equal(elements.webllmParamsPanel.hidden, true);
+});
+

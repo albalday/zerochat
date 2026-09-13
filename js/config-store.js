@@ -25,7 +25,11 @@
     enableRawLogs: false, enableContextCache: true,
     theme: 'light', language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
-    mcpHost: '127.0.0.1', mcpPort: 6388
+    mcpHost: '127.0.0.1', mcpPort: 6388,
+    webllmConfig: {
+      context_window_size: 'default',
+      prefill_chunk_size: 'default'
+    }
   });
 
   function clone(value) {

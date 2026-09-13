@@ -89,6 +89,16 @@ test('UIInspector - aísla la caché de modelos por conexión', () => {
   assert.equal(UIInspector.getModelContextLimit(model), 1048576);
 });
 
+test('UIInspector - getModelContextLimit devuelve contexto de modelo WebLLM o fallback 4096', () => {
+  UIInspector.saveCachedModels([{
+    id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+    details: { webllmCache: 'cached', loaded_context_length: 4096 }
+  }], { apiType: 'webllm', apiUrl: 'webllm://local' });
+
+  assert.equal(UIInspector.getModelContextLimit('Llama-3.2-1B-Instruct-q4f16_1-MLC'), 4096);
+  assert.equal(UIInspector.getModelContextLimit('Other-Model-MLC'), 4096);
+});
+
 test('UIInspector - handleQueryServer informa si la consulta fue satisfactoria', async () => {
   const originalFetch = API.fetchServerModels;
   API.fetchServerModels = async () => ({
@@ -262,3 +272,25 @@ test('UIInspector - renderInspectorReport muestra error y no genera badges si la
   assert.equal(fakeResultsContainer.innerHTML.includes('cap-badge'), false, 'No debe renderizar badges de capacidades');
   assert.equal(fakeResultsContainer.innerHTML.includes('inspector-cap-grid'), false, 'No debe renderizar la cuadrícula de capacidades');
 });
+
+test('UIInspector - formatWebLLMErrorMessage descarta [object Object] y extrae mensajes legibles', () => {
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('GPU memory exhausted')), 'GPU memory exhausted');
+  assert.equal(UIInspector.formatWebLLMErrorMessage('Shader compilation error'), 'Shader compilation error');
+  assert.equal(UIInspector.formatWebLLMErrorMessage({ error: { message: 'WebGPU device lost' } }), 'WebGPU device lost');
+  assert.equal(UIInspector.formatWebLLMErrorMessage({ error: 'Direct failure string' }), 'Direct failure string');
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('', { cause: new Error('Root cause detail') })), 'Root cause detail');
+
+  // Pruebas críticas de descarte de [object Object]
+  const incompleteFallback = 'La descarga no está completa. Vuelve a intentarlo.';
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('[object Object]')), incompleteFallback);
+  assert.equal(UIInspector.formatWebLLMErrorMessage('[object Object]'), incompleteFallback);
+  assert.equal(UIInspector.formatWebLLMErrorMessage({}), incompleteFallback);
+  assert.equal(UIInspector.formatWebLLMErrorMessage(null), incompleteFallback);
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('   [object Object]   ')), incompleteFallback);
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('[object Object]'), 'webllm_delete_failed'), 'No se pudo borrar el modelo.');
+
+  // Limpieza de prefijo Error:
+  assert.equal(UIInspector.formatWebLLMErrorMessage('Error: Program terminated with exit(1)'), 'Program terminated with exit(1)');
+  assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('Error: Program terminated with exit(1)')), 'Program terminated with exit(1)');
+});
+

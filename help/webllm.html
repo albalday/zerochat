@@ -219,6 +219,24 @@
     </div>
 
     <div class="card">
+      <h2>Parámetros Avanzados de Rendimiento WebGPU</h2>
+      <p>
+        Al configurar un perfil con el proveedor <strong>WebLLM</strong>, junto al selector de modelo encontrarás un botón con icono de engranaje que abre el panel de parámetros avanzados de rendimiento. Estos desplegables permiten adaptar el consumo de VRAM y la velocidad de inferencia a la potencia de tu GPU:
+      </p>
+      <ul>
+        <li>
+          <strong>Ventana de contexto (<code>context_window_size</code>):</strong> Desplegable para seleccionar el tamaño máximo de tokens en la KV Cache (por ejemplo: 2048, 4096, 8192, 16384, 32768). Por defecto en navegadores suele venir limitado a 2048 o 4096 para evitar fallos de memoria en GPUs integradas. Si tu GPU dispone de abundante VRAM, aumentarlo permite mantener conversaciones más largas y procesar documentos extensos sin truncado.
+        </li>
+        <li>
+          <strong>Bloque de prefill (<code>prefill_chunk_size</code>):</strong> Desplegable para seleccionar el número de tokens que la GPU procesa en paralelo durante la fase de carga del prompt (512, 1024, 2048, 4096). Un valor mayor aprovecha mejor el paralelismo de GPUs dedicadas potentes, acelerando el tiempo hasta el primer token (TTFT).
+        </li>
+      </ul>
+      <p>
+        La primera opción de cada desplegable es <em>"Por defecto del modelo"</em> (<code>default</code>), con la que ZeroChat respetará la configuración predeterminada del modelo. Al guardar el perfil, estos parámetros se conservan asociados a la configuración de la conexión.
+      </p>
+    </div>
+
+    <div class="card">
       <h2>Cómo revertir los cambios y restaurar la configuración por defecto</h2>
       <p>
         Si deseas deshacer las modificaciones técnicas realizadas en tu navegador o en ZeroChat y regresar a los valores predeterminados de fábrica, sigue estos pasos según tu navegador:

@@ -264,7 +264,44 @@
     return error;
   }
 
-  function createWorkerEngine(webllm, modelId, appConfig, onProgress, signal) {
+  function extractOverrides(config) {
+    if (!config || typeof config !== 'object') return null;
+    const overrides = {};
+    const parseParam = val => {
+      if (val === undefined || val === null || val === '' || val === 'default') return null;
+      const num = Number(val);
+      return Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
+    };
+    const cw = parseParam(config.context_window_size);
+    if (cw !== null) overrides.context_window_size = cw;
+    const pc = parseParam(config.prefill_chunk_size);
+    if (pc !== null) overrides.prefill_chunk_size = pc;
+    return Object.keys(overrides).length > 0 ? overrides : null;
+  }
+
+  function applyModelOverrides(appConfig, modelId, overrides) {
+    if (!overrides || Object.keys(overrides).length === 0) return appConfig;
+    const cloned = JSON.parse(JSON.stringify(appConfig || {}));
+    if (Array.isArray(cloned.model_list)) {
+      const entry = cloned.model_list.find(m => m.model_id === modelId);
+      if (entry) {
+        entry.overrides = Object.assign({}, entry.overrides, overrides);
+      }
+    }
+    return cloned;
+  }
+
+  function getActiveWebllmConfig() {
+    try {
+      const State = typeof ChatState !== 'undefined' ? ChatState : (typeof globalThis !== 'undefined' ? globalThis.ChatState : null);
+      const cfg = State?.get?.('config') || (typeof ChatConfig !== 'undefined' ? ChatConfig.get?.() : null);
+      return cfg?.webllmConfig || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function createWorkerEngine(webllm, modelId, appConfig, onProgress, signal, chatOpts = {}) {
     if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof webllm.CreateWebWorkerMLCEngine !== 'function') {
       return Promise.reject(workerError('Dedicated Web Worker support is unavailable'));
     }
@@ -296,12 +333,24 @@
         settled = true;
         cleanup();
         discard();
-        const detail = typeof event === 'string' ? event : (event?.message || event?.error?.message || event?.messageText || '');
+        let detail = typeof event === 'string' ? event : (event?.message || event?.error?.message || event?.messageText || '');
+        if (typeof detail === 'string') detail = detail.trim();
+        if (detail === '[object Object]' || !detail) {
+          if (event && typeof event === 'object') {
+            detail = event.error?.message || event.cause?.message || (typeof event.error === 'string' ? event.error : '') || '';
+          }
+        }
+        if (detail === '[object Object]' || !detail) {
+          detail = 'WebLLM model preparation failed.';
+        }
         const error = event?.name === 'AbortError' || (!isWorkerFailure && event instanceof Error)
-          ? event
+          ? (event.message === '[object Object]' ? new Error(detail, { cause: event }) : event)
           : (isWorkerFailure
-            ? workerError(detail || 'The worker stopped during initialization')
-            : new Error(detail || 'WebLLM model preparation failed.', { cause: event }));
+            ? workerError(detail)
+            : new Error(detail, { cause: event }));
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[WebLLM] Preparation error:', error);
+        }
         reject(error);
       };
       const notifyProgress = progress => {
@@ -332,7 +381,8 @@
         worker.addEventListener('error', workerFailure, { once: true });
         worker.addEventListener('messageerror', workerFailure, { once: true });
 
-        webllm.CreateWebWorkerMLCEngine(worker, modelId, { appConfig, initProgressCallback: notifyProgress })
+        const opts = chatOpts || {};
+        webllm.CreateWebWorkerMLCEngine(worker, modelId, { appConfig, initProgressCallback: notifyProgress }, opts)
           .then(engine => {
             if (settled) {
               engine.unload?.();
@@ -359,7 +409,7 @@
       this.pending = null;
     }
 
-    async acquire(webllm, modelId, appConfig, onProgress, signal) {
+    async acquire(webllm, modelId, appConfig, onProgress, signal, chatOpts = {}) {
       if (this.active?.modelId === modelId) return { handle: this.active.handle, reused: true };
       if (this.pending) {
         if (this.pending.modelId !== modelId) throw new Error('Another WebLLM model is still being prepared.');
@@ -373,7 +423,7 @@
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
       const pending = { modelId, promise: null, controller };
-      pending.promise = this.createEngine(webllm, modelId, appConfig, onProgress, controller.signal)
+      pending.promise = this.createEngine(webllm, modelId, appConfig, onProgress, controller.signal, chatOpts)
         .then(handle => {
           this.active = { modelId, handle };
           return handle;
@@ -407,12 +457,16 @@
       try {
         cached = await getModelAvailability(webllm, entry.model_id, appConfig);
       } catch (_) { cached = 'unknown'; }
+      const defaultContext = Number(entry.overrides?.context_window_size);
+      const contextLength = Number.isFinite(defaultContext) && defaultContext > 0 ? Math.floor(defaultContext) : 4096;
       return {
         id: entry.model_id,
         name: entry.model_id,
         details: {
           webllmCache: cached,
-          webllmVramMB: Number.isFinite(Number(entry.vram_required_MB)) ? Number(entry.vram_required_MB) : null
+          webllmVramMB: Number.isFinite(Number(entry.vram_required_MB)) ? Number(entry.vram_required_MB) : null,
+          loaded_context_length: contextLength,
+          max_context_length: contextLength
         }
       };
     }));
@@ -477,12 +531,18 @@
     async createStreamResponse({ payload, signal, onProgress }) {
       if (!payload.model) throw new Error('Selecciona un modelo WebLLM descargado en el perfil.');
       const webllm = await loadWebLLM();
-      const appConfig = getAppConfig(webllm);
+      let appConfig = getAppConfig(webllm);
       const available = await isModelAvailable(webllm, payload.model, appConfig);
       if (!available) throw new Error('El modelo WebLLM no está disponible por completo en el almacenamiento local. Descárgalo desde el perfil antes de iniciar el chat.');
 
+      const activeWebllmConfig = payload.webllmConfig || getActiveWebllmConfig();
+      const overrides = extractOverrides(activeWebllmConfig);
+      if (overrides) {
+        appConfig = applyModelOverrides(appConfig, payload.model, overrides);
+      }
+
       if (signal?.aborted) throw abortError();
-      const acquired = await this.engines.acquire(webllm, payload.model, appConfig, onProgress, signal);
+      const acquired = await this.engines.acquire(webllm, payload.model, appConfig, onProgress, signal, overrides || {});
       const engineHandle = acquired.handle;
       if (signal?.aborted) {
         throw abortError();
@@ -554,12 +614,16 @@
     WebLLMProviderAdapter,
     adapter,
     loadWebLLM,
+    getAppConfig,
     listModels,
     getModelAvailability,
     getCompletedModelIds,
     isModelCompleted,
     normalizeProgress,
     createWorkerEngine,
+    extractOverrides,
+    applyModelOverrides,
+    getActiveWebllmConfig,
     transformEsmToClassic,
     getOrFetchClassicBundle,
     resetMemoryBundle,

@@ -199,6 +199,17 @@
     if (elements.settingEnableContextCache && profileData.enableContextCache !== undefined) {
       elements.settingEnableContextCache.checked = profileData.enableContextCache !== false;
     }
+    const webllmCfg = profileData.webllmConfig || {};
+    const setParamSelect = (el, val) => {
+      if (!el) return;
+      const cleanVal = (val && val !== 'default') ? String(val) : 'default';
+      el.value = cleanVal;
+      if (!el.value) el.value = 'default';
+    };
+    setParamSelect(elements.settingWebllmContextWindow, webllmCfg.context_window_size);
+    setParamSelect(elements.settingWebllmPrefillChunk, webllmCfg.prefill_chunk_size);
+    if (elements?.webllmParamsPanel) elements.webllmParamsPanel.hidden = true;
+    if (elements?.btnWebllmParams?.classList) elements.btnWebllmParams.classList.remove('active');
     syncProviderFields(elements);
   }
 
@@ -223,6 +234,15 @@
     if (hint) hint.hidden = !local;
     const helpLink = field?.querySelector('.webllm-help-link') || elements?.webllmHelpLink || (typeof document !== 'undefined' ? document.getElementById('webllm-help-link') : null);
     if (helpLink) helpLink.hidden = !local;
+
+    const isWebLLM = providerId === 'webllm';
+    const btnWebllmParams = elements?.btnWebllmParams || (typeof document !== 'undefined' ? document.getElementById('btn-webllm-params') : null);
+    const webllmParamsPanel = elements?.webllmParamsPanel || (typeof document !== 'undefined' ? document.getElementById('webllm-params-panel') : null);
+    if (btnWebllmParams) btnWebllmParams.hidden = !isWebLLM;
+    if (webllmParamsPanel && !isWebLLM) {
+      webllmParamsPanel.hidden = true;
+      if (btnWebllmParams) btnWebllmParams.classList.remove('active');
+    }
   }
 
   function gatherCurrentFormConfig(elements, appConfig) {
@@ -232,18 +252,28 @@
         ? elements.profileSelectHelper.value
         : (appConfig?.activeProfile?.name || 'Local chat'));
     const selectedModel = elements?.settingModel ? elements.settingModel.value.trim() : '';
+    const getParamVal = (el, fallback) => {
+      const v = el?.value ? el.value.trim() : '';
+      return v || fallback || 'default';
+    };
+    const prevWebllmConfig = appConfig?.webllmConfig || {};
+    const webllmConfig = {
+      context_window_size: getParamVal(elements?.settingWebllmContextWindow, prevWebllmConfig.context_window_size),
+      prefill_chunk_size: getParamVal(elements?.settingWebllmPrefillChunk, prevWebllmConfig.prefill_chunk_size)
+    };
     return {
       activeProfileName: profileName,
       apiUrl: elements?.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || 'http://localhost:1234/v1'),
       apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
       apiKey: elements?.settingApiKey ? elements.settingApiKey.value.trim() : '',
       model: selectedModel,
+      webllmConfig,
       // El límite publicado pertenece a la conexión en ejecución, no al formulario.
       modelContextLimit: null,
       contextLimitOverride: appConfig?.contextLimitOverride || null,
       systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
-      temperature: appConfig?.temperature || '0.7',
+      temperature: elements?.settingTemperature ? elements.settingTemperature.value : (appConfig?.temperature || '0.7'),
       reasoningEffort: appConfig?.reasoningEffort || 'none',
       reasoningTransport: appConfig?.reasoningTransport || 'auto',
       maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 15),
@@ -694,7 +724,7 @@
           <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
           <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
           <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-free-tier" class="btn-free-tier" data-i18n="btn_free_tier" hidden>Free Tier</button><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
-          <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
+          <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist><button type="button" id="btn-webllm-params" class="btn-webllm-params" data-i18n-title="btn_webllm_params_title" title="Parámetros avanzados de rendimiento WebLLM" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg></button></div><div id="webllm-params-panel" class="webllm-params-panel" hidden><div class="webllm-params-title"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg><span data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</span></div><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="2048">2048 (2K)</option><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div></div>
         </div>
         </div>
         <div id="profile-tab-model-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-model">

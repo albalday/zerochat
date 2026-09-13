@@ -160,7 +160,15 @@
         const existingIds = new Set(discoveredModels.map(m => typeof m === 'string' ? m : (m?.id || m?.name || '')));
         completed.forEach(id => {
           if (!existingIds.has(id)) {
-            discoveredModels.push({ id, name: id, details: { webllmCache: 'cached' } });
+            discoveredModels.push({
+              id,
+              name: id,
+              details: {
+                webllmCache: 'cached',
+                loaded_context_length: 4096,
+                max_context_length: 4096
+              }
+            });
             existingIds.add(id);
           }
         });
@@ -208,8 +216,10 @@
     const details = entry?.details || entry || {};
     const loaded = Number(details.loaded_context_length);
     const maximum = Number(details.max_context_length);
-    return Number.isFinite(loaded) && loaded > 0 ? Math.floor(loaded)
-      : (Number.isFinite(maximum) && maximum > 0 ? Math.floor(maximum) : null);
+    if (Number.isFinite(loaded) && loaded > 0) return Math.floor(loaded);
+    if (Number.isFinite(maximum) && maximum > 0) return Math.floor(maximum);
+    if (details.webllmCache || selected.includes('-MLC')) return 4096;
+    return null;
   }
 
   function populateModelList(elements, appConfig, models, selectFirstIfEmpty = false) {
@@ -349,6 +359,7 @@
           label.textContent = stateLabel(t('webllm_preparing'));
           progressBar.hidden = false;
           progressBar.removeAttribute('value');
+          addDebugLog('system', `[WebLLM] Iniciando descarga/preparación de modelo ${id}`);
           const update = progress => {
             const current = getWebLLMState().operation;
             if (current?.id !== operationId || getEditorContextKey(elements) !== contextKey) return;
@@ -360,6 +371,7 @@
           try {
             const complete = await API.downloadLocalModel(id, update, elements?.settingApiType?.value);
             if (!complete) throw new Error(t('webllm_model_incomplete'));
+            addDebugLog('system', `[WebLLM] Modelo ${id} descargado y preparado con éxito`);
             if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
               const catalog = updateWebLLMModel(id, 'cached');
               setWebLLMState({ operation: null });
@@ -367,13 +379,18 @@
               renderWebLLMModels(elements, catalog);
             }
           } catch (error) {
+            const errorMsg = formatWebLLMErrorMessage(error, 'webllm_model_incomplete');
+            addDebugLog('error', `[WebLLM] Error al preparar modelo ${id}: ${errorMsg}`);
+            if (typeof console !== 'undefined' && console.error) {
+              console.error(`[WebLLM] Error al preparar modelo ${id}:`, error);
+            }
             if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
               const catalog = updateWebLLMModel(id, 'incomplete');
               setWebLLMState({ operation: null });
               renderWebLLMModels(elements, catalog);
               const currentRow = Array.from(elements.serverQueryStatus.querySelectorAll('.webllm-model-row'))
                 .find(item => item.querySelector('span')?.textContent?.startsWith(`${id} ·`));
-              if (currentRow) currentRow.querySelector('span').textContent = stateLabel(error.message || String(error));
+              if (currentRow) currentRow.querySelector('span').textContent = stateLabel(errorMsg);
             }
           } finally {
             if (getWebLLMState().operation?.id === operationId) setWebLLMState({ operation: null });
@@ -393,9 +410,11 @@
           label.textContent = stateLabel(t('webllm_deleting'));
           progressBar.hidden = false;
           progressBar.removeAttribute('value');
+          addDebugLog('system', `[WebLLM] Eliminando modelo ${id} del almacenamiento local`);
           try {
             const removed = await API.deleteLocalModel(id, elements?.settingApiType?.value);
             if (!removed) throw new Error(t('webllm_delete_failed'));
+            addDebugLog('system', `[WebLLM] Modelo ${id} eliminado con éxito`);
             if (getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey) {
               const catalog = updateWebLLMModel(id, 'missing');
               setWebLLMState({ operation: null });
@@ -403,8 +422,13 @@
               renderWebLLMModels(elements, catalog);
             }
           } catch (error) {
+            const errorMsg = formatWebLLMErrorMessage(error, 'webllm_delete_failed');
+            addDebugLog('error', `[WebLLM] Error al eliminar modelo ${id}: ${errorMsg}`);
+            if (typeof console !== 'undefined' && console.error) {
+              console.error(`[WebLLM] Error al eliminar modelo ${id}:`, error);
+            }
             if (getEditorContextKey(elements) === contextKey) {
-              label.textContent = stateLabel(error.message || String(error));
+              label.textContent = stateLabel(errorMsg);
               progressBar.hidden = true;
               button.disabled = false;
               delete button.dataset.loading;
@@ -458,6 +482,20 @@
       ? `${(megabytes / 1024).toFixed(1).replace(/\.0$/, '')} GB`
       : `${Math.round(megabytes)} MB`;
     return ` · ${t('webllm_vram_required', { size })}`;
+  }
+
+  function formatWebLLMErrorMessage(error, fallbackKey = 'webllm_model_incomplete') {
+    if (!error) return t(fallbackKey);
+    let msg = typeof error === 'string' ? error : (error.message || error.error?.message || error.error || '');
+    if (typeof msg === 'string') {
+      msg = msg.trim().replace(/^Error:\s*/i, '').trim();
+    }
+    if (msg && msg !== '[object Object]') return msg;
+    if (error && typeof error === 'object' && error.cause) {
+      const causeMsg = formatWebLLMErrorMessage(error.cause, '');
+      if (causeMsg && causeMsg !== '[object Object]') return causeMsg;
+    }
+    return t(fallbackKey);
   }
 
   function refreshSelectableModels(elements, models) {
@@ -752,6 +790,7 @@
     setWebLLMState,
     updateWebLLMModel,
     formatWebLLMVram,
+    formatWebLLMErrorMessage,
     parseWebLLMProgress,
     handleQueryServer,
     handleRunInspector,
