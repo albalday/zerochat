@@ -18,7 +18,6 @@
   const WebSearch = typeof window !== 'undefined' ? (window.ChatWebSearch || {}) : {};
   const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
-  const FREE_TIER_API_KEY_STORAGE_KEY = 'free_tier_api_key';
 
   const TOOL_NAME_MAP = Object.freeze({
     // 1. Descarga y extracción de PDF
@@ -117,18 +116,6 @@
     buscarendocumentos: 'search_knowledge_base'
   });
 
-  function freeApi() {
-    const storage = typeof window !== 'undefined'
-      ? window.ChatStorage
-      : (typeof require !== 'undefined' ? (() => { try { return require('./cookies.js'); } catch (e) { return null; } })() : null);
-    return String(storage?.getStorageItem?.(FREE_TIER_API_KEY_STORAGE_KEY) || '').trim();
-  }
-
-  function freeTierUnavailableMessage() {
-    const i18n = typeof window !== 'undefined' ? window.ChatI18n : require('./i18n.js');
-    return i18n.t('err_free_tier_unavailable');
-  }
-
   function mirrorResponse(payload) {
     const i18n = typeof window !== 'undefined' ? window.ChatI18n : require('./i18n.js');
     const guidance = [
@@ -139,15 +126,6 @@
       i18n.t('mirror_response_request')
     ].join('\n\n');
     return `${guidance}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
-  }
-
-  function resolveApiKey(apiKey) {
-    const requestedApiKey = String(apiKey || '').trim();
-    return requestedApiKey === 'FREE-TIER' ? freeApi() : requestedApiKey;
-  }
-
-  function isUnavailableFreeTier(apiKey, resolvedApiKey) {
-    return String(apiKey || '').trim() === 'FREE-TIER' && !resolvedApiKey;
   }
 
   /**
@@ -239,10 +217,7 @@
    * Consulta los modelos disponibles en el servidor delegando en el adaptador.
    */
   async function fetchServerModels(rawUrl, apiKey, explicitType) {
-    const resolvedApiKey = resolveApiKey(apiKey);
-    if (isUnavailableFreeTier(apiKey, resolvedApiKey)) {
-      return { success: false, error: freeTierUnavailableMessage() };
-    }
+    const resolvedApiKey = String(apiKey || '').trim();
     let cleanUrl = (rawUrl || 'http://localhost:1234/v1').trim();
     if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
     if (cleanUrl.endsWith('/chat/completions')) cleanUrl = cleanUrl.replace(/\/chat\/completions$/, '');
@@ -362,12 +337,7 @@
       onError
     } = params;
 
-    const effectiveApiKey = resolveApiKey(apiKey);
-    if (isUnavailableFreeTier(apiKey, effectiveApiKey)) {
-      const error = new Error(freeTierUnavailableMessage());
-      if (onError) onError(error);
-      return { accumulatedText: '', accumulatedReasoning: '', stats: null, toolCalls: null, error };
-    }
+    const effectiveApiKey = String(apiKey || '').trim();
 
     const adapter = registry ? registry.resolve(apiUrl, apiType) : null;
     const endpoint = adapter ? adapter.normalizeEndpoint(apiUrl) : normalizeApiUrl(apiUrl, apiType);
@@ -841,10 +811,7 @@
    */
   async function inspectProvider(config = {}, options = {}) {
     const { apiUrl, apiType, apiKey, model } = config;
-    const effectiveApiKey = resolveApiKey(apiKey);
-    if (isUnavailableFreeTier(apiKey, effectiveApiKey)) {
-      return { success: false, error: freeTierUnavailableMessage() };
-    }
+    const effectiveApiKey = String(apiKey || '').trim();
     if (registry && registry.inspect) {
       return registry.inspect(apiUrl, effectiveApiKey, model, apiType, options);
     }
@@ -868,9 +835,6 @@
     getStandardReasoningOptions,
     STANDARD_REASONING_MODES,
     streamChatCompletion,
-    freeApi,
-    FREE_TIER_API_KEY_STORAGE_KEY,
-    resolveApiKey,
     estimateTokens,
     normalizeToolName,
     getProviderCapabilities,

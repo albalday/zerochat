@@ -117,7 +117,7 @@ test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().reasoningTransport), 'send-none');
   } finally { await browser.close(); }
 });
-test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y borrado', async () => {
+test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -143,8 +143,6 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     await page.selectOption('#profile-select-helper', 'profile:remote');
     await page.click('#profile-tab-settings');
     assert.equal(await page.locator('#setting-api-key').isEnabled(), true);
-    await page.click('#btn-free-tier');
-    assert.equal(await page.inputValue('#setting-api-key'), 'FREE-TIER');
     await page.selectOption('#setting-api-type', 'webllm');
     assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
     assert.equal(await page.locator('.api-key-field').isHidden(), true);
@@ -173,7 +171,6 @@ test('Browser UI - perfiles: teclado, alineación, Free Tier, solo lectura y bor
     await page.selectOption('#setting-api-type', 'openai');
     assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
     assert.equal(await page.locator('.api-key-field').isVisible(), true);
-    assert.equal(await page.locator('#btn-free-tier').isVisible(), false);
     await page.click('#profile-tab-name');
     await page.click('#btn-delete-profile');
     await page.click('#notice-accept');

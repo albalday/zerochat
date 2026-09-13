@@ -237,7 +237,6 @@
       btnResetSettings: document.getElementById('btn-reset-settings'),
       btnClearAllData: document.getElementById('btn-clear-all-data'),
       btnToggleKey: document.getElementById('btn-toggle-key'),
-      btnFreeTier: document.getElementById('btn-free-tier'),
       profilesDialog: document.getElementById('profiles-dialog'),
       profilesForm: document.getElementById('profiles-form'),
       btnManageProfiles: document.getElementById('btn-manage-profiles'),
@@ -621,7 +620,6 @@
     if (!profileEditorOpen) {
       if (elements.settingApiType) {
         elements.settingApiType.value = config.apiType || 'openai';
-        syncFreeTierButton();
       }
       if (elements.settingApiUrl) {
         elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
@@ -1452,7 +1450,6 @@
         }
       }
     }
-    syncFreeTierButton();
   }
 
   function handleSaveProfile() {
@@ -1587,11 +1584,6 @@
   function setProfileQueryState(ready) {
     if (elements.profilesDialog) elements.profilesDialog.dataset.queryReady = String(ready);
     syncProfileSaveState();
-  }
-
-  function syncFreeTierButton() {
-    if (!elements.btnFreeTier) return;
-    elements.btnFreeTier.hidden = elements.settingApiType?.value !== 'gemini';
   }
 
   function activateProfileTab(tabBtn) {
@@ -2933,7 +2925,6 @@
     if (elements.settingApiType) {
       elements.settingApiType.addEventListener('change', function () {
         setProfileQueryState(false);
-        syncFreeTierButton();
         const val = this.value;
         const currentUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : '';
 
@@ -2949,13 +2940,6 @@
           loadCachedModels();
         }
         syncProfileSaveState();
-      });
-    }
-    if (elements.btnFreeTier) {
-      elements.btnFreeTier.addEventListener('click', () => {
-        if (elements.settingApiType?.value !== 'gemini') return;
-        if (elements.settingApiKey) elements.settingApiKey.value = 'FREE-TIER';
-        setProfileQueryState(false);
       });
     }
     [elements.settingApiUrl, elements.settingApiKey].forEach(input => {

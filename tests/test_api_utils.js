@@ -90,27 +90,6 @@ test('Api - publica estados de conexión, pensamiento y generación sin exponer 
   }
 });
 
-test('Api - Free Tier usa la clave de almacenamiento y no usa la red si no existe', async () => {
-  const originalFetch = global.fetch;
-  let fetchCalled = false;
-  global.fetch = async () => { fetchCalled = true; };
-  try {
-    Storage.deleteStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY);
-    const response = await Api.streamChatCompletion({
-      apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      apiType: 'gemini', apiKey: 'FREE-TIER', model: 'gemini-test', messages: []
-    });
-    assert.equal(fetchCalled, false);
-    assert.match(response.error.message, /Free Tier no está configurado/);
-    Storage.setStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY, 'stored-free-tier-key');
-    assert.equal(Api.freeApi(), 'stored-free-tier-key');
-    assert.equal(Api.resolveApiKey('FREE-TIER'), 'stored-free-tier-key');
-  } finally {
-    Storage.deleteStorageItem(Api.FREE_TIER_API_KEY_STORAGE_KEY);
-    global.fetch = originalFetch;
-  }
-});
-
 test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
   const originalFetch = global.fetch;
   let network = 0;
@@ -128,10 +107,6 @@ test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async (
     assert.equal(cancelled.cancelled, true);
     assert.equal((await Api.fetchServerModels('mirror://local', '', 'mirror')).success, false);
     assert.equal((await Api.inspectProvider(input)).success, false);
-    for (const apiType of ['openai', 'gemini', 'claude']) {
-      assert.equal((await Api.fetchServerModels('https://example.test', 'FREE-TIER', apiType)).success, false);
-      assert.equal((await Api.inspectProvider({ apiType, apiKey: 'FREE-TIER' })).success, false);
-    }
     assert.equal(network, 0);
   } finally { global.fetch = originalFetch; }
 });
