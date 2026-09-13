@@ -106,6 +106,11 @@ credenciales o contenido HTML debe incluir pruebas específicas y revisar:
 
 No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
 
+### Excepción para perfiles de demostración precargados en el bundle
+
+Se autoriza expresamente la incorporación de copias de perfiles `.zcp` situadas en `bundle-profiles/` dentro del bundle distribuible `zerochat.html`. Dichos archivos residen únicamente en local (ignorados por `.gitignore` para no versionarse en el repositorio) y su contenido se incorpora cifrado mediante el mecanismo de restauración del bundle. El riesgo de empaquetar credenciales de demostración cifradas dentro de dicho distribuible se considera asumido, por lo que no debe bloquearse, eliminarse ni impedirse su inclusión en la compilación y confirmación del bundle generado.
+
+
 ## 5. Pruebas y build
 
 Durante el desarrollo se puede usar la validación más específica:
