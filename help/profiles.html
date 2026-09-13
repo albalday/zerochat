@@ -44,6 +44,9 @@
       <div class="alert alert-warning">
         <strong>Protección de transporte:</strong> la clave maestra está integrada en ZeroChat para facilitar la reutilización de los perfiles. El cifrado evita que las claves se vean al abrir el archivo, pero no debe considerarse protección frente a quien tenga acceso al código de la aplicación. Comparte estas copias solo mediante canales de confianza.
       </div>
+      <p>
+        <strong>Perfiles de demostración en distribuibles:</strong> Para generar una versión autónoma (<code>zerochat.html</code>) con perfiles preconfigurados, coloca un único archivo <code>.zcp</code> en el directorio <code>bundle-profiles/</code> antes de compilar con <code>npm run build</code>. Al abrir el archivo generado por primera vez en un navegador sin perfiles guardados, ZeroChat restaura automáticamente esa copia junto al perfil Espejo.
+      </p>
     </div>
 
     <div class="card">

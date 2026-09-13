@@ -84,6 +84,8 @@ HREF_RE = re.compile(r'\bhref=["\']([^"\']+)["\']', re.IGNORECASE)
 CSS_IMPORT_RE = re.compile(
     r'@import\s+(?:url\(\s*)?["\']([^"\')]+)["\']\s*\)?\s*([^;]*);', re.IGNORECASE
 )
+BUNDLE_PROFILES_DIR = "bundle-profiles"
+MAX_BUNDLE_PROFILE_BACKUP_BYTES = 2 * 1024 * 1024
 
 
 def local_resource_path(document_dir: str, reference: str) -> str | None:
@@ -154,6 +156,47 @@ def read_css_with_imports(css_path: str, import_stack: Tuple[str, ...] = ()) -> 
         return f"@media {media_query}{{{imported_css}}}" if media_query else imported_css
 
     return CSS_IMPORT_RE.sub(replace_import, css)
+
+
+def read_bundle_profile_backup(document_dir: str) -> Optional[str]:
+    """Lee la única copia .zcp opcional que se debe incorporar al distribuible."""
+    backup_dir = os.path.join(document_dir, BUNDLE_PROFILES_DIR)
+    if not os.path.isdir(backup_dir):
+        return None
+    backups = sorted(
+        entry for entry in os.listdir(backup_dir)
+        if entry.lower().endswith(".zcp") and os.path.isfile(os.path.join(backup_dir, entry))
+    )
+    if len(backups) > 1:
+        raise ValueError(f"Solo puede haber una copia .zcp en {BUNDLE_PROFILES_DIR}.")
+    if not backups:
+        return None
+    backup_path = os.path.join(backup_dir, backups[0])
+    if os.path.getsize(backup_path) > MAX_BUNDLE_PROFILE_BACKUP_BYTES:
+        raise ValueError(f"La copia .zcp de {BUNDLE_PROFILES_DIR} supera el tamaño permitido.")
+    with open(backup_path, "r", encoding="utf-8") as backup_file:
+        content = backup_file.read()
+    try:
+        json.loads(content)
+    except json.JSONDecodeError as err:
+        raise ValueError(f"El archivo .zcp en {BUNDLE_PROFILES_DIR} no es un JSON válido.") from err
+    return content
+
+
+def bundle_profile_restore_code(serialized_backup: str) -> str:
+    """Genera el arranque exclusivo del bundle para restaurar perfiles de demostración."""
+    backup = json.dumps(serialized_backup, ensure_ascii=False)
+    return f"""
+globalThis.__ZEROCHAT_BUNDLE_PROFILE_RESTORE__ = (async () => {{
+  const backup = globalThis.ChatProfileBackup;
+  const repository = globalThis.ChatProfileRepository;
+  const storage = globalThis.ChatStorage;
+  if (!backup?.decryptProfiles || !repository?.mergeImported || !storage?.getStorageItem) return;
+  if (storage.getStorageItem(repository.STORAGE_KEY)) return;
+  const profiles = await backup.decryptProfiles({backup});
+  repository.mergeImported(profiles);
+}})().catch(error => console.warn('No se pudo restaurar la copia de perfiles incluida:', error));
+"""
 
 
 def read_project_version(document_dir: str, raw_html: str = "") -> str:
@@ -600,6 +643,7 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
             read_css_with_imports(local_resource_path(document_dir, HREF_RE.search(tag).group(1)))
             for tag in css_tags
         ]
+        bundled_profile_backup = read_bundle_profile_backup(document_dir)
     except (OSError, UnicodeDecodeError, ValueError) as error:
         print(f"❌ Error al leer recursos del HTML base: {error}", file=sys.stderr)
         return False
@@ -626,6 +670,20 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     # 3. Concatenar scripts locales antes de comprimirlos para mejorar el ratio.
     project_version = read_project_version(document_dir, raw_html)
     version_bootstrap = f"globalThis.__ZEROCHAT_VERSION__ = {json.dumps(project_version)};\n"
+    if bundled_profile_backup is not None:
+        app_index = next((
+            index for index, tag in enumerate(js_tags)
+            if os.path.normpath(SCRIPT_SRC_RE.search(tag).group(1)) == os.path.normpath("js/app.js")
+        ), None)
+        if app_index is None:
+            print("❌ No se encontró js/app.js para restaurar la copia de perfiles incluida.", file=sys.stderr)
+            return False
+        js_parts.insert(app_index, bundle_profile_restore_code(bundled_profile_backup))
+        js_parts[app_index + 1] = (
+            "Promise.resolve(globalThis.__ZEROCHAT_BUNDLE_PROFILE_RESTORE__).finally(() => {\n"
+            + js_parts[app_index + 1]
+            + "\n});"
+        )
     concatenated_js = version_bootstrap + ";\n".join(js_parts)
     raw_js_size = len(concatenated_js.encode("utf-8"))
 

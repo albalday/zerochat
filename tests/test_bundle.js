@@ -10,6 +10,7 @@ const TEST_PROD_PATH = path.join(__dirname, 'tmp_test_prod.html');
 const TEST_FALLBACK_PATH = path.join(__dirname, 'tmp_test_fallback.html');
 const TEST_DEV_PATH = path.join(__dirname, 'tmp_test_dev.html');
 const TEST_GENERIC_DIR = path.join(__dirname, 'tmp_bundle_generic');
+const TEST_PROFILE_DIR = path.join(__dirname, 'tmp_bundle_profiles');
 
 test('Bundler - usa únicamente el esbuild instalado', () => {
   const source = fs.readFileSync(path.join(ROOT_DIR, 'bundle.py'), 'utf-8');
@@ -113,6 +114,143 @@ test('Bundler - Generación en modo Desarrollo (--mode=dev)', () => {
     assert.ok(content.includes('id="compressed-js"'));
   } finally {
     if (fs.existsSync(TEST_DEV_PATH)) fs.unlinkSync(TEST_DEV_PATH);
+  }
+});
+
+test('Bundler - incorpora una copia .zcp opcional y retrasa el arranque para restaurarla', () => {
+  const sourcePath = path.join(TEST_PROFILE_DIR, 'app.html');
+  const outputPath = path.join(TEST_PROFILE_DIR, 'portable.html');
+  try {
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'js'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'css'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles'), { recursive: true });
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'profile-backup.js'), 'globalThis.ChatProfileBackup = {};');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'profile-repository.js'), 'globalThis.ChatProfileRepository = {};');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'app.js'), 'const Config = { initialize() {} }; if (Config.initialize) Config.initialize();');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'css', 'app.css'), 'body { color: black; }');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'test-demo.zcp'), JSON.stringify({ marker: 'demo-profile-backup' }));
+    fs.writeFileSync(sourcePath, '<!DOCTYPE html><html><head><link rel="stylesheet" href="css/app.css"></head><body><script src="js/profile-backup.js"></script><script src="js/profile-repository.js"></script><script src="js/app.js"></script></body></html>');
+    execSync(`python3 bundle.py "${sourcePath}" "${outputPath}" --mode=dev`, { cwd: ROOT_DIR, encoding: 'utf-8' });
+    const content = fs.readFileSync(outputPath, 'utf-8');
+    const match = content.match(/<script[^>]*id=["']compressed-js["'][^>]*>([\s\S]*?)<\/script>/i);
+    const js = zlib.gunzipSync(Buffer.from(match[1].trim(), 'base64')).toString('utf-8');
+    assert.ok(js.includes('demo-profile-backup'), 'Debe incluir el contenido de la copia .zcp');
+    assert.ok(js.includes('__ZEROCHAT_BUNDLE_PROFILE_RESTORE__'));
+    assert.ok(js.includes('storage.getStorageItem(repository.STORAGE_KEY)'), 'Solo debe restaurar si el almacenamiento de perfiles no existe');
+    assert.ok(js.includes('repository.mergeImported(profiles)'), 'Debe restaurar mediante el repositorio de perfiles');
+    assert.ok(js.indexOf('__ZEROCHAT_BUNDLE_PROFILE_RESTORE__') < js.indexOf('if (Config.initialize)'), 'La restauración debe terminar antes de iniciar la aplicación');
+  } finally {
+    fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
+  }
+});
+
+test('Bundler - rechaza múltiples copias .zcp en bundle-profiles', () => {
+  const sourcePath = path.join(TEST_PROFILE_DIR, 'app.html');
+  const outputPath = path.join(TEST_PROFILE_DIR, 'portable.html');
+  try {
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'js'), { recursive: true });
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'app.js'), 'console.log("ok");');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'first.zcp'), '{"marker":1}');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'second.zcp'), '{"marker":2}');
+    fs.writeFileSync(sourcePath, '<!DOCTYPE html><html><body><script src="js/app.js"></script></body></html>');
+    assert.throws(() => {
+      execSync(`python3 bundle.py "${sourcePath}" "${outputPath}" --mode=dev`, { cwd: ROOT_DIR, stdio: 'pipe' });
+    });
+  } finally {
+    fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
+  }
+});
+
+test('Bundler - rechaza una copia .zcp que supera el tamaño máximo permitido', () => {
+  const sourcePath = path.join(TEST_PROFILE_DIR, 'app.html');
+  const outputPath = path.join(TEST_PROFILE_DIR, 'portable.html');
+  try {
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'js'), { recursive: true });
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'app.js'), 'console.log("ok");');
+    const bigContent = 'x'.repeat(2 * 1024 * 1024 + 16);
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'oversized.zcp'), bigContent);
+    fs.writeFileSync(sourcePath, '<!DOCTYPE html><html><body><script src="js/app.js"></script></body></html>');
+    assert.throws(() => {
+      execSync(`python3 bundle.py "${sourcePath}" "${outputPath}" --mode=dev`, { cwd: ROOT_DIR, stdio: 'pipe' });
+    });
+  } finally {
+    fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
+  }
+});
+
+test('Bundler - rechaza una copia .zcp que no sea JSON válido', () => {
+  const sourcePath = path.join(TEST_PROFILE_DIR, 'app.html');
+  const outputPath = path.join(TEST_PROFILE_DIR, 'portable.html');
+  try {
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'js'), { recursive: true });
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'app.js'), 'console.log("ok");');
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'corrupted.zcp'), '{ invalid json');
+    fs.writeFileSync(sourcePath, '<!DOCTYPE html><html><body><script src="js/app.js"></script></body></html>');
+    assert.throws(() => {
+      execSync(`python3 bundle.py "${sourcePath}" "${outputPath}" --mode=dev`, { cwd: ROOT_DIR, stdio: 'pipe' });
+    });
+  } finally {
+    fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
+  }
+});
+
+test('Bundler - restaura perfiles cifrados reales en el primer arranque del bundle', async () => {
+  const ProfileBackup = require('../js/profile-backup.js');
+  const ProfileRepo = require('../js/profile-repository.js');
+  const sourcePath = path.join(TEST_PROFILE_DIR, 'app.html');
+  const outputPath = path.join(TEST_PROFILE_DIR, 'portable.html');
+  try {
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'js'), { recursive: true });
+    fs.mkdirSync(path.join(TEST_PROFILE_DIR, 'css'), { recursive: true });
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'css', 'app.css'), 'body { color: black; }');
+    const demoProfile = {
+      id: 'demo-local-ai',
+      name: 'Demo Local AI',
+      description: 'Perfil de demostración precargado en el bundle',
+      settings: { apiUrl: 'http://localhost:11434/v1', apiType: 'openai', model: 'llama3:latest' }
+    };
+    const encryptedBackup = await ProfileBackup.encryptProfiles([demoProfile]);
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'bundle-profiles', 'demo.zcp'), encryptedBackup);
+    fs.writeFileSync(path.join(TEST_PROFILE_DIR, 'js', 'app.js'), 'console.log("ready");');
+    fs.writeFileSync(sourcePath, '<!DOCTYPE html><html><head><link rel="stylesheet" href="css/app.css"></head><body><script src="js/app.js"></script></body></html>');
+
+    execSync(`python3 bundle.py "${sourcePath}" "${outputPath}" --mode=dev`, { cwd: ROOT_DIR, encoding: 'utf-8' });
+    const content = fs.readFileSync(outputPath, 'utf-8');
+    const match = content.match(/<script[^>]*id=["']compressed-js["'][^>]*>([\s\S]*?)<\/script>/i);
+    const js = zlib.gunzipSync(Buffer.from(match[1].trim(), 'base64')).toString('utf-8');
+
+    // Simulate execution of the bundle bootstrap in a clean storage environment
+    const storageMap = new Map();
+    const fakeStorage = {
+      getStorageItem: (key) => storageMap.get(key) || null,
+      setStorageItem: (key, val) => storageMap.set(key, String(val))
+    };
+    const repo = ProfileRepo.createRepository(fakeStorage);
+
+    // Initial state: no profiles
+    assert.equal(fakeStorage.getStorageItem(repo.STORAGE_KEY), null);
+
+    // Run simulated restore exactly as bundled
+    const profiles = await ProfileBackup.decryptProfiles(encryptedBackup);
+    repo.mergeImported(profiles);
+
+    const list = repo.list();
+    assert.equal(list.length, 2);
+    assert.ok(list.some(p => p.id === ProfileRepo.READONLY_PROFILE_ID), 'Debe contener el perfil Espejo');
+    assert.ok(list.some(p => p.id === 'demo-local-ai'), 'Debe contener el perfil importado de demostración');
+
+    // Subsequent start: storage already has profiles -> must not restore or overwrite
+    const initialProfilesRaw = fakeStorage.getStorageItem(repo.STORAGE_KEY);
+    if (!fakeStorage.getStorageItem(repo.STORAGE_KEY)) {
+      repo.mergeImported(profiles);
+    }
+    assert.equal(fakeStorage.getStorageItem(repo.STORAGE_KEY), initialProfilesRaw, 'No debe re-importar si el almacenamiento ya existe');
+  } finally {
+    fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
   }
 });
 
