@@ -105,3 +105,21 @@ test('ProfileRepository - rechaza una importación que intenta modificar Espejo'
   ]), /Espejo/);
   assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).settings.model, 'mirror');
 });
+
+test('ProfileRepository - carga sin error perfiles heredados con apiKey vacía o nula', async () => {
+  const storage = createStorage();
+  storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({
+    schemaVersion: 1,
+    profiles: [
+      { id: 'profile:mirror', name: 'Espejo', settings: { apiUrl: 'mirror://local', apiType: 'mirror', apiKey: '', model: 'mirror' } },
+      { id: 'profile:legacy-null', name: 'Legacy Null', settings: { apiUrl: 'http://localhost:1234', apiKey: null } }
+    ]
+  }));
+  const repository = Profiles.createRepository(storage);
+  const list = repository.list();
+  assert.equal(list.length, 2);
+  assert.equal(list[0].id, 'profile:mirror');
+  assert.equal(list[1].id, 'profile:legacy-null');
+  assert.equal((await repository.load('profile:mirror')).settings.apiKey, '');
+  assert.equal((await repository.load('profile:legacy-null')).settings.apiKey, '');
+});

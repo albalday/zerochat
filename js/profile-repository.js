@@ -53,7 +53,11 @@
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('Los datos del perfil no son válidos.');
     const settings = {};
     STORAGE_PROFILE_FIELDS.forEach(key => {
-      if (key === 'apiKey' && source[key] !== undefined) {
+      if (key === 'apiKey') {
+        if (source[key] === '' || source[key] === null || source[key] === undefined) {
+          settings.apiKey = null;
+          return;
+        }
         if (!Backup?.validateApiKeySecret) throw new Error('La validación de API keys no está disponible.');
         Backup.validateApiKeySecret(source[key]);
       }

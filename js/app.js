@@ -87,7 +87,11 @@
     activeRagBranchId: ''
   };
 
-  if (Config.initialize) Config.initialize();
+  try {
+    if (Config.initialize) Config.initialize();
+  } catch (error) {
+    console.warn('Error durante la inicialización de configuración:', error);
+  }
 
   function getRuntimeConfig() {
     return Config.getActive ? Config.getActive() : { ...fallbackConfig };
@@ -617,10 +621,14 @@
     const profileEditorOpen = elements.profilesDialog?.open === true;
     if (elements.activeProfileName) elements.activeProfileName.textContent = config.activeProfile?.name || 'Espejo';
     if (elements.activeProfilePopover && !elements.activeProfilePopover.hidden) {
-      UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
+      let profileList = [];
+      try { profileList = Profiles.list ? Profiles.list() : []; } catch (_) {}
+      UISettings.renderProfileMenu(elements, profileList, config.activeProfile?.id);
     }
     if (elements.settingsActiveProfileName) {
-      elements.settingsActiveProfileName.textContent = config.activeProfile?.name || Profiles.get?.(Profiles.READONLY_PROFILE_ID)?.name || 'Espejo';
+      let mirrorName = 'Espejo';
+      try { mirrorName = Profiles.get?.(Profiles.READONLY_PROFILE_ID)?.name || 'Espejo'; } catch (_) {}
+      elements.settingsActiveProfileName.textContent = config.activeProfile?.name || mirrorName;
     }
     if (!profileEditorOpen) {
       if (elements.settingApiType) {

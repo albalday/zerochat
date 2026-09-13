@@ -103,15 +103,31 @@
     }
 
     function initialize() {
-      profiles?.initialize?.();
+      try {
+        profiles?.initialize?.();
+      } catch (error) {
+        console.warn('No se pudo inicializar el repositorio de perfiles:', error);
+      }
       const stored = storage?.loadRuntimeConfigV2?.();
-      const fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+      let fallbackProfile = null;
+      try {
+        fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+      } catch (_) {}
       if (stored) {
         const config = { ...stored, modelContextLimit: null };
-        return commit(!profiles?.get?.(config.activeProfile?.id) && fallbackProfile ? applyProfile(config, fallbackProfile) : config);
+        try {
+          if (!profiles?.get?.(config.activeProfile?.id) && fallbackProfile) {
+            return commit(applyProfile(config, fallbackProfile));
+          }
+        } catch (_) {}
+        return commit(config);
       }
 
-      return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
+      try {
+        return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
+      } catch (_) {
+        return commit(DEFAULTS);
+      }
     }
 
     function getActive() {
