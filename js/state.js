@@ -58,7 +58,6 @@
         activeProfile: null,
         apiUrl: 'http://localhost:1234/v1',
         apiType: 'openai',
-        apiKey: '',
         model: '',
         systemPrompt: '',
         systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT,

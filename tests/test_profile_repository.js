@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Profiles = require('../js/profile-repository.js');
+const Backup = require('../js/profile-backup.js');
 
 function createStorage(legacyProfiles = {}) {
   const values = new Map();
@@ -55,3 +56,52 @@ test('ProfileRepository - conserva y normaliza webllmConfig en settings', () => 
   assert.deepEqual(retrieved.settings.webllmConfig, webllmConfig);
 });
 
+test('ProfileRepository - fusiona una importación en una única escritura y conserva Espejo', async () => {
+  const repository = Profiles.createRepository(createStorage());
+  repository.save({ id: 'local', name: 'Local', settings: { model: 'before' } });
+  const encryptedApiKey = await Backup.encryptApiKey('sk-imported');
+  const result = repository.mergeImported([
+    { id: 'local', name: 'Local', settings: { model: 'after', apiKey: encryptedApiKey } },
+    { id: 'remote', name: 'Remote', settings: { model: 'remote-model' } }
+  ]);
+
+  assert.deepEqual(result, { added: 1, replaced: 1, total: 2 });
+  assert.equal(repository.get('local').settings.model, 'after');
+  assert.equal((await repository.load('local')).settings.apiKey, 'sk-imported');
+  assert.equal(repository.get('remote').settings.model, 'remote-model');
+  assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).name, 'Espejo');
+});
+
+test('ProfileRepository - no guarda ni importa API keys en texto plano', async () => {
+  const storage = createStorage();
+  const repository = Profiles.createRepository(storage);
+  assert.throws(() => repository.save({ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }), /API key cifrada/);
+  assert.throws(() => repository.mergeImported([{ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }]), /API key cifrada/);
+  await repository.saveEditable({ id: 'safe', name: 'Safe', settings: { apiKey: 'sk-secret' } });
+  assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
+  assert.equal(typeof repository.get('safe').settings.apiKey, 'object');
+  assert.doesNotMatch(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-secret/);
+});
+
+test('ProfileRepository - un perfil bloqueado no se modifica ni borra por otras rutas', async () => {
+  const repository = Profiles.createRepository(createStorage());
+  const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
+  assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /bloqueados/);
+  assert.throws(() => repository.remove('locked'), /bloqueados/);
+  assert.equal((await repository.load('locked')).settings.apiKey, 'sk-locked');
+});
+
+test('ProfileRepository - no reinicializa silenciosamente documentos con API keys antiguas', () => {
+  const storage = createStorage();
+  storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [{ id: 'old', name: 'Old', settings: { apiKey: 'sk-plain' } }] }));
+  assert.throws(() => Profiles.createRepository(storage).list(), /API key cifrada/);
+  assert.match(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
+});
+
+test('ProfileRepository - rechaza una importación que intenta modificar Espejo', () => {
+  const repository = Profiles.createRepository(createStorage());
+  assert.throws(() => repository.mergeImported([
+    { id: Profiles.READONLY_PROFILE_ID, name: 'Espejo', settings: { model: 'changed' } }
+  ]), /Espejo/);
+  assert.equal(repository.get(Profiles.READONLY_PROFILE_ID).settings.model, 'mirror');
+});

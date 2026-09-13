@@ -140,6 +140,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.click('#btn-edit-profiles');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
     assert.equal(await page.locator('#btn-delete-profile').isDisabled(), true);
+    assert.equal(await page.locator('#btn-clone-profile').count(), 0);
     await page.selectOption('#profile-select-helper', 'profile:remote');
     await page.click('#profile-tab-settings');
     assert.equal(await page.locator('#setting-api-key').isEnabled(), true);
@@ -176,7 +177,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.click('#notice-accept');
     await page.click('#btn-close-profiles');
     assert.equal(await page.textContent('#active-profile-name'), 'Espejo');
-    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().apiKey), '');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().apiKey), undefined);
     await page.reload({ waitUntil: 'load' });
     assert.equal(await page.textContent('#active-profile-name'), 'Espejo');
     await page.fill('#user-input', 'Mirror regression test');
@@ -299,6 +300,9 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   try {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
+      activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
+    })));
     await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
@@ -319,7 +323,7 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   }
 });
 
-test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
+test('Browser UI - guardar perfiles exige un cambio', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -335,7 +339,34 @@ test('Browser UI - guardar perfiles exige consultar el servidor', async () => {
     }));
 
     assert.equal(state.disabled, true);
-    assert.match(state.hint, /Consulta el servidor/);
+    assert.match(state.hint, /Realiza algún cambio/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un modelo libre', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
+      activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
+    })));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.click('#profile-tab-settings');
+    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Sin cambios no debe guardarse');
+    const initialModel = await page.locator('#setting-model').inputValue();
+    await page.fill('#setting-model', 'modelo-personalizado');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
+    await page.fill('#setting-model', initialModel);
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Al deshacer el cambio vuelve a deshabilitarse');
+    await page.click('#profile-tab-model');
+    await page.fill('#setting-system-prompt', 'Instrucción personalizada');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otra pestaña habilita Guardar');
   } finally {
     await browser.close();
   }
@@ -479,7 +510,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     });
     await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
-    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
 
     // 1. Pulsar botón Cerrar con consulta pendiente abre diálogo de confirmación (con Cancelar y Aceptar)
     await page.click('#btn-cancel-profiles');
@@ -521,7 +552,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
-    await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
 
     // Clic en el backdrop
     await page.mouse.click(10, 10);
@@ -1434,7 +1465,16 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.click('#notice-accept');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://playwright-test:1234/v1');
-    await page.evaluate(() => { window.ChatUIInspector.handleQueryServer = async () => true; });
+    await page.evaluate(() => {
+      window.ChatUIInspector.handleQueryServer = async () => {
+        const model = document.getElementById('setting-model');
+        const select = document.getElementById('model-select-helper');
+        select.replaceChildren(new Option('query-model', 'query-model'));
+        select.value = 'query-model';
+        model.value = 'query-model';
+        return true;
+      };
+    });
     await page.click('#btn-query-server');
     await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     await page.click('#btn-save-profile');
@@ -1464,7 +1504,16 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.fill('#setting-profile-name', 'Perfil Temporal renombrado');
     await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://active-profile-test:1234/v1');
-    await page.evaluate(() => { window.ChatUIInspector.handleQueryServer = async () => true; });
+    await page.evaluate(() => {
+      window.ChatUIInspector.handleQueryServer = async () => {
+        const model = document.getElementById('setting-model');
+        const select = document.getElementById('model-select-helper');
+        select.replaceChildren(new Option('query-model', 'query-model'));
+        select.value = 'query-model';
+        model.value = 'query-model';
+        return true;
+      };
+    });
     await page.click('#btn-query-server');
     await page.waitForFunction(() => !document.getElementById('btn-save-profile').disabled);
     await page.click('#btn-save-profile');
@@ -3100,6 +3149,65 @@ test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://',
 
     assert.equal(result.ok, true, `Worker debe arrancar en file:// sin fallar: ${result.error || ''}`);
     assert.equal(result.workerCreated, true);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - carga una copia cifrada de perfiles tras confirmación', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    const encrypted = await page.evaluate(async () => window.ChatProfileBackup.encryptProfiles([{
+      id: 'profile:imported-browser', name: 'Imported browser profile', description: 'Imported test',
+      settings: { apiType: 'openai', apiUrl: 'https://example.test/v1', apiKey: await window.ChatProfileBackup.encryptApiKey('sk-browser-import'), model: 'test-model' }
+    }]));
+    await page.locator('#profiles-import-input').setInputFiles({
+      name: 'profiles.zcp', mimeType: 'application/json', buffer: Buffer.from(encrypted)
+    });
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.match(await page.locator('#notice-message').textContent(), /1 perfil/i);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !!window.ChatProfileRepository.get('profile:imported-browser'));
+    const imported = await page.evaluate(() => window.ChatProfileRepository.get('profile:imported-browser'));
+    assert.notEqual(typeof imported.settings.apiKey, 'string');
+    assert.equal(await page.evaluate(async () => (await window.ChatProfileRepository.load('profile:imported-browser')).settings.apiKey), 'sk-browser-import');
+    assert.equal(await page.locator('#profiles-import-input').inputValue(), '');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador no bloquea', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.evaluate(async () => {
+      const repository = window.ChatProfileRepository;
+      await repository.saveEditable({ id: 'profile:unlocked-test', name: 'Unlocked test', settings: { apiType: 'openai', model: 'test', apiKey: '' } });
+      await repository.saveEditable({ id: 'profile:locked-test', name: 'Locked test', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-locked', apiKeyLocked: true } });
+    });
+    await page.click('#btn-open-settings');
+    await page.click('#btn-manage-profiles');
+    await page.selectOption('#profile-select-helper', 'profile:unlocked-test');
+    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    await page.check('#setting-api-key-locked');
+    assert.equal(await page.locator('#setting-profile-name').isDisabled(), false, 'Marcar el borrador no bloquea de inmediato');
+    await page.selectOption('#profile-select-helper', 'profile:locked-test');
+    await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
+    assert.equal(await page.locator('#api-key-locked-status').isVisible(), true);
+    assert.equal(await page.locator('#api-key-lock-control').isVisible(), false);
+    for (const selector of ['#setting-profile-name', '#setting-api-url', '#setting-api-key', '#setting-model', '#setting-system-prompt', '#setting-temperature']) {
+      assert.equal(await page.locator(selector).isDisabled(), true, `${selector} debe quedar bloqueado`);
+    }
+    assert.equal(await page.locator('#profile-select-helper').isDisabled(), false);
   } finally {
     await browser.close();
   }

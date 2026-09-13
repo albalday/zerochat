@@ -454,7 +454,7 @@
     const result = await runtime.execute({
       apiUrl: params.apiUrl || appConfig.apiUrl,
       apiType: params.apiType || appConfig.apiType,
-      apiKey: params.apiKey || appConfig.apiKey,
+      apiKey: params.apiKey || '',
       model: params.model || appConfig.model,
       temperature: params.temperature !== undefined ? params.temperature : appConfig.temperature,
       reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'none',
@@ -475,7 +475,7 @@
         const response = await API.streamChatCompletion({
           apiUrl: params.apiUrl || appConfig.apiUrl,
           apiType: params.apiType || appConfig.apiType,
-          apiKey: params.apiKey || appConfig.apiKey,
+          apiKey: params.apiKey || '',
           model: params.model || appConfig.model,
           messages: [
             { role: 'system', content: systemPrompt },

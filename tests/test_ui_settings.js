@@ -71,7 +71,6 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
   const profileData = {
     apiType: 'anthropic',
     apiUrl: 'https://api.anthropic.com/v1',
-    apiKey: 'sk-ant-test',
     model: 'claude-3-7-sonnet',
     systemPrompt: 'Eres un asistente experto.',
     systemDataPrompt: 'Formato ZeroChat.',
@@ -84,7 +83,7 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
 
   assert.equal(elements.settingApiType.value, 'anthropic');
   assert.equal(elements.settingApiUrl.value, 'https://api.anthropic.com/v1');
-  assert.equal(elements.settingApiKey.value, 'sk-ant-test');
+  assert.equal(elements.settingApiKey.value, '', 'La clave solo se carga desde el repositorio cifrado');
   assert.equal(elements.settingModel.value, 'claude-3-7-sonnet');
   assert.equal(elements.settingSystemPrompt.value, 'Eres un asistente experto.');
   assert.equal(elements.settingSystemDataPrompt.value, 'Formato ZeroChat.');
@@ -103,42 +102,6 @@ test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns correctamente', 
   const appConfig = { maxAgentTurns: 15 };
   const config = UISettings.gatherCurrentFormConfig(elements, appConfig);
   assert.equal(config.maxAgentTurns, 25);
-});
-
-test('UISettings - handleSaveProfile delega el guardado al editor sin mutar la configuración activa', () => {
-  let profileSaved = null;
-
-  const elements = {
-    settingProfileName: { value: 'Perfil Ollama Rápido' },
-    settingApiUrl: { value: 'http://localhost:11434' },
-    settingApiType: { value: 'ollama' },
-    settingApiKey: { value: '' },
-    settingModel: { value: 'llama3.2:latest' },
-    settingSystemPrompt: { value: 'Instrucciones locales' },
-    settingTemperature: { value: '0.5' },
-    settingEnableRawLogs: { checked: false },
-    profileActionFeedback: { style: { display: 'none' }, className: '', textContent: '' }
-  };
-
-  const appConfig = {
-    activeProfileName: 'Local chat',
-    apiUrl: 'http://localhost:1234/v1',
-    theme: 'dark',
-    language: 'es'
-  };
-
-  const saved = UISettings.handleSaveProfile(elements, appConfig, (name, data) => { profileSaved = { name, data }; });
-
-  assert.ok(saved, 'Debe retornar la configuración guardada');
-  assert.equal(saved.activeProfileName, 'Perfil Ollama Rápido');
-  assert.equal(saved.apiUrl, 'http://localhost:11434');
-  assert.equal(saved.model, 'llama3.2:latest');
-
-  assert.ok(profileSaved, 'Debe delegar el guardado en el repositorio de perfiles');
-  assert.equal(profileSaved.name, 'Perfil Ollama Rápido');
-  assert.equal(profileSaved.data.apiUrl, 'http://localhost:11434');
-
-  assert.equal(elements.profileActionFeedback.style.display, 'block');
 });
 
 test('UISettings - no coordina el borrado de perfiles, que corresponde a app.js', () => {
@@ -177,4 +140,3 @@ test('UISettings - applyProfileToForm mapea webllmConfig a selects asignando def
   assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
   assert.equal(elements.webllmParamsPanel.hidden, true);
 });
-

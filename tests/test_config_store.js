@@ -8,7 +8,7 @@ function createFixture() {
   const profile = {
     id: 'office', name: 'Servidor Oficina', version: 3,
     settings: {
-      apiUrl: 'http://office.test/v1', apiType: 'openai', apiKey: 'secret',
+      apiUrl: 'http://office.test/v1', apiType: 'openai',
       model: 'qwen-office', systemPrompt: 'Oficina', temperature: '0.2',
       reasoningEffort: 'high', enabledTools: { search_web: false },
       enableRawLogs: true
@@ -123,13 +123,13 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
   const config = store.initialize();
   assert.equal(updates, 1);
   assert.equal(config.apiType, 'mirror');
-  assert.equal(config.apiKey, '');
+  assert.equal(config.apiKey, undefined);
   assert.equal(config.theme, 'dark');
-  profiles.save({ id: 'test', name: 'Test', settings: { apiKey: 'test-only', model: 'test' } });
+  profiles.save({ id: 'test', name: 'Test', settings: { model: 'test' } });
   store.activateProfile('test');
   profiles.remove('test');
   const fallback = store.activateFallbackProfile();
   assert.equal(fallback.activeProfile.id, Profiles.READONLY_PROFILE_ID);
-  assert.equal(fallback.apiKey, '');
+  assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
 });

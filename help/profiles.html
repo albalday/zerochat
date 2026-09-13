@@ -35,6 +35,15 @@
       <div class="alert alert-info">
         <strong>Conmutación instantánea:</strong> Puedes cambiar de modelo o de proveedor entre mensajes sin perder el hilo de la conversación. Solo tienes que desplegar el menú de perfil y elegir otro.
       </div>
+      <p>
+        El mantenedor también permite <strong>Exportar</strong> todas las definiciones editables y <strong>Cargar</strong> una copia anterior. El archivo <code>.zcp</code> incluye las claves de API y se cifra antes de descargarse; al cargarlo, ZeroChat pide confirmación y actualiza los perfiles que tengan el mismo identificador, sin alterar el perfil Espejo.
+      </p>
+      <p>
+        Las claves de API se guardan cifradas en el almacenamiento local del navegador y permanecen cifradas dentro de la copia, que añade una segunda capa de cifrado. La casilla <strong>Bloquear cambios</strong> de la pestaña General marca el perfil como no editable al volver a cargarlo; el bloqueo abarca todas sus pestañas.
+      </p>
+      <div class="alert alert-warning">
+        <strong>Protección de transporte:</strong> la clave maestra está integrada en ZeroChat para facilitar la reutilización de los perfiles. El cifrado evita que las claves se vean al abrir el archivo, pero no debe considerarse protección frente a quien tenga acceso al código de la aplicación. Comparte estas copias solo mediante canales de confianza.
+      </div>
     </div>
 
     <div class="card">

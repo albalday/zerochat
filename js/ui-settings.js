@@ -163,9 +163,10 @@
     if (elements.settingApiUrl && profileData.apiUrl !== undefined) {
       elements.settingApiUrl.value = profileData.apiUrl;
     }
-    if (elements.settingApiKey && profileData.apiKey !== undefined) {
-      elements.settingApiKey.value = profileData.apiKey;
-    }
+    if (elements.settingApiKeyLocked) elements.settingApiKeyLocked.checked = profileData.apiKeyLocked === true;
+    if (elements.profilesDialog) elements.profilesDialog.dataset.profileLocked = String(profileData.apiKeyLocked === true);
+    if (elements.apiKeyLockControl) elements.apiKeyLockControl.hidden = profileData.apiKeyLocked === true;
+    if (elements.apiKeyLockedStatus) elements.apiKeyLockedStatus.hidden = profileData.apiKeyLocked !== true;
     if (elements.settingModel && profileData.model !== undefined) {
       elements.settingModel.value = profileData.model;
     }
@@ -211,13 +212,23 @@
     if (elements?.webllmParamsPanel) elements.webllmParamsPanel.hidden = true;
     if (elements?.btnWebllmParams?.classList) elements.btnWebllmParams.classList.remove('active');
     syncProviderFields(elements);
+    syncApiKeyLock(elements);
+  }
+
+  function syncApiKeyLock(elements, readOnly = false) {
+    const locked = elements?.profilesDialog?.dataset.profileLocked === 'true';
+    elements?.profilesDialog?.querySelectorAll('.modal-tab-pane input, .modal-tab-pane textarea, .modal-tab-pane select, .modal-tab-pane button').forEach(control => {
+      if (control === elements.profileSelectHelper || control.hasAttribute('data-profile-global-action')) return;
+      control.disabled = readOnly || locked || (control === elements.settingApiKey && control.closest('.api-key-field')?.hidden === true);
+    });
+    if (elements?.settingApiKeyLocked) elements.settingApiKeyLocked.disabled = readOnly || locked;
   }
 
   function syncProviderFields(elements) {
     const providerId = elements?.settingApiType?.value || 'openai';
     const adapter = getProviders()?.registry?.get?.(providerId);
     const connection = adapter?.getConnectionConfig?.() || {};
-    const local = connection.localModelManagement === true;
+    const isWebLLM = providerId === 'webllm';
     if (connection.endpointReadOnly && connection.endpoint && elements.settingApiUrl) {
       elements.settingApiUrl.value = connection.endpoint;
     }
@@ -231,11 +242,10 @@
     const field = typeof elements?.settingApiUrl?.closest === 'function'
       ? elements.settingApiUrl.closest('.form-field') : null;
     const hint = field?.querySelector('.webllm-local-hint') || elements?.webllmLocalHint;
-    if (hint) hint.hidden = !local;
+    if (hint) hint.hidden = !isWebLLM;
     const helpLink = field?.querySelector('.webllm-help-link') || elements?.webllmHelpLink || (typeof document !== 'undefined' ? document.getElementById('webllm-help-link') : null);
-    if (helpLink) helpLink.hidden = !local;
+    if (helpLink) helpLink.hidden = providerId !== 'webllm';
 
-    const isWebLLM = providerId === 'webllm';
     const btnWebllmParams = elements?.btnWebllmParams || (typeof document !== 'undefined' ? document.getElementById('btn-webllm-params') : null);
     const webllmParamsPanel = elements?.webllmParamsPanel || (typeof document !== 'undefined' ? document.getElementById('webllm-params-panel') : null);
     if (btnWebllmParams) btnWebllmParams.hidden = !isWebLLM;
@@ -265,7 +275,6 @@
       activeProfileName: profileName,
       apiUrl: elements?.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || 'http://localhost:1234/v1'),
       apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
-      apiKey: elements?.settingApiKey ? elements.settingApiKey.value.trim() : '',
       model: selectedModel,
       webllmConfig,
       // El límite publicado pertenece a la conexión en ejecución, no al formulario.
@@ -303,14 +312,6 @@
       }
     }, 4000);
     if (typeof timer?.unref === 'function') timer.unref();
-  }
-
-  function handleSaveProfile(elements, appConfig, saveProfile) {
-    const currentConfig = gatherCurrentFormConfig(elements, appConfig);
-    const name = currentConfig.activeProfileName || 'Local chat';
-    if (typeof saveProfile === 'function') saveProfile(name, currentConfig);
-    showProfileFeedback(elements, t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
-    return currentConfig;
   }
 
   function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-general') {
@@ -365,7 +366,6 @@
     if (defaults && typeof defaults === 'object') {
       if (elements.settingApiType) elements.settingApiType.value = defaults.apiType || 'openai';
       if (elements.settingApiUrl) elements.settingApiUrl.value = defaults.apiUrl;
-      if (elements.settingApiKey) elements.settingApiKey.value = defaults.apiKey;
       if (elements.settingModel) elements.settingModel.value = defaults.model;
       if (elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = defaults.systemDataPrompt || '';
 
@@ -677,17 +677,14 @@
   }
 
   function syncProfileEditor(elements, readOnly, canSave = null) {
-    elements.profilesDialog?.querySelectorAll('.modal-tab-pane input, .modal-tab-pane textarea, .modal-tab-pane select, .modal-tab-pane button').forEach(input => {
-      if (input !== elements.profileSelectHelper) input.disabled = readOnly;
-    });
-    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly;
+    const locked = elements.profilesDialog?.dataset.profileLocked === 'true';
+    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly || locked;
     const saveAllowed = canSave !== null ? Boolean(canSave) : (elements.profilesDialog?.dataset.queryReady === 'true');
-    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || !saveAllowed;
+    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || locked || !saveAllowed;
+    syncApiKeyLock(elements, readOnly);
     if (elements.profileSaveQueryHint) {
       if (readOnly) {
         elements.profileSaveQueryHint.textContent = t('err_profile_read_only');
-      } else if (elements.profilesDialog?.dataset.queryReady === 'true') {
-        elements.profileSaveQueryHint.textContent = t('profile_query_save_pending');
       }
     }
   }
@@ -701,7 +698,7 @@
       <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
     </div>
     <div class="modal-tabs-nav profile-tabs-nav" role="tablist" aria-label="Secciones del perfil">
-      <button type="button" id="profile-tab-name" class="modal-tab-btn active" role="tab" aria-selected="true" aria-controls="profile-tab-name-pane" data-profile-tab="profile-tab-name-pane"><span data-i18n="profile_tab_name">Nombre</span></button>
+      <button type="button" id="profile-tab-name" class="modal-tab-btn active" role="tab" aria-selected="true" aria-controls="profile-tab-name-pane" data-profile-tab="profile-tab-name-pane"><span data-i18n="profile_tab_name">General</span></button>
       <button type="button" id="profile-tab-settings" class="modal-tab-btn" role="tab" aria-selected="false" aria-controls="profile-tab-settings-pane" data-profile-tab="profile-tab-settings-pane"><span data-i18n="profile_tab_settings">Configuración</span></button>
       <button type="button" id="profile-tab-model" class="modal-tab-btn" role="tab" aria-selected="false" aria-controls="profile-tab-model-pane" data-profile-tab="profile-tab-model-pane"><span data-i18n="profile_tab_model">Modelo</span></button>
     </div>
@@ -718,11 +715,20 @@
         </div>
           <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" list="profile-datalist" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
           <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="3" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
+          <div class="profile-profile-lock-row"><span id="api-key-lock-control" class="profile-lock-control"><input type="checkbox" id="setting-api-key-locked"><span data-i18n="profile_api_key_lock">Bloquear cambios</span></span><span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span></div>
+          <section class="profile-values-card profile-backup-card" aria-labelledby="profiles-backup-title">
+            <div class="profile-backup-copy"><strong id="profiles-backup-title" data-i18n="profiles_backup_title">Copia y restauración de perfiles</strong><span data-i18n="profiles_backup_description">Estas acciones afectan a todos los perfiles editables, no solo al perfil seleccionado.</span></div>
+            <div class="profile-backup-actions">
+              <button type="button" id="btn-export-profiles" class="btn-profile-action btn-secondary" data-profile-global-action data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg><span data-i18n="btn_export_profiles">Exportar</span></button>
+              <button type="button" id="btn-import-profiles" class="btn-profile-action btn-secondary" data-profile-global-action data-i18n-title="btn_import_profiles_title" title="Cargar perfiles desde un archivo cifrado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg><span data-i18n="btn_import_profiles">Cargar</span></button>
+              <input id="profiles-import-input" type="file" accept="application/json,.zcp" data-profile-global-action hidden>
+            </div>
+          </section>
         </div>
         <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
         <div class="profile-values-card">
           <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
-          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_query_required">Consulta el servidor para habilitar el guardado.</span></div>
+          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
           <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
           <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist><button type="button" id="btn-webllm-params" class="btn-webllm-params" data-i18n-title="btn_webllm_params_title" title="Parámetros avanzados de rendimiento WebLLM" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg></button></div><div id="webllm-params-panel" class="webllm-params-panel" hidden><div class="webllm-params-title"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg><span data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</span></div><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="2048">2048 (2K)</option><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div></div>
         </div>
@@ -743,7 +749,6 @@
       <div class="modal-footer profile-actions-footer">
         <div class="footer-actions-left">
           <button type="button" id="btn-new-profile" class="btn-profile-action btn-secondary" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg><span data-i18n="btn_new_profile">Nuevo</span></button>
-          <button type="button" id="btn-clone-profile" class="btn-profile-action btn-secondary" data-i18n-title="btn_clone_profile_title" title="Clonar el perfil seleccionado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg><span data-i18n="btn_clone_profile">Clonar</span></button>
           <button type="button" id="btn-delete-profile" class="btn-profile-action btn-delete-profile" data-i18n-title="btn_delete_profile_title" title="Eliminar el perfil seleccionado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg><span data-i18n="btn_delete_profile">Borrar</span></button>
         </div>
         <div class="footer-actions-right">
@@ -783,9 +788,9 @@
     gatherEnabledToolsFromUI,
     applyProfileToForm,
     syncProviderFields,
+    syncApiKeyLock,
     gatherCurrentFormConfig,
     showProfileFeedback,
-    handleSaveProfile,
     openSettingsModal,
     closeSettingsModal,
     handleResetSettings,

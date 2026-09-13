@@ -33,6 +33,7 @@
   const ToolCards = window.ChatToolCards || {};
   const Attachments = window.ChatAttachments || {};
   const Export = window.ChatExport || {};
+  const ProfileBackup = window.ChatProfileBackup || {};
   const State = window.ChatState || {};
   const ContextManager = window.ChatContextManager || {};
   const AgentCore = window.ChatAgentCore || {};
@@ -66,7 +67,6 @@
   const fallbackConfig = {
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
-    apiKey: '',
     model: '',
     systemPrompt: '',
     systemDataPrompt: '',
@@ -249,7 +249,9 @@
       profileTabs: document.querySelectorAll('#profiles-dialog [data-profile-tab]'),
       profilePanes: document.querySelectorAll('#profiles-dialog .modal-tab-pane'),
       btnNewProfile: document.getElementById('btn-new-profile'),
-      btnCloneProfile: document.getElementById('btn-clone-profile'),
+      btnExportProfiles: document.getElementById('btn-export-profiles'),
+      btnImportProfiles: document.getElementById('btn-import-profiles'),
+      profilesImportInput: document.getElementById('profiles-import-input'),
       btnSaveProfile: document.getElementById('btn-save-profile'),
       btnDeleteProfile: document.getElementById('btn-delete-profile'),
       profileActionFeedback: document.getElementById('profile-action-feedback'),
@@ -259,6 +261,9 @@
       btnQueryServer: document.getElementById('btn-query-server'),
       serverQueryStatus: document.getElementById('server-query-status'),
       settingApiKey: document.getElementById('setting-api-key'),
+      settingApiKeyLocked: document.getElementById('setting-api-key-locked'),
+      apiKeyLockControl: document.getElementById('api-key-lock-control'),
+      apiKeyLockedStatus: document.getElementById('api-key-locked-status'),
       settingModel: document.getElementById('setting-model'),
       modelDatalist: document.getElementById('model-datalist'),
       modelSelectHelper: document.getElementById('model-select-helper'),
@@ -623,9 +628,6 @@
       }
       if (elements.settingApiUrl) {
         elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
-      }
-      if (elements.settingApiKey) {
-        elements.settingApiKey.value = config.apiKey || '';
       }
       if (elements.settingModel) {
         elements.settingModel.value = config.model || '';
@@ -1130,10 +1132,11 @@
 
     try {
       const runner = window.ChatEngine || Engine;
+      const activeProfile = await Profiles.load(runtimeConfig.activeProfile?.id);
       const loopResult = await runner.executeAgentTurnLoop({
         apiUrl: runtimeConfig.apiUrl,
         apiType: runtimeConfig.apiType,
-        apiKey: runtimeConfig.apiKey,
+        apiKey: activeProfile?.settings.apiKey || '',
         model: runtimeConfig.model,
         temperature: runtimeConfig.temperature,
         reasoningEffort: runtimeConfig.reasoningEffort || 'none',
@@ -1356,9 +1359,28 @@
     }
   }
 
-  function applyProfileToForm(profileData) {
+  async function applyProfileToForm(profileData, profileId = null) {
     if (UISettings.applyProfileToForm) {
+      const id = profileId || elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id;
+      const keyInput = elements.settingApiKey;
+      if (keyInput) {
+        keyInput._loadedApiKey = undefined;
+        keyInput.value = '';
+      }
       UISettings.applyProfileToForm(elements, profileData);
+      syncProfileSaveState();
+      try {
+        const profile = id ? await Profiles.load(id) : null;
+        if (!keyInput || (elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
+        const apiKey = profile?.settings.apiKey || '';
+        keyInput.value = apiKey;
+        keyInput._loadedApiKey = apiKey;
+        syncProfileSaveState();
+      } catch (error) {
+        if ((elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
+        syncProfileSaveState();
+        showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+      }
     }
   }
 
@@ -1422,43 +1444,41 @@
   }
 
   function canSaveProfile() {
-    if (isProfileQueryReady()) return true;
-    const apiType = elements.settingApiType?.value || '';
-    if (apiType === 'webllm') {
-      const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
-      if (selectedModel && isDownloadedWebLLMModel(selectedModel)) {
-        return true;
-      }
-    }
-    return false;
+    return isProfileFormDirty();
   }
 
   function syncProfileSaveState() {
-    const ready = isProfileQueryReady();
     const canSave = canSaveProfile();
     const isReadOnly = elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID;
     UISettings.syncProfileEditor?.(elements, isReadOnly, canSave);
+    const keyUnavailable = elements.settingApiKey?._loadedApiKey === undefined;
+    if (keyUnavailable && elements.settingApiKey) elements.settingApiKey.disabled = true;
+    if (keyUnavailable && elements.btnSaveProfile) elements.btnSaveProfile.disabled = true;
     if (!isReadOnly) {
-      if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !canSave;
+      if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !canSave || keyUnavailable || elements.profilesDialog?.dataset.profileLocked === 'true';
       if (elements.profileSaveQueryHint) {
         const apiType = elements.settingApiType?.value || '';
         const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
-        if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
-          elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'webllm_query_optional');
+        if (!isProfileFormDirty()) {
+          elements.profileSaveQueryHint.textContent = t('profile_save_changes_required');
+        } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
+          elements.profileSaveQueryHint.textContent = t('webllm_query_optional');
         } else {
-          elements.profileSaveQueryHint.textContent = t(ready ? 'profile_query_save_pending' : 'profile_query_required');
+          elements.profileSaveQueryHint.textContent = t('profile_save_pending');
         }
       }
     }
   }
 
-  function handleSaveProfile() {
+  async function handleSaveProfile() {
+    if (elements.settingApiKey?._loadedApiKey === undefined) return false;
+    if (elements.profilesDialog?.dataset.profileLocked === 'true') return false;
     if (!canSaveProfile()) {
-      showProfileFeedback(t('profile_query_required'), 'error');
+      showProfileFeedback(t('profile_save_changes_required'), 'error');
       return false;
     }
     const name = String(elements.settingProfileName?.value || '').trim();
-    if (!name || !Profiles.save) return false;
+    if (!name || !Profiles.saveEditable) return false;
     const selected = Profiles.get?.(elements.profileSelectHelper?.value || '') || null;
     if (selected?.id === Profiles.READONLY_PROFILE_ID) {
       showProfileFeedback(t('err_profile_read_only'), 'error');
@@ -1477,19 +1497,29 @@
     const existing = selected || sameName;
     const baseSettings = existing?.settings || getRuntimeConfig();
     const formConfig = gatherCurrentFormConfig();
-    const saved = Profiles.save({
+    const apiKey = elements.settingApiKey?.value.trim() || '';
+    const description = elements.settingProfileDescription?.value.trim() || '';
+    const apiType = elements.settingApiType?.value || baseSettings.apiType;
+    const apiUrl = elements.settingApiUrl?.value.trim() || baseSettings.apiUrl;
+    const model = elements.settingModel?.value.trim() || '';
+    const systemPrompt = elements.settingSystemPrompt?.value.trim() || '';
+    const temperature = elements.settingTemperature?.value || baseSettings.temperature || '0.7';
+    const maxAgentTurns = elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15);
+    const apiKeyLocked = elements.settingApiKeyLocked?.checked === true;
+    const saved = await Profiles.saveEditable({
       id: existing?.id || `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
-      description: elements.settingProfileDescription?.value.trim() || '',
+      description,
       settings: {
         ...baseSettings,
-        apiType: elements.settingApiType?.value || baseSettings.apiType,
-        apiUrl: elements.settingApiUrl?.value.trim() || baseSettings.apiUrl,
-        apiKey: elements.settingApiKey?.value.trim() || '',
-        model: elements.settingModel?.value.trim() || '',
-        systemPrompt: elements.settingSystemPrompt?.value.trim() || '',
-        temperature: elements.settingTemperature?.value || baseSettings.temperature || '0.7',
-        maxAgentTurns: elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15),
+        apiType,
+        apiUrl,
+        apiKey,
+        apiKeyLocked,
+        model,
+        systemPrompt,
+        temperature,
+        maxAgentTurns,
         webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
           context_window_size: 'default',
           prefill_chunk_size: 'default'
@@ -1497,6 +1527,7 @@
       }
     });
     populateProfileSelector(saved.id);
+    if (elements.settingApiKey) elements.settingApiKey._loadedApiKey = apiKey;
     setSelectedProfileAsDefault(saved);
     setProfileQueryState(false);
     showProfileFeedback(t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
@@ -1538,9 +1569,11 @@
 
     if (elements.settingApiKey) {
       const currentKey = elements.settingApiKey.value.trim();
-      const baseKey = (baseSettings.apiKey || '').trim();
+      const baseKey = elements.settingApiKey._loadedApiKey;
+      if (baseKey === undefined) return false;
       if (currentKey !== baseKey) return true;
     }
+    if (elements.settingApiKeyLocked?.checked !== (baseSettings.apiKeyLocked === true)) return true;
 
     if (elements.settingModel) {
       const currentModel = elements.settingModel.value.trim();
@@ -1596,7 +1629,7 @@
       button.setAttribute('aria-selected', String(active));
     });
     elements.profilePanes.forEach(pane => pane.classList.toggle('active', pane === targetPane));
-    [elements.btnNewProfile, elements.btnCloneProfile].forEach(button => {
+    [elements.btnNewProfile].forEach(button => {
       if (button) button.disabled = !isNameTab;
     });
   }
@@ -1662,13 +1695,13 @@
     return name;
   }
 
-  function saveProfileRecord(name, settings, description = '') {
-    if (!Profiles.save) return null;
-    const saved = Profiles.save({
+  async function saveProfileRecord(name, settings, description = '') {
+    if (!Profiles.saveEditable) return null;
+    const saved = await Profiles.saveEditable({
       id: `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
       description,
-      settings
+      settings: { ...settings, apiKey: '' }
     });
     populateProfileSelector(saved.id);
     applyProfileToForm(saved.settings);
@@ -1680,20 +1713,45 @@
   async function handleNewProfile() {
     const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
     if (!name) return;
-    const saved = saveProfileRecord(name, Profiles.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', apiKey: '', model: '' });
+    const saved = await saveProfileRecord(name, Profiles.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', model: '' });
     if (saved) showProfileFeedback(t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
   }
 
-  async function handleCloneProfile() {
-    const source = Profiles.get?.(elements.profileSelectHelper?.value || '');
-    if (!source) {
-      showProfileFeedback(t('err_profile_select_to_clone') || 'Selecciona un perfil para clonarlo.', 'error');
-      return;
+  async function handleExportProfiles() {
+    try {
+      if (!ProfileBackup.encryptProfiles || !Export.downloadFile || !Profiles.list) throw new Error('La copia de perfiles no está disponible.');
+      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
+      const encrypted = await ProfileBackup.encryptProfiles(profiles);
+      const date = new Date().toISOString().slice(0, 10);
+      if (!Export.downloadFile(encrypted, `zerochat_profiles_${date}.zcp`, 'application/json')) throw new Error('No se pudo descargar el archivo.');
+      showProfileFeedback(t('msg_profiles_exported'), 'success');
+    } catch (error) {
+      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
     }
-    const name = await requestNewProfileName(t('prompt_clone_profile_name', { name: source.name }) || `Nombre de la copia de "${source.name}":`);
-    if (!name) return;
-    const saved = saveProfileRecord(name, source.settings, source.description || '');
-    if (saved) showProfileFeedback(t('msg_profile_cloned', { name }) || `Perfil clonado como "${name}".`, 'success');
+  }
+
+  async function handleImportProfiles(event) {
+    const file = event.target?.files?.[0];
+    try {
+      if (!file || !ProfileBackup.decryptProfiles || !Profiles.mergeImported) return;
+      if (Number(file.size) > (ProfileBackup.MAX_FILE_BYTES || 1024 * 1024) * 2) throw new Error('El archivo supera el tamaño permitido.');
+      const imported = await ProfileBackup.decryptProfiles(await readFileAsText(file));
+      if (!await ChatDialogs.confirm(t('confirm_import_profiles', { count: imported.length }))) return;
+      const result = Profiles.mergeImported(imported);
+      const activeId = getRuntimeConfig().activeProfile?.id || '';
+      if (Profiles.get?.(activeId)) activateConnectionProfile(activeId);
+      else Config.activateFallbackProfile?.();
+      const selectedId = getRuntimeConfig().activeProfile?.id || Profiles.READONLY_PROFILE_ID;
+      populateProfileSelector(selectedId);
+      applyProfileToForm(Profiles.get?.(selectedId)?.settings || getRuntimeConfig());
+      setProfileQueryState(false);
+      updateUIFromConfig();
+      showProfileFeedback(t('msg_profiles_imported', result), 'success');
+    } catch (error) {
+      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+    } finally {
+      if (elements.profilesImportInput) elements.profilesImportInput.value = '';
+    }
   }
 
   function openSettingsModal(initialTabId = 'tab-general') {
@@ -1734,7 +1792,7 @@
   async function closeProfilesModal(force = false) {
     if (isClosingProfilesModal) return false;
     const hasUnsavedQuery = isProfileQueryReady();
-    const hasUnsavedChanges = isProfileFormDirty();
+    const hasUnsavedChanges = force ? false : isProfileFormDirty();
 
     if (!force && (hasUnsavedQuery || hasUnsavedChanges)) {
       isClosingProfilesModal = true;
@@ -2847,6 +2905,8 @@
       });
     }
     if (elements.profilesDialog) {
+      elements.profilesDialog.addEventListener('input', () => syncProfileSaveState());
+      elements.profilesDialog.addEventListener('change', () => syncProfileSaveState());
       elements.profilesDialog.addEventListener('cancel', function (e) {
         if (!isProfileQueryReady() && !isProfileFormDirty()) {
           setProfileQueryState(false);
@@ -2884,10 +2944,10 @@
         if (Profiles.findByName) {
           const profile = Profiles.findByName(typedName);
           if (profile) {
-            applyProfileToForm(profile.settings);
             if (elements.profileSelectHelper) {
               elements.profileSelectHelper.value = profile.id;
             }
+            applyProfileToForm(profile.settings, profile.id);
             if (elements.settingProfileDescription) {
               elements.settingProfileDescription.value = profile.description || '';
             }
@@ -2903,7 +2963,7 @@
     if (elements.btnSaveProfile) {
       elements.btnSaveProfile.addEventListener('click', (e) => {
         e.preventDefault();
-        if (handleSaveProfile()) closeProfilesModal(true);
+        handleSaveProfile().then(saved => { if (saved) closeProfilesModal(true); }).catch(error => showProfileFeedback(error.message, 'error'));
       });
     }
 
@@ -2911,8 +2971,13 @@
       elements.btnNewProfile.addEventListener('click', handleNewProfile);
     }
 
-    if (elements.btnCloneProfile) {
-      elements.btnCloneProfile.addEventListener('click', handleCloneProfile);
+    if (elements.btnExportProfiles) {
+      elements.btnExportProfiles.addEventListener('click', handleExportProfiles);
+    }
+
+    if (elements.btnImportProfiles && elements.profilesImportInput) {
+      elements.btnImportProfiles.addEventListener('click', () => elements.profilesImportInput.click());
+      elements.profilesImportInput.addEventListener('change', handleImportProfiles);
     }
 
     if (elements.btnDeleteProfile) {
@@ -3077,6 +3142,10 @@
         const profile = activeProfile && Profiles.get?.(activeProfile.id);
         if (!profile || !Profiles.save) {
           await ChatDialogs.alert(t('context_limit_override_profile_required'));
+          return;
+        }
+        if (profile.settings.apiKeyLocked === true) {
+          await ChatDialogs.alert(t('err_profile_read_only'));
           return;
         }
         try {

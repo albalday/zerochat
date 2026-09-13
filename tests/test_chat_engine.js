@@ -114,9 +114,11 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
 
 test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas', async (t) => {
   const originalStream = ChatAPI.streamChatCompletion;
+  let receivedApiKey;
 
   // Mock de streamChatCompletion para respuesta directa
   ChatAPI.streamChatCompletion = async (params) => {
+    receivedApiKey = params.apiKey;
     if (params.onChunk) {
       params.onChunk('Hola, ', 'Hola, ', { ttftSec: '0.12', tokensPerSec: '50.0', totalSec: '0.20', tokens: 10 });
       params.onChunk('Hola, ¿en qué puedo ayudarte hoy?', '¿en qué puedo ayudarte hoy?', { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 });
@@ -147,6 +149,7 @@ test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas
   const res = await ChatEngine.executeAgentTurnLoop({
     apiUrl: appConfig.apiUrl,
     apiType: appConfig.apiType,
+    apiKey: 'test-key',
     model: appConfig.model,
     chatHistory: history,
     appConfig: appConfig,
@@ -157,6 +160,7 @@ test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas
   });
 
   assert.equal(res.success, true);
+  assert.equal(receivedApiKey, 'test-key');
   assert.equal(res.finalAssistantText, 'Hola, ¿en qué puedo ayudarte hoy?');
   assert.equal(history.length, 2);
   assert.equal(history[1].role, 'assistant');

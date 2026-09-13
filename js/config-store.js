@@ -17,12 +17,13 @@
   const DEFAULTS = Object.freeze({
     schemaVersion: SCHEMA_VERSION,
     activeProfile: null,
-    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', apiKey: '', model: '', modelContextLimit: null, contextLimitOverride: null,
+    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', modelContextLimit: null, contextLimitOverride: null,
     systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'none', reasoningTransport: 'auto',
     maxAgentTurns: 15,
     modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true,
+    apiKeyLocked: false,
     theme: 'light', language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
     mcpHost: '127.0.0.1', mcpPort: 6388,
@@ -51,7 +52,7 @@
     delete next.sendDateTime;
     next.apiUrl = String(next.apiUrl || DEFAULTS.apiUrl).trim() || DEFAULTS.apiUrl;
     next.apiType = String(next.apiType || DEFAULTS.apiType).trim() || DEFAULTS.apiType;
-    next.apiKey = String(next.apiKey || '').trim();
+    delete next.apiKey;
     next.model = String(next.model || '').trim();
     const contextLimit = Number(next.modelContextLimit);
     next.modelContextLimit = Number.isFinite(contextLimit) && contextLimit > 0 ? Math.floor(contextLimit) : null;

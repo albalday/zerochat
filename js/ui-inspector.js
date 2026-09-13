@@ -519,7 +519,7 @@
     if (!elements || !elements.btnQueryServer) return false;
 
     const apiUrl = (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '').trim();
-    const apiKey = (elements.settingApiKey ? elements.settingApiKey.value : appConfig?.apiKey || '').trim();
+    const apiKey = (elements.settingApiKey?.value || '').trim();
     const apiType = (elements.settingApiType ? elements.settingApiType.value : appConfig?.apiType || 'openai').trim();
 
     if (!apiUrl) {
@@ -722,7 +722,7 @@
 
     const apiUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || '');
     const apiType = elements.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai');
-    const apiKey = elements.settingApiKey ? elements.settingApiKey.value.trim() : (appConfig?.apiKey || '');
+    const apiKey = (elements.settingApiKey?.value || '').trim();
     const model = elements.settingModel ? elements.settingModel.value.trim() : (appConfig?.model || '');
 
     if (!apiUrl) {
