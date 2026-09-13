@@ -3237,7 +3237,7 @@
         toolsContainer: elements.mcpToolsContainer
       });
       const currentCfg = getRuntimeConfig();
-      if (window.ChatMCP?.manager?.connectProxy) {
+      if (currentCfg?.mcpAutoConnect && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({
           host: currentCfg?.mcpHost || '127.0.0.1',
           port: currentCfg?.mcpPort || 6388,

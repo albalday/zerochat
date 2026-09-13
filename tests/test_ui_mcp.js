@@ -265,6 +265,57 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
   uiInstance.destroy();
 });
 
+test('ChatUIMcp - conectar y desconectar actualiza mcpAutoConnect en la configuración', async () => {
+  const ChatConfig = require('../js/config-store.js');
+  const updates = [];
+  const originalUpdateRuntime = ChatConfig.updateRuntime;
+  ChatConfig.updateRuntime = (patch) => {
+    updates.push(patch);
+    if (typeof originalUpdateRuntime === 'function') {
+      return originalUpdateRuntime(patch);
+    }
+    return patch;
+  };
+
+  try {
+    const listeners = {};
+    const elements = {
+      portInput: { value: '6388', addEventListener: () => {} },
+      hostInput: { value: '127.0.0.1', addEventListener: () => {} },
+      commandSnippet: { textContent: '' },
+      endpointPreview: { textContent: '' },
+      statusBadge: { className: '' },
+      statusText: { textContent: '' },
+      btnConnect: {
+        style: {}, disabled: false, innerHTML: '',
+        addEventListener: (evt, fn) => { listeners['connect:' + evt] = fn; }
+      },
+      btnDisconnect: {
+        style: {}, disabled: false, innerHTML: '',
+        addEventListener: (evt, fn) => { listeners['disconnect:' + evt] = fn; }
+      },
+      serverDetails: { style: {}, innerHTML: '' },
+      errorMessage: { style: {}, innerHTML: '' },
+      btnCopyCmd: { addEventListener: () => {} }
+    };
+
+    const uiInstance = ChatUIMcp.initMcpUI(elements);
+    assert.ok(uiInstance);
+
+    // Al pulsar conectar
+    await listeners['connect:click']();
+    assert.ok(updates.some(p => p.mcpAutoConnect === true && p.mcpHost === '127.0.0.1' && p.mcpPort === 6388));
+
+    // Al pulsar desconectar
+    listeners['disconnect:click']();
+    assert.ok(updates.some(p => p.mcpAutoConnect === false));
+
+    uiInstance.destroy();
+  } finally {
+    ChatConfig.updateRuntime = originalUpdateRuntime;
+  }
+});
+
 test('ChatUIMcp - initMcpUI gestiona apertura y cierre del modal de configuración', () => {
   const listeners = {};
   let modalOpen = false;

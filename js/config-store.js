@@ -26,7 +26,7 @@
     apiKeyLocked: false,
     theme: 'light', language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
-    mcpHost: '127.0.0.1', mcpPort: 6388,
+    mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     webllmConfig: {
       context_window_size: 'default',
       prefill_chunk_size: 'default'
@@ -74,6 +74,7 @@
     next.mcpHost = String(next.mcpHost || DEFAULTS.mcpHost).trim() || DEFAULTS.mcpHost;
     const parsedMcpPort = Number(next.mcpPort);
     next.mcpPort = Number.isInteger(parsedMcpPort) && parsedMcpPort >= 1024 && parsedMcpPort <= 65535 ? parsedMcpPort : DEFAULTS.mcpPort;
+    next.mcpAutoConnect = next.mcpAutoConnect === true;
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;

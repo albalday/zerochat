@@ -35,6 +35,7 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(config.schemaVersion, 2);
   assert.equal(config.theme, 'light');
   assert.equal(config.language, 'es');
+  assert.equal(config.mcpAutoConnect, false);
   assert.equal(config.activeProfile.name, 'Servidor Oficina');
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Debe conservar las instrucciones de datos de ZeroChat');
   assert.deepEqual(config.activeRagBranchIds, []);
@@ -132,4 +133,18 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
   assert.equal(fallback.activeProfile.id, Profiles.READONLY_PROFILE_ID);
   assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
+});
+
+test('ChatConfig - mcpAutoConnect es false por defecto y se actualiza mediante updateRuntime', () => {
+  const { store, getPersisted } = createFixture();
+  const config = store.initialize();
+  assert.equal(config.mcpAutoConnect, false);
+
+  const updated = store.updateRuntime({ mcpAutoConnect: true, mcpHost: '127.0.0.1', mcpPort: 6388 });
+  assert.equal(updated.mcpAutoConnect, true);
+  assert.equal(getPersisted().mcpAutoConnect, true);
+
+  const disabled = store.updateRuntime({ mcpAutoConnect: false });
+  assert.equal(disabled.mcpAutoConnect, false);
+  assert.equal(getPersisted().mcpAutoConnect, false);
 });
