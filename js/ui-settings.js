@@ -23,6 +23,7 @@
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
+  const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -383,6 +384,10 @@
   }
 
   async function handleClearAllData() {
+    const ResetService = getDataResetService();
+    if (ResetService?.resetAllData) {
+      return await ResetService.resetAllData();
+    }
     if (!await ChatDialogs.confirm(t('confirm_clear_all_data'))) return;
     const Storage = getStorage();
     let cleared = true;

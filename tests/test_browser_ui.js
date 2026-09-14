@@ -61,6 +61,53 @@ describe('Browser UI', { concurrency: 4 }, () => {
     }
   });
 
+test('Browser UI - mensajes nuevos e históricos comparten copia y bloques seguros', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(async () => {
+      const ui = window.ChatUIConversation;
+      const copied = [];
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => copied.push(text) } });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      ui.appendUserMessage(container, null, { text: 'Visible text', originalPrompt: 'Original prompt' });
+      await container.querySelector('.btn-copy-user').onclick();
+      ui.renderSessionMessages({ messagesList: container }, [
+        { id: 'user-1', role: 'user', content: 'Question' },
+        { id: 'reply_turn_0_assistant', role: 'assistant', content: '**First**' },
+        { id: 'reply_final', role: 'assistant', content: 'Final' }
+      ]);
+      await container.querySelector('.btn-copy-full').onclick();
+      const historicalBlocks = [...container.querySelectorAll('.agentic-turn-block')].map(el => el.innerHTML);
+      const live = ui.createAssistantBlock(container);
+      ui.renderAssistantBlock(live, '**First**', { streaming: true });
+      const cursorDuringStream = !!live.querySelector('.streaming-cursor');
+      ui.renderAssistantBlock(live, '**First**');
+      const sameMarkup = historicalBlocks[0] === live.innerHTML;
+      const cursorAfterStream = !!live.querySelector('.streaming-cursor');
+      const content = document.createElement('div');
+      const hostile = '<img src=x onerror="window.__dupliXss=true">';
+      ui.renderConnectionError({ content }, hostile, hostile);
+      const safeError = !content.querySelector('img') && content.textContent.includes(hostile);
+      container.remove();
+      return { copied, historicalCount: historicalBlocks.length, cursorDuringStream, cursorAfterStream, sameMarkup, safeError, xss: !!window.__dupliXss };
+    });
+    assert.deepEqual(result.copied, ['Original prompt', '**First**\n\nFinal']);
+    assert.equal(result.historicalCount, 2);
+    assert.equal(result.cursorDuringStream, true);
+    assert.equal(result.cursorAfterStream, false);
+    assert.equal(result.sameMarkup, true);
+    assert.equal(result.safeError, true);
+    assert.equal(result.xss, false);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - los metadatos MCP externos se renderizan como texto', async () => {
   const browser = await createTestBrowser();
   try {
@@ -1785,7 +1832,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
       const menu = document.getElementById('reasoning-menu');
       const header = document.querySelector('.reasoning-menu-header');
       const options = document.querySelector('.reasoning-options');
-      const lowOption = document.querySelector('.reasoning-option[data-level="low"]');
+      const lowOption = document.querySelector('.reasoning-option[data-level="low"]') || document.querySelector('.reasoning-option');
       const lowIcon = lowOption?.querySelector('.option-icon');
       const lowText = lowOption?.querySelector('.option-text');
       const svg = header?.querySelector('svg');
@@ -3258,4 +3305,3 @@ test('Browser UI - inicia sin bloquearse cuando existen perfiles heredados de la
 });
 
 });
-

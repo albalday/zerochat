@@ -138,6 +138,7 @@ test('Bundler - incorpora una copia .zcp opcional y retrasa el arranque para res
     assert.ok(js.includes('__ZEROCHAT_BUNDLE_PROFILE_RESTORE__'));
     assert.ok(js.includes('storage.getStorageItem(repository.STORAGE_KEY)'), 'Solo debe restaurar si el almacenamiento de perfiles no existe');
     assert.ok(js.includes('repository.mergeImported(profiles)'), 'Debe restaurar mediante el repositorio de perfiles');
+    assert.ok(js.includes('config.activateProfile(targetId)'), 'Debe activar el perfil importado en lugar de espejo');
     assert.ok(js.indexOf('__ZEROCHAT_BUNDLE_PROFILE_RESTORE__') < js.indexOf('if (Config.initialize)'), 'La restauración debe terminar antes de iniciar la aplicación');
   } finally {
     fs.rmSync(TEST_PROFILE_DIR, { recursive: true, force: true });
@@ -237,11 +238,30 @@ test('Bundler - restaura perfiles cifrados reales en el primer arranque del bund
     // Run simulated restore exactly as bundled
     const profiles = await ProfileBackup.decryptProfiles(encryptedBackup);
     repo.mergeImported(profiles);
+    const target = Array.isArray(profiles) ? profiles.find(p => p && p.id !== repo.READONLY_PROFILE_ID) : null;
+    const targetId = target ? (repo.get?.(target.id)?.id || repo.findByName?.(target.name)?.id || target.id) : null;
+    const StateModule = require('../js/state.js');
+    const ConfigModule = require('../js/config-store.js');
+    fakeStorage.loadRuntimeConfigV2 = () => {
+      const raw = storageMap.get('runtime_config_v2');
+      return raw ? JSON.parse(raw) : null;
+    };
+    fakeStorage.saveRuntimeConfigV2 = (val) => {
+      storageMap.set('runtime_config_v2', JSON.stringify(val));
+    };
+    const config = ConfigModule.createConfigStore({ state: StateModule.createStore(), storage: fakeStorage, profiles: repo });
+    if (targetId && config?.activateProfile) {
+      config.activateProfile(targetId);
+    }
 
     const list = repo.list();
     assert.equal(list.length, 2);
     assert.ok(list.some(p => p.id === ProfileRepo.READONLY_PROFILE_ID), 'Debe contener el perfil Espejo');
     assert.ok(list.some(p => p.id === 'demo-local-ai'), 'Debe contener el perfil importado de demostración');
+    assert.equal(config.getActive().activeProfile?.id, 'demo-local-ai', 'Debe activar el perfil importado en vez de espejo');
+
+    const initializedConfig = config.initialize();
+    assert.equal(initializedConfig.activeProfile?.id, 'demo-local-ai', 'initialize() debe mantener activo el perfil importado');
 
     // Subsequent start: storage already has profiles -> must not restore or overwrite
     const initialProfilesRaw = fakeStorage.getStorageItem(repo.STORAGE_KEY);

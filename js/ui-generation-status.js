@@ -71,5 +71,49 @@
     }
   }
 
-  return { getViewModel, render };
+  function resolveState() {
+    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
+    if (typeof globalThis !== 'undefined' && globalThis.ChatState) return globalThis.ChatState;
+    if (typeof require !== 'undefined') { try { return require('./state.js'); } catch (_) {} }
+    return null;
+  }
+
+  function setStatus(element, update = {}) {
+    const State = resolveState();
+    const raw = typeof update === 'string' ? { text: update } : (update || {});
+    const isGenerating = Boolean(State?.get?.('streaming')?.isGenerating);
+    const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
+    // Si no se está procesando un ciclo de chat, el indicador permanece invisible y no se reactiva.
+    if (!isGenerating && phase !== 'idle') return;
+
+    let next;
+    if (State?.setGenerationStatus) {
+      next = State.setGenerationStatus(raw);
+    } else if (State?.get && State?.set) {
+      const ui = State.get('ui') || {};
+      const current = ui.generationStatus || { phase: 'idle', percent: null, startedAt: null };
+      const phaseChanged = phase !== current.phase;
+      next = phaseChanged
+        ? { text: '', message: '', detail: '', percent: null, ...raw, phase, startedAt: Date.now() }
+        : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
+      State.set('ui', { ...ui, generationStatus: next });
+    } else {
+      next = { ...raw, phase, startedAt: Date.now() };
+    }
+    render(element, next);
+    return next;
+  }
+
+  function clearStatus(element) {
+    const State = resolveState();
+    if (State?.clearGenerationStatus) {
+      State.clearGenerationStatus();
+    } else if (State?.get && State?.set) {
+      const ui = State.get('ui') || {};
+      State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
+    }
+    render(element, { phase: 'idle' });
+  }
+
+  return { getViewModel, render, setStatus, clearStatus };
 }));

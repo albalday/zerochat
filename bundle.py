@@ -191,10 +191,16 @@ globalThis.__ZEROCHAT_BUNDLE_PROFILE_RESTORE__ = (async () => {{
   const backup = globalThis.ChatProfileBackup;
   const repository = globalThis.ChatProfileRepository;
   const storage = globalThis.ChatStorage;
+  const config = globalThis.ChatConfig;
   if (!backup?.decryptProfiles || !repository?.mergeImported || !storage?.getStorageItem) return;
   if (storage.getStorageItem(repository.STORAGE_KEY)) return;
   const profiles = await backup.decryptProfiles({backup});
   repository.mergeImported(profiles);
+  const target = Array.isArray(profiles) ? profiles.find(p => p && p.id !== repository.READONLY_PROFILE_ID) : null;
+  const targetId = target ? (repository.get?.(target.id)?.id || repository.findByName?.(target.name)?.id || target.id) : null;
+  if (targetId && config?.activateProfile) {{
+    config.activateProfile(targetId);
+  }}
 }})().catch(error => console.warn('No se pudo restaurar la copia de perfiles incluida:', error));
 """
 

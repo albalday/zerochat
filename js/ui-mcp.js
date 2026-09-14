@@ -1139,6 +1139,15 @@ if __name__ == "__main__":
       startAutoConnectPolling();
     });
 
+    function persistMcpAutoConnect(enabled, host = null, port = null) {
+      const Config = getConfig();
+      if (!Config) return;
+      const patch = { mcpAutoConnect: enabled === true };
+      if (host) patch.mcpHost = host;
+      if (port) patch.mcpPort = sanitizePort(port);
+      (Config.updateRuntime || Config.update)?.call(Config, patch);
+    }
+
     elements.btnCopyCmd?.addEventListener?.('click', () => {
       const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
       const cmd = generateClipboardCommand(elements.portInput?.value, operatingSystem, t);
@@ -1148,12 +1157,21 @@ if __name__ == "__main__":
     elements.btnConnect?.addEventListener?.('click', async () => {
       const host = elements.hostInput?.value || DEFAULT_HOST;
       const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
+      persistMcpAutoConnect(true, host, port);
       await MCP?.manager?.connectProxy?.({ host, port, endpoint: buildMcpEndpoint(host, port) });
     });
 
-    elements.btnDisconnect?.addEventListener?.('click', () => MCP?.manager?.disconnectProxy?.());
+    elements.btnDisconnect?.addEventListener?.('click', () => {
+      persistMcpAutoConnect(false);
+      MCP?.manager?.disconnectProxy?.();
+    });
 
-    const unsubscribe = State?.subscribe?.('mcp', (newState) => renderConnectionStatus(elements, newState, t));
+    const unsubscribe = State?.subscribe?.('mcp', (newState) => {
+      if (newState?.status === 'connected') {
+        persistMcpAutoConnect(true, newState.host, newState.port);
+      }
+      renderConnectionStatus(elements, newState, t);
+    });
     renderConnectionStatus(elements, State?.get?.('mcp'), t);
     updateCommandAndEndpoint();
     syncSecurityControls();

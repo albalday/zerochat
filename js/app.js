@@ -43,9 +43,16 @@
   const UIInspector = window.ChatUIInspector || {};
   const UISidebar = window.ChatUISidebar || {};
   const UISettings = window.ChatUISettings || {};
-  const Config = window.ChatConfig || {};
+  const Config = window.ChatConfig;
   const Profiles = window.ChatProfileRepository || {};
   const Providers = window.ChatProviders || {};
+  const UIShell = window.ChatUIShell || {};
+  const UITransfer = window.ChatUITransfer || {};
+  const UIProfiles = window.ChatUIProfiles || {};
+  const UIComposer = window.ChatUIComposer || {};
+  const ConversationService = window.ChatConversationService || {};
+  const UIConversation = window.ChatUIConversation || {};
+  const GenerationController = window.ChatGenerationController || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -63,38 +70,18 @@
     return '';
   }
 
-  // Estado de la aplicación
-  const fallbackConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: '',
-    systemPrompt: '',
-    systemDataPrompt: '',
-    temperature: '0.7',
-    reasoningEffort: 'none',
-    reasoningTransport: 'auto',
-    theme: 'light',
-    language: 'es',
-    enabledTools: {
-      execute_javascript: true,
-      search_web: true,
-      fetch_web_page: true,
-      download_pdf: true,
-      render_chart: true
-    },
-    enableRawLogs: false,
-    enableDebugMessages: false,
-    activeRagBranchId: ''
-  };
+  if (typeof Config?.initialize !== 'function' || typeof Config?.getActive !== 'function') {
+    throw new Error('ZeroChat requires ChatConfig before application startup.');
+  }
 
   try {
-    if (Config.initialize) Config.initialize();
+    Config.initialize();
   } catch (error) {
     console.warn('Error durante la inicialización de configuración:', error);
   }
 
   function getRuntimeConfig() {
-    return Config.getActive ? Config.getActive() : { ...fallbackConfig };
+    return Config.getActive();
   }
 
   // Transitional read-through facade for legacy helpers inside this module.
@@ -104,8 +91,6 @@
     ownKeys: () => Reflect.ownKeys(getRuntimeConfig()),
     getOwnPropertyDescriptor: (_target, key) => ({ enumerable: true, configurable: true, value: getRuntimeConfig()[key] })
   });
-
-  let currentAbortController = null;
 
   function getChatHistory() {
     return State.get ? (State.get('messages') || []) : [];
@@ -318,10 +303,12 @@
   }
 
   function isHttpExecution() {
+    if (UIShell.isHttpExecution) return UIShell.isHttpExecution();
     return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
   }
 
   function getStandaloneDownloadUrl() {
+    if (UIShell.getStandaloneDownloadUrl) return UIShell.getStandaloneDownloadUrl();
     if (!isHttpExecution()) return null;
     const url = new URL(window.location.href);
     const path = url.pathname;
@@ -338,6 +325,7 @@
   }
 
   function updateExecutionInfo() {
+    if (UIShell.updateExecutionInfo) return UIShell.updateExecutionInfo(elements);
     const httpExecution = isHttpExecution();
     if (elements.executionStorageScope) {
       elements.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
@@ -351,22 +339,18 @@
   }
 
   function openExecutionInfo() {
+    if (UIShell.openExecutionInfo) return UIShell.openExecutionInfo(elements);
     if (!elements.executionInfoDialog) return;
     updateExecutionInfo();
     if (!elements.executionInfoDialog.open) elements.executionInfoDialog.showModal();
   }
 
   function closeExecutionInfo() {
+    if (UIShell.closeExecutionInfo) return UIShell.closeExecutionInfo(elements);
     if (elements.executionInfoDialog?.open) elements.executionInfoDialog.close();
   }
 
-  function getRagSystemContext() {
-    return State.get ? (State.get('agent')?.ragSystemContext || '') : '';
-  }
 
-  function setRagSystemContext(context) {
-    if (State.set) State.set('agent', { ragSystemContext: typeof context === 'string' ? context : '' });
-  }
 
   function applyTheme(theme) {
     if (UISettings.applyTheme) {
@@ -380,44 +364,43 @@
     }
   }
 
-  function isDateTimeInitialTurn(m) {
-    if (!m || m.role !== 'user') return false;
-    const content = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
-    return content.startsWith('La fecha y hora actual es:') ||
-           content.startsWith('Fecha y hora actual:') ||
-           content.startsWith('The current date and time is:') ||
-           content.startsWith('Current date and time:');
+  function getConversationServiceOptions() {
+    return {
+      storage: Storage,
+      getRuntimeConfig,
+      language: appConfig.language || 'es',
+      getConfiguredSystemPrompt: (cfg) => getConfiguredSystemPrompt(cfg),
+      getChatHistory,
+      getCurrentSessionId,
+      getSavedSessions,
+      renderSessionMessages: (history) => renderSessionMessages(history),
+      renderSidebarChats: () => renderSidebarChats(),
+      onSessionReset: () => {
+        clearAttachedFiles();
+        closeReasoningMenu();
+        clearDebugLogs();
+        setDebugStatus('idle');
+        toggleDebugPanel(false);
+        resetTelemetryDisplay({ syncState: false });
+      },
+      resetComposerInput: () => {
+        if (elements.userInput) {
+          elements.userInput.value = '';
+          autoResizeTextarea();
+          elements.userInput.focus();
+        }
+      },
+      closeSidebar: () => closeSidebar()
+    };
   }
 
-  function createInitialChatHistory() {
-    return [
-      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt(),
-        contextDateAnchor: Engine.getConversationDateAnchor(appConfig.language || 'es') }
-    ];
-  }
 
-  function initializeSessionState(sessionId, history, blockedMessageKey) {
-    const initialization = State.replaceConversation
-      ? State.replaceConversation({ sessionId, messages: history })
-      : (State.initializeConversation
-          ? State.initializeConversation({ sessionId, messages: history })
-          : { ok: true });
 
-    if (!initialization.ok) {
-      ChatDialogs.alert(t(blockedMessageKey));
-      return false;
-    }
-
-    clearAttachedFiles();
-    closeReasoningMenu();
-    clearDebugLogs();
-    setDebugStatus('idle');
-    toggleDebugPanel(false);
-    resetTelemetryDisplay({ syncState: false });
-    return true;
-  }
 
   function blockSessionTransitionIfBusy(messageKey) {
+    if (ConversationService.blockSessionTransitionIfBusy) {
+      return ConversationService.blockSessionTransitionIfBusy(messageKey);
+    }
     const isBusy = State.isConversationBusy?.() === true;
     if (!isBusy) return false;
     ChatDialogs.alert(t(messageKey));
@@ -555,10 +538,13 @@
   }
 
   function setGenerationStatus(update = {}) {
+    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
+    if (genStatus?.setStatus) {
+      return genStatus.setStatus(elements.generationStatus, update);
+    }
     const raw = typeof update === 'string' ? { text: update } : (update || {});
     const isGenerating = Boolean(State.get?.('streaming')?.isGenerating);
     const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
-    // Si no se está procesando un ciclo de chat, el indicador permanece invisible y no se reactiva.
     if (!isGenerating && phase !== 'idle') return;
 
     let next;
@@ -573,17 +559,21 @@
         : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
       State.set('ui', { ...ui, generationStatus: next });
     }
-    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, next);
+    genStatus.render?.(elements.generationStatus, next);
   }
 
   function clearGenerationStatus() {
+    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
+    if (genStatus?.clearStatus) {
+      return genStatus.clearStatus(elements.generationStatus);
+    }
     if (State.clearGenerationStatus) {
       State.clearGenerationStatus();
     } else {
       const ui = State.get?.('ui') || {};
       State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
     }
-    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, { phase: 'idle' });
+    genStatus.render?.(elements.generationStatus, { phase: 'idle' });
   }
 
   function filterDebugLogs(tabId) {
@@ -712,6 +702,9 @@
   // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
   // Esta función solo actúa como fallback para navegadores sin soporte.
   function autoResizeTextarea() {
+    if (UIComposer.autoResizeTextarea) {
+      return UIComposer.autoResizeTextarea(elements);
+    }
     if (CSS && CSS.supports && CSS.supports('field-sizing', 'content')) return;
     if (!elements.userInput) return;
     if (!elements.userInput.value) {
@@ -724,6 +717,9 @@
   }
 
   function scrollToBottom() {
+    if (UIConversation.scrollToBottom) {
+      return UIConversation.scrollToBottom(elements.messagesList);
+    }
     if (elements.messagesList) {
       elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
     }
@@ -733,594 +729,109 @@
   // Gestión de Archivos Adjuntos
   // ==========================================================================
 
-  function renderAttachedFiles() {
-    if (Attachments.renderChips) {
-      Attachments.renderChips(elements.attachmentsContainer, () => autoResizeTextarea());
-    }
-  }
 
   function clearAttachedFiles() {
-    if (Attachments.clearFiles) {
-      Attachments.clearFiles();
-      renderAttachedFiles();
+    if (UIComposer.clearAttachedFiles) {
+      return UIComposer.clearAttachedFiles(elements);
     }
-    if (elements.fileInput) elements.fileInput.value = '';
   }
 
   async function processFiles(files) {
-    const maxBytes = Attachments.MAX_FILE_SIZE || (50 * 1024 * 1024);
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (file && typeof file.size === 'number' && file.size > maxBytes) {
-        await ChatDialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
-        continue;
-      }
-      try {
-        let parsed;
-        if (FileParser.parseFile) {
-          parsed = await FileParser.parseFile(file);
-        } else {
-          const text = await readFileAsText(file);
-          parsed = {
-            name: file.name,
-            size: file.size,
-            type: 'text',
-            content: text
-          };
-        }
-        if (Attachments.addFile) Attachments.addFile(parsed);
-      } catch (err) {
-        console.error(`Error processing file ${file.name}:`, err);
-        ChatDialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
-      }
+    if (UIComposer.processFiles) {
+      return UIComposer.processFiles(elements, files);
     }
-    renderAttachedFiles();
-    if (elements.userInput) elements.userInput.focus();
   }
 
-  function readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-  }
 
   // ==========================================================================
   // Renderizado de Mensajes con Acciones y Estadísticas
   // ==========================================================================
 
-  function extractBaseId(id) {
-    if (!id || typeof id !== 'string') return '';
-    return id.replace(/(?:_turn_\d+_(?:assistant|tool.*)|_final)$/, '');
-  }
+
 
   function removeMessage(wrapper) {
-    if (!wrapper) return;
-    if (State.isConversationBusy?.()) return;
-    const msgId = wrapper.getAttribute('data-msg-id') || '';
-    const baseId = wrapper.getAttribute('data-base-id') || extractBaseId(msgId);
-    const rawMsgIds = wrapper.getAttribute('data-msg-ids') || '';
-    const explicitIds = rawMsgIds ? rawMsgIds.split(',').filter(Boolean) : [];
-
-    let removedCount = 0;
-    if (explicitIds.length > 0 || baseId || msgId) {
-      if (State.removeTurn) {
-        const res = State.removeTurn({ msgId, baseId, explicitIds });
-        if (!res || !res.ok) return;
-        removedCount = res.removedCount || 0;
-      }
+    if (UIConversation.removeMessage) {
+      return UIConversation.removeMessage(wrapper, {
+        messagesList: elements.messagesList,
+        welcomeBanner: elements.welcomeBanner,
+        isBusy: () => State.isConversationBusy?.(),
+        removeTurn: (payload) => State.removeTurn?.(payload),
+        saveSession: () => saveCurrentSession(),
+        addDebugLog: (type, text) => (typeof addDebugLog === 'function' ? addDebugLog(type, text) : null)
+      });
     }
-    if (removedCount === 0) return;
-
-    wrapper.remove();
-
-    if (typeof addDebugLog === 'function') {
-      addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
-    }
-
-    const remainingMessages = elements.messagesList.querySelectorAll('.message-wrapper');
-    if (remainingMessages.length === 0 && elements.welcomeBanner) {
-      elements.messagesList.appendChild(elements.welcomeBanner);
-      elements.welcomeBanner.style.display = '';
-    }
-
-    // Persistir eliminación en el almacenamiento de la sesión
-    saveCurrentSession();
   }
 
   function appendUserMessage(text, originalPrompt, attachedImages, existingMsgId) {
-    if (elements.welcomeBanner && elements.welcomeBanner.parentNode) {
-      elements.welcomeBanner.style.display = 'none';
-    }
-
-    const msgId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_usr_' + crypto.randomUUID()
-      : 'msg_usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'message-wrapper user';
-    wrapper.setAttribute('data-msg-id', msgId);
-
-    const row = document.createElement('div');
-    row.className = 'message-row user';
-
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.textContent = text;
-
-    // Miniaturas visuales de imágenes adjuntas
-    if (attachedImages && attachedImages.length > 0) {
-      const imagesGrid = document.createElement('div');
-      imagesGrid.className = 'message-images-grid';
-      attachedImages.forEach(img => {
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'message-image-item';
-        itemDiv.innerHTML = `
-          <img src="${img.dataUrl}" alt="${Markdown.escapeHtml(img.name)}" class="message-image-thumb" title="${Markdown.escapeHtml(img.name)}">
-          <div class="message-image-caption">${Markdown.escapeHtml(img.name)}</div>
-        `;
-        const imgEl = itemDiv.querySelector('img');
-        if (imgEl) {
-          imgEl.addEventListener('click', () => {
-            window.open(img.dataUrl, '_blank');
-          });
-        }
-        imagesGrid.appendChild(itemDiv);
+    if (UIConversation.appendUserMessage) {
+      return UIConversation.appendUserMessage(elements.messagesList, elements.welcomeBanner, {
+        text,
+        originalPrompt,
+        attachedImages,
+        existingMsgId
+      }, {
+        onReuse: (txt) => {
+          if (elements.userInput) {
+            elements.userInput.value = txt;
+            autoResizeTextarea();
+            elements.userInput.focus();
+          }
+        },
+        onDelete: (wrapper) => removeMessage(wrapper)
       });
-      content.appendChild(imagesGrid);
     }
-
-    const footerRow = document.createElement('div');
-    footerRow.className = 'message-footer-row';
-
-    const actions = document.createElement('div');
-    actions.className = 'message-actions';
-
-    const btnCopy = document.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-user';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
-    btnCopy.title = t('btn_copy_user_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-    btnCopy.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(originalPrompt || text);
-        btnCopy.innerHTML = getMsgIcon('check', 14);
-        btnCopy.title = t('copied_text');
-        btnCopy.setAttribute('aria-label', t('copied_text'));
-        btnCopy.classList.add('copied');
-        setTimeout(() => {
-          btnCopy.innerHTML = getMsgIcon('copy', 14);
-          btnCopy.title = t('btn_copy_user_title');
-          btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-          btnCopy.classList.remove('copied');
-        }, 2000);
-      } catch (err) {
-        console.error('Error copying user message:', err);
-      }
-    });
-
-    const btnReuse = document.createElement('button');
-    btnReuse.type = 'button';
-    btnReuse.className = 'btn-msg-action';
-    btnReuse.innerHTML = getMsgIcon('edit', 14);
-    btnReuse.title = t('btn_reuse_title');
-    btnReuse.setAttribute('aria-label', t('btn_reuse_title'));
-    btnReuse.addEventListener('click', () => {
-      elements.userInput.value = originalPrompt || text;
-      autoResizeTextarea();
-      elements.userInput.focus();
-    });
-
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
-    btnDelete.title = t('btn_delete_usr_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_usr_title'));
-    btnDelete.addEventListener('click', () => removeMessage(wrapper));
-
-    actions.appendChild(btnReuse);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    elements.messagesList.appendChild(wrapper);
-    // Animar solo mensajes nuevos en tiempo real (no historial)
-    if (!existingMsgId) {
-      wrapper.classList.add('is-new-message');
-      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
-    }
-    scrollToBottom();
-
-    return msgId;
   }
 
   function createAssistantMessagePlaceholder(existingMsgId) {
-    const rawId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_ast_' + crypto.randomUUID()
-      : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
-    const baseId = extractBaseId(rawId) || rawId;
-    const msgId = existingMsgId ? rawId : baseId;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'message-wrapper assistant';
-    wrapper.setAttribute('data-msg-id', msgId);
-    wrapper.setAttribute('data-base-id', baseId);
-
-    const row = document.createElement('div');
-    row.className = 'message-row assistant';
-
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
-
-    const footerRow = document.createElement('div');
-    footerRow.className = 'message-footer-row';
-
-    const statsContainer = document.createElement('div');
-    statsContainer.className = 'message-stats';
-    statsContainer.style.display = 'none';
-
-    const actions = document.createElement('div');
-    actions.className = 'message-actions';
-    actions.style.display = 'none';
-
-    const btnCopy = document.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-full';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
-    btnCopy.title = t('btn_copy_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-
-    const btnBranch = document.createElement('button');
-    btnBranch.type = 'button';
-    btnBranch.className = 'btn-msg-action btn-branch-conversation';
-    btnBranch.innerHTML = getMsgIcon('git-branch', 14);
-    btnBranch.title = t('btn_branch_title');
-    btnBranch.setAttribute('aria-label', t('btn_branch_title'));
-    btnBranch.addEventListener('click', () => createConversationBranch(wrapper));
-
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
-    btnDelete.title = t('btn_delete_ast_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
-    btnDelete.addEventListener('click', () => removeMessage(wrapper));
-
-    actions.appendChild(btnBranch);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-
-    footerRow.appendChild(statsContainer);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    elements.messagesList.appendChild(wrapper);
-    // Animar solo mensajes nuevos en tiempo real (no historial)
-    if (!existingMsgId) {
-      wrapper.classList.add('is-new-message');
-      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
+    if (UIConversation.createAssistantMessagePlaceholder) {
+      return UIConversation.createAssistantMessagePlaceholder(elements.messagesList, existingMsgId, {
+        welcomeBanner: elements.welcomeBanner,
+        onBranch: (wrapper) => createConversationBranch(wrapper),
+        onDelete: (wrapper) => removeMessage(wrapper)
+      });
     }
-    scrollToBottom();
-
-    return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
   }
 
   // ==========================================================================
   // Envío de Mensaje y Streaming
   // ==========================================================================
 
+  function getGenerationControllerOptions() {
+    return {
+      elements,
+      getRuntimeConfig,
+      getCurrentSessionId,
+      getChatHistory,
+      setGenerationStatus,
+      clearGenerationStatus,
+      showTypingIndicator,
+      removeTypingIndicator,
+      createAssistantMessagePlaceholder,
+      appendUserMessage,
+      attachListenersToContainer,
+      scrollToBottom,
+      updateConnectionTokensBadge,
+      addDebugLog,
+      setDebugStatus,
+      openDebugInterceptorModal,
+      saveCurrentSession,
+      clearAttachedFiles,
+      autoResizeTextarea,
+      closeReasoningMenu,
+      setAssistantGroupMessageIds
+    };
+  }
+
   async function handleSendMessage() {
-    const rawText = elements.userInput.value.trim();
-    const currentFiles = Attachments.getFiles ? Attachments.getFiles() : [];
-    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy?.()) return;
-    // One immutable snapshot per turn prevents profile changes from modifying
-    // an in-flight request.
-    const runtimeConfig = getRuntimeConfig();
-
-    const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload
-      ? Attachments.buildAttachmentsPayload(rawText, currentFiles)
-      : { fullPrompt: rawText, displayText: rawText, imageAttachments: [] };
-
-    const userMsgId = appendUserMessage(displayText, rawText, imageAttachments);
-    const historyEntry = { id: userMsgId, role: 'user', content: fullPrompt };
-    if (imageAttachments.length > 0) {
-      historyEntry.images = imageAttachments;
-    }
-    if (State.appendMessage) {
-      State.appendMessage(historyEntry);
-    }
-
-    const generationSessionId = getCurrentSessionId();
-    let generationError = null;
-
-    elements.userInput.value = '';
-    clearAttachedFiles();
-    autoResizeTextarea();
-    closeReasoningMenu();
-
-    State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
-    setGenerationStatus({ phase: 'generating' });
-
-    currentAbortController = new AbortController();
-    // Mostrar indicador de escritura hasta que llegue el primer chunk
-    showTypingIndicator();
-    const { wrapper, row, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = createAssistantMessagePlaceholder();
-    removeTypingIndicator();
-    const attachListeners = (el) => attachListenersToContainer(el);
-
-    if (!API.streamChatCompletion) {
-      row.classList.add('message-error');
-      content.innerHTML = 'Error: Chat API module not loaded.';
-      finishGeneration({ error: 'Error: Chat API module not loaded.' });
-      return;
-    }
-
-    if (!runtimeConfig.model || runtimeConfig.model.trim() === '') {
-      row.classList.add('message-error');
-      content.innerHTML = `
-        <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-          <div>
-            <strong>${t('err_no_model_title')}</strong>
-            <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: runtimeConfig.apiUrl })}</p>
-          </div>
-        </div>
-      `;
-      actions.style.display = 'inline-flex';
-      finishGeneration({ error: t('err_no_model_title') });
-      return;
-    }
-
-    function updateStatsDisplay(stats) {
-      if (!stats) return;
-      statsContainer.style.display = 'inline-flex';
-      const clockSvg = getMsgIcon('clock', 11);
-      const zapSvg = getMsgIcon('zap', 11);
-      const docSvg = getMsgIcon('file-text', 11);
-      const dbSvg = getMsgIcon('database', 11);
-
-      const cacheHtml = (stats.cachedTokens && stats.cachedTokens > 0)
-        ? `<span>•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
-        : '';
-      statsContainer.innerHTML = `
-        <span class="stat-item" title="${t('stat_ttft_title')}">${clockSvg} <span>${t('stat_ttft', { sec: stats.ttftSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_speed_title')}">${zapSvg} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_total_time_title')}">${clockSvg} <span>${t('stat_total_time', { sec: stats.totalSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_tokens_title')}">${docSvg} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
-      `;
-      updateConnectionTokensBadge(stats);
-    }
-
-    const activeRagBranchIds = Array.isArray(runtimeConfig.activeRagBranchIds)
-      ? runtimeConfig.activeRagBranchIds
-      : (runtimeConfig.activeRagBranchId ? [runtimeConfig.activeRagBranchId] : []);
-    const activeRagBranchId = activeRagBranchIds[0] || runtimeConfig.activeRagBranchId || '';
-
-    // Cargar únicamente la instrucción compacta de las ramas activas.
-    if (activeRagBranchIds.length > 0 && window.ChatRagService && window.ChatRagService.buildRagSystemContext) {
-      setGenerationStatus({ phase: 'rag', text: t('generation_status_rag') });
-      try {
-        setRagSystemContext(await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
-          isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
-          lang: runtimeConfig.language || 'es'
-        }));
-      } catch (err) {
-        console.warn('Error al cargar contexto inicial de RAG:', err);
-        addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
-        setRagSystemContext('');
-      }
-    } else {
-      setRagSystemContext('');
-    }
-
-    try {
-      const runner = window.ChatEngine || Engine;
-      const activeProfile = await Profiles.load(runtimeConfig.activeProfile?.id);
-      const loopResult = await runner.executeAgentTurnLoop({
-        apiUrl: runtimeConfig.apiUrl,
-        apiType: runtimeConfig.apiType,
-        apiKey: activeProfile?.settings.apiKey || '',
-        model: runtimeConfig.model,
-        temperature: runtimeConfig.temperature,
-        reasoningEffort: runtimeConfig.reasoningEffort || 'none',
-        reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
-        maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
-        chatHistory: getChatHistory(),
-        appConfig: runtimeConfig,
-        assistantMsgId: assistantMsgId,
-        activeRagBranchId: activeRagBranchId,
-        activeRagBranchIds: activeRagBranchIds,
-        currentRagSystemContext: getRagSystemContext(),
-        signal: currentAbortController.signal,
-        container: content,
-
-        onBeforeRequest: runtimeConfig.enableDebugMessages ? async function ({ endpoint, headers, payload }) {
-          return await openDebugInterceptorModal({ endpoint, headers, payload });
-        } : null,
-
-        onReasoningChunk: function (chunk) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          addDebugLog('thinking', chunk);
-          setDebugStatus('streaming', t('debug_status_thinking'));
-        },
-
-        onGenerationStatus: function (status) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          setGenerationStatus(status);
-        },
-
-        onLog: function (type, text) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          addDebugLog(type, text);
-        },
-
-        onStats: function (stats) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          updateStatsDisplay(stats);
-        },
-
-        onChunk: function ({ turnIndex, fullText, delta, stats }) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (stats) updateStatsDisplay(stats);
-          scrollToBottom();
-        },
-
-        scrollToBottom: () => scrollToBottom(),
-        attachListeners: (el) => attachListeners(el)
-      });
-
-      if (getCurrentSessionId() !== generationSessionId) {
-        console.warn('[ZeroChat] Inferencia descartada por cambio de sesión.');
-        return;
-      }
-
-      if (loopResult && Array.isArray(loopResult.chatHistory) && State.replaceMessages) {
-        State.replaceMessages(loopResult.chatHistory);
-        setAssistantGroupMessageIds(wrapper, getChatHistory());
-      }
-
-      if (loopResult && loopResult.cancelled) {
-        if (wrapper && !wrapper.querySelector('.agentic-turn-block') && wrapper.parentNode) {
-          wrapper.parentNode.removeChild(wrapper);
-        }
-        setDebugStatus('idle');
-        return;
-      }
-
-      if (loopResult && loopResult.error) {
-        if (currentAbortController && currentAbortController.signal.aborted) {
-          return;
-        }
-        setDebugStatus('error', t('debug_status_error'));
-        addDebugLog('error', loopResult.error.message || String(loopResult.error));
-        row.classList.add('message-error');
-        content.innerHTML = `
-          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-            <div>
-              <strong>${t('err_server_connect_title')}</strong>
-              <p style="margin-top: 0.25rem;">
-                ${Markdown.escapeHtml ? Markdown.escapeHtml(loopResult.error.message || String(loopResult.error)) : String(loopResult.error)}
-              </p>
-              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
-              </p>
-            </div>
-          </div>
-        `;
-        actions.style.display = 'inline-flex';
-        return;
-      }
-
-      if (loopResult && loopResult.stats) {
-        updateStatsDisplay(loopResult.stats);
-        updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
-      }
-
-      actions.style.display = 'inline-flex';
-      btnCopy.onclick = async () => {
-        try {
-          const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
-          await navigator.clipboard.writeText(fullMd);
-          btnCopy.innerHTML = getMsgIcon('check', 14);
-          btnCopy.title = t('copied_text');
-          btnCopy.setAttribute('aria-label', t('copied_text'));
-          btnCopy.classList.add('copied');
-          setTimeout(() => {
-            btnCopy.innerHTML = getMsgIcon('copy', 14);
-            btnCopy.title = t('btn_copy_title');
-            btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-            btnCopy.classList.remove('copied');
-          }, 2000);
-        } catch (err) {
-          console.error('Error copying composite response:', err);
-        }
-      };
-
-      setDebugStatus('done', t('debug_status_done'));
-    } catch (err) {
-      console.error('[ZeroChat] Error durante inferencia agéntica:', err);
-      const isAborted = Boolean(currentAbortController && currentAbortController.signal.aborted) || err?.name === 'AbortError';
-      if (!isAborted) {
-        generationError = err?.message || String(err);
-        setDebugStatus('error', t('debug_status_error'));
-        addDebugLog('error', generationError);
-        row.classList.add('message-error');
-        content.innerHTML = `
-          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-            <div>
-              <strong>${t('err_server_connect_title')}</strong>
-              <p style="margin-top: 0.25rem;">
-                ${Markdown.escapeHtml ? Markdown.escapeHtml(generationError) : String(generationError)}
-              </p>
-              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
-              </p>
-            </div>
-          </div>
-        `;
-        actions.style.display = 'inline-flex';
-      }
-    } finally {
-      finishGeneration({
-        skipSave: getCurrentSessionId() !== generationSessionId,
-        error: generationError
-      });
+    if (GenerationController.handleSendMessage) {
+      return await GenerationController.handleSendMessage(getGenerationControllerOptions());
     }
   }
 
-  function finishGeneration({ skipSave = false, error = null } = {}) {
-    removeTypingIndicator(); // Seguridad: limpiar si quedó activo
-    clearGenerationStatus();
-    if (error) {
-      State.set('streaming', { isGenerating: false, status: 'error', error: String(error) });
-    } else {
-      State.set('streaming', { isGenerating: false, status: 'idle', error: null });
-    }
-    if (elements.btnSend) elements.btnSend.disabled = false;
-    if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
-
-    currentAbortController = null;
-    if (elements.userInput) elements.userInput.focus();
-    if (!skipSave) {
-      try {
-        saveCurrentSession();
-      } catch (saveErr) {
-        console.warn('[ZeroChat] Error al guardar sesión en finishGeneration:', saveErr);
-      }
-    }
-    scrollToBottom();
-  }
 
   function handleStopGeneration() {
-    if (currentAbortController) {
-      currentAbortController.abort();
+    if (GenerationController.handleStopGeneration) {
+      return GenerationController.handleStopGeneration();
     }
   }
 
@@ -1328,67 +839,28 @@
   // Modal de Configuración & Gestión de Perfiles
   // ==========================================================================
 
+  function getProfilesHelperOptions() {
+    return {
+      getRuntimeConfig,
+      loadCachedModels,
+      resetTelemetryDisplay,
+      updateUIFromConfig,
+      updateReasoningUI
+    };
+  }
+
   /**
    * Puebla el combobox auxiliar y el datalist con todos los perfiles disponibles.
    */
   function populateProfileSelector(selectedProfileName) {
-    if (!Profiles.list) return;
-    const profiles = Profiles.list();
-
-    if (elements.profileDatalist) {
-      elements.profileDatalist.innerHTML = '';
-      profiles.forEach(profile => {
-        const opt = document.createElement('option');
-        opt.value = profile.name;
-        elements.profileDatalist.appendChild(opt);
-      });
-    }
-
-    if (elements.profileSelectHelper) {
-      elements.profileSelectHelper.innerHTML = `<option value="" disabled data-i18n="profile_select_default">▾ Elegir perfil guardado...</option>`;
-      profiles.forEach(profile => {
-        const opt = document.createElement('option');
-        opt.value = profile.id;
-        opt.textContent = profile.name;
-        if (profile.id === selectedProfileName) {
-          opt.selected = true;
-        }
-        elements.profileSelectHelper.appendChild(opt);
-      });
-    }
-
-    if (elements.settingProfileName) {
-      const selected = profiles.find(profile => profile.id === selectedProfileName);
-      elements.settingProfileName.value = selected?.name || '';
-    }
-    if (elements.settingProfileDescription) {
-      const selected = profiles.find(profile => profile.id === selectedProfileName);
-      elements.settingProfileDescription.value = selected?.description || '';
+    if (UIProfiles.populateProfileSelector) {
+      return UIProfiles.populateProfileSelector(elements, selectedProfileName);
     }
   }
 
   async function applyProfileToForm(profileData, profileId = null) {
-    if (UISettings.applyProfileToForm) {
-      const id = profileId || elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id;
-      const keyInput = elements.settingApiKey;
-      if (keyInput) {
-        keyInput._loadedApiKey = undefined;
-        keyInput.value = '';
-      }
-      UISettings.applyProfileToForm(elements, profileData);
-      syncProfileSaveState();
-      try {
-        const profile = id ? await Profiles.load(id) : null;
-        if (!keyInput || (elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
-        const apiKey = profile?.settings.apiKey || '';
-        keyInput.value = apiKey;
-        keyInput._loadedApiKey = apiKey;
-        syncProfileSaveState();
-      } catch (error) {
-        if ((elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
-        syncProfileSaveState();
-        showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-      }
+    if (UIProfiles.applyProfileToForm) {
+      return UIProfiles.applyProfileToForm(elements, profileData, profileId, getProfilesHelperOptions());
     }
   }
 
@@ -1429,336 +901,93 @@
     }
   }
 
-  function isDownloadedWebLLMModel(modelId) {
-    if (!modelId) return false;
-    const adapter = Providers.registry?.get?.('webllm');
-    if (typeof adapter?.isModelCompleted === 'function') {
-      return adapter.isModelCompleted(modelId);
-    }
-    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
-    if (typeof WebLLM?.isModelCompleted === 'function') {
-      return WebLLM.isModelCompleted(modelId);
-    }
-    const Storage = typeof ChatStorage !== 'undefined' ? ChatStorage : (typeof globalThis !== 'undefined' ? globalThis.ChatStorage : null);
-    if (!Storage?.getStorageItem) return false;
-    try {
-      const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
-      const raw = Storage.getStorageItem(key);
-      const list = JSON.parse(raw || '[]');
-      return Array.isArray(list) && list.includes(modelId);
-    } catch (_) {
-      return false;
-    }
-  }
 
-  function canSaveProfile() {
-    return isProfileFormDirty();
-  }
 
   function syncProfileSaveState() {
-    const canSave = canSaveProfile();
-    const isReadOnly = elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID;
-    UISettings.syncProfileEditor?.(elements, isReadOnly, canSave);
-    const keyUnavailable = elements.settingApiKey?._loadedApiKey === undefined;
-    if (keyUnavailable && elements.settingApiKey) elements.settingApiKey.disabled = true;
-    if (keyUnavailable && elements.btnSaveProfile) elements.btnSaveProfile.disabled = true;
-    if (!isReadOnly) {
-      if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !canSave || keyUnavailable || elements.profilesDialog?.dataset.profileLocked === 'true';
-      if (elements.profileSaveQueryHint) {
-        const apiType = elements.settingApiType?.value || '';
-        const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
-        if (!isProfileFormDirty()) {
-          elements.profileSaveQueryHint.textContent = t('profile_save_changes_required');
-        } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
-          elements.profileSaveQueryHint.textContent = t('webllm_query_optional');
-        } else {
-          elements.profileSaveQueryHint.textContent = t('profile_save_pending');
-        }
-      }
+    if (UIProfiles.syncProfileSaveState) {
+      return UIProfiles.syncProfileSaveState(elements, getProfilesHelperOptions());
     }
   }
 
   async function handleSaveProfile() {
-    if (elements.settingApiKey?._loadedApiKey === undefined) return false;
-    if (elements.profilesDialog?.dataset.profileLocked === 'true') return false;
-    if (!canSaveProfile()) {
-      showProfileFeedback(t('profile_save_changes_required'), 'error');
-      return false;
+    if (UIProfiles.handleSaveProfile) {
+      return UIProfiles.handleSaveProfile(elements, getProfilesHelperOptions());
     }
-    const name = String(elements.settingProfileName?.value || '').trim();
-    if (!name || !Profiles.saveEditable) return false;
-    const selected = Profiles.get?.(elements.profileSelectHelper?.value || '') || null;
-    if (selected?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return false;
-    }
-    const sameName = Profiles.findByName?.(name) || null;
-    if (sameName?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return false;
-    }
-    if (selected && sameName && sameName.id !== selected.id) {
-      showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
-      return false;
-    }
-    // El selector mantiene la identidad del perfil en edición, incluso si se renombra.
-    const existing = selected || sameName;
-    const baseSettings = existing?.settings || getRuntimeConfig();
-    const formConfig = gatherCurrentFormConfig();
-    const apiKey = elements.settingApiKey?.value.trim() || '';
-    const description = elements.settingProfileDescription?.value.trim() || '';
-    const apiType = elements.settingApiType?.value || baseSettings.apiType;
-    const apiUrl = elements.settingApiUrl?.value.trim() || baseSettings.apiUrl;
-    const model = elements.settingModel?.value.trim() || '';
-    const systemPrompt = elements.settingSystemPrompt?.value.trim() || '';
-    const temperature = elements.settingTemperature?.value || baseSettings.temperature || '0.7';
-    const maxAgentTurns = elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15);
-    const apiKeyLocked = elements.settingApiKeyLocked?.checked === true;
-    const saved = await Profiles.saveEditable({
-      id: existing?.id || `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      description,
-      settings: {
-        ...baseSettings,
-        apiType,
-        apiUrl,
-        apiKey,
-        apiKeyLocked,
-        model,
-        systemPrompt,
-        temperature,
-        maxAgentTurns,
-        webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
-          context_window_size: 'default',
-          prefill_chunk_size: 'default'
-        }
-      }
-    });
-    populateProfileSelector(saved.id);
-    if (elements.settingApiKey) elements.settingApiKey._loadedApiKey = apiKey;
-    setSelectedProfileAsDefault(saved);
-    setProfileQueryState(false);
-    showProfileFeedback(t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
-    return true;
+    return false;
   }
 
   function isProfileQueryReady() {
+    if (UIProfiles.isProfileQueryReady) {
+      return UIProfiles.isProfileQueryReady(elements);
+    }
     return elements.profilesDialog?.dataset.queryReady === 'true';
   }
 
   function isProfileFormDirty() {
-    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
-    const profile = Profiles.get ? Profiles.get(selectedId) : null;
-    const baseSettings = profile?.settings || getRuntimeConfig();
-
-    if (elements.settingProfileName) {
-      const currentName = elements.settingProfileName.value.trim();
-      const baseName = (profile?.name || '').trim();
-      if (currentName !== baseName) return true;
+    if (UIProfiles.isProfileFormDirty) {
+      return UIProfiles.isProfileFormDirty(elements, getProfilesHelperOptions());
     }
-
-    if (elements.settingProfileDescription) {
-      const currentDesc = elements.settingProfileDescription.value.trim();
-      const baseDesc = (profile?.description || '').trim();
-      if (currentDesc !== baseDesc) return true;
-    }
-
-    if (elements.settingApiType) {
-      const currentType = elements.settingApiType.value;
-      const baseType = baseSettings.apiType || 'openai';
-      if (currentType !== baseType) return true;
-    }
-
-    if (elements.settingApiUrl) {
-      const currentUrl = elements.settingApiUrl.value.trim();
-      const baseUrl = (baseSettings.apiUrl || '').trim();
-      if (currentUrl !== baseUrl) return true;
-    }
-
-    if (elements.settingApiKey) {
-      const currentKey = elements.settingApiKey.value.trim();
-      const baseKey = elements.settingApiKey._loadedApiKey;
-      if (baseKey === undefined) return false;
-      if (currentKey !== baseKey) return true;
-    }
-    if (elements.settingApiKeyLocked?.checked !== (baseSettings.apiKeyLocked === true)) return true;
-
-    if (elements.settingModel) {
-      const currentModel = elements.settingModel.value.trim();
-      const baseModel = (baseSettings.model || '').trim();
-      if (currentModel !== baseModel) return true;
-    }
-
-    if (elements.settingSystemPrompt) {
-      const currentPrompt = elements.settingSystemPrompt.value.trim();
-      const basePrompt = (baseSettings.systemPrompt || '').trim();
-      if (currentPrompt !== basePrompt) return true;
-    }
-
-    if (elements.settingTemperature) {
-      const currentTemp = Number(elements.settingTemperature.value);
-      const baseTemp = Number(baseSettings.temperature ?? 0.7);
-      if (!Number.isNaN(currentTemp) && !Number.isNaN(baseTemp)) {
-        if (Math.abs(currentTemp - baseTemp) > 0.001) return true;
-      } else if (String(elements.settingTemperature.value) !== String(baseSettings.temperature ?? '0.7')) {
-        return true;
-      }
-    }
-
-    if (elements.settingWebllmContextWindow) {
-      const currentVal = elements.settingWebllmContextWindow.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.context_window_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
-    if (elements.settingWebllmPrefillChunk) {
-      const currentVal = elements.settingWebllmPrefillChunk.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.prefill_chunk_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
     return false;
   }
 
   function setProfileQueryState(ready) {
-    if (elements.profilesDialog) elements.profilesDialog.dataset.queryReady = String(ready);
-    syncProfileSaveState();
+    if (UIProfiles.setProfileQueryState) {
+      return UIProfiles.setProfileQueryState(elements, ready, getProfilesHelperOptions());
+    }
   }
 
   function activateProfileTab(tabBtn) {
-    const targetPane = document.getElementById(tabBtn?.getAttribute('data-profile-tab'));
-    if (!targetPane) return;
-    const isNameTab = targetPane.id === 'profile-tab-name-pane';
-    elements.profileTabs.forEach(button => {
-      const active = button === tabBtn;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-selected', String(active));
-    });
-    elements.profilePanes.forEach(pane => pane.classList.toggle('active', pane === targetPane));
-    [elements.btnNewProfile].forEach(button => {
-      if (button) button.disabled = !isNameTab;
-    });
+    if (UIProfiles.activateProfileTab) {
+      return UIProfiles.activateProfileTab(elements, tabBtn);
+    }
   }
 
   function setSelectedProfileAsDefault(profile) {
-    if (!profile) return;
-    activateConnectionProfile(profile.id);
+    if (UIProfiles.setSelectedProfileAsDefault) {
+      return UIProfiles.setSelectedProfileAsDefault(profile, getProfilesHelperOptions());
+    }
   }
 
   function activateConnectionProfile(profileId) {
-    if (!profileId || !Config.activateProfile) return;
-    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
-    WebLLM?.adapter?.disposeActiveEngine?.().catch?.(() => {});
-    Config.activateProfile(profileId);
-    loadCachedModels();
-    resetTelemetryDisplay();
+    if (UIProfiles.activateConnectionProfile) {
+      return UIProfiles.activateConnectionProfile(profileId, getProfilesHelperOptions());
+    }
   }
 
-  function setProfileMenuOpen(open) {
-    if (!elements.activeProfileTrigger || !elements.activeProfilePopover) return;
-    elements.activeProfileTrigger.setAttribute('aria-expanded', String(open));
-    elements.activeProfilePopover.hidden = !open;
-  }
 
   function openProfileMenu() {
-    UISettings.renderProfileMenu(elements, Profiles.list(), getRuntimeConfig().activeProfile?.id);
-    setProfileMenuOpen(true);
+    if (UIProfiles.openProfileMenu) {
+      return UIProfiles.openProfileMenu(elements, getProfilesHelperOptions());
+    }
   }
 
   function closeProfileMenu() {
-    setProfileMenuOpen(false);
+    if (UIProfiles.closeProfileMenu) {
+      return UIProfiles.closeProfileMenu(elements);
+    }
   }
 
   async function handleDeleteProfile() {
-    const id = elements.profileSelectHelper?.value || '';
-    const profile = Profiles.get ? Profiles.get(id) : null;
-    if (profile?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return;
+    if (UIProfiles.handleDeleteProfile) {
+      return UIProfiles.handleDeleteProfile(elements, getProfilesHelperOptions());
     }
-    if (!profile || !await ChatDialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
-    const currentProfile = Profiles.get ? Profiles.get(id) : null;
-    if (!currentProfile || currentProfile.name !== profile.name) return;
-    if (Profiles.remove?.(currentProfile.id)) {
-      if (getRuntimeConfig().activeProfile?.id === currentProfile.id) {
-        Config.activateFallbackProfile?.();
-      }
-      populateProfileSelector(getRuntimeConfig().activeProfile?.id || '');
-      applyProfileToForm(getRuntimeConfig());
-      setProfileQueryState(false);
-      showProfileFeedback(t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
-      updateUIFromConfig();
-    }
-  }
-
-  async function requestNewProfileName(message) {
-    const name = String(await ChatDialogs.prompt(message) || '').trim();
-    if (!name) return null;
-    if (Profiles.findByName?.(name)) {
-      showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
-      return null;
-    }
-    return name;
-  }
-
-  async function saveProfileRecord(name, settings, description = '') {
-    if (!Profiles.saveEditable) return null;
-    const saved = await Profiles.saveEditable({
-      id: `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      description,
-      settings: { ...settings, apiKey: '' }
-    });
-    populateProfileSelector(saved.id);
-    applyProfileToForm(saved.settings);
-    setSelectedProfileAsDefault(saved);
-    setProfileQueryState(false);
-    return saved;
   }
 
   async function handleNewProfile() {
-    const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
-    if (!name) return;
-    const saved = await saveProfileRecord(name, Profiles.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', model: '' });
-    if (saved) showProfileFeedback(t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
+    if (UIProfiles.handleNewProfile) {
+      return UIProfiles.handleNewProfile(elements, getProfilesHelperOptions());
+    }
   }
 
   async function handleExportProfiles() {
-    try {
-      if (!ProfileBackup.encryptProfiles || !Export.downloadFile || !Profiles.list) throw new Error('La copia de perfiles no está disponible.');
-      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
-      const encrypted = await ProfileBackup.encryptProfiles(profiles);
-      const date = new Date().toISOString().slice(0, 10);
-      if (!Export.downloadFile(encrypted, `zerochat_profiles_${date}.zcp`, 'application/json')) throw new Error('No se pudo descargar el archivo.');
-      showProfileFeedback(t('msg_profiles_exported'), 'success');
-    } catch (error) {
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+    if (UIProfiles.handleExportProfiles) {
+      return UIProfiles.handleExportProfiles(elements);
     }
   }
 
   async function handleImportProfiles(event) {
-    const file = event.target?.files?.[0];
-    try {
-      if (!file || !ProfileBackup.decryptProfiles || !Profiles.mergeImported) return;
-      if (Number(file.size) > (ProfileBackup.MAX_FILE_BYTES || 1024 * 1024) * 2) throw new Error('El archivo supera el tamaño permitido.');
-      const imported = await ProfileBackup.decryptProfiles(await readFileAsText(file));
-      if (!await ChatDialogs.confirm(t('confirm_import_profiles', { count: imported.length }))) return;
-      const result = Profiles.mergeImported(imported);
-      const activeId = getRuntimeConfig().activeProfile?.id || '';
-      if (Profiles.get?.(activeId)) activateConnectionProfile(activeId);
-      else Config.activateFallbackProfile?.();
-      const selectedId = getRuntimeConfig().activeProfile?.id || Profiles.READONLY_PROFILE_ID;
-      populateProfileSelector(selectedId);
-      applyProfileToForm(Profiles.get?.(selectedId)?.settings || getRuntimeConfig());
-      setProfileQueryState(false);
-      updateUIFromConfig();
-      showProfileFeedback(t('msg_profiles_imported', result), 'success');
-    } catch (error) {
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-    } finally {
-      if (elements.profilesImportInput) elements.profilesImportInput.value = '';
+    if (UIProfiles.handleImportProfiles) {
+      return UIProfiles.handleImportProfiles(event, elements, getProfilesHelperOptions());
     }
   }
 
@@ -1773,54 +1002,21 @@
   }
 
   function openProfilesModal() {
-    if (!elements.profilesDialog) return;
-    const activeId = getRuntimeConfig().activeProfile?.id || '';
-    populateProfileSelector(activeId);
-    const activeProfile = Profiles.get?.(activeId);
-    applyProfileToForm(activeProfile?.settings || getRuntimeConfig());
-    if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
-    if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
-    setProfileQueryState(false);
-    activateProfileTab(document.getElementById('profile-tab-name'));
-    if (typeof loadCachedModels === 'function') loadCachedModels();
-    syncProfileSaveState();
-    if (typeof elements.profilesDialog.showModal === 'function') elements.profilesDialog.showModal();
+    if (UIProfiles.openProfilesModal) {
+      return UIProfiles.openProfilesModal(elements, getProfilesHelperOptions());
+    }
   }
 
-  let isClosingProfilesModal = false;
-
   function resetProfileFormToSelected() {
-    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
-    const profile = Profiles.get?.(selectedId);
-    applyProfileToForm(profile?.settings || getRuntimeConfig());
-    if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
-    if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
+    if (UIProfiles.resetProfileFormToSelected) {
+      return UIProfiles.resetProfileFormToSelected(elements, getProfilesHelperOptions());
+    }
   }
 
   async function closeProfilesModal(force = false) {
-    if (isClosingProfilesModal) return false;
-    const hasUnsavedQuery = isProfileQueryReady();
-    const hasUnsavedChanges = force ? false : isProfileFormDirty();
-
-    if (!force && (hasUnsavedQuery || hasUnsavedChanges)) {
-      isClosingProfilesModal = true;
-      try {
-        const msgKey = hasUnsavedQuery ? 'confirm_profile_query_not_saved' : 'confirm_profile_unsaved_changes';
-        const confirmed = await ChatDialogs.confirm(t(msgKey));
-        if (!confirmed) {
-          elements.btnSaveProfile?.focus();
-          return false;
-        }
-      } finally {
-        isClosingProfilesModal = false;
-      }
+    if (UIProfiles.closeProfilesModal) {
+      return UIProfiles.closeProfilesModal(elements, force, getProfilesHelperOptions());
     }
-    setProfileQueryState(false);
-    resetProfileFormToSelected();
-    if (elements.profilesDialog?.open && typeof elements.profilesDialog.close === 'function') {
-      elements.profilesDialog.close();
-    }
-    return true;
   }
 
   function closeSettingsModal() {
@@ -1851,94 +1047,15 @@
   // ==========================================================================
 
   async function loadSessionsFromStorage() {
-    let sessionsList = [];
-    try {
-      await Storage.initDB();
-      sessionsList = await Storage.getConversationsList();
-    } catch (e) {
-      console.warn('Error al cargar sesiones de chat:', e);
-      sessionsList = [];
+    if (ConversationService.loadSessionsFromStorage) {
+      return await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     }
-
-    if (!Array.isArray(sessionsList)) {
-      sessionsList = [];
-    }
-
-    // Siempre iniciar en un chat nuevo al abrir o recargar la página (F5 / Ctrl+F5)
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const initialHistory = createInitialChatHistory();
-
-    if (State.initializeConversation) {
-      State.initializeConversation({ sessionId: nextSessionId, sessions: sessionsList, messages: initialHistory });
-    }
-
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
   }
 
   async function saveCurrentSession() {
-    const history = getChatHistory();
-    const currId = getCurrentSessionId();
-    const sessionsList = getSavedSessions();
-
-    // Comprobar si hay preguntas reales del usuario además de los turnos de inicialización de fecha/hora
-    const hasRealUserMessages = Array.isArray(history) && history.some(m => {
-      if (!m || m.role !== 'user') return false;
-      return !isDateTimeInitialTurn(m);
-    });
-    
-    // Si la conversación no tiene preguntas reales del usuario, no guardarla como sesión activa en el sidebar
-    if (!hasRealUserMessages) {
-      if (State.removeSession) {
-        State.removeSession(currId);
-      }
-      await Storage.deleteConversation(currId);
-      renderSidebarChats();
-      return;
+    if (ConversationService.saveCurrentSession) {
+      return await ConversationService.saveCurrentSession(getConversationServiceOptions());
     }
-
-    let sess = sessionsList.find(s => s.id === currId);
-    const now = Date.now();
-    if (!sess) {
-      sess = {
-        id: currId,
-        title: t('chat_untitled') || 'Nueva conversación',
-        createdAt: now,
-        updatedAt: now,
-        messageCount: history.length
-      };
-    } else {
-      sess = Object.assign({}, sess, {
-        updatedAt: now,
-        messageCount: history.length
-      });
-    }
-
-    // Auto-generar título a partir del primer mensaje real del usuario
-    const isUntitled = !sess.title ||
-      sess.title === t('chat_untitled') ||
-      sess.title === 'Nueva conversación' ||
-      sess.title === 'New conversation';
-
-    if (isUntitled && history.length > 1) {
-      const firstRealUser = history.find(m => m.role === 'user' && !isDateTimeInitialTurn(m));
-      if (firstRealUser && firstRealUser.content) {
-        const rawContent = typeof firstRealUser.content === 'string' ? firstRealUser.content : (firstRealUser.content[0]?.text || '');
-        const candidate = rawContent.split('\n')[0].replace(/[#*`_>\[\]]/g, '').trim();
-        if (candidate) {
-          sess.title = candidate.length > 35 ? candidate.substring(0, 32) + '…' : candidate;
-        }
-      }
-    }
-
-    if (State.saveSessionMetadata) {
-      State.saveSessionMetadata(sess);
-    }
-    await Storage.saveConversation(sess, history);
-
-    renderSidebarChats();
   }
 
   function renderSidebarChats(filterText = '') {
@@ -1955,222 +1072,47 @@
     }
   }
 
-  async function switchToSession(sessionId, { force = false, saveCurrent = true } = {}) {
-    if (!force && sessionId === getCurrentSessionId()) return;
-    if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
-    if (saveCurrent) await saveCurrentSession();
-
-    let targetConv = null;
-    if (Storage.getConversation) {
-      targetConv = await Storage.getConversation(sessionId);
+  async function switchToSession(sessionId, opts = {}) {
+    if (ConversationService.switchToSession) {
+      return await ConversationService.switchToSession(sessionId, Object.assign({}, getConversationServiceOptions(), opts));
     }
-
-    if (!targetConv) {
-      const found = getSavedSessions().find(s => s.id === sessionId);
-      if (found && found.history) targetConv = found;
-    }
-
-    if (!targetConv) return;
-
-    const restoredHistory = targetConv.history && targetConv.history.length > 0 ? [...targetConv.history] : [
-      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt() }
-    ];
-
-    Engine.ensureConversationDate(restoredHistory, appConfig.language || 'es', targetConv.createdAt);
-
-    if (!initializeSessionState(targetConv.id, restoredHistory, 'chat_switch_blocked_generating')) return false;
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (window.innerWidth < 900) {
-      closeSidebar();
-    }
-    return true;
   }
 
-  async function createNewSession({ saveCurrent = true } = {}) {
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    if (saveCurrent) await saveCurrentSession();
-
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const nextHistory = createInitialChatHistory();
-    if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating')) return false;
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (elements.userInput) {
-      elements.userInput.value = '';
-      autoResizeTextarea();
-      elements.userInput.focus();
+  async function createNewSession(opts = {}) {
+    if (ConversationService.createNewSession) {
+      return await ConversationService.createNewSession(Object.assign({}, getConversationServiceOptions(), opts));
     }
-
-    if (window.innerWidth < 900) {
-      closeSidebar();
-    }
-    return true;
   }
 
-  function getBranchBoundaryIndex(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return -1;
-    const messageIds = new Set((wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean));
-    const messageId = wrapper.getAttribute('data-msg-id');
-    const baseId = wrapper.getAttribute('data-base-id');
-    if (messageId) messageIds.add(messageId);
-    if (baseId) messageIds.add(baseId);
-
-    let boundary = -1;
-    history.forEach((message, index) => {
-      if (!message || !message.id) return;
-      const messageBaseId = extractBaseId(message.id);
-      if (messageIds.has(message.id) || (messageBaseId && messageIds.has(messageBaseId))) {
-        boundary = index;
-      }
-    });
-    return boundary;
-  }
 
   function setAssistantGroupMessageIds(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return;
-    let lastUserIndex = -1;
-    for (let index = history.length - 1; index >= 0; index--) {
-      if (history[index]?.role === 'user') {
-        lastUserIndex = index;
-        break;
-      }
+    if (ConversationService.setAssistantGroupMessageIds) {
+      return ConversationService.setAssistantGroupMessageIds(wrapper, history);
     }
-    const ids = history.slice(lastUserIndex + 1).map(message => message?.id).filter(Boolean);
-    if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
-  function cloneBranchHistory(history, boundary, sessionId) {
-    const sourceHistory = history.slice(0, boundary + 1);
-    const clonedHistory = Utils.clone ? Utils.clone(sourceHistory) : JSON.parse(JSON.stringify(sourceHistory));
-    return clonedHistory.map((message, index) => Object.assign({}, message, {
-      id: `msg_${sessionId}_${index}`
-    }));
-  }
 
   async function createConversationBranch(wrapper) {
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    const history = getChatHistory();
-    const boundary = getBranchBoundaryIndex(wrapper, history);
-    if (boundary < 0) return false;
-
-    await saveCurrentSession();
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    const parentSessionId = getCurrentSessionId();
-    const parentSession = getSavedSessions().find(session => session.id === parentSessionId);
-    const parentTitle = parentSession?.title || t('chat_untitled');
-    const branchSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
-    const now = Date.now();
-    const branchSession = {
-      id: branchSessionId,
-      title: t('chat_branch_title', { title: parentTitle }),
-      createdAt: now,
-      updatedAt: now,
-      messageCount: branchHistory.length,
-      metadata: {
-        parentSessionId,
-        branchedFromMessageIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
-      }
-    };
-
-    if (!Storage.saveConversation || !await Storage.saveConversation(branchSession, branchHistory)) {
-      ChatDialogs.alert(t('chat_branch_error'), { type: 'error' });
-      return false;
+    if (ConversationService.createConversationBranch) {
+      return await ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
     }
-    if (!initializeSessionState(branchSessionId, branchHistory, 'chat_new_blocked_generating')) {
-      await Storage.deleteConversation?.(branchSessionId);
-      return false;
-    }
-    if (State.saveSessionMetadata) State.saveSessionMetadata(branchSession);
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (elements.userInput) {
-      elements.userInput.value = '';
-      autoResizeTextarea();
-      elements.userInput.focus();
-    }
-    if (window.innerWidth < 900) closeSidebar();
-    return true;
   }
 
   async function deleteSession(sessionId, event) {
-    if (event) event.stopPropagation();
-    if (!await ChatDialogs.confirm(t('chat_delete_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-
-    const currId = getCurrentSessionId();
-    if (State.removeSession) {
-      const res = State.removeSession(sessionId);
-      if (!res.ok && res.reason === 'generation-active') {
-        ChatDialogs.alert(t('chat_delete_blocked_generating'));
-        return;
-      }
-    }
-
-    await Storage.deleteConversation(sessionId);
-
-    const remainingSessions = getSavedSessions();
-    if (remainingSessions.length === 0) {
-      await createNewSession({ saveCurrent: false });
-    } else if (currId === sessionId) {
-      const next = remainingSessions[0];
-      // removeSession ya actualiza la sesión activa. Forzamos la restauración
-      // para reemplazar en pantalla el historial recién eliminado.
-      await switchToSession(next.id, { force: true, saveCurrent: false });
-    } else {
-      renderSidebarChats();
+    if (ConversationService.deleteSession) {
+      return await ConversationService.deleteSession(sessionId, event, getConversationServiceOptions());
     }
   }
 
   async function deleteAllSessions() {
-    const sessionsList = getSavedSessions();
-    if (!sessionsList || sessionsList.length === 0) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    if (!await ChatDialogs.confirm(t('chat_delete_all_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-
-    const deleted = await Storage.deleteAllConversations();
-    if (!deleted) {
-      ChatDialogs.alert(t('chat_delete_history_err'), { type: 'error' });
-      return;
+    if (ConversationService.deleteAllSessions) {
+      return await ConversationService.deleteAllSessions(getConversationServiceOptions());
     }
-
-    if (State.set) {
-      State.set('sessions', { activeId: null, list: [] });
-    }
-
-    await createNewSession({ saveCurrent: false });
   }
 
   async function renameSession(sessionId, event) {
-    if (event) event.stopPropagation();
-    let sess = getSavedSessions().find(s => s.id === sessionId);
-    if (!sess) return;
-
-    const newTitle = await ChatDialogs.prompt(t('prompt_rename_conversation'), sess.title || '');
-    if (newTitle !== null && newTitle.trim() !== '') {
-      sess = getSavedSessions().find(s => s.id === sessionId);
-      if (!sess) return;
-      sess.title = newTitle.trim();
-      sess.updatedAt = Date.now();
-      if (State.saveSessionMetadata) {
-        State.saveSessionMetadata(sess);
-      }
-      if (Storage.renameConversation) {
-        await Storage.renameConversation(sessionId, sess.title);
-      }
-      renderSidebarChats();
+    if (ConversationService.renameSession) {
+      return await ConversationService.renameSession(sessionId, event, getConversationServiceOptions());
     }
   }
 
@@ -2180,20 +1122,18 @@
     }
   }
 
+
   function closeSidebar() {
     if (UISidebar.closeSidebar) {
       UISidebar.closeSidebar(elements);
     }
   }
 
-  function renderStoredToolCard(tc, toolMsg) {
-    if (ToolCards.renderHistoricalToolCard) {
-      return ToolCards.renderHistoricalToolCard(tc, toolMsg);
-    }
-    return null;
-  }
 
   function attachListenersToContainer(container) {
+    if (UIConversation.attachListenersToContainer) {
+      return UIConversation.attachListenersToContainer(container);
+    }
     if (!container) return;
     if (Markdown.attachCopyCodeListeners) {
       Markdown.attachCopyCodeListeners(container);
@@ -2212,165 +1152,49 @@
   }
 
   function renderSessionMessages(history) {
-    if (!elements.messagesList) return;
-    elements.messagesList.innerHTML = '';
-
-    // Filtrar system messages y omitir del chat visual el par inicial de fecha/hora
-    const nonSystem = (history || []).filter(m => m && m.role !== 'system');
-    let validMessages = nonSystem;
-    if (nonSystem.length >= 2 && isDateTimeInitialTurn(nonSystem[0]) && nonSystem[1].role === 'assistant' && (nonSystem[1].content === 'OK' || nonSystem[1].content === 'OK.')) {
-      validMessages = nonSystem.slice(2);
-    }
-
-    if (validMessages.length === 0) {
-      if (elements.welcomeBanner) {
-        elements.messagesList.appendChild(elements.welcomeBanner);
-        elements.welcomeBanner.style.display = '';
-      }
-      resetTelemetryDisplay();
-      return;
-    }
-
-    if (elements.welcomeBanner) {
-      elements.welcomeBanner.style.display = 'none';
-    }
-
-    // Agrupar mensajes en turnos: Usuario y Bloques del Asistente (incluyendo tool_calls y tools)
-    let i = 0;
-    while (i < validMessages.length) {
-      const msg = validMessages[i];
-
-      if (msg.role === 'user') {
-        let text = '';
-        let images = msg.images || [];
-        if (typeof msg.content === 'string') {
-          text = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          const textPart = msg.content.find(c => c.type === 'text');
-          text = textPart ? textPart.text : '';
-          msg.content.forEach(c => {
-            if (c.type === 'image_url' && c.image_url?.url) {
-              if (!images.some(img => img.dataUrl === c.image_url.url)) {
-                images.push({ name: 'Imagen adjunta', dataUrl: c.image_url.url });
-              }
-            }
-          });
-        }
-        appendUserMessage(text, text, images, msg.id);
-        i++;
-      } else {
-        // Bloque del Asistente (puede incluir múltiples turnos internos, llamadas a herramientas y resultados)
-        const assistantGroup = [];
-        const firstAssistantId = msg.id || ('msg_ast_' + Date.now());
-
-        while (i < validMessages.length && validMessages[i].role !== 'user') {
-          const item = validMessages[i];
-          if (item && !item.id) {
-            item.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-              ? 'msg_ast_' + crypto.randomUUID()
-              : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    if (UIConversation.renderSessionMessages) {
+      return UIConversation.renderSessionMessages(elements, history, {
+        onBranch: (wrapper) => createConversationBranch(wrapper),
+        onDelete: (wrapper) => removeMessage(wrapper),
+        onReuse: (txt) => {
+          if (elements.userInput) {
+            elements.userInput.value = txt;
+            autoResizeTextarea();
+            elements.userInput.focus();
           }
-          assistantGroup.push(item);
-          i++;
-        }
-
-        const groupMsgIds = assistantGroup.map(m => m.id).filter(Boolean);
-        let groupBaseId = '';
-        for (const item of assistantGroup) {
-          if (item.id) {
-            const base = extractBaseId(item.id);
-            if (base && base !== item.id) {
-              groupBaseId = base;
-              break;
-            }
-          }
-        }
-        if (!groupBaseId && assistantGroup.length > 0 && assistantGroup[0].id) {
-          groupBaseId = extractBaseId(assistantGroup[0].id) || assistantGroup[0].id;
-        }
-
-        const { wrapper, content, actions, btnCopy } = createAssistantMessagePlaceholder(groupBaseId || firstAssistantId);
-        if (groupBaseId) {
-          wrapper.setAttribute('data-base-id', groupBaseId);
-        }
-        if (groupMsgIds.length > 0) {
-          wrapper.setAttribute('data-msg-ids', groupMsgIds.join(','));
-        }
-        content.innerHTML = ''; // Limpiar el cursor inicial de streaming
-
-        let fullAssistantMarkdown = '';
-
-        for (let g = 0; g < assistantGroup.length; g++) {
-          const item = assistantGroup[g];
-
-          if (item.role === 'assistant') {
-            // 1. Si tiene contenido de texto (razonamiento, tablas markdown, texto normal)
-            if (item.content) {
-              const turnBlock = document.createElement('div');
-              turnBlock.className = 'agentic-turn-block';
-              turnBlock.innerHTML = Markdown.renderMarkdown ? Markdown.renderMarkdown(item.content) : item.content;
-              content.appendChild(turnBlock);
-              fullAssistantMarkdown += (fullAssistantMarkdown ? '\n\n' : '') + item.content;
-            }
-
-            // 2. Si tiene llamadas a herramientas (tool_calls)
-            if (Array.isArray(item.tool_calls) && item.tool_calls.length > 0) {
-              item.tool_calls.forEach(tc => {
-                // Buscar el mensaje 'tool' correspondiente
-                const toolMsg = assistantGroup.find(m => m.role === 'tool' && (m.tool_call_id === tc.id || m.name === tc.function?.name));
-                const cardEl = renderStoredToolCard(tc, toolMsg);
-                if (cardEl) {
-                  content.appendChild(cardEl);
-                }
-              });
-            }
-          }
-        }
-
-        // Si no se generó ningún contenido visual en el asistente
-        if (content.children.length === 0) {
-          content.innerHTML = `<p><em>${Markdown.escapeHtml ? Markdown.escapeHtml(t('no_text_response')) : t('no_text_response')}</em></p>`;
-        }
-
-        // Configurar botón de copia
-        if (btnCopy) {
-          btnCopy.onclick = async () => {
-            if (navigator.clipboard) {
-              await navigator.clipboard.writeText(fullAssistantMarkdown || content.innerText);
-              btnCopy.innerHTML = getMsgIcon('check', 14);
-              btnCopy.title = t('copied_text');
-              btnCopy.setAttribute('aria-label', t('copied_text'));
-              btnCopy.classList.add('copied');
-              setTimeout(() => {
-                btnCopy.innerHTML = getMsgIcon('copy', 14);
-                btnCopy.title = t('btn_copy_title');
-                btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-                btnCopy.classList.remove('copied');
-              }, 2000);
-            }
-          };
-        }
-
-        if (actions) actions.style.display = 'inline-flex';
-
-        // Adjuntar listeners de código, ejecución y minimizado de herramientas
-        attachListenersToContainer(content);
-      }
+        },
+        resetTelemetry: () => resetTelemetryDisplay(),
+        updateTelemetry: () => updateConnectionTokensBadge(null, null, { forcePopover: true })
+      });
     }
-
-    scrollToBottom();
-    updateConnectionTokensBadge(null, null, { forcePopover: true });
   }
 
   // ==========================================================================
   // Modal de Exportación e Importación de Conversaciones
   // ==========================================================================
 
+  function getExportTransferOptions() {
+    return {
+      getActiveSessionId: () => getCurrentSessionId(),
+      getSavedSessions: () => getSavedSessions(),
+      getHistory: () => getChatHistory(),
+      getSession: async (id) => (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null,
+      getConfig: () => appConfig,
+      getModel: () => appConfig.model,
+      onSwitchSession: async (id) => await switchToSession(id)
+    };
+  }
+
   function getExportTargetSessionId() {
+    if (UITransfer.getExportTargetSessionId) return UITransfer.getExportTargetSessionId(elements, getCurrentSessionId());
     return elements.exportModal?.dataset?.sessionId || getCurrentSessionId();
   }
 
   function openExportModal(targetSessionId = null) {
+    if (UITransfer.openExportModal) {
+      UITransfer.openExportModal(elements, targetSessionId, getCurrentSessionId());
+      return;
+    }
     if (elements.exportModal) {
       elements.exportModal.dataset.sessionId = targetSessionId || getCurrentSessionId();
       if (typeof elements.exportModal.showModal === 'function') {
@@ -2382,6 +1206,10 @@
   }
 
   function closeExportModal() {
+    if (UITransfer.closeExportModal) {
+      UITransfer.closeExportModal(elements);
+      return;
+    }
     if (elements.exportModal) {
       delete elements.exportModal.dataset.sessionId;
       if (typeof elements.exportModal.close === 'function') {
@@ -2393,6 +1221,9 @@
   }
 
   async function getSessionForExport() {
+    if (UITransfer.resolveSessionForExport) {
+      return await UITransfer.resolveSessionForExport(elements, getExportTransferOptions());
+    }
     const id = getExportTargetSessionId();
     if (id === getCurrentSessionId()) {
       return { sess: getSavedSessions().find(s => s.id === id), history: getChatHistory() };
@@ -2402,6 +1233,10 @@
   }
 
   async function exportConversationAsMarkdown() {
+    if (UITransfer.exportConversationAsMarkdown) {
+      await UITransfer.exportConversationAsMarkdown(elements, getExportTransferOptions());
+      return;
+    }
     const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -2413,6 +1248,10 @@
   }
 
   async function exportConversationAsJson() {
+    if (UITransfer.exportConversationAsJson) {
+      await UITransfer.exportConversationAsJson(elements, getExportTransferOptions());
+      return;
+    }
     const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -2424,6 +1263,10 @@
   }
 
   async function exportConversationAsPrint() {
+    if (UITransfer.exportConversationAsPrint) {
+      await UITransfer.exportConversationAsPrint(elements, getExportTransferOptions());
+      return;
+    }
     const targetId = getExportTargetSessionId();
     closeExportModal();
     if (targetId && targetId !== getCurrentSessionId()) {
@@ -2481,23 +1324,8 @@
   // ==========================================================================
 
   function handlePasteEvent(e) {
-    if (!e.clipboardData || !e.clipboardData.items) return;
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type && items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
-        if (file) {
-          e.preventDefault();
-          if (FileParser.parseFile) {
-            FileParser.parseFile(file).then(parsed => {
-              if (Attachments.addFile) Attachments.addFile(parsed);
-              renderAttachedFiles();
-            }).catch(err => {
-              console.error('Error pasting image:', err);
-            });
-          }
-        }
-      }
+    if (UIComposer.handlePasteEvent) {
+      return UIComposer.handlePasteEvent(e, elements);
     }
   }
 
@@ -2506,6 +1334,7 @@
   // ==========================================================================
 
   function updateViewportHeight() {
+    if (UIShell.updateViewportHeight) return UIShell.updateViewportHeight();
     let vh = window.innerHeight;
     if (window.visualViewport) {
       vh = window.visualViewport.height;
@@ -2514,6 +1343,11 @@
   }
 
   function setupViewportListeners() {
+    if (UIShell.setupViewportListeners) {
+      return UIShell.setupViewportListeners(elements, {
+        onViewportChange: () => positionReasoningMenu()
+      });
+    }
     updateViewportHeight();
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
@@ -2555,6 +1389,9 @@
   let typingIndicatorEl = null;
 
   function showTypingIndicator() {
+    if (UIConversation.showTypingIndicator) {
+      return UIConversation.showTypingIndicator(elements.messagesList);
+    }
     if (typingIndicatorEl) return;
     const wrapper = document.createElement('div');
     wrapper.id = 'typing-indicator-wrapper';
@@ -2574,6 +1411,9 @@
   }
 
   function removeTypingIndicator() {
+    if (UIConversation.removeTypingIndicator) {
+      UIConversation.removeTypingIndicator();
+    }
     if (typingIndicatorEl && typingIndicatorEl.parentNode) {
       typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
     }
@@ -2596,6 +1436,11 @@
   }
 
   function setupLightDismissDialogs() {
+    if (UIShell.setupLightDismissDialogs) {
+      return UIShell.setupLightDismissDialogs(document, {
+        onDismissProfiles: () => closeProfilesModal()
+      });
+    }
     // Fallback para navegadores sin soporte de closedby="any"
     // Solo actúa si el atributo no está soportado nativamente
     if ('closedBy' in HTMLDialogElement.prototype) return;
@@ -2668,15 +1513,9 @@
     }
 
     function updateComposerMcpState(mcpState) {
-      if (!elements.btnComposerMcp) return;
-      const st = mcpState || State.get('mcp') || {};
-      const status = st.status || 'disconnected';
-      elements.btnComposerMcp.classList.remove('mcp-connected', 'mcp-connecting', 'mcp-disconnected', 'mcp-error');
-      elements.btnComposerMcp.classList.add(`mcp-${status}`);
-      const labelKey = `mcp_status_${status}`;
-      const statusText = ChatI18n?.t ? ChatI18n.t(labelKey) : status;
-      elements.btnComposerMcp.title = `MCP: ${statusText}`;
-      elements.btnComposerMcp.setAttribute('aria-label', `MCP: ${statusText}`);
+      if (UIComposer.updateComposerMcpState) {
+        return UIComposer.updateComposerMcpState(elements, mcpState);
+      }
     }
     State.subscribe('mcp', (newState) => updateComposerMcpState(newState));
     updateComposerMcpState(State.get('mcp'));
@@ -2736,6 +1575,9 @@
     });
     if (elements.btnCloseSidebar) {
       elements.btnCloseSidebar.addEventListener('click', closeSidebar);
+    }
+    if (elements.sidebarBackdrop) {
+      elements.sidebarBackdrop.addEventListener('click', closeSidebar);
     }
     if (elements.btnSidebarNewChat) {
       elements.btnSidebarNewChat.addEventListener('click', createNewSession);
@@ -3186,11 +2028,13 @@
     if (State.subscribe) {
       const syncGenerationControls = (streamingState) => {
         const isGenerating = Boolean(streamingState.isGenerating);
-        if (elements.btnSend) elements.btnSend.disabled = isGenerating;
-        if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
-        // El indicador comparte exactamente el mismo ciclo que Stop/Enviar.
-        // Nunca depende de que un proveedor concrete emita una señal terminal.
-        if (!isGenerating) clearGenerationStatus();
+        if (UIComposer.syncGenerationControls) {
+          UIComposer.syncGenerationControls(elements, isGenerating, { clearGenerationStatus });
+        } else {
+          if (elements.btnSend) elements.btnSend.disabled = isGenerating;
+          if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
+          if (!isGenerating) clearGenerationStatus();
+        }
       };
       State.subscribe('streaming', syncGenerationControls);
       syncGenerationControls(State.get?.('streaming') || {});
@@ -3237,7 +2081,7 @@
         toolsContainer: elements.mcpToolsContainer
       });
       const currentCfg = getRuntimeConfig();
-      if (window.ChatMCP?.manager?.connectProxy) {
+      if (currentCfg?.mcpAutoConnect && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({
           host: currentCfg?.mcpHost || '127.0.0.1',
           port: currentCfg?.mcpPort || 6388,
