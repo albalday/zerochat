@@ -29,7 +29,6 @@
   function getExport() { return resolveDep('ChatExport', './export.js'); }
   function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
   function getUISettings() { return resolveDep('ChatUISettings', './ui-settings.js'); }
-  function getStorage() { return resolveDep('ChatStorage', './cookies.js'); }
 
   function t(key, params) {
     const I18n = getI18n();
@@ -48,19 +47,7 @@
       return adapter.isModelCompleted(modelId);
     }
     const WebLLM = resolveDep('ChatWebLLM', './providers-webllm.js');
-    if (typeof WebLLM?.isModelCompleted === 'function') {
-      return WebLLM.isModelCompleted(modelId);
-    }
-    const Storage = getStorage();
-    if (!Storage?.getStorageItem) return false;
-    try {
-      const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
-      const raw = Storage.getStorageItem(key);
-      const list = JSON.parse(raw || '[]');
-      return Array.isArray(list) && list.includes(modelId);
-    } catch (_) {
-      return false;
-    }
+    return WebLLM?.isModelCompleted?.(modelId) || false;
   }
 
   function populateProfileSelector(elements, selectedProfileName) {

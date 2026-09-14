@@ -40,3 +40,16 @@ Build correcto; `npm test`: 550 pruebas aprobadas; suite de navegador aprobada.
 Se añadieron pruebas de inmutabilidad, selección, compatibilidad de las fachadas
 y bloqueo durante generación. Las comprobaciones que lanzan Chromium o procesos
 requieren ejecución fuera del sandbox de este entorno.
+
+## Validación de fase 2
+
+El proveedor WebLLM es propietario de la lectura y validación de metadatos de
+modelos completados; inspector y perfiles conservan sus consultas públicas y la
+prioridad del adaptador registrado. El fallback de Node utiliza `ChatStorage`
+desde el proveedor, sin descargar el runtime WebLLM. El arranque requiere
+`ChatConfig` y conserva el aviso ante un error de inicialización; no mantiene una
+segunda tabla de valores predeterminados.
+
+Build correcto; `npm test`: 555 pruebas aprobadas; 46 pruebas de navegador
+aprobadas. Nuevas comprobaciones cubren JSON inválido, almacenamiento inaccesible,
+metadatos cambiantes, adaptadores sustituidos, fallback Node y contrato de arranque.

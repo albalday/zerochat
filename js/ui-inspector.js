@@ -110,19 +110,8 @@
     if (typeof adapter?.getCompletedModelIds === 'function') {
       return adapter.getCompletedModelIds();
     }
-    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
-    if (typeof WebLLM?.getCompletedModelIds === 'function') {
-      return WebLLM.getCompletedModelIds();
-    }
-    const Storage = getStorage();
-    if (Storage?.getStorageItem) {
-      try {
-        const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
-        const parsed = JSON.parse(Storage.getStorageItem(key) || '[]');
-        return Array.isArray(parsed) ? parsed.filter(m => typeof m === 'string') : [];
-      } catch (_) {}
-    }
-    return [];
+    const WebLLM = (typeof globalThis !== 'undefined' && globalThis.ChatWebLLM) || resolveDep('ChatWebLLM', './providers-webllm.js');
+    return WebLLM?.getCompletedModelIds?.() || [];
   }
 
   function sortWebLLMModels(models) {

@@ -155,7 +155,8 @@
   }
 
   function getStorage() {
-    return typeof globalThis !== 'undefined' ? globalThis.ChatStorage : null;
+    if (typeof globalThis !== 'undefined' && globalThis.ChatStorage) return globalThis.ChatStorage;
+    return typeof require !== 'undefined' ? require('./cookies.js') : null;
   }
 
   function completedModels() {

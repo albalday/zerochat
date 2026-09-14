@@ -90,6 +90,7 @@
 
     <div class="card">
       <h2>Shared conversation rules</h2>
+      <p>Active configuration comes from <code>ChatConfig</code>. Profile and catalog interfaces query the WebLLM provider for completed models instead of independently parsing stored metadata.</p>
       <p>State, engine and views reuse <code>message-turns.js</code> rules to identify turns and recognize initial date messages. Turn removal shares a sanitization algorithm; <code>ChatState</code> retains the generation guard and atomic history update.</p>
     </div>
 

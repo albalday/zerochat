@@ -43,7 +43,7 @@
   const UIInspector = window.ChatUIInspector || {};
   const UISidebar = window.ChatUISidebar || {};
   const UISettings = window.ChatUISettings || {};
-  const Config = window.ChatConfig || {};
+  const Config = window.ChatConfig;
   const Profiles = window.ChatProfileRepository || {};
   const Providers = window.ChatProviders || {};
   const UIShell = window.ChatUIShell || {};
@@ -70,38 +70,18 @@
     return '';
   }
 
-  // Estado de la aplicación
-  const fallbackConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: '',
-    systemPrompt: '',
-    systemDataPrompt: '',
-    temperature: '0.7',
-    reasoningEffort: 'none',
-    reasoningTransport: 'auto',
-    theme: 'light',
-    language: 'es',
-    enabledTools: {
-      execute_javascript: true,
-      search_web: true,
-      fetch_web_page: true,
-      download_pdf: true,
-      render_chart: true
-    },
-    enableRawLogs: false,
-    enableDebugMessages: false,
-    activeRagBranchId: ''
-  };
+  if (typeof Config?.initialize !== 'function' || typeof Config?.getActive !== 'function') {
+    throw new Error('ZeroChat requires ChatConfig before application startup.');
+  }
 
   try {
-    if (Config.initialize) Config.initialize();
+    Config.initialize();
   } catch (error) {
     console.warn('Error durante la inicialización de configuración:', error);
   }
 
   function getRuntimeConfig() {
-    return Config.getActive ? Config.getActive() : { ...fallbackConfig };
+    return Config.getActive();
   }
 
   // Transitional read-through facade for legacy helpers inside this module.
