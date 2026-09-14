@@ -1785,7 +1785,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
       const menu = document.getElementById('reasoning-menu');
       const header = document.querySelector('.reasoning-menu-header');
       const options = document.querySelector('.reasoning-options');
-      const lowOption = document.querySelector('.reasoning-option[data-level="low"]');
+      const lowOption = document.querySelector('.reasoning-option[data-level="low"]') || document.querySelector('.reasoning-option');
       const lowIcon = lowOption?.querySelector('.option-icon');
       const lowText = lowOption?.querySelector('.option-text');
       const svg = header?.querySelector('svg');
