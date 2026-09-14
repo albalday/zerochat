@@ -52,6 +52,7 @@
   const UIComposer = window.ChatUIComposer || {};
   const ConversationService = window.ChatConversationService || {};
   const UIConversation = window.ChatUIConversation || {};
+  const GenerationController = window.ChatGenerationController || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -110,8 +111,6 @@
     ownKeys: () => Reflect.ownKeys(getRuntimeConfig()),
     getOwnPropertyDescriptor: (_target, key) => ({ enumerable: true, configurable: true, value: getRuntimeConfig()[key] })
   });
-
-  let currentAbortController = null;
 
   function getChatHistory() {
     return State.get ? (State.get('messages') || []) : [];
@@ -885,296 +884,47 @@
   // Envío de Mensaje y Streaming
   // ==========================================================================
 
+  function getGenerationControllerOptions() {
+    return {
+      elements,
+      getRuntimeConfig,
+      getCurrentSessionId,
+      getChatHistory,
+      setGenerationStatus,
+      clearGenerationStatus,
+      showTypingIndicator,
+      removeTypingIndicator,
+      createAssistantMessagePlaceholder,
+      appendUserMessage,
+      attachListenersToContainer,
+      scrollToBottom,
+      updateConnectionTokensBadge,
+      addDebugLog,
+      setDebugStatus,
+      openDebugInterceptorModal,
+      saveCurrentSession,
+      clearAttachedFiles,
+      autoResizeTextarea,
+      closeReasoningMenu,
+      setAssistantGroupMessageIds
+    };
+  }
+
   async function handleSendMessage() {
-    const rawText = elements.userInput.value.trim();
-    const currentFiles = Attachments.getFiles ? Attachments.getFiles() : [];
-    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy?.()) return;
-    // One immutable snapshot per turn prevents profile changes from modifying
-    // an in-flight request.
-    const runtimeConfig = getRuntimeConfig();
-
-    const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload
-      ? Attachments.buildAttachmentsPayload(rawText, currentFiles)
-      : { fullPrompt: rawText, displayText: rawText, imageAttachments: [] };
-
-    const userMsgId = appendUserMessage(displayText, rawText, imageAttachments);
-    const historyEntry = { id: userMsgId, role: 'user', content: fullPrompt };
-    if (imageAttachments.length > 0) {
-      historyEntry.images = imageAttachments;
-    }
-    if (State.appendMessage) {
-      State.appendMessage(historyEntry);
-    }
-
-    const generationSessionId = getCurrentSessionId();
-    let generationError = null;
-
-    elements.userInput.value = '';
-    clearAttachedFiles();
-    autoResizeTextarea();
-    closeReasoningMenu();
-
-    State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
-    setGenerationStatus({ phase: 'generating' });
-
-    currentAbortController = new AbortController();
-    // Mostrar indicador de escritura hasta que llegue el primer chunk
-    showTypingIndicator();
-    const { wrapper, row, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = createAssistantMessagePlaceholder();
-    removeTypingIndicator();
-    const attachListeners = (el) => attachListenersToContainer(el);
-
-    if (!API.streamChatCompletion) {
-      row.classList.add('message-error');
-      content.innerHTML = 'Error: Chat API module not loaded.';
-      finishGeneration({ error: 'Error: Chat API module not loaded.' });
-      return;
-    }
-
-    if (!runtimeConfig.model || runtimeConfig.model.trim() === '') {
-      row.classList.add('message-error');
-      content.innerHTML = `
-        <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-          <div>
-            <strong>${t('err_no_model_title')}</strong>
-            <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: runtimeConfig.apiUrl })}</p>
-          </div>
-        </div>
-      `;
-      actions.style.display = 'inline-flex';
-      finishGeneration({ error: t('err_no_model_title') });
-      return;
-    }
-
-    function updateStatsDisplay(stats) {
-      if (!stats) return;
-      statsContainer.style.display = 'inline-flex';
-      const clockSvg = getMsgIcon('clock', 11);
-      const zapSvg = getMsgIcon('zap', 11);
-      const docSvg = getMsgIcon('file-text', 11);
-      const dbSvg = getMsgIcon('database', 11);
-
-      const cacheHtml = (stats.cachedTokens && stats.cachedTokens > 0)
-        ? `<span>•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
-        : '';
-      statsContainer.innerHTML = `
-        <span class="stat-item" title="${t('stat_ttft_title')}">${clockSvg} <span>${t('stat_ttft', { sec: stats.ttftSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_speed_title')}">${zapSvg} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_total_time_title')}">${clockSvg} <span>${t('stat_total_time', { sec: stats.totalSec })}</span></span>
-        <span>•</span>
-        <span class="stat-item" title="${t('stat_tokens_title')}">${docSvg} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
-      `;
-      updateConnectionTokensBadge(stats);
-    }
-
-    const activeRagBranchIds = Array.isArray(runtimeConfig.activeRagBranchIds)
-      ? runtimeConfig.activeRagBranchIds
-      : (runtimeConfig.activeRagBranchId ? [runtimeConfig.activeRagBranchId] : []);
-    const activeRagBranchId = activeRagBranchIds[0] || runtimeConfig.activeRagBranchId || '';
-
-    // Cargar únicamente la instrucción compacta de las ramas activas.
-    if (activeRagBranchIds.length > 0 && window.ChatRagService && window.ChatRagService.buildRagSystemContext) {
-      setGenerationStatus({ phase: 'rag', text: t('generation_status_rag') });
-      try {
-        setRagSystemContext(await window.ChatRagService.buildRagSystemContext(activeRagBranchIds, {
-          isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
-          lang: runtimeConfig.language || 'es'
-        }));
-      } catch (err) {
-        console.warn('Error al cargar contexto inicial de RAG:', err);
-        addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
-        setRagSystemContext('');
-      }
-    } else {
-      setRagSystemContext('');
-    }
-
-    try {
-      const runner = window.ChatEngine || Engine;
-      const activeProfile = await Profiles.load(runtimeConfig.activeProfile?.id);
-      const loopResult = await runner.executeAgentTurnLoop({
-        apiUrl: runtimeConfig.apiUrl,
-        apiType: runtimeConfig.apiType,
-        apiKey: activeProfile?.settings.apiKey || '',
-        model: runtimeConfig.model,
-        temperature: runtimeConfig.temperature,
-        reasoningEffort: runtimeConfig.reasoningEffort || 'none',
-        reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
-        maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
-        chatHistory: getChatHistory(),
-        appConfig: runtimeConfig,
-        assistantMsgId: assistantMsgId,
-        activeRagBranchId: activeRagBranchId,
-        activeRagBranchIds: activeRagBranchIds,
-        currentRagSystemContext: getRagSystemContext(),
-        signal: currentAbortController.signal,
-        container: content,
-
-        onBeforeRequest: runtimeConfig.enableDebugMessages ? async function ({ endpoint, headers, payload }) {
-          return await openDebugInterceptorModal({ endpoint, headers, payload });
-        } : null,
-
-        onReasoningChunk: function (chunk) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          addDebugLog('thinking', chunk);
-          setDebugStatus('streaming', t('debug_status_thinking'));
-        },
-
-        onGenerationStatus: function (status) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          setGenerationStatus(status);
-        },
-
-        onLog: function (type, text) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          addDebugLog(type, text);
-        },
-
-        onStats: function (stats) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          updateStatsDisplay(stats);
-        },
-
-        onChunk: function ({ turnIndex, fullText, delta, stats }) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (stats) updateStatsDisplay(stats);
-          scrollToBottom();
-        },
-
-        scrollToBottom: () => scrollToBottom(),
-        attachListeners: (el) => attachListeners(el)
-      });
-
-      if (getCurrentSessionId() !== generationSessionId) {
-        console.warn('[ZeroChat] Inferencia descartada por cambio de sesión.');
-        return;
-      }
-
-      if (loopResult && Array.isArray(loopResult.chatHistory) && State.replaceMessages) {
-        State.replaceMessages(loopResult.chatHistory);
-        setAssistantGroupMessageIds(wrapper, getChatHistory());
-      }
-
-      if (loopResult && loopResult.cancelled) {
-        if (wrapper && !wrapper.querySelector('.agentic-turn-block') && wrapper.parentNode) {
-          wrapper.parentNode.removeChild(wrapper);
-        }
-        setDebugStatus('idle');
-        return;
-      }
-
-      if (loopResult && loopResult.error) {
-        if (currentAbortController && currentAbortController.signal.aborted) {
-          return;
-        }
-        setDebugStatus('error', t('debug_status_error'));
-        addDebugLog('error', loopResult.error.message || String(loopResult.error));
-        row.classList.add('message-error');
-        content.innerHTML = `
-          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-            <div>
-              <strong>${t('err_server_connect_title')}</strong>
-              <p style="margin-top: 0.25rem;">
-                ${Markdown.escapeHtml ? Markdown.escapeHtml(loopResult.error.message || String(loopResult.error)) : String(loopResult.error)}
-              </p>
-              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
-              </p>
-            </div>
-          </div>
-        `;
-        actions.style.display = 'inline-flex';
-        return;
-      }
-
-      if (loopResult && loopResult.stats) {
-        updateStatsDisplay(loopResult.stats);
-        updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
-      }
-
-      actions.style.display = 'inline-flex';
-      btnCopy.onclick = async () => {
-        try {
-          const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
-          await navigator.clipboard.writeText(fullMd);
-          btnCopy.innerHTML = getMsgIcon('check', 14);
-          btnCopy.title = t('copied_text');
-          btnCopy.setAttribute('aria-label', t('copied_text'));
-          btnCopy.classList.add('copied');
-          setTimeout(() => {
-            btnCopy.innerHTML = getMsgIcon('copy', 14);
-            btnCopy.title = t('btn_copy_title');
-            btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-            btnCopy.classList.remove('copied');
-          }, 2000);
-        } catch (err) {
-          console.error('Error copying composite response:', err);
-        }
-      };
-
-      setDebugStatus('done', t('debug_status_done'));
-    } catch (err) {
-      console.error('[ZeroChat] Error durante inferencia agéntica:', err);
-      const isAborted = Boolean(currentAbortController && currentAbortController.signal.aborted) || err?.name === 'AbortError';
-      if (!isAborted) {
-        generationError = err?.message || String(err);
-        setDebugStatus('error', t('debug_status_error'));
-        addDebugLog('error', generationError);
-        row.classList.add('message-error');
-        content.innerHTML = `
-          <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-            <div>
-              <strong>${t('err_server_connect_title')}</strong>
-              <p style="margin-top: 0.25rem;">
-                ${Markdown.escapeHtml ? Markdown.escapeHtml(generationError) : String(generationError)}
-              </p>
-              <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                ${t('err_server_connect_hint', { url: appConfig.apiUrl })}
-              </p>
-            </div>
-          </div>
-        `;
-        actions.style.display = 'inline-flex';
-      }
-    } finally {
-      finishGeneration({
-        skipSave: getCurrentSessionId() !== generationSessionId,
-        error: generationError
-      });
+    if (GenerationController.handleSendMessage) {
+      return await GenerationController.handleSendMessage(getGenerationControllerOptions());
     }
   }
 
-  function finishGeneration({ skipSave = false, error = null } = {}) {
-    removeTypingIndicator(); // Seguridad: limpiar si quedó activo
-    clearGenerationStatus();
-    if (error) {
-      State.set('streaming', { isGenerating: false, status: 'error', error: String(error) });
-    } else {
-      State.set('streaming', { isGenerating: false, status: 'idle', error: null });
+  function finishGeneration(options = {}) {
+    if (GenerationController.finishGeneration) {
+      return GenerationController.finishGeneration(Object.assign({}, getGenerationControllerOptions(), options));
     }
-    if (elements.btnSend) elements.btnSend.disabled = false;
-    if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
-
-    currentAbortController = null;
-    if (elements.userInput) elements.userInput.focus();
-    if (!skipSave) {
-      try {
-        saveCurrentSession();
-      } catch (saveErr) {
-        console.warn('[ZeroChat] Error al guardar sesión en finishGeneration:', saveErr);
-      }
-    }
-    scrollToBottom();
   }
 
   function handleStopGeneration() {
-    if (currentAbortController) {
-      currentAbortController.abort();
+    if (GenerationController.handleStopGeneration) {
+      return GenerationController.handleStopGeneration();
     }
   }
 
