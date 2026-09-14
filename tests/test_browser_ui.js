@@ -1251,7 +1251,7 @@ test('Browser UI - crear una rama conserva el origen y corta el nuevo historial 
   }
 });
 
-test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones Circulares', async () => {
+test('Browser UI - Composer Flotante Omnibox, Auto-expansión y Controles Compactos', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -1289,11 +1289,11 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
     const resetHeight = await page.$eval('#user-input', el => el.offsetHeight);
     assert.ok(resetHeight <= initialHeight, 'Al vaciar el texto debe volver a la altura mínima');
 
-    // 3. Validar botón circular de envío y botón de adjuntar
+    // 3. Validar botón circular de envío y control compacto de adjuntos
     await page.waitForFunction(() => {
       const btnSend = document.getElementById('btn-send');
       const btnAttach = document.getElementById('btn-attach-file');
-      return btnSend && btnAttach && parseFloat(getComputedStyle(btnSend).borderRadius) >= 16 && parseFloat(getComputedStyle(btnAttach).borderRadius) >= 16;
+      return btnSend && btnAttach && parseFloat(getComputedStyle(btnSend).borderRadius) >= 16 && parseFloat(getComputedStyle(btnAttach).borderRadius) >= 8;
     });
     const buttonStyles = await page.evaluate(() => {
       const btnSend = document.getElementById('btn-send');
@@ -1311,7 +1311,7 @@ test('Browser UI - Fase 4: Composer Flotante Omnibox, Auto-expansión y Botones 
 
     assert.equal(buttonStyles.sendWidth, buttonStyles.sendHeight, 'El botón de envío debe ser perfectamente circular (width === height)');
     assert.ok(buttonStyles.sendRadius >= 16, 'El botón de envío debe tener borde completamente redondeado');
-    assert.ok(buttonStyles.attachRadius >= 16, 'El botón de adjuntar debe tener borde redondeado');
+    assert.ok(buttonStyles.attachRadius >= 8, 'El botón de adjuntar debe tener esquinas redondeadas');
 
     // 4. Validar menú desplegable de razonamiento integrado
     await page.click('#btn-reasoning');
@@ -2721,8 +2721,8 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
         hasBtnTools: !!btnTools,
         hasBtnMcp: !!btnMcp,
         hasBtnRag: !!btnRag,
-        ragText: btnRag?.textContent?.trim() || '',
-        mcpDot: !!btnMcp?.querySelector('.mcp-dot'),
+        ragIcon: btnRag?.querySelector('svg use')?.getAttribute('href'),
+        mcpIcon: btnMcp?.querySelector('svg use')?.getAttribute('href'),
         hasTokensBadge: !!tokensBadge,
         hasBtnStop: !!btnStop,
         hasBtnSend: !!btnSend
@@ -2737,8 +2737,8 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
     assert.ok(structure.hasBtnTools, 'El botón de tools debe estar en los controles inferiores izquierdos');
     assert.ok(structure.hasBtnMcp, 'El botón de MCP debe estar en los controles inferiores izquierdos');
     assert.ok(structure.hasBtnRag, 'El botón de RAG debe estar en los controles inferiores izquierdos');
-    assert.ok(structure.ragText.includes('RAG'), `El botón de RAG debe tener el texto RAG (obtenido: "${structure.ragText}")`);
-    assert.ok(structure.mcpDot, 'El botón de MCP debe contener el indicador .mcp-dot');
+    assert.equal(structure.ragIcon, '#icon-layers', 'El botón de RAG debe usar el icono de conocimiento');
+    assert.equal(structure.mcpIcon, '#icon-plug', 'El botón de MCP debe usar el icono de conexión');
     assert.ok(structure.hasTokensBadge, 'El contador de tokens debe estar a la derecha');
     assert.ok(structure.hasBtnSend, 'El botón enviar debe estar a la derecha');
 
@@ -2787,6 +2787,58 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
     // Cerrar diálogo de RAG
     await page.click('#btn-close-rag');
     await page.waitForFunction(() => !document.getElementById('rag-modal')?.open);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - composer compacto en móvil mantiene placeholder y controles accesibles', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 320, height: 700 }, isMobile: true });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('file://' + path.resolve(__dirname, '../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    for (const language of ['es', 'en']) {
+      const metrics = await page.evaluate(language => {
+        window.ChatI18n.setLanguage(language, false);
+        const input = document.getElementById('user-input');
+        const controls = ['btn-attach-file', 'btn-reasoning', 'btn-composer-tools', 'btn-composer-mcp', 'btn-open-rag'];
+        const buttons = controls.map(id => document.getElementById(id));
+        const rects = buttons.map(button => button.getBoundingClientRect());
+        const inputStyle = getComputedStyle(input);
+        return {
+          placeholder: input.placeholder,
+          inputHeight: input.getBoundingClientRect().height,
+          lineHeight: parseFloat(inputStyle.lineHeight),
+          hasIcons: buttons.every(button => !!button.querySelector('svg use')),
+          hasNames: buttons.every(button => !!(button.getAttribute('aria-label') || button.getAttribute('aria-labelledby'))),
+          sameRow: rects.every(rect => Math.abs(rect.top - rects[0].top) < 1),
+          withinViewport: rects.every(rect => rect.left >= 0 && rect.right <= innerWidth)
+        };
+      }, language);
+      assert.equal(metrics.placeholder, language === 'es' ? 'Escribe un mensaje...' : 'Write a message...');
+      assert.ok(metrics.inputHeight < metrics.lineHeight * 2, 'El placeholder debe caber en una línea');
+      assert.equal(metrics.hasIcons, true);
+      assert.equal(metrics.hasNames, true);
+      assert.equal(metrics.sameRow, true);
+      assert.equal(metrics.withinViewport, true);
+    }
+
+    await page.evaluate(() => {
+      const button = document.getElementById('btn-composer-mcp');
+      window.ChatUIComposer.updateComposerMcpState({ btnComposerMcp: button }, { status: 'connected' });
+    });
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('btn-composer-mcp')).borderColor === 'rgb(22, 163, 74)');
+    const mcpState = await page.$eval('#btn-composer-mcp', button => ({
+      border: getComputedStyle(button).borderColor,
+      label: button.getAttribute('aria-label')
+    }));
+    assert.equal(mcpState.border, 'rgb(22, 163, 74)');
+    assert.match(mcpState.label, /MCP:/);
+    assert.deepEqual(errors, []);
   } finally {
     await browser.close();
   }

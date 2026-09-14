@@ -127,7 +127,8 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .composer-actions-right {
@@ -137,23 +138,21 @@
   flex-shrink: 0;
 }
 
-/* Botones estilo Chip compacto del Composer */
+/* Controles compactos del composer */
 .btn-composer-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
-  padding: 0 0.55rem;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 500;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 9px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
-  height: 28px;
-  line-height: 1;
-  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  height: 32px;
   user-select: none;
 }
 
@@ -175,24 +174,35 @@
   font-weight: 600;
 }
 
-.btn-composer-chip .btn-label,
-.btn-composer-chip .composer-chip-label {
-  font-size: 0.75rem;
-  font-weight: 500;
+.composer-visually-hidden,
+.btn-reasoning .reasoning-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.btn-composer-chip:focus-visible,
+.btn-composer-icon-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Botón de icono circular compacto (ej. adjuntar) */
 .btn-composer-icon-btn {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-full);
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -207,31 +217,22 @@
   transform: scale(0.95);
 }
 
-/* Indicador luminoso de estado MCP */
-.mcp-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  display: inline-block;
-  flex-shrink: 0;
-  background-color: #dc2626;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+.btn-composer-chip.mcp-connected {
+  border-color: #16a34a;
+  background-color: color-mix(in srgb, #16a34a 14%, var(--bg-surface));
+  color: #15803d;
 }
 
-.btn-composer-chip.mcp-connected .mcp-dot {
-  background-color: #16a34a;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+.btn-composer-chip.mcp-connecting {
+  border-color: #ca8a04;
+  background-color: color-mix(in srgb, #ca8a04 14%, var(--bg-surface));
+  color: #a16207;
 }
 
-.btn-composer-chip.mcp-connecting .mcp-dot {
-  background-color: #ca8a04;
-  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.25);
-}
-
-.btn-composer-chip.mcp-error .mcp-dot,
-.btn-composer-chip.mcp-disconnected .mcp-dot {
-  background-color: #dc2626;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+.btn-composer-chip.mcp-error {
+  border-color: var(--danger);
+  background-color: color-mix(in srgb, var(--danger) 14%, var(--bg-surface));
+  color: var(--danger);
 }
 
 /* Botón para Adjuntar Archivos */
@@ -251,18 +252,14 @@
 .btn-reasoning {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
-  padding: 0 0.55rem;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 500;
+  padding: 0;
+  border-radius: 9px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
-  height: 28px;
-  line-height: 1;
+  height: 32px;
 }
 
 .btn-reasoning:hover {
@@ -658,10 +655,6 @@
 .btn-stop-stream:hover {
   background-color: var(--danger-hover);
   transform: scale(1.05);
-}
-
-.btn-stop-stream span {
-  display: none;
 }
 
 @keyframes pulseStop {
