@@ -48,6 +48,7 @@
   const Providers = window.ChatProviders || {};
   const UIShell = window.ChatUIShell || {};
   const UITransfer = window.ChatUITransfer || {};
+  const UIProfiles = window.ChatUIProfiles || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -1342,67 +1343,28 @@
   // Modal de Configuración & Gestión de Perfiles
   // ==========================================================================
 
+  function getProfilesHelperOptions() {
+    return {
+      getRuntimeConfig,
+      loadCachedModels,
+      resetTelemetryDisplay,
+      updateUIFromConfig,
+      updateReasoningUI
+    };
+  }
+
   /**
    * Puebla el combobox auxiliar y el datalist con todos los perfiles disponibles.
    */
   function populateProfileSelector(selectedProfileName) {
-    if (!Profiles.list) return;
-    const profiles = Profiles.list();
-
-    if (elements.profileDatalist) {
-      elements.profileDatalist.innerHTML = '';
-      profiles.forEach(profile => {
-        const opt = document.createElement('option');
-        opt.value = profile.name;
-        elements.profileDatalist.appendChild(opt);
-      });
-    }
-
-    if (elements.profileSelectHelper) {
-      elements.profileSelectHelper.innerHTML = `<option value="" disabled data-i18n="profile_select_default">▾ Elegir perfil guardado...</option>`;
-      profiles.forEach(profile => {
-        const opt = document.createElement('option');
-        opt.value = profile.id;
-        opt.textContent = profile.name;
-        if (profile.id === selectedProfileName) {
-          opt.selected = true;
-        }
-        elements.profileSelectHelper.appendChild(opt);
-      });
-    }
-
-    if (elements.settingProfileName) {
-      const selected = profiles.find(profile => profile.id === selectedProfileName);
-      elements.settingProfileName.value = selected?.name || '';
-    }
-    if (elements.settingProfileDescription) {
-      const selected = profiles.find(profile => profile.id === selectedProfileName);
-      elements.settingProfileDescription.value = selected?.description || '';
+    if (UIProfiles.populateProfileSelector) {
+      return UIProfiles.populateProfileSelector(elements, selectedProfileName);
     }
   }
 
   async function applyProfileToForm(profileData, profileId = null) {
-    if (UISettings.applyProfileToForm) {
-      const id = profileId || elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id;
-      const keyInput = elements.settingApiKey;
-      if (keyInput) {
-        keyInput._loadedApiKey = undefined;
-        keyInput.value = '';
-      }
-      UISettings.applyProfileToForm(elements, profileData);
-      syncProfileSaveState();
-      try {
-        const profile = id ? await Profiles.load(id) : null;
-        if (!keyInput || (elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
-        const apiKey = profile?.settings.apiKey || '';
-        keyInput.value = apiKey;
-        keyInput._loadedApiKey = apiKey;
-        syncProfileSaveState();
-      } catch (error) {
-        if ((elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id) !== id) return;
-        syncProfileSaveState();
-        showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-      }
+    if (UIProfiles.applyProfileToForm) {
+      return UIProfiles.applyProfileToForm(elements, profileData, profileId, getProfilesHelperOptions());
     }
   }
 
@@ -1444,335 +1406,109 @@
   }
 
   function isDownloadedWebLLMModel(modelId) {
-    if (!modelId) return false;
-    const adapter = Providers.registry?.get?.('webllm');
-    if (typeof adapter?.isModelCompleted === 'function') {
-      return adapter.isModelCompleted(modelId);
+    if (UIProfiles.isDownloadedWebLLMModel) {
+      return UIProfiles.isDownloadedWebLLMModel(modelId);
     }
-    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
-    if (typeof WebLLM?.isModelCompleted === 'function') {
-      return WebLLM.isModelCompleted(modelId);
-    }
-    const Storage = typeof ChatStorage !== 'undefined' ? ChatStorage : (typeof globalThis !== 'undefined' ? globalThis.ChatStorage : null);
-    if (!Storage?.getStorageItem) return false;
-    try {
-      const key = WebLLM?.COMPLETED_MODELS_STORAGE_KEY || 'webllm_completed_models_v1';
-      const raw = Storage.getStorageItem(key);
-      const list = JSON.parse(raw || '[]');
-      return Array.isArray(list) && list.includes(modelId);
-    } catch (_) {
-      return false;
-    }
+    return false;
   }
 
   function canSaveProfile() {
+    if (UIProfiles.canSaveProfile) {
+      return UIProfiles.canSaveProfile(elements, getProfilesHelperOptions());
+    }
     return isProfileFormDirty();
   }
 
   function syncProfileSaveState() {
-    const canSave = canSaveProfile();
-    const isReadOnly = elements.profileSelectHelper?.value === Profiles.READONLY_PROFILE_ID;
-    UISettings.syncProfileEditor?.(elements, isReadOnly, canSave);
-    const keyUnavailable = elements.settingApiKey?._loadedApiKey === undefined;
-    if (keyUnavailable && elements.settingApiKey) elements.settingApiKey.disabled = true;
-    if (keyUnavailable && elements.btnSaveProfile) elements.btnSaveProfile.disabled = true;
-    if (!isReadOnly) {
-      if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = !canSave || keyUnavailable || elements.profilesDialog?.dataset.profileLocked === 'true';
-      if (elements.profileSaveQueryHint) {
-        const apiType = elements.settingApiType?.value || '';
-        const selectedModel = (elements.settingModel?.value || elements.modelSelectHelper?.value || '').trim();
-        if (!isProfileFormDirty()) {
-          elements.profileSaveQueryHint.textContent = t('profile_save_changes_required');
-        } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
-          elements.profileSaveQueryHint.textContent = t('webllm_query_optional');
-        } else {
-          elements.profileSaveQueryHint.textContent = t('profile_save_pending');
-        }
-      }
+    if (UIProfiles.syncProfileSaveState) {
+      return UIProfiles.syncProfileSaveState(elements, getProfilesHelperOptions());
     }
   }
 
   async function handleSaveProfile() {
-    if (elements.settingApiKey?._loadedApiKey === undefined) return false;
-    if (elements.profilesDialog?.dataset.profileLocked === 'true') return false;
-    if (!canSaveProfile()) {
-      showProfileFeedback(t('profile_save_changes_required'), 'error');
-      return false;
+    if (UIProfiles.handleSaveProfile) {
+      return UIProfiles.handleSaveProfile(elements, getProfilesHelperOptions());
     }
-    const name = String(elements.settingProfileName?.value || '').trim();
-    if (!name || !Profiles.saveEditable) return false;
-    const selected = Profiles.get?.(elements.profileSelectHelper?.value || '') || null;
-    if (selected?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return false;
-    }
-    const sameName = Profiles.findByName?.(name) || null;
-    if (sameName?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return false;
-    }
-    if (selected && sameName && sameName.id !== selected.id) {
-      showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
-      return false;
-    }
-    // El selector mantiene la identidad del perfil en edición, incluso si se renombra.
-    const existing = selected || sameName;
-    const baseSettings = existing?.settings || getRuntimeConfig();
-    const formConfig = gatherCurrentFormConfig();
-    const apiKey = elements.settingApiKey?.value.trim() || '';
-    const description = elements.settingProfileDescription?.value.trim() || '';
-    const apiType = elements.settingApiType?.value || baseSettings.apiType;
-    const apiUrl = elements.settingApiUrl?.value.trim() || baseSettings.apiUrl;
-    const model = elements.settingModel?.value.trim() || '';
-    const systemPrompt = elements.settingSystemPrompt?.value.trim() || '';
-    const temperature = elements.settingTemperature?.value || baseSettings.temperature || '0.7';
-    const maxAgentTurns = elements.settingMaxAgentTurns?.value ? Number(elements.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 15);
-    const apiKeyLocked = elements.settingApiKeyLocked?.checked === true;
-    const saved = await Profiles.saveEditable({
-      id: existing?.id || `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      description,
-      settings: {
-        ...baseSettings,
-        apiType,
-        apiUrl,
-        apiKey,
-        apiKeyLocked,
-        model,
-        systemPrompt,
-        temperature,
-        maxAgentTurns,
-        webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
-          context_window_size: 'default',
-          prefill_chunk_size: 'default'
-        }
-      }
-    });
-    populateProfileSelector(saved.id);
-    if (elements.settingApiKey) elements.settingApiKey._loadedApiKey = apiKey;
-    setSelectedProfileAsDefault(saved);
-    setProfileQueryState(false);
-    showProfileFeedback(t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
-    return true;
+    return false;
   }
 
   function isProfileQueryReady() {
+    if (UIProfiles.isProfileQueryReady) {
+      return UIProfiles.isProfileQueryReady(elements);
+    }
     return elements.profilesDialog?.dataset.queryReady === 'true';
   }
 
   function isProfileFormDirty() {
-    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
-    const profile = Profiles.get ? Profiles.get(selectedId) : null;
-    const baseSettings = profile?.settings || getRuntimeConfig();
-
-    if (elements.settingProfileName) {
-      const currentName = elements.settingProfileName.value.trim();
-      const baseName = (profile?.name || '').trim();
-      if (currentName !== baseName) return true;
+    if (UIProfiles.isProfileFormDirty) {
+      return UIProfiles.isProfileFormDirty(elements, getProfilesHelperOptions());
     }
-
-    if (elements.settingProfileDescription) {
-      const currentDesc = elements.settingProfileDescription.value.trim();
-      const baseDesc = (profile?.description || '').trim();
-      if (currentDesc !== baseDesc) return true;
-    }
-
-    if (elements.settingApiType) {
-      const currentType = elements.settingApiType.value;
-      const baseType = baseSettings.apiType || 'openai';
-      if (currentType !== baseType) return true;
-    }
-
-    if (elements.settingApiUrl) {
-      const currentUrl = elements.settingApiUrl.value.trim();
-      const baseUrl = (baseSettings.apiUrl || '').trim();
-      if (currentUrl !== baseUrl) return true;
-    }
-
-    if (elements.settingApiKey) {
-      const currentKey = elements.settingApiKey.value.trim();
-      const baseKey = elements.settingApiKey._loadedApiKey;
-      if (baseKey === undefined) return false;
-      if (currentKey !== baseKey) return true;
-    }
-    if (elements.settingApiKeyLocked?.checked !== (baseSettings.apiKeyLocked === true)) return true;
-
-    if (elements.settingModel) {
-      const currentModel = elements.settingModel.value.trim();
-      const baseModel = (baseSettings.model || '').trim();
-      if (currentModel !== baseModel) return true;
-    }
-
-    if (elements.settingSystemPrompt) {
-      const currentPrompt = elements.settingSystemPrompt.value.trim();
-      const basePrompt = (baseSettings.systemPrompt || '').trim();
-      if (currentPrompt !== basePrompt) return true;
-    }
-
-    if (elements.settingTemperature) {
-      const currentTemp = Number(elements.settingTemperature.value);
-      const baseTemp = Number(baseSettings.temperature ?? 0.7);
-      if (!Number.isNaN(currentTemp) && !Number.isNaN(baseTemp)) {
-        if (Math.abs(currentTemp - baseTemp) > 0.001) return true;
-      } else if (String(elements.settingTemperature.value) !== String(baseSettings.temperature ?? '0.7')) {
-        return true;
-      }
-    }
-
-    if (elements.settingWebllmContextWindow) {
-      const currentVal = elements.settingWebllmContextWindow.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.context_window_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
-    if (elements.settingWebllmPrefillChunk) {
-      const currentVal = elements.settingWebllmPrefillChunk.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.prefill_chunk_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
     return false;
   }
 
   function setProfileQueryState(ready) {
-    if (elements.profilesDialog) elements.profilesDialog.dataset.queryReady = String(ready);
-    syncProfileSaveState();
+    if (UIProfiles.setProfileQueryState) {
+      return UIProfiles.setProfileQueryState(elements, ready, getProfilesHelperOptions());
+    }
   }
 
   function activateProfileTab(tabBtn) {
-    const targetPane = document.getElementById(tabBtn?.getAttribute('data-profile-tab'));
-    if (!targetPane) return;
-    const isNameTab = targetPane.id === 'profile-tab-name-pane';
-    elements.profileTabs.forEach(button => {
-      const active = button === tabBtn;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-selected', String(active));
-    });
-    elements.profilePanes.forEach(pane => pane.classList.toggle('active', pane === targetPane));
-    [elements.btnNewProfile].forEach(button => {
-      if (button) button.disabled = !isNameTab;
-    });
+    if (UIProfiles.activateProfileTab) {
+      return UIProfiles.activateProfileTab(elements, tabBtn);
+    }
   }
 
   function setSelectedProfileAsDefault(profile) {
-    if (!profile) return;
-    activateConnectionProfile(profile.id);
+    if (UIProfiles.setSelectedProfileAsDefault) {
+      return UIProfiles.setSelectedProfileAsDefault(profile, getProfilesHelperOptions());
+    }
   }
 
   function activateConnectionProfile(profileId) {
-    if (!profileId || !Config.activateProfile) return;
-    const WebLLM = typeof ChatWebLLM !== 'undefined' ? ChatWebLLM : (typeof globalThis !== 'undefined' ? globalThis.ChatWebLLM : null);
-    WebLLM?.adapter?.disposeActiveEngine?.().catch?.(() => {});
-    Config.activateProfile(profileId);
-    loadCachedModels();
-    resetTelemetryDisplay();
+    if (UIProfiles.activateConnectionProfile) {
+      return UIProfiles.activateConnectionProfile(profileId, getProfilesHelperOptions());
+    }
   }
 
   function setProfileMenuOpen(open) {
-    if (!elements.activeProfileTrigger || !elements.activeProfilePopover) return;
-    elements.activeProfileTrigger.setAttribute('aria-expanded', String(open));
-    elements.activeProfilePopover.hidden = !open;
+    if (UIProfiles.setProfileMenuOpen) {
+      return UIProfiles.setProfileMenuOpen(elements, open);
+    }
   }
 
   function openProfileMenu() {
-    UISettings.renderProfileMenu(elements, Profiles.list(), getRuntimeConfig().activeProfile?.id);
-    setProfileMenuOpen(true);
+    if (UIProfiles.openProfileMenu) {
+      return UIProfiles.openProfileMenu(elements, getProfilesHelperOptions());
+    }
   }
 
   function closeProfileMenu() {
-    setProfileMenuOpen(false);
+    if (UIProfiles.closeProfileMenu) {
+      return UIProfiles.closeProfileMenu(elements);
+    }
   }
 
   async function handleDeleteProfile() {
-    const id = elements.profileSelectHelper?.value || '';
-    const profile = Profiles.get ? Profiles.get(id) : null;
-    if (profile?.id === Profiles.READONLY_PROFILE_ID) {
-      showProfileFeedback(t('err_profile_read_only'), 'error');
-      return;
+    if (UIProfiles.handleDeleteProfile) {
+      return UIProfiles.handleDeleteProfile(elements, getProfilesHelperOptions());
     }
-    if (!profile || !await ChatDialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
-    const currentProfile = Profiles.get ? Profiles.get(id) : null;
-    if (!currentProfile || currentProfile.name !== profile.name) return;
-    if (Profiles.remove?.(currentProfile.id)) {
-      if (getRuntimeConfig().activeProfile?.id === currentProfile.id) {
-        Config.activateFallbackProfile?.();
-      }
-      populateProfileSelector(getRuntimeConfig().activeProfile?.id || '');
-      applyProfileToForm(getRuntimeConfig());
-      setProfileQueryState(false);
-      showProfileFeedback(t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
-      updateUIFromConfig();
-    }
-  }
-
-  async function requestNewProfileName(message) {
-    const name = String(await ChatDialogs.prompt(message) || '').trim();
-    if (!name) return null;
-    if (Profiles.findByName?.(name)) {
-      showProfileFeedback(t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
-      return null;
-    }
-    return name;
-  }
-
-  async function saveProfileRecord(name, settings, description = '') {
-    if (!Profiles.saveEditable) return null;
-    const saved = await Profiles.saveEditable({
-      id: `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      description,
-      settings: { ...settings, apiKey: '' }
-    });
-    populateProfileSelector(saved.id);
-    applyProfileToForm(saved.settings);
-    setSelectedProfileAsDefault(saved);
-    setProfileQueryState(false);
-    return saved;
   }
 
   async function handleNewProfile() {
-    const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
-    if (!name) return;
-    const saved = await saveProfileRecord(name, Profiles.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', model: '' });
-    if (saved) showProfileFeedback(t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
+    if (UIProfiles.handleNewProfile) {
+      return UIProfiles.handleNewProfile(elements, getProfilesHelperOptions());
+    }
   }
 
   async function handleExportProfiles() {
-    try {
-      if (!ProfileBackup.encryptProfiles || !Export.downloadFile || !Profiles.list) throw new Error('La copia de perfiles no está disponible.');
-      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
-      const encrypted = await ProfileBackup.encryptProfiles(profiles);
-      const date = new Date().toISOString().slice(0, 10);
-      if (!Export.downloadFile(encrypted, `zerochat_profiles_${date}.zcp`, 'application/json')) throw new Error('No se pudo descargar el archivo.');
-      showProfileFeedback(t('msg_profiles_exported'), 'success');
-    } catch (error) {
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+    if (UIProfiles.handleExportProfiles) {
+      return UIProfiles.handleExportProfiles(elements);
     }
   }
 
   async function handleImportProfiles(event) {
-    const file = event.target?.files?.[0];
-    try {
-      if (!file || !ProfileBackup.decryptProfiles || !Profiles.mergeImported) return;
-      if (Number(file.size) > (ProfileBackup.MAX_FILE_BYTES || 1024 * 1024) * 2) throw new Error('El archivo supera el tamaño permitido.');
-      const imported = await ProfileBackup.decryptProfiles(await readFileAsText(file));
-      if (!await ChatDialogs.confirm(t('confirm_import_profiles', { count: imported.length }))) return;
-      const result = Profiles.mergeImported(imported);
-      const activeId = getRuntimeConfig().activeProfile?.id || '';
-      if (Profiles.get?.(activeId)) activateConnectionProfile(activeId);
-      else Config.activateFallbackProfile?.();
-      const selectedId = getRuntimeConfig().activeProfile?.id || Profiles.READONLY_PROFILE_ID;
-      populateProfileSelector(selectedId);
-      applyProfileToForm(Profiles.get?.(selectedId)?.settings || getRuntimeConfig());
-      setProfileQueryState(false);
-      updateUIFromConfig();
-      showProfileFeedback(t('msg_profiles_imported', result), 'success');
-    } catch (error) {
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-    } finally {
-      if (elements.profilesImportInput) elements.profilesImportInput.value = '';
+    if (UIProfiles.handleImportProfiles) {
+      return UIProfiles.handleImportProfiles(event, elements, getProfilesHelperOptions());
     }
   }
 
@@ -1787,54 +1523,21 @@
   }
 
   function openProfilesModal() {
-    if (!elements.profilesDialog) return;
-    const activeId = getRuntimeConfig().activeProfile?.id || '';
-    populateProfileSelector(activeId);
-    const activeProfile = Profiles.get?.(activeId);
-    applyProfileToForm(activeProfile?.settings || getRuntimeConfig());
-    if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
-    if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
-    setProfileQueryState(false);
-    activateProfileTab(document.getElementById('profile-tab-name'));
-    if (typeof loadCachedModels === 'function') loadCachedModels();
-    syncProfileSaveState();
-    if (typeof elements.profilesDialog.showModal === 'function') elements.profilesDialog.showModal();
+    if (UIProfiles.openProfilesModal) {
+      return UIProfiles.openProfilesModal(elements, getProfilesHelperOptions());
+    }
   }
 
-  let isClosingProfilesModal = false;
-
   function resetProfileFormToSelected() {
-    const selectedId = elements.profileSelectHelper?.value || getRuntimeConfig().activeProfile?.id || '';
-    const profile = Profiles.get?.(selectedId);
-    applyProfileToForm(profile?.settings || getRuntimeConfig());
-    if (elements.serverQueryStatus) elements.serverQueryStatus.style.display = 'none';
-    if (elements.profileActionFeedback) elements.profileActionFeedback.style.display = 'none';
+    if (UIProfiles.resetProfileFormToSelected) {
+      return UIProfiles.resetProfileFormToSelected(elements, getProfilesHelperOptions());
+    }
   }
 
   async function closeProfilesModal(force = false) {
-    if (isClosingProfilesModal) return false;
-    const hasUnsavedQuery = isProfileQueryReady();
-    const hasUnsavedChanges = force ? false : isProfileFormDirty();
-
-    if (!force && (hasUnsavedQuery || hasUnsavedChanges)) {
-      isClosingProfilesModal = true;
-      try {
-        const msgKey = hasUnsavedQuery ? 'confirm_profile_query_not_saved' : 'confirm_profile_unsaved_changes';
-        const confirmed = await ChatDialogs.confirm(t(msgKey));
-        if (!confirmed) {
-          elements.btnSaveProfile?.focus();
-          return false;
-        }
-      } finally {
-        isClosingProfilesModal = false;
-      }
+    if (UIProfiles.closeProfilesModal) {
+      return UIProfiles.closeProfilesModal(elements, force, getProfilesHelperOptions());
     }
-    setProfileQueryState(false);
-    resetProfileFormToSelected();
-    if (elements.profilesDialog?.open && typeof elements.profilesDialog.close === 'function') {
-      elements.profilesDialog.close();
-    }
-    return true;
   }
 
   function closeSettingsModal() {
