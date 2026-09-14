@@ -47,6 +47,7 @@
   const Profiles = window.ChatProfileRepository || {};
   const Providers = window.ChatProviders || {};
   const UIShell = window.ChatUIShell || {};
+  const UITransfer = window.ChatUITransfer || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -2379,11 +2380,28 @@
   // Modal de Exportación e Importación de Conversaciones
   // ==========================================================================
 
+  function getExportTransferOptions() {
+    return {
+      getActiveSessionId: () => getCurrentSessionId(),
+      getSavedSessions: () => getSavedSessions(),
+      getHistory: () => getChatHistory(),
+      getSession: async (id) => (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null,
+      getConfig: () => appConfig,
+      getModel: () => appConfig.model,
+      onSwitchSession: async (id) => await switchToSession(id)
+    };
+  }
+
   function getExportTargetSessionId() {
+    if (UITransfer.getExportTargetSessionId) return UITransfer.getExportTargetSessionId(elements, getCurrentSessionId());
     return elements.exportModal?.dataset?.sessionId || getCurrentSessionId();
   }
 
   function openExportModal(targetSessionId = null) {
+    if (UITransfer.openExportModal) {
+      UITransfer.openExportModal(elements, targetSessionId, getCurrentSessionId());
+      return;
+    }
     if (elements.exportModal) {
       elements.exportModal.dataset.sessionId = targetSessionId || getCurrentSessionId();
       if (typeof elements.exportModal.showModal === 'function') {
@@ -2395,6 +2413,10 @@
   }
 
   function closeExportModal() {
+    if (UITransfer.closeExportModal) {
+      UITransfer.closeExportModal(elements);
+      return;
+    }
     if (elements.exportModal) {
       delete elements.exportModal.dataset.sessionId;
       if (typeof elements.exportModal.close === 'function') {
@@ -2406,6 +2428,9 @@
   }
 
   async function getSessionForExport() {
+    if (UITransfer.resolveSessionForExport) {
+      return await UITransfer.resolveSessionForExport(elements, getExportTransferOptions());
+    }
     const id = getExportTargetSessionId();
     if (id === getCurrentSessionId()) {
       return { sess: getSavedSessions().find(s => s.id === id), history: getChatHistory() };
@@ -2415,6 +2440,10 @@
   }
 
   async function exportConversationAsMarkdown() {
+    if (UITransfer.exportConversationAsMarkdown) {
+      await UITransfer.exportConversationAsMarkdown(elements, getExportTransferOptions());
+      return;
+    }
     const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -2426,6 +2455,10 @@
   }
 
   async function exportConversationAsJson() {
+    if (UITransfer.exportConversationAsJson) {
+      await UITransfer.exportConversationAsJson(elements, getExportTransferOptions());
+      return;
+    }
     const { sess, history } = await getSessionForExport();
     const title = (sess && sess.title) || 'ZeroChat_Conversation';
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -2437,6 +2470,10 @@
   }
 
   async function exportConversationAsPrint() {
+    if (UITransfer.exportConversationAsPrint) {
+      await UITransfer.exportConversationAsPrint(elements, getExportTransferOptions());
+      return;
+    }
     const targetId = getExportTargetSessionId();
     closeExportModal();
     if (targetId && targetId !== getCurrentSessionId()) {
