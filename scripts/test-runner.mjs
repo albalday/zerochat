@@ -21,8 +21,9 @@ export const VALID_LEVELS = [
 export const GROUPS = {
   turns: [
     'tests/unit/test_message_turns.js',
+    'tests/integration/test_turn_facades.js',
     'tests/integration/test_chat_engine.js',
-    'tests/integration/test_state.js',
+    'tests/unit/test_state.js',
     'tests/integration/test_conversation_service.js'
   ],
   composer: [
@@ -58,7 +59,7 @@ export const GROUPS = {
     'tests/integration/test_ingestion_engine.js'
   ],
   providers: [
-    'tests/unit/test_completed_model_queries.js',
+    'tests/integration/test_completed_model_queries.js',
     'tests/integration/test_providers.js',
     'tests/integration/test_webllm.js',
     'tests/browser/browser_webllm.test.js'
