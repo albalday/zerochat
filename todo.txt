@@ -1,14 +1,9 @@
 fichero de uso del programador como recordatorio. no analizar
 
-aprendido: docs arquitectura, doc normas test exhaustivos agentes solucionan problema concreto se suelen saltar la infraestructura
-aprendido: multiples agents, niveles, uso git desde agente o herramienta
 puntos fuerts: rag financial, tool agentico,  
 sub agente (mismo-otro)
-mcp tool playwhrite
 mcp tools resttructuracion profesional y minimos necesario, no git
 rag permitir parar importacio, tratar ficheros duplicados
 ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
 mcp android
-Git y editar fichero minimos
-Fastmcp 3.0 o 4 antes de otros cambios
 mcp ejecutar. coje el sistema operativo para informar?

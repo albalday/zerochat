@@ -1212,3 +1212,32 @@ input.form-input:focus-visible,
 #notice-input {
   margin-top: 1rem;
 }
+
+.notice-checkbox-wrapper {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.notice-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.notice-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.rag-stop-ingestion-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
