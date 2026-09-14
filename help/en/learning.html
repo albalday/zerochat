@@ -29,12 +29,12 @@
 
     <section class="card">
       <h2>1. Learning chat client technology</h2>
-      <p>The history traces a path from ChatCLI to a client with local knowledge and tools:</p>
+      <p>The journey goes from ChatCLI to a client with local knowledge and tools:</p>
       <ul>
-        <li><strong>Chat and providers:</strong> SSE streaming, reasoning, vision and API adaptation. The provider architecture was separated in August 2026 (<code>9bd4b1d</code>).</li>
-        <li><strong>Data and documents:</strong> IndexedDB persistence, PDF extraction and retrieval-augmented generation (RAG). After exploring file storage, the engine was unified around Orama and ZeroChatDB in September (<code>481c9c6</code>).</li>
-        <li><strong>Agentic execution:</strong> tool loops, JavaScript isolated in Web Workers, MCP and permissions. This evolved into a local Python server with development tools and Playwright (<code>219ed4a</code>).</li>
-        <li><strong>Inference and context:</strong> caching, token limits and checkpoints for long conversations; later, models running inside the browser with WebLLM and WebGPU (<code>6bd4b31</code>, <code>e20a70c</code>).</li>
+        <li><strong>Chat and providers:</strong> SSE streaming, reasoning, vision and API adaptation through a shared provider architecture.</li>
+        <li><strong>Data and documents:</strong> IndexedDB persistence, PDF extraction and retrieval-augmented generation (RAG) with Orama and ZeroChatDB.</li>
+        <li><strong>Agentic execution:</strong> tool loops, JavaScript isolated in Web Workers, MCP, permissions and a local server with development tools and Playwright.</li>
+        <li><strong>Inference and context:</strong> caching, token limits and checkpoints for long conversations, plus models running inside the browser with WebLLM and WebGPU.</li>
       </ul>
     </section>
 
@@ -42,15 +42,17 @@
       <h2>2. Learning to guide coding agents</h2>
       <p>As the infrastructure grows—browser, storage, providers, MCP server and bundle—learning also means keeping control of the whole system:</p>
       <ul>
-        <li><strong>Plan before executing:</strong> define scope, stages and acceptance criteria. Git preserves the WebLLM plan before implementation and the design for splitting <code>app.js</code> before module extraction (<code>e122f9f</code>, <code>b404c4a</code>).</li>
-        <li><strong>Turn decisions into rules:</strong> document architecture, contracts and Git workflow to guide the agent. The rules evolved towards <code>AGENTS.md</code>, centralized state in <code>ChatState</code> and separate responsibilities (<code>cb06bc4</code>, <code>66a1967</code>).</li>
-        <li><strong>Discuss and simplify with the model:</strong> question proposals, reuse modules and remove unnecessary complexity. The history records the unification of the agent runtime and the removal of obsolete code (<code>3d2a7e5</code>, <code>02a7729</code>).</li>
-        <li><strong>Verify each step:</strong> unit and browser tests, security audits and bundle validation. Maintaining tests is part of the learning: UI checks were introduced and duplicates were later removed (<code>aae43d2</code>, <code>de0ffd5</code>).</li>
+        <li><strong>Plan before executing:</strong> define scope, stages, acceptance criteria and the tests that will confirm the outcome before requesting a change.</li>
+        <li><strong>Turn decisions into rules:</strong> document architecture, contracts and the workflow to guide the agent, with centralized state in <code>ChatState</code> and separate responsibilities.</li>
+        <li><strong>Discuss and simplify with the model:</strong> question proposals, reuse modules and remove unnecessary complexity before it becomes permanent infrastructure.</li>
+        <li><strong>Verify each step:</strong> use unit and browser tests, security audits and bundle validation to check real behavior.</li>
       </ul>
+      <h3>Automated tests as a checkpoint</h3>
+      <p>Tests are the checkpoint at every stage of work with coding agents. Before implementation, they define what must remain stable and what must change; during the work, they check the affected module; when a stage closes, the full suite confirms that the change has not broken other system boundaries. Interface changes are checked in the browser and distribution changes in the bundle. If a test fails, the agent must correct or simplify the proposal before moving forward.</p>
       <p>The plan is to keep repeating this cycle: choose a capability, agree on a simple design, assign scoped changes, review tests and document what was learned.</p>
     </section>
 
-      <p>Based on Git history through September 14, 2026. The commitment to work with Codex and Antigravity without manual coding was documented in <code>65746ba</code>. These identifiers locate the milestones in the repository.</p>
+      <p>This plan summarizes the project’s practical evolution and the commitment to work with Codex and Antigravity without manual coding.</p>
     </main>
 
     <nav class="page-navigation" aria-label="Help navigation">
