@@ -5,11 +5,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./message-turns.js'));
   } else {
-    root.ChatState = factory();
+    root.ChatState = factory(root.ChatMessageTurns);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
   'use strict';
 
   function clone(obj) {
@@ -459,60 +459,8 @@
       } else {
         const msgId = criteria.msgId || '';
         const baseId = criteria.baseId || (msgId && msgId.includes('_') ? msgId.split('_').slice(0, 2).join('_') : '');
-        const explicitIds = new Set(
-          Array.isArray(criteria.explicitIds)
-            ? criteria.explicitIds
-            : (criteria.explicitIds instanceof Set ? criteria.explicitIds : [])
-        );
-        if (msgId) explicitIds.add(msgId);
-        if (baseId) explicitIds.add(baseId);
-
-        const isTargetMessage = (m) => {
-          if (!m) return false;
-          const mid = m.id;
-          if (mid) {
-            if (explicitIds.has(mid)) return true;
-            if (baseId && (mid === baseId || mid.startsWith(`${baseId}_`))) return true;
-            if (msgId && (mid === msgId || mid.startsWith(`${msgId}_`))) return true;
-          }
-          return false;
-        };
-
-        const deletedToolCallIds = new Set();
-        currentMessages.forEach(m => {
-          if (m && isTargetMessage(m)) {
-            if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
-              m.tool_calls.forEach(tc => {
-                if (tc && tc.id) deletedToolCallIds.add(tc.id);
-              });
-            }
-            if (m.role === 'tool' && m.tool_call_id) {
-              deletedToolCallIds.add(m.tool_call_id);
-            }
-          }
-        });
-
-        const intermediate = currentMessages.filter(m => {
-          if (!m) return false;
-          if (isTargetMessage(m)) return false;
-          if (m.role === 'tool' && m.tool_call_id && deletedToolCallIds.has(m.tool_call_id)) {
-            return false;
-          }
-          return true;
-        });
-
-        filtered = [];
-        for (let i = 0; i < intermediate.length; i++) {
-          const current = intermediate[i];
-          if (current && current.role === 'tool') {
-            const prev = filtered.length > 0 ? filtered[filtered.length - 1] : null;
-            const hasMatchingCall = prev && prev.role === 'assistant' && Array.isArray(prev.tool_calls) &&
-              prev.tool_calls.some(tc => tc && (tc.id === current.tool_call_id || (tc.function && tc.function.name === current.name)));
-            if (hasMatchingCall) filtered.push(current);
-          } else {
-            filtered.push(current);
-          }
-        }
+        // Preserve the legacy State selection default; the engine uses suffix-based IDs.
+        filtered = MessageTurns.removeSelectedTurn(currentMessages, { ...criteria, msgId, baseId });
       }
 
       const removedCount = initialCount - filtered.length;

@@ -420,17 +420,7 @@
     };
   }
 
-  function isDateTimeInitialTurn(m) {
-    if (ConversationService.isDateTimeInitialTurn) {
-      return ConversationService.isDateTimeInitialTurn(m);
-    }
-    if (!m || m.role !== 'user') return false;
-    const content = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
-    return content.startsWith('La fecha y hora actual es:') ||
-           content.startsWith('Fecha y hora actual:') ||
-           content.startsWith('The current date and time is:') ||
-           content.startsWith('Current date and time:');
-  }
+  const isDateTimeInitialTurn = ConversationService.isDateTimeInitialTurn;
 
   function createInitialChatHistory() {
     if (ConversationService.createInitialChatHistory) {
@@ -832,10 +822,7 @@
   // Renderizado de Mensajes con Acciones y Estadísticas
   // ==========================================================================
 
-  function extractBaseId(id) {
-    if (!id || typeof id !== 'string') return '';
-    return id.replace(/(?:_turn_\d+_(?:assistant|tool.*)|_final)$/, '');
-  }
+
 
   function removeMessage(wrapper) {
     if (UIConversation.removeMessage) {

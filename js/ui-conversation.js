@@ -6,11 +6,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./message-turns.js'));
   } else {
-    root.ChatUIConversation = factory();
+    root.ChatUIConversation = factory(root.ChatMessageTurns);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
   'use strict';
 
   function resolveDep(globalName, relPath) {
@@ -42,19 +42,9 @@
     return '';
   }
 
-  function extractBaseId(id) {
-    if (!id || typeof id !== 'string') return '';
-    return id.replace(/(?:_turn_\d+_(?:assistant|tool.*)|_final)$/, '');
-  }
+  const extractBaseId = MessageTurns.extractBaseId;
 
-  function isDateTimeInitialTurn(m) {
-    if (!m || m.role !== 'user') return false;
-    const content = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
-    return content.startsWith('La fecha y hora actual es:') ||
-           content.startsWith('Fecha y hora actual:') ||
-           content.startsWith('The current date and time is:') ||
-           content.startsWith('Current date and time:');
-  }
+  const isDateTimeInitialTurn = MessageTurns.isDateTimeInitialTurn;
 
   function scrollToBottom(container) {
     if (container) {

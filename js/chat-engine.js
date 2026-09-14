@@ -9,11 +9,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./message-turns.js'));
   } else {
-    root.ChatEngine = factory();
+    root.ChatEngine = factory(root.ChatMessageTurns);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
   'use strict';
 
   function getAPI() {
@@ -122,10 +122,7 @@
    * @param {string} id - Identificador del mensaje (ej: 'asst_123_turn_0_assistant', 'asst_123_final').
    * @returns {string} - Identificador base (ej: 'asst_123').
    */
-  function extractBaseId(id) {
-    if (!id || typeof id !== 'string') return '';
-    return id.replace(/(?:_turn_\d+_(?:assistant|tool.*)|_final)$/, '');
-  }
+  const extractBaseId = MessageTurns.extractBaseId;
 
   /**
    * Elimina completamente un turno del historial de chat, asegurando que:
@@ -141,75 +138,9 @@
    * @returns {Array} - Nuevo historial filtrado y saneado sin turnos ni respuestas huérfanas.
    */
   function removeTurnFromHistory(chatHistory = [], options = {}) {
-    if (!Array.isArray(chatHistory) || chatHistory.length === 0) return [];
-
     const msgId = options.msgId || '';
     const baseId = options.baseId || extractBaseId(msgId);
-    const explicitIds = new Set(
-      Array.isArray(options.explicitIds)
-        ? options.explicitIds
-        : (options.explicitIds instanceof Set ? options.explicitIds : [])
-    );
-    if (msgId) explicitIds.add(msgId);
-    if (baseId) explicitIds.add(baseId);
-
-    // Conjunto de tool_call_ids generados en los mensajes eliminados
-    const deletedToolCallIds = new Set();
-
-    const isTargetMessage = (m) => {
-      if (!m) return false;
-      const mid = m.id;
-      if (mid) {
-        if (explicitIds.has(mid)) return true;
-        if (baseId && (mid === baseId || mid.startsWith(`${baseId}_`))) return true;
-        if (msgId && (mid === msgId || mid.startsWith(`${msgId}_`))) return true;
-      }
-      return false;
-    };
-
-    // Primera pasada: identificar mensajes objetivo y recolectar IDs de tool_calls
-    chatHistory.forEach(m => {
-      if (m && isTargetMessage(m)) {
-        if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
-          m.tool_calls.forEach(tc => {
-            if (tc && tc.id) deletedToolCallIds.add(tc.id);
-          });
-        }
-        if (m.role === 'tool' && m.tool_call_id) {
-          deletedToolCallIds.add(m.tool_call_id);
-        }
-      }
-    });
-
-    // Filtrar mensajes que coincidan directamente o por su tool_call_id
-    const filtered = chatHistory.filter(m => {
-      if (!m) return false;
-      if (isTargetMessage(m)) return false;
-      if (m.role === 'tool' && m.tool_call_id && deletedToolCallIds.has(m.tool_call_id)) {
-        return false;
-      }
-      return true;
-    });
-
-    // Segunda pasada: sanear cualquier mensaje 'tool' que haya quedado huérfano
-    // (en APIs estándar como OpenAI/Claude/Gemini, un mensaje 'tool' DEBE ir precedido por un 'assistant' con matching tool_call)
-    const sanitized = [];
-    for (let i = 0; i < filtered.length; i++) {
-      const current = filtered[i];
-      if (current && current.role === 'tool') {
-        const prev = sanitized.length > 0 ? sanitized[sanitized.length - 1] : null;
-        const hasMatchingCall = prev && prev.role === 'assistant' && Array.isArray(prev.tool_calls) &&
-          prev.tool_calls.some(tc => tc && (tc.id === current.tool_call_id || (tc.function && tc.function.name === current.name)));
-        if (hasMatchingCall) {
-          sanitized.push(current);
-        }
-        // Si no tiene asistente previo válido con el tool_call_id, se descarta
-      } else {
-        sanitized.push(current);
-      }
-    }
-
-    return sanitized;
+    return MessageTurns.removeSelectedTurn(chatHistory, { ...options, msgId, baseId });
   }
 
   /**
