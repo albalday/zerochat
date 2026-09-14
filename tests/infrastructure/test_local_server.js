@@ -4,8 +4,9 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 
-test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃºsqueda, ediciÃ³n, terminal y navegador)', async () => {
+test('Servidor Local Python - JSON-RPC 2.0, herramientas locales y router de servidores MCP stdio', async () => {
   const serverPath = path.resolve(__dirname, '../../scripts/mcp_server.py');
+  const dummyFixturePath = path.resolve(__dirname, '../fixtures/dummy_mcp_server.py');
   const port = 6398;
   const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -63,7 +64,7 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
     assert.equal(initData.result.serverInfo.name, 'ZeroChat Local Server');
     assert.ok(initData.result.capabilities.tools);
 
-    // 4. JSON-RPC: tools/list
+    // 4. JSON-RPC: tools/list (4 herramientas locales fijas)
     const listRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,14 +78,12 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
     assert.equal(listRes.status, 200);
     const listData = await listRes.json();
     const tools = listData.result.tools;
-    assert.equal(tools.length, 6);
+    assert.equal(tools.length, 4, 'Debe incluir exactamente las 4 herramientas locales fijas');
     const toolNames = tools.map(t => t.name);
     assert.ok(toolNames.includes('list_directory'));
     assert.ok(toolNames.includes('read_file'));
-    assert.ok(toolNames.includes('search_files'));
     assert.ok(toolNames.includes('edit_file'));
     assert.ok(toolNames.includes('execute_command'));
-    assert.ok(toolNames.includes('browser_navigate'));
 
     // 5. tools/call: execute_command (con informe de SO)
     const execRes = await fetch(baseUrl, {
@@ -128,26 +127,7 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
     assert.equal(readPayload.lines_returned, 3);
     assert.ok(readPayload.content.includes('zerochat'));
 
-    // 7. tools/call: search_files (por nombre y contenido)
-    const searchRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: {
-          name: 'search_files',
-          arguments: { directory: '.', query: 'ZeroChat', max_results: 2 }
-        }
-      })
-    });
-    const searchData = await searchRes.json();
-    const searchPayload = JSON.parse(searchData.result.content[0].text);
-    assert.equal(searchPayload.success, true);
-    assert.ok(searchPayload.matches.length > 0);
-
-    // 8. tools/call: edit_file (creaciÃ³n, ediciÃ³n atÃ³mica y reemplazo)
+    // 7. tools/call: edit_file (creaciÃ³n, ediciÃ³n atÃ³mica y reemplazo)
     const tmpFile = path.resolve(__dirname, `temp_test_${Date.now()}.txt`);
     try {
       // Escritura
@@ -156,7 +136,7 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
-          id: 6,
+          id: 5,
           method: 'tools/call',
           params: {
             name: 'edit_file',
@@ -174,7 +154,7 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
-          id: 7,
+          id: 6,
           method: 'tools/call',
           params: {
             name: 'edit_file',
@@ -189,27 +169,102 @@ test('Servidor Local Python - JSON-RPC 2.0 y servicios de software (archivos, bÃ
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
     }
 
-    // 9. tools/call: browser_navigate (manejo gracioso si no estÃ¡ instalado playwright)
-    const navRes = await fetch(baseUrl, {
+    // 8. tools/call: list_directory
+    const listDirRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'tools/call',
+        params: {
+          name: 'list_directory',
+          arguments: { path: '.', max_depth: 1 }
+        }
+      })
+    });
+    const listDirData = await listDirRes.json();
+    const listDirPayload = JSON.parse(listDirData.result.content[0].text);
+    assert.equal(listDirPayload.success, true);
+    assert.ok(listDirPayload.entries.length > 0);
+
+    // 9. Router y ciclo de vida de servidor MCP stdio externo (/mcp/start, agregaciÃ³n y /mcp/stop)
+    // 9a. Consultar lista de servidores
+    const serversRes = await fetch(`${baseUrl}/mcp/servers`);
+    assert.equal(serversRes.status, 200);
+    const serversData = await serversRes.json();
+    assert.ok(Array.isArray(serversData.servers));
+
+    // 9b. Arrancar dummy server mediante /mcp/start
+    const startMcpRes = await fetch(`${baseUrl}/mcp/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        server_id: 'dummy_server',
+        config: {
+          command: 'python3',
+          args: [dummyFixturePath]
+        }
+      })
+    });
+    assert.equal(startMcpRes.status, 200);
+    const startMcpData = await startMcpRes.json();
+    assert.equal(startMcpData.success, true);
+    assert.equal(startMcpData.server.status, 'running');
+
+    // 9c. Comprobar que tools/list ahora agrega la herramienta externa (4 locales + 1 MCP = 5)
+    const listAggRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 8,
+        method: 'tools/list',
+        params: {}
+      })
+    });
+    const listAggData = await listAggRes.json();
+    assert.equal(listAggData.result.tools.length, 5);
+    const aggNames = listAggData.result.tools.map(t => t.name);
+    assert.ok(aggNames.includes('mcp__dummy_server__echo'));
+
+    // 9d. Enrutamiento en tools/call hacia el servidor MCP externo
+    const callMcpRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
         method: 'tools/call',
         params: {
-          name: 'browser_navigate',
-          arguments: { url: 'https://example.com' }
+          name: 'mcp__dummy_server__echo',
+          arguments: { message: 'Mensaje desde ZeroChat' }
         }
       })
     });
-    const navData = await navRes.json();
-    const navPayload = JSON.parse(navData.result.content[0].text);
-    if (!navPayload.success) {
-      assert.ok(navPayload.error.includes('playwright'));
-    } else {
-      assert.ok(navPayload.url);
-    }
+    assert.equal(callMcpRes.status, 200);
+    const callMcpData = await callMcpRes.json();
+    assert.equal(callMcpData.result.content[0].text, 'echo: Mensaje desde ZeroChat');
+
+    // 9e. Detener el servidor MCP externo mediante /mcp/stop
+    const stopMcpRes = await fetch(`${baseUrl}/mcp/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server_id: 'dummy_server' })
+    });
+    assert.equal(stopMcpRes.status, 200);
+    const stopMcpData = await stopMcpRes.json();
+    assert.equal(stopMcpData.success, true);
+
+    // 9f. tools/list regresa limpiamente a las 4 herramientas locales
+    const listFinalRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/list', params: {} })
+    });
+    const listFinalData = await listFinalRes.json();
+    assert.equal(listFinalData.result.tools.length, 4);
+
   } finally {
     serverProc.kill('SIGTERM');
   }

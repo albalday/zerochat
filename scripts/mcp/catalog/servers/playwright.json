@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "playwright",
+  "displayName": { "es": "Playwright MCP", "en": "Playwright MCP" },
+  "description": {
+    "es": "Servidor MCP oficial de Microsoft para automatizar un navegador. Publica sus herramientas al arrancar.",
+    "en": "Microsoft's official MCP server for browser automation. It publishes its tools on startup."
+  },
+  "homepage": "https://github.com/microsoft/playwright-mcp",
+  "installer": "installers/playwright.json",
+  "documentation": { "es": "docs/playwright.es.md", "en": "docs/playwright.en.md" },
+  "enabledByDefault": true,
+  "startPolicy": "manual-host-start",
+  "transport": "stdio",
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": [
+      "${serviceDir}/node_modules/@playwright/mcp/cli.js",
+      "--headless",
+      "--isolated",
+      "--browser",
+      "chromium"
+    ],
+    "cwd": "${serviceDir}",
+    "env": { "PLAYWRIGHT_BROWSERS_PATH": "${browsersDir}" },
+    "handshakeTimeoutSeconds": 30,
+    "sessionScope": "conversation"
+  },
+  "discovery": { "method": "tools/list", "namespace": "mcp__playwright__" }
+}

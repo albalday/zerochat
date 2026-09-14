@@ -228,7 +228,8 @@
 
 .mcp-status-card,
 .mcp-config-card,
-.mcp-instructions-card {
+.mcp-instructions-card,
+.mcp-servers-card {
   margin-bottom: 0.85rem;
 }
 
@@ -1041,4 +1042,112 @@
 
 .mcp-modal-footer-end {
   margin-left: auto;
+}
+
+.mcp-servers-card {
+  background: var(--bg-surface-elevated, var(--bg-surface));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.mcp-servers-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+.mcp-servers-icon {
+  color: var(--primary);
+  display: inline-flex;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.mcp-servers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mcp-server-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.mcp-server-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-server-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mcp-server-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+
+.mcp-server-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  line-height: 1.2;
+}
+
+.mcp-server-badge.status-running {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.mcp-server-badge.status-stopped {
+  background: rgba(100, 116, 139, 0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.mcp-server-tool-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.mcp-server-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.mcp-server-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin: 0.2rem 0 0 0;
+}
+
+.mcp-server-actions {
+  flex-shrink: 0;
+}
+
+.btn-mcp-server-toggle {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
