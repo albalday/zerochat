@@ -279,8 +279,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
     }
 
     await page.evaluate(() => {
-      const button = document.getElementById('btn-composer-mcp');
-      window.ChatUIComposer.updateComposerMcpState({ btnComposerMcp: button }, { status: 'connected' });
+      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected' });
     });
     await page.waitForFunction(() => getComputedStyle(document.getElementById('btn-composer-mcp')).borderColor === 'rgb(22, 163, 74)');
     const mcpState = await page.$eval('#btn-composer-mcp', button => ({

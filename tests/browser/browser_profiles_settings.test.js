@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
 
-describe('Browser UI - profiles_settings', { concurrency: 2 }, () => {
+describe('Browser UI - profiles_settings', { concurrency: 4 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
