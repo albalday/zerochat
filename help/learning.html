@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proyecto y aprendizaje · ZeroChat Docs</title>
+  <meta name="description" content="Dos líneas de autoaprendizaje: construir un cliente de IA y aprender a dirigir su desarrollo con agentes.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/learning.html" class="top-nav-link" lang="en">English</a>
+          <a href="index.html" class="top-nav-link">← Volver al índice</a>
+        </div>
+      </div>
+      <h1>Proyecto y aprendizaje</h1>
+      <p class="subtitle">Dos líneas de autoaprendizaje: construir un cliente de IA y aprender a dirigir su desarrollo con agentes.</p>
+    </header>
+
+    <main>
+      <p>ZeroChat es un proyecto personal de autoaprendizaje del desarrollador. Su objetivo es comprender la tecnología de los clientes de chat y la ejecución agéntica, y experimentar con Codex y Antigravity <strong>sin editar nunca código a mano</strong>. El trabajo humano consiste en definir objetivos, discutir decisiones con el modelo y comprobar resultados; los agentes implementan los cambios.</p>
+
+    <section class="card">
+      <h2>1. Aprender la tecnología de un cliente de chat</h2>
+      <p>El historial muestra un recorrido desde ChatCLI hasta un cliente con conocimiento local y herramientas:</p>
+      <ul>
+        <li><strong>Chat y proveedores:</strong> streaming SSE, razonamiento, visión y adaptación de APIs. La arquitectura de proveedores se separó en agosto de 2026 (<code>9bd4b1d</code>).</li>
+        <li><strong>Datos y documentos:</strong> persistencia en IndexedDB, extracción de PDF y recuperación de conocimiento (RAG). Tras explorar almacenamiento en archivos, se unificó el motor con Orama y ZeroChatDB en septiembre (<code>481c9c6</code>).</li>
+        <li><strong>Ejecución agéntica:</strong> bucles de herramientas, JavaScript aislado en Web Workers, MCP y permisos. La evolución llegó a un servidor local Python con herramientas de desarrollo y Playwright (<code>219ed4a</code>).</li>
+        <li><strong>Inferencia y contexto:</strong> caché, límites de tokens y puntos de control para conversaciones largas; después, modelos dentro del navegador con WebLLM y WebGPU (<code>6bd4b31</code>, <code>e20a70c</code>).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2. Aprender a dirigir agentes de codificación</h2>
+      <p>Al crecer la infraestructura —navegador, almacenamiento, proveedores, servidor MCP y bundle—, el aprendizaje también consiste en mantener el control del conjunto:</p>
+      <ul>
+        <li><strong>Planificar antes de ejecutar:</strong> concretar alcance, fases y criterios de aceptación. Git conserva el plan de WebLLM antes de su implementación y el diseño de partición de <code>app.js</code> antes de las extracciones (<code>e122f9f</code>, <code>b404c4a</code>).</li>
+        <li><strong>Convertir decisiones en normas:</strong> documentar arquitectura, contratos y flujo Git para orientar al agente. Las reglas evolucionaron hacia <code>AGENTS.md</code>, estado centralizado en <code>ChatState</code> y responsabilidades separadas (<code>cb06bc4</code>, <code>66a1967</code>).</li>
+        <li><strong>Discutir y simplificar con el modelo:</strong> cuestionar propuestas, reutilizar módulos y retirar complejidad innecesaria. El historial recoge la unificación del runtime agéntico y la eliminación de código obsoleto (<code>3d2a7e5</code>, <code>02a7729</code>).</li>
+        <li><strong>Verificar cada avance:</strong> pruebas unitarias y de navegador, auditorías de seguridad y validación del bundle. También se aprende a mantener las pruebas: se añadieron comprobaciones de interfaz y después se eliminaron duplicados (<code>aae43d2</code>, <code>de0ffd5</code>).</li>
+      </ul>
+      <p>El plan es continuar este ciclo: elegir una capacidad, acordar un diseño sencillo, encargar cambios acotados, revisar las pruebas y documentar lo aprendido.</p>
+    </section>
+
+      <p>Recorrido basado en el historial de Git hasta el 14 de septiembre de 2026. El compromiso de trabajar con Codex y Antigravity sin código manual quedó documentado en <code>65746ba</code>. Los identificadores permiten localizar los hitos en el repositorio.</p>
+    </main>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Volver al índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Proyecto y aprendizaje</p>
+    </footer>
+  </div>
+</body>
+</html>

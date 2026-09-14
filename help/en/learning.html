@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project and learning · ZeroChat Docs</title>
+  <meta name="description" content="Two learning tracks: building an AI client and learning to guide its development with agents.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat Docs
+        </a>
+        <div class="header-actions">
+          <a href="../learning.html" class="top-nav-link" lang="es">Español</a>
+          <a href="index.html" class="top-nav-link">← Back to index</a>
+        </div>
+      </div>
+      <h1>Project and learning</h1>
+      <p class="subtitle">Two learning tracks: building an AI client and learning to guide its development with agents.</p>
+    </header>
+
+    <main>
+      <p>ZeroChat is the developer’s personal self-learning project. Its goal is to understand chat client technology and agentic execution, and to experiment with Codex and Antigravity <strong>without ever editing code by hand</strong>. The human work is to define goals, discuss decisions with the model and check results; the agents implement the changes.</p>
+
+    <section class="card">
+      <h2>1. Learning chat client technology</h2>
+      <p>The history traces a path from ChatCLI to a client with local knowledge and tools:</p>
+      <ul>
+        <li><strong>Chat and providers:</strong> SSE streaming, reasoning, vision and API adaptation. The provider architecture was separated in August 2026 (<code>9bd4b1d</code>).</li>
+        <li><strong>Data and documents:</strong> IndexedDB persistence, PDF extraction and retrieval-augmented generation (RAG). After exploring file storage, the engine was unified around Orama and ZeroChatDB in September (<code>481c9c6</code>).</li>
+        <li><strong>Agentic execution:</strong> tool loops, JavaScript isolated in Web Workers, MCP and permissions. This evolved into a local Python server with development tools and Playwright (<code>219ed4a</code>).</li>
+        <li><strong>Inference and context:</strong> caching, token limits and checkpoints for long conversations; later, models running inside the browser with WebLLM and WebGPU (<code>6bd4b31</code>, <code>e20a70c</code>).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2. Learning to guide coding agents</h2>
+      <p>As the infrastructure grows—browser, storage, providers, MCP server and bundle—learning also means keeping control of the whole system:</p>
+      <ul>
+        <li><strong>Plan before executing:</strong> define scope, stages and acceptance criteria. Git preserves the WebLLM plan before implementation and the design for splitting <code>app.js</code> before module extraction (<code>e122f9f</code>, <code>b404c4a</code>).</li>
+        <li><strong>Turn decisions into rules:</strong> document architecture, contracts and Git workflow to guide the agent. The rules evolved towards <code>AGENTS.md</code>, centralized state in <code>ChatState</code> and separate responsibilities (<code>cb06bc4</code>, <code>66a1967</code>).</li>
+        <li><strong>Discuss and simplify with the model:</strong> question proposals, reuse modules and remove unnecessary complexity. The history records the unification of the agent runtime and the removal of obsolete code (<code>3d2a7e5</code>, <code>02a7729</code>).</li>
+        <li><strong>Verify each step:</strong> unit and browser tests, security audits and bundle validation. Maintaining tests is part of the learning: UI checks were introduced and duplicates were later removed (<code>aae43d2</code>, <code>de0ffd5</code>).</li>
+      </ul>
+      <p>The plan is to keep repeating this cycle: choose a capability, agree on a simple design, assign scoped changes, review tests and document what was learned.</p>
+    </section>
+
+      <p>Based on Git history through September 14, 2026. The commitment to work with Codex and Antigravity without manual coding was documented in <code>65746ba</code>. These identifiers locate the milestones in the repository.</p>
+    </main>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Back to index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat · Project and learning</p>
+    </footer>
+  </div>
+</body>
+</html>
