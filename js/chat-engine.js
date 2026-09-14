@@ -99,22 +99,14 @@
       .join('\n\n');
   }
 
-  /**
-   * Inyecta el cursor de streaming dentro del HTML de forma semánticamente correcta.
-   * @param {string} html - HTML renderizado del turno en curso.
-   * @returns {string} - HTML con el cursor parpadeante integrado.
-   */
+  function getUIConversation() {
+    if (typeof window !== 'undefined' && window.ChatUIConversation) return window.ChatUIConversation;
+    return typeof require !== 'undefined' ? require('./ui-conversation.js') : null;
+  }
+
+  /** Compatibility facade for the shared response renderer. */
   function injectStreamingCursor(html) {
-    if (!html || html.trim() === '') {
-      return '<span class="streaming-cursor"></span>';
-    }
-    const trimmed = html.trimEnd();
-    const match = trimmed.match(/(<\/(?:p|li|h[1-6]|span|code|strong|em|td|blockquote)>)$/i);
-    if (match) {
-      const closingTag = match[1];
-      return trimmed.slice(0, -closingTag.length) + '<span class="streaming-cursor"></span>' + closingTag;
-    }
-    return trimmed + '<span class="streaming-cursor"></span>';
+    return getUIConversation().injectStreamingCursor(html);
   }
 
   /**
@@ -363,7 +355,7 @@
       return { success: false, error: new Error('El runtime agéntico no está disponible.') };
     }
 
-    const parseMd = Markdown.parseMarkdown || (text => text);
+    const UIConversation = getUIConversation();
     const attachEvts = attachListeners || Markdown.attachCopyCodeListeners || (() => {});
     const scrollFn = scrollToBottom || (() => {});
     let lastContextDiagnostics = null;
@@ -459,9 +451,7 @@
         onStepStart: turnIndex => {
           if (container && typeof document !== 'undefined') {
             if (turnIndex === 0) container.innerHTML = '';
-            const block = document.createElement('div');
-            block.className = 'agentic-turn-block';
-            container.appendChild(block);
+            const block = UIConversation.createAssistantBlock(container);
             turnBlocks.set(turnIndex, block);
             if (typeof onTurnStart === 'function') onTurnStart({ turnIndex, turnBlock: block });
           }
@@ -469,8 +459,7 @@
         onChunk: (text, delta, stats, turnIndex) => {
           const block = turnBlocks.get(turnIndex) || synthesisBlock;
           if (block) {
-            block.innerHTML = injectStreamingCursor(parseMd(text));
-            attachEvts(block);
+            UIConversation.renderAssistantBlock(block, text, { streaming: true, attachListeners: attachEvts });
           }
           if (stats && typeof onStats === 'function') onStats(stats);
           if (typeof onChunk === 'function') onChunk({ turnIndex, fullText: text, delta, stats });
@@ -503,8 +492,7 @@
           if (!block) return;
           const text = step.type === 'final_response' ? step.text : step.assistantMsg?.content;
           if (text) {
-            block.innerHTML = parseMd(text);
-            attachEvts(block);
+            UIConversation.renderAssistantBlock(block, text, { attachListeners: attachEvts });
           } else if (typeof block.remove === 'function') {
             block.remove();
             turnBlocks.delete(turnIndex);
@@ -517,16 +505,13 @@
         },
         onSynthesize: () => {
           if (container && typeof document !== 'undefined') {
-            synthesisBlock = document.createElement('div');
-            synthesisBlock.className = 'agentic-turn-block';
-            container.appendChild(synthesisBlock);
+            synthesisBlock = UIConversation.createAssistantBlock(container);
           }
         },
         onDone: finalText => {
           const block = synthesisBlock || turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
           if (block && finalText) {
-            block.innerHTML = parseMd(finalText);
-            attachEvts(block);
+            UIConversation.renderAssistantBlock(block, finalText, { attachListeners: attachEvts });
           }
         }
       }

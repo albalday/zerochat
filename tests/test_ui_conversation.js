@@ -92,6 +92,87 @@ function createMockDocument() {
   return doc;
 }
 
+test('UIConversation - shared response blocks render final and streaming text without duplicating siblings', () => {
+  const doc = createMockDocument();
+  const container = doc.createElement('div');
+  const first = UIConversation.createAssistantBlock(container);
+  const second = UIConversation.createAssistantBlock(container);
+  let attached = 0;
+  UIConversation.renderAssistantBlock(first, '**First**', { streaming: true, attachListeners: () => attached++ });
+  UIConversation.renderAssistantBlock(second, 'Other response');
+  const untouched = second.innerHTML;
+  assert.match(first.innerHTML, /<strong>First/);
+  assert.match(first.innerHTML, /streaming-cursor/);
+  UIConversation.renderAssistantBlock(first, '**Finished**', { attachListeners: () => attached++ });
+  assert.doesNotMatch(first.innerHTML, /streaming-cursor/);
+  assert.match(first.innerHTML, /Finished/);
+  assert.equal(second.innerHTML, untouched);
+  assert.equal(container.children.length, 2);
+  assert.equal(attached, 2);
+});
+
+test('UIConversation - connection errors escape remote details and URLs while retaining translated markup', () => {
+  const doc = createMockDocument();
+  const row = doc.createElement('div');
+  const content = doc.createElement('div');
+  const actions = doc.createElement('div');
+  const payload = '<img src=x onerror="probe()">';
+  UIConversation.renderConnectionError({ row, content, actions }, payload, payload);
+  assert.doesNotMatch(content.innerHTML, /<img/);
+  assert.equal((content.innerHTML.match(/&lt;img/g) || []).length, 2);
+  assert.match(content.innerHTML, /<strong>/);
+  assert.equal(row.classList.contains('message-error'), true);
+  assert.equal(actions.style.display, 'inline-flex');
+});
+
+test('UIConversation - shared copy keeps current text and restores the correct label', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const descriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+  const copied = [];
+  Object.defineProperty(global, 'navigator', { configurable: true, value: { clipboard: { writeText: async text => copied.push(text) } } });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(global, 'navigator', descriptor);
+    else delete global.navigator;
+  });
+  const button = createMockElement('button');
+  let text = 'Original';
+  const dispose = UIConversation.bindMessageCopy(button, () => text, 'btn_copy_user_title');
+  assert.equal(await button.onclick(), true);
+  assert.equal(button.classList.contains('copied'), true);
+  text = 'Updated';
+  assert.equal(await button.onclick(), true);
+  assert.deepEqual(copied, ['Original', 'Updated']);
+  t.mock.timers.tick(2000);
+  assert.equal(button.classList.contains('copied'), false);
+  assert.equal(button.title, require('../js/i18n.js').t('btn_copy_user_title'));
+  dispose();
+  assert.equal(button.onclick, null);
+});
+
+test('UIConversation - failed, unavailable or disposed clipboard operations never report success', async t => {
+  const descriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+  const nav = {};
+  Object.defineProperty(global, 'navigator', { configurable: true, value: nav });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(global, 'navigator', descriptor);
+    else delete global.navigator;
+  });
+  const errors = t.mock.method(console, 'error', () => {});
+  const button = createMockElement('button');
+  const dispose = UIConversation.bindMessageCopy(button, () => 'Text');
+  assert.equal(await button.onclick(), false);
+  nav.clipboard = { writeText: async () => { throw new Error('Clipboard denied'); } };
+  assert.equal(await button.onclick(), false);
+  assert.equal(errors.mock.callCount(), 1);
+  let complete;
+  nav.clipboard.writeText = () => new Promise(resolve => { complete = resolve; });
+  const pending = button.onclick();
+  dispose();
+  complete();
+  assert.equal(await pending, false);
+  assert.equal(button.classList.contains('copied'), false);
+});
+
 test('UIConversation - extractBaseId removes turn/tool suffixes', () => {
   assert.equal(UIConversation.extractBaseId('msg_ast_123_turn_0_assistant'), 'msg_ast_123');
   assert.equal(UIConversation.extractBaseId('msg_ast_123_turn_0_tool_call_1'), 'msg_ast_123');

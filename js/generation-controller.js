@@ -27,7 +27,6 @@
   function getAPI(options = {}) { return options.api || resolveDep('ChatAPI', './api.js'); }
   function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
   function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
-  function getMarkdown() { return resolveDep('ChatMarkdown', './markdown.js'); }
   function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
   function getConversationService() { return resolveDep('ChatConversationService', './conversation-service.js'); }
   function getUIConversation() { return resolveDep('ChatUIConversation', './ui-conversation.js'); }
@@ -142,7 +141,6 @@
     const API = getAPI(options);
     const Engine = getEngine();
     const Profiles = getProfiles();
-    const Markdown = getMarkdown();
     const UIConversation = getUIConversation();
     const ConversationService = getConversationService();
 
@@ -362,25 +360,8 @@
         }
         if (typeof options.setDebugStatus === 'function') options.setDebugStatus('error', t('debug_status_error'));
         if (typeof options.addDebugLog === 'function') options.addDebugLog('error', loopResult.error.message || String(loopResult.error));
-        if (row?.classList?.add) row.classList.add('message-error');
-        if (content) {
-          const errMsg = loopResult.error.message || String(loopResult.error);
-          content.innerHTML = `
-            <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-              <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-              <div>
-                <strong>${t('err_server_connect_title')}</strong>
-                <p style="margin-top: 0.25rem;">
-                  ${Markdown?.escapeHtml ? Markdown.escapeHtml(errMsg) : errMsg}
-                </p>
-                <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                  ${t('err_server_connect_hint', { url: runtimeConfig.apiUrl })}
-                </p>
-              </div>
-            </div>
-          `;
-        }
-        if (actions) actions.style.display = 'inline-flex';
+        UIConversation.renderConnectionError({ row, content, actions },
+          loopResult.error.message || String(loopResult.error), runtimeConfig.apiUrl);
         return;
       }
 
@@ -392,28 +373,7 @@
       }
 
       if (actions) actions.style.display = 'inline-flex';
-      if (btnCopy) {
-        btnCopy.onclick = async () => {
-          try {
-            const fullMd = loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '';
-            if (typeof navigator !== 'undefined' && navigator.clipboard) {
-              await navigator.clipboard.writeText(fullMd);
-            }
-            btnCopy.innerHTML = getMsgIcon('check', 14);
-            btnCopy.title = t('copied_text');
-            btnCopy.setAttribute('aria-label', t('copied_text'));
-            btnCopy.classList.add('copied');
-            setTimeout(() => {
-              btnCopy.innerHTML = getMsgIcon('copy', 14);
-              btnCopy.title = t('btn_copy_title');
-              btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-              btnCopy.classList.remove('copied');
-            }, 2000);
-          } catch (err) {
-            console.error('Error copying composite response:', err);
-          }
-        };
-      }
+      UIConversation.bindMessageCopy(btnCopy, () => loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '');
 
       if (typeof options.setDebugStatus === 'function') {
         options.setDebugStatus('done', t('debug_status_done'));
@@ -425,24 +385,7 @@
         generationError = err?.message || String(err);
         if (typeof options.setDebugStatus === 'function') options.setDebugStatus('error', t('debug_status_error'));
         if (typeof options.addDebugLog === 'function') options.addDebugLog('error', generationError);
-        if (row?.classList?.add) row.classList.add('message-error');
-        if (content) {
-          content.innerHTML = `
-            <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-              <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
-              <div>
-                <strong>${t('err_server_connect_title')}</strong>
-                <p style="margin-top: 0.25rem;">
-                  ${Markdown?.escapeHtml ? Markdown.escapeHtml(generationError) : String(generationError)}
-                </p>
-                <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-                  ${t('err_server_connect_hint', { url: runtimeConfig.apiUrl })}
-                </p>
-              </div>
-            </div>
-          `;
-        }
-        if (actions) actions.style.display = 'inline-flex';
+        UIConversation.renderConnectionError({ row, content, actions }, generationError, runtimeConfig.apiUrl);
       }
     } finally {
       finishGeneration({

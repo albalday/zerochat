@@ -350,13 +350,7 @@
     if (elements.executionInfoDialog?.open) elements.executionInfoDialog.close();
   }
 
-  function getRagSystemContext() {
-    return State.get ? (State.get('agent')?.ragSystemContext || '') : '';
-  }
 
-  function setRagSystemContext(context) {
-    if (State.set) State.set('agent', { ragSystemContext: typeof context === 'string' ? context : '' });
-  }
 
   function applyTheme(theme) {
     if (UISettings.applyTheme) {
@@ -400,41 +394,8 @@
     };
   }
 
-  const isDateTimeInitialTurn = ConversationService.isDateTimeInitialTurn;
 
-  function createInitialChatHistory() {
-    if (ConversationService.createInitialChatHistory) {
-      return ConversationService.createInitialChatHistory(getConversationServiceOptions());
-    }
-    return [
-      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt(),
-        contextDateAnchor: Engine.getConversationDateAnchor(appConfig.language || 'es') }
-    ];
-  }
 
-  function initializeSessionState(sessionId, history, blockedMessageKey) {
-    if (ConversationService.initializeSessionState) {
-      return ConversationService.initializeSessionState(sessionId, history, blockedMessageKey, getConversationServiceOptions());
-    }
-    const initialization = State.replaceConversation
-      ? State.replaceConversation({ sessionId, messages: history })
-      : (State.initializeConversation
-          ? State.initializeConversation({ sessionId, messages: history })
-          : { ok: true });
-
-    if (!initialization.ok) {
-      ChatDialogs.alert(t(blockedMessageKey));
-      return false;
-    }
-
-    clearAttachedFiles();
-    closeReasoningMenu();
-    clearDebugLogs();
-    setDebugStatus('idle');
-    toggleDebugPanel(false);
-    resetTelemetryDisplay({ syncState: false });
-    return true;
-  }
 
   function blockSessionTransitionIfBusy(messageKey) {
     if (ConversationService.blockSessionTransitionIfBusy) {
@@ -768,11 +729,6 @@
   // Gestión de Archivos Adjuntos
   // ==========================================================================
 
-  function renderAttachedFiles() {
-    if (UIComposer.renderAttachedFiles) {
-      return UIComposer.renderAttachedFiles(elements);
-    }
-  }
 
   function clearAttachedFiles() {
     if (UIComposer.clearAttachedFiles) {
@@ -786,17 +742,6 @@
     }
   }
 
-  function readFileAsText(file) {
-    if (UIComposer.readFileAsText) {
-      return UIComposer.readFileAsText(file);
-    }
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-  }
 
   // ==========================================================================
   // Renderizado de Mensajes con Acciones y Estadísticas
@@ -883,11 +828,6 @@
     }
   }
 
-  function finishGeneration(options = {}) {
-    if (GenerationController.finishGeneration) {
-      return GenerationController.finishGeneration(Object.assign({}, getGenerationControllerOptions(), options));
-    }
-  }
 
   function handleStopGeneration() {
     if (GenerationController.handleStopGeneration) {
@@ -961,19 +901,7 @@
     }
   }
 
-  function isDownloadedWebLLMModel(modelId) {
-    if (UIProfiles.isDownloadedWebLLMModel) {
-      return UIProfiles.isDownloadedWebLLMModel(modelId);
-    }
-    return false;
-  }
 
-  function canSaveProfile() {
-    if (UIProfiles.canSaveProfile) {
-      return UIProfiles.canSaveProfile(elements, getProfilesHelperOptions());
-    }
-    return isProfileFormDirty();
-  }
 
   function syncProfileSaveState() {
     if (UIProfiles.syncProfileSaveState) {
@@ -1026,11 +954,6 @@
     }
   }
 
-  function setProfileMenuOpen(open) {
-    if (UIProfiles.setProfileMenuOpen) {
-      return UIProfiles.setProfileMenuOpen(elements, open);
-    }
-  }
 
   function openProfileMenu() {
     if (UIProfiles.openProfileMenu) {
@@ -1161,12 +1084,6 @@
     }
   }
 
-  function getBranchBoundaryIndex(wrapper, history) {
-    if (ConversationService.getBranchBoundaryIndex) {
-      return ConversationService.getBranchBoundaryIndex(wrapper, history);
-    }
-    return -1;
-  }
 
   function setAssistantGroupMessageIds(wrapper, history) {
     if (ConversationService.setAssistantGroupMessageIds) {
@@ -1174,12 +1091,6 @@
     }
   }
 
-  function cloneBranchHistory(history, boundary, sessionId) {
-    if (ConversationService.cloneBranchHistory) {
-      return ConversationService.cloneBranchHistory(history, boundary, sessionId);
-    }
-    return [];
-  }
 
   async function createConversationBranch(wrapper) {
     if (ConversationService.createConversationBranch) {
@@ -1211,11 +1122,6 @@
     }
   }
 
-  function openSidebar() {
-    if (UISidebar.openSidebar) {
-      UISidebar.openSidebar(elements);
-    }
-  }
 
   function closeSidebar() {
     if (UISidebar.closeSidebar) {
@@ -1223,15 +1129,6 @@
     }
   }
 
-  function renderStoredToolCard(tc, toolMsg) {
-    if (UIConversation.renderStoredToolCard) {
-      return UIConversation.renderStoredToolCard(tc, toolMsg);
-    }
-    if (ToolCards.renderHistoricalToolCard) {
-      return ToolCards.renderHistoricalToolCard(tc, toolMsg);
-    }
-    return null;
-  }
 
   function attachListenersToContainer(container) {
     if (UIConversation.attachListenersToContainer) {

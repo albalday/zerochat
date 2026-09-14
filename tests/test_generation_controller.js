@@ -7,6 +7,45 @@ test('GenerationController - initial state is not generating', () => {
   assert.equal(GenerationController.getCurrentAbortController(), null);
 });
 
+test('GenerationController - returned and thrown errors use the same connection view', async t => {
+  const State = require('../js/state.js');
+  const names = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments'];
+  const previous = names.map(name => [name, global[name]]);
+  t.after(() => {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete global[name];
+      else global[name] = value;
+    }
+  });
+  t.mock.method(console, 'error', () => {});
+  global.ChatProfileRepository = { load: async () => null };
+  global.ChatAttachments = { getFiles: () => [] };
+  const rendered = [];
+  for (const throws of [false, true]) {
+    global.ChatState = State.createStore();
+    global.ChatEngine = { executeAgentTurnLoop: async () => {
+      const error = new Error('<img src=x onerror="bad()">');
+      if (throws) throw error;
+      return { error };
+    } };
+    const content = { innerHTML: '' };
+    const actions = { style: {} };
+    await GenerationController.handleSendMessage({
+      elements: { userInput: { value: 'Question' } },
+      api: { streamChatCompletion() {} },
+      getRuntimeConfig: () => ({ model: 'test', apiUrl: '<script>bad()</script>' }),
+      appendUserMessage: () => 'user-test',
+      getChatHistory: () => global.ChatState.get('messages'),
+      createAssistantMessagePlaceholder: () => ({ content, actions, wrapper: {}, row: {}, msgId: 'assistant-test' })
+    });
+    assert.equal(actions.style.display, 'inline-flex');
+    assert.equal(GenerationController.isGenerating(), false);
+    assert.doesNotMatch(content.innerHTML, /<img|<script/);
+    rendered.push(content.innerHTML);
+  }
+  assert.equal(rendered[0], rendered[1]);
+});
+
 test('GenerationController - finishGeneration resets state and calls saveCurrentSession', () => {
   let saved = false;
   let typingRemoved = false;

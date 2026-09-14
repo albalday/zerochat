@@ -46,6 +46,91 @@
 
   const isDateTimeInitialTurn = MessageTurns.isDateTimeInitialTurn;
 
+  function bindMessageCopy(button, getText, titleKey = 'btn_copy_title') {
+    if (!button) return () => {};
+    let timer = null;
+    let disposed = false;
+    const restore = () => {
+      button.innerHTML = getMsgIcon('copy', 14);
+      button.title = t(titleKey);
+      button.setAttribute('aria-label', t(titleKey));
+      button.classList.remove('copied');
+    };
+    const copy = async () => {
+      try {
+        if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
+        await navigator.clipboard.writeText(getText());
+        if (disposed) return false;
+        clearTimeout(timer);
+        button.innerHTML = getMsgIcon('check', 14);
+        button.title = t('copied_text');
+        button.setAttribute('aria-label', t('copied_text'));
+        button.classList.add('copied');
+        timer = setTimeout(restore, 2000);
+        return true;
+      } catch (error) {
+        console.error('Error copying message:', error);
+        return false;
+      }
+    };
+    button.onclick = copy;
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      if (button.onclick === copy) {
+        button.onclick = null;
+        restore();
+      }
+    };
+  }
+
+  function renderConnectionError({ row, content, actions }, message, url) {
+    row?.classList?.add('message-error');
+    if (content) {
+      const escape = getMarkdown().escapeHtml;
+      content.innerHTML = `
+        <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
+          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
+          <div>
+            <strong>${t('err_server_connect_title')}</strong>
+            <p style="margin-top: 0.25rem;">${escape(message)}</p>
+            <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
+              ${t('err_server_connect_hint', { url: escape(url) })}
+            </p>
+          </div>
+        </div>`;
+    }
+    if (actions) actions.style.display = 'inline-flex';
+  }
+
+  function injectStreamingCursor(html) {
+    if (!html || html.trim() === '') return '<span class="streaming-cursor"></span>';
+    const trimmed = html.trimEnd();
+    const match = trimmed.match(/(<\/(?:p|li|h[1-6]|span|code|strong|em|td|blockquote)>)$/i);
+    if (match) {
+      const closingTag = match[1];
+      return trimmed.slice(0, -closingTag.length) + '<span class="streaming-cursor"></span>' + closingTag;
+    }
+    return trimmed + '<span class="streaming-cursor"></span>';
+  }
+
+  function createAssistantBlock(container) {
+    if (!container) return null;
+    const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return null;
+    const block = doc.createElement('div');
+    block.className = 'agentic-turn-block';
+    container.appendChild(block);
+    return block;
+  }
+
+  function renderAssistantBlock(block, text, { streaming = false, attachListeners } = {}) {
+    if (!block) return;
+    const html = getMarkdown().parseMarkdown(text);
+    block.innerHTML = streaming ? injectStreamingCursor(html) : html;
+    attachListeners?.(block);
+  }
+
   function scrollToBottom(container) {
     if (container) {
       container.scrollTop = container.scrollHeight;
@@ -232,25 +317,7 @@
     btnCopy.innerHTML = getMsgIcon('copy', 14);
     btnCopy.title = t('btn_copy_user_title');
     btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-    btnCopy.addEventListener('click', async () => {
-      try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard) {
-          await navigator.clipboard.writeText(originalPrompt || text);
-        }
-        btnCopy.innerHTML = getMsgIcon('check', 14);
-        btnCopy.title = t('copied_text');
-        btnCopy.setAttribute('aria-label', t('copied_text'));
-        btnCopy.classList.add('copied');
-        setTimeout(() => {
-          btnCopy.innerHTML = getMsgIcon('copy', 14);
-          btnCopy.title = t('btn_copy_user_title');
-          btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-          btnCopy.classList.remove('copied');
-        }, 2000);
-      } catch (err) {
-        console.error('Error copying user message:', err);
-      }
-    });
+    bindMessageCopy(btnCopy, () => originalPrompt || text, 'btn_copy_user_title');
 
     const btnReuse = doc.createElement('button');
     btnReuse.type = 'button';
@@ -426,7 +493,6 @@
       elements.welcomeBanner.style.display = 'none';
     }
 
-    const doc = messagesList.ownerDocument || document;
     const Markdown = getMarkdown();
     let i = 0;
 
@@ -516,10 +582,8 @@
 
           if (item.role === 'assistant') {
             if (item.content) {
-              const turnBlock = doc.createElement('div');
-              turnBlock.className = 'agentic-turn-block';
-              turnBlock.innerHTML = Markdown?.renderMarkdown ? Markdown.renderMarkdown(item.content) : item.content;
-              content?.appendChild(turnBlock);
+              const turnBlock = createAssistantBlock(content);
+              renderAssistantBlock(turnBlock, item.content);
               fullAssistantMarkdown += (fullAssistantMarkdown ? '\n\n' : '') + item.content;
             }
 
@@ -541,23 +605,7 @@
           content.innerHTML = `<p><em>${safeEmpty}</em></p>`;
         }
 
-        if (btnCopy) {
-          btnCopy.onclick = async () => {
-            if (typeof navigator !== 'undefined' && navigator.clipboard) {
-              await navigator.clipboard.writeText(fullAssistantMarkdown || (content ? content.innerText : ''));
-              btnCopy.innerHTML = getMsgIcon('check', 14);
-              btnCopy.title = t('copied_text');
-              btnCopy.setAttribute('aria-label', t('copied_text'));
-              btnCopy.classList.add('copied');
-              setTimeout(() => {
-                btnCopy.innerHTML = getMsgIcon('copy', 14);
-                btnCopy.title = t('btn_copy_title');
-                btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-                btnCopy.classList.remove('copied');
-              }, 2000);
-            }
-          };
-        }
+        bindMessageCopy(btnCopy, () => fullAssistantMarkdown || (content ? content.innerText : ''));
 
         if (actions) actions.style.display = 'inline-flex';
 
@@ -574,6 +622,11 @@
   }
 
   return {
+    bindMessageCopy,
+    renderConnectionError,
+    injectStreamingCursor,
+    createAssistantBlock,
+    renderAssistantBlock,
     extractBaseId,
     isDateTimeInitialTurn,
     scrollToBottom,

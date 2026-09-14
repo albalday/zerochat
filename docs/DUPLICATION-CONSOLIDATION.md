@@ -53,3 +53,38 @@ segunda tabla de valores predeterminados.
 Build correcto; `npm test`: 555 pruebas aprobadas; 46 pruebas de navegador
 aprobadas. Nuevas comprobaciones cubren JSON inválido, almacenamiento inaccesible,
 metadatos cambiantes, adaptadores sustituidos, fallback Node y contrato de arranque.
+
+## Consolidación de fase 3
+
+`ui-conversation.js` posee creación/renderizado de bloques de asistente, cursor,
+acción de copiar y tarjetas de error. Historial, motor y controlador utilizan esas
+operaciones. `ChatEngine.injectStreamingCursor` conserva su interfaz como fachada.
+Los bloques del historial y del streaming conservan su ciclo específico; las
+tarjetas de herramientas siguen usando `tool-cards.js` y no se fusionan sus
+operaciones en vivo e históricas.
+
+La copia conserva la selección de texto de cada origen y su título traducido.
+No muestra confirmación si el portapapeles no existe o rechaza la escritura;
+captura los errores y permite retirar el handler y su temporizador. Los errores
+de conexión comparten la misma vista en el resultado del motor y en excepciones,
+escapando también la URL interpolada en la traducción.
+
+Se retiran 14 funciones privadas sin llamadas en `app.js`, además de un alias
+sin uso. Las APIs públicas y los callbacks de integración necesarios permanecen.
+No se introduce un resolvedor genérico de dependencias: los resolutores existentes
+soportan entornos y sustituciones distintos, y compartirlos no aporta una regla
+de dominio común. Se mantienen las validaciones de UI y servicio en sus fronteras.
+
+No se intenta completar aquí el desacoplamiento del motor respecto de UI,
+rediseñar la finalización de generación ni convertir todo el arranque a async.
+Son responsabilidades pendientes de la arquitectura previa, ajenas a esta
+optimización de duplicaciones.
+
+Build correcto; `npm test`: 561 pruebas aprobadas; 47 pruebas de navegador
+aprobadas. Se comprueban ambos caminos de error del controlador, copia y fallos
+del portapapeles, liberación de la acción, paridad entre historial y streaming,
+retirada del cursor y escape de detalles remotos en DOM real.
+
+Respecto a `c99c731`, los archivos JavaScript de aplicación tienen 257 líneas menos
+en conjunto, incluido el nuevo módulo común. Las pruebas y documentación crecen
+para cubrir los contratos conservados y las fronteras de presentación.

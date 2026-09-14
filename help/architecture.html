@@ -90,6 +90,7 @@
 
     <div class="card">
       <h2>Reglas compartidas de conversación</h2>
+      <p>Las respuestas nuevas y restauradas comparten componentes visuales de bloques y copia. El streaming conserva su cursor durante la generación. Los errores de conexión utilizan una vista común que escapa el mensaje recibido y la URL antes de incorporarlos al HTML.</p>
       <p>La configuración activa se obtiene de <code>ChatConfig</code>. Las interfaces de perfiles y catálogo consultan al proveedor WebLLM para conocer los modelos completados, sin interpretar por separado sus metadatos almacenados.</p>
       <p>El estado, el motor y las vistas reutilizan las reglas de <code>message-turns.js</code> para identificar turnos y reconocer mensajes iniciales de fecha. La eliminación de turnos comparte un algoritmo de saneamiento; <code>ChatState</code> conserva el bloqueo durante la generación y la actualización atómica del historial.</p>
     </div>
