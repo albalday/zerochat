@@ -51,6 +51,7 @@
   const UIProfiles = window.ChatUIProfiles || {};
   const UIComposer = window.ChatUIComposer || {};
   const ConversationService = window.ChatConversationService || {};
+  const UIConversation = window.ChatUIConversation || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -786,6 +787,9 @@
   }
 
   function scrollToBottom() {
+    if (UIConversation.scrollToBottom) {
+      return UIConversation.scrollToBottom(elements.messagesList);
+    }
     if (elements.messagesList) {
       elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
     }
@@ -835,234 +839,46 @@
   }
 
   function removeMessage(wrapper) {
-    if (!wrapper) return;
-    if (State.isConversationBusy?.()) return;
-    const msgId = wrapper.getAttribute('data-msg-id') || '';
-    const baseId = wrapper.getAttribute('data-base-id') || extractBaseId(msgId);
-    const rawMsgIds = wrapper.getAttribute('data-msg-ids') || '';
-    const explicitIds = rawMsgIds ? rawMsgIds.split(',').filter(Boolean) : [];
-
-    let removedCount = 0;
-    if (explicitIds.length > 0 || baseId || msgId) {
-      if (State.removeTurn) {
-        const res = State.removeTurn({ msgId, baseId, explicitIds });
-        if (!res || !res.ok) return;
-        removedCount = res.removedCount || 0;
-      }
+    if (UIConversation.removeMessage) {
+      return UIConversation.removeMessage(wrapper, {
+        messagesList: elements.messagesList,
+        welcomeBanner: elements.welcomeBanner,
+        isBusy: () => State.isConversationBusy?.(),
+        removeTurn: (payload) => State.removeTurn?.(payload),
+        saveSession: () => saveCurrentSession(),
+        addDebugLog: (type, text) => (typeof addDebugLog === 'function' ? addDebugLog(type, text) : null)
+      });
     }
-    if (removedCount === 0) return;
-
-    wrapper.remove();
-
-    if (typeof addDebugLog === 'function') {
-      addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
-    }
-
-    const remainingMessages = elements.messagesList.querySelectorAll('.message-wrapper');
-    if (remainingMessages.length === 0 && elements.welcomeBanner) {
-      elements.messagesList.appendChild(elements.welcomeBanner);
-      elements.welcomeBanner.style.display = '';
-    }
-
-    // Persistir eliminación en el almacenamiento de la sesión
-    saveCurrentSession();
   }
 
   function appendUserMessage(text, originalPrompt, attachedImages, existingMsgId) {
-    if (elements.welcomeBanner && elements.welcomeBanner.parentNode) {
-      elements.welcomeBanner.style.display = 'none';
-    }
-
-    const msgId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_usr_' + crypto.randomUUID()
-      : 'msg_usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'message-wrapper user';
-    wrapper.setAttribute('data-msg-id', msgId);
-
-    const row = document.createElement('div');
-    row.className = 'message-row user';
-
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.textContent = text;
-
-    // Miniaturas visuales de imágenes adjuntas
-    if (attachedImages && attachedImages.length > 0) {
-      const imagesGrid = document.createElement('div');
-      imagesGrid.className = 'message-images-grid';
-      attachedImages.forEach(img => {
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'message-image-item';
-        itemDiv.innerHTML = `
-          <img src="${img.dataUrl}" alt="${Markdown.escapeHtml(img.name)}" class="message-image-thumb" title="${Markdown.escapeHtml(img.name)}">
-          <div class="message-image-caption">${Markdown.escapeHtml(img.name)}</div>
-        `;
-        const imgEl = itemDiv.querySelector('img');
-        if (imgEl) {
-          imgEl.addEventListener('click', () => {
-            window.open(img.dataUrl, '_blank');
-          });
-        }
-        imagesGrid.appendChild(itemDiv);
+    if (UIConversation.appendUserMessage) {
+      return UIConversation.appendUserMessage(elements.messagesList, elements.welcomeBanner, {
+        text,
+        originalPrompt,
+        attachedImages,
+        existingMsgId
+      }, {
+        onReuse: (txt) => {
+          if (elements.userInput) {
+            elements.userInput.value = txt;
+            autoResizeTextarea();
+            elements.userInput.focus();
+          }
+        },
+        onDelete: (wrapper) => removeMessage(wrapper)
       });
-      content.appendChild(imagesGrid);
     }
-
-    const footerRow = document.createElement('div');
-    footerRow.className = 'message-footer-row';
-
-    const actions = document.createElement('div');
-    actions.className = 'message-actions';
-
-    const btnCopy = document.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-user';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
-    btnCopy.title = t('btn_copy_user_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-    btnCopy.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(originalPrompt || text);
-        btnCopy.innerHTML = getMsgIcon('check', 14);
-        btnCopy.title = t('copied_text');
-        btnCopy.setAttribute('aria-label', t('copied_text'));
-        btnCopy.classList.add('copied');
-        setTimeout(() => {
-          btnCopy.innerHTML = getMsgIcon('copy', 14);
-          btnCopy.title = t('btn_copy_user_title');
-          btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-          btnCopy.classList.remove('copied');
-        }, 2000);
-      } catch (err) {
-        console.error('Error copying user message:', err);
-      }
-    });
-
-    const btnReuse = document.createElement('button');
-    btnReuse.type = 'button';
-    btnReuse.className = 'btn-msg-action';
-    btnReuse.innerHTML = getMsgIcon('edit', 14);
-    btnReuse.title = t('btn_reuse_title');
-    btnReuse.setAttribute('aria-label', t('btn_reuse_title'));
-    btnReuse.addEventListener('click', () => {
-      elements.userInput.value = originalPrompt || text;
-      autoResizeTextarea();
-      elements.userInput.focus();
-    });
-
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
-    btnDelete.title = t('btn_delete_usr_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_usr_title'));
-    btnDelete.addEventListener('click', () => removeMessage(wrapper));
-
-    actions.appendChild(btnReuse);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    elements.messagesList.appendChild(wrapper);
-    // Animar solo mensajes nuevos en tiempo real (no historial)
-    if (!existingMsgId) {
-      wrapper.classList.add('is-new-message');
-      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
-    }
-    scrollToBottom();
-
-    return msgId;
   }
 
   function createAssistantMessagePlaceholder(existingMsgId) {
-    const rawId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_ast_' + crypto.randomUUID()
-      : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
-    const baseId = extractBaseId(rawId) || rawId;
-    const msgId = existingMsgId ? rawId : baseId;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'message-wrapper assistant';
-    wrapper.setAttribute('data-msg-id', msgId);
-    wrapper.setAttribute('data-base-id', baseId);
-
-    const row = document.createElement('div');
-    row.className = 'message-row assistant';
-
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-
-    const content = document.createElement('div');
-    content.className = 'message-content';
-    content.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
-
-    const footerRow = document.createElement('div');
-    footerRow.className = 'message-footer-row';
-
-    const statsContainer = document.createElement('div');
-    statsContainer.className = 'message-stats';
-    statsContainer.style.display = 'none';
-
-    const actions = document.createElement('div');
-    actions.className = 'message-actions';
-    actions.style.display = 'none';
-
-    const btnCopy = document.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-full';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
-    btnCopy.title = t('btn_copy_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-
-    const btnBranch = document.createElement('button');
-    btnBranch.type = 'button';
-    btnBranch.className = 'btn-msg-action btn-branch-conversation';
-    btnBranch.innerHTML = getMsgIcon('git-branch', 14);
-    btnBranch.title = t('btn_branch_title');
-    btnBranch.setAttribute('aria-label', t('btn_branch_title'));
-    btnBranch.addEventListener('click', () => createConversationBranch(wrapper));
-
-    const btnDelete = document.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
-    btnDelete.title = t('btn_delete_ast_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
-    btnDelete.addEventListener('click', () => removeMessage(wrapper));
-
-    actions.appendChild(btnBranch);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-
-    footerRow.appendChild(statsContainer);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    elements.messagesList.appendChild(wrapper);
-    // Animar solo mensajes nuevos en tiempo real (no historial)
-    if (!existingMsgId) {
-      wrapper.classList.add('is-new-message');
-      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
+    if (UIConversation.createAssistantMessagePlaceholder) {
+      return UIConversation.createAssistantMessagePlaceholder(elements.messagesList, existingMsgId, {
+        welcomeBanner: elements.welcomeBanner,
+        onBranch: (wrapper) => createConversationBranch(wrapper),
+        onDelete: (wrapper) => removeMessage(wrapper)
+      });
     }
-    scrollToBottom();
-
-    return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
   }
 
   // ==========================================================================
@@ -1691,6 +1507,9 @@
   }
 
   function renderStoredToolCard(tc, toolMsg) {
+    if (UIConversation.renderStoredToolCard) {
+      return UIConversation.renderStoredToolCard(tc, toolMsg);
+    }
     if (ToolCards.renderHistoricalToolCard) {
       return ToolCards.renderHistoricalToolCard(tc, toolMsg);
     }
@@ -1698,6 +1517,9 @@
   }
 
   function attachListenersToContainer(container) {
+    if (UIConversation.attachListenersToContainer) {
+      return UIConversation.attachListenersToContainer(container);
+    }
     if (!container) return;
     if (Markdown.attachCopyCodeListeners) {
       Markdown.attachCopyCodeListeners(container);
@@ -1716,154 +1538,21 @@
   }
 
   function renderSessionMessages(history) {
-    if (!elements.messagesList) return;
-    elements.messagesList.innerHTML = '';
-
-    // Filtrar system messages y omitir del chat visual el par inicial de fecha/hora
-    const nonSystem = (history || []).filter(m => m && m.role !== 'system');
-    let validMessages = nonSystem;
-    if (nonSystem.length >= 2 && isDateTimeInitialTurn(nonSystem[0]) && nonSystem[1].role === 'assistant' && (nonSystem[1].content === 'OK' || nonSystem[1].content === 'OK.')) {
-      validMessages = nonSystem.slice(2);
-    }
-
-    if (validMessages.length === 0) {
-      if (elements.welcomeBanner) {
-        elements.messagesList.appendChild(elements.welcomeBanner);
-        elements.welcomeBanner.style.display = '';
-      }
-      resetTelemetryDisplay();
-      return;
-    }
-
-    if (elements.welcomeBanner) {
-      elements.welcomeBanner.style.display = 'none';
-    }
-
-    // Agrupar mensajes en turnos: Usuario y Bloques del Asistente (incluyendo tool_calls y tools)
-    let i = 0;
-    while (i < validMessages.length) {
-      const msg = validMessages[i];
-
-      if (msg.role === 'user') {
-        let text = '';
-        let images = msg.images || [];
-        if (typeof msg.content === 'string') {
-          text = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          const textPart = msg.content.find(c => c.type === 'text');
-          text = textPart ? textPart.text : '';
-          msg.content.forEach(c => {
-            if (c.type === 'image_url' && c.image_url?.url) {
-              if (!images.some(img => img.dataUrl === c.image_url.url)) {
-                images.push({ name: 'Imagen adjunta', dataUrl: c.image_url.url });
-              }
-            }
-          });
-        }
-        appendUserMessage(text, text, images, msg.id);
-        i++;
-      } else {
-        // Bloque del Asistente (puede incluir múltiples turnos internos, llamadas a herramientas y resultados)
-        const assistantGroup = [];
-        const firstAssistantId = msg.id || ('msg_ast_' + Date.now());
-
-        while (i < validMessages.length && validMessages[i].role !== 'user') {
-          const item = validMessages[i];
-          if (item && !item.id) {
-            item.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-              ? 'msg_ast_' + crypto.randomUUID()
-              : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    if (UIConversation.renderSessionMessages) {
+      return UIConversation.renderSessionMessages(elements, history, {
+        onBranch: (wrapper) => createConversationBranch(wrapper),
+        onDelete: (wrapper) => removeMessage(wrapper),
+        onReuse: (txt) => {
+          if (elements.userInput) {
+            elements.userInput.value = txt;
+            autoResizeTextarea();
+            elements.userInput.focus();
           }
-          assistantGroup.push(item);
-          i++;
-        }
-
-        const groupMsgIds = assistantGroup.map(m => m.id).filter(Boolean);
-        let groupBaseId = '';
-        for (const item of assistantGroup) {
-          if (item.id) {
-            const base = extractBaseId(item.id);
-            if (base && base !== item.id) {
-              groupBaseId = base;
-              break;
-            }
-          }
-        }
-        if (!groupBaseId && assistantGroup.length > 0 && assistantGroup[0].id) {
-          groupBaseId = extractBaseId(assistantGroup[0].id) || assistantGroup[0].id;
-        }
-
-        const { wrapper, content, actions, btnCopy } = createAssistantMessagePlaceholder(groupBaseId || firstAssistantId);
-        if (groupBaseId) {
-          wrapper.setAttribute('data-base-id', groupBaseId);
-        }
-        if (groupMsgIds.length > 0) {
-          wrapper.setAttribute('data-msg-ids', groupMsgIds.join(','));
-        }
-        content.innerHTML = ''; // Limpiar el cursor inicial de streaming
-
-        let fullAssistantMarkdown = '';
-
-        for (let g = 0; g < assistantGroup.length; g++) {
-          const item = assistantGroup[g];
-
-          if (item.role === 'assistant') {
-            // 1. Si tiene contenido de texto (razonamiento, tablas markdown, texto normal)
-            if (item.content) {
-              const turnBlock = document.createElement('div');
-              turnBlock.className = 'agentic-turn-block';
-              turnBlock.innerHTML = Markdown.renderMarkdown ? Markdown.renderMarkdown(item.content) : item.content;
-              content.appendChild(turnBlock);
-              fullAssistantMarkdown += (fullAssistantMarkdown ? '\n\n' : '') + item.content;
-            }
-
-            // 2. Si tiene llamadas a herramientas (tool_calls)
-            if (Array.isArray(item.tool_calls) && item.tool_calls.length > 0) {
-              item.tool_calls.forEach(tc => {
-                // Buscar el mensaje 'tool' correspondiente
-                const toolMsg = assistantGroup.find(m => m.role === 'tool' && (m.tool_call_id === tc.id || m.name === tc.function?.name));
-                const cardEl = renderStoredToolCard(tc, toolMsg);
-                if (cardEl) {
-                  content.appendChild(cardEl);
-                }
-              });
-            }
-          }
-        }
-
-        // Si no se generó ningún contenido visual en el asistente
-        if (content.children.length === 0) {
-          content.innerHTML = `<p><em>${Markdown.escapeHtml ? Markdown.escapeHtml(t('no_text_response')) : t('no_text_response')}</em></p>`;
-        }
-
-        // Configurar botón de copia
-        if (btnCopy) {
-          btnCopy.onclick = async () => {
-            if (navigator.clipboard) {
-              await navigator.clipboard.writeText(fullAssistantMarkdown || content.innerText);
-              btnCopy.innerHTML = getMsgIcon('check', 14);
-              btnCopy.title = t('copied_text');
-              btnCopy.setAttribute('aria-label', t('copied_text'));
-              btnCopy.classList.add('copied');
-              setTimeout(() => {
-                btnCopy.innerHTML = getMsgIcon('copy', 14);
-                btnCopy.title = t('btn_copy_title');
-                btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-                btnCopy.classList.remove('copied');
-              }, 2000);
-            }
-          };
-        }
-
-        if (actions) actions.style.display = 'inline-flex';
-
-        // Adjuntar listeners de código, ejecución y minimizado de herramientas
-        attachListenersToContainer(content);
-      }
+        },
+        resetTelemetry: () => resetTelemetryDisplay(),
+        updateTelemetry: () => updateConnectionTokensBadge(null, null, { forcePopover: true })
+      });
     }
-
-    scrollToBottom();
-    updateConnectionTokensBadge(null, null, { forcePopover: true });
   }
 
   // ==========================================================================
@@ -2086,6 +1775,9 @@
   let typingIndicatorEl = null;
 
   function showTypingIndicator() {
+    if (UIConversation.showTypingIndicator) {
+      return UIConversation.showTypingIndicator(elements.messagesList);
+    }
     if (typingIndicatorEl) return;
     const wrapper = document.createElement('div');
     wrapper.id = 'typing-indicator-wrapper';
@@ -2105,6 +1797,9 @@
   }
 
   function removeTypingIndicator() {
+    if (UIConversation.removeTypingIndicator) {
+      UIConversation.removeTypingIndicator();
+    }
     if (typingIndicatorEl && typingIndicatorEl.parentNode) {
       typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
     }

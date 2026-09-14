@@ -131,3 +131,4 @@ test('UIComposer - mount attaches submit and keydown handlers and disposes clean
   assert.equal(listeners['form:submit'], undefined);
   assert.equal(listeners['input:keydown'], undefined);
 });
+
