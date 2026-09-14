@@ -49,21 +49,24 @@
     </div>
 
     <div class="card">
-      <h2>3. Servidor Local en Python (Zero Dependencias)</h2>
+      <h2>3. Servidor Local en Python (Zero Dependencias y Gestor Stdio)</h2>
       <p>
         Para que no tengas que escribir un servidor desde cero, ZeroChat incluye en el propio diálogo de configuración un <strong>generador automático de código Python para el servidor local</strong> (<code>zerochat_mcp.py</code>).
       </p>
       <p>
-        A diferencia de soluciones pesadas, este servidor opera con la <strong>librería estándar de Python 3 sin requerir dependencias externas</strong> ni entornos virtuales para sus servicios principales:
+        Este servidor cumple un doble rol transparente:
       </p>
-      <ul>
-        <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
-        <li><strong><code>read_file</code>:</strong> Lectura de archivos con rangos de líneas y límites seguros de contexto.</li>
-        <li><strong><code>search_files</code>:</strong> Búsqueda rápida de archivos por patrón glob y búsqueda de texto dentro del código.</li>
-        <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
-        <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos.</li>
-        <li><strong><code>browser_navigate</code>:</strong> Navegación web y automatización mediante Playwright (opcional, habilitable con <code>pip install playwright && playwright install chromium</code>).</li>
-      </ul>
+      <ol>
+        <li><strong>Herramientas Locales Esenciales (Core):</strong> Implementadas directamente con la librería estándar de Python 3, sin requerir dependencias externas ni entornos virtuales:
+          <ul>
+            <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
+            <li><strong><code>read_file</code>:</strong> Lectura segura de archivos con rangos de líneas y límites de contexto.</li>
+            <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
+            <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos de archivos.</li>
+          </ul>
+        </li>
+        <li><strong>Gestor de Servidores MCP Externos (stdio):</strong> Permite arrancar y consumir servidores MCP de la comunidad que se comunican por entrada/salida estándar (stdio JSON-RPC 2.0). Por ejemplo, incluye configuración lista para usar con el servidor oficial de Playwright (<code>@modelcontextprotocol/server-playwright</code>) para navegación e interacción web automatizada, pudiendo iniciarse o detenerse con un solo clic desde la interfaz.</li>
+      </ol>
       <div class="code-wrapper">
         <pre><code># Arrancar el servidor local en Python para ZeroChat (puerto 6388 por defecto)
 python3 zerochat_mcp.py</code></pre>

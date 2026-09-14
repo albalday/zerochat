@@ -76,10 +76,12 @@ test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para e
   assert.ok(!pyScript.includes('FastMCP'));
   assert.ok(pyScript.includes('list_directory'));
   assert.ok(pyScript.includes('read_file'));
-  assert.ok(pyScript.includes('search_files'));
+  assert.ok(!pyScript.includes('def search_files('));
   assert.ok(pyScript.includes('edit_file'));
   assert.ok(pyScript.includes('execute_command'));
-  assert.ok(pyScript.includes('browser_navigate'));
+  assert.ok(!pyScript.includes('def browser_navigate('));
+  assert.ok(pyScript.includes('StdioMcpClient'));
+  assert.ok(pyScript.includes('McpProcessManager'));
   assert.ok(pyScript.includes('ZeroChatLocalServerHandler'));
   assert.ok(pyScript.includes('ThreadingHTTPServer'));
   assert.ok(pyScript.includes('DEFAULT_PORT = 6388'));
@@ -658,4 +660,95 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
 
   // Restaurar idioma
   ChatI18n.setLanguage(originalLang, false);
+});
+
+test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de inicio/parada', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const t = (k, p) => ChatI18n.t(k, p);
+
+  // 1. Desconectado
+  const container = { innerHTML: '', querySelectorAll: () => [] };
+  ChatUIMcp.renderExternalServers(container, [], false, t);
+  assert.ok(container.innerHTML.includes('mcp-servers-empty'));
+  assert.ok(container.innerHTML.includes('Inicia el servidor Python'));
+
+  // 2. Conectado pero sin servidores
+  ChatUIMcp.renderExternalServers(container, [], true, t);
+  assert.ok(container.innerHTML.includes('No hay servidores MCP externos'));
+
+  // 3. Con servidores (uno stopped, uno running)
+  const buttons = [];
+  const clickListeners = {};
+  const containerWithServers = {
+    innerHTML: '',
+    querySelectorAll: (sel) => {
+      if (sel === '.btn-mcp-server-toggle') return buttons;
+      return [];
+    }
+  };
+
+  const servers = [
+    {
+      id: 'playwright',
+      name: 'Playwright Browser',
+      description: 'Navegación web',
+      status: 'stopped',
+      tool_count: 0
+    },
+    {
+      id: 'custom_srv',
+      name: 'Custom Server',
+      description: 'Herramientas custom',
+      status: 'running',
+      tool_count: 3
+    }
+  ];
+
+  servers.forEach(s => {
+    const btn = {
+      disabled: false,
+      getAttribute: (attr) => {
+        if (attr === 'data-server-id') return s.id;
+        if (attr === 'data-action') return s.status === 'running' ? 'stop' : 'start';
+        return null;
+      },
+      addEventListener: (evt, fn) => {
+        clickListeners[`${s.id}_${evt}`] = fn;
+      }
+    };
+    buttons.push(btn);
+  });
+
+  ChatUIMcp.renderExternalServers(containerWithServers, servers, true, t);
+
+  assert.ok(containerWithServers.innerHTML.includes('Playwright Browser'));
+  assert.ok(containerWithServers.innerHTML.includes('Custom Server'));
+  assert.ok(containerWithServers.innerHTML.includes('status-stopped'));
+  assert.ok(containerWithServers.innerHTML.includes('status-running'));
+  assert.ok(containerWithServers.innerHTML.includes('3 herramientas activas'));
+  assert.ok(containerWithServers.innerHTML.includes('Iniciar'));
+  assert.ok(containerWithServers.innerHTML.includes('Detener'));
+
+  // 4. Probar pulsación de botón Iniciar
+  let startCalled = null;
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const originalFetchServers = ChatMCP.manager.fetchExternalServers;
+  try {
+    ChatMCP.manager.startExternalServer = async (sid) => {
+      startCalled = sid;
+      return { success: true };
+    };
+    ChatMCP.manager.fetchExternalServers = async () => ({
+      success: true,
+      servers: [
+        { id: 'playwright', name: 'Playwright Browser', status: 'running', tool_count: 5 }
+      ]
+    });
+
+    await clickListeners['playwright_click']();
+    assert.equal(startCalled, 'playwright');
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    ChatMCP.manager.fetchExternalServers = originalFetchServers;
+  }
 });

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "playwright",
+  "recipeRevision": 1,
+  "product": {
+    "packageManager": "npm",
+    "package": "@playwright/mcp",
+    "registry": "https://registry.npmjs.org",
+    "repository": "https://github.com/microsoft/playwright-mcp",
+    "versionPolicy": {
+      "resolveAt": "release-build",
+      "tag": "latest",
+      "runtimeRequiresLock": true
+    }
+  },
+  "releaseLock": "locks/playwright/installation.lock.json",
+  "requirements": {
+    "runtime": "node",
+    "minimumVersion": "18.0.0",
+    "resolution": "compatible-system-or-locked-private-runtime",
+    "platforms": ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"]
+  },
+  "steps": [
+    { "type": "ensure-node", "lock": "${releaseLock}" },
+    {
+      "type": "npm-ci",
+      "directory": "${serviceDir}",
+      "packageManifest": "locks/playwright/package.json",
+      "packageLock": "locks/playwright/package-lock.json",
+      "timeoutSeconds": 600
+    },
+    {
+      "type": "playwright-install-browser",
+      "browser": "chromium",
+      "cli": "${serviceDir}/node_modules/playwright/cli.js",
+      "env": { "PLAYWRIGHT_BROWSERS_PATH": "${browsersDir}" },
+      "installSystemDependencies": false,
+      "timeoutSeconds": 900
+    },
+    { "type": "verify-executable", "path": "${serviceDir}/node_modules/@playwright/mcp/cli.js" }
+  ],
+  "reuse": "verified-installation-matches-release-lock",
+  "onMissingSystemDependencies": "needs-attention"
+}

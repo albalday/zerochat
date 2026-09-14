@@ -1020,6 +1020,59 @@
       if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null });
       return { success: true };
     }
+
+    /**
+     * Obtiene la lista de servidores MCP externos configurados en el host Python.
+     */
+    async fetchExternalServers(options = {}) {
+      const client = this.getClient('mcp_proxy');
+      if (!client) return [];
+      try {
+        const res = await client.request('mcp/servers', {}, options);
+        return res?.servers || [];
+      } catch (err) {
+        try {
+          const url = (client.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '') + '/mcp/servers';
+          const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          const data = await r.json();
+          return data?.servers || [];
+        } catch (e) {
+          return [];
+        }
+      }
+    }
+
+    /**
+     * Arranca un servidor MCP externo y refresca las herramientas en el ToolRegistry.
+     */
+    async startExternalServer(serverId, config = null, registry = null) {
+      const client = this.getClient('mcp_proxy');
+      if (!client) throw new Error('Servicio local de herramientas no conectado.');
+      await client.request('mcp/start', { server_id: serverId, config });
+      const regRes = await this.connectAndRegisterServer('mcp_proxy', registry);
+      const State = getState();
+      if (State?.set && regRes.success) {
+        const curr = State.get('mcp') || {};
+        State.set('mcp', { ...curr, tools: regRes.tools || [] });
+      }
+      return regRes;
+    }
+
+    /**
+     * Detiene un servidor MCP externo y refresca las herramientas en el ToolRegistry.
+     */
+    async stopExternalServer(serverId, registry = null) {
+      const client = this.getClient('mcp_proxy');
+      if (!client) throw new Error('Servicio local de herramientas no conectado.');
+      await client.request('mcp/stop', { server_id: serverId });
+      const regRes = await this.connectAndRegisterServer('mcp_proxy', registry);
+      const State = getState();
+      if (State?.set && regRes.success) {
+        const curr = State.get('mcp') || {};
+        State.set('mcp', { ...curr, tools: regRes.tools || [] });
+      }
+      return regRes;
+    }
   }
 
   const manager = new McpManager();

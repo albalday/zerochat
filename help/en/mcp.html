@@ -49,21 +49,24 @@
     </div>
 
     <div class="card">
-      <h2>3. Local Python Server (Zero Dependencies)</h2>
+      <h2>3. Local Python Server (Zero Dependencies & Stdio Manager)</h2>
       <p>
         ZeroChat includes a one-click <strong>auto-generated Python local server script</strong> (<code>zerochat_mcp.py</code>) directly inside the configuration modal.
       </p>
       <p>
-        Unlike complex external frameworks, this server runs on the <strong>Python 3 standard library with zero external dependencies</strong> or virtual environments required for its core services:
+        This server fulfills a dual, seamless role:
       </p>
-      <ul>
-        <li><strong><code>execute_command</code>:</strong> Unified shell terminal for Git, CLI, test execution, and compilation, with automatic OS and environment detection.</li>
-        <li><strong><code>read_file</code>:</strong> Safe file reading with line range slicing and context token limits.</li>
-        <li><strong><code>search_files</code>:</strong> Fast project file search by glob pattern and code text grep matching.</li>
-        <li><strong><code>edit_file</code>:</strong> Atomic file writing and editing (overwrite, append, or chunk replacement).</li>
-        <li><strong><code>list_directory</code>:</strong> Structured folder tree and metadata exploration.</li>
-        <li><strong><code>browser_navigate</code>:</strong> Web navigation and automation via Playwright (optional, installable via <code>pip install playwright && playwright install chromium</code>).</li>
-      </ul>
+      <ol>
+        <li><strong>Core Local Tools:</strong> Built directly on the Python 3 standard library with zero external packages or virtual environments required:
+          <ul>
+            <li><strong><code>execute_command</code>:</strong> Unified shell terminal for Git, CLI, test execution, and compilation, with automatic OS and environment diagnosis.</li>
+            <li><strong><code>read_file</code>:</strong> Safe file reading with line range slicing and context token limits.</li>
+            <li><strong><code>edit_file</code>:</strong> Atomic file writing and editing (overwrite, append, or chunk replacement).</li>
+            <li><strong><code>list_directory</code>:</strong> Structured folder tree and metadata exploration.</li>
+          </ul>
+        </li>
+        <li><strong>External Stdio MCP Server Manager:</strong> Spawns and interacts with community MCP servers communicating via standard input/output (stdio JSON-RPC 2.0). For example, it includes out-of-the-box configuration for the official Playwright MCP server (<code>@modelcontextprotocol/server-playwright</code>) for browser navigation and web automation, which can be started or stopped with a single click in the UI.</li>
+      </ol>
       <div class="code-wrapper">
         <pre><code># Start the local Python server for ZeroChat (port 6388 by default)
 python3 zerochat_mcp.py</code></pre>

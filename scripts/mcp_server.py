@@ -4,17 +4,11 @@
 # dependencies = []
 # ///
 """
-Servidor Local de Herramientas para ZeroChat (Protocolo estándar JSON-RPC 2.0 / MCP).
-Proporciona acceso a herramientas del sistema local para proyectos de software:
-- list_directory: Exploración de archivos y carpetas.
-- read_file: Lectura segura de archivos con soporte de rangos de líneas.
-- search_files: Búsqueda de archivos por nombre y búsqueda de contenido (grep).
-- edit_file: Creación y edición atómica de archivos (sobrescritura, adición o reemplazo).
-- execute_command: Terminal shell unificado para Git, CLI y compilación con diagnóstico de SO.
-- browser_navigate: Navegación y automatización web mediante Playwright.
-
-No requiere librerías externas para los servicios esenciales (funciona con la librería estándar).
-Playwright es opcional para la navegación web ('pip install playwright && playwright install chromium').
+Servidor Local de Herramientas para ZeroChat con Soporte MCP Stdio.
+Proporciona:
+1. Herramientas locales básicas esenciales (shell, list_directory, read_file, edit_file).
+2. Cliente y gestor MCP para arrancar y consumir servidores MCP externos por stdio.
+3. Router unificado HTTP / JSON-RPC 2.0 para ZeroChat.
 """
 
 import os
@@ -27,21 +21,24 @@ import subprocess
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-# Importación perezosa / condicional de Playwright
+# Importar cliente MCP desde el mismo directorio o PYTHONPATH
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 try:
-    from playwright.sync_api import sync_playwright
+    from mcp_client import StdioMcpClient, McpProcessManager
 except ImportError:
-    sync_playwright = None
+    from scripts.mcp_client import StdioMcpClient, McpProcessManager
 
 DEFAULT_PORT = 6388
 
-
 # ==============================================================================
-# Servicios de Desarrollo y Mantenimiento de Software
+# Herramientas Locales Básicas (Core)
 # ==============================================================================
 
 def list_directory(path: str = ".", max_depth: int = 1) -> str:
-    """Recorre un directorio local y devuelve la lista estructurada de archivos y subcarpetas."""
+    """Recorre un directorio local y devuelve la lista de archivos y subcarpetas con sus tipos y tamaños."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -76,7 +73,7 @@ def list_directory(path: str = ".", max_depth: int = 1) -> str:
 
 
 def read_file(path: str, start_line: int = 1, max_lines: int = 500, max_bytes: int = 100000) -> str:
-    """Lee el contenido de texto de un archivo local con soporte de rangos y límite de seguridad."""
+    """Lee el contenido de texto de un archivo local con soporte de rangos y límites seguros."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -99,7 +96,6 @@ def read_file(path: str, start_line: int = 1, max_lines: int = 500, max_bytes: i
         selected_lines = lines[start_idx:end_idx] if start_idx < total_lines else []
         content = "".join(selected_lines)
 
-        # Truncado por límite de bytes si aplica
         truncated_bytes = False
         if len(content.encode("utf-8")) > safe_max_bytes:
             content = content[:safe_max_bytes]
@@ -119,68 +115,8 @@ def read_file(path: str, start_line: int = 1, max_lines: int = 500, max_bytes: i
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
-def search_files(directory: str = ".", query: str = None, file_pattern: str = "*", max_results: int = 50) -> str:
-    """Busca archivos por patrón de nombre y/o busca texto/regex dentro del contenido de los archivos."""
-    try:
-        target_dir = Path(directory).expanduser().resolve()
-        if not target_dir.exists() or not target_dir.is_dir():
-            return json.dumps({"success": False, "error": f"El directorio '{directory}' no existe."}, ensure_ascii=False)
-
-        ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".zerochat", "dist", "build"}
-        max_res = max(1, min(int(max_results), 200))
-        matches = []
-
-        query_lower = query.lower() if query else None
-
-        for root, dirs, files in os.walk(target_dir):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-
-            for file in files:
-                if len(matches) >= max_res:
-                    break
-
-                file_path = Path(root) / file
-                # Comprobar patrón de nombre
-                if file_pattern != "*" and not file_path.match(file_pattern):
-                    continue
-
-                rel_path = str(file_path.relative_to(target_dir))
-
-                if not query:
-                    # Búsqueda sólo por nombre
-                    matches.append({"path": str(file_path.resolve()), "relative_path": rel_path})
-                else:
-                    # Búsqueda por contenido
-                    try:
-                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                            for line_num, line in enumerate(f, start=1):
-                                if query_lower in line.lower():
-                                    matches.append({
-                                        "path": str(file_path.resolve()),
-                                        "relative_path": rel_path,
-                                        "line_number": line_num,
-                                        "line_content": line.strip()[:200]
-                                    })
-                                    if len(matches) >= max_res:
-                                        break
-                    except Exception:
-                        continue
-
-            if len(matches) >= max_res:
-                break
-
-        return json.dumps({
-            "success": True,
-            "directory": str(target_dir),
-            "total_matches": len(matches),
-            "matches": matches
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-
 def edit_file(path: str, content: str, mode: str = "write", target_content: str = None) -> str:
-    """Crea, sobrescribe o edita un archivo de forma atómica (write, append, o replace_chunk)."""
+    """Crea, sobrescribe o edita un archivo de forma atómica (write, append o replace_chunk)."""
     try:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -207,7 +143,7 @@ def edit_file(path: str, content: str, mode: str = "write", target_content: str 
                 f.write(new_text)
             temp_path.replace(target)
             bytes_written = len(new_text.encode("utf-8"))
-        else:  # mode == "write" (sobrescritura completa o creación atómica)
+        else:  # mode == "write"
             temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}")
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -274,81 +210,10 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
         }, ensure_ascii=False)
 
 
-def browser_navigate(url: str, action: str = "navigate", selector: str = None, text: str = None, screenshot_path: str = None, headless: bool = True, timeout_ms: int = 30000) -> str:
-    """Navega por páginas web y ejecuta automatizaciones mediante Playwright (síncrono)."""
-    if sync_playwright is None:
-        return json.dumps({
-            "success": False,
-            "error": "Playwright no está instalado en este entorno. Para habilitar la navegación y automatización web ejecuta en tu terminal: pip install playwright && playwright install chromium"
-        }, ensure_ascii=False)
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=bool(headless))
-            context = browser.new_context(viewport={"width": 1280, "height": 800})
-            page = context.new_page()
-            page.set_default_timeout(max(1000, min(int(timeout_ms), 60000)))
-
-            page.goto(url, wait_until="domcontentloaded")
-
-            if action == "screenshot":
-                out_path = screenshot_path or f"screenshot_{int(time.time())}.png"
-                target_img = Path(out_path).expanduser().resolve()
-                target_img.parent.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(target_img))
-                browser.close()
-                return json.dumps({
-                    "success": True,
-                    "url": page.url,
-                    "action": "screenshot",
-                    "screenshot_path": str(target_img)
-                }, ensure_ascii=False)
-            elif action == "click" and selector:
-                page.click(selector)
-                page.wait_for_load_state("domcontentloaded")
-            elif action == "fill" and selector and text is not None:
-                page.fill(selector, text)
-            elif action == "evaluate" and text:
-                eval_res = page.evaluate(text)
-                browser.close()
-                return json.dumps({
-                    "success": True,
-                    "url": page.url,
-                    "action": "evaluate",
-                    "result": eval_res
-                }, ensure_ascii=False)
-
-            title = page.title()
-            text_content = page.evaluate("""() => {
-                const clone = document.body.cloneNode(true);
-                clone.querySelectorAll('script, style, noscript, svg, iframe').forEach(el => el.remove());
-                return clone.innerText || '';
-            }""")
-            browser.close()
-
-            # Límite seguro para contexto de chat
-            if len(text_content) > 35000:
-                text_content = text_content[:35000] + "\n\n[... Contenido web truncado por límite de tamaño ...]"
-
-            return json.dumps({
-                "success": True,
-                "url": page.url,
-                "title": title,
-                "action": action,
-                "content": text_content
-            }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
-
-
-# ==============================================================================
-# Definiciones MCP JSON-RPC 2.0
-# ==============================================================================
-
 DETECTED_OS = f"{platform.system()} {platform.machine()}"
 DETECTED_SHELL = os.environ.get("SHELL") or os.environ.get("COMSPEC", "sh")
 
-TOOLS_DEFINITIONS = [
+LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "list_directory",
         "description": "Recorre un directorio local y devuelve la lista estructurada de archivos y subcarpetas con sus tamaños y tipos.",
@@ -372,19 +237,6 @@ TOOLS_DEFINITIONS = [
                 "max_bytes": {"type": "integer", "description": "Límite de bytes a leer (default: 100000)."}
             },
             "required": ["path"]
-        }
-    },
-    {
-        "name": "search_files",
-        "description": "Busca archivos por patrón glob y/o busca coincidencias de texto dentro del contenido de los archivos en el proyecto.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "directory": {"type": "string", "description": "Directorio base donde buscar (default: '.')."},
-                "query": {"type": "string", "description": "Texto o cadena a buscar dentro del contenido de los archivos."},
-                "file_pattern": {"type": "string", "description": "Patrón glob de nombres de archivo (ej: '*.js', '*.py', '*.html')."},
-                "max_results": {"type": "integer", "description": "Máximo de resultados a devolver (default: 50)."}
-            }
         }
     },
     {
@@ -413,42 +265,39 @@ TOOLS_DEFINITIONS = [
             },
             "required": ["command"]
         }
-    },
-    {
-        "name": "browser_navigate",
-        "description": "Navega por páginas web y ejecuta automatizaciones mediante Playwright (Chromium). Permite extraer texto legible, hacer clic, rellenar formularios y capturar pantallas.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "URL de la página web a abrir."},
-                "action": {"type": "string", "enum": ["navigate", "screenshot", "click", "fill", "evaluate"], "description": "Acción a realizar. Default: 'navigate'."},
-                "selector": {"type": "string", "description": "Selector CSS para acciones 'click' o 'fill'."},
-                "text": {"type": "string", "description": "Texto a introducir en 'fill' o código JavaScript a evaluar en 'evaluate'."},
-                "screenshot_path": {"type": "string", "description": "Ruta de archivo donde guardar captura PNG (sólo para action='screenshot')."},
-                "headless": {"type": "boolean", "description": "Ejecutar navegador en modo invisible (default: true)."},
-                "timeout_ms": {"type": "integer", "description": "Tiempo máximo en milisegundos (default: 30000)."}
-            },
-            "required": ["url"]
-        }
     }
 ]
 
-TOOL_HANDLERS = {
+LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
     "read_file": read_file,
-    "search_files": search_files,
     "edit_file": edit_file,
-    "execute_command": execute_command,
-    "browser_navigate": browser_navigate
+    "execute_command": execute_command
 }
+
+# ==============================================================================
+# Servidores MCP Externos Configurados
+# ==============================================================================
+
+DEFAULT_MCP_SERVERS = {
+    "playwright": {
+        "id": "playwright",
+        "name": "Playwright Browser",
+        "description": "Navegación web, interacción y capturas mediante Playwright MCP",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-playwright"]
+    }
+}
+
+mcp_manager = McpProcessManager(DEFAULT_MCP_SERVERS)
 
 
 # ==============================================================================
-# Servidor HTTP JSON-RPC 2.0 (Compatible con MCP SSE/HTTP)
+# Servidor HTTP JSON-RPC 2.0 y Router Unificado
 # ==============================================================================
 
 class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
-    server_version = "ZeroChatLocalServer/1.0.0"
+    server_version = "ZeroChatLocalServer/2.0.0"
 
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -462,7 +311,6 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        # Compatibilidad con handshake SSE de navegadores (/sse o Accept: text/event-stream)
         accept = self.headers.get("Accept", "")
         if "/sse" in self.path or "text/event-stream" in accept:
             self.send_response(200)
@@ -471,17 +319,33 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "keep-alive")
             self.send_cors_headers()
             self.end_headers()
-            # Informa al cliente que el endpoint POST es '/'
             self.wfile.write(b"event: endpoint\r\ndata: /\r\n\r\n")
             self.wfile.flush()
             return
 
-        # Comprobación de estado general
+        if self.path == "/mcp/servers":
+            res_data = json.dumps({
+                "success": True,
+                "servers": mcp_manager.list_servers()
+            }, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(res_data)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(res_data)
+            return
+
+        # Estado general
+        active_mcp_tools = mcp_manager.get_all_active_tools()
         res_data = json.dumps({
             "status": "active",
             "server": "ZeroChat Local Server",
-            "version": "1.0.0",
-            "tools_count": len(TOOLS_DEFINITIONS),
+            "version": "2.0.0",
+            "local_tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "mcp_tools_count": len(active_mcp_tools),
+            "total_tools_count": len(LOCAL_TOOLS_DEFINITIONS) + len(active_mcp_tools),
+            "servers": mcp_manager.list_servers(),
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -511,11 +375,59 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(err_resp)
             return
 
+        # Endpoints REST de ciclo de vida MCP
+        if self.path == "/mcp/register":
+            server_id = req.get("server_id")
+            cfg = req.get("config", {})
+            if not server_id:
+                body = json.dumps({"success": False, "error": "server_id es obligatorio"}).encode("utf-8")
+                self.send_response(400)
+            else:
+                mcp_manager.register_server_config(server_id, cfg)
+                body = json.dumps({"success": True, "server": mcp_manager.get_server_status(server_id)}).encode("utf-8")
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/mcp/start":
+            server_id = req.get("server_id")
+            if req.get("config"):
+                mcp_manager.register_server_config(server_id, req.get("config"))
+            try:
+                res = mcp_manager.start_server(server_id)
+                body = json.dumps({"success": True, "server": mcp_manager.get_server_status(server_id), "tools": res.get("tools", [])}).encode("utf-8")
+                self.send_response(200)
+            except Exception as err:
+                body = json.dumps({"success": False, "error": str(err)}).encode("utf-8")
+                self.send_response(500)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/mcp/stop":
+            server_id = req.get("server_id")
+            res = mcp_manager.stop_server(server_id)
+            body = json.dumps({"success": True, "server": res}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        # Protocolo JSON-RPC 2.0 estándar
         req_id = req.get("id")
         method = req.get("method")
         params = req.get("params", {})
 
-        # Gestión de notificaciones (sin id de retorno)
         if req_id is None and (method or "").startswith("notifications/"):
             self.send_response(204)
             self.send_cors_headers()
@@ -530,24 +442,27 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
                 "protocolVersion": "2024-11-05",
                 "serverInfo": {
                     "name": "ZeroChat Local Server",
-                    "version": "1.0.0"
+                    "version": "2.0.0"
                 },
                 "capabilities": {
-                    "tools": {"listChanged": False}
+                    "tools": {"listChanged": True}
                 }
             }
         elif method == "tools/list":
+            # Agregación: Herramientas locales + Herramientas de servidores MCP activos
+            combined_tools = list(LOCAL_TOOLS_DEFINITIONS)
+            mcp_tools = mcp_manager.get_all_active_tools()
+            combined_tools.extend(mcp_tools)
             result = {
-                "tools": TOOLS_DEFINITIONS
+                "tools": combined_tools
             }
         elif method == "tools/call":
-            tool_name = params.get("name")
+            tool_name = params.get("name", "")
             tool_args = params.get("arguments", {})
-            handler = TOOL_HANDLERS.get(tool_name)
 
-            if not handler:
-                error = {"code": -32601, "message": f"Herramienta '{tool_name}' no encontrada."}
-            else:
+            # 1. ¿Es una herramienta local propia?
+            if tool_name in LOCAL_TOOL_HANDLERS:
+                handler = LOCAL_TOOL_HANDLERS[tool_name]
                 try:
                     tool_output_json = handler(**tool_args)
                     result = {
@@ -563,6 +478,33 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
                         ],
                         "isError": True
                     }
+            # 2. ¿Es una herramienta MCP de servidor externo activo?
+            else:
+                try:
+                    mcp_res = mcp_manager.call_tool(tool_name, tool_args)
+                    result = mcp_res
+                except KeyError:
+                    error = {"code": -32601, "message": f"Herramienta '{tool_name}' no encontrada."}
+                except Exception as ex:
+                    result = {
+                        "content": [
+                            {"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}
+                        ],
+                        "isError": True
+                    }
+        elif method == "mcp/servers":
+            result = {"servers": mcp_manager.list_servers()}
+        elif method == "mcp/start":
+            sid = params.get("server_id")
+            try:
+                res = mcp_manager.start_server(sid)
+                result = {"success": True, "server": mcp_manager.get_server_status(sid), "tools": res.get("tools", [])}
+            except Exception as ex:
+                error = {"code": -32000, "message": str(ex)}
+        elif method == "mcp/stop":
+            sid = params.get("server_id")
+            res = mcp_manager.stop_server(sid)
+            result = {"success": True, "server": res}
         else:
             error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 
@@ -582,36 +524,35 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(resp_bytes)
 
     def log_message(self, format, *args):
-        # Silenciar logs ruidosos en consola estándar salvo peticiones principales
         pass
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Servidor Local de Herramientas para ZeroChat (JSON-RPC 2.0 / MCP)")
+    parser = argparse.ArgumentParser(description="Servidor Local de Herramientas para ZeroChat con Soporte MCP Stdio")
     parser.add_argument("--host", default="127.0.0.1", help="Host de escucha (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Puerto de escucha (default: {DEFAULT_PORT})")
-    parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas")
+    parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas locales")
     args = parser.parse_args()
 
     if args.test:
         print("[TEST] list_directory('.') ->", json.loads(list_directory("."))["success"])
         print("[TEST] read_file('package.json') ->", json.loads(read_file("package.json", max_lines=5))["success"])
-        print("[TEST] search_files('.', query='ZeroChat', max_results=3) ->", json.loads(search_files(".", query="ZeroChat", max_results=3))["success"])
         print("[TEST] execute_command('echo hello') ->", json.loads(execute_command("echo hello"))["success"])
-        print("[TEST] browser_navigate disponible:", sync_playwright is not None)
-        print("[TEST] Todas las herramientas operan correctamente.")
+        print("[TEST] Herramientas locales operativas.")
         return
 
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
-    print(f"🚀 [ZeroChat Local Server] Activo en http://{args.host}:{args.port}")
-    print(f"🛠️  Herramientas disponibles: {', '.join(TOOL_HANDLERS.keys())}")
+    print(f"🚀 [ZeroChat Local Server v2.0] Activo en http://{args.host}:{args.port}")
+    print(f"🛠️  Herramientas locales (Core): {', '.join(LOCAL_TOOL_HANDLERS.keys())}")
+    print(f"🔌 Servidores MCP configurados: {', '.join(DEFAULT_MCP_SERVERS.keys())}")
     print(f"💻 Sistema Operativo: {DETECTED_OS} | Shell: {DETECTED_SHELL}")
     print("📡 Esperando conexiones de ZeroChat (HTTP / SSE)...")
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n🛑 Servidor detenido por el usuario.")
+        print("\n🛑 Deteniendo servidor y procesos MCP asociados...")
+        mcp_manager.stop_all()
         server.server_close()
 
 
