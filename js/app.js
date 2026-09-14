@@ -46,6 +46,7 @@
   const Config = window.ChatConfig || {};
   const Profiles = window.ChatProfileRepository || {};
   const Providers = window.ChatProviders || {};
+  const UIShell = window.ChatUIShell || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -318,10 +319,12 @@
   }
 
   function isHttpExecution() {
+    if (UIShell.isHttpExecution) return UIShell.isHttpExecution();
     return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
   }
 
   function getStandaloneDownloadUrl() {
+    if (UIShell.getStandaloneDownloadUrl) return UIShell.getStandaloneDownloadUrl();
     if (!isHttpExecution()) return null;
     const url = new URL(window.location.href);
     const path = url.pathname;
@@ -338,6 +341,7 @@
   }
 
   function updateExecutionInfo() {
+    if (UIShell.updateExecutionInfo) return UIShell.updateExecutionInfo(elements);
     const httpExecution = isHttpExecution();
     if (elements.executionStorageScope) {
       elements.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
@@ -351,12 +355,14 @@
   }
 
   function openExecutionInfo() {
+    if (UIShell.openExecutionInfo) return UIShell.openExecutionInfo(elements);
     if (!elements.executionInfoDialog) return;
     updateExecutionInfo();
     if (!elements.executionInfoDialog.open) elements.executionInfoDialog.showModal();
   }
 
   function closeExecutionInfo() {
+    if (UIShell.closeExecutionInfo) return UIShell.closeExecutionInfo(elements);
     if (elements.executionInfoDialog?.open) elements.executionInfoDialog.close();
   }
 
@@ -2506,6 +2512,7 @@
   // ==========================================================================
 
   function updateViewportHeight() {
+    if (UIShell.updateViewportHeight) return UIShell.updateViewportHeight();
     let vh = window.innerHeight;
     if (window.visualViewport) {
       vh = window.visualViewport.height;
@@ -2514,6 +2521,11 @@
   }
 
   function setupViewportListeners() {
+    if (UIShell.setupViewportListeners) {
+      return UIShell.setupViewportListeners(elements, {
+        onViewportChange: () => positionReasoningMenu()
+      });
+    }
     updateViewportHeight();
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
@@ -2596,6 +2608,11 @@
   }
 
   function setupLightDismissDialogs() {
+    if (UIShell.setupLightDismissDialogs) {
+      return UIShell.setupLightDismissDialogs(document, {
+        onDismissProfiles: () => closeProfilesModal()
+      });
+    }
     // Fallback para navegadores sin soporte de closedby="any"
     // Solo actúa si el atributo no está soportado nativamente
     if ('closedBy' in HTMLDialogElement.prototype) return;
