@@ -50,6 +50,7 @@
   const UITransfer = window.ChatUITransfer || {};
   const UIProfiles = window.ChatUIProfiles || {};
   const UIComposer = window.ChatUIComposer || {};
+  const ConversationService = window.ChatConversationService || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -389,7 +390,40 @@
     }
   }
 
+  function getConversationServiceOptions() {
+    return {
+      storage: Storage,
+      getRuntimeConfig,
+      language: appConfig.language || 'es',
+      getConfiguredSystemPrompt: (cfg) => getConfiguredSystemPrompt(cfg),
+      getChatHistory,
+      getCurrentSessionId,
+      getSavedSessions,
+      renderSessionMessages: (history) => renderSessionMessages(history),
+      renderSidebarChats: () => renderSidebarChats(),
+      onSessionReset: () => {
+        clearAttachedFiles();
+        closeReasoningMenu();
+        clearDebugLogs();
+        setDebugStatus('idle');
+        toggleDebugPanel(false);
+        resetTelemetryDisplay({ syncState: false });
+      },
+      resetComposerInput: () => {
+        if (elements.userInput) {
+          elements.userInput.value = '';
+          autoResizeTextarea();
+          elements.userInput.focus();
+        }
+      },
+      closeSidebar: () => closeSidebar()
+    };
+  }
+
   function isDateTimeInitialTurn(m) {
+    if (ConversationService.isDateTimeInitialTurn) {
+      return ConversationService.isDateTimeInitialTurn(m);
+    }
     if (!m || m.role !== 'user') return false;
     const content = typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || '');
     return content.startsWith('La fecha y hora actual es:') ||
@@ -399,6 +433,9 @@
   }
 
   function createInitialChatHistory() {
+    if (ConversationService.createInitialChatHistory) {
+      return ConversationService.createInitialChatHistory(getConversationServiceOptions());
+    }
     return [
       { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt(),
         contextDateAnchor: Engine.getConversationDateAnchor(appConfig.language || 'es') }
@@ -406,6 +443,9 @@
   }
 
   function initializeSessionState(sessionId, history, blockedMessageKey) {
+    if (ConversationService.initializeSessionState) {
+      return ConversationService.initializeSessionState(sessionId, history, blockedMessageKey, getConversationServiceOptions());
+    }
     const initialization = State.replaceConversation
       ? State.replaceConversation({ sessionId, messages: history })
       : (State.initializeConversation
@@ -427,6 +467,9 @@
   }
 
   function blockSessionTransitionIfBusy(messageKey) {
+    if (ConversationService.blockSessionTransitionIfBusy) {
+      return ConversationService.blockSessionTransitionIfBusy(messageKey);
+    }
     const isBusy = State.isConversationBusy?.() === true;
     if (!isBusy) return false;
     ChatDialogs.alert(t(messageKey));
@@ -1548,94 +1591,15 @@
   // ==========================================================================
 
   async function loadSessionsFromStorage() {
-    let sessionsList = [];
-    try {
-      await Storage.initDB();
-      sessionsList = await Storage.getConversationsList();
-    } catch (e) {
-      console.warn('Error al cargar sesiones de chat:', e);
-      sessionsList = [];
+    if (ConversationService.loadSessionsFromStorage) {
+      return await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     }
-
-    if (!Array.isArray(sessionsList)) {
-      sessionsList = [];
-    }
-
-    // Siempre iniciar en un chat nuevo al abrir o recargar la página (F5 / Ctrl+F5)
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const initialHistory = createInitialChatHistory();
-
-    if (State.initializeConversation) {
-      State.initializeConversation({ sessionId: nextSessionId, sessions: sessionsList, messages: initialHistory });
-    }
-
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
   }
 
   async function saveCurrentSession() {
-    const history = getChatHistory();
-    const currId = getCurrentSessionId();
-    const sessionsList = getSavedSessions();
-
-    // Comprobar si hay preguntas reales del usuario además de los turnos de inicialización de fecha/hora
-    const hasRealUserMessages = Array.isArray(history) && history.some(m => {
-      if (!m || m.role !== 'user') return false;
-      return !isDateTimeInitialTurn(m);
-    });
-    
-    // Si la conversación no tiene preguntas reales del usuario, no guardarla como sesión activa en el sidebar
-    if (!hasRealUserMessages) {
-      if (State.removeSession) {
-        State.removeSession(currId);
-      }
-      await Storage.deleteConversation(currId);
-      renderSidebarChats();
-      return;
+    if (ConversationService.saveCurrentSession) {
+      return await ConversationService.saveCurrentSession(getConversationServiceOptions());
     }
-
-    let sess = sessionsList.find(s => s.id === currId);
-    const now = Date.now();
-    if (!sess) {
-      sess = {
-        id: currId,
-        title: t('chat_untitled') || 'Nueva conversación',
-        createdAt: now,
-        updatedAt: now,
-        messageCount: history.length
-      };
-    } else {
-      sess = Object.assign({}, sess, {
-        updatedAt: now,
-        messageCount: history.length
-      });
-    }
-
-    // Auto-generar título a partir del primer mensaje real del usuario
-    const isUntitled = !sess.title ||
-      sess.title === t('chat_untitled') ||
-      sess.title === 'Nueva conversación' ||
-      sess.title === 'New conversation';
-
-    if (isUntitled && history.length > 1) {
-      const firstRealUser = history.find(m => m.role === 'user' && !isDateTimeInitialTurn(m));
-      if (firstRealUser && firstRealUser.content) {
-        const rawContent = typeof firstRealUser.content === 'string' ? firstRealUser.content : (firstRealUser.content[0]?.text || '');
-        const candidate = rawContent.split('\n')[0].replace(/[#*`_>\[\]]/g, '').trim();
-        if (candidate) {
-          sess.title = candidate.length > 35 ? candidate.substring(0, 32) + '…' : candidate;
-        }
-      }
-    }
-
-    if (State.saveSessionMetadata) {
-      State.saveSessionMetadata(sess);
-    }
-    await Storage.saveConversation(sess, history);
-
-    renderSidebarChats();
   }
 
   function renderSidebarChats(filterText = '') {
@@ -1652,222 +1616,59 @@
     }
   }
 
-  async function switchToSession(sessionId, { force = false, saveCurrent = true } = {}) {
-    if (!force && sessionId === getCurrentSessionId()) return;
-    if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
-    if (saveCurrent) await saveCurrentSession();
-
-    let targetConv = null;
-    if (Storage.getConversation) {
-      targetConv = await Storage.getConversation(sessionId);
+  async function switchToSession(sessionId, opts = {}) {
+    if (ConversationService.switchToSession) {
+      return await ConversationService.switchToSession(sessionId, Object.assign({}, getConversationServiceOptions(), opts));
     }
-
-    if (!targetConv) {
-      const found = getSavedSessions().find(s => s.id === sessionId);
-      if (found && found.history) targetConv = found;
-    }
-
-    if (!targetConv) return;
-
-    const restoredHistory = targetConv.history && targetConv.history.length > 0 ? [...targetConv.history] : [
-      { id: 'system_root', role: 'system', content: getConfiguredSystemPrompt() }
-    ];
-
-    Engine.ensureConversationDate(restoredHistory, appConfig.language || 'es', targetConv.createdAt);
-
-    if (!initializeSessionState(targetConv.id, restoredHistory, 'chat_switch_blocked_generating')) return false;
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (window.innerWidth < 900) {
-      closeSidebar();
-    }
-    return true;
   }
 
-  async function createNewSession({ saveCurrent = true } = {}) {
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    if (saveCurrent) await saveCurrentSession();
-
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const nextHistory = createInitialChatHistory();
-    if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating')) return false;
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (elements.userInput) {
-      elements.userInput.value = '';
-      autoResizeTextarea();
-      elements.userInput.focus();
+  async function createNewSession(opts = {}) {
+    if (ConversationService.createNewSession) {
+      return await ConversationService.createNewSession(Object.assign({}, getConversationServiceOptions(), opts));
     }
-
-    if (window.innerWidth < 900) {
-      closeSidebar();
-    }
-    return true;
   }
 
   function getBranchBoundaryIndex(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return -1;
-    const messageIds = new Set((wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean));
-    const messageId = wrapper.getAttribute('data-msg-id');
-    const baseId = wrapper.getAttribute('data-base-id');
-    if (messageId) messageIds.add(messageId);
-    if (baseId) messageIds.add(baseId);
-
-    let boundary = -1;
-    history.forEach((message, index) => {
-      if (!message || !message.id) return;
-      const messageBaseId = extractBaseId(message.id);
-      if (messageIds.has(message.id) || (messageBaseId && messageIds.has(messageBaseId))) {
-        boundary = index;
-      }
-    });
-    return boundary;
+    if (ConversationService.getBranchBoundaryIndex) {
+      return ConversationService.getBranchBoundaryIndex(wrapper, history);
+    }
+    return -1;
   }
 
   function setAssistantGroupMessageIds(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return;
-    let lastUserIndex = -1;
-    for (let index = history.length - 1; index >= 0; index--) {
-      if (history[index]?.role === 'user') {
-        lastUserIndex = index;
-        break;
-      }
+    if (ConversationService.setAssistantGroupMessageIds) {
+      return ConversationService.setAssistantGroupMessageIds(wrapper, history);
     }
-    const ids = history.slice(lastUserIndex + 1).map(message => message?.id).filter(Boolean);
-    if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
   function cloneBranchHistory(history, boundary, sessionId) {
-    const sourceHistory = history.slice(0, boundary + 1);
-    const clonedHistory = Utils.clone ? Utils.clone(sourceHistory) : JSON.parse(JSON.stringify(sourceHistory));
-    return clonedHistory.map((message, index) => Object.assign({}, message, {
-      id: `msg_${sessionId}_${index}`
-    }));
+    if (ConversationService.cloneBranchHistory) {
+      return ConversationService.cloneBranchHistory(history, boundary, sessionId);
+    }
+    return [];
   }
 
   async function createConversationBranch(wrapper) {
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    const history = getChatHistory();
-    const boundary = getBranchBoundaryIndex(wrapper, history);
-    if (boundary < 0) return false;
-
-    await saveCurrentSession();
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-    const parentSessionId = getCurrentSessionId();
-    const parentSession = getSavedSessions().find(session => session.id === parentSessionId);
-    const parentTitle = parentSession?.title || t('chat_untitled');
-    const branchSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
-    const now = Date.now();
-    const branchSession = {
-      id: branchSessionId,
-      title: t('chat_branch_title', { title: parentTitle }),
-      createdAt: now,
-      updatedAt: now,
-      messageCount: branchHistory.length,
-      metadata: {
-        parentSessionId,
-        branchedFromMessageIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
-      }
-    };
-
-    if (!Storage.saveConversation || !await Storage.saveConversation(branchSession, branchHistory)) {
-      ChatDialogs.alert(t('chat_branch_error'), { type: 'error' });
-      return false;
+    if (ConversationService.createConversationBranch) {
+      return await ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
     }
-    if (!initializeSessionState(branchSessionId, branchHistory, 'chat_new_blocked_generating')) {
-      await Storage.deleteConversation?.(branchSessionId);
-      return false;
-    }
-    if (State.saveSessionMetadata) State.saveSessionMetadata(branchSession);
-    renderSessionMessages(getChatHistory());
-    renderSidebarChats();
-
-    if (elements.userInput) {
-      elements.userInput.value = '';
-      autoResizeTextarea();
-      elements.userInput.focus();
-    }
-    if (window.innerWidth < 900) closeSidebar();
-    return true;
   }
 
   async function deleteSession(sessionId, event) {
-    if (event) event.stopPropagation();
-    if (!await ChatDialogs.confirm(t('chat_delete_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-
-    const currId = getCurrentSessionId();
-    if (State.removeSession) {
-      const res = State.removeSession(sessionId);
-      if (!res.ok && res.reason === 'generation-active') {
-        ChatDialogs.alert(t('chat_delete_blocked_generating'));
-        return;
-      }
-    }
-
-    await Storage.deleteConversation(sessionId);
-
-    const remainingSessions = getSavedSessions();
-    if (remainingSessions.length === 0) {
-      await createNewSession({ saveCurrent: false });
-    } else if (currId === sessionId) {
-      const next = remainingSessions[0];
-      // removeSession ya actualiza la sesión activa. Forzamos la restauración
-      // para reemplazar en pantalla el historial recién eliminado.
-      await switchToSession(next.id, { force: true, saveCurrent: false });
-    } else {
-      renderSidebarChats();
+    if (ConversationService.deleteSession) {
+      return await ConversationService.deleteSession(sessionId, event, getConversationServiceOptions());
     }
   }
 
   async function deleteAllSessions() {
-    const sessionsList = getSavedSessions();
-    if (!sessionsList || sessionsList.length === 0) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    if (!await ChatDialogs.confirm(t('chat_delete_all_confirm'))) return;
-    if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-
-    const deleted = await Storage.deleteAllConversations();
-    if (!deleted) {
-      ChatDialogs.alert(t('chat_delete_history_err'), { type: 'error' });
-      return;
+    if (ConversationService.deleteAllSessions) {
+      return await ConversationService.deleteAllSessions(getConversationServiceOptions());
     }
-
-    if (State.set) {
-      State.set('sessions', { activeId: null, list: [] });
-    }
-
-    await createNewSession({ saveCurrent: false });
   }
 
   async function renameSession(sessionId, event) {
-    if (event) event.stopPropagation();
-    let sess = getSavedSessions().find(s => s.id === sessionId);
-    if (!sess) return;
-
-    const newTitle = await ChatDialogs.prompt(t('prompt_rename_conversation'), sess.title || '');
-    if (newTitle !== null && newTitle.trim() !== '') {
-      sess = getSavedSessions().find(s => s.id === sessionId);
-      if (!sess) return;
-      sess.title = newTitle.trim();
-      sess.updatedAt = Date.now();
-      if (State.saveSessionMetadata) {
-        State.saveSessionMetadata(sess);
-      }
-      if (Storage.renameConversation) {
-        await Storage.renameConversation(sessionId, sess.title);
-      }
-      renderSidebarChats();
+    if (ConversationService.renameSession) {
+      return await ConversationService.renameSession(sessionId, event, getConversationServiceOptions());
     }
   }
 
