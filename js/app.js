@@ -49,6 +49,7 @@
   const UIShell = window.ChatUIShell || {};
   const UITransfer = window.ChatUITransfer || {};
   const UIProfiles = window.ChatUIProfiles || {};
+  const UIComposer = window.ChatUIComposer || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -727,6 +728,9 @@
   // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
   // Esta función solo actúa como fallback para navegadores sin soporte.
   function autoResizeTextarea() {
+    if (UIComposer.autoResizeTextarea) {
+      return UIComposer.autoResizeTextarea(elements);
+    }
     if (CSS && CSS.supports && CSS.supports('field-sizing', 'content')) return;
     if (!elements.userInput) return;
     if (!elements.userInput.value) {
@@ -749,51 +753,27 @@
   // ==========================================================================
 
   function renderAttachedFiles() {
-    if (Attachments.renderChips) {
-      Attachments.renderChips(elements.attachmentsContainer, () => autoResizeTextarea());
+    if (UIComposer.renderAttachedFiles) {
+      return UIComposer.renderAttachedFiles(elements);
     }
   }
 
   function clearAttachedFiles() {
-    if (Attachments.clearFiles) {
-      Attachments.clearFiles();
-      renderAttachedFiles();
+    if (UIComposer.clearAttachedFiles) {
+      return UIComposer.clearAttachedFiles(elements);
     }
-    if (elements.fileInput) elements.fileInput.value = '';
   }
 
   async function processFiles(files) {
-    const maxBytes = Attachments.MAX_FILE_SIZE || (50 * 1024 * 1024);
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (file && typeof file.size === 'number' && file.size > maxBytes) {
-        await ChatDialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
-        continue;
-      }
-      try {
-        let parsed;
-        if (FileParser.parseFile) {
-          parsed = await FileParser.parseFile(file);
-        } else {
-          const text = await readFileAsText(file);
-          parsed = {
-            name: file.name,
-            size: file.size,
-            type: 'text',
-            content: text
-          };
-        }
-        if (Attachments.addFile) Attachments.addFile(parsed);
-      } catch (err) {
-        console.error(`Error processing file ${file.name}:`, err);
-        ChatDialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
-      }
+    if (UIComposer.processFiles) {
+      return UIComposer.processFiles(elements, files);
     }
-    renderAttachedFiles();
-    if (elements.userInput) elements.userInput.focus();
   }
 
   function readFileAsText(file) {
+    if (UIComposer.readFileAsText) {
+      return UIComposer.readFileAsText(file);
+    }
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
@@ -2234,23 +2214,8 @@
   // ==========================================================================
 
   function handlePasteEvent(e) {
-    if (!e.clipboardData || !e.clipboardData.items) return;
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type && items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
-        if (file) {
-          e.preventDefault();
-          if (FileParser.parseFile) {
-            FileParser.parseFile(file).then(parsed => {
-              if (Attachments.addFile) Attachments.addFile(parsed);
-              renderAttachedFiles();
-            }).catch(err => {
-              console.error('Error pasting image:', err);
-            });
-          }
-        }
-      }
+    if (UIComposer.handlePasteEvent) {
+      return UIComposer.handlePasteEvent(e, elements);
     }
   }
 
@@ -2432,15 +2397,9 @@
     }
 
     function updateComposerMcpState(mcpState) {
-      if (!elements.btnComposerMcp) return;
-      const st = mcpState || State.get('mcp') || {};
-      const status = st.status || 'disconnected';
-      elements.btnComposerMcp.classList.remove('mcp-connected', 'mcp-connecting', 'mcp-disconnected', 'mcp-error');
-      elements.btnComposerMcp.classList.add(`mcp-${status}`);
-      const labelKey = `mcp_status_${status}`;
-      const statusText = ChatI18n?.t ? ChatI18n.t(labelKey) : status;
-      elements.btnComposerMcp.title = `MCP: ${statusText}`;
-      elements.btnComposerMcp.setAttribute('aria-label', `MCP: ${statusText}`);
+      if (UIComposer.updateComposerMcpState) {
+        return UIComposer.updateComposerMcpState(elements, mcpState);
+      }
     }
     State.subscribe('mcp', (newState) => updateComposerMcpState(newState));
     updateComposerMcpState(State.get('mcp'));
@@ -2950,11 +2909,13 @@
     if (State.subscribe) {
       const syncGenerationControls = (streamingState) => {
         const isGenerating = Boolean(streamingState.isGenerating);
-        if (elements.btnSend) elements.btnSend.disabled = isGenerating;
-        if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
-        // El indicador comparte exactamente el mismo ciclo que Stop/Enviar.
-        // Nunca depende de que un proveedor concrete emita una señal terminal.
-        if (!isGenerating) clearGenerationStatus();
+        if (UIComposer.syncGenerationControls) {
+          UIComposer.syncGenerationControls(elements, isGenerating, { clearGenerationStatus });
+        } else {
+          if (elements.btnSend) elements.btnSend.disabled = isGenerating;
+          if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
+          if (!isGenerating) clearGenerationStatus();
+        }
       };
       State.subscribe('streaming', syncGenerationControls);
       syncGenerationControls(State.get?.('streaming') || {});
