@@ -118,6 +118,7 @@
       id: String(data.id || generateId('doc')),
       branchId: String(data.branchId).trim(),
       title: String(data.title).trim(),
+      path: String(data.path || data.title).trim(),
       fileType,
       mimeType: String(data.mimeType || ''),
       fileSize: Number(data.fileSize) || 0,
@@ -283,6 +284,52 @@
       if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
       throw new RagStorageError(`No se pudo guardar el documento: ${error.message || error}`, { error });
     }
+  }
+
+  async function replaceDocument(oldDocId, data, images = []) {
+    const existing = await getDocumentById(oldDocId);
+    if (!existing) throw new NotFoundError(`No existe el documento ${oldDocId}.`);
+    const docImages = Array.isArray(images) ? images : [];
+    const { document, chunks } = validateDocument({ ...data, branchId: existing.branchId, imageCount: docImages.length });
+    const db = await openDatabase();
+    if (!db) {
+      await deleteDocument(oldDocId);
+      memory.documents.set(document.id, document);
+      if (docImages.length > 0) {
+        memory.images.set(document.id, { documentId: document.id, branchId: document.branchId, images: docImages });
+      }
+      chunks.forEach(chunk => memory.chunks.set(chunk.id, chunk));
+      return { ...document };
+    }
+    try {
+      const tx = db.transaction([STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
+      tx.objectStore(STORES.ragDocuments).delete(oldDocId);
+      tx.objectStore(STORES.ragImages).delete(oldDocId);
+      await deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_documentId', oldDocId);
+
+      tx.objectStore(STORES.ragDocuments).add(document);
+      if (docImages.length > 0) {
+        tx.objectStore(STORES.ragImages).put({
+          documentId: document.id,
+          branchId: document.branchId,
+          images: docImages
+        });
+      }
+      for (const chunk of chunks) tx.objectStore(STORES.ragChunks).add(chunk);
+      await transactionDone(tx);
+      await updateBranch(document.branchId, { updatedAt: Date.now() });
+      return document;
+    } catch (error) {
+      if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
+      throw new RagStorageError(`No se pudo reemplazar el documento: ${error.message || error}`, { error });
+    }
+  }
+
+  async function findDocumentByPath(branchId, path) {
+    if (!branchId || !path) return null;
+    const cleanPath = String(path).trim();
+    const docs = await getDocumentsByBranch(branchId);
+    return docs.find(doc => (doc.path && doc.path === cleanPath) || doc.title === cleanPath) || null;
   }
 
   async function getDocumentImages(documentId) {
@@ -617,7 +664,7 @@
 
   return {
     createBranch, getBranches, getBranchById, updateBranch, deleteBranch,
-    saveDocument, getDocumentsByBranch, getDocumentById,
+    saveDocument, replaceDocument, findDocumentByPath, getDocumentsByBranch, getDocumentById,
     getChunksByBranch, getChunksByDocument, getChunkById, deleteDocument,
     getDocumentImages, getDocumentImage,
     getStorageEstimate, requestPersistentStorage, clearAllData, exportBranch, exportBranchBlob, importBranch, openDatabase,

@@ -272,35 +272,105 @@
     const index = getRagIndex();
     if (!storage) throw new Error('El almacenamiento RAG no está disponible.');
     if (!branchId) throw new Error('Se requiere una rama de destino.');
-    const result = { total: queue.length, processed: 0, failed: 0, documents: [], errors: [] };
+    const result = {
+      total: queue.length,
+      processed: 0,
+      replaced: 0,
+      skipped: 0,
+      cancelled: 0,
+      failed: 0,
+      documents: [],
+      errors: []
+    };
     const maxFileSize = Number(options.maxFileSize) || MAX_DOCUMENT_SIZE;
+    let rememberedDuplicatePolicy = null;
+    const processedInSession = new Map();
+
     const emit = (fileIndex, fileName, status, message, percent, errorDetails) => {
       if (typeof onProgress === 'function') {
-        const finishedFiles = result.processed + result.failed;
-        const isFinished = status === 'completed' || status === 'error';
+        const finishedFiles = result.processed + result.replaced + result.skipped + result.cancelled + result.failed;
+        const isFinished = status === 'completed' || status === 'skipped' || status === 'cancelled' || status === 'error';
         const overallPercent = queue.length
           ? Math.min(100, ((finishedFiles + (isFinished ? 0 : (Number(percent) || 0) / 100)) / queue.length) * 100)
           : 100;
         onProgress({
           fileIndex, totalFiles: queue.length, fileName, status, message, percent, errorDetails,
-          processedFiles: result.processed, failedFiles: result.failed, finishedFiles, overallPercent
+          processedFiles: result.processed, replacedFiles: result.replaced, skippedFiles: result.skipped,
+          cancelledFiles: result.cancelled, failedFiles: result.failed, finishedFiles, overallPercent
         });
       }
     };
+
     for (let fileIndex = 0; fileIndex < queue.length; fileIndex++) {
+      if (options.signal?.aborted) {
+        for (let c = fileIndex; c < queue.length; c++) {
+          const f = queue[c];
+          const fName = f?.name || `documento_${c + 1}.txt`;
+          result.cancelled++;
+          emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
+        }
+        break;
+      }
+
       const file = queue[fileIndex];
-      const fileName = file?.name || `documento_${fileIndex + 1}.txt`;
+      const fullPath = String(file?.webkitRelativePath || file?.path || file?.name || `documento_${fileIndex + 1}.txt`).trim();
+      const fileName = file?.name || fullPath;
       const fileType = detectFileType(file);
+
       try {
         if (file && typeof file.size === 'number' && file.size > maxFileSize) {
           throw new Error('El archivo supera el tamaño máximo permitido (50 MB).');
         }
         if (!fileType) throw new Error('El archivo no parece contener texto legible.');
+
+        // Comprobación de duplicados por nombre completo con su ruta idéntica
+        const existingDoc = processedInSession.get(fullPath) || (storage.findDocumentByPath ? await storage.findDocumentByPath(branchId, fullPath) : null);
+        let action = null;
+
+        if (existingDoc) {
+          if (rememberedDuplicatePolicy) {
+            action = rememberedDuplicatePolicy;
+          } else if (typeof options.onDuplicateConflict === 'function') {
+            const decision = await options.onDuplicateConflict({ fullPath, fileName, existingDoc });
+            action = (decision?.action === 'replace') ? 'replace' : 'ignore';
+            if (decision?.applyToAll) {
+              rememberedDuplicatePolicy = action;
+            }
+          } else {
+            action = 'ignore';
+          }
+
+          if (options.signal?.aborted) {
+            for (let c = fileIndex; c < queue.length; c++) {
+              const f = queue[c];
+              const fName = f?.name || `documento_${c + 1}.txt`;
+              result.cancelled++;
+              emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
+            }
+            break;
+          }
+
+          if (action === 'ignore') {
+            result.skipped++;
+            emit(fileIndex, fileName, 'skipped', `${fileName} omitido (duplicado).`, 100);
+            continue;
+          }
+        }
+
         emit(fileIndex, fileName, 'extracting', `Extrayendo texto de ${fileName}…`, 10);
         const { text: extracted, images } = await extractDocumentContent(file, fileType);
+        if (options.signal?.aborted) {
+          for (let c = fileIndex; c < queue.length; c++) {
+            const f = queue[c];
+            const fName = f?.name || `documento_${c + 1}.txt`;
+            result.cancelled++;
+            emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
+          }
+          break;
+        }
         if (!extracted) throw new Error('El archivo no contiene texto extraíble.');
-        emit(fileIndex, fileName, 'chunking', `Particionando ${fileName}…`, 45);
 
+        emit(fileIndex, fileName, 'chunking', `Particionando ${fileName}…`, 45);
         const documentId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? `doc_${crypto.randomUUID()}`
           : `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -308,16 +378,50 @@
 
         const chunks = partitionTextIntoChunks(preparedText, options);
         if (!chunks.length) throw new Error('No se pudieron generar fragmentos del documento.');
+
+        if (options.signal?.aborted) {
+          for (let c = fileIndex; c < queue.length; c++) {
+            const f = queue[c];
+            const fName = f?.name || `documento_${c + 1}.txt`;
+            result.cancelled++;
+            emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
+          }
+          break;
+        }
+
         emit(fileIndex, fileName, 'saving', `Guardando ${fileName} en IndexedDB…`, 75);
-        const document = await storage.saveDocument({
+        const docPayload = {
           id: documentId,
-          branchId, title: fileName, fileType, mimeType: file?.type || '',
-          fileSize: Number(file?.size) || preparedText.length, chunks
-        }, images);
+          branchId,
+          title: fileName,
+          path: fullPath,
+          fileType,
+          mimeType: file?.type || '',
+          fileSize: Number(file?.size) || preparedText.length,
+          chunks
+        };
+
+        let document;
+        if (action === 'replace' && existingDoc) {
+          if (storage.replaceDocument) {
+            document = await storage.replaceDocument(existingDoc.id, docPayload, images);
+          } else {
+            await storage.deleteDocument(existingDoc.id);
+            document = await storage.saveDocument(docPayload, images);
+          }
+          result.replaced++;
+        } else {
+          document = await storage.saveDocument(docPayload, images);
+          result.processed++;
+        }
+
+        processedInSession.set(fullPath, document);
         if (index?.invalidateBranch) index.invalidateBranch(branchId);
-        result.processed++;
         result.documents.push(document);
-        emit(fileIndex, fileName, 'completed', `${fileName} indexado (${chunks.length} fragmentos, ${(images && images.length) || 0} imágenes).`, 100);
+        const statusMsg = action === 'replace'
+          ? `${fileName} reemplazado (${chunks.length} fragmentos, ${(images && images.length) || 0} imágenes).`
+          : `${fileName} indexado (${chunks.length} fragmentos, ${(images && images.length) || 0} imágenes).`;
+        emit(fileIndex, fileName, 'completed', statusMsg, 100);
       } catch (error) {
         const message = error?.message || String(error);
         result.failed++;

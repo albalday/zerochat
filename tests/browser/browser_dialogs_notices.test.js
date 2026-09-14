@@ -152,4 +152,62 @@ test('Browser UI - Notices disappear immediately after a blocked import and conf
     }
   } finally { await browser.close(); }
 });
+
+test('Browser UI - Notices support custom button labels and optional checkbox', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
+      ? { status: 204, body: '' }
+      : { status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.goto(getIndexUrl());
+    await page.waitForFunction(() => window.ChatState?.get('messages').length > 0);
+
+    // Test askDuplicate with checkbox checked
+    await page.evaluate(() => {
+      window.duplicateResults = [];
+      ChatDialogs.askDuplicate('Documento existente.txt', {
+        title: 'Conflicto de archivo',
+        acceptText: 'Reemplazar',
+        cancelText: 'Ignorar',
+        checkbox: 'Aplicar a todos'
+      }).then(res => window.duplicateResults.push(res));
+    });
+
+    await page.waitForSelector('#notice-checkbox-container:not([hidden])');
+    assert.equal(await page.locator('#notice-accept').textContent(), 'Reemplazar');
+    assert.equal(await page.locator('#notice-cancel').textContent(), 'Ignorar');
+    assert.equal(await page.locator('#notice-checkbox-text').textContent(), 'Aplicar a todos');
+    assert.equal(await page.locator('#notice-checkbox').isChecked(), false);
+
+    // Marcar checkbox y aceptar
+    await page.locator('#notice-checkbox').check();
+    await page.locator('#notice-accept').click();
+
+    await page.waitForFunction(() => window.duplicateResults?.length === 1);
+    const res1 = await page.evaluate(() => window.duplicateResults[0]);
+    assert.equal(res1.accepted, true);
+    assert.equal(res1.applyToAll, true);
+
+    // Test reject without checking checkbox
+    await page.evaluate(() => {
+      ChatDialogs.askDuplicate('Otro.txt', {
+        checkbox: 'Aplicar a todos'
+      }).then(res => window.duplicateResults.push(res));
+    });
+    await page.waitForSelector('#notice-checkbox-container:not([hidden])');
+    await page.locator('#notice-cancel').click();
+
+    await page.waitForFunction(() => window.duplicateResults?.length === 2);
+    const res2 = await page.evaluate(() => window.duplicateResults[1]);
+    assert.equal(res2.accepted, false);
+    assert.equal(res2.applyToAll, false);
+
+    assert.deepEqual(errors, []);
+    await page.close();
+  } finally { await browser.close(); }
+});
 });

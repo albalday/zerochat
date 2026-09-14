@@ -209,27 +209,62 @@
   }
 
   function progressMarkup(event) {
-    return `<div class="rag-ingestion-progress-item ${event.status === 'error' ? 'error' : ''}"><strong>${escapeHtml(event.fileName)}</strong><span>${escapeHtml(event.message)}</span><progress max="100" value="${Number(event.percent) || 0}"></progress></div>`;
+    const isError = event.status === 'error';
+    const isCancelled = event.status === 'cancelled';
+    const isSkipped = event.status === 'skipped';
+    const itemClass = isError ? 'error' : (isCancelled || isSkipped) ? 'skipped' : '';
+    return `<div class="rag-ingestion-progress-item ${itemClass}"><strong>${escapeHtml(event.fileName)}</strong><span>${escapeHtml(event.message)}</span><progress max="100" value="${Number(event.percent) || 0}"></progress></div>`;
   }
 
-  function globalProgressMarkup(event) {
+  function globalProgressMarkup(event, isRunning = true) {
     const total = Number(event.totalFiles) || 0;
     const finished = Number(event.finishedFiles) || 0;
     const processed = Number(event.processedFiles) || 0;
+    const replaced = Number(event.replacedFiles) || 0;
+    const skipped = Number(event.skippedFiles) || 0;
     const failed = Number(event.failedFiles) || 0;
     const overallPercent = Math.round(Number(event.overallPercent) || 0);
-    const status = failed
-      ? (t('rag_ingestion_status_errors', { processed, failed }) || `${processed} indexados · ${failed} con error`)
+
+    const parts = [];
+    if (processed > 0) parts.push(`${processed} nuevos`);
+    if (replaced > 0) parts.push(`${replaced} reemplazados`);
+    if (skipped > 0) parts.push(`${skipped} omitidos`);
+    if (failed > 0) parts.push(`${failed} con error`);
+    const status = parts.length
+      ? parts.join(' · ')
       : (t('rag_ingestion_status', { processed }) || `${processed} indexados`);
+
     const header = t('rag_ingestion_global', { finished, total }) || `Carga global: ${finished} de ${total}`;
-    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${status}</span></div><progress max="100" value="${overallPercent}"></progress><span>${overallPercent}%</span></div>`;
+    const stopIcon = '<svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
+    const stopBtn = isRunning
+      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-secondary btn-danger-hover rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}</span></button>`
+      : '';
+
+    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div style="display:inline-flex; align-items:center; gap:0.5rem;"><span>${overallPercent}%</span>${stopBtn}</div></div>`;
   }
 
   function ingestionResultMarkup(result) {
     const processed = Number(result?.processed) || 0;
+    const replaced = Number(result?.replaced) || 0;
+    const skipped = Number(result?.skipped) || 0;
+    const cancelled = Number(result?.cancelled) || 0;
     const failed = Number(result?.failed) || 0;
     const total = Number(result?.total) || 0;
-    const header = t('rag_ingestion_complete', { processed, failed, total }) || `Ingesta completada: ${processed} indexados · ${failed} no indexados`;
+    const totalIndexed = processed + replaced;
+
+    let summaryText = `${totalIndexed} indexados · ${failed} no indexados`;
+    if (replaced > 0 || skipped > 0 || cancelled > 0) {
+      const extra = [];
+      if (replaced > 0) extra.push(`${replaced} reemplazados`);
+      if (skipped > 0) extra.push(`${skipped} omitidos`);
+      if (cancelled > 0) extra.push(`${cancelled} cancelados`);
+      summaryText += ` (${extra.join(', ')})`;
+    }
+
+    const header = cancelled > 0
+      ? (t('rag_ingestion_cancelled') || 'Ingesta detenida por el usuario') + `: ${summaryText}`
+      : (t('rag_ingestion_complete', { processed: totalIndexed, failed, total }) || `Ingesta completada: ${summaryText}`);
+
     const errors = Array.isArray(result?.errors) ? result.errors : [];
     return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errors.length ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>` : ''}</div>`;
   }
@@ -325,8 +360,12 @@
     }));
   }
 
+  let currentIngestionController = null;
+
   async function ingestFiles(files, branchId) {
     if (!files.length) return;
+    if (currentIngestionController) return;
+
     const maxBytes = 50 * 1024 * 1024;
     const validFiles = [];
     const oversizedFiles = [];
@@ -345,17 +384,65 @@
       }
     }
     if (!validFiles.length) return;
+
     const container = document.getElementById('rag-ingestion-progress');
     const events = new Map();
-    const result = await ingestion().processDocumentQueue(validFiles, branchId, event => {
-      events.set(event.fileIndex, event);
-      if (container) {
-        const recentEvents = Array.from(events.values()).slice(-12).reverse();
-        container.innerHTML = `${globalProgressMarkup(event)}<div class="rag-ingestion-progress-recent">${recentEvents.map(progressMarkup).join('')}</div>`;
+    const abortController = new AbortController();
+    currentIngestionController = abortController;
+
+    const attachStopListener = () => {
+      const stopBtn = document.getElementById('btn-rag-stop-ingestion');
+      if (stopBtn && !stopBtn.dataset.bound) {
+        stopBtn.dataset.bound = 'true';
+        stopBtn.addEventListener('click', () => {
+          stopBtn.disabled = true;
+          stopBtn.textContent = t('rag_ingestion_stopping') || 'Deteniendo...';
+          abortController.abort();
+        });
       }
-    });
-    await renderWorkspace(branchId, result);
-    await updateQuota();
+    };
+
+    const onDuplicateConflict = async ({ fullPath }) => {
+      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+      if (!Dialogs?.askDuplicate && !Dialogs?.confirm) {
+        return { action: 'ignore', applyToAll: false };
+      }
+      const promptMsg = t('rag_duplicate_prompt', { name: fullPath }) ||
+        `Ya existe un documento con el mismo nombre y ruta en esta rama ("${fullPath}"). ¿Deseas reemplazarlo o ignorarlo?`;
+      const options = {
+        title: t('rag_duplicate_title') || 'Documento duplicado',
+        acceptText: t('rag_btn_replace') || 'Reemplazar',
+        cancelText: t('rag_btn_ignore') || 'Ignorar',
+        checkbox: t('rag_duplicate_apply_all') || 'Aplicar a todos los duplicados restantes de esta carga'
+      };
+      const res = Dialogs.askDuplicate
+        ? await Dialogs.askDuplicate(promptMsg, options)
+        : await Dialogs.confirm(promptMsg, options);
+      const accepted = (typeof res === 'object' && res !== null) ? res.accepted : Boolean(res);
+      const applyToAll = (typeof res === 'object' && res !== null) ? Boolean(res.applyToAll || res.checkboxChecked) : false;
+      return {
+        action: accepted ? 'replace' : 'ignore',
+        applyToAll
+      };
+    };
+
+    try {
+      const result = await ingestion().processDocumentQueue(validFiles, branchId, event => {
+        events.set(event.fileIndex, event);
+        if (container) {
+          const recentEvents = Array.from(events.values()).slice(-12).reverse();
+          container.innerHTML = `${globalProgressMarkup(event, true)}<div class="rag-ingestion-progress-recent">${recentEvents.map(progressMarkup).join('')}</div>`;
+          attachStopListener();
+        }
+      }, {
+        signal: abortController.signal,
+        onDuplicateConflict
+      });
+      await renderWorkspace(branchId, result);
+      await updateQuota();
+    } finally {
+      currentIngestionController = null;
+    }
   }
 
   async function renderManageTab(preferredBranchId) {

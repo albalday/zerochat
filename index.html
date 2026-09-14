@@ -10,7 +10,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v6.7.3</title>
+  <title>ZeroChat v6.7.4</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -457,7 +457,16 @@
 
   <dialog id="notice-dialog" class="settings-modal notice-dialog" aria-labelledby="notice-title" aria-describedby="notice-message">
     <div class="modal-header"><h3 id="notice-title"></h3></div>
-    <div class="modal-body"><div id="notice-message"></div><input id="notice-input" class="form-input" type="text" maxlength="10000" aria-labelledby="notice-message" autocomplete="off" hidden></div>
+    <div class="modal-body">
+      <div id="notice-message"></div>
+      <input id="notice-input" class="form-input" type="text" maxlength="10000" aria-labelledby="notice-message" autocomplete="off" hidden>
+      <div id="notice-checkbox-container" class="notice-checkbox-wrapper" hidden>
+        <label class="notice-checkbox-label">
+          <input type="checkbox" id="notice-checkbox">
+          <span id="notice-checkbox-text"></span>
+        </label>
+      </div>
+    </div>
     <div class="modal-footer"><button type="button" id="notice-cancel" class="btn-secondary" data-i18n="notice_cancel" hidden></button><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
   </dialog>
 

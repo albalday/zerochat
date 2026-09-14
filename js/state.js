@@ -302,8 +302,9 @@
         const callback = optionalListener;
         let lastSliceValue = state[sliceKey];
 
-        listenerEntry = (nextState) => {
-          const currentSliceValue = nextState[sliceKey];
+        listenerEntry = (nextSnapshot, prevSnapshot, rawNext, rawPrev) => {
+          if (rawNext && rawPrev && rawNext[sliceKey] === rawPrev[sliceKey]) return;
+          const currentSliceValue = nextSnapshot[sliceKey];
           if (!isShallowEqual(lastSliceValue, currentSliceValue)) {
             const prev = lastSliceValue;
             lastSliceValue = currentSliceValue;
@@ -332,7 +333,7 @@
         const prevSnapshot = clone(prevState);
         listeners.forEach(fn => {
           try {
-            fn(nextSnapshot, prevSnapshot);
+            fn(nextSnapshot, prevSnapshot, nextState, prevState);
           } catch (e) {
             console.error('ChatState listener error:', e);
           }
@@ -562,15 +563,23 @@
       const id = (state.ui.noticeSequence || 0) + 1;
       const item = { id, message: notice.message, title: notice.title, type: notice.type, mode: notice.mode };
       if (notice.mode === 'prompt') item.value = String(notice.value ?? '').slice(0, 10000);
+      if (notice.acceptText) item.acceptText = String(notice.acceptText).slice(0, 100);
+      if (notice.cancelText) item.cancelText = String(notice.cancelText).slice(0, 100);
+      if (notice.checkbox) item.checkbox = String(notice.checkbox).slice(0, 500);
+      if (notice.checkboxDefault !== undefined) item.checkboxDefault = Boolean(notice.checkboxDefault);
       setState({ ui: Object.assign({}, state.ui, { notices: queue.concat(item), noticeSequence: id }) });
       return id;
     }
 
-    function dismissNotice(id, accepted = false, value = null) {
+    function dismissNotice(id, accepted = false, value = null, checkboxChecked = false) {
       if (!(state.ui.notices || []).some(item => item.id === id)) return;
+      const targetNotice = state.ui.notices.find(item => item.id === id);
       const result = { id, accepted: accepted === true };
-      if (state.ui.notices.find(item => item.id === id).mode === 'prompt') {
+      if (targetNotice && targetNotice.mode === 'prompt') {
         result.value = accepted === true ? String(value ?? '').slice(0, 10000) : null;
+      }
+      if (targetNotice && targetNotice.checkbox !== undefined) {
+        result.checkboxChecked = Boolean(checkboxChecked);
       }
       setState({ ui: Object.assign({}, state.ui, { notices: state.ui.notices.filter(item => item.id !== id), noticeResult: result }) });
     }
