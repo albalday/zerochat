@@ -125,3 +125,33 @@ test('GenerationStatus - integración con ChatState mutators', () => {
   assert.equal(cleared.text, '');
   assert.equal(store.get('ui').generationStatus.phase, 'idle');
 });
+
+test('GenerationStatus - setStatus y clearStatus gestionan el elemento DOM y el estado', () => {
+  const textEl = { textContent: '' };
+  const progressEl = { hidden: true, value: 0 };
+  const element = {
+    hidden: true,
+    dataset: {},
+    querySelector(selector) {
+      return selector === '.generation-status-text' ? textEl : progressEl;
+    }
+  };
+
+  // Simular streaming activo
+  globalThis.ChatState = {
+    get: (k) => k === 'streaming' ? { isGenerating: true } : {},
+    setGenerationStatus: (raw) => ({ phase: raw.phase || 'custom', text: raw.text || '', startedAt: Date.now() }),
+    clearGenerationStatus: () => ({ phase: 'idle' })
+  };
+
+  try {
+    Status.setStatus(element, { phase: 'tool', text: 'Ejecutando herramienta...' });
+    assert.equal(element.hidden, false);
+    assert.equal(element.dataset.phase, 'tool');
+
+    Status.clearStatus(element);
+    assert.equal(element.hidden, true);
+  } finally {
+    delete globalThis.ChatState;
+  }
+});

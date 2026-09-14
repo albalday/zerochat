@@ -561,10 +561,13 @@
   }
 
   function setGenerationStatus(update = {}) {
+    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
+    if (genStatus?.setStatus) {
+      return genStatus.setStatus(elements.generationStatus, update);
+    }
     const raw = typeof update === 'string' ? { text: update } : (update || {});
     const isGenerating = Boolean(State.get?.('streaming')?.isGenerating);
     const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
-    // Si no se está procesando un ciclo de chat, el indicador permanece invisible y no se reactiva.
     if (!isGenerating && phase !== 'idle') return;
 
     let next;
@@ -579,17 +582,21 @@
         : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
       State.set('ui', { ...ui, generationStatus: next });
     }
-    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, next);
+    genStatus.render?.(elements.generationStatus, next);
   }
 
   function clearGenerationStatus() {
+    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
+    if (genStatus?.clearStatus) {
+      return genStatus.clearStatus(elements.generationStatus);
+    }
     if (State.clearGenerationStatus) {
       State.clearGenerationStatus();
     } else {
       const ui = State.get?.('ui') || {};
       State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
     }
-    (window.ChatUIGenerationStatus || GenerationStatus).render?.(elements.generationStatus, { phase: 'idle' });
+    genStatus.render?.(elements.generationStatus, { phase: 'idle' });
   }
 
   function filterDebugLogs(tabId) {
