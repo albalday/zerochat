@@ -171,3 +171,87 @@ test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por cha
   appendedItems[0]['_.btn-export']({ stopPropagation: () => {} });
   assert.equal(exportedSessionId, 'sess_export_1', 'Debe invocar onExportSession con el id correspondiente');
 });
+
+test('UISidebar - openSidebar and closeSidebar toggle sidebarBackdrop when provided', () => {
+  const backdropClasses = new Set();
+  const fakeBackdrop = {
+    classList: {
+      add: (c) => backdropClasses.add(c),
+      remove: (c) => backdropClasses.delete(c),
+      contains: (c) => backdropClasses.has(c)
+    }
+  };
+  const fakeSidebar = {
+    classList: { add() {}, remove() {}, contains: () => false },
+    style: { display: 'none' }
+  };
+  const elements = {
+    chatSidebar: fakeSidebar,
+    sidebarBackdrop: fakeBackdrop
+  };
+
+  // closeSidebar debe retirar visible
+  UISidebar.closeSidebar(elements);
+  assert.equal(backdropClasses.has('visible'), false);
+});
+
+test('UISidebar - mount attaches events and dispose cleans them up', () => {
+  const listeners = {};
+  function add(name, evt, fn) { listeners[name + ':' + evt] = fn; }
+  function remove(name, evt) { delete listeners[name + ':' + evt]; }
+
+  const elements = {
+    btnToggleSidebar: {
+      addEventListener: (evt, fn) => add('toggle', evt, fn),
+      removeEventListener: (evt, fn) => remove('toggle', evt, fn)
+    },
+    btnCloseSidebar: {
+      addEventListener: (evt, fn) => add('close', evt, fn),
+      removeEventListener: (evt, fn) => remove('close', evt, fn)
+    },
+    sidebarBackdrop: {
+      addEventListener: (evt, fn) => add('backdrop', evt, fn),
+      removeEventListener: (evt, fn) => remove('backdrop', evt, fn)
+    },
+    btnSidebarNewChat: {
+      addEventListener: (evt, fn) => add('new', evt, fn),
+      removeEventListener: (evt, fn) => remove('new', evt, fn)
+    },
+    sidebarSearchInput: {
+      value: 'test',
+      addEventListener: (evt, fn) => add('search', evt, fn),
+      removeEventListener: (evt, fn) => remove('search', evt, fn)
+    },
+    btnDeleteAllChats: {
+      addEventListener: (evt, fn) => add('deleteAll', evt, fn),
+      removeEventListener: (evt, fn) => remove('deleteAll', evt, fn)
+    }
+  };
+
+  let newSessionCalled = false;
+  let searchQuery = null;
+  let deleteAllCalled = false;
+
+  UISidebar.mount(elements, {
+    onNewSession: () => { newSessionCalled = true; },
+    onSearchInput: (val) => { searchQuery = val; },
+    onDeleteAllSessions: () => { deleteAllCalled = true; }
+  });
+
+  // Verificar dispatch
+  listeners['new:click']();
+  assert.equal(newSessionCalled, true);
+
+  listeners['search:input']();
+  assert.equal(searchQuery, 'test');
+
+  listeners['deleteAll:click']();
+  assert.equal(deleteAllCalled, true);
+
+  // Desmontar
+  UISidebar.dispose();
+  assert.equal(listeners['new:click'], undefined);
+  assert.equal(listeners['search:input'], undefined);
+  assert.equal(listeners['deleteAll:click'], undefined);
+});
+

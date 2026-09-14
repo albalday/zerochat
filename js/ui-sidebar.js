@@ -66,7 +66,7 @@
         document.querySelector('.chat-container')
       ) : null;
       if (chatContainer && chatContainer.setAttribute) chatContainer.setAttribute('inert', '');
-      const backdrop = (typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null;
+      const backdrop = elements?.sidebarBackdrop || ((typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null);
       if (backdrop && backdrop.classList) backdrop.classList.add('visible');
       if (typeof requestAnimationFrame === 'function' && elements.chatSidebar.querySelector) {
         requestAnimationFrame(() => {
@@ -96,7 +96,7 @@
       document.querySelector('.chat-container')
     ) : null;
     if (chatContainer && chatContainer.removeAttribute) chatContainer.removeAttribute('inert');
-    const backdrop = (typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null;
+    const backdrop = elements?.sidebarBackdrop || ((typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null);
     if (backdrop && backdrop.classList) backdrop.classList.remove('visible');
   }
 
@@ -249,12 +249,87 @@
     });
   }
 
+  let activeCleanupFns = [];
+  let cachedElements = null;
+
+  function mount(elements, callbacks = {}) {
+    dispose();
+    cachedElements = elements || {};
+    const els = cachedElements;
+
+    if (els.btnToggleSidebar) {
+      const onToggle = () => toggleSidebar(els);
+      els.btnToggleSidebar.addEventListener('click', onToggle);
+      activeCleanupFns.push(() => els.btnToggleSidebar.removeEventListener('click', onToggle));
+    }
+
+    if (els.btnCloseSidebar) {
+      const onClose = () => closeSidebar(els);
+      els.btnCloseSidebar.addEventListener('click', onClose);
+      activeCleanupFns.push(() => els.btnCloseSidebar.removeEventListener('click', onClose));
+    }
+
+    if (els.sidebarBackdrop) {
+      const onBackdrop = () => closeSidebar(els);
+      els.sidebarBackdrop.addEventListener('click', onBackdrop);
+      activeCleanupFns.push(() => els.sidebarBackdrop.removeEventListener('click', onBackdrop));
+    }
+
+    if (els.btnSidebarNewChat) {
+      const onNew = () => {
+        if (typeof callbacks.onNewSession === 'function') callbacks.onNewSession();
+      };
+      els.btnSidebarNewChat.addEventListener('click', onNew);
+      activeCleanupFns.push(() => els.btnSidebarNewChat.removeEventListener('click', onNew));
+    }
+
+    if (els.sidebarSearchInput) {
+      const onSearch = () => {
+        if (typeof callbacks.onSearchInput === 'function') {
+          callbacks.onSearchInput(els.sidebarSearchInput.value);
+        }
+      };
+      els.sidebarSearchInput.addEventListener('input', onSearch);
+      activeCleanupFns.push(() => els.sidebarSearchInput.removeEventListener('input', onSearch));
+    }
+
+    if (els.btnDeleteAllChats) {
+      const onDeleteAll = () => {
+        if (typeof callbacks.onDeleteAllSessions === 'function') callbacks.onDeleteAllSessions();
+      };
+      els.btnDeleteAllChats.addEventListener('click', onDeleteAll);
+      activeCleanupFns.push(() => els.btnDeleteAllChats.removeEventListener('click', onDeleteAll));
+    }
+
+    if (els.btnImportChatFile && els.importJsonInput) {
+      const onImportClick = () => els.importJsonInput.click();
+      els.btnImportChatFile.addEventListener('click', onImportClick);
+      activeCleanupFns.push(() => els.btnImportChatFile.removeEventListener('click', onImportClick));
+
+      const onImportChange = (e) => {
+        if (typeof callbacks.onImportFileSelected === 'function') {
+          callbacks.onImportFileSelected(e);
+        }
+      };
+      els.importJsonInput.addEventListener('change', onImportChange);
+      activeCleanupFns.push(() => els.importJsonInput.removeEventListener('change', onImportChange));
+    }
+  }
+
+  function dispose() {
+    activeCleanupFns.forEach(fn => { try { fn(); } catch (_) {} });
+    activeCleanupFns = [];
+    cachedElements = null;
+  }
+
   return {
     toggleSidebar,
     openSidebar,
     closeSidebar,
     filterSessions,
     getChronologicalCategory,
-    renderSidebarChats
+    renderSidebarChats,
+    mount,
+    dispose
   };
 });

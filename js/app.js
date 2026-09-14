@@ -1877,6 +1877,12 @@
     }
   }
 
+  function openSidebar() {
+    if (UISidebar.openSidebar) {
+      UISidebar.openSidebar(elements);
+    }
+  }
+
   function closeSidebar() {
     if (UISidebar.closeSidebar) {
       UISidebar.closeSidebar(elements);
@@ -2459,6 +2465,9 @@
     });
     if (elements.btnCloseSidebar) {
       elements.btnCloseSidebar.addEventListener('click', closeSidebar);
+    }
+    if (elements.sidebarBackdrop) {
+      elements.sidebarBackdrop.addEventListener('click', closeSidebar);
     }
     if (elements.btnSidebarNewChat) {
       elements.btnSidebarNewChat.addEventListener('click', createNewSession);
