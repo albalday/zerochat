@@ -390,6 +390,14 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
     }
 
     if (elements.btnDisconnect) elements.btnDisconnect.style.display = isConn ? 'inline-flex' : 'none';
+    if (elements.btnMcpStartExternal || elements.btnStartExternal) {
+      (elements.btnMcpStartExternal || elements.btnStartExternal).disabled = !isConn;
+    }
+    if (elements.btnMcpStopExternal || elements.btnStopExternal) {
+      (elements.btnMcpStopExternal || elements.btnStopExternal).disabled = !isConn;
+    }
+    const serversCard = elements.mcpServersCard || (typeof document !== 'undefined' ? document.getElementById('mcp-servers-card') : null);
+    if (serversCard) serversCard.hidden = !isConn;
 
     if (elements.serverDetails) {
       elements.serverDetails.style.display = isConn ? 'flex' : 'none';
@@ -693,9 +701,9 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
       await MCP?.manager?.connectProxy?.({ host, port, endpoint: buildMcpEndpoint(host, port) });
     });
 
-    elements.btnDisconnect?.addEventListener?.('click', () => {
+    elements.btnDisconnect?.addEventListener?.('click', async () => {
       persistMcpAutoConnect(false);
-      MCP?.manager?.disconnectProxy?.();
+      await MCP?.manager?.disconnectProxy?.();
     });
 
     const unsubscribe = State?.subscribe?.('mcp', (newState) => {

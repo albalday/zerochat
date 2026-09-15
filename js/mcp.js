@@ -966,6 +966,9 @@
 
       const probe = await probeConnection(targetEndpoint, { timeoutMs });
       if (!probe.success) {
+        if (this.clients.has('mcp_proxy')) {
+          await this.disconnectProxy(registry).catch(() => {});
+        }
         if (State?.set) {
           if (silentOnFailure) {
             State.set('mcp', { status: 'disconnected', host, port, endpoint: targetEndpoint, serverInfo: null, tools: [], latencyMs: null, error: null });
@@ -977,6 +980,7 @@
       }
 
       if (this.clients.has('mcp_proxy')) {
+        await this.stopExternalHost(registry).catch(() => {});
         try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
         this.clients.delete('mcp_proxy');
       }
@@ -1009,9 +1013,10 @@
     /**
      * Desconecta el proxy y actualiza el estado global a desconectado.
      */
-    disconnectProxy(registry = null) {
+    async disconnectProxy(registry = null) {
       const AgentCore = getAgentCore();
       const targetRegistry = registry || AgentCore?.registry;
+      await this.stopExternalHost(targetRegistry).catch(() => {});
       if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_proxy');
       this.providers.delete('mcp_proxy');
 
@@ -1090,6 +1095,11 @@
       this.providers.delete('mcp_external');
       this.clients.get('mcp_external')?.disconnect?.();
       this.clients.delete('mcp_external');
+      const State = getState();
+      if (State?.set) {
+        const current = State.get('mcp') || {};
+        State.set('mcp', { ...current, externalHost: 'stopped', externalServers: [], externalTools: [] });
+      }
       return result;
     }
 

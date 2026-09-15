@@ -353,7 +353,7 @@ test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async (
     const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
     assert.equal(connResult.success, true);
 
-    const discResult = manager.disconnectProxy();
+    const discResult = await manager.disconnectProxy();
     assert.equal(discResult.success, true);
   } finally {
     global.fetch = originalFetch;
@@ -551,7 +551,7 @@ test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permane
     assert.equal(resActive.tools[0].titleFallback, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
-    MCP.manager.disconnectProxy();
+    await MCP.manager.disconnectProxy();
   }
 });
 
@@ -589,9 +589,8 @@ test('MCP - connectProxy soporta silentOnFailure para arranque y fallo explícit
     assert.ok(stateManual.error);
   } finally {
     global.fetch = originalFetch;
-    manager.disconnectProxy();
+    await manager.disconnectProxy();
   }
 });
-
 
 

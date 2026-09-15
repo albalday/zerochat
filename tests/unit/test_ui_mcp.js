@@ -137,6 +137,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
       btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
+      btnMcpStartExternal: { disabled: false },
+      btnMcpStopExternal: { disabled: false },
       serverDetails: { style: {}, innerHTML: '', textContent: '' },
       errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
@@ -158,6 +160,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.disabled, false);
   assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
   assert.equal(elements.btnDisconnect.style.display, 'none');
+  assert.equal(elements.btnMcpStartExternal.disabled, true);
+  assert.equal(elements.btnMcpStopExternal.disabled, true);
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.errorMessage.style.display, 'none');
 
@@ -184,6 +188,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
+  assert.equal(elements.btnMcpStartExternal.disabled, false);
+  assert.equal(elements.btnMcpStopExternal.disabled, false);
   assert.equal(elements.serverDetails.style.display, 'flex');
   assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.textContent.includes('15ms'));

@@ -274,6 +274,7 @@
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
       mcpToolsContainer: document.getElementById('mcp-tools-container'),
+      mcpServersCard: document.getElementById('mcp-servers-card'),
       mcpServersList: document.getElementById('mcp-servers-list'),
       btnMcpStartExternal: document.getElementById('btn-mcp-start-external'),
       btnMcpStopExternal: document.getElementById('btn-mcp-stop-external'),
@@ -2081,7 +2082,11 @@
         commandSnippet: elements.mcpTerminalCommand,
         osInstructions: elements.mcpOsInstructions,
         btnCopyCmd: elements.btnMcpCopyCmd,
-        toolsContainer: elements.mcpToolsContainer
+        toolsContainer: elements.mcpToolsContainer,
+        mcpServersCard: elements.mcpServersCard,
+        mcpServersList: elements.mcpServersList,
+        btnMcpStartExternal: elements.btnMcpStartExternal,
+        btnMcpStopExternal: elements.btnMcpStopExternal
       });
       const currentCfg = getRuntimeConfig();
       if (currentCfg?.mcpAutoConnect && window.ChatMCP?.manager?.connectProxy) {

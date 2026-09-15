@@ -527,12 +527,7 @@
                 <span class="mcp-header-icon">
                   <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
                 </span>
-                <div>
-                  <strong data-i18n="mcp_connection_title">Servidor Local (MCP)</strong>
-                  <p class="label-hint" style="margin-top: 0.2rem;" data-i18n="mcp_connection_desc">
-                    Servidor local privado para conectar ZeroChat con herramientas del sistema (archivos, terminal, git y automatización) vía protocolo estandarizado.
-                  </p>
-                </div>
+                  <strong data-i18n="mcp_connection_title">Servidor Local (ZMCP)</strong>
               </div>
 
               <!-- Indicador de Estado y Acciones de Conexión -->
@@ -571,12 +566,11 @@
               </span>
               <div>
                 <strong data-i18n="mcp_servers_section_title">Servidores MCP Externos</strong>
-                <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_desc">Servidores stdio gestionados por el servidor local (ej. Playwright para navegación web).</p>
               </div>
-            </div>
-            <div class="mcp-external-host-actions">
-              <button type="button" id="btn-mcp-start-external" class="btn-primary" data-i18n="mcp_external_start">Arrancar servicios MCP externos</button>
-              <button type="button" id="btn-mcp-stop-external" class="btn-secondary" data-i18n="mcp_external_stop">Detener servicios externos</button>
+              <div class="mcp-external-host-actions">
+                <button type="button" id="btn-mcp-start-external" class="btn-primary btn-mcp-action" data-i18n="mcp_external_start" disabled>Arrancar servicios MCP externos</button>
+                <button type="button" id="btn-mcp-stop-external" class="btn-secondary btn-mcp-action" data-i18n="mcp_external_stop" disabled>Detener servicios externos</button>
+              </div>
             </div>
             <div id="mcp-servers-list" class="mcp-servers-list"></div>
           </div>
