@@ -227,8 +227,8 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolu
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
 
   const canonicalTool = {
-    id: 'mcp__mcp_proxy__execute_command',
-    name: 'mcp__mcp_proxy__execute_command',
+    id: 'zmcp_execute_command',
+    name: 'zmcp_execute_command',
     category: 'mcp',
     aliases: ['execute_command', 'mcp_execute_command'],
     metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
@@ -284,8 +284,6 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolu
 
   // 8. Consulta de política por alias debe devolver 'allow'
   assert.equal(manager.getToolPolicy('execute_command'), 'allow');
-  assert.equal(manager.getToolPolicy('mcp__mcp_proxy__execute_command'), 'allow');
+  assert.equal(manager.getToolPolicy('zmcp_execute_command'), 'allow');
 });
-
-
 

@@ -4,6 +4,7 @@ const { execSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const { version } = require('../../package.json');
 
 const ROOT_DIR = path.resolve(__dirname, '../..');
 const TEST_PROD_PATH = path.join(__dirname, 'tmp_test_prod.html');
@@ -32,6 +33,7 @@ test('Bundler - Generación en modo Producción (Gzip Base64 Level 9)', () => {
   try {
     const stdout = execSync(`python3 bundle.py index.html "${TEST_PROD_PATH}" --mode=prod`, { cwd: ROOT_DIR, encoding: 'utf-8' });
     assert.ok(stdout.includes("generado con éxito"));
+    assert.ok(stdout.includes('Canal: DEV'));
     assert.ok(fs.existsSync(TEST_PROD_PATH));
 
     const content = fs.readFileSync(TEST_PROD_PATH, 'utf-8');
@@ -41,6 +43,7 @@ test('Bundler - Generación en modo Producción (Gzip Base64 Level 9)', () => {
     assert.ok(content.includes('<style>'));
     assert.ok(content.includes('id="compressed-js"'));
     assert.ok(content.includes('DecompressionStream'));
+    assert.ok(content.includes(`ZeroChat v${version} · DEV`));
 
     // Verificar que el tamaño de producción es ultra-compacto (< 400 KB)
     assert.ok(stats.size < 400000, `El bundle comprimido debe ser ultra-compacto (actual: ${stats.size} bytes)`);

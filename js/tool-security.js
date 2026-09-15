@@ -443,7 +443,7 @@
 
     /**
      * Establece la política de grano fino para una herramienta individual.
-     * @param {string} toolId - Identificador único de la herramienta (ej: 'mcp__mcp_proxy__read_file').
+     * @param {string} toolId - Identificador único de la herramienta (ej: 'zmcp_read_file').
      * @param {'allow'|'deny'|'ask'} policy - Decisión de autorización.
      * @param {object} [meta={}] - Metadatos auxiliares (serverName, originalName, etc.).
      */
@@ -687,4 +687,3 @@
     manager
   };
 });
-

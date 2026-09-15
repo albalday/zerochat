@@ -225,6 +225,20 @@ def read_project_version(document_dir: str, raw_html: str = "") -> str:
     return "dev"
 
 
+def read_build_channel(document_dir: str, requested: Optional[str] = None) -> str:
+    """Devuelve el canal de la rama que produjo el bundle."""
+    if requested:
+        return requested
+    try:
+        result = subprocess.run(
+            ["git", "-C", document_dir, "branch", "--show-current"],
+            capture_output=True, text=True, check=True
+        )
+        return "dev" if result.stdout.strip() == "dev" else "master"
+    except (OSError, subprocess.SubprocessError):
+        return "master"
+
+
 def minify_html(html: str, mode: str = "prod") -> str:
     """
     Minifica el marcado HTML preservando bloques de texto sensible (<pre>, <textarea>, <code>).
@@ -619,7 +633,7 @@ def verify_bundle(html_content: str, verbose: bool = False) -> Tuple[bool, List[
     return len(errors) == 0, errors
 
 
-def build_standalone_html(input_file: str, output_file: str, mode: str = "prod", force_fallback: bool = False, verbose: bool = False) -> bool:
+def build_standalone_html(input_file: str, output_file: str, mode: str = "prod", force_fallback: bool = False, verbose: bool = False, build_channel: Optional[str] = None) -> bool:
     """
     Ejecuta el pipeline completo de compilación, compresión Gzip Base64 y generación del bundle autónomo.
     """
@@ -635,6 +649,9 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     # 1. Cargar HTML
     with open(input_path, "r", encoding="utf-8") as f:
         raw_html = f.read()
+    channel = read_build_channel(document_dir, build_channel)
+    if channel == "dev":
+        raw_html = re.sub(r"(<title>\s*ZeroChat\s+v[^<]+)(</title>)", r"\1 · DEV\2", raw_html, count=1, flags=re.IGNORECASE)
     raw_html_size = len(raw_html.encode("utf-8"))
 
     # 2. Cargar CSS local según el orden de las etiquetas <link> del HTML base.
@@ -675,7 +692,19 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
 
     # 3. Concatenar scripts locales antes de comprimirlos para mejorar el ratio.
     project_version = read_project_version(document_dir, raw_html)
-    version_bootstrap = f"globalThis.__ZEROCHAT_VERSION__ = {json.dumps(project_version)};\n"
+    local_server_path = os.path.join(document_dir, "scripts", "mcp_server.py")
+    try:
+        with open(local_server_path, "rb") as local_server_file:
+            local_server_payload = base64.b64encode(local_server_file.read()).decode("ascii")
+    except OSError as error:
+        print(f"❌ No se pudo incluir el servidor MCP local: {error}", file=sys.stderr)
+        return False
+    version_bootstrap = (
+        f"globalThis.__ZEROCHAT_VERSION__ = {json.dumps(project_version)};\n"
+        f"globalThis.__ZEROCHAT_BUILD_CHANNEL__ = {json.dumps(channel)};\n"
+        f"globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = {json.dumps(local_server_payload)};\n"
+        + (f"globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = {json.dumps(document_dir)};\n" if channel == "dev" else "")
+    )
     if bundled_profile_backup is not None:
         app_index = next((
             index for index, tag in enumerate(js_tags)
@@ -754,7 +783,7 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     print("\n" + "=" * 70)
     print(f"✨ Bundle autónomo ('{os.path.basename(output_path)}') generado con éxito")
     print("=" * 70)
-    print(f"⚙️  Modo: {mode.upper()} | Gzip L9 Base64 | CSS: {css_engine} | JS: {js_engine}")
+    print(f"⚙️  Modo: {mode.upper()} | Canal: {channel.upper()} | Gzip L9 Base64 | CSS: {css_engine} | JS: {js_engine}")
     print(f"⏱️  Tiempo de compilación: {elapsed_time:.1f} ms")
     print("-" * 70)
     html_reduction = (1 - min_html_size / raw_html_size) * 100 if raw_html_size else 0
@@ -793,6 +822,7 @@ def main() -> None:
         default="prod",
         help="Modo de compilación: 'prod' o 'dev'."
     )
+    parser.add_argument("--build-channel", choices=["dev", "master"], help="Canal del bundle; por defecto se deriva de la rama Git.")
     parser.add_argument(
         "--fallback-only",
         action="store_true",
@@ -810,7 +840,8 @@ def main() -> None:
         output_file=args.output,
         mode=args.mode,
         force_fallback=args.fallback_only,
-        verbose=args.verbose
+        verbose=args.verbose,
+        build_channel=args.build_channel
     )
     sys.exit(0 if success else 1)
 

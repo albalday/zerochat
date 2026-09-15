@@ -683,7 +683,11 @@
         if (!rt.name) continue;
 
         const safeServerId = this.client.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
-        const namespacedName = `mcp__${safeServerId}__${rt.name}`;
+        const namespace = this.client.id === 'mcp_external' ? 'mcp'
+          : (this.client.id === 'mcp_proxy' ? 'zmcp' : `mcp__${safeServerId}`);
+        const namespacedName = this.client.id === 'mcp_external' || this.client.id === 'mcp_proxy'
+          ? `${namespace}_${rt.name}`
+          : `${namespace}__${rt.name}`;
         const toolName = rt.name;
 
         const tool = new AgentCore.Tool({
@@ -1021,57 +1025,84 @@
       return { success: true };
     }
 
-    /**
-     * Obtiene la lista de servidores MCP externos configurados en el host Python.
-     */
-    async fetchExternalServers(options = {}) {
-      const client = this.getClient('mcp_proxy');
-      if (!client) return [];
+    getExternalControlClient() {
+      return this.getClient('mcp_proxy');
+    }
+
+    async requestExternalControl(method, params = {}, options = {}) {
+      const client = this.getExternalControlClient();
+      if (!client) throw new Error('Servicio local de herramientas no conectado.');
+      return client.request(method, params, options);
+    }
+
+    async refreshExternalProvider(registry = null) {
+      const control = this.getExternalControlClient();
+      if (!control) throw new Error('Servicio local de herramientas no conectado.');
+      const baseUrl = (control.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '');
+      const AgentCore = getAgentCore();
+      const targetRegistry = registry || AgentCore?.registry;
+      if (this.clients.has('mcp_external')) {
+        try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
+        this.clients.delete('mcp_external');
+      }
+      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
+      this.providers.delete('mcp_external');
+      const client = new McpClient({ id: 'mcp_external', name: 'ZeroChat External MCP Host', url: `${baseUrl}/mcp/external`, enabled: true });
+      this.clients.set('mcp_external', client);
+      const provider = new McpToolProvider(client, { id: 'mcp_prov_mcp_external', name: 'ZeroChat External MCP Host' });
+      let result;
       try {
-        const res = await client.request('mcp/servers', {}, options);
-        return res?.servers || [];
-      } catch (err) {
-        try {
-          const url = (client.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '') + '/mcp/servers';
-          const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-          const data = await r.json();
-          return data?.servers || [];
-        } catch (e) {
-          return [];
-        }
+        const tools = await provider.discoverTools();
+        if (targetRegistry?.registerProvider) targetRegistry.registerProvider(provider);
+        this.providers.set('mcp_external', provider);
+        result = { success: true, toolCount: tools.length, tools };
+      } catch (error) {
+        this.clients.delete('mcp_external');
+        result = { success: false, error: error.message || String(error), tools: [] };
       }
-    }
-
-    /**
-     * Arranca un servidor MCP externo y refresca las herramientas en el ToolRegistry.
-     */
-    async startExternalServer(serverId, config = null, registry = null) {
-      const client = this.getClient('mcp_proxy');
-      if (!client) throw new Error('Servicio local de herramientas no conectado.');
-      await client.request('mcp/start', { server_id: serverId, config });
-      const regRes = await this.connectAndRegisterServer('mcp_proxy', registry);
       const State = getState();
-      if (State?.set && regRes.success) {
-        const curr = State.get('mcp') || {};
-        State.set('mcp', { ...curr, tools: regRes.tools || [] });
+      if (State?.set && result.success) {
+        const current = State.get('mcp') || {};
+        State.set('mcp', { ...current, externalTools: result.tools || [] });
       }
-      return regRes;
+      return result;
     }
 
-    /**
-     * Detiene un servidor MCP externo y refresca las herramientas en el ToolRegistry.
-     */
+    async fetchExternalServers(options = {}) {
+      try {
+        return await this.requestExternalControl('zerochat/external/status', {}, options);
+      } catch (_) {
+        return { host: 'stopped', servers: [] };
+      }
+    }
+
+    async startExternalHost(registry = null) {
+      const result = await this.requestExternalControl('zerochat/external/start');
+      try { await this.refreshExternalProvider(registry); } catch (_) {}
+      return result;
+    }
+
+    async stopExternalHost(registry = null) {
+      const result = await this.requestExternalControl('zerochat/external/stop');
+      const AgentCore = getAgentCore();
+      const targetRegistry = registry || AgentCore?.registry;
+      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
+      this.providers.delete('mcp_external');
+      this.clients.get('mcp_external')?.disconnect?.();
+      this.clients.delete('mcp_external');
+      return result;
+    }
+
+    async startExternalServer(serverId, registry = null) {
+      const result = await this.requestExternalControl('zerochat/external/servers/start', { serverId });
+      await this.refreshExternalProvider(registry).catch(() => {});
+      return result;
+    }
+
     async stopExternalServer(serverId, registry = null) {
-      const client = this.getClient('mcp_proxy');
-      if (!client) throw new Error('Servicio local de herramientas no conectado.');
-      await client.request('mcp/stop', { server_id: serverId });
-      const regRes = await this.connectAndRegisterServer('mcp_proxy', registry);
-      const State = getState();
-      if (State?.set && regRes.success) {
-        const curr = State.get('mcp') || {};
-        State.set('mcp', { ...curr, tools: regRes.tools || [] });
-      }
-      return regRes;
+      const result = await this.requestExternalControl('zerochat/external/servers/stop', { serverId });
+      await this.refreshExternalProvider(registry).catch(() => {});
+      return result;
     }
   }
 

@@ -1,7 +1,3 @@
-# Bootstrap descargable pendiente de implementar
+# Bootstrap MCP
 
-Implementar `bootstrap.py` con biblioteca estándar de Python. Entrada: raíz privada MCP, release verificada y canal stdin/stdout heredado del servidor local. Salida: progreso/errores JSON por línea y relevo al gestor mediante el Python de `env/`.
-
-Responsabilidades: lock, comprobación de Python, creación/reutilización del venv y preparación del paquete host. El protocolo debe permitir cancelar sin dejar hijos. Los logs van a stderr. No definir productos aquí; sus instrucciones pertenecen al catálogo/gestor descargables.
-
-El archivo se publica fuera del bundle. Véanse las fases y límites en `../README.md`.
+Se ejecuta solo al arrancar los MCP externos. Copia una release local de desarrollo o descarga una release HTTPS, crea/reutiliza `~/.zerochat/mcp/env` y ejecuta el host con los servicios de esa release.

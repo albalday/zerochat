@@ -18,20 +18,41 @@ import time
 import argparse
 import platform
 import subprocess
+import threading
+import queue
+import signal
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-# Importar cliente MCP desde el mismo directorio o PYTHONPATH
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
-
-try:
-    from mcp_client import StdioMcpClient, McpProcessManager
-except ImportError:
-    from scripts.mcp_client import StdioMcpClient, McpProcessManager
-
 DEFAULT_PORT = 6388
+DEFAULT_EXTERNAL_SOURCE_URL = "https://albalday.github.io/zerochat/mcp/releases/stable"
+
+
+def initialize_runtime_configuration():
+    """Read the launch information supplied by ZeroChat without starting MCP products.
+
+    This only selects the source to use later if the user explicitly starts the
+    external MCP host. It neither opens a connection nor reads that source.
+    """
+    default = {"buildChannel": "master", "externalSource": "github-pages", "externalSourceRoot": None}
+    raw = os.environ.get("ZEROCHAT_MCP_INITIALIZATION")
+    if not raw:
+        return default
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return default
+    if not isinstance(value, dict):
+        return default
+    channel = value.get("buildChannel")
+    source = value.get("externalSource")
+    source_root = value.get("externalSourceRoot")
+    if channel not in ("dev", "master") or source not in ("local-copy", "github-pages"):
+        return default
+    if source == "local-copy" and (not isinstance(source_root, str) or not os.path.isabs(source_root)):
+        return default
+    return {"buildChannel": channel, "externalSource": source, "externalSourceRoot": source_root}
 
 # ==============================================================================
 # Herramientas Locales Básicas (Core)
@@ -276,20 +297,125 @@ LOCAL_TOOL_HANDLERS = {
 }
 
 # ==============================================================================
-# Servidores MCP Externos Configurados
+# Puente al host MCP externo descargable
 # ==============================================================================
 
-DEFAULT_MCP_SERVERS = {
-    "playwright": {
-        "id": "playwright",
-        "name": "Playwright Browser",
-        "description": "Navegación web, interacción y capturas mediante Playwright MCP",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-playwright"]
-    }
-}
+class ExternalMcpHostBridge:
+    """Lanza el bootstrap descargable y retransmite su protocolo privado.
 
-mcp_manager = McpProcessManager(DEFAULT_MCP_SERVERS)
+    El servidor local no conoce productos, catálogos ni comandos de servidores
+    externos. Esos datos pertenecen exclusivamente al host descargado.
+    """
+
+    def __init__(self, home, source, source_root=None, source_url=DEFAULT_EXTERNAL_SOURCE_URL):
+        self.home = Path(home).expanduser().resolve()
+        self.source, self.source_root, self.source_url = source, source_root, source_url
+        self.process, self._next, self._pending = None, 0, {}
+        self._lock = threading.Lock()
+
+    def running(self):
+        return self.process is not None and self.process.poll() is None
+
+    def _bootstrap_path(self):
+        target = self.home / "bootstrap.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if self.source == "local-copy":
+            root = Path(self.source_root or "").resolve()
+            source = root / "bootstrap" / "bootstrap.py"
+            if not source.is_file():
+                raise RuntimeError("No se encontró el bootstrap MCP local")
+            target.write_bytes(source.read_bytes())
+        elif not target.exists():
+            import urllib.request
+            if not self.source_url.startswith("https://"):
+                raise RuntimeError("La fuente MCP externa debe usar HTTPS")
+            with urllib.request.urlopen(self.source_url.rstrip("/") + "/bootstrap.py", timeout=30) as response:
+                data = response.read(2 * 1024 * 1024 + 1)
+            if len(data) > 2 * 1024 * 1024:
+                raise RuntimeError("El bootstrap MCP supera el límite permitido")
+            target.write_bytes(data)
+        return target
+
+    def start_host(self):
+        if self.running():
+            return self.request("status")
+        bootstrap = self._bootstrap_path()
+        command = [sys.executable, str(bootstrap), "--home", str(self.home), "--source", self.source]
+        if self.source == "local-copy":
+            command.extend(["--source-root", str(Path(self.source_root).resolve())])
+        else:
+            command.extend(["--source-url", self.source_url])
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True)
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._drain_stderr, daemon=True).start()
+        return self.request("status", timeout=45)
+
+    def _drain_stderr(self):
+        if self.process and self.process.stderr:
+            for _ in self.process.stderr:
+                pass
+
+    def _read_stdout(self):
+        try:
+            for line in self.process.stdout:
+                try:
+                    message = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                request_id = message.get("requestId")
+                with self._lock:
+                    waiter = self._pending.pop(request_id, None)
+                if waiter:
+                    waiter.put(message)
+        finally:
+            with self._lock:
+                waiters = list(self._pending.values())
+                self._pending.clear()
+            for waiter in waiters:
+                waiter.put({"ok": False, "error": "El host MCP externo terminó"})
+
+    def request(self, command, timeout=30, **params):
+        if not self.running():
+            raise RuntimeError("Los servicios MCP externos no están arrancados")
+        with self._lock:
+            self._next += 1
+            request_id = self._next
+            waiter = queue.Queue(maxsize=1)
+            self._pending[request_id] = waiter
+            message = {"requestId": request_id, "command": command, **params}
+            self.process.stdin.write(json.dumps(message) + "\n")
+            self.process.stdin.flush()
+        try:
+            response = waiter.get(timeout=timeout)
+        except queue.Empty as exc:
+            with self._lock:
+                self._pending.pop(request_id, None)
+            raise TimeoutError("El host MCP externo no respondió a tiempo") from exc
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error", "Error del host MCP externo"))
+        return response.get("result", {})
+
+    def stop_host(self):
+        if not self.running():
+            return {"host": "stopped", "servers": []}
+        try:
+            self.request("shutdown", timeout=5)
+        except Exception:
+            pass
+        try:
+            self.process.terminate()
+            self.process.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+        self.process = None
+        return {"host": "stopped", "servers": []}
+
+
+external_host = None
 
 
 # ==============================================================================
@@ -323,10 +449,16 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
             return
 
-        if self.path == "/mcp/servers":
+        if self.path == "/mcp/external/status":
+            status = {"host": "stopped", "servers": []}
+            if external_host and external_host.running():
+                try:
+                    status = external_host.request("status")
+                except Exception as err:
+                    status = {"host": "error", "servers": [], "error": str(err)}
             res_data = json.dumps({
                 "success": True,
-                "servers": mcp_manager.list_servers()
+                **status
             }, ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -336,16 +468,15 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(res_data)
             return
 
-        # Estado general
-        active_mcp_tools = mcp_manager.get_all_active_tools()
+        # Estado general: las herramientas externas no se agregan al servidor local.
         res_data = json.dumps({
             "status": "active",
             "server": "ZeroChat Local Server",
             "version": "2.0.0",
             "local_tools_count": len(LOCAL_TOOLS_DEFINITIONS),
-            "mcp_tools_count": len(active_mcp_tools),
-            "total_tools_count": len(LOCAL_TOOLS_DEFINITIONS) + len(active_mcp_tools),
-            "servers": mcp_manager.list_servers(),
+            "mcp_tools_count": 0,
+            "total_tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "external_host": "running" if external_host and external_host.running() else "stopped",
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -375,54 +506,6 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(err_resp)
             return
 
-        # Endpoints REST de ciclo de vida MCP
-        if self.path == "/mcp/register":
-            server_id = req.get("server_id")
-            cfg = req.get("config", {})
-            if not server_id:
-                body = json.dumps({"success": False, "error": "server_id es obligatorio"}).encode("utf-8")
-                self.send_response(400)
-            else:
-                mcp_manager.register_server_config(server_id, cfg)
-                body = json.dumps({"success": True, "server": mcp_manager.get_server_status(server_id)}).encode("utf-8")
-                self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if self.path == "/mcp/start":
-            server_id = req.get("server_id")
-            if req.get("config"):
-                mcp_manager.register_server_config(server_id, req.get("config"))
-            try:
-                res = mcp_manager.start_server(server_id)
-                body = json.dumps({"success": True, "server": mcp_manager.get_server_status(server_id), "tools": res.get("tools", [])}).encode("utf-8")
-                self.send_response(200)
-            except Exception as err:
-                body = json.dumps({"success": False, "error": str(err)}).encode("utf-8")
-                self.send_response(500)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if self.path == "/mcp/stop":
-            server_id = req.get("server_id")
-            res = mcp_manager.stop_server(server_id)
-            body = json.dumps({"success": True, "server": res}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
         # Protocolo JSON-RPC 2.0 estándar
         req_id = req.get("id")
         method = req.get("method")
@@ -437,7 +520,18 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         result = None
         error = None
 
-        if method == "initialize":
+        if self.path == "/mcp/external":
+            if not external_host or not external_host.running():
+                error = {"code": -32001, "message": "Los servicios MCP externos no están arrancados."}
+            elif method == "initialize":
+                result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "ZeroChat External MCP Host", "version": "1"}, "capabilities": {"tools": {}}}
+            elif method == "tools/list":
+                result = external_host.request("tools/list")
+            elif method == "tools/call":
+                result = external_host.request("tools/call", name=params.get("name", ""), arguments=params.get("arguments", {}), timeout=60)
+            else:
+                error = {"code": -32601, "message": f"Método externo '{method}' no soportado."}
+        elif method == "initialize":
             result = {
                 "protocolVersion": "2024-11-05",
                 "serverInfo": {
@@ -449,18 +543,11 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
                 }
             }
         elif method == "tools/list":
-            # Agregación: Herramientas locales + Herramientas de servidores MCP activos
-            combined_tools = list(LOCAL_TOOLS_DEFINITIONS)
-            mcp_tools = mcp_manager.get_all_active_tools()
-            combined_tools.extend(mcp_tools)
-            result = {
-                "tools": combined_tools
-            }
+            result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
         elif method == "tools/call":
             tool_name = params.get("name", "")
             tool_args = params.get("arguments", {})
 
-            # 1. ¿Es una herramienta local propia?
             if tool_name in LOCAL_TOOL_HANDLERS:
                 handler = LOCAL_TOOL_HANDLERS[tool_name]
                 try:
@@ -478,33 +565,34 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
                         ],
                         "isError": True
                     }
-            # 2. ¿Es una herramienta MCP de servidor externo activo?
             else:
-                try:
-                    mcp_res = mcp_manager.call_tool(tool_name, tool_args)
-                    result = mcp_res
-                except KeyError:
-                    error = {"code": -32601, "message": f"Herramienta '{tool_name}' no encontrada."}
-                except Exception as ex:
-                    result = {
-                        "content": [
-                            {"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}
-                        ],
-                        "isError": True
-                    }
-        elif method == "mcp/servers":
-            result = {"servers": mcp_manager.list_servers()}
-        elif method == "mcp/start":
-            sid = params.get("server_id")
+                error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
+        elif method == "zerochat/external/status":
+            result = external_host.request("status") if external_host and external_host.running() else {"host": "stopped", "servers": []}
+        elif method == "zerochat/external/start":
             try:
-                res = mcp_manager.start_server(sid)
-                result = {"success": True, "server": mcp_manager.get_server_status(sid), "tools": res.get("tools", [])}
+                result = external_host.start_host()
             except Exception as ex:
-                error = {"code": -32000, "message": str(ex)}
-        elif method == "mcp/stop":
-            sid = params.get("server_id")
-            res = mcp_manager.stop_server(sid)
-            result = {"success": True, "server": res}
+                error = {"code": -32010, "message": str(ex)}
+        elif method == "zerochat/external/stop":
+            result = external_host.stop_host()
+        elif method == "zerochat/external/servers/list":
+            result = external_host.request("list") if external_host and external_host.running() else {"servers": []}
+        elif method == "zerochat/external/servers/start":
+            try:
+                result = external_host.request("start", serverId=params.get("serverId"))
+            except Exception as ex:
+                error = {"code": -32011, "message": str(ex)}
+        elif method == "zerochat/external/servers/stop":
+            try:
+                result = external_host.request("stop", serverId=params.get("serverId"))
+            except Exception as ex:
+                error = {"code": -32011, "message": str(ex)}
+        elif method == "zerochat/external/servers/configure":
+            try:
+                result = external_host.request("configure", serverId=params.get("serverId"), enabled=params.get("enabled"))
+            except Exception as ex:
+                error = {"code": -32011, "message": str(ex)}
         else:
             error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 
@@ -528,10 +616,16 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    global external_host
+    runtime = initialize_runtime_configuration()
     parser = argparse.ArgumentParser(description="Servidor Local de Herramientas para ZeroChat con Soporte MCP Stdio")
-    parser.add_argument("--host", default="127.0.0.1", help="Host de escucha (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Puerto de escucha (default: {DEFAULT_PORT})")
+    parser.add_argument("--host", default=os.environ.get("ZEROCHAT_MCP_DEFAULT_HOST", "127.0.0.1"), help="Host de escucha (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_MCP_DEFAULT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas locales")
+    parser.add_argument("--mcp-home", default=str(Path.home() / ".zerochat" / "mcp"), help="Directorio privado del host MCP externo")
+    parser.add_argument("--mcp-source", choices=("github-pages", "local-copy"), default=runtime["externalSource"], help="Origen del bootstrap MCP externo")
+    parser.add_argument("--mcp-source-root", default=runtime["externalSourceRoot"] or str(SCRIPT_DIR / "mcp"), help="Raíz de desarrollo para --mcp-source local-copy")
+    parser.add_argument("--mcp-source-url", default=DEFAULT_EXTERNAL_SOURCE_URL, help="URL HTTPS de releases MCP externas")
     args = parser.parse_args()
 
     if args.test:
@@ -541,18 +635,25 @@ def main():
         print("[TEST] Herramientas locales operativas.")
         return
 
+    external_host = ExternalMcpHostBridge(args.mcp_home, args.mcp_source, args.mcp_source_root, args.mcp_source_url)
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
-    print(f"🚀 [ZeroChat Local Server v2.0] Activo en http://{args.host}:{args.port}")
-    print(f"🛠️  Herramientas locales (Core): {', '.join(LOCAL_TOOL_HANDLERS.keys())}")
-    print(f"🔌 Servidores MCP configurados: {', '.join(DEFAULT_MCP_SERVERS.keys())}")
-    print(f"💻 Sistema Operativo: {DETECTED_OS} | Shell: {DETECTED_SHELL}")
-    print("📡 Esperando conexiones de ZeroChat (HTTP / SSE)...")
+    print(f"[ZeroChat Local Server v2.0] Active at http://{args.host}:{args.port}")
+    print(f"[Local tools] {', '.join(LOCAL_TOOL_HANDLERS.keys())}")
+    print("[External MCP] Stopped until explicitly requested from ZeroChat")
+    print(f"[System] {DETECTED_OS} | Shell: {DETECTED_SHELL}")
+    print("[Server] Waiting for ZeroChat connections (HTTP / SSE)...")
 
+    def shutdown(*_):
+        print("\n[Server] Stopping local server and external MCP host...")
+        external_host.stop_host()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n🛑 Deteniendo servidor y procesos MCP asociados...")
-        mcp_manager.stop_all()
+    finally:
+        external_host.stop_host()
         server.server_close()
 
 
