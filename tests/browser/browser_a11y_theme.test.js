@@ -644,8 +644,8 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
 
     // Pulsar Nueva rama y rellenar campos en pantalla
     await page.click('#btn-rag-new-branch');
-    await page.fill('#rag-branch-name-input', 'Rama Playwright');
-    await page.fill('#rag-branch-desc-input', 'Descripción de prueba Playwright');
+    await page.fill('#rag-branch-name-input', 'Rama de navegador');
+    await page.fill('#rag-branch-desc-input', 'Descripción de prueba de navegador');
 
     // Verificar que el botón cambia a Guardar
     const saveBtnTextAfterType = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
@@ -656,7 +656,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
 
     await page.waitForFunction(() => {
       const select = document.getElementById('rag-manage-branch-select');
-      return select && Array.from(select.options).some(opt => opt.text.includes('Rama Playwright'));
+      return select && Array.from(select.options).some(opt => opt.text.includes('Rama de navegador'));
     });
 
     // Verificar que tras guardar vuelve a ser "Nueva rama"
@@ -677,11 +677,11 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
 
     const createdBranch = await page.evaluate(async () => {
       const branches = await window.ChatRagStorage.getBranches();
-      return branches.find(b => b.name === 'Rama Playwright');
+      return branches.find(b => b.name === 'Rama de navegador');
     });
 
     assert.ok(createdBranch, 'La rama debe haberse creado en IndexedDB');
-    assert.equal(createdBranch.description, 'Descripción de prueba Playwright', 'La descripción debe haberse guardado');
+    assert.equal(createdBranch.description, 'Descripción de prueba de navegador', 'La descripción debe haberse guardado');
     assert.equal(dialogTriggered, false, 'No debe haberse disparado ningún diálogo prompt() nativo');
 
     // Modificar descripción en pantalla y verificar que cambia a Guardar

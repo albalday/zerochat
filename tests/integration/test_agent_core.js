@@ -84,13 +84,13 @@ test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparad
 test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita', async () => {
   const registry = new AgentCoreModule.ToolRegistry();
   registry.registerTool(new AgentCoreModule.Tool({
-    name: 'mcp__blocked__run',
+    name: 'mcp_blocked_run',
     category: 'mcp',
     execute: async () => ({ success: true })
   }));
 
   const result = await new AgentCoreModule.ToolExecutor(registry).executeToolCall({
-    function: { name: 'mcp__blocked__run', arguments: '{}' }
+    function: { name: 'mcp_blocked_run', arguments: '{}' }
   });
 
   assert.equal(result.success, false);

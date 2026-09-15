@@ -5,6 +5,8 @@ const http = require('node:http');
 const path = require('node:path');
 const { version } = require('../../package.json');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const gitHead = fs.readFileSync(path.resolve(__dirname, '../../.git/HEAD'), 'utf8');
+const bundleTitle = `ZeroChat v${version}${gitHead.includes('refs/heads/dev') ? ' · DEV' : ''}`;
 
 describe('Browser UI - startup', { concurrency: 2 }, () => {
   after(async () => {
@@ -160,7 +162,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     const title = await page.title();
-    assert.equal(title, `ZeroChat v${version}`, 'El título de zerochat.html debe coincidir con la versión del proyecto');
+    assert.equal(title, bundleTitle, 'El título de zerochat.html debe coincidir con la versión y canal del proyecto');
 
     // Verificar que los componentes clave están en el DOM
     const hasChatContainer = await page.$eval('.chat-container', el => !!el);

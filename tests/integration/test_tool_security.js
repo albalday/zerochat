@@ -25,8 +25,8 @@ test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', 
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_mcp_default' });
 
   const evalMcp = manager.evaluateAuthorization({
-    id: 'mcp__proxy__execute_command',
-    name: 'mcp__proxy__execute_command',
+    id: 'zmcp_execute_command',
+    name: 'zmcp_execute_command',
     category: 'mcp',
     metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
   }, { command: 'ls -la' });
@@ -43,8 +43,8 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
   assert.equal(manager.getGlobalMcpPolicy(), 'allow_all');
 
   const evalMcp = manager.evaluateAuthorization({
-    id: 'mcp__proxy__read_file',
-    name: 'mcp__proxy__read_file',
+    id: 'zmcp_read_file',
+    name: 'zmcp_read_file',
     category: 'mcp'
   });
 
@@ -59,8 +59,8 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
 test('ChatToolSecurity - Autorización granular de grano fino por herramienta', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_granular' });
 
-  const toolA = { id: 'mcp__proxy__read_file', name: 'mcp__proxy__read_file', category: 'mcp' };
-  const toolB = { id: 'mcp__proxy__execute_command', name: 'mcp__proxy__execute_command', category: 'mcp' };
+  const toolA = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' };
+  const toolB = { id: 'zmcp_execute_command', name: 'zmcp_execute_command', category: 'mcp' };
 
   // 1. Ambas requieren confirmación inicialmente
   assert.equal(manager.evaluateAuthorization(toolA).requiresApproval, true);
@@ -90,15 +90,15 @@ test('ChatToolSecurity - Autorización granular de grano fino por herramienta', 
 test('ChatToolSecurity - Revocación y reseteo de permisos guardados', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_revoke' });
 
-  manager.setToolPolicy('mcp__proxy__tool1', 'allow');
-  manager.setToolPolicy('mcp__proxy__tool2', 'allow');
+  manager.setToolPolicy('zmcp_tool1', 'allow');
+  manager.setToolPolicy('zmcp_tool2', 'allow');
   assert.equal(manager.listAuthorizedTools().length, 2);
 
   // Revocar una
-  const revoked = manager.revokeToolPolicy('mcp__proxy__tool1');
+  const revoked = manager.revokeToolPolicy('zmcp_tool1');
   assert.equal(revoked, true);
   assert.equal(manager.listAuthorizedTools().length, 1);
-  assert.equal(manager.getToolPolicy('mcp__proxy__tool1'), null);
+  assert.equal(manager.getToolPolicy('zmcp_tool1'), null);
 
   // Restablecer todas
   manager.clearAllAuthorizations();
@@ -117,12 +117,12 @@ test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
   try {
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     manager1.setGlobalMcpPolicy('allow_all');
-    manager1.setToolPolicy('mcp__proxy__saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
+    manager1.setToolPolicy('zmcp_saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
 
     // Segunda instancia leyendo la misma clave
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
-    assert.equal(manager2.getToolPolicy('mcp__proxy__saved_tool'), 'allow');
+    assert.equal(manager2.getToolPolicy('zmcp_saved_tool'), 'allow');
     assert.equal(manager2.listAuthorizedTools().length, 1);
   } finally {
     if (previousLocalStorage === undefined) delete global.localStorage;
@@ -134,8 +134,8 @@ test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y 
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_constraints' });
 
   const tool = {
-    id: 'mcp__srv__cmd',
-    name: 'mcp__srv__cmd',
+    id: 'mcp_srv_cmd',
+    name: 'mcp_srv_cmd',
     category: 'mcp'
   };
 
@@ -181,8 +181,8 @@ test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_path_constraints' });
 
   const tool = {
-    id: 'mcp__srv__fs',
-    name: 'mcp__srv__fs',
+    id: 'mcp_srv_fs',
+    name: 'mcp_srv_fs',
     category: 'mcp'
   };
 
@@ -223,14 +223,14 @@ test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y
   assert.equal(evalNowAllowed.status, 'allow');
 });
 
-test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolución bidireccional por alias', () => {
+test('ChatToolSecurity - Autorización contextual de comandos con pipes y permisos por nombre canónico', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
 
   const canonicalTool = {
-    id: 'mcp__mcp_proxy__execute_command',
-    name: 'mcp__mcp_proxy__execute_command',
+    id: 'zmcp_execute_command',
+    name: 'zmcp_execute_command',
     category: 'mcp',
-    aliases: ['execute_command', 'mcp_execute_command'],
+    aliases: [],
     metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
   };
 
@@ -257,15 +257,9 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolu
   assert.equal(evalRedirect.status, 'allow');
   assert.equal(evalRedirect.requiresApproval, false);
 
-  // 3. Invocación subsecuente llamada por alias de string ('execute_command') -> resolución robusta
-  const evalAlias = manager.evaluateAuthorization('execute_command', { command: 'du -sh .' });
-  assert.equal(evalAlias.status, 'allow');
-  assert.equal(evalAlias.requiresApproval, false);
-
-  // 4. Invocación subsecuente por alias secundario ('mcp_execute_command') -> resolución robusta
-  const evalAlias2 = manager.evaluateAuthorization('mcp_execute_command', { command: 'du -sh /var/log' });
-  assert.equal(evalAlias2.status, 'allow');
-  assert.equal(evalAlias2.requiresApproval, false);
+  // Los nombres antiguos no heredan permisos del nombre canónico.
+  assert.equal(manager.getToolPolicy('execute_command'), null);
+  assert.equal(manager.evaluateAuthorization('mcp_execute_command', {}).requiresApproval, true);
 
   // 5. Invocación con ruta absoluta del ejecutable (/usr/bin/du) -> debe ser allow directo
   const evalAbsPath = manager.evaluateAuthorization(canonicalTool, { command: '/usr/bin/du -sh .' });
@@ -282,10 +276,8 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y resolu
   assert.equal(evalAndAttack.status, 'ask');
   assert.equal(evalAndAttack.requiresApproval, true);
 
-  // 8. Consulta de política por alias debe devolver 'allow'
-  assert.equal(manager.getToolPolicy('execute_command'), 'allow');
-  assert.equal(manager.getToolPolicy('mcp__mcp_proxy__execute_command'), 'allow');
+  // 8. Solo el nombre canónico recupera la política.
+  assert.equal(manager.getToolPolicy('execute_command'), null);
+  assert.equal(manager.getToolPolicy('zmcp_execute_command'), 'allow');
 });
-
-
 

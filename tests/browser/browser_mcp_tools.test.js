@@ -107,10 +107,10 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
     await page.click('#btn-new-profile');
-    await page.fill('#notice-input', 'Perfil Temporal Playwright');
+    await page.fill('#notice-input', 'Perfil Temporal Browser');
     await page.click('#notice-accept');
     await page.click('#profile-tab-settings');
-    await page.fill('#setting-api-url', 'http://playwright-test:1234/v1');
+    await page.fill('#setting-api-url', 'http://browser-test:1234/v1');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => {
         const model = document.getElementById('setting-model');
@@ -128,7 +128,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     const profileSaveResult = await page.evaluate(() => {
       const dialog = document.getElementById('profiles-dialog');
       const feedback = document.getElementById('profile-action-feedback');
-      const profile = window.ChatProfileRepository?.findByName?.('Perfil Temporal Playwright');
+      const profile = window.ChatProfileRepository?.findByName?.('Perfil Temporal Browser');
       const runtime = window.ChatConfig?.getActive?.();
       return {
         isOpen: dialog.open,
@@ -139,13 +139,13 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     });
 
     assert.equal(profileSaveResult.isOpen, false, 'Guardar el perfil debe cerrar el mantenedor');
-    assert.equal(profileSaveResult.savedUrl, 'http://playwright-test:1234/v1', 'Debe persistir el perfil en su repositorio');
-    assert.equal(profileSaveResult.runtimeUrl, 'http://playwright-test:1234/v1', 'El perfil guardado debe quedar activo por defecto');
+    assert.equal(profileSaveResult.savedUrl, 'http://browser-test:1234/v1', 'Debe persistir el perfil en su repositorio');
+    assert.equal(profileSaveResult.runtimeUrl, 'http://browser-test:1234/v1', 'El perfil guardado debe quedar activo por defecto');
 
     // Renombrar el perfil creado actualiza el mismo registro y recarga sus datos.
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
-    const createdProfileId = await page.evaluate(() => window.ChatProfileRepository.findByName('Perfil Temporal Playwright').id);
+    const createdProfileId = await page.evaluate(() => window.ChatProfileRepository.findByName('Perfil Temporal Browser').id);
     await page.selectOption('#profile-select-helper', createdProfileId);
     await page.fill('#setting-profile-name', 'Perfil Temporal renombrado');
     await page.click('#profile-tab-settings');
@@ -168,7 +168,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
       const runtime = window.ChatConfig?.getActive?.();
       return {
         renamedCount: profiles.filter(profile => profile.name === 'Perfil Temporal renombrado').length,
-        oldNameExists: profiles.some(profile => profile.name === 'Perfil Temporal Playwright'),
+        oldNameExists: profiles.some(profile => profile.name === 'Perfil Temporal Browser'),
         runtimeName: runtime?.activeProfile?.name,
         runtimeUrl: runtime?.apiUrl
       };

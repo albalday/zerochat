@@ -25,6 +25,10 @@
     </header>
 
     <div class="card">
+      <p>Local tools use <code>zmcp_&lt;tool&gt;</code> and external tools use <code>mcp_&lt;service&gt;_&lt;tool&gt;</code>, for example <code>mcp_browser_service_browser_navigate</code>. Permissions are stored under this full name: authorizing a tool does not authorize its namesake in another service. Legacy aliases are not supported. Special characters are encoded to prevent collisions.</p>
+    </div>
+
+    <div class="card">
       <h2>1. What is MCP?</h2>
       <p>
         The <strong>Model Context Protocol (MCP)</strong> is an open protocol championed by Anthropic to bridge AI models with external tools and databases through a standardized interface.
@@ -65,7 +69,7 @@
             <li><strong><code>list_directory</code>:</strong> Structured folder tree and metadata exploration.</li>
           </ul>
         </li>
-        <li><strong>External Stdio MCP Server Manager:</strong> Spawns and interacts with community MCP servers communicating via standard input/output (stdio JSON-RPC 2.0). For example, it includes out-of-the-box configuration for the official Playwright MCP server (<code>@modelcontextprotocol/server-playwright</code>) for browser navigation and web automation, which can be started or stopped with a single click in the UI.</li>
+        <li><strong>External Stdio MCP Server Manager:</strong> Spawns and interacts with community MCP servers communicating via standard input/output (stdio JSON-RPC 2.0). Each published service declares its own installer and launch command, and can be started or stopped from the interface.</li>
       </ol>
       <div class="code-wrapper">
         <pre><code># Start the local Python server for ZeroChat (port 6388 by default)

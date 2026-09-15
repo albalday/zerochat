@@ -70,32 +70,59 @@ test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones'
   assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
 });
 
-test('ChatUIMcp - generateMcpServerScript genera código Python autónomo para el Servidor Local', () => {
-  const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
-  assert.ok(pyScript.includes('#!/usr/bin/env python3'));
-  assert.ok(!pyScript.includes('FastMCP'));
-  assert.ok(pyScript.includes('list_directory'));
-  assert.ok(pyScript.includes('read_file'));
-  assert.ok(!pyScript.includes('def search_files('));
-  assert.ok(pyScript.includes('edit_file'));
-  assert.ok(pyScript.includes('execute_command'));
-  assert.ok(!pyScript.includes('def browser_navigate('));
-  assert.ok(pyScript.includes('StdioMcpClient'));
-  assert.ok(pyScript.includes('McpProcessManager'));
-  assert.ok(pyScript.includes('ZeroChatLocalServerHandler'));
-  assert.ok(pyScript.includes('ThreadingHTTPServer'));
-  assert.ok(pyScript.includes('DEFAULT_PORT = 6388'));
-  assert.ok(pyScript.includes('default="127.0.0.1"'));
+test('ChatUIMcp - generateMcpServerScript incluye el servidor local autónomo sin el host externo', () => {
+  const previousPayload = globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+  try {
+    globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
+    const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
+    assert.ok(pyScript.includes('#!/usr/bin/env python3'));
+    assert.ok(pyScript.includes("PAYLOAD = \"cHJpbnQoJ2xvY2FsJyk=\""));
+    assert.ok(pyScript.includes('base64.b64decode(PAYLOAD)'));
+    assert.ok(!pyScript.includes('urlopen'));
+    assert.ok(!pyScript.includes('StdioMcpClient'));
+    assert.ok(!pyScript.includes('McpProcessManager'));
+    assert.ok(!pyScript.includes('@mcp/'));
+    assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_PORT', '6388'"));
+    assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_HOST', '127.0.0.1'"));
 
-  const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
-  assert.ok(pyCustom.includes('DEFAULT_PORT = 6399'));
-  assert.ok(pyCustom.includes('default="0.0.0.0"'));
+    const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
+    assert.ok(pyCustom.includes("ZEROCHAT_MCP_DEFAULT_PORT', '6399'"));
+    assert.ok(pyCustom.includes("ZEROCHAT_MCP_DEFAULT_HOST', '0.0.0.0'"));
+  } finally {
+    if (previousPayload === undefined) delete globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+    else globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = previousPayload;
+  }
+});
+
+test('ChatUIMcp - generateMcpServerScript pasa la configuración local al mismo servidor cuando el bundle es dev', () => {
+  const previousChannel = globalThis.__ZEROCHAT_BUILD_CHANNEL__;
+  const previousRoot = globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
+  const previousPayload = globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+  try {
+    globalThis.__ZEROCHAT_BUILD_CHANNEL__ = 'dev';
+    globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = '/home/alberto/vs/zerochat';
+    globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
+    const script = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
+    assert.ok(script.includes('PAYLOAD = "cHJpbnQoJ2xvY2FsJyk="'));
+    assert.ok(script.includes('"buildChannel":"dev"'));
+    assert.ok(script.includes('"externalSource":"local-copy"'));
+    assert.ok(script.includes('"externalSourceRoot":"/home/alberto/vs/zerochat/scripts/mcp"'));
+    assert.ok(script.includes("ZEROCHAT_MCP_INITIALIZATION"));
+    assert.ok(!script.includes('runpy.run_path'));
+  } finally {
+    if (previousChannel === undefined) delete globalThis.__ZEROCHAT_BUILD_CHANNEL__;
+    else globalThis.__ZEROCHAT_BUILD_CHANNEL__ = previousChannel;
+    if (previousRoot === undefined) delete globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
+    else globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = previousRoot;
+    if (previousPayload === undefined) delete globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+    else globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = previousPayload;
+  }
 });
 
 test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
   const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'scripts', 'mcp_server.py'), 'utf8');
   assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
-  assert.match(serverSource, /add_argument\("--port", type=int, default=DEFAULT_PORT/);
+  assert.match(serverSource, /add_argument\("--port", type=int, default=int\(os\.environ\.get\("ZEROCHAT_MCP_DEFAULT_PORT", DEFAULT_PORT\)\)/);
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
@@ -110,6 +137,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
       btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
+      btnMcpStartExternal: { disabled: false },
+      btnMcpStopExternal: { disabled: false },
       serverDetails: { style: {}, innerHTML: '', textContent: '' },
       errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
@@ -131,6 +160,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.disabled, false);
   assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
   assert.equal(elements.btnDisconnect.style.display, 'none');
+  assert.equal(elements.btnMcpStartExternal.disabled, true);
+  assert.equal(elements.btnMcpStopExternal.disabled, true);
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.errorMessage.style.display, 'none');
 
@@ -157,6 +188,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
+  assert.equal(elements.btnMcpStartExternal.disabled, false);
+  assert.equal(elements.btnMcpStopExternal.disabled, false);
   assert.equal(elements.serverDetails.style.display, 'flex');
   assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.textContent.includes('15ms'));
@@ -550,23 +583,23 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 
   const tools = [
     {
-      id: 'mcp__test_tool_1',
-      name: 'mcp__test_tool_1',
+      id: 'mcp_test_tool_1',
+      name: 'mcp_test_tool_1',
       metadata: { mcpServerName: 'srv1', originalName: 'tool1' }
     },
     {
-      id: 'mcp__test_tool_2',
-      name: 'mcp__test_tool_2',
+      id: 'mcp_test_tool_2',
+      name: 'mcp_test_tool_2',
       metadata: { mcpServerName: 'srv1', originalName: 'tool2' }
     }
   ];
 
   // Pre-autorizar tool 2
-  ChatToolSecurity.manager.setToolPolicy('mcp__test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
+  ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
 
   tools.forEach(tool => {
     const sel = {
-      value: tool.id === 'mcp__test_tool_2' ? 'allow' : 'ask',
+      value: tool.id === 'mcp_test_tool_2' ? 'allow' : 'ask',
       className: '',
       getAttribute: (attr) => {
         if (attr === 'data-tool-id') return tool.id;
@@ -589,14 +622,14 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 
   // Cambiar tool 1 a 'allow'
   mockSelects[0].value = 'allow';
-  selectListeners['mcp__test_tool_1_change']();
-  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_1'), 'allow');
+  selectListeners['mcp_test_tool_1_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1'), 'allow');
   assert.ok(mockSelects[0].className.includes('status-allowed'));
 
   // Cambiar tool 2 a 'ask' (revocar)
   mockSelects[1].value = 'ask';
-  selectListeners['mcp__test_tool_2_change']();
-  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_2'), null);
+  selectListeners['mcp_test_tool_2_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2'), null);
   assert.ok(mockSelects[1].className.includes('status-ask'));
 
   // Probar modo global allow_all
@@ -668,12 +701,12 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
 
   // 1. Desconectado
   const container = { innerHTML: '', querySelectorAll: () => [] };
-  ChatUIMcp.renderExternalServers(container, [], false, t);
+  ChatUIMcp.renderExternalServers(container, [], 'stopped', t);
   assert.ok(container.innerHTML.includes('mcp-servers-empty'));
-  assert.ok(container.innerHTML.includes('Inicia el servidor Python'));
+  assert.ok(container.innerHTML.includes('servicios externos están detenidos'));
 
   // 2. Conectado pero sin servidores
-  ChatUIMcp.renderExternalServers(container, [], true, t);
+  ChatUIMcp.renderExternalServers(container, [], 'running', t);
   assert.ok(container.innerHTML.includes('No hay servidores MCP externos'));
 
   // 3. Con servidores (uno stopped, uno running)
@@ -689,18 +722,18 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
 
   const servers = [
     {
-      id: 'playwright',
-      name: 'Playwright Browser',
-      description: 'Navegación web',
+      id: 'test_service',
+      name: 'Test Service',
+      description: 'Test tools',
       status: 'stopped',
-      tool_count: 0
+      toolCount: 0
     },
     {
       id: 'custom_srv',
       name: 'Custom Server',
       description: 'Herramientas custom',
       status: 'running',
-      tool_count: 3
+      toolCount: 3
     }
   ];
 
@@ -719,9 +752,9 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
     buttons.push(btn);
   });
 
-  ChatUIMcp.renderExternalServers(containerWithServers, servers, true, t);
+  ChatUIMcp.renderExternalServers(containerWithServers, servers, 'running', t);
 
-  assert.ok(containerWithServers.innerHTML.includes('Playwright Browser'));
+  assert.ok(containerWithServers.innerHTML.includes('Test Service'));
   assert.ok(containerWithServers.innerHTML.includes('Custom Server'));
   assert.ok(containerWithServers.innerHTML.includes('status-stopped'));
   assert.ok(containerWithServers.innerHTML.includes('status-running'));
@@ -741,12 +774,12 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
     ChatMCP.manager.fetchExternalServers = async () => ({
       success: true,
       servers: [
-        { id: 'playwright', name: 'Playwright Browser', status: 'running', tool_count: 5 }
+        { id: 'test_service', name: 'Test Service', status: 'running', tool_count: 5 }
       ]
     });
 
-    await clickListeners['playwright_click']();
-    assert.equal(startCalled, 'playwright');
+    await clickListeners['test_service_click']();
+    assert.equal(startCalled, 'test_service');
   } finally {
     ChatMCP.manager.startExternalServer = originalStart;
     ChatMCP.manager.fetchExternalServers = originalFetchServers;

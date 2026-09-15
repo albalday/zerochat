@@ -20,6 +20,8 @@
     return 'dev';
   };
   const APP_VERSION = (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_VERSION__) || extractVersionFromTitle();
+  const APP_BUILD_CHANNEL = typeof globalThis !== 'undefined' ? globalThis.__ZEROCHAT_BUILD_CHANNEL__ : null;
+  const APP_TITLE = `ZeroChat v${APP_VERSION}${APP_BUILD_CHANNEL === 'dev' ? ' · DEV' : ''}`;
 
   const TRANSLATIONS = {
     es: {
@@ -36,7 +38,7 @@
       notice_import_error: 'Error al restaurar: {err}',
 
       // Metadatos y Encabezados
-      app_title: `ZeroChat v${APP_VERSION}`,
+      app_title: APP_TITLE,
       
       // Estado de Bienvenida inicial
       welcome_heading: 'ZeroChat',
@@ -342,7 +344,7 @@
       tab_appearance: 'Visualización',
       tab_inspector: 'Inspector',
       tab_mcp: 'MCP',
-      mcp_connection_title: 'Servidor Local (MCP)',
+      mcp_connection_title: 'Servidor Local (ZMCP)',
       mcp_connection_desc: 'Servidor local privado para conectar ZeroChat con herramientas del sistema (archivos, terminal, git y automatización) vía protocolo estandarizado.',
       mcp_status_disconnected: 'Desconectado',
       mcp_status_connecting: 'Conectando...',
@@ -416,7 +418,17 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_security_select_title: 'Cambiar política de ejecución para esta herramienta',
       mcp_security_constrained: 'Acotada',
       mcp_servers_section_title: 'Servidores MCP Externos',
-      mcp_servers_desc: 'Servidores stdio gestionados por el servidor local (ej. Playwright para navegación web).',
+      mcp_servers_desc: 'Servidores stdio gestionados por el servidor local.',
+      mcp_external_start: 'Arrancar servicios MCP externos',
+      mcp_external_stop: 'Detener servicios externos',
+      mcp_external_stopped: 'Los servicios externos están detenidos. Arráncalos para descargar el catálogo y ver los servidores disponibles.',
+      mcp_external_status_available: 'Disponible',
+      mcp_external_status_installing: 'Instalando',
+      mcp_external_status_starting: 'Iniciando',
+      mcp_external_status_running: 'En ejecución',
+      mcp_external_status_stopped: 'Detenido',
+      mcp_external_status_needs_attention: 'Requiere atención',
+      mcp_external_status_error: 'Error',
       mcp_btn_start_server: 'Iniciar',
       mcp_btn_stop_server: 'Detener',
       mcp_server_status_running: 'En ejecución',
@@ -679,7 +691,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       notice_import_error: 'Could not restore: {err}',
 
       // Metadata & Headers
-      app_title: `ZeroChat v${APP_VERSION}`,
+      app_title: APP_TITLE,
       
       // Welcome state
       welcome_heading: 'ZeroChat',
@@ -985,7 +997,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       tab_appearance: 'Appearance',
       tab_inspector: 'Inspector',
       tab_mcp: 'MCP',
-      mcp_connection_title: 'Local Server (MCP)',
+      mcp_connection_title: 'Local Server (ZMCP)',
       mcp_connection_desc: 'Private local server to connect ZeroChat with system tools (files, terminal, git, and automation) via standardized protocol.',
       mcp_status_disconnected: 'Disconnected',
       mcp_status_connecting: 'Connecting...',
@@ -1059,7 +1071,17 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_security_select_title: 'Change execution policy for this tool',
       mcp_security_constrained: 'Restricted',
       mcp_servers_section_title: 'External MCP Servers',
-      mcp_servers_desc: 'Stdio servers managed by the local server host (e.g. Playwright for web browsing).',
+      mcp_servers_desc: 'Stdio servers managed by the local server host.',
+      mcp_external_start: 'Start external MCP services',
+      mcp_external_stop: 'Stop external services',
+      mcp_external_stopped: 'External services are stopped. Start them to download the catalog and view available servers.',
+      mcp_external_status_available: 'Available',
+      mcp_external_status_installing: 'Installing',
+      mcp_external_status_starting: 'Starting',
+      mcp_external_status_running: 'Running',
+      mcp_external_status_stopped: 'Stopped',
+      mcp_external_status_needs_attention: 'Needs attention',
+      mcp_external_status_error: 'Error',
       mcp_btn_start_server: 'Start',
       mcp_btn_stop_server: 'Stop',
       mcp_server_status_running: 'Running',

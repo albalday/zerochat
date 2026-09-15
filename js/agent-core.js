@@ -349,6 +349,8 @@
       const canonicalName = tool.name.trim().toLowerCase();
       this.tools.set(canonicalName, tool);
 
+      if (tool.category === 'mcp') return tool;
+
       // Mapear nombre canónico normalizado sin guiones bajos
       this.aliasMap.set(canonicalName.replace(/_/g, ''), canonicalName);
 
@@ -373,7 +375,7 @@
         return this.tools.get(clean);
       }
       const canonical = this.aliasMap.get(clean) || this.aliasMap.get(clean.replace(/_/g, ''));
-      if (canonical && this.tools.has(canonical)) {
+      if (canonical && this.tools.has(canonical) && this.tools.get(canonical).category !== 'mcp') {
         return this.tools.get(canonical);
       }
       return null;

@@ -145,7 +145,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   // Registrar herramienta MCP ficticia cumpliendo el contrato declarativo
   const fakeMcpTool = new AgentCore.Tool({
     definition: {
-      name: 'mcp__test_srv__run_cmd',
+      name: 'mcp_testz5fzsrv_run_cmd',
       description: '[MCP: test-srv] Ejecuta comando',
       parameters: {
         type: 'object',
@@ -167,19 +167,19 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     id: 'call_mcp_test_1',
     type: 'function',
     function: {
-      name: 'mcp__test_srv__run_cmd',
+      name: 'mcp_testz5fzsrv_run_cmd',
       arguments: JSON.stringify({ cmd: 'echo hello' })
     }
   };
 
   // 1. Caso Deny directo por política
-  ChatToolSecurity.manager.setToolPolicy('mcp__test_srv__run_cmd', 'deny');
+  ChatToolSecurity.manager.setToolPolicy('mcp_testz5fzsrv_run_cmd', 'deny');
   const resDeny = await AgentCore.dispatchToolCall(toolCall);
   assert.equal(resDeny.success, false);
   assert.ok(resDeny.error.includes('bloqueada'));
 
   // 2. Caso Ask con Denegación interactiva del usuario
-  ChatToolSecurity.manager.setToolPolicy('mcp__test_srv__run_cmd', 'ask');
+  ChatToolSecurity.manager.setToolPolicy('mcp_testz5fzsrv_run_cmd', 'ask');
   
   // Mock de ToolCards.promptToolAuthorization
   const origPrompt = ChatToolCards.promptToolAuthorization;
@@ -204,7 +204,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     assert.equal(resAllowAlways.success, true);
     assert.ok(resAllowAlways.resultText.includes('executed: echo hello'));
     // Verificar que se persistió 'allow'
-    assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_srv__run_cmd'), 'allow');
+    assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_testz5fzsrv_run_cmd'), 'allow');
   } finally {
     ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();
@@ -224,7 +224,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     });
     assert.equal(resFirst.success, true);
     // Verificar que las restricciones se persistieron
-    const savedConstraints = ChatToolSecurity.manager.getToolConstraints('mcp__test_srv__run_cmd');
+    const savedConstraints = ChatToolSecurity.manager.getToolConstraints('mcp_testz5fzsrv_run_cmd');
     assert.ok(savedConstraints);
     assert.deepEqual(savedConstraints.command.allowedPrefixes, ['echo ']);
 
@@ -239,7 +239,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       id: 'call_mcp_test_2',
       type: 'function',
       function: {
-        name: 'mcp__test_srv__run_cmd',
+        name: 'mcp_testz5fzsrv_run_cmd',
         arguments: JSON.stringify({ cmd: 'echo second' })
       }
     };
@@ -255,7 +255,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       id: 'call_mcp_test_3',
       type: 'function',
       function: {
-        name: 'mcp__test_srv__run_cmd',
+        name: 'mcp_testz5fzsrv_run_cmd',
         arguments: JSON.stringify({ cmd: 'cat secret.txt' })
       }
     };

@@ -68,8 +68,8 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
     assert.equal(tools.length, 1);
     const weatherTool = tools[0];
     assert.equal(weatherTool.category, 'mcp');
-    assert.ok(weatherTool.name.includes('weather_server__get_weather_forecast'));
-    assert.ok(weatherTool.aliases.includes('get_weather_forecast'));
+    assert.ok(weatherTool.name.includes('weatherz5fzserver_get_weather_forecast'));
+    assert.deepEqual(weatherTool.aliases, []);
     assert.equal(weatherTool.metadata.mcpServerName, 'Weather MCP Server');
     assert.equal(weatherTool.metadata.originalName, 'get_weather_forecast');
     assert.ok(weatherTool.parameters.required.includes('city'));
@@ -78,9 +78,9 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
     const registry = new AgentCore.ToolRegistry();
     registry.registerProvider(provider);
 
-    // Debe resolver por alias o por nombre con namespace
-    assert.ok(registry.hasTool('get_weather_forecast'));
-    assert.ok(registry.hasTool('mcp__weather_server__get_weather_forecast'));
+    // Solo debe resolver por el nombre público completo.
+    assert.equal(registry.hasTool('get_weather_forecast'), false);
+    assert.ok(registry.hasTool('mcp_weatherz5fzserver_get_weather_forecast'));
 
     const defs = registry.getDefinitions();
     const weatherDef = defs.find(d => d.function.name.includes('get_weather_forecast'));
@@ -353,7 +353,7 @@ test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async (
     const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
     assert.equal(connResult.success, true);
 
-    const discResult = manager.disconnectProxy();
+    const discResult = await manager.disconnectProxy();
     assert.equal(discResult.success, true);
   } finally {
     global.fetch = originalFetch;
@@ -551,7 +551,7 @@ test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permane
     assert.equal(resActive.tools[0].titleFallback, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
-    MCP.manager.disconnectProxy();
+    await MCP.manager.disconnectProxy();
   }
 });
 
@@ -589,9 +589,100 @@ test('MCP - connectProxy soporta silentOnFailure para arranque y fallo explícit
     assert.ok(stateManual.error);
   } finally {
     global.fetch = originalFetch;
-    manager.disconnectProxy();
+    await manager.disconnectProxy();
   }
 });
 
+test('MCP - host Python, proveedor, registro y permisos aíslan herramientas homónimas', async () => {
+  const { execFileSync } = require('node:child_process');
+  const path = require('node:path');
+  const Security = require('../../js/tool-security.js');
+  const hostScript = `
+import json, sys
+from scripts.mcp.runtime.zerochat_mcp_host import ExternalHost
+class Client:
+    def __init__(self, server, names):
+        self.server = server
+        self.tools = [{"name": name} for name in names]
+    def running(self): return True
+    def request(self, method, params):
+        return {"server": self.server, "method": method, **params}
+payload = json.load(sys.stdin)
+host = ExternalHost.__new__(ExternalHost)
+host.clients = {server: Client(server, names) for server, names in payload["servers"].items()}
+if "call" in payload:
+    print(json.dumps(host.call(payload["call"], payload.get("args", {}))))
+else:
+    print(json.dumps(host.tools()))
+`;
+  const servers = {
+    browser_service: ['browser_navigate', 'read_file'],
+    second: ['browser_navigate', 'read_file'],
+    'a-b': ['read_file'], a_b: ['read_file'],
+    a: ['b_read_file'], A: ['read_file'], az: ['read_file'],
+    edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ']
+  };
+  const host = extra => JSON.parse(execFileSync('python3', ['-c', hostScript], {
+    cwd: path.resolve(__dirname, '../..'), input: JSON.stringify({ servers, ...extra }), encoding: 'utf8', stdio: 'pipe', timeout: 5000
+  }));
+  const rawTools = host({});
+  const provider = new MCP.McpToolProvider({
+    id: 'mcp_external', name: 'External host', initialize: async () => {},
+    listTools: async () => rawTools,
+    callTool: async (name, args) => host({ call: name, args })
+  });
+  const tools = await provider.discoverTools();
+  assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
+  assert.equal(tools[0].name, 'mcp_browserz5fzservice_browser_navigate');
+  const registry = new AgentCore.ToolRegistry();
+  registry.registerProvider(provider);
+  for (const tool of tools) {
+    const direct = new MCP.McpToolProvider({
+      id: tool.metadata.mcpServerId, initialize: async () => {},
+      listTools: async () => [{ name: tool.metadata.originalName }]
+    });
+    assert.equal((await direct.discoverTools())[0].name, tool.name);
+    const result = await registry.getTool(tool.name).execute({ value: 42 });
+    assert.equal(result.server, tool.metadata.mcpServerId);
+    assert.equal(result.name, tool.metadata.originalName);
+    assert.deepEqual(result.arguments, { value: 42 });
+  }
+  assert.equal(registry.getTool('read_file'), null);
+  assert.equal(registry.getTool('mcpbrowserservicebrowsernavigate'), null);
+  assert.equal(registry.getTool('mcp__browser_service__browser_navigate'), null);
 
+  const previousStorage = global.localStorage;
+  const saved = new Map();
+  global.localStorage = { getItem: k => saved.get(k) || null, setItem: (k, v) => saved.set(k, v) };
+  try {
+    const first = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
+    first.setToolPolicy(tools[0].id, 'allow', { originalName: 'browser_navigate' });
+    const restored = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
+    assert.equal(restored.evaluateAuthorization(tools[0], {}).status, 'allow');
+    assert.equal(restored.evaluateAuthorization(tools[2], {}).requiresApproval, true);
+    assert.equal(restored.getToolPolicy('browser_navigate'), null);
+    assert.equal(restored.evaluateAuthorization('zmcp_read_file', {}).requiresApproval, true);
+  } finally {
+    if (previousStorage === undefined) delete global.localStorage;
+    else global.localStorage = previousStorage;
+  }
+  for (const call of ['mcp__browser_service__browser_navigate', 'mcp_browser_service_missing', 'browser_navigate']) {
+    assert.throws(() => host({ call }), /Unknown external MCP tool/);
+  }
+  for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
+    assert.throws(() => host({ servers: { test: names } }), /Invalid MCP|exceeds|Duplicate/);
+  }
+  rawTools[0] = { ...rawTools[0], name: 'mcp_wrong_browser_navigate' };
+  await assert.rejects(provider.discoverTools(), /Invalid external MCP public name/);
+});
 
+test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitamente', async () => {
+  for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
+      listTools: async () => names.map(name => ({ name })) });
+    await assert.rejects(provider.discoverTools(), /Invalid MCP|exceeds|Duplicate/);
+  }
+  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
+    listTools: async () => [{ name: 'read_file' }] });
+  assert.equal((await provider.discoverTools())[0].name, 'zmcp_read_file');
+});
