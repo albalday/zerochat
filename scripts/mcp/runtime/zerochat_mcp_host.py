@@ -21,6 +21,19 @@ from pathlib import Path
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
 
+def public_tool_name(server_id, original):
+    """Same injective, lowercase wire encoding as js/mcp.js publicToolName."""
+    def encode(value, tool=False):
+        if not isinstance(value, str) or not value or len(value) > 256:
+            raise ValueError("Invalid MCP name component")
+        return "".join(ch if ("a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"))
+                       else f"z{ord(ch):x}z" for ch in value)
+    name = f"mcp_{encode(server_id)}_{encode(original, True)}"
+    if len(name) > 64:
+        raise ValueError("MCP public name exceeds 64 characters")
+    return name
+
+
 class StdioClient:
     def __init__(self, command, args, cwd, env):
         self.command, self.args, self.cwd, self.env = command, list(args), cwd, env
@@ -196,41 +209,36 @@ class ExternalHost:
 
     def _prepare_service(self, server_id, server):
         service_dir = self.home / "services" / server_id / "current"
-        browsers_dir = self.home / "browsers" / server_id / "current"
         service_dir.mkdir(parents=True, exist_ok=True)
-        browsers_dir.mkdir(parents=True, exist_ok=True)
         marker = service_dir / "installation.json"
         if not marker.exists():
             self.states[server_id] = "installing"
             installer = self._load_json(server["_directory"] / "installer.json")
-            product = installer.get("product", {})
-            package = product.get("package")
-            version = product.get("version")
-            browser = installer.get("browser")
-            if not isinstance(package, str) or not isinstance(version, str):
-                raise RuntimeError("Service installer must define an exact package version")
-            node = shutil.which("node")
-            npm = shutil.which("npm")
-            if not node or not npm:
-                raise RuntimeError("Node.js 18 or newer and npm are required to install this MCP service")
-            manifest = service_dir / "package.json"
-            manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
-            env = os.environ.copy()
-            env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
-            subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, env=env, check=True, timeout=600)
-            if browser:
-                cli = service_dir / "node_modules" / "playwright" / "cli.js"
-                if not cli.is_file():
-                    raise RuntimeError("The service browser installer was not installed")
-                subprocess.run([node, str(cli), "install", str(browser)], cwd=service_dir, env=env, check=True, timeout=900)
-            marker.write_text(json.dumps({"nodeExecutable": node, "package": package, "version": version}), encoding="utf-8")
-        installation = json.loads(marker.read_text(encoding="utf-8"))
-        node = installation.get("nodeExecutable") if isinstance(installation, dict) else None
-        if not isinstance(node, str) or not Path(node).is_file():
-            node = shutil.which("node")
-        if not node:
-            raise RuntimeError("Node.js is no longer available for Playwright MCP")
-        return {"serviceDir": service_dir, "browsersDir": browsers_dir, "nodeExecutable": node}
+            kind = installer.get("type", "npm")
+            installation = {"type": kind}
+            if kind == "npm":
+                product = installer.get("product", {})
+                package = product.get("package")
+                version = product.get("version")
+                if not isinstance(package, str) or not isinstance(version, str):
+                    raise RuntimeError("Npm installer must define an exact package version")
+                node, npm = shutil.which("node"), shutil.which("npm")
+                if not node or not npm:
+                    raise RuntimeError("Node.js 18 or newer and npm are required to install this MCP service")
+                manifest = service_dir / "package.json"
+                manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
+                subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, check=True, timeout=600)
+                installation.update({"nodeExecutable": node, "package": package, "version": version})
+            elif kind != "none":
+                raise RuntimeError("Unsupported MCP service installer")
+            marker.write_text(json.dumps(installation), encoding="utf-8")
+        node = shutil.which("node")
+        return {
+            "serviceDir": service_dir,
+            "serviceSourceDir": server["_directory"],
+            "nodeExecutable": node or "",
+            "pythonExecutable": sys.executable
+        }
 
     def start(self, server_id):
         server = self._service(server_id)
@@ -270,19 +278,21 @@ class ExternalHost:
                 for tool in client.tools:
                     copy = dict(tool)
                     original = copy.get("name", "")
-                    copy["name"] = f"mcp__{server_id}__{original}"
+                    copy["name"] = public_tool_name(server_id, original)
+                    if any(item["name"] == copy["name"] for item in tools):
+                        raise ValueError("Duplicate MCP public name")
                     copy["metadata"] = {"mcpServerId": server_id, "originalName": original}
                     tools.append(copy)
         return tools
 
     def call(self, name, arguments):
-        if not isinstance(name, str) or not name.startswith("mcp__"):
-            raise KeyError("Unknown external MCP tool")
-        _, server_id, original = name.split("__", 2)
-        client = self.clients.get(server_id)
-        if not client or not client.running():
-            raise RuntimeError("External MCP server is not running")
-        return client.request("tools/call", {"name": original, "arguments": arguments or {}})
+        # Resolve only advertised names; never infer a target by splitting input.
+        for tool in self.tools():
+            if tool["name"] == name:
+                metadata = tool["metadata"]
+                client = self.clients[metadata["mcpServerId"]]
+                return client.request("tools/call", {"name": metadata["originalName"], "arguments": arguments or {}})
+        raise KeyError("Unknown external MCP tool")
 
     def close(self):
         for client in list(self.clients.values()):

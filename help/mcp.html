@@ -25,6 +25,10 @@
     </header>
 
     <div class="card">
+      <p>Las herramientas locales usan <code>zmcp_&lt;herramienta&gt;</code> y las externas <code>mcp_&lt;servicio&gt;_&lt;herramienta&gt;</code>, por ejemplo <code>mcp_browser_service_browser_navigate</code>. Los permisos se guardan por este nombre completo: autorizar una herramienta no autoriza su homónima en otro servicio. No se admiten alias antiguos. Los caracteres especiales se codifican para evitar colisiones.</p>
+    </div>
+
+    <div class="card">
       <h2>1. ¿Qué es MCP?</h2>
       <p>
         El <strong>Model Context Protocol (MCP)</strong> es un estándar abierto promovido por Anthropic para conectar modelos de inteligencia artificial con fuentes de datos y herramientas del mundo real de manera uniforme.
@@ -65,7 +69,7 @@
             <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos de archivos.</li>
           </ul>
         </li>
-        <li><strong>Gestor de Servidores MCP Externos (stdio):</strong> Permite arrancar y consumir servidores MCP de la comunidad que se comunican por entrada/salida estándar (stdio JSON-RPC 2.0). Por ejemplo, incluye configuración lista para usar con el servidor oficial de Playwright (<code>@modelcontextprotocol/server-playwright</code>) para navegación e interacción web automatizada, pudiendo iniciarse o detenerse con un solo clic desde la interfaz.</li>
+        <li><strong>Gestor de Servidores MCP Externos (stdio):</strong> Permite arrancar y consumir servidores MCP de la comunidad que se comunican por entrada/salida estándar (stdio JSON-RPC 2.0). Cada servicio publicado declara su propio instalador y comando de arranque, y puede iniciarse o detenerse desde la interfaz.</li>
       </ol>
       <div class="code-wrapper">
         <pre><code># Arrancar el servidor local en Python para ZeroChat (puerto 6388 por defecto)

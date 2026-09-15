@@ -379,8 +379,7 @@
     }
 
     /**
-     * Resuelve la regla de autorización asociada a una herramienta, admitiendo
-     * coincidencia por ID canónico, alias, nombre original o nombres namespaced.
+     * Resuelve la regla de autorización exclusivamente por ID canónico.
      * @param {string} toolIdOrName 
      * @param {object|null} [tool=null] 
      * @returns {{ toolId: string, entry: object }|null}
@@ -388,43 +387,9 @@
     findToolEntry(toolIdOrName, tool = null) {
       if (!toolIdOrName && !tool) return null;
 
-      const candidates = [];
-      if (typeof toolIdOrName === 'string' && toolIdOrName.trim()) {
-        candidates.push(toolIdOrName.trim());
-      }
-      if (tool && typeof tool === 'object') {
-        if (tool.id && !candidates.includes(tool.id)) candidates.push(tool.id);
-        if (tool.name && !candidates.includes(tool.name)) candidates.push(tool.name);
-        const orig = tool.metadata?.originalName;
-        if (orig && !candidates.includes(orig)) candidates.push(orig);
-        if (Array.isArray(tool.aliases)) {
-          for (const a of tool.aliases) {
-            if (a && !candidates.includes(a)) candidates.push(a);
-          }
-        }
-      }
-
-      // 1. Comprobación directa por candidatos exactos
-      for (const id of candidates) {
-        if (this.tools.has(id)) {
-          return { toolId: id, entry: this.tools.get(id) };
-        }
-      }
-
-      // 2. Comprobación cruzada contra las entradas existentes
-      for (const [savedId, entry] of this.tools.entries()) {
-        const savedOrig = entry.originalName || savedId;
-        for (const cand of candidates) {
-          if (cand === savedOrig) {
-            return { toolId: savedId, entry };
-          }
-          if (savedId.endsWith('__' + cand) || savedId.endsWith('_' + cand)) {
-            return { toolId: savedId, entry };
-          }
-          if (cand.endsWith('__' + savedOrig) || cand.endsWith('_' + savedOrig)) {
-            return { toolId: savedId, entry };
-          }
-        }
+      const id = tool ? (tool.id || tool.name) : toolIdOrName;
+      if (typeof id === 'string' && this.tools.has(id)) {
+        return { toolId: id, entry: this.tools.get(id) };
       }
 
       return null;
@@ -565,8 +530,8 @@
       }
 
       const toolId = (tool && (tool.id || tool.name)) || toolName;
-      const category = tool?.category || (toolName.startsWith('mcp_') || toolName.startsWith('mcp__') ? 'mcp' : 'other');
-      const isMcp = category === 'mcp' || toolName.startsWith('mcp_') || toolName.startsWith('mcp__');
+      const category = tool?.category || (/^(?:zmcp|mcp)_/.test(toolName) ? 'mcp' : 'other');
+      const isMcp = category === 'mcp' || /^(?:zmcp|mcp)_/.test(toolName);
 
       const serverName = tool?.metadata?.mcpServerName || '';
       const originalName = tool?.metadata?.originalName || toolName;

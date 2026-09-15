@@ -8,7 +8,7 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
   const registry = new ToolRegistry();
   let executions = 0;
   registry.registerTool(new Tool({
-    name: 'mcp__test__sensitive_action',
+    name: 'mcp_test_sensitive_action',
     category: 'mcp',
     execute: async () => {
       executions++;
@@ -17,7 +17,7 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
   }));
 
   const result = await new AgentRuntime({ registry }).executeToolWithRetries({
-    function: { name: 'mcp__test__sensitive_action', arguments: '{}' }
+    function: { name: 'mcp_test_sensitive_action', arguments: '{}' }
   });
 
   assert.equal(result.success, false);
@@ -29,12 +29,12 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   const security = require('../../js/tool-security.js');
   const registry = new ToolRegistry();
   const controller = new AbortController();
-  registry.registerTool(new Tool({ name: 'mcp__test__cancelled', category: 'mcp', execute: async () => assert.fail('Cancelled tool executed') }));
+  registry.registerTool(new Tool({ name: 'mcp_test_cancelled', category: 'mcp', execute: async () => assert.fail('Cancelled tool executed') }));
   const previous = security.manager.setToolPolicy;
   let saved = false;
   security.manager.setToolPolicy = () => { saved = true; };
   try {
-    const result = await new ToolExecutor(registry).executeToolCall({ function: { name: 'mcp__test__cancelled', arguments: '{}' } }, {
+    const result = await new ToolExecutor(registry).executeToolCall({ function: { name: 'mcp_test_cancelled', arguments: '{}' } }, {
       signal: controller.signal,
       requestToolAuthorization: async () => { controller.abort(); return 'allow_always'; }
     });

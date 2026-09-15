@@ -30,6 +30,22 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  // Shared wire contract with zerochat_mcp_host.py: escape z and non-lowercase
+  // characters as z<hex code point>z; only tool components retain underscores.
+  function publicToolName(serverId, originalName) {
+    const encode = (value, tool = false) => {
+      if (typeof value !== 'string' || !value || value.length > 256) {
+        throw new Error('Invalid MCP name component');
+      }
+      return Array.from(value, ch => /^[a-y0-9]$/.test(ch) || (tool && ch === '_')
+        ? ch : `z${ch.codePointAt(0).toString(16)}z`).join('');
+    };
+    const name = serverId === null ? `zmcp_${encode(originalName, true)}`
+      : `mcp_${encode(serverId)}_${encode(originalName, true)}`;
+    if (name.length > 64) throw new Error('MCP public name exceeds 64 characters');
+    return name;
+  }
+
   const DEFAULT_TIMEOUT_MS = 15000;
   const MAX_OUTPUT_LENGTH = 60000;
 
@@ -680,22 +696,19 @@
       const toolInstances = [];
 
       for (const rt of rawTools) {
-        if (!rt.name) continue;
-
-        const safeServerId = this.client.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
-        const namespace = this.client.id === 'mcp_external' ? 'mcp'
-          : (this.client.id === 'mcp_proxy' ? 'zmcp' : `mcp__${safeServerId}`);
-        const namespacedName = this.client.id === 'mcp_external' || this.client.id === 'mcp_proxy'
-          ? `${namespace}_${rt.name}`
-          : `${namespace}__${rt.name}`;
-        const toolName = rt.name;
+        const external = this.client.id === 'mcp_external';
+        const sourceServer = external ? rt.metadata?.mcpServerId : this.client.id;
+        const toolName = external ? rt.metadata?.originalName : rt.name;
+        const namespacedName = publicToolName(this.client.id === 'mcp_proxy' ? null : sourceServer, toolName);
+        if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
+        if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
         const tool = new AgentCore.Tool({
           id: namespacedName,
           name: namespacedName,
           description: rt.description ? `[MCP: ${this.serverName}] ${rt.description}` : `[MCP: ${this.serverName}] Herramienta ${toolName}`,
           parameters: rt.inputSchema || { type: 'object', properties: {} },
-          aliases: [toolName, `mcp_${toolName}`, `${safeServerId}_${toolName}`],
+          aliases: [],
           category: 'mcp',
           isAvailable: () => {
             if (this.client.id === 'mcp_proxy') {
@@ -717,8 +730,8 @@
             label: toolName,
             mcpServerName: this.serverName,
             mcpServerUrl: this.serverUrl,
-            originalName: rt.name,
-            mcpServerId: this.client.id,
+            originalName: toolName,
+            mcpServerId: sourceServer,
             description: rt.description || ''
           },
           execute: async (args, context = {}) => {

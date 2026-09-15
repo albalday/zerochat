@@ -95,9 +95,9 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     assert.equal(tools.length, 3);
 
     // Comprobar metadatos, alias e iconos
-    const listDirTool = tools.find(t => t.aliases.includes('list_directory'));
-    const readFileTool = tools.find(t => t.aliases.includes('read_file'));
-    const execCmdTool = tools.find(t => t.aliases.includes('execute_command'));
+    const listDirTool = tools.find(t => t.metadata.originalName === 'list_directory');
+    const readFileTool = tools.find(t => t.metadata.originalName === 'read_file');
+    const execCmdTool = tools.find(t => t.metadata.originalName === 'execute_command');
 
     assert.ok(listDirTool);
     assert.ok(readFileTool);
@@ -282,8 +282,8 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
 
     assert.equal(tools.length, 2);
 
-    const sqlTool = tools.find(t => t.aliases.includes('execute_sql_query'));
-    const vecTool = tools.find(t => t.aliases.includes('search_vector_embedding'));
+    const sqlTool = tools.find(t => t.metadata.originalName === 'execute_sql_query');
+    const vecTool = tools.find(t => t.metadata.originalName === 'search_vector_embedding');
 
     assert.ok(sqlTool);
     assert.ok(vecTool);
@@ -339,7 +339,7 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
                 { name: 'search_files', description: 'Busca por nombre y contenido', inputSchema: { type: 'object' } },
                 { name: 'edit_file', description: 'Edición atómica de archivos', inputSchema: { type: 'object', required: ['path', 'content'] } },
                 { name: 'execute_command', description: 'Terminal con SO detectado: Linux x86_64', inputSchema: { type: 'object', required: ['command'] } },
-                { name: 'browser_navigate', description: 'Navegación Playwright', inputSchema: { type: 'object', required: ['url'] } }
+                { name: 'browser_navigate', description: 'Navegación de prueba', inputSchema: { type: 'object', required: ['url'] } }
               ]
             }
           })
@@ -383,10 +383,10 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
 
     assert.equal(tools.length, 6);
 
-    const searchTool = tools.find(t => t.aliases.includes('search_files'));
-    const editTool = tools.find(t => t.aliases.includes('edit_file'));
-    const browserTool = tools.find(t => t.aliases.includes('browser_navigate'));
-    const execTool = tools.find(t => t.aliases.includes('execute_command'));
+    const searchTool = tools.find(t => t.metadata.originalName === 'search_files');
+    const editTool = tools.find(t => t.metadata.originalName === 'edit_file');
+    const browserTool = tools.find(t => t.metadata.originalName === 'browser_navigate');
+    const execTool = tools.find(t => t.metadata.originalName === 'execute_command');
 
     assert.ok(searchTool, 'search_files debe estar registrada');
     assert.ok(editTool, 'edit_file debe estar registrada');
@@ -402,5 +402,4 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
     global.fetch = originalFetch;
   }
 });
-
 

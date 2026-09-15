@@ -3,6 +3,7 @@
 Estas normas definen el nivel mínimo de calidad para cualquier cambio en ZeroChat.
 Se aplican tanto al desarrollo humano como a los agentes de generación de código.
 
+
 ## 1. Fuente de verdad
 
 El código fuente se mantiene en:
@@ -155,6 +156,8 @@ La validación automática mínima para un pase a `master` debe incluir:
 
 Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
 `master` debe ser únicamente el estado validado y liberado, no una rama de trabajo.
+
+Si el usuario lo ha pedido expresamente se podrá no ejecutar los test de pase a produccion. pidiendo confirmacion y dejando el motivo en el commit y push. no s epodrán hacer excepciones en numeros seguidos de version. en medio ha de haber una sin excepciones
 
 ### Excepción para documentación en `/help`
 

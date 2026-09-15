@@ -81,7 +81,7 @@ test('ChatUIMcp - generateMcpServerScript incluye el servidor local autónomo si
     assert.ok(!pyScript.includes('urlopen'));
     assert.ok(!pyScript.includes('StdioMcpClient'));
     assert.ok(!pyScript.includes('McpProcessManager'));
-    assert.ok(!pyScript.includes('@playwright/mcp'));
+    assert.ok(!pyScript.includes('@mcp/'));
     assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_PORT', '6388'"));
     assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_HOST', '127.0.0.1'"));
 
@@ -583,23 +583,23 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 
   const tools = [
     {
-      id: 'mcp__test_tool_1',
-      name: 'mcp__test_tool_1',
+      id: 'mcp_test_tool_1',
+      name: 'mcp_test_tool_1',
       metadata: { mcpServerName: 'srv1', originalName: 'tool1' }
     },
     {
-      id: 'mcp__test_tool_2',
-      name: 'mcp__test_tool_2',
+      id: 'mcp_test_tool_2',
+      name: 'mcp_test_tool_2',
       metadata: { mcpServerName: 'srv1', originalName: 'tool2' }
     }
   ];
 
   // Pre-autorizar tool 2
-  ChatToolSecurity.manager.setToolPolicy('mcp__test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
+  ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
 
   tools.forEach(tool => {
     const sel = {
-      value: tool.id === 'mcp__test_tool_2' ? 'allow' : 'ask',
+      value: tool.id === 'mcp_test_tool_2' ? 'allow' : 'ask',
       className: '',
       getAttribute: (attr) => {
         if (attr === 'data-tool-id') return tool.id;
@@ -622,14 +622,14 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 
   // Cambiar tool 1 a 'allow'
   mockSelects[0].value = 'allow';
-  selectListeners['mcp__test_tool_1_change']();
-  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_1'), 'allow');
+  selectListeners['mcp_test_tool_1_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1'), 'allow');
   assert.ok(mockSelects[0].className.includes('status-allowed'));
 
   // Cambiar tool 2 a 'ask' (revocar)
   mockSelects[1].value = 'ask';
-  selectListeners['mcp__test_tool_2_change']();
-  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp__test_tool_2'), null);
+  selectListeners['mcp_test_tool_2_change']();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2'), null);
   assert.ok(mockSelects[1].className.includes('status-ask'));
 
   // Probar modo global allow_all
@@ -722,9 +722,9 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
 
   const servers = [
     {
-      id: 'playwright',
-      name: 'Playwright Browser',
-      description: 'Navegación web',
+      id: 'test_service',
+      name: 'Test Service',
+      description: 'Test tools',
       status: 'stopped',
       toolCount: 0
     },
@@ -754,7 +754,7 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
 
   ChatUIMcp.renderExternalServers(containerWithServers, servers, 'running', t);
 
-  assert.ok(containerWithServers.innerHTML.includes('Playwright Browser'));
+  assert.ok(containerWithServers.innerHTML.includes('Test Service'));
   assert.ok(containerWithServers.innerHTML.includes('Custom Server'));
   assert.ok(containerWithServers.innerHTML.includes('status-stopped'));
   assert.ok(containerWithServers.innerHTML.includes('status-running'));
@@ -774,12 +774,12 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
     ChatMCP.manager.fetchExternalServers = async () => ({
       success: true,
       servers: [
-        { id: 'playwright', name: 'Playwright Browser', status: 'running', tool_count: 5 }
+        { id: 'test_service', name: 'Test Service', status: 'running', tool_count: 5 }
       ]
     });
 
-    await clickListeners['playwright_click']();
-    assert.equal(startCalled, 'playwright');
+    await clickListeners['test_service_click']();
+    assert.equal(startCalled, 'test_service');
   } finally {
     ChatMCP.manager.startExternalServer = originalStart;
     ChatMCP.manager.fetchExternalServers = originalFetchServers;

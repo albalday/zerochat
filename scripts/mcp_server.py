@@ -29,6 +29,36 @@ DEFAULT_PORT = 6388
 DEFAULT_EXTERNAL_SOURCE_URL = "https://albalday.github.io/zerochat/mcp/releases/stable"
 
 
+def log_line(message):
+    """Write a single safe, timestamped operational log line."""
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def request_type(method):
+    """Return a fixed label so request parameters never reach the log."""
+    labels = {
+        "initialize": "MCP initialize",
+        "tools/list": "MCP tools/list",
+        "tools/call": "MCP tools/call",
+        "zerochat/external/status": "external status",
+        "zerochat/external/start": "external start",
+        "zerochat/external/stop": "external stop",
+        "zerochat/external/servers/list": "external servers/list",
+        "zerochat/external/servers/start": "external servers/start",
+        "zerochat/external/servers/stop": "external servers/stop",
+        "zerochat/external/servers/configure": "external servers/configure"
+    }
+    return labels.get(method, "MCP unknown")
+
+
+def http_request_type(path, accept=""):
+    if path == "/mcp/external/status":
+        return "external HTTP status"
+    if "/sse" in path or "text/event-stream" in accept:
+        return "MCP SSE endpoint"
+    return "HTTP status"
+
+
 def initialize_runtime_configuration():
     """Read the launch information supplied by ZeroChat without starting MCP products.
 
@@ -425,6 +455,12 @@ external_host = None
 class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
     server_version = "ZeroChatLocalServer/2.0.0"
 
+    def log_request_received(self, kind):
+        log_line(f"REQUEST {kind}")
+
+    def log_response_sent(self, kind, status, outcome="ok"):
+        log_line(f"RESPONSE {kind} HTTP {status} {outcome}")
+
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -432,12 +468,17 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
+        kind = "HTTP OPTIONS"
+        self.log_request_received(kind)
         self.send_response(204)
         self.send_cors_headers()
         self.end_headers()
+        self.log_response_sent(kind, 204)
 
     def do_GET(self):
         accept = self.headers.get("Accept", "")
+        kind = http_request_type(self.path, accept)
+        self.log_request_received(kind)
         if "/sse" in self.path or "text/event-stream" in accept:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -447,6 +488,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"event: endpoint\r\ndata: /\r\n\r\n")
             self.wfile.flush()
+            self.log_response_sent(kind, 200)
             return
 
         if self.path == "/mcp/external/status":
@@ -466,6 +508,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.send_cors_headers()
             self.end_headers()
             self.wfile.write(res_data)
+            self.log_response_sent(kind, 200)
             return
 
         # Estado general: las herramientas externas no se agregan al servidor local.
@@ -486,6 +529,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
         self.wfile.write(res_data)
+        self.log_response_sent(kind, 200)
 
     def do_POST(self):
         content_len = int(self.headers.get("Content-Length", 0))
@@ -494,6 +538,8 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         try:
             req = json.loads(post_data.decode("utf-8"))
         except Exception as err:
+            kind = "MCP invalid request"
+            self.log_request_received(kind)
             err_resp = json.dumps({
                 "jsonrpc": "2.0",
                 "id": None,
@@ -504,17 +550,21 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.send_cors_headers()
             self.end_headers()
             self.wfile.write(err_resp)
+            self.log_response_sent(kind, 400, "error")
             return
 
         # Protocolo JSON-RPC 2.0 estándar
         req_id = req.get("id")
         method = req.get("method")
         params = req.get("params", {})
+        kind = request_type(method)
+        self.log_request_received(kind)
 
         if req_id is None and (method or "").startswith("notifications/"):
             self.send_response(204)
             self.send_cors_headers()
             self.end_headers()
+            self.log_response_sent(kind, 204)
             return
 
         result = None
@@ -526,9 +576,15 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             elif method == "initialize":
                 result = {"protocolVersion": "2024-11-05", "serverInfo": {"name": "ZeroChat External MCP Host", "version": "1"}, "capabilities": {"tools": {}}}
             elif method == "tools/list":
-                result = external_host.request("tools/list")
+                try:
+                    result = external_host.request("tools/list")
+                except Exception as ex:
+                    error = {"code": -32001, "message": str(ex)}
             elif method == "tools/call":
-                result = external_host.request("tools/call", name=params.get("name", ""), arguments=params.get("arguments", {}), timeout=60)
+                try:
+                    result = external_host.request("tools/call", name=params.get("name", ""), arguments=params.get("arguments", {}), timeout=60)
+                except Exception as ex:
+                    error = {"code": -32001, "message": str(ex)}
             else:
                 error = {"code": -32601, "message": f"Método externo '{method}' no soportado."}
         elif method == "initialize":
@@ -610,6 +666,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
         self.wfile.write(resp_bytes)
+        self.log_response_sent(kind, 200, "error" if error else "ok")
 
     def log_message(self, format, *args):
         pass
@@ -629,22 +686,21 @@ def main():
     args = parser.parse_args()
 
     if args.test:
-        print("[TEST] list_directory('.') ->", json.loads(list_directory("."))["success"])
-        print("[TEST] read_file('package.json') ->", json.loads(read_file("package.json", max_lines=5))["success"])
-        print("[TEST] execute_command('echo hello') ->", json.loads(execute_command("echo hello"))["success"])
-        print("[TEST] Herramientas locales operativas.")
+        log_line(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
+        log_line(f"TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}")
+        log_line(f"TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}")
+        log_line("TEST local tools ready")
         return
 
     external_host = ExternalMcpHostBridge(args.mcp_home, args.mcp_source, args.mcp_source_root, args.mcp_source_url)
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
-    print(f"[ZeroChat Local Server v2.0] Active at http://{args.host}:{args.port}")
-    print(f"[Local tools] {', '.join(LOCAL_TOOL_HANDLERS.keys())}")
-    print("[External MCP] Stopped until explicitly requested from ZeroChat")
-    print(f"[System] {DETECTED_OS} | Shell: {DETECTED_SHELL}")
-    print("[Server] Waiting for ZeroChat connections (HTTP / SSE)...")
+    log_line(f"SERVER active http://{args.host}:{args.port}")
+    log_line("SERVER local tools ready")
+    log_line("SERVER external MCP stopped")
+    log_line("SERVER waiting for MCP connections")
 
     def shutdown(*_):
-        print("\n[Server] Stopping local server and external MCP host...")
+        log_line("SERVER stopping")
         external_host.stop_host()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
