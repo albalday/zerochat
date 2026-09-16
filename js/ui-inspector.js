@@ -507,9 +507,19 @@
   async function handleQueryServer(elements, appConfig) {
     if (!elements || !elements.btnQueryServer) return false;
 
-    const apiUrl = (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '').trim();
+    let apiUrl = (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '').trim();
     const apiKey = (elements.settingApiKey?.value || '').trim();
     const apiType = (elements.settingApiType ? elements.settingApiType.value : appConfig?.apiType || 'openai').trim();
+
+    if (!apiUrl) {
+      const defaultEndpoint = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().endpoint || elements?.settingApiUrl?.placeholder;
+      if (defaultEndpoint) {
+        apiUrl = defaultEndpoint.trim();
+        if (elements?.settingApiUrl) {
+          elements.settingApiUrl.value = apiUrl;
+        }
+      }
+    }
 
     if (!apiUrl) {
       if (elements.serverQueryStatus) {

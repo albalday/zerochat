@@ -102,6 +102,30 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
   assert.equal(elements.settingEnableRawLogs.checked, true);
 });
 
+test('UISettings - applyProfileToForm asigna endpoint por defecto y placeholder si apiUrl está vacío', () => {
+  const elements = {
+    settingApiType: { value: '' },
+    settingApiUrl: { value: '', placeholder: '' },
+    settingApiKey: { value: '' },
+    settingModel: { value: '' },
+    modelSelectHelper: { value: '' },
+    settingSystemPrompt: { value: '' },
+    settingTemperature: { value: '' },
+    settingMaxAgentTurns: { value: '' }
+  };
+
+  const profileData = {
+    apiType: 'openai',
+    apiUrl: '',
+    model: ''
+  };
+
+  UISettings.applyProfileToForm(elements, profileData);
+
+  assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
+  assert.equal(elements.settingApiUrl.placeholder, 'http://localhost:1234/v1');
+});
+
 test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns correctamente', () => {
   const elements = {
     settingModel: { value: 'gpt-4o' },

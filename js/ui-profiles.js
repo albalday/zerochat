@@ -166,7 +166,10 @@
     if (els.settingApiUrl) {
       const currentUrl = els.settingApiUrl.value.trim();
       const baseUrl = (baseSettings.apiUrl || '').trim();
-      if (currentUrl !== baseUrl) return true;
+      const baseType = baseSettings.apiType || els.settingApiType?.value || 'openai';
+      const defaultEndpoint = (getProviders()?.registry?.get?.(baseType)?.getConnectionConfig?.().endpoint || '').trim();
+      const effectiveBaseUrl = baseUrl || defaultEndpoint;
+      if (currentUrl !== effectiveBaseUrl) return true;
     }
 
     if (els.settingApiKey) {
@@ -355,7 +358,7 @@
     const apiKey = els.settingApiKey?.value.trim() || '';
     const description = els.settingProfileDescription?.value.trim() || '';
     const apiType = els.settingApiType?.value || baseSettings.apiType;
-    const apiUrl = els.settingApiUrl?.value.trim() || baseSettings.apiUrl;
+    const apiUrl = els.settingApiUrl?.value.trim() || baseSettings.apiUrl || getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().endpoint || 'http://localhost:1234/v1';
     const model = els.settingModel?.value.trim() || '';
     const systemPrompt = els.settingSystemPrompt?.value.trim() || '';
     const temperature = els.settingTemperature?.value || baseSettings.temperature || '0.7';
@@ -459,7 +462,8 @@
     const Profiles = getProfiles();
     const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
     if (!name) return;
-    const saved = await saveProfileRecord(els, name, Profiles?.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: '', model: '' }, '', opts);
+    const defaultSettings = Profiles?.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: '' };
+    const saved = await saveProfileRecord(els, name, defaultSettings, '', opts);
     if (saved) showProfileFeedback(els, t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
   }
 
@@ -645,6 +649,20 @@
     if (els.settingApiType) {
       const onChange = () => {
         setProfileQueryState(els, false);
+        const UISettings = getUISettings();
+        const Providers = getProviders();
+        const val = els.settingApiType.value;
+        const currentUrl = els.settingApiUrl ? els.settingApiUrl.value.trim() : '';
+        const knownEndpoints = Providers?.registry?.getConnectionEndpoints?.() || [];
+        const isDefaultOrEmpty = !currentUrl || knownEndpoints.includes(currentUrl);
+        if (isDefaultOrEmpty && els.settingApiUrl) {
+          const endpoint = Providers?.registry?.get?.(val)?.getConnectionConfig?.().endpoint;
+          if (endpoint) els.settingApiUrl.value = endpoint;
+        }
+        UISettings?.syncProviderFields?.(els);
+        if (typeof cachedOptions?.loadCachedModels === 'function') {
+          cachedOptions.loadCachedModels();
+        }
         syncProfileSaveState(els, cachedOptions);
       };
       els.settingApiType.addEventListener('change', onChange);

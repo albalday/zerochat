@@ -454,4 +454,42 @@ test('Browser UI - inicia sin bloquearse cuando existen perfiles heredados de la
     await browser.close();
   }
 });
+
+test('Browser UI - nuevo perfil permite query inmediato con el conector por defecto', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await seedConnectionProfiles(page);
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
+
+    await page.evaluate(() => {
+      window.ChatDialogs.prompt = async () => 'Perfil OpenAI Test';
+      window.ChatAPI.fetchServerModels = async () => ({
+        success: true,
+        count: 1,
+        endpoint: 'http://localhost:1234/v1',
+        models: [{ id: 'test-openai-model' }]
+      });
+    });
+
+    await page.click('#btn-new-profile');
+    await page.click('#profile-tab-settings');
+
+    assert.equal(await page.inputValue('#setting-api-type'), 'openai');
+    assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
+
+    await page.click('#btn-query-server');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.dataset.queryReady === 'true');
+    assert.equal(await page.inputValue('#setting-model'), 'test-openai-model');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
 });

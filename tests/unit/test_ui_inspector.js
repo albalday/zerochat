@@ -126,6 +126,40 @@ test('UIInspector - handleQueryServer informa si la consulta fue satisfactoria',
   }
 });
 
+test('UIInspector - handleQueryServer utiliza endpoint por defecto si apiUrl está vacío', async () => {
+  let queriedUrl = '';
+  const originalFetch = API.fetchServerModels;
+  API.fetchServerModels = async (url) => {
+    queriedUrl = url;
+    return {
+      success: true,
+      count: 1,
+      endpoint: url,
+      models: [{ id: 'model-fallback' }]
+    };
+  };
+  const elements = {
+    btnQueryServer: {
+      disabled: false,
+      classList: { add() {}, remove() {} },
+      querySelector: () => ({ textContent: '' })
+    },
+    settingApiUrl: { value: '' },
+    settingApiKey: { value: '' },
+    settingApiType: { value: 'openai' },
+    serverQueryStatus: { style: {}, className: '', innerHTML: '', textContent: '' }
+  };
+
+  try {
+    const result = await UIInspector.handleQueryServer(elements, {});
+    assert.equal(result, true);
+    assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
+    assert.equal(queriedUrl, 'http://localhost:1234/v1');
+  } finally {
+    API.fetchServerModels = originalFetch;
+  }
+});
+
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
   const datalistOptions = [];
   const selectOptions = [];
