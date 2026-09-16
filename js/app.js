@@ -1505,6 +1505,17 @@
     // Botones de acción
     elements.btnStopStream.addEventListener('click', handleStopGeneration);
 
+    // Parada ordenada ante cierre de página o recarga durante generación
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      const handleWindowUnload = () => {
+        if (GenerationController?.isGenerating?.()) {
+          handleStopGeneration();
+        }
+      };
+      window.addEventListener('beforeunload', handleWindowUnload);
+      window.addEventListener('pagehide', handleWindowUnload);
+    }
+
 
 
     if (elements.btnOpenSettings) {

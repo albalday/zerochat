@@ -736,17 +736,20 @@ test('ChatEngine - executeAgentTurnLoop emite advertencia de bucle infinito (Inf
     enableAgentJs: true
   };
 
+  const statuses = [];
   const res = await ChatEngine.executeAgentTurnLoop({
     apiUrl: appConfig.apiUrl,
     apiType: appConfig.apiType,
     model: appConfig.model,
     chatHistory: history,
-    appConfig: appConfig
+    appConfig: appConfig,
+    onGenerationStatus: (s) => statuses.push(s)
   });
 
   assert.equal(res.success, true);
   assert.equal(res.loopDetected, true);
   assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'), 'Debe emitir la advertencia en inglés');
+  assert.ok(statuses.some(s => s.phase === 'error' && (s.text.includes('bucle infinito') || s.text.includes('loop'))), 'Debe emitir estado de parada por bucle infinito');
 
   ChatAPI.streamChatCompletion = originalStream;
 });
