@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "lsp",
+  "displayName": {
+    "es": "LSP y Navegación de Código",
+    "en": "LSP & Code Intelligence"
+  },
+  "description": {
+    "es": "Servidor de protocolos de lenguaje (LSP): salto a definiciones, búsqueda de símbolos, referencias e inspección de tipos sin sobrecargar el contexto.",
+    "en": "Language Server Protocol (LSP) server: jump to definitions, symbol search, references, and type inspection without context overload."
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": ["${serviceDir}/node_modules/@axivo/mcp-lsp/dist/index.js"],
+    "cwd": "${serviceDir}",
+    "env": {},
+    "handshakeTimeoutSeconds": 30
+  }
+}
+

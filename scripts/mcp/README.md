@@ -19,7 +19,11 @@ No hay un catálogo central con la definición de productos. El host descubre ca
 
 `services/dummy_mcp.mcp/` es la implementación mínima de referencia: declara el servicio, no requiere instalación y expone la herramienta `echo` por stdio. Permanece desactivado por defecto y las pruebas de infraestructura lo usan directamente desde la release para validar el mismo contrato que seguirá cualquier servicio externo.
 
-`services/playwright.mcp/` es un segundo servicio independiente. Instala una versión exacta del paquete oficial `@playwright/mcp` junto con el Chromium gestionado por Playwright y lo ejecuta en modo headless. También queda desactivado por defecto; se instala únicamente cuando el usuario decide iniciarlo.
+`services/playwright.mcp/` es un segundo servicio independiente. Instala una versión exacta del paquete oficial `@playwright/mcp` junto con el Chromium gestionado por Playwright. Declara en `service.json` opciones configurables por el usuario (como la navegación en segundo plano / headless), que se exponen en la interfaz de ZeroChat y se inyectan como argumentos al arrancar el servicio. También queda desactivado por defecto; se instala únicamente cuando el usuario decide iniciarlo.
+
+`services/memory.mcp/` instala el paquete oficial `@modelcontextprotocol/server-memory` y permite persistir conocimiento estructurado (entidades, relaciones y hechos/observaciones) en formato grafo (`memory.jsonl`).
+
+`services/lsp.mcp/` instala el servidor `@axivo/mcp-lsp` para ofrecer análisis estático y navegación de código (búsqueda de símbolos, definición de tipos, referencias cruzadas y jerarquías de llamadas) mediante el protocolo estándar LSP sin requerir la inyección manual de archivos masivos en el contexto.
 
 El host no inicia, instala ni descarga productos mientras solo se usan las herramientas locales. La primera descarga de bootstrap ocurre al solicitar los MCP externos. La instalación de un producto ocurre al solicitar su arranque.
 

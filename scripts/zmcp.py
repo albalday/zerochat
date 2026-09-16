@@ -727,7 +727,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
                 error = {"code": -32011, "message": str(ex)}
         elif method == "zerochat/external/servers/configure":
             try:
-                result = external_host.request("configure", serverId=params.get("serverId"), enabled=params.get("enabled"))
+                result = external_host.request("configure", serverId=params.get("serverId"), enabled=params.get("enabled"), options=params.get("options"))
             except Exception as ex:
                 error = {"code": -32011, "message": str(ex)}
         else:

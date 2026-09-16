@@ -225,15 +225,24 @@ class ExternalHost:
                 "description": server.get("description", {}), "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else self.states.get(server_id, "available"),
                 "installed": (self.home / "services" / server_id / "current" / "installation.json").exists(),
-                "toolCount": len(client.tools) if running else 0, "error": self.errors.get(server_id)
+                "toolCount": len(client.tools) if running else 0, "error": self.errors.get(server_id),
+                "options": server.get("options", []),
+                "userOptions": pref.get("options", {})
             })
         return result
 
-    def configure(self, server_id, enabled):
+    def configure(self, server_id, enabled=None, options=None):
         self._service(server_id)
-        if not isinstance(enabled, bool):
+        if enabled is not None and not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
-        self.preferences[server_id] = {"enabled": enabled}
+        if options is not None and not isinstance(options, dict):
+            raise ValueError("options must be an object")
+        entry = self.preferences.setdefault(server_id, {})
+        if enabled is not None:
+            entry["enabled"] = enabled
+        if options is not None:
+            opts = entry.setdefault("options", {})
+            opts.update(options)
         self._save_preferences()
         return self.list_servers()
 
@@ -313,9 +322,26 @@ class ExternalHost:
         self.states[server_id] = "starting"
         try:
             values = self._prepare_service(server_id, server)
+            pref = self.preferences.get(server_id, {})
+            user_opts = pref.get("options", {})
+            for opt in server.get("options", []):
+                opt_id = opt.get("id")
+                if not opt_id:
+                    continue
+                val = user_opts.get(opt_id, opt.get("default"))
+                values[f"option:{opt_id}"] = str(val)
+
             launch = server.get("launch", {})
             command = self._expand(launch.get("executable"), values)
             args = [self._expand(arg, values) for arg in launch.get("args", [])]
+            for opt in server.get("options", []):
+                opt_id = opt.get("id")
+                if not opt_id:
+                    continue
+                val = user_opts.get(opt_id, opt.get("default"))
+                if opt.get("type") == "boolean":
+                    extra = opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", [])
+                    args.extend([self._expand(a, values) for a in extra])
             env = os.environ.copy()
             env.update({key: self._expand(value, values) for key, value in launch.get("env", {}).items()})
             client = StdioClient(command, args, str(values["serviceDir"]), env)
@@ -396,7 +422,7 @@ def main():
                 command, request_id = request.get("command"), request.get("requestId")
                 if command == "status": result = {"host": "running", "servers": host.list_servers()}
                 elif command == "list": result = {"servers": host.list_servers()}
-                elif command == "configure": result = {"servers": host.configure(request["serverId"], request["enabled"])}
+                elif command == "configure": result = {"servers": host.configure(request["serverId"], enabled=request.get("enabled"), options=request.get("options"))}
                 elif command == "start": result = {"servers": host.start(request["serverId"])}
                 elif command == "stop": result = {"servers": host.stop(request["serverId"])}
                 elif command == "tools/list": result = {"tools": host.tools()}

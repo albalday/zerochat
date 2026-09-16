@@ -1164,3 +1164,28 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+
+.mcp-server-options {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mcp-server-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mcp-server-option-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.mcp-server-option-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
