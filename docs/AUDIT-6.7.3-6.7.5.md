@@ -64,10 +64,10 @@ peligrosas y rollback.
 ### P1 — La instalación de productos no es reproducible ni generalizable
 
 **Evidencia:** el host usa `npm install` a partir de un `package.json` creado en
-tiempo de ejecución (`scripts/mcp/runtime/zerochat_mcp_host.py:205-226`), sin
+tiempo de ejecución (`scripts/mcp/runtime/zmcp_host.py:205-226`), sin
 lockfile ni integridad de dependencias transitivas. La instalación del navegador
 supone además que todos los servicios tienen un instalador de navegador concreto
-(`scripts/mcp/runtime/zerochat_mcp_host.py:221-225`), aunque el formato pretende
+(`scripts/mcp/runtime/zmcp_host.py:221-225`), aunque el formato pretende
 describir servidores genéricos por directorio. Solo existe un producto concreto
 como ejemplo.
 
@@ -84,7 +84,7 @@ demostrar que el runtime no depende de un producto específico.
 ### P1 — Los nombres externos no cumplen la nomenclatura simplificada y pueden colisionar
 
 **Evidencia:** el host descarga herramientas como
-`mcp__{server_id}__{original}` (`scripts/mcp/runtime/zerochat_mcp_host.py:266-285`).
+`mcp__{server_id}__{original}` (`scripts/mcp/runtime/zmcp_host.py:266-285`).
 Al registrarlas, el cliente les antepone `mcp_`, por lo que se obtienen nombres
 como `mcp_mcp__<servicio>__...` (`js/mcp.js:685-690`). Siguen existiendo reglas y
 tests que aceptan el patrón antiguo `mcp__` (`js/tool-security.js:568-569`,
@@ -121,8 +121,8 @@ retención y el rollback.
 
 **Evidencia:** `start` procesa instalación y descarga de navegador de forma
 síncrona, con límites de 600 y 900 segundos
-(`scripts/mcp/runtime/zerochat_mcp_host.py:197-256`). El bucle de control procesa
-una solicitud cada vez (`scripts/mcp/runtime/zerochat_mcp_host.py:303-323`), por
+(`scripts/mcp/runtime/zmcp_host.py:197-256`). El bucle de control procesa
+una solicitud cada vez (`scripts/mcp/runtime/zmcp_host.py:303-323`), por
 lo que durante una instalación no puede atender `stop` ni `status`. El puente
 del servidor también espera la respuesta (`scripts/mcp_server.py:378-397`).
 

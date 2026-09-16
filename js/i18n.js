@@ -344,6 +344,7 @@
       tab_appearance: 'Visualización',
       tab_inspector: 'Inspector',
       tab_mcp: 'MCP',
+      tab_permissions: 'Permisos',
       mcp_connection_title: 'Servidor Local (ZMCP)',
       mcp_connection_desc: 'Servidor local privado para conectar ZeroChat con herramientas del sistema (archivos, terminal, git y automatización) vía protocolo estandarizado.',
       mcp_status_disconnected: 'Desconectado',
@@ -363,28 +364,28 @@
       mcp_os_windows: 'Windows',
       mcp_os_android: 'Android / Termux',
       mcp_instructions_title: 'Instalación y Arranque del Servidor',
-      mcp_instructions_desc: 'Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zerochat_mcp.py:',
-      mcp_btn_download_server: 'Descargar servidor (zerochat_mcp.py)',
+      mcp_instructions_desc: 'Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zmcp.py:',
+      mcp_btn_download_server: 'Descargar servidor (zmcp.py)',
       mcp_btn_download_title: 'Descargar script Python autogenerado para iniciar el servidor local',
       mcp_run_instruction: 'Comando de ejecución:',
       mcp_copy_help_linux: `LINUX
 Descarga el archivo en Descargas y ejecuta:
 cd ~/Downloads
-python3 zerochat_mcp.py`,
+python3 zmcp.py`,
       mcp_copy_help_windows: `WINDOWS
 Descarga el archivo en Descargas y ejecútalo en PowerShell:
 cd "$env:USERPROFILE\\Downloads"
-py zerochat_mcp.py`,
+py zmcp.py`,
       mcp_copy_help_android: `ANDROID / TERMUX
 1. Instala Termux desde F-Droid: https://f-droid.org/packages/com.termux/
 2. Abre Termux y ejecuta estas líneas:
 pkg update -y && pkg install -y python
 termux-setup-storage
 cd ~/storage/downloads
-python zerochat_mcp.py
+python zmcp.py
 
 Si el archivo no aparece, comprueba que el navegador lo descargó en Descargas y ejecuta:
-find ~/storage/downloads -name zerochat_mcp.py -print`,
+find ~/storage/downloads -name zmcp.py -print`,
       mcp_btn_copy_cmd: 'Copiar comando',
       mcp_cmd_copied: '¡Copiado!',
       mcp_tools_discovered: '{count} herramientas activas',
@@ -421,6 +422,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_servers_desc: 'Servidores stdio gestionados por el servidor local.',
       mcp_external_start: 'Arrancar servicios MCP externos',
       mcp_external_stop: 'Detener servicios externos',
+      mcp_bootstrap_status_unavailable: 'No se pudo consultar el estado del arranque.',
       mcp_external_stopped: 'Los servicios externos están detenidos. Arráncalos para descargar el catálogo y ver los servidores disponibles.',
       mcp_external_status_available: 'Disponible',
       mcp_external_status_installing: 'Instalando',
@@ -997,6 +999,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       tab_appearance: 'Appearance',
       tab_inspector: 'Inspector',
       tab_mcp: 'MCP',
+      tab_permissions: 'Permissions',
       mcp_connection_title: 'Local Server (ZMCP)',
       mcp_connection_desc: 'Private local server to connect ZeroChat with system tools (files, terminal, git, and automation) via standardized protocol.',
       mcp_status_disconnected: 'Disconnected',
@@ -1016,28 +1019,28 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_os_windows: 'Windows',
       mcp_os_android: 'Android / Termux',
       mcp_instructions_title: 'Server Installation & Launch Instructions',
-      mcp_instructions_desc: 'Download the auto-generated Python server and run it in your terminal with python3 zerochat_mcp.py:',
-      mcp_btn_download_server: 'Download server (zerochat_mcp.py)',
+      mcp_instructions_desc: 'Download the auto-generated Python server and run it in your terminal with python3 zmcp.py:',
+      mcp_btn_download_server: 'Download server (zmcp.py)',
       mcp_btn_download_title: 'Download auto-generated Python script to start the local server',
       mcp_run_instruction: 'Execution command:',
       mcp_copy_help_linux: `LINUX
 Download the file to Downloads and run:
 cd ~/Downloads
-python3 zerochat_mcp.py`,
+python3 zmcp.py`,
       mcp_copy_help_windows: `WINDOWS
 Download the file to Downloads and run it in PowerShell:
 cd "$env:USERPROFILE\\Downloads"
-py zerochat_mcp.py`,
+py zmcp.py`,
       mcp_copy_help_android: `ANDROID / TERMUX
 1. Install Termux from F-Droid: https://f-droid.org/packages/com.termux/
 2. Open Termux and run these lines:
 pkg update -y && pkg install -y python
 termux-setup-storage
 cd ~/storage/downloads
-python zerochat_mcp.py
+python zmcp.py
 
 If the file is not found, check that the browser downloaded it to Downloads and run:
-find ~/storage/downloads -name zerochat_mcp.py -print`,
+find ~/storage/downloads -name zmcp.py -print`,
       mcp_btn_copy_cmd: 'Copy command',
       mcp_cmd_copied: 'Copied!',
       mcp_tools_discovered: '{count} tools active',
@@ -1074,6 +1077,7 @@ find ~/storage/downloads -name zerochat_mcp.py -print`,
       mcp_servers_desc: 'Stdio servers managed by the local server host.',
       mcp_external_start: 'Start external MCP services',
       mcp_external_stop: 'Stop external services',
+      mcp_bootstrap_status_unavailable: 'Could not retrieve the startup status.',
       mcp_external_stopped: 'External services are stopped. Start them to download the catalog and view available servers.',
       mcp_external_status_available: 'Available',
       mcp_external_status_installing: 'Installing',

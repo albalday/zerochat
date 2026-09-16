@@ -278,6 +278,7 @@
       mcpServersList: document.getElementById('mcp-servers-list'),
       btnMcpStartExternal: document.getElementById('btn-mcp-start-external'),
       btnMcpStopExternal: document.getElementById('btn-mcp-stop-external'),
+      mcpBootstrapStatus: document.getElementById('mcp-bootstrap-status'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
@@ -2086,7 +2087,8 @@
         mcpServersCard: elements.mcpServersCard,
         mcpServersList: elements.mcpServersList,
         btnMcpStartExternal: elements.btnMcpStartExternal,
-        btnMcpStopExternal: elements.btnMcpStopExternal
+        btnMcpStopExternal: elements.btnMcpStopExternal,
+        bootstrapStatus: elements.mcpBootstrapStatus
       });
       const currentCfg = getRuntimeConfig();
       if (currentCfg?.mcpAutoConnect && window.ChatMCP?.manager?.connectProxy) {

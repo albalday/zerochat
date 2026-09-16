@@ -447,6 +447,10 @@
         <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
         <span data-i18n="tab_mcp">MCP</span>
       </button>
+      <button type="button" class="modal-tab-btn" data-tab="tab-permissions">
+        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        <span data-i18n="tab_permissions">Permisos</span>
+      </button>
       <button type="button" class="modal-tab-btn" data-tab="tab-appearance">
         <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-palette"></use></svg>
         <span data-i18n="tab_appearance">Visualización</span>
@@ -572,6 +576,7 @@
                 <button type="button" id="btn-mcp-stop-external" class="btn-secondary btn-mcp-action" data-i18n="mcp_external_stop" disabled>Detener servicios externos</button>
               </div>
             </div>
+            <div id="mcp-bootstrap-status" class="label-hint mcp-bootstrap-status" role="status" aria-live="polite" hidden></div>
             <div id="mcp-servers-list" class="mcp-servers-list"></div>
           </div>
 
@@ -579,7 +584,47 @@
           <div id="mcp-tools-container" class="mcp-tools-container"></div>
         </div>
 
-        <!-- Pestaña 5: Visualización e Idioma -->
+        <!-- Pestaña 5: Permisos de ejecución MCP -->
+        <div id="tab-permissions" class="modal-tab-pane">
+          <div class="mcp-security-card">
+            <div class="mcp-security-header">
+              <span class="mcp-security-icon">
+                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </span>
+              <div>
+                <strong data-i18n="mcp_security_section_title">Seguridad y Autorización de Ejecución</strong>
+                <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
+              </div>
+            </div>
+
+            <div class="mcp-policy-options">
+              <label class="mcp-policy-option">
+                <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
+                <div class="mcp-policy-text">
+                  <strong data-i18n="mcp_security_policy_ask">Pedir autorización antes de ejecutar (Recomendado)</strong>
+                  <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">El chat te pedirá confirmar cada comando o herramienta MCP no autorizada previamente.</p>
+                </div>
+              </label>
+              <label class="mcp-policy-option">
+                <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
+                <div class="mcp-policy-text">
+                  <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo sin restricciones)</strong>
+                  <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta MCP sin pausas de confirmación.</p>
+                </div>
+              </label>
+            </div>
+
+            <div class="mcp-saved-auths-section">
+              <div class="mcp-saved-auths-header">
+                <span class="label-hint" data-i18n="mcp_security_saved_auths_title">Herramientas con Permiso Recordado:</span>
+                <button type="button" id="btn-mcp-clear-auths" class="btn-text-action btn-mcp-clear-auths" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
+              </div>
+              <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pestaña 6: Visualización e Idioma -->
         <div id="tab-appearance" class="modal-tab-pane">
           <div class="form-field">
             <label>

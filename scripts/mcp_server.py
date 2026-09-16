@@ -54,6 +54,8 @@ def request_type(method):
 def http_request_type(path, accept=""):
     if path == "/mcp/external/status":
         return "external HTTP status"
+    if path == "/mcp/external/bootstrap/status":
+        return "external bootstrap status"
     if "/sse" in path or "text/event-stream" in accept:
         return "MCP SSE endpoint"
     return "HTTP status"
@@ -66,7 +68,7 @@ def initialize_runtime_configuration():
     external MCP host. It neither opens a connection nor reads that source.
     """
     default = {"buildChannel": "master", "externalSource": "github-pages", "externalSourceRoot": None}
-    raw = os.environ.get("ZEROCHAT_MCP_INITIALIZATION")
+    raw = os.environ.get("ZMCP_INITIALIZATION")
     if not raw:
         return default
     try:
@@ -342,9 +344,39 @@ class ExternalMcpHostBridge:
         self.source, self.source_root, self.source_url = source, source_root, source_url
         self.process, self._next, self._pending = None, 0, {}
         self._lock = threading.Lock()
+        self._bootstrap_lock = threading.Lock()
+        self._bootstrap_state = {"state": "idle", "message": ""}
 
     def running(self):
         return self.process is not None and self.process.poll() is None
+
+    def bootstrap_status(self):
+        with self._bootstrap_lock:
+            return dict(self._bootstrap_state)
+
+    def _set_bootstrap_state(self, state, message):
+        with self._bootstrap_lock:
+            self._bootstrap_state = {"state": state, "message": message}
+
+    def start_host_background(self):
+        """Start one external-host bootstrap without blocking the HTTP request."""
+        with self._bootstrap_lock:
+            if self._bootstrap_state["state"] == "running":
+                return dict(self._bootstrap_state)
+            if self.running():
+                self._bootstrap_state = {"state": "completed", "message": "Servicios preparados."}
+                return dict(self._bootstrap_state)
+            self._bootstrap_state = {"state": "running", "message": "Comprobando servicios..."}
+        threading.Thread(target=self._run_bootstrap, daemon=True).start()
+        return self.bootstrap_status()
+
+    def _run_bootstrap(self):
+        try:
+            self._set_bootstrap_state("running", "Arrancando servidores MCP...")
+            self.start_host()
+            self._set_bootstrap_state("completed", "Servicios preparados.")
+        except Exception as err:
+            self._set_bootstrap_state("failed", f"Error: {err}")
 
     def _bootstrap_path(self):
         target = self.home / "bootstrap.py"
@@ -491,6 +523,18 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             self.log_response_sent(kind, 200)
             return
 
+        if self.path == "/mcp/external/bootstrap/status":
+            status = external_host.bootstrap_status() if external_host else {"state": "idle", "message": ""}
+            res_data = json.dumps(status, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(res_data)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(res_data)
+            self.log_response_sent(kind, 200)
+            return
+
         if self.path == "/mcp/external/status":
             status = {"host": "stopped", "servers": []}
             if external_host and external_host.running():
@@ -627,7 +671,7 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             result = external_host.request("status") if external_host and external_host.running() else {"host": "stopped", "servers": []}
         elif method == "zerochat/external/start":
             try:
-                result = external_host.start_host()
+                result = external_host.start_host_background()
             except Exception as ex:
                 error = {"code": -32010, "message": str(ex)}
         elif method == "zerochat/external/stop":
@@ -676,8 +720,8 @@ def main():
     global external_host
     runtime = initialize_runtime_configuration()
     parser = argparse.ArgumentParser(description="Servidor Local de Herramientas para ZeroChat con Soporte MCP Stdio")
-    parser.add_argument("--host", default=os.environ.get("ZEROCHAT_MCP_DEFAULT_HOST", "127.0.0.1"), help="Host de escucha (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_MCP_DEFAULT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
+    parser.add_argument("--host", default=os.environ.get("ZMCP_DEFAULT_HOST", "127.0.0.1"), help="Host de escucha (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("ZMCP_DEFAULT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas locales")
     parser.add_argument("--mcp-home", default=str(Path.home() / ".zerochat" / "mcp"), help="Directorio privado del host MCP externo")
     parser.add_argument("--mcp-source", choices=("github-pages", "local-copy"), default=runtime["externalSource"], help="Origen del bootstrap MCP externo")

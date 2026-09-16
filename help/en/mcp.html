@@ -55,7 +55,7 @@
     <div class="card">
       <h2>3. Local Python Server (Zero Dependencies & Stdio Manager)</h2>
       <p>
-        ZeroChat includes a one-click <strong>auto-generated Python local server script</strong> (<code>zerochat_mcp.py</code>) directly inside the configuration modal.
+        ZeroChat includes a one-click <strong>auto-generated Python local server script</strong> (<code>zmcp.py</code>) directly inside the configuration modal.
       </p>
       <p>
         This server fulfills a dual, seamless role:
@@ -71,9 +71,10 @@
         </li>
         <li><strong>External Stdio MCP Server Manager:</strong> Spawns and interacts with community MCP servers communicating via standard input/output (stdio JSON-RPC 2.0). Each published service declares its own installer and launch command, and can be started or stopped from the interface.</li>
       </ol>
+      <p>Services are organized independently, one directory per service. The distributed catalog includes the <code>dummy_mcp</code> test service and Playwright MCP for browser automation; both stay disabled until you choose to start them.</p>
       <div class="code-wrapper">
         <pre><code># Start the local Python server for ZeroChat (port 6388 by default)
-python3 zerochat_mcp.py</code></pre>
+python3 zmcp.py</code></pre>
       </div>
     </div>
 
@@ -81,6 +82,12 @@ python3 zerochat_mcp.py</code></pre>
       <h2>4. Tool Permissions & Authorization Policies</h2>
       <p>
         Because external MCP tools can perform sensitive operations on your system, ZeroChat provides granular security controls for each tool:
+      </p>
+      <p>
+        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered permissions, and reset them when needed. MCP server setup remains separate in the <strong>MCP</strong> tab.
+      </p>
+      <p>
+        When you select <strong>Start external MCP services</strong>, preparation runs in the background. A single line below the button reports its status until services are ready or an error occurs.
       </p>
       <ul>
         <li><strong>On/Off Switches:</strong> Enable or disable individual tools without restarting the MCP server process.</li>

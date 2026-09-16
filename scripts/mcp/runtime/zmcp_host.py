@@ -3,7 +3,7 @@
 
 This program is deliberately independent from the browser bundle and from the
 local ZeroChat tools server.  It is driven through newline-delimited JSON on
-stdin/stdout by the small launcher in ``zerochat_mcp.py``.
+stdin/stdout by the small launcher in ``zmcp.py``.
 """
 from __future__ import annotations
 
@@ -229,9 +229,35 @@ class ExternalHost:
                 manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
                 subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, check=True, timeout=600)
                 installation.update({"nodeExecutable": node, "package": package, "version": version})
+                browser = product.get("browser")
+                if browser is not None:
+                    if browser not in ("chrome", "chromium", "firefox", "webkit"):
+                        raise RuntimeError("Unsupported Playwright browser distribution")
+                    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+                    if not playwright_cli.is_file():
+                        raise RuntimeError("Playwright browser installer is unavailable")
+                    subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, check=True, timeout=600)
+                    installation["browser"] = browser
             elif kind != "none":
                 raise RuntimeError("Unsupported MCP service installer")
             marker.write_text(json.dumps(installation), encoding="utf-8")
+        else:
+            installer = self._load_json(server["_directory"] / "installer.json")
+            product = installer.get("product", {}) if installer.get("type") == "npm" else {}
+            browser = product.get("browser")
+            if browser is not None:
+                if browser not in ("chrome", "chromium", "firefox", "webkit"):
+                    raise RuntimeError("Unsupported Playwright browser distribution")
+                installation = self._load_json(marker)
+                if installation.get("browser") != browser:
+                    node = shutil.which("node")
+                    playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+                    if not node or not playwright_cli.is_file():
+                        raise RuntimeError("Playwright browser installer is unavailable")
+                    self.states[server_id] = "installing"
+                    subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, check=True, timeout=600)
+                    installation["browser"] = browser
+                    marker.write_text(json.dumps(installation), encoding="utf-8")
         node = shutil.which("node")
         return {
             "serviceDir": service_dir,

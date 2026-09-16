@@ -45,35 +45,35 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
 
 test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplificada', () => {
   const cmdDefault = ChatUIMcp.generateTerminalCommand(6388);
-  assert.equal(cmdDefault, 'python3 zerochat_mcp.py');
+  assert.equal(cmdDefault, 'python3 zmcp.py');
 
   const cmdCustom = ChatUIMcp.generateTerminalCommand(6395);
-  assert.equal(cmdCustom, 'python3 zerochat_mcp.py --port 6395');
+  assert.equal(cmdCustom, 'python3 zmcp.py --port 6395');
 
   // Fallback seguro en puerto inválido
   const cmdInvalid = ChatUIMcp.generateTerminalCommand('invalido');
-  assert.equal(cmdInvalid, 'python3 zerochat_mcp.py');
+  assert.equal(cmdInvalid, 'python3 zmcp.py');
 });
 
 test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones', () => {
   assert.equal(ChatUIMcp.DEFAULT_OPERATING_SYSTEM, 'linux');
   assert.equal(ChatUIMcp.sanitizeOperatingSystem('unknown'), 'linux');
-  assert.equal(ChatUIMcp.generateTerminalCommand(6388, 'linux'), 'python3 zerochat_mcp.py');
-  assert.equal(ChatUIMcp.generateTerminalCommand(6395, 'windows'), 'py zerochat_mcp.py --port 6395');
+  assert.equal(ChatUIMcp.generateTerminalCommand(6388, 'linux'), 'python3 zmcp.py');
+  assert.equal(ChatUIMcp.generateTerminalCommand(6395, 'windows'), 'py zmcp.py --port 6395');
 
   const linuxHelp = ChatUIMcp.generateClipboardCommand(6388, 'linux', () => 'LINUX HELP');
   const windowsHelp = ChatUIMcp.generateClipboardCommand(6388, 'windows', () => 'WINDOWS HELP');
   const androidHelp = ChatUIMcp.generateClipboardCommand(6388, 'android', () => 'ANDROID HELP');
-  assert.equal(linuxHelp, 'LINUX HELP\n\npython3 zerochat_mcp.py');
-  assert.equal(windowsHelp, 'WINDOWS HELP\n\npy zerochat_mcp.py');
-  assert.equal(androidHelp, 'ANDROID HELP\n\npython3 zerochat_mcp.py');
+  assert.equal(linuxHelp, 'LINUX HELP\n\npython3 zmcp.py');
+  assert.equal(windowsHelp, 'WINDOWS HELP\n\npy zmcp.py');
+  assert.equal(androidHelp, 'ANDROID HELP\n\npython3 zmcp.py');
   assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
 });
 
 test('ChatUIMcp - generateMcpServerScript incluye el servidor local autónomo sin el host externo', () => {
-  const previousPayload = globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+  const previousPayload = globalThis.__ZMCP_LOCAL_SERVER_B64__;
   try {
-    globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
+    globalThis.__ZMCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
     const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
     assert.ok(pyScript.includes('#!/usr/bin/env python3'));
     assert.ok(pyScript.includes("PAYLOAD = \"cHJpbnQoJ2xvY2FsJyk=\""));
@@ -82,47 +82,47 @@ test('ChatUIMcp - generateMcpServerScript incluye el servidor local autónomo si
     assert.ok(!pyScript.includes('StdioMcpClient'));
     assert.ok(!pyScript.includes('McpProcessManager'));
     assert.ok(!pyScript.includes('@mcp/'));
-    assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_PORT', '6388'"));
-    assert.ok(pyScript.includes("ZEROCHAT_MCP_DEFAULT_HOST', '127.0.0.1'"));
+    assert.ok(pyScript.includes("ZMCP_DEFAULT_PORT', '6388'"));
+    assert.ok(pyScript.includes("ZMCP_DEFAULT_HOST', '127.0.0.1'"));
 
     const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
-    assert.ok(pyCustom.includes("ZEROCHAT_MCP_DEFAULT_PORT', '6399'"));
-    assert.ok(pyCustom.includes("ZEROCHAT_MCP_DEFAULT_HOST', '0.0.0.0'"));
+    assert.ok(pyCustom.includes("ZMCP_DEFAULT_PORT', '6399'"));
+    assert.ok(pyCustom.includes("ZMCP_DEFAULT_HOST', '0.0.0.0'"));
   } finally {
-    if (previousPayload === undefined) delete globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
-    else globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = previousPayload;
+    if (previousPayload === undefined) delete globalThis.__ZMCP_LOCAL_SERVER_B64__;
+    else globalThis.__ZMCP_LOCAL_SERVER_B64__ = previousPayload;
   }
 });
 
 test('ChatUIMcp - generateMcpServerScript pasa la configuración local al mismo servidor cuando el bundle es dev', () => {
   const previousChannel = globalThis.__ZEROCHAT_BUILD_CHANNEL__;
   const previousRoot = globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
-  const previousPayload = globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
+  const previousPayload = globalThis.__ZMCP_LOCAL_SERVER_B64__;
   try {
     globalThis.__ZEROCHAT_BUILD_CHANNEL__ = 'dev';
     globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = '/home/alberto/vs/zerochat';
-    globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
+    globalThis.__ZMCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
     const script = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
     assert.ok(script.includes('PAYLOAD = "cHJpbnQoJ2xvY2FsJyk="'));
     assert.ok(script.includes('"buildChannel":"dev"'));
     assert.ok(script.includes('"externalSource":"local-copy"'));
     assert.ok(script.includes('"externalSourceRoot":"/home/alberto/vs/zerochat/scripts/mcp"'));
-    assert.ok(script.includes("ZEROCHAT_MCP_INITIALIZATION"));
+    assert.ok(script.includes("ZMCP_INITIALIZATION"));
     assert.ok(!script.includes('runpy.run_path'));
   } finally {
     if (previousChannel === undefined) delete globalThis.__ZEROCHAT_BUILD_CHANNEL__;
     else globalThis.__ZEROCHAT_BUILD_CHANNEL__ = previousChannel;
     if (previousRoot === undefined) delete globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
     else globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = previousRoot;
-    if (previousPayload === undefined) delete globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__;
-    else globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = previousPayload;
+    if (previousPayload === undefined) delete globalThis.__ZMCP_LOCAL_SERVER_B64__;
+    else globalThis.__ZMCP_LOCAL_SERVER_B64__ = previousPayload;
   }
 });
 
 test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
   const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'scripts', 'mcp_server.py'), 'utf8');
   assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
-  assert.match(serverSource, /add_argument\("--port", type=int, default=int\(os\.environ\.get\("ZEROCHAT_MCP_DEFAULT_PORT", DEFAULT_PORT\)\)/);
+  assert.match(serverSource, /add_argument\("--port", type=int, default=int\(os\.environ\.get\("ZMCP_DEFAULT_PORT", DEFAULT_PORT\)\)/);
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
@@ -287,14 +287,14 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py');
+  assert.equal(mockCommandSnippet.textContent, 'python3 zmcp.py');
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6388/sse');
 
   // Al cambiar el input de puerto, se recalcula el comando en tiempo real
   mockPortInput.value = '6392';
   listeners['input']();
 
-  assert.equal(mockCommandSnippet.textContent, 'python3 zerochat_mcp.py --port 6392');
+  assert.equal(mockCommandSnippet.textContent, 'python3 zmcp.py --port 6392');
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6392/sse');
 
   uiInstance.destroy();
@@ -697,6 +697,7 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
 
 test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de inicio/parada', async () => {
   const ChatMCP = require('../../js/mcp.js');
+  const ChatState = require('../../js/state.js');
   const t = (k, p) => ChatI18n.t(k, p);
 
   // 1. Desconectado
@@ -766,6 +767,7 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
   let startCalled = null;
   const originalStart = ChatMCP.manager.startExternalServer;
   const originalFetchServers = ChatMCP.manager.fetchExternalServers;
+  const previousMcpState = ChatState.get('mcp');
   try {
     ChatMCP.manager.startExternalServer = async (sid) => {
       startCalled = sid;
@@ -780,8 +782,12 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
 
     await clickListeners['test_service_click']();
     assert.equal(startCalled, 'test_service');
+    assert.deepEqual(ChatState.get('mcp').externalServers, [
+      { id: 'test_service', name: 'Test Service', status: 'running', tool_count: 5 }
+    ]);
   } finally {
     ChatMCP.manager.startExternalServer = originalStart;
     ChatMCP.manager.fetchExternalServers = originalFetchServers;
+    ChatState.set('mcp', previousMcpState);
   }
 });

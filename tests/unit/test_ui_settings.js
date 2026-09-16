@@ -2,6 +2,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UISettings = require('../../js/ui-settings.js');
 
+test('UISettings - sitúa los permisos de ejecución MCP en su propia pestaña', () => {
+  const settingsHtml = UISettings.getSettingsDialogHTML();
+  assert.match(settingsHtml, /data-tab="tab-permissions"/);
+  assert.match(settingsHtml, /id="tab-permissions" class="modal-tab-pane"/);
+  assert.match(settingsHtml, /id="mcp-policy-ask"/);
+  assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
+});
+
 test('UISettings - applyTheme actualiza data-theme y botones activos', () => {
   const btnLight = {
     className: '',

@@ -60,7 +60,7 @@
   function generateMcpServerScript(options = {}) {
     const host = sanitizeHost(options.host);
     const port = sanitizePort(options.port);
-    const localServerPayload = typeof globalThis !== 'undefined' ? globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ : null;
+    const localServerPayload = typeof globalThis !== 'undefined' ? globalThis.__ZMCP_LOCAL_SERVER_B64__ : null;
     const channel = typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_BUILD_CHANNEL__ === 'dev' ? 'dev' : 'master';
     const devSourceRoot = channel === 'dev' && typeof globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ === 'string'
       ? globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ : null;
@@ -79,9 +79,9 @@ PAYLOAD = ${JSON.stringify(localServerPayload || '')}
 INITIALIZATION = ${JSON.stringify(initialization)}
 if not PAYLOAD:
     raise RuntimeError('This ZeroChat bundle does not include its local MCP server')
-os.environ.setdefault('ZEROCHAT_MCP_INITIALIZATION', json.dumps(INITIALIZATION))
-os.environ.setdefault('ZEROCHAT_MCP_DEFAULT_HOST', '${host}')
-os.environ.setdefault('ZEROCHAT_MCP_DEFAULT_PORT', '${port}')
+os.environ.setdefault('ZMCP_INITIALIZATION', json.dumps(INITIALIZATION))
+os.environ.setdefault('ZMCP_DEFAULT_HOST', '${host}')
+os.environ.setdefault('ZMCP_DEFAULT_PORT', '${port}')
 SOURCE = base64.b64decode(PAYLOAD)
 exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__main__', '__file__': str(Path(__file__).resolve())})
 `;
@@ -91,7 +91,7 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
     const host = sanitizeHost(options.host);
     const port = sanitizePort(options.port);
     const content = generateMcpServerScript({ host, port });
-    const filename = 'zerochat_mcp.py';
+    const filename = 'zmcp.py';
 
     if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
       try {
@@ -124,7 +124,7 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
     const os = sanitizeOperatingSystem(operatingSystem);
     const executable = os === 'windows' ? 'py' : 'python3';
     const portArgument = normalizedPort === DEFAULT_PORT ? '' : ` --port ${normalizedPort}`;
-    return `${executable} zerochat_mcp.py${portArgument}`;
+    return `${executable} zmcp.py${portArgument}`;
   }
 
   function getOperatingSystemHelpKey(operatingSystem) {
@@ -346,6 +346,15 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
             await MCP?.manager?.stopExternalServer?.(sid);
           }
           const updated = await MCP?.manager?.fetchExternalServers?.();
+          const State = getState();
+          if (updated && State?.set) {
+            const current = State.get('mcp') || {};
+            State.set('mcp', {
+              ...current,
+              externalHost: updated.host || 'stopped',
+              externalServers: updated.servers || []
+            });
+          }
           renderExternalServers(container, updated?.servers || [], updated?.host || 'stopped', translator);
 
           const toolsContainer = typeof document !== 'undefined' ? document.getElementById('mcp-tools-container') : null;
@@ -659,6 +668,21 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
 
     const btnStartExternal = elements.btnMcpStartExternal || elements.btnStartExternal || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-start-external') : null);
     const btnStopExternal = elements.btnMcpStopExternal || elements.btnStopExternal || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-stop-external') : null);
+    const bootstrapStatus = elements.bootstrapStatus || (typeof document !== 'undefined' ? document.getElementById('mcp-bootstrap-status') : null);
+    let bootstrapPollTimer = null;
+
+    function renderBootstrapStatus(status) {
+      if (!bootstrapStatus) return;
+      const message = String(status?.message || '').trim();
+      bootstrapStatus.hidden = !message;
+      bootstrapStatus.textContent = message;
+    }
+
+    function stopBootstrapPolling() {
+      if (bootstrapPollTimer) clearInterval(bootstrapPollTimer);
+      bootstrapPollTimer = null;
+    }
+
     async function refreshExternalHost() {
       const snapshot = await MCP?.manager?.fetchExternalServers?.();
       if (snapshot && State?.set) {
@@ -668,10 +692,49 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
       syncExternalServers();
       return snapshot;
     }
+
+    async function pollBootstrapStatus() {
+      try {
+        const status = await MCP?.manager?.fetchExternalBootstrapStatus?.();
+        if (!status) return;
+        renderBootstrapStatus(status);
+        if (status.state === 'running') return;
+        stopBootstrapPolling();
+        btnStartExternal.disabled = false;
+        if (status.state === 'completed') {
+          await MCP?.manager?.refreshExternalProvider?.();
+          await refreshExternalHost();
+        }
+      } catch (_) {
+        stopBootstrapPolling();
+        btnStartExternal.disabled = false;
+        renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
+      }
+    }
+
+    function startBootstrapPolling() {
+      stopBootstrapPolling();
+      pollBootstrapStatus();
+      bootstrapPollTimer = setInterval(pollBootstrapStatus, 1000);
+    }
+
     btnStartExternal?.addEventListener?.('click', async () => {
       btnStartExternal.disabled = true;
-      try { await MCP?.manager?.startExternalHost?.(); await refreshExternalHost(); }
-      finally { btnStartExternal.disabled = false; }
+      try {
+        const status = await MCP?.manager?.startExternalHost?.();
+        renderBootstrapStatus(status);
+        if (status?.state === 'running') startBootstrapPolling();
+        else {
+          btnStartExternal.disabled = false;
+          if (status?.state === 'completed') {
+            await MCP?.manager?.refreshExternalProvider?.();
+            await refreshExternalHost();
+          }
+        }
+      } catch (_) {
+        btnStartExternal.disabled = false;
+        renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
+      }
     });
     btnStopExternal?.addEventListener?.('click', async () => {
       btnStopExternal.disabled = true;
@@ -740,6 +803,7 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
       render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
       destroy: () => {
         if (pollTimer) clearInterval(pollTimer);
+        stopBootstrapPolling();
         if (typeof unsubscribe === 'function') unsubscribe();
         if (typeof unsubscribeSecurity === 'function') unsubscribeSecurity();
         if (typeof unsubscribeLang === 'function') unsubscribeLang();
@@ -784,46 +848,6 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
         </div>
       </div>
 
-      <!-- Seguridad y Autorizaciones de Ejecución -->
-      <div class="mcp-security-card">
-        <div class="mcp-security-header">
-          <span class="mcp-security-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          </span>
-          <div>
-            <strong data-i18n="mcp_security_section_title">Seguridad y Autorización de Ejecución</strong>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">
-              Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.
-            </p>
-          </div>
-        </div>
-
-        <div class="mcp-policy-options">
-          <label class="mcp-policy-option">
-            <input type="radio" name="mcp-global-policy" value="ask" id="mcp-policy-ask" checked>
-            <div class="mcp-policy-text">
-              <strong data-i18n="mcp_security_policy_ask">Pedir autorización antes de ejecutar (Recomendado)</strong>
-              <p class="label-hint" data-i18n="mcp_security_policy_ask_hint">El chat te pedirá confirmar cada comando o herramienta MCP no autorizada previamente.</p>
-            </div>
-          </label>
-          <label class="mcp-policy-option">
-            <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
-            <div class="mcp-policy-text">
-              <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo sin restricciones)</strong>
-              <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta MCP sin pausas de confirmación.</p>
-            </div>
-          </label>
-        </div>
-
-        <div class="mcp-saved-auths-section">
-          <div class="mcp-saved-auths-header">
-            <span class="label-hint" data-i18n="mcp_security_saved_auths_title">Herramientas con Permiso Recordado:</span>
-            <button type="button" id="btn-mcp-clear-auths" class="btn-text-action btn-mcp-clear-auths" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
-          </div>
-          <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
-        </div>
-      </div>
-
       <!-- Instrucciones de Descarga y Arranque -->
       <div class="mcp-instructions-card">
         <div class="mcp-instructions-header">
@@ -833,7 +857,7 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
           <div>
             <strong data-i18n="mcp_instructions_title">Instalación y Arranque del Servidor</strong>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_instructions_desc">
-              Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zerochat_mcp.py:
+              Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zmcp.py:
             </p>
           </div>
         </div>
@@ -841,14 +865,14 @@ exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__mai
         <div class="mcp-download-actions">
           <button type="button" id="btn-mcp-download-script" class="btn-primary btn-mcp-download" data-i18n-title="mcp_btn_download_title">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-            <span data-i18n="mcp_btn_download_server">Descargar servidor (zerochat_mcp.py)</span>
+            <span data-i18n="mcp_btn_download_server">Descargar servidor (zmcp.py)</span>
           </button>
         </div>
 
         <div class="mcp-command-wrapper">
           <span class="label-hint" data-i18n="mcp_run_instruction">Comando de ejecución:</span>
           <div class="mcp-cmd-row">
-            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">python3 zerochat_mcp.py</code></pre>
+            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">python3 zmcp.py</code></pre>
             <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
               <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
