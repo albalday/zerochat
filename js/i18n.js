@@ -20,8 +20,7 @@
     return 'dev';
   };
   const APP_VERSION = (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_VERSION__) || extractVersionFromTitle();
-  const APP_BUILD_CHANNEL = typeof globalThis !== 'undefined' ? globalThis.__ZEROCHAT_BUILD_CHANNEL__ : null;
-  const APP_TITLE = `ZeroChat v${APP_VERSION}${APP_BUILD_CHANNEL === 'dev' ? ' · DEV' : ''}`;
+  const APP_TITLE = `ZeroChat v${APP_VERSION}`;
 
   const TRANSLATIONS = {
     es: {

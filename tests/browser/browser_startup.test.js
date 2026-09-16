@@ -5,8 +5,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { version } = require('../../package.json');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
-const gitHead = fs.readFileSync(path.resolve(__dirname, '../../.git/HEAD'), 'utf8');
-const bundleTitle = `ZeroChat v${version}${gitHead.includes('refs/heads/dev') ? ' · DEV' : ''}`;
+const bundleTitle = `ZeroChat v${version}`;
 
 describe('Browser UI - startup', { concurrency: 2 }, () => {
   after(async () => {
