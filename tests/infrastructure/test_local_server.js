@@ -172,12 +172,48 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
     const rejectedTool = await rpc(12, 'tools/call', { name: 'mcp_dummy_missing', arguments: {} }, `${baseUrl}/mcp/external`);
     assert.equal(rejectedTool.error.code, -32001);
 
+    // Verificar que dummy_mcp quedó registrado como enabled en services.json
+    const servicesJsonPath = path.join(mcpHome, 'config', 'services.json');
+    assert.ok(fs.existsSync(servicesJsonPath), 'services.json debe existir');
+    const savedPrefs = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
+    assert.equal(savedPrefs.dummy_mcp?.enabled, true);
+
+    // Detener el host externo completamente con dummy_mcp aún habilitado
+    const stoppedHostWithServiceEnabled = await rpc(121, 'zerochat/external/stop');
+    assert.equal(stoppedHostWithServiceEnabled.result.host, 'stopped');
+
+    // Al consultar zerochat/external/status con servicios guardados habilitados, debe auto-arrancar
+    const autoStatus = await rpc(122, 'zerochat/external/status');
+    assert.ok(autoStatus.result.host === 'starting' || autoStatus.result.host === 'running');
+
+    // Esperar a que el bootstrap auto-arranque complete
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const bStatus = await (await fetch(`${baseUrl}/mcp/external/bootstrap/status`)).json();
+      if (bStatus.state === 'completed') break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    const autoRunningStatus = await rpc(123, 'zerochat/external/status');
+    assert.equal(autoRunningStatus.result.host, 'running');
+    const autoDummy = autoRunningStatus.result.servers.find(server => server.id === 'dummy_mcp');
+    assert.equal(autoDummy.status, 'running', 'dummy_mcp debe haberse auto-arrancado');
+    assert.equal(autoDummy.toolCount, 1);
+
+    const autoTools = await rpc(124, 'tools/list', {}, `${baseUrl}/mcp/external`);
+    assert.equal(autoTools.result.tools.length, 1);
+    assert.equal(autoTools.result.tools[0].name, 'mcp_dummyz5fzmcp_echo');
+
     const serviceStopped = await rpc(13, 'zerochat/external/servers/stop', { serverId: 'dummy_mcp' });
     assert.equal(serviceStopped.result.servers.find(server => server.id === 'dummy_mcp').status, 'stopped');
     assert.deepEqual((await rpc(14, 'tools/list', {}, `${baseUrl}/mcp/external`)).result.tools, []);
 
+    // services.json debe tener enabled: false
+    const updatedPrefs = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
+    assert.equal(updatedPrefs.dummy_mcp?.enabled, false);
+
     const stopped = await rpc(15, 'zerochat/external/stop');
     assert.equal(stopped.result.host, 'stopped');
+    const afterDisabledStopStatus = await rpc(151, 'zerochat/external/status');
+    assert.equal(afterDisabledStopStatus.result.host, 'stopped', 'No debe auto-arrancar si no hay servicios habilitados');
     const disconnected = await rpc(16, 'tools/list', {}, `${baseUrl}/mcp/external`);
     assert.equal(disconnected.error.code, -32001);
   } finally {

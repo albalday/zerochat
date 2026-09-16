@@ -368,6 +368,9 @@ class ExternalHost:
             self.clients[server_id] = client
             self.states[server_id] = "running"
             self.errors.pop(server_id, None)
+            entry = self.preferences.setdefault(server_id, {})
+            entry["enabled"] = True
+            self._save_preferences()
         except Exception as exc:
             self.states[server_id] = "needs_attention"
             self.errors[server_id] = str(exc)
@@ -379,7 +382,20 @@ class ExternalHost:
         if client:
             client.stop()
         self.states[server_id] = "stopped"
+        entry = self.preferences.setdefault(server_id, {})
+        entry["enabled"] = False
+        self._save_preferences()
         return self.list_servers()
+
+    def auto_start_enabled(self):
+        for server_id, server in self.services.items():
+            pref = self.preferences.get(server_id, {})
+            is_enabled = pref.get("enabled", server.get("enabledByDefault", False))
+            if is_enabled:
+                try:
+                    self.start(server_id)
+                except Exception:
+                    pass
 
     def tools(self):
         tools = []
@@ -429,6 +445,7 @@ def main():
         raise RuntimeError("External MCP release is incomplete")
 
     host = ExternalHost(home, services)
+    host.auto_start_enabled()
     atexit.register(host.close)
     try:
         for raw in sys.stdin:
