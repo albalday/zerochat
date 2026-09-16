@@ -275,7 +275,7 @@
       elements.contextMetricTurnCompletionVal.textContent = vm.turnCompletion > 0 ? `${vm.turnCompletion.toLocaleString()} tok` : '-';
     }
     if (elements.contextMetricTurnSpeedVal) {
-      elements.contextMetricTurnSpeedVal.textContent = vm.turnSpeed ? `${vm.turnSpeed} tok/s` : '-';
+      elements.contextMetricTurnSpeedVal.textContent = vm.turnSpeed ? `${vm.turnSpeed} t/s` : '-';
     }
     if (elements.contextMetricTurnLatencyVal) {
       elements.contextMetricTurnLatencyVal.textContent = vm.turnLatency ? `${vm.turnLatency}s` : '-';

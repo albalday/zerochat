@@ -127,7 +127,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
             </div>
             <div class="message-footer-row">
               <div class="message-stats">
-                <span class="stat-item">${zapSvg} <span>45 tok/s</span></span>
+                <span class="stat-item">${zapSvg} <span>45 t/s</span></span>
               </div>
               <div class="message-actions">
                 <button class="btn-msg-action btn-branch-conversation" aria-label="Crear rama" title="Crear rama">${branchSvg}</button>
