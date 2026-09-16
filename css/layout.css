@@ -89,7 +89,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-.welcome-execution-btn,
 .welcome-help-link {
   display: inline-flex;
   align-items: center;
@@ -103,8 +102,7 @@
   transition: all 0.2s ease;
 }
 
-.welcome-help-link:hover,
-.welcome-execution-btn:hover {
+.welcome-help-link:hover {
   color: var(--primary);
   border-color: var(--primary);
   background-color: var(--primary-light);

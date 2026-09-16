@@ -328,3 +328,20 @@ test('UIInspector - formatWebLLMErrorMessage descarta [object Object] y extrae m
   assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('Error: Program terminated with exit(1)')), 'Program terminated with exit(1)');
 });
 
+test('UIInspector - renderInspectorReport escapa caracteres del modelo sin doble escape', () => {
+  const fakeResultsContainer = { innerHTML: '' };
+  const elements = { inspectorResults: fakeResultsContainer };
+  const report = {
+    success: true,
+    connected: true,
+    provider: { label: 'Custom & Provider' },
+    endpoint: { normalized: 'http://localhost:1234/v1' },
+    model: { selected: 'Model & Special <Name>' },
+    capabilities: {}
+  };
+
+  UIInspector.renderInspectorReport(elements, report);
+  assert.ok(fakeResultsContainer.innerHTML.includes('Model &amp; Special &lt;Name&gt;'));
+  assert.equal(fakeResultsContainer.innerHTML.includes('&amp;amp;'), false, 'No debe haber doble escape HTML');
+});
+

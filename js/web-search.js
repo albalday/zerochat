@@ -17,23 +17,32 @@
 
   const DEFAULT_TIMEOUT_MS = 10000;
 
+  function getUtils() {
+    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
+    if (typeof require !== 'undefined') {
+      try { return require('./utils.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Realiza una petición fetch con timeout controlado mediante AbortController.
    */
   async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const Utils = getUtils();
+    if (Utils && typeof Utils.fetchWithTimeout === 'function') {
+      return Utils.fetchWithTimeout(url, options, timeoutMs);
+    }
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
     try {
-      const response = await fetch(url, {
+      return await fetch(url, {
         ...options,
         signal: controller ? controller.signal : undefined
       });
+    } finally {
       if (timer) clearTimeout(timer);
-      return response;
-    } catch (err) {
-      if (timer) clearTimeout(timer);
-      throw err;
     }
   }
 

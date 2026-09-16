@@ -682,7 +682,7 @@
 
     const modelInfoText = m.totalDiscovered > 0
       ? (t('inspector_discovered_models', { count: m.totalDiscovered }) || `${m.totalDiscovered} modelo(s) descubierto(s)`)
-      : (m.selected ? (t('inspector_model_selected', { model: escapeHtml(m.selected) }) || `Modelo: ${escapeHtml(m.selected)}`) : (t('inspector_no_models') || 'Sin modelos listados'));
+      : (m.selected ? (t('inspector_model_selected', { model: m.selected }) || `Modelo: ${m.selected}`) : (t('inspector_no_models') || 'Sin modelos listados'));
 
     const metaProvider = t('inspector_meta_provider') || 'Proveedor';
     const metaEndpoint = t('inspector_meta_endpoint') || 'Endpoint Chat';
