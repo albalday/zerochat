@@ -75,6 +75,22 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(dialogMetrics.borderRadius >= 16, `El radio de curvatura (${dialogMetrics.borderRadius}px) debe ser moderno (>= 16px / 1.25rem)`);
     assert.notEqual(dialogMetrics.boxShadow, 'none', 'El modal debe tener elevación con sombra');
 
+    // Validar que en viewport móvil el modal usa todo el ancho de la pantalla
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => Promise.all(document.getElementById('settings-dialog').getAnimations().map(a => a.finished)));
+    const mobileMetrics = await page.evaluate(() => {
+      const dialog = document.getElementById('settings-dialog');
+      const rect = dialog.getBoundingClientRect();
+      return {
+        width: Math.round(rect.width),
+        windowWidth: window.innerWidth,
+        left: Math.round(rect.left)
+      };
+    });
+    assert.equal(mobileMetrics.width, mobileMetrics.windowWidth, 'En móvil el modal debe usar todo el ancho de la pantalla');
+    assert.equal(mobileMetrics.left, 0, 'En móvil el modal debe extenderse desde el borde izquierdo (left: 0)');
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     const contextCachePlacement = await page.evaluate(() => ({
       automaticNotice: !!document.querySelector('#tab-model [data-i18n="model_cache_title"]'),
       legacyToggle: !!document.getElementById('setting-enable-context-cache'),
