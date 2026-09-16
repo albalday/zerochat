@@ -220,6 +220,17 @@ li {
   font-size: 0.95rem;
 }
 
+.alert a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.alert a:hover {
+  text-decoration: none;
+}
+
 .alert-info {
   background: var(--info-light);
   border-color: var(--info);
