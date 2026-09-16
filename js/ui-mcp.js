@@ -57,34 +57,23 @@
     const suffix = path ? (path.startsWith('/') ? path : `/${path}`) : '/sse';
     return `http://${sanitizeHost(host)}:${sanitizePort(port)}${suffix}`;
   }
-  function generateMcpServerScript(options = {}) {
-    const host = sanitizeHost(options.host);
-    const port = sanitizePort(options.port);
+  function generateMcpServerScript() {
     const localServerPayload = typeof globalThis !== 'undefined' ? globalThis.__ZMCP_LOCAL_SERVER_B64__ : null;
-    const channel = typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_BUILD_CHANNEL__ === 'dev' ? 'dev' : 'master';
-    const devSourceRoot = channel === 'dev' && typeof globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ === 'string'
-      ? globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ : null;
-    const initialization = {
-      buildChannel: channel,
-      externalSource: channel === 'dev' && devSourceRoot ? 'local-copy' : 'github-pages',
-      externalSourceRoot: channel === 'dev' && devSourceRoot ? `${devSourceRoot}/scripts/mcp` : null
-    };
-    return `#!/usr/bin/env python3
-# ZeroChat local MCP server. External services stay stopped until requested.
-import os
-import base64
-import json
-from pathlib import Path
-PAYLOAD = ${JSON.stringify(localServerPayload || '')}
-INITIALIZATION = ${JSON.stringify(initialization)}
-if not PAYLOAD:
-    raise RuntimeError('This ZeroChat bundle does not include its local MCP server')
-os.environ.setdefault('ZMCP_INITIALIZATION', json.dumps(INITIALIZATION))
-os.environ.setdefault('ZMCP_DEFAULT_HOST', '${host}')
-os.environ.setdefault('ZMCP_DEFAULT_PORT', '${port}')
-SOURCE = base64.b64decode(PAYLOAD)
-exec(compile(SOURCE, str(Path(__file__).resolve()), 'exec'), {'__name__': '__main__', '__file__': str(Path(__file__).resolve())})
-`;
+    if (!localServerPayload) {
+      throw new Error('This ZeroChat bundle does not include its local MCP server');
+    }
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(localServerPayload, 'base64').toString('utf8');
+    }
+    if (typeof atob === 'function') {
+      const binary = atob(localServerPayload);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    return '';
   }
 
   function downloadMcpServerScript(options = {}) {

@@ -87,7 +87,7 @@ Para preservar el rendimiento durante el streaming de tokens SSE, se debe aplica
 renderizado eficiente (lazy rendering): evitar mutaciones masivas continuas del DOM y
 actualizar paneles o popovers pesados bajo demanda al interactuar o al finalizar la inferencia.
 
-Las herramientas deben respetar el contrato documentado en `docs/TOOLS.md`.
+Las herramientas deben respetar el contrato documentado en `js/tools/README.md`.
 No deben utilizarse las propiedades obsoletas `ui` ni `handler`.
 
 ## 4. Seguridad
@@ -175,3 +175,20 @@ Un cambio está terminado cuando:
 - no deja errores de consola en los tests de navegador;
 - actualiza el bundle distribuible;
 - deja la documentación coherente con el comportamiento real.
+
+## 9. Política de documentación y colocación (colocation)
+
+La documentación se organiza de forma canónica en los siguientes niveles:
+
+- **`AGENTS.md` (Gobernanza y normas globales)**:
+  Contiene exclusivamente las normas de obligado cumplimiento, límites de seguridad, restricciones arquitectónicas transversales y directrices del flujo de trabajo (build, test, git). No debe inflarse con contratos detallados ni especificaciones técnicas exhaustivas de APIs o subsistemas.
+- **Documentación técnica de subsistemas (Colocación / Colocation)**:
+  La documentación técnica profunda reside obligatoriamente en la carpeta raíz del subsistema que describe bajo el nombre estándar `README.md`. Está prohibido que los agentes creen archivos `.md` sueltos en la raíz o en carpetas genéricas:
+  - Pruebas y suite de test: `tests/README.md`.
+  - Herramientas agénticas y contratos de ejecución: `js/tools/README.md`.
+  - Servicios externos MCP y runtime del host: `scripts/mcp/README.md`.
+  - Copias de perfiles precargados: `bundle-profiles/README.md`.
+- **Documentación de usuario final (`help/`)**:
+  Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
+- **Histórico y archivo (`docs/`)**:
+  Reservado exclusivamente para informes de auditoría cerrados (`docs/audits/`) y propuestas técnicas de diseño en borrador (`docs/proposals/`).

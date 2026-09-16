@@ -692,7 +692,12 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
 
     # 3. Concatenar scripts locales antes de comprimirlos para mejorar el ratio.
     project_version = read_project_version(document_dir, raw_html)
-    local_server_path = os.path.join(document_dir, "scripts", "mcp_server.py")
+    local_server_path = os.path.join(document_dir, "scripts", "zmcp.py")
+    if not os.path.isfile(local_server_path):
+        repo_root = os.path.dirname(os.path.abspath(__file__))
+        alt_path = os.path.join(repo_root, "scripts", "zmcp.py")
+        if os.path.isfile(alt_path):
+            local_server_path = alt_path
     try:
         with open(local_server_path, "rb") as local_server_file:
             local_server_payload = base64.b64encode(local_server_file.read()).decode("ascii")
@@ -703,7 +708,6 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
         f"globalThis.__ZEROCHAT_VERSION__ = {json.dumps(project_version)};\n"
         f"globalThis.__ZEROCHAT_BUILD_CHANNEL__ = {json.dumps(channel)};\n"
         f"globalThis.__ZMCP_LOCAL_SERVER_B64__ = {json.dumps(local_server_payload)};\n"
-        + (f"globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = {json.dumps(document_dir)};\n" if channel == "dev" else "")
     )
     if bundled_profile_backup is not None:
         app_index = next((

@@ -1,13 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
+const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 
 test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta un servicio stdio', async () => {
-  const serverPath = path.resolve(__dirname, '../../scripts/mcp_server.py');
+  const serverPath = path.resolve(__dirname, '../../scripts/zmcp.py');
   const sourceRoot = path.resolve(__dirname, '../../scripts/mcp');
+  const buildReleaseScript = path.resolve(sourceRoot, 'build_release.py');
   const playwrightInstaller = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'installer.json'), 'utf8'));
   const playwrightService = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'service.json'), 'utf8'));
   assert.equal(playwrightInstaller.product.browser, 'chromium');
@@ -16,10 +18,29 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
   const mcpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-home-'));
   const port = 6400 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
-  fs.cpSync(sourceRoot, releaseRoot, { recursive: true });
+
+  // Construir release verificada para servir por HTTP
+  execFileSync('python3', [buildReleaseScript, '--output', releaseRoot]);
+
+  // Levantar servidor HTTP local contra el directorio de la release
+  const releaseServer = http.createServer((req, res) => {
+    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const safePath = path.normalize(parsedUrl.pathname).replace(/^(\.\.[\/\\])+/, '');
+    const filePath = path.join(releaseRoot, safePath);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      fs.createReadStream(filePath).pipe(res);
+    } else {
+      res.writeHead(404);
+      res.end('Not found');
+    }
+  });
+  await new Promise(resolve => releaseServer.listen(0, '127.0.0.1', resolve));
+  const releasePort = releaseServer.address().port;
+  const releaseUrl = `http://127.0.0.1:${releasePort}`;
+
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--mcp-source', 'local-copy',
-    '--mcp-source-root', releaseRoot, '--mcp-home', mcpHome
+    serverPath, '--port', String(port), '--mcp-source-url', releaseUrl, '--mcp-home', mcpHome
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   let serverError = '';
   let serverOutput = '';
@@ -30,9 +51,9 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
     let response;
     try {
       response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Client': '1' },
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
       });
     } catch (error) {
       assert.fail(`${serverError || error.message}`);
@@ -49,6 +70,36 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
       await new Promise(resolve => setTimeout(resolve, 100));
       if (attempt === 39) assert.fail('El servidor local no arrancó');
     }
+
+    // Comprobaciones de seguridad de origen y cabecera de cliente
+    const evilOptions = await fetch(baseUrl, { method: 'OPTIONS', headers: { Origin: 'https://evil.com' } });
+    assert.equal(evilOptions.status, 403);
+    assert.equal(evilOptions.headers.get('access-control-allow-origin'), null);
+
+    const evilGet = await fetch(baseUrl, { headers: { Origin: 'https://evil.com' } });
+    assert.equal(evilGet.status, 403);
+
+    const evilPost = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { Origin: 'https://evil.com', 'Content-Type': 'application/json', 'X-ZeroChat-Client': '1' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' })
+    });
+    assert.equal(evilPost.status, 403);
+
+    const missingClientHeader = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { Origin: 'https://albalday.github.io', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' })
+    });
+    assert.equal(missingClientHeader.status, 403);
+
+    const allowedPreflight = await fetch(baseUrl, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://albalday.github.io' }
+    });
+    assert.equal(allowedPreflight.status, 204);
+    assert.equal(allowedPreflight.headers.get('access-control-allow-origin'), 'https://albalday.github.io');
+    assert.ok(allowedPreflight.headers.get('access-control-allow-headers').includes('X-ZeroChat-Client'));
 
     const localTools = await rpc(1, 'tools/list');
     assert.deepEqual(localTools.result.tools.map(tool => tool.name).sort(), [
@@ -125,7 +176,16 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
     if (serverProc.exitCode === null) {
       await new Promise(resolve => serverProc.once('close', resolve));
     }
+    await new Promise(resolve => releaseServer.close(resolve));
     fs.rmSync(mcpHome, { recursive: true, force: true });
     fs.rmSync(releaseRoot, { recursive: true, force: true });
   }
 });
+
+test('Rechazo de URL de release MCP no autorizada', async () => {
+  const serverPath = path.resolve(__dirname, '../../scripts/zmcp.py');
+  assert.throws(() => {
+    execFileSync('python3', [serverPath, '--mcp-source-url', 'https://evil.com/releases'], { stdio: 'pipe' });
+  }, /Origen de descarga MCP no autorizado/);
+});
+

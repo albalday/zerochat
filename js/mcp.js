@@ -30,7 +30,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Shared wire contract with zmcp_host.py: escape z and non-lowercase
+  // Shared wire contract with bootstrap.py: escape z and non-lowercase
   // characters as z<hex code point>z; only tool components retain underscores.
   function publicToolName(serverId, originalName) {
     const encode = (value, tool = false) => {
@@ -223,7 +223,8 @@
     buildHeaders() {
       const headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream, */*'
+        'Accept': 'application/json, text/event-stream, */*',
+        'X-ZeroChat-Client': '1'
       };
       if (this.headers && typeof this.headers === 'object') {
         Object.assign(headers, this.headers);

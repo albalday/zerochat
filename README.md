@@ -54,9 +54,9 @@ de `index.html`, `js/` y `css/`.
 - `index.html`: aplicación fuente.
 - `js/`: módulos de aplicación.
 - `css/`: estilos y tokens de diseño.
-- `tests/`: pruebas automatizadas.
-- `docs/TOOLS.md`: contrato de las herramientas.
-- `docs/AuditFull.md`: procedimiento de auditoría completo previo a versiones mayores.
+- `tests/`: pruebas automatizadas (véase `tests/README.md`).
+- `js/tools/README.md`: contrato de las herramientas.
+- `docs/audits/AuditFull.md`: procedimiento de auditoría completo previo a versiones mayores.
 - `zerochat.html`: distribución generada.
 
 No se debe editar manualmente `zerochat.html`.
