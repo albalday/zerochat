@@ -301,6 +301,29 @@
       const language = getI18n()?.getLanguage?.() || 'es';
       const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
       const err = server.error ? `<p class="mcp-server-error">${escapeHtml(server.error)}</p>` : '';
+      let optionsHtml = '';
+      if (Array.isArray(server.options) && server.options.length > 0) {
+        optionsHtml = `<div class="mcp-server-options">` + server.options.map(opt => {
+          const optLabel = escapeHtml(opt.label?.[language] || opt.label?.es || opt.label || opt.id);
+          const optDesc = opt.description ? `<span class="label-hint">${escapeHtml(opt.description?.[language] || opt.description?.es || opt.description || '')}</span>` : '';
+          const userVal = server.userOptions && opt.id in server.userOptions ? server.userOptions[opt.id] : opt.default;
+          if (opt.type === 'boolean') {
+            const isChecked = Boolean(userVal);
+            return `
+              <div class="mcp-server-option-row">
+                <label class="switch switch-sm">
+                  <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(opt.id)}" ${isChecked ? 'checked' : ''}>
+                  <span class="slider round"></span>
+                </label>
+                <div class="mcp-server-option-meta">
+                  <span class="mcp-server-option-label">${optLabel}</span>
+                  ${optDesc}
+                </div>
+              </div>`;
+          }
+          return '';
+        }).join('') + `</div>`;
+      }
 
       return `
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
@@ -312,6 +335,7 @@
             </div>
             ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
             ${err}
+            ${optionsHtml}
           </div>
           <div class="mcp-server-actions">
             <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}">
@@ -320,6 +344,36 @@
           </div>
         </div>`;
     }).join('');
+
+    container.querySelectorAll?.('.mcp-server-option-checkbox').forEach(cb => {
+      cb.addEventListener?.('change', async () => {
+        const sid = cb.getAttribute?.('data-server-id');
+        const optId = cb.getAttribute?.('data-option-id');
+        if (!sid || !optId) return;
+        cb.disabled = true;
+        const MCP = getMCP();
+        try {
+          await MCP?.manager?.configureExternalServer?.(sid, {
+            options: { [optId]: cb.checked }
+          });
+          const updated = await MCP?.manager?.fetchExternalServers?.();
+          const State = getState();
+          if (updated && State?.set) {
+            const current = State.get('mcp') || {};
+            State.set('mcp', {
+              ...current,
+              externalHost: updated.host || 'stopped',
+              externalServers: updated.servers || []
+            });
+          }
+        } catch (e) {
+          console.error('[MCP UI] Error configuring server option:', e);
+          cb.checked = !cb.checked;
+        } finally {
+          cb.disabled = false;
+        }
+      });
+    });
 
     container.querySelectorAll?.('.btn-mcp-server-toggle').forEach(btn => {
       btn.addEventListener?.('click', async () => {

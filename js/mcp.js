@@ -1137,6 +1137,14 @@
       await this.refreshExternalProvider(registry).catch(() => {});
       return result;
     }
+
+    async configureExternalServer(serverId, config = {}) {
+      return this.requestExternalControl('zerochat/external/servers/configure', {
+        serverId,
+        enabled: config.enabled,
+        options: config.options
+      });
+    }
   }
 
   const manager = new McpManager();

@@ -130,8 +130,21 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
 
     const externalAfterBootstrap = await rpc(5, 'zerochat/external/status');
     assert.equal(externalAfterBootstrap.result.host, 'running');
-    assert.deepEqual(externalAfterBootstrap.result.servers.map(server => server.id).sort(), ['dummy_mcp', 'playwright']);
+    assert.deepEqual(externalAfterBootstrap.result.servers.map(server => server.id).sort(), ['dummy_mcp', 'lsp', 'memory', 'playwright']);
     assert.notEqual(externalAfterBootstrap.result.servers.find(server => server.id === 'dummy_mcp').status, 'running');
+    const playwrightBefore = externalAfterBootstrap.result.servers.find(server => server.id === 'playwright');
+    assert.ok(Array.isArray(playwrightBefore.options));
+    assert.equal(playwrightBefore.options.length, 1);
+    assert.equal(playwrightBefore.options[0].id, 'headless');
+    assert.equal(playwrightBefore.options[0].default, true);
+    assert.deepEqual(playwrightBefore.userOptions, {});
+
+    const configured = await rpc(51, 'zerochat/external/servers/configure', {
+      serverId: 'playwright',
+      options: { headless: false }
+    });
+    const playwrightAfterConfig = configured.result.servers.find(server => server.id === 'playwright');
+    assert.equal(playwrightAfterConfig.userOptions?.headless, false);
 
     const afterStartLocalTools = await rpc(6, 'tools/list');
     assert.equal(afterStartLocalTools.result.tools.length, 4, 'El host externo no se agrega al proveedor local');

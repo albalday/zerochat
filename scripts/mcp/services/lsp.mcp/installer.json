@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "type": "npm",
+  "product": {
+    "package": "@axivo/mcp-lsp",
+    "version": "1.0.5"
+  }
+}
+

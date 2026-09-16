@@ -757,4 +757,71 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
     ChatMCP.manager.fetchExternalServers = originalFetchServers;
     ChatState.set('mcp', previousMcpState);
   }
+
+  // 5. Servidor con opciones declarativas y toggle de opción
+  const checkboxes = [];
+  const checkboxListeners = {};
+  const containerWithOptions = {
+    innerHTML: '',
+    querySelectorAll: (sel) => {
+      if (sel === '.mcp-server-option-checkbox') return checkboxes;
+      if (sel === '.btn-mcp-server-toggle') return [];
+      return [];
+    }
+  };
+
+  const serverWithOptions = [
+    {
+      id: 'playwright',
+      name: 'Playwright MCP',
+      description: 'Navegador web',
+      status: 'stopped',
+      options: [
+        {
+          id: 'headless',
+          type: 'boolean',
+          label: { es: 'Navegación en segundo plano', en: 'Headless mode' },
+          description: { es: 'Desactívalo para ver la ventana', en: 'Disable to show window' },
+          default: true
+        }
+      ],
+      userOptions: {}
+    }
+  ];
+
+  const cb = {
+    checked: true,
+    disabled: false,
+    getAttribute: (attr) => {
+      if (attr === 'data-server-id') return 'playwright';
+      if (attr === 'data-option-id') return 'headless';
+      return null;
+    },
+    addEventListener: (evt, fn) => {
+      checkboxListeners[`playwright_headless_${evt}`] = fn;
+    }
+  };
+  checkboxes.push(cb);
+
+  ChatUIMcp.renderExternalServers(containerWithOptions, serverWithOptions, 'running', t);
+  assert.ok(containerWithOptions.innerHTML.includes('mcp-server-options'));
+  assert.ok(containerWithOptions.innerHTML.includes('Navegación en segundo plano'));
+  assert.ok(containerWithOptions.innerHTML.includes('data-option-id="headless"'));
+
+  let configCalled = null;
+  const originalConfigure = ChatMCP.manager.configureExternalServer;
+  try {
+    ChatMCP.manager.configureExternalServer = async (sid, cfg) => {
+      configCalled = { sid, cfg };
+      return { success: true };
+    };
+    cb.checked = false;
+    await checkboxListeners['playwright_headless_change']();
+    assert.deepEqual(configCalled, {
+      sid: 'playwright',
+      cfg: { options: { headless: false } }
+    });
+  } finally {
+    ChatMCP.manager.configureExternalServer = originalConfigure;
+  }
 });
