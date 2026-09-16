@@ -599,7 +599,7 @@ test('MCP - host Python, proveedor, registro y permisos aíslan herramientas hom
   const Security = require('../../js/tool-security.js');
   const hostScript = `
 import json, sys
-from scripts.mcp.runtime.zerochat_mcp_host import ExternalHost
+from scripts.mcp.runtime.zmcp_host import ExternalHost
 class Client:
     def __init__(self, server, names):
         self.server = server

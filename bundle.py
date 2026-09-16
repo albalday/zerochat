@@ -702,7 +702,7 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     version_bootstrap = (
         f"globalThis.__ZEROCHAT_VERSION__ = {json.dumps(project_version)};\n"
         f"globalThis.__ZEROCHAT_BUILD_CHANNEL__ = {json.dumps(channel)};\n"
-        f"globalThis.__ZEROCHAT_MCP_LOCAL_SERVER_B64__ = {json.dumps(local_server_payload)};\n"
+        f"globalThis.__ZMCP_LOCAL_SERVER_B64__ = {json.dumps(local_server_payload)};\n"
         + (f"globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = {json.dumps(document_dir)};\n" if channel == "dev" else "")
     )
     if bundled_profile_backup is not None:

@@ -178,11 +178,13 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(renamedActiveResult.runtimeName, 'Perfil Temporal renombrado', 'El perfil activo debe reflejar el nuevo nombre');
     assert.equal(renamedActiveResult.runtimeUrl, 'http://active-profile-test:1234/v1', 'Los cambios del perfil activo deben recargarse');
 
-    // 2c. Verificar pestaña MCP (mcp-proxy) al lado de Agente, modal de configuración reactivo y comando
+    // 2c. Verificar las pestañas MCP y Permisos, además del modal de configuración reactivo y comando
     const tabOrder = await page.$$eval('#settings-dialog .modal-tabs-nav .modal-tab-btn', els => els.map(e => e.getAttribute('data-tab')));
     const agentIndex = tabOrder.indexOf('tab-agent');
     const mcpIndex = tabOrder.indexOf('tab-mcp');
+    const permissionsIndex = tabOrder.indexOf('tab-permissions');
     assert.ok(agentIndex >= 0 && mcpIndex === agentIndex + 1, 'La pestaña MCP debe estar posicionada inmediatamente al lado de la de Agente');
+    assert.ok(permissionsIndex === mcpIndex + 1, 'La pestaña Permisos debe estar inmediatamente después de MCP');
 
     const mcpTabBtn = await page.$('button[data-tab="tab-mcp"]');
     assert.ok(mcpTabBtn, 'Debe existir la pestaña MCP en la navegación de pestañas');
@@ -201,7 +203,8 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
         hasConfigureBtn: !!btnConfigure,
         hasConnectBtn: !!btnConnect,
         hasToolsContainer: !!document.getElementById('mcp-tools-container'),
-        toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none'
+        toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none',
+        hasBootstrapStatus: !!document.getElementById('mcp-bootstrap-status')
       };
     });
 
@@ -211,6 +214,19 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(mcpUiState.hasConnectBtn, 'El botón Conectar debe estar presente en el panel MCP');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
+    assert.ok(mcpUiState.hasBootstrapStatus, 'Debe existir una línea de estado para el arranque del bootstrap MCP');
+
+    const permissionsTabBtn = await page.$('button[data-tab="tab-permissions"]');
+    assert.ok(permissionsTabBtn, 'Debe existir la pestaña Permisos en la navegación de pestañas');
+    await permissionsTabBtn.click();
+    const permissionsState = await page.evaluate(() => ({
+      paneActive: document.getElementById('tab-permissions')?.classList.contains('active'),
+      hasAskPolicy: !!document.getElementById('mcp-policy-ask'),
+      hasSavedAuthorizations: !!document.getElementById('mcp-saved-auths-list')
+    }));
+    assert.ok(permissionsState.paneActive, 'El panel tab-permissions debe quedar visible y activo');
+    assert.ok(permissionsState.hasAskPolicy, 'La política de permisos debe estar disponible en la nueva pestaña');
+    assert.ok(permissionsState.hasSavedAuthorizations, 'Las autorizaciones recordadas deben estar disponibles en la nueva pestaña');
 
     // Abrir modal de configuración e instrucciones desde el botón Configurar
     await page.click('#btn-mcp-configure');
@@ -233,13 +249,13 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
 
     assert.equal(modalState.port, '6388', 'El puerto por defecto debe ser 6388 (rango 63xx)');
     assert.equal(modalState.operatingSystem, 'linux', 'Linux debe ser el sistema operativo por defecto');
-    assert.equal(modalState.commandText, 'python3 zerochat_mcp.py', 'El comando no debe repetir el puerto por defecto');
+    assert.equal(modalState.commandText, 'python3 zmcp.py', 'El comando no debe repetir el puerto por defecto');
     assert.equal(modalState.endpointText, 'http://127.0.0.1:6388/sse');
 
     await page.selectOption('#mcp-os-select', 'windows');
-    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'py zerochat_mcp.py');
+    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'py zmcp.py');
     await page.selectOption('#mcp-os-select', 'android');
-    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'python3 zerochat_mcp.py');
+    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'python3 zmcp.py');
     await page.selectOption('#mcp-os-select', 'linux');
 
     // Cambiar interactivamente el puerto en el input del modal y verificar reactividad inmediata

@@ -1067,6 +1067,10 @@
   white-space: nowrap;
 }
 
+.mcp-bootstrap-status {
+  margin: -0.35rem 0 0.75rem;
+}
+
 .mcp-servers-icon {
   color: var(--primary);
   display: inline-flex;

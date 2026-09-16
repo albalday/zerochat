@@ -60,7 +60,7 @@ def main():
     runtime, services = release / "runtime", release / "services"
     if options.source == "local-copy":
         root = Path(options.source_root or "").resolve()
-        if not (root / "runtime" / "zerochat_mcp_host.py").is_file() or not (root / "services").is_dir():
+        if not (root / "runtime" / "zmcp_host.py").is_file() or not (root / "services").is_dir():
             raise RuntimeError("Local MCP source does not contain a host runtime and services")
         release.mkdir(parents=True, exist_ok=True)
         copy_tree(root / "runtime", runtime)
@@ -70,13 +70,13 @@ def main():
             raise RuntimeError("External MCP releases require an HTTPS source URL")
         release.mkdir(parents=True, exist_ok=True)
         download_release(options.source_url, release)
-        if not (runtime / "zerochat_mcp_host.py").is_file() or not services.is_dir():
+        if not (runtime / "zmcp_host.py").is_file() or not services.is_dir():
             raise RuntimeError("External MCP release is incomplete")
     env = home / "env"
     python = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not python.exists():
         subprocess.run([sys.executable, "-m", "venv", str(env)], check=True)
-    os.execv(str(python), [str(python), str(runtime / "zerochat_mcp_host.py"), "--home", str(home), "--services-root", str(services)])
+    os.execv(str(python), [str(python), str(runtime / "zmcp_host.py"), "--home", str(home), "--services-root", str(services)])
 
 
 if __name__ == "__main__":

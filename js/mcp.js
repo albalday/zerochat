@@ -30,7 +30,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Shared wire contract with zerochat_mcp_host.py: escape z and non-lowercase
+  // Shared wire contract with zmcp_host.py: escape z and non-lowercase
   // characters as z<hex code point>z; only tool components retain underscores.
   function publicToolName(serverId, originalName) {
     const encode = (value, tool = false) => {
@@ -1094,10 +1094,19 @@
       }
     }
 
+    async fetchExternalBootstrapStatus(options = {}) {
+      const control = this.getExternalControlClient();
+      if (!control) throw new Error('Servicio local de herramientas no conectado.');
+      const baseUrl = (control.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '');
+      const response = await fetchWithTimeout(`${baseUrl}/mcp/external/bootstrap/status`, {
+        headers: { Accept: 'application/json' }
+      }, options.timeoutMs || 4000);
+      if (!response.ok) throw new Error(`Estado del bootstrap no disponible (${response.status}).`);
+      return response.json();
+    }
+
     async startExternalHost(registry = null) {
-      const result = await this.requestExternalControl('zerochat/external/start');
-      try { await this.refreshExternalProvider(registry); } catch (_) {}
-      return result;
+      return this.requestExternalControl('zerochat/external/start');
     }
 
     async stopExternalHost(registry = null) {
