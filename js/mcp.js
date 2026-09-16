@@ -30,6 +30,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const DEFAULT_MCP_SERVER_BASE_URL = 'https://albalday.github.io/zerochat';
+
   // Shared wire contract with bootstrap.py: escape z and non-lowercase
   // characters as z<hex code point>z; only tool components retain underscores.
   function publicToolName(serverId, originalName) {
@@ -1106,8 +1108,25 @@
       return response.json();
     }
 
+    getServerBaseUrl() {
+      if (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__) {
+        return globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__;
+      }
+      const State = getState();
+      const configured = State?.get?.('config')?.mcpServerBaseUrl;
+      if (configured) return configured;
+      return DEFAULT_MCP_SERVER_BASE_URL;
+    }
+
+    setServerBaseUrl(url) {
+      if (typeof globalThis !== 'undefined') {
+        globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__ = url;
+      }
+    }
+
     async startExternalHost(registry = null) {
-      return this.requestExternalControl('zerochat/external/start');
+      const serverBaseUrl = this.getServerBaseUrl();
+      return this.requestExternalControl('zerochat/external/start', { serverBaseUrl });
     }
 
     async stopExternalHost(registry = null) {
@@ -1150,6 +1169,7 @@
   const manager = new McpManager();
 
   return {
+    DEFAULT_MCP_SERVER_BASE_URL,
     McpClient,
     McpToolProvider,
     McpManager,

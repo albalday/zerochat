@@ -27,7 +27,15 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PORT = 6388
-DEFAULT_EXTERNAL_SOURCE_URL = "https://albalday.github.io/zerochat/mcp/releases/stable"
+DEFAULT_SERVER_BASE_URL = os.environ.get(
+    "ZMCP_SERVER_BASE_URL",
+    "https://albalday.github.io/zerochat"
+)
+MCP_RELATIVE_PATH = "/scripts/mcp"
+DEFAULT_EXTERNAL_SOURCE_URL = os.environ.get(
+    "ZMCP_EXTERNAL_SOURCE_URL",
+    f"{DEFAULT_SERVER_BASE_URL.rstrip('/')}{MCP_RELATIVE_PATH}"
+)
 
 
 def is_allowed_origin(origin: str | None) -> bool:
@@ -49,7 +57,7 @@ def validate_mcp_source_url(url: str) -> None:
     if not url or not isinstance(url, str):
         raise RuntimeError("URL de release MCP no válida")
     url_lower = url.lower()
-    if url_lower.startswith("https://albalday.github.io/zerochat/"):
+    if url_lower == "https://albalday.github.io/zerochat" or url_lower.startswith("https://albalday.github.io/zerochat/"):
         return
     if url_lower.startswith("http://127.0.0.1:") or url_lower.startswith("http://localhost:"):
         return
@@ -383,8 +391,11 @@ class ExternalMcpHostBridge:
         with self._bootstrap_lock:
             self._bootstrap_state = {"state": state, "message": message}
 
-    def start_host_background(self):
+    def start_host_background(self, source_url=None):
         """Start one external-host bootstrap without blocking the HTTP request."""
+        if source_url:
+            validate_mcp_source_url(source_url)
+            self.source_url = source_url
         with self._bootstrap_lock:
             if self._bootstrap_state["state"] == "running":
                 return dict(self._bootstrap_state)
@@ -406,7 +417,7 @@ class ExternalMcpHostBridge:
     def _bootstrap_path(self):
         target = self.home / "bootstrap.py"
         target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
+        try:
             import urllib.request
             validate_mcp_source_url(self.source_url)
             with urllib.request.urlopen(self.source_url.rstrip("/") + "/bootstrap.py", timeout=30) as response:
@@ -414,6 +425,9 @@ class ExternalMcpHostBridge:
             if len(data) > 2 * 1024 * 1024:
                 raise RuntimeError("El bootstrap MCP supera el límite permitido")
             target.write_bytes(data)
+        except Exception:
+            if not target.exists():
+                raise
         return target
 
     def start_host(self):
@@ -708,7 +722,13 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             result = external_host.request("status") if external_host and external_host.running() else {"host": "stopped", "servers": []}
         elif method == "zerochat/external/start":
             try:
-                result = external_host.start_host_background()
+                server_base_url = params.get("serverBaseUrl") if isinstance(params, dict) else None
+                source_url = None
+                if server_base_url:
+                    source_url = server_base_url.rstrip("/") + MCP_RELATIVE_PATH
+                elif isinstance(params, dict) and params.get("sourceUrl"):
+                    source_url = params.get("sourceUrl")
+                result = external_host.start_host_background(source_url=source_url)
             except Exception as ex:
                 error = {"code": -32010, "message": str(ex)}
         elif method == "zerochat/external/stop":
@@ -761,7 +781,8 @@ def main():
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZMCP_DEFAULT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas locales")
     parser.add_argument("--mcp-home", default=str(Path.home() / ".zerochat" / "mcp"), help="Directorio privado del host MCP externo")
-    parser.add_argument("--mcp-source-url", default=DEFAULT_EXTERNAL_SOURCE_URL, help="URL de releases MCP externas")
+    parser.add_argument("--server-base-url", default=DEFAULT_SERVER_BASE_URL, help="URL base del servidor ZeroChat")
+    parser.add_argument("--mcp-source-url", default=None, help="URL de origen de servicios MCP externas (anula la ruta derivada de server-base-url)")
     args = parser.parse_args()
 
     if args.test:
@@ -771,7 +792,8 @@ def main():
         log_line("TEST local tools ready")
         return
 
-    external_host = ExternalMcpHostBridge(args.mcp_home, args.mcp_source_url)
+    mcp_source_url = args.mcp_source_url or f"{args.server_base_url.rstrip('/')}{MCP_RELATIVE_PATH}"
+    external_host = ExternalMcpHostBridge(args.mcp_home, mcp_source_url)
     atexit.register(external_host.stop_host)
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
     log_line(f"SERVER active http://{args.host}:{args.port}")

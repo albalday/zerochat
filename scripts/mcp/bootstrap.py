@@ -33,19 +33,38 @@ def download(source_url, destination):
 
 
 def download_release(source_url, release):
-    manifest_path = release / "release.json"
-    download(source_url.rstrip("/") + "/release.json", manifest_path)
+    services_dir = release / "services"
+    services_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = services_dir / "services.json"
+    download(source_url.rstrip("/") + "/services/services.json", manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("schemaVersion") != 1 or not isinstance(manifest.get("files"), list):
-        raise RuntimeError("Invalid external MCP release manifest")
-    for item in manifest["files"]:
-        relative = Path(str(item.get("path", "")))
-        target = (release / relative).resolve()
-        if not relative.parts or relative.is_absolute() or release.resolve() not in target.parents:
-            raise RuntimeError("Unsafe external MCP release path")
-        download(source_url.rstrip("/") + "/" + relative.as_posix(), target)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != item.get("sha256"):
-            raise RuntimeError("External MCP release integrity check failed")
+    if not isinstance(manifest, (list, dict)):
+        raise RuntimeError("Invalid external MCP services manifest")
+
+    if isinstance(manifest, dict):
+        entries = manifest.items()
+    elif isinstance(manifest, list):
+        entries = []
+        for item in manifest:
+            if isinstance(item, dict):
+                entries.append((item.get("id"), item.get("files", ["service.json", "installer.json"])))
+            elif isinstance(item, str):
+                entries.append((item, ["service.json", "installer.json"]))
+            else:
+                raise RuntimeError("Invalid service entry in manifest")
+    else:
+        entries = []
+
+    for server_id, files in entries:
+        if not isinstance(server_id, str) or not server_id or not server_id.replace("_", "").isalnum():
+            raise RuntimeError(f"Invalid external MCP server id: {server_id}")
+        target_dir = services_dir / f"{server_id}.mcp"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for filename in files:
+            if not isinstance(filename, str) or not filename or "/" in filename or "\\" in filename or ".." in filename:
+                raise RuntimeError(f"Unsafe external MCP filename: {filename}")
+            file_url = f"{source_url.rstrip('/')}/services/{server_id}.mcp/{filename}"
+            download(file_url, target_dir / filename)
 
 
 def validate_mcp_source_url(url: str) -> None:
@@ -53,7 +72,7 @@ def validate_mcp_source_url(url: str) -> None:
     if not url or not isinstance(url, str):
         raise RuntimeError("URL de release MCP no válida")
     url_lower = url.lower()
-    if url_lower.startswith("https://albalday.github.io/zerochat/"):
+    if url_lower == "https://albalday.github.io/zerochat" or url_lower.startswith("https://albalday.github.io/zerochat/"):
         return
     if url_lower.startswith("http://127.0.0.1:") or url_lower.startswith("http://localhost:"):
         return

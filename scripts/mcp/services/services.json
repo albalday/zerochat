@@ -1,0 +1,31 @@
+[
+  {
+    "id": "dummy_mcp",
+    "files": [
+      "service.json",
+      "installer.json",
+      "dummy_mcp_server.py"
+    ]
+  },
+  {
+    "id": "lsp",
+    "files": [
+      "service.json",
+      "installer.json"
+    ]
+  },
+  {
+    "id": "memory",
+    "files": [
+      "service.json",
+      "installer.json"
+    ]
+  },
+  {
+    "id": "playwright",
+    "files": [
+      "service.json",
+      "installer.json"
+    ]
+  }
+]

@@ -6,16 +6,16 @@
 scripts/
   zmcp.py                    # Servidor local: herramientas locales + router HTTP + puente a bootstrap
   mcp/
-    bootstrap.py             # Descarga release verificada y aloja el host stdio de servicios externos
-    build_release.py         # Construye release.json con hashes de los servicios
+    bootstrap.py             # Descarga y ejecuta el host stdio de servicios externos
     services/
+      services.json          # Manifiesto de servicios y archivos publicables
       <servicio>.mcp/        # Definición completa de un servicio
         service.json         # Identidad y comando
         installer.json       # Producto y versión exacta
         README.md            # Información humana
 ```
 
-No hay un catálogo central con la definición de productos. El host descubre cada directorio `*.mcp` y carga su `service.json` e `installer.json`. Para añadir un servicio se crea un directorio nuevo con esa nomenclatura; no se modifica código Python, JavaScript ni una lista de funciones. El instalador declara `type: "none"` cuando el ejecutable ya está disponible, o `type: "npm"` con el paquete y versión exactos cuando debe instalarse.
+El servidor local compone la URL de origen combinando la URL base del servidor ZeroChat con la ruta relativa `/scripts/mcp`. Los servicios publicados se declaran en `services/services.json` indicando los archivos de cada servicio. El host descarga estos archivos directamente desde el servidor y carga su `service.json` e `installer.json`. Para añadir un servicio se crea un directorio nuevo con esa nomenclatura y se registra en `services.json`. El instalador declara `type: "none"` cuando el ejecutable ya está disponible, o `type: "npm"` con el paquete y versión exactos cuando debe instalarse.
 
 `services/dummy_mcp.mcp/` es la implementación mínima de referencia: declara el servicio, no requiere instalación y expone la herramienta `echo` por stdio. Permanece desactivado por defecto y las pruebas de infraestructura lo usan directamente desde la release para validar el mismo contrato que seguirá cualquier servicio externo.
 
