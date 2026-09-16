@@ -228,6 +228,9 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(permissionsState.hasAskPolicy, 'La política de permisos debe estar disponible en la nueva pestaña');
     assert.ok(permissionsState.hasSavedAuthorizations, 'Las autorizaciones recordadas deben estar disponibles en la nueva pestaña');
 
+    // Volver a la pestaña MCP
+    await mcpTabBtn.click();
+
     // Abrir modal de configuración e instrucciones desde el botón Configurar
     await page.click('#btn-mcp-configure');
     await page.waitForSelector('#mcp-setup-dialog[open]');

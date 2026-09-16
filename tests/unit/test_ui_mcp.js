@@ -70,57 +70,24 @@ test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones'
   assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
 });
 
-test('ChatUIMcp - generateMcpServerScript incluye el servidor local autónomo sin el host externo', () => {
+test('ChatUIMcp - generateMcpServerScript entrega el código exacto de zmcp.py tal cual', () => {
   const previousPayload = globalThis.__ZMCP_LOCAL_SERVER_B64__;
   try {
-    globalThis.__ZMCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
-    const pyScript = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
-    assert.ok(pyScript.includes('#!/usr/bin/env python3'));
-    assert.ok(pyScript.includes("PAYLOAD = \"cHJpbnQoJ2xvY2FsJyk=\""));
-    assert.ok(pyScript.includes('base64.b64decode(PAYLOAD)'));
-    assert.ok(!pyScript.includes('urlopen'));
-    assert.ok(!pyScript.includes('StdioMcpClient'));
-    assert.ok(!pyScript.includes('McpProcessManager'));
-    assert.ok(!pyScript.includes('@mcp/'));
-    assert.ok(pyScript.includes("ZMCP_DEFAULT_PORT', '6388'"));
-    assert.ok(pyScript.includes("ZMCP_DEFAULT_HOST', '127.0.0.1'"));
-
-    const pyCustom = ChatUIMcp.generateMcpServerScript({ host: '0.0.0.0', port: 6399 });
-    assert.ok(pyCustom.includes("ZMCP_DEFAULT_PORT', '6399'"));
-    assert.ok(pyCustom.includes("ZMCP_DEFAULT_HOST', '0.0.0.0'"));
+    const rawPython = '#!/usr/bin/env python3\nprint("hello zmcp")\n';
+    globalThis.__ZMCP_LOCAL_SERVER_B64__ = Buffer.from(rawPython).toString('base64');
+    const pyScript = ChatUIMcp.generateMcpServerScript();
+    assert.equal(pyScript, rawPython);
+    assert.ok(!pyScript.includes('PAYLOAD ='));
+    assert.ok(!pyScript.includes('exec(compile'));
+    assert.ok(!pyScript.includes('b64decode'));
   } finally {
-    if (previousPayload === undefined) delete globalThis.__ZMCP_LOCAL_SERVER_B64__;
-    else globalThis.__ZMCP_LOCAL_SERVER_B64__ = previousPayload;
-  }
-});
-
-test('ChatUIMcp - generateMcpServerScript pasa la configuración local al mismo servidor cuando el bundle es dev', () => {
-  const previousChannel = globalThis.__ZEROCHAT_BUILD_CHANNEL__;
-  const previousRoot = globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
-  const previousPayload = globalThis.__ZMCP_LOCAL_SERVER_B64__;
-  try {
-    globalThis.__ZEROCHAT_BUILD_CHANNEL__ = 'dev';
-    globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = '/home/alberto/vs/zerochat';
-    globalThis.__ZMCP_LOCAL_SERVER_B64__ = 'cHJpbnQoJ2xvY2FsJyk=';
-    const script = ChatUIMcp.generateMcpServerScript({ host: '127.0.0.1', port: 6388 });
-    assert.ok(script.includes('PAYLOAD = "cHJpbnQoJ2xvY2FsJyk="'));
-    assert.ok(script.includes('"buildChannel":"dev"'));
-    assert.ok(script.includes('"externalSource":"local-copy"'));
-    assert.ok(script.includes('"externalSourceRoot":"/home/alberto/vs/zerochat/scripts/mcp"'));
-    assert.ok(script.includes("ZMCP_INITIALIZATION"));
-    assert.ok(!script.includes('runpy.run_path'));
-  } finally {
-    if (previousChannel === undefined) delete globalThis.__ZEROCHAT_BUILD_CHANNEL__;
-    else globalThis.__ZEROCHAT_BUILD_CHANNEL__ = previousChannel;
-    if (previousRoot === undefined) delete globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__;
-    else globalThis.__ZEROCHAT_DEV_SOURCE_ROOT__ = previousRoot;
     if (previousPayload === undefined) delete globalThis.__ZMCP_LOCAL_SERVER_B64__;
     else globalThis.__ZMCP_LOCAL_SERVER_B64__ = previousPayload;
   }
 });
 
 test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
-  const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'scripts', 'mcp_server.py'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'scripts', 'zmcp.py'), 'utf8');
   assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
   assert.match(serverSource, /add_argument\("--port", type=int, default=int\(os\.environ\.get\("ZMCP_DEFAULT_PORT", DEFAULT_PORT\)\)/);
 });

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Downloaded ZeroChat external MCP host.
+"""Bootstrap y host descargable de servicios MCP externos para ZeroChat.
 
-This program is deliberately independent from the browser bundle and from the
-local ZeroChat tools server.  It is driven through newline-delimited JSON on
-stdin/stdout by the small launcher in ``zmcp.py``.
+Descarga y verifica la release de servicios externos si no está presente o
+requiere actualización, y ejecuta el bucle de control stdio de servicios.
 """
 from __future__ import annotations
 
 import argparse
+import atexit
+import hashlib
 import json
 import os
 import queue
@@ -16,9 +17,47 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 MAX_LINE_BYTES = 16 * 1024 * 1024
+
+
+def download(source_url, destination):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(source_url, timeout=30) as response:
+        data = response.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024:
+        raise RuntimeError("Downloaded bootstrap artifact is too large")
+    destination.write_bytes(data)
+
+
+def download_release(source_url, release):
+    manifest_path = release / "release.json"
+    download(source_url.rstrip("/") + "/release.json", manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schemaVersion") != 1 or not isinstance(manifest.get("files"), list):
+        raise RuntimeError("Invalid external MCP release manifest")
+    for item in manifest["files"]:
+        relative = Path(str(item.get("path", "")))
+        target = (release / relative).resolve()
+        if not relative.parts or relative.is_absolute() or release.resolve() not in target.parents:
+            raise RuntimeError("Unsafe external MCP release path")
+        download(source_url.rstrip("/") + "/" + relative.as_posix(), target)
+        if hashlib.sha256(target.read_bytes()).hexdigest() != item.get("sha256"):
+            raise RuntimeError("External MCP release integrity check failed")
+
+
+def validate_mcp_source_url(url: str) -> None:
+    """Valida que la URL de release para servicios MCP externos provenga de un origen seguro."""
+    if not url or not isinstance(url, str):
+        raise RuntimeError("URL de release MCP no válida")
+    url_lower = url.lower()
+    if url_lower.startswith("https://albalday.github.io/zerochat/"):
+        return
+    if url_lower.startswith("http://127.0.0.1:") or url_lower.startswith("http://localhost:"):
+        return
+    raise RuntimeError(f"Origen de descarga MCP no autorizado: {url}")
 
 
 def public_tool_name(server_id, original):
@@ -331,11 +370,21 @@ def emit(message):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="ZeroChat External MCP Bootstrap and Stdio Host")
     parser.add_argument("--home", required=True)
-    parser.add_argument("--services-root", required=True)
+    parser.add_argument("--source-url", required=True)
     options = parser.parse_args()
-    host = ExternalHost(options.home, options.services_root)
+    validate_mcp_source_url(options.source_url)
+    home = Path(options.home).expanduser().resolve()
+    release = home / "releases" / "active"
+    services = release / "services"
+    release.mkdir(parents=True, exist_ok=True)
+    download_release(options.source_url, release)
+    if not services.is_dir():
+        raise RuntimeError("External MCP release is incomplete")
+
+    host = ExternalHost(home, services)
+    atexit.register(host.close)
     try:
         for raw in sys.stdin:
             request = None
@@ -363,3 +412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

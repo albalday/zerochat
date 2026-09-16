@@ -21,12 +21,39 @@ import subprocess
 import threading
 import queue
 import signal
+import atexit
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PORT = 6388
 DEFAULT_EXTERNAL_SOURCE_URL = "https://albalday.github.io/zerochat/mcp/releases/stable"
+
+
+def is_allowed_origin(origin: str | None) -> bool:
+    """Verifica si el origen de la petición CORS está autorizado para interactuar con zmcp."""
+    if origin is None or origin == "null":
+        return True
+    origin_lower = origin.lower()
+    if origin_lower == "https://albalday.github.io" or origin_lower.startswith("https://albalday.github.io/"):
+        return True
+    if origin_lower == "http://127.0.0.1" or origin_lower.startswith("http://127.0.0.1:"):
+        return True
+    if origin_lower == "http://localhost" or origin_lower.startswith("http://localhost:"):
+        return True
+    return False
+
+
+def validate_mcp_source_url(url: str) -> None:
+    """Valida que la URL de release para servicios MCP externos provenga de un origen seguro."""
+    if not url or not isinstance(url, str):
+        raise RuntimeError("URL de release MCP no válida")
+    url_lower = url.lower()
+    if url_lower.startswith("https://albalday.github.io/zerochat/"):
+        return
+    if url_lower.startswith("http://127.0.0.1:") or url_lower.startswith("http://localhost:"):
+        return
+    raise RuntimeError(f"Origen de descarga MCP no autorizado: {url}")
 
 
 def log_line(message):
@@ -67,7 +94,7 @@ def initialize_runtime_configuration():
     This only selects the source to use later if the user explicitly starts the
     external MCP host. It neither opens a connection nor reads that source.
     """
-    default = {"buildChannel": "master", "externalSource": "github-pages", "externalSourceRoot": None}
+    default = {"buildChannel": "master", "externalSource": "github-pages"}
     raw = os.environ.get("ZMCP_INITIALIZATION")
     if not raw:
         return default
@@ -79,12 +106,9 @@ def initialize_runtime_configuration():
         return default
     channel = value.get("buildChannel")
     source = value.get("externalSource")
-    source_root = value.get("externalSourceRoot")
-    if channel not in ("dev", "master") or source not in ("local-copy", "github-pages"):
+    if channel not in ("dev", "master") or source != "github-pages":
         return default
-    if source == "local-copy" and (not isinstance(source_root, str) or not os.path.isabs(source_root)):
-        return default
-    return {"buildChannel": channel, "externalSource": source, "externalSourceRoot": source_root}
+    return {"buildChannel": channel, "externalSource": source}
 
 # ==============================================================================
 # Herramientas Locales Básicas (Core)
@@ -339,9 +363,10 @@ class ExternalMcpHostBridge:
     externos. Esos datos pertenecen exclusivamente al host descargado.
     """
 
-    def __init__(self, home, source, source_root=None, source_url=DEFAULT_EXTERNAL_SOURCE_URL):
+    def __init__(self, home, source_url=DEFAULT_EXTERNAL_SOURCE_URL):
+        validate_mcp_source_url(source_url)
         self.home = Path(home).expanduser().resolve()
-        self.source, self.source_root, self.source_url = source, source_root, source_url
+        self.source_url = source_url
         self.process, self._next, self._pending = None, 0, {}
         self._lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
@@ -381,16 +406,9 @@ class ExternalMcpHostBridge:
     def _bootstrap_path(self):
         target = self.home / "bootstrap.py"
         target.parent.mkdir(parents=True, exist_ok=True)
-        if self.source == "local-copy":
-            root = Path(self.source_root or "").resolve()
-            source = root / "bootstrap" / "bootstrap.py"
-            if not source.is_file():
-                raise RuntimeError("No se encontró el bootstrap MCP local")
-            target.write_bytes(source.read_bytes())
-        elif not target.exists():
+        if not target.exists():
             import urllib.request
-            if not self.source_url.startswith("https://"):
-                raise RuntimeError("La fuente MCP externa debe usar HTTPS")
+            validate_mcp_source_url(self.source_url)
             with urllib.request.urlopen(self.source_url.rstrip("/") + "/bootstrap.py", timeout=30) as response:
                 data = response.read(2 * 1024 * 1024 + 1)
             if len(data) > 2 * 1024 * 1024:
@@ -402,11 +420,7 @@ class ExternalMcpHostBridge:
         if self.running():
             return self.request("status")
         bootstrap = self._bootstrap_path()
-        command = [sys.executable, str(bootstrap), "--home", str(self.home), "--source", self.source]
-        if self.source == "local-copy":
-            command.extend(["--source-root", str(Path(self.source_root).resolve())])
-        else:
-            command.extend(["--source-url", self.source_url])
+        command = [sys.executable, str(bootstrap), "--home", str(self.home), "--source-url", self.source_url]
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True)
         threading.Thread(target=self._read_stdout, daemon=True).start()
@@ -494,12 +508,20 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         log_line(f"RESPONSE {kind} HTTP {status} {outcome}")
 
     def send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if not is_allowed_origin(origin):
+            return
+        self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, X-ZeroChat-Client, Authorization")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
+        origin = self.headers.get("Origin")
+        if not is_allowed_origin(origin):
+            self.send_response(403)
+            self.end_headers()
+            return
         kind = "HTTP OPTIONS"
         self.log_request_received(kind)
         self.send_response(204)
@@ -508,6 +530,11 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.log_response_sent(kind, 204)
 
     def do_GET(self):
+        origin = self.headers.get("Origin")
+        if not is_allowed_origin(origin):
+            self.send_response(403)
+            self.end_headers()
+            return
         accept = self.headers.get("Accept", "")
         kind = http_request_type(self.path, accept)
         self.log_request_received(kind)
@@ -576,6 +603,16 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
         self.log_response_sent(kind, 200)
 
     def do_POST(self):
+        origin = self.headers.get("Origin")
+        if not is_allowed_origin(origin):
+            self.send_response(403)
+            self.end_headers()
+            return
+        if origin is not None and self.headers.get("X-ZeroChat-Client") != "1":
+            self.send_response(403)
+            self.end_headers()
+            return
+
         content_len = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
 
@@ -724,9 +761,7 @@ def main():
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZMCP_DEFAULT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--test", action="store_true", help="Ejecutar comprobación interna de herramientas locales")
     parser.add_argument("--mcp-home", default=str(Path.home() / ".zerochat" / "mcp"), help="Directorio privado del host MCP externo")
-    parser.add_argument("--mcp-source", choices=("github-pages", "local-copy"), default=runtime["externalSource"], help="Origen del bootstrap MCP externo")
-    parser.add_argument("--mcp-source-root", default=runtime["externalSourceRoot"] or str(SCRIPT_DIR / "mcp"), help="Raíz de desarrollo para --mcp-source local-copy")
-    parser.add_argument("--mcp-source-url", default=DEFAULT_EXTERNAL_SOURCE_URL, help="URL HTTPS de releases MCP externas")
+    parser.add_argument("--mcp-source-url", default=DEFAULT_EXTERNAL_SOURCE_URL, help="URL de releases MCP externas")
     args = parser.parse_args()
 
     if args.test:
@@ -736,7 +771,8 @@ def main():
         log_line("TEST local tools ready")
         return
 
-    external_host = ExternalMcpHostBridge(args.mcp_home, args.mcp_source, args.mcp_source_root, args.mcp_source_url)
+    external_host = ExternalMcpHostBridge(args.mcp_home, args.mcp_source_url)
+    atexit.register(external_host.stop_host)
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
     log_line(f"SERVER active http://{args.host}:{args.port}")
     log_line("SERVER local tools ready")

@@ -7,3 +7,4 @@ rag permitir parar importacio, tratar ficheros duplicados
 ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
 mcp android
 mcp ejecutar. coje el sistema operativo para informar?
+mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico

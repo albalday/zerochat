@@ -32,7 +32,7 @@ test('Test Runner - rechaza niveles o grupos desconocidos con error descriptivo'
   }, /Grupo desconocido: 'grupo_invalido'/);
 });
 
-test('Test Runner - define grupos funcionales requeridos por test.md', async () => {
+test('Test Runner - define grupos funcionales requeridos por tests/README.md', async () => {
   const runner = await import('../../scripts/test-runner.mjs');
 
   const expectedGroups = ['turns', 'composer', 'generation', 'profiles', 'mcp', 'rag', 'providers', 'bundle'];
