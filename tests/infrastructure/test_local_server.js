@@ -7,26 +7,22 @@ const fs = require('node:fs');
 const os = require('node:os');
 
 test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta un servicio stdio', async () => {
-  const serverPath = path.resolve(__dirname, '../../scripts/zmcp.py');
-  const sourceRoot = path.resolve(__dirname, '../../scripts/mcp');
-  const buildReleaseScript = path.resolve(sourceRoot, 'build_release.py');
+  const repoRoot = path.resolve(__dirname, '../..');
+  const serverPath = path.resolve(repoRoot, 'scripts/zmcp.py');
+  const sourceRoot = path.resolve(repoRoot, 'scripts/mcp');
   const playwrightInstaller = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'installer.json'), 'utf8'));
   const playwrightService = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'service.json'), 'utf8'));
   assert.equal(playwrightInstaller.product.browser, 'chromium');
   assert.ok(playwrightService.launch.args.includes('--browser=chromium'));
-  const releaseRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-release-'));
   const mcpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-home-'));
   const port = 6400 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  // Construir release verificada para servir por HTTP
-  execFileSync('python3', [buildReleaseScript, '--output', releaseRoot]);
-
-  // Levantar servidor HTTP local contra el directorio de la release
-  const releaseServer = http.createServer((req, res) => {
+  // Levantar servidor HTTP local contra el directorio del repositorio
+  const testServer = http.createServer((req, res) => {
     const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
     const safePath = path.normalize(parsedUrl.pathname).replace(/^(\.\.[\/\\])+/, '');
-    const filePath = path.join(releaseRoot, safePath);
+    const filePath = path.join(repoRoot, safePath);
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
       fs.createReadStream(filePath).pipe(res);
@@ -35,12 +31,12 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
       res.end('Not found');
     }
   });
-  await new Promise(resolve => releaseServer.listen(0, '127.0.0.1', resolve));
-  const releasePort = releaseServer.address().port;
-  const releaseUrl = `http://127.0.0.1:${releasePort}`;
+  await new Promise(resolve => testServer.listen(0, '127.0.0.1', resolve));
+  const testServerPort = testServer.address().port;
+  const serverBaseUrl = `http://127.0.0.1:${testServerPort}`;
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--mcp-source-url', releaseUrl, '--mcp-home', mcpHome
+    serverPath, '--port', String(port), '--server-base-url', serverBaseUrl, '--mcp-home', mcpHome
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   let serverError = '';
   let serverOutput = '';
@@ -111,7 +107,7 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
     assert.deepEqual(before.result.servers, []);
 
     const startAt = Date.now();
-    const started = await rpc(3, 'zerochat/external/start');
+    const started = await rpc(3, 'zerochat/external/start', { serverBaseUrl });
     assert.equal(started.error, undefined, started.error?.message);
     assert.equal(started.result.state, 'running');
     assert.ok(Date.now() - startAt < 1500, 'El arranque debe devolver antes de completar el bootstrap');
@@ -189,14 +185,16 @@ test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta
     if (serverProc.exitCode === null) {
       await new Promise(resolve => serverProc.once('close', resolve));
     }
-    await new Promise(resolve => releaseServer.close(resolve));
+    await new Promise(resolve => testServer.close(resolve));
     fs.rmSync(mcpHome, { recursive: true, force: true });
-    fs.rmSync(releaseRoot, { recursive: true, force: true });
   }
 });
 
 test('Rechazo de URL de release MCP no autorizada', async () => {
   const serverPath = path.resolve(__dirname, '../../scripts/zmcp.py');
+  assert.throws(() => {
+    execFileSync('python3', [serverPath, '--server-base-url', 'https://evil.com'], { stdio: 'pipe' });
+  }, /Origen de descarga MCP no autorizado/);
   assert.throws(() => {
     execFileSync('python3', [serverPath, '--mcp-source-url', 'https://evil.com/releases'], { stdio: 'pipe' });
   }, /Origen de descarga MCP no autorizado/);

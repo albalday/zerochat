@@ -686,3 +686,27 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
     listTools: async () => [{ name: 'read_file' }] });
   assert.equal((await provider.discoverTools())[0].name, 'zmcp_read_file');
 });
+
+test('MCP - getServerBaseUrl y startExternalHost transmiten la URL base configurada', async () => {
+  const manager = new MCP.McpManager();
+  assert.equal(manager.getServerBaseUrl(), 'https://albalday.github.io/zerochat');
+
+  manager.setServerBaseUrl('http://127.0.0.1:8080');
+  assert.equal(manager.getServerBaseUrl(), 'http://127.0.0.1:8080');
+
+  let interceptedMethod = null;
+  let interceptedParams = null;
+  manager.requestExternalControl = async (method, params) => {
+    interceptedMethod = method;
+    interceptedParams = params;
+    return { state: 'running' };
+  };
+
+  const result = await manager.startExternalHost();
+  assert.equal(result.state, 'running');
+  assert.equal(interceptedMethod, 'zerochat/external/start');
+  assert.deepEqual(interceptedParams, { serverBaseUrl: 'http://127.0.0.1:8080' });
+
+  delete globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__;
+  assert.equal(manager.getServerBaseUrl(), 'https://albalday.github.io/zerochat');
+});
