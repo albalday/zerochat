@@ -582,6 +582,7 @@
     setStorageItem,
     getStorageItem,
     deleteStorageItem,
+    // Alias heredados para compatibilidad hacia atrás en consola de depuración (@deprecated)
     setCookie: setStorageItem,
     getCookie: getStorageItem,
     deleteCookie: deleteStorageItem,

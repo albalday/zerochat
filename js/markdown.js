@@ -26,14 +26,24 @@
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
+  function getUtils() {
+    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
+    if (typeof require !== 'undefined') {
+      try { return require('./utils.js'); } catch (e) { return null; }
+    }
+    return null;
+  }
+
   function escapeHtml(str) {
+    const Utils = getUtils();
+    if (Utils && typeof Utils.escapeHtml === 'function') return Utils.escapeHtml(str);
     if (!str) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#39;');
   }
 
   /**
