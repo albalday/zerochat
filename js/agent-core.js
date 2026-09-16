@@ -1178,6 +1178,20 @@
               });
             }
 
+            if (callbacks.onStepDone) {
+              callbacks.onStepDone(stepIndex, {
+                type: 'loop_detected',
+                text: currentStepText,
+                assistantMsg: {
+                  id: typeof createMessageId === 'function'
+                    ? createMessageId('final', { stepIndex })
+                    : `msg_turn_${stepIndex}_final`,
+                  role: 'assistant',
+                  content: currentStepText
+                }
+              });
+            }
+
             if (autoSynthesize && synthesizeOnLoop && !combinedSignal.aborted) {
               if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
               try {

@@ -161,8 +161,10 @@
     if (elements.settingApiType && profileData.apiType !== undefined) {
       elements.settingApiType.value = profileData.apiType;
     }
-    if (elements.settingApiUrl && profileData.apiUrl !== undefined) {
-      elements.settingApiUrl.value = profileData.apiUrl;
+    if (elements.settingApiUrl) {
+      const apiType = elements.settingApiType?.value || profileData.apiType || 'openai';
+      const defaultEndpoint = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().endpoint || 'http://localhost:1234/v1';
+      elements.settingApiUrl.value = (profileData.apiUrl !== undefined && profileData.apiUrl !== '') ? profileData.apiUrl : defaultEndpoint;
     }
     if (elements.settingApiKeyLocked) elements.settingApiKeyLocked.checked = profileData.apiKeyLocked === true;
     if (elements.profilesDialog) elements.profilesDialog.dataset.profileLocked = String(profileData.apiKeyLocked === true);
@@ -230,10 +232,15 @@
     const adapter = getProviders()?.registry?.get?.(providerId);
     const connection = adapter?.getConnectionConfig?.() || {};
     const isWebLLM = providerId === 'webllm';
-    if (connection.endpointReadOnly && connection.endpoint && elements.settingApiUrl) {
-      elements.settingApiUrl.value = connection.endpoint;
-    }
     if (elements?.settingApiUrl) {
+      if (connection.endpoint) {
+        elements.settingApiUrl.placeholder = connection.endpoint;
+      }
+      if (connection.endpointReadOnly && connection.endpoint) {
+        elements.settingApiUrl.value = connection.endpoint;
+      } else if (!elements.settingApiUrl.value.trim() && connection.endpoint) {
+        elements.settingApiUrl.value = connection.endpoint;
+      }
       elements.settingApiUrl.readOnly = connection.endpointReadOnly === true;
       elements.settingApiUrl.required = connection.endpointReadOnly !== true;
     }

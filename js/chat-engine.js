@@ -488,9 +488,11 @@
           const block = turnBlocks.get(turnIndex);
           if (step.type === 'tool_execution') {
             getTurnMarkdown(turnIndex).text = step.assistantMsg?.content || '';
+          } else if (step.type === 'loop_detected') {
+            getTurnMarkdown(turnIndex).text = step.text || step.assistantMsg?.content || '';
           }
           if (!block) return;
-          const text = step.type === 'final_response' ? step.text : step.assistantMsg?.content;
+          const text = (step.type === 'final_response' || step.type === 'loop_detected') ? step.text : step.assistantMsg?.content;
           if (text) {
             UIConversation.renderAssistantBlock(block, text, { attachListeners: attachEvts });
           } else if (typeof block.remove === 'function') {
@@ -499,6 +501,9 @@
           }
         },
         onLoopDetected: () => {
+          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
+          const statusText = i18n?.t ? i18n.t('generation_status_loop_detected') : 'Parada ordenada: bucle infinito detectado';
+          onGenerationStatus?.({ phase: 'error', text: statusText });
           if (typeof onLog === 'function') {
             onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
           }
@@ -523,11 +528,13 @@
     }
     if (result.cancelled || result.status === 'cancelled') return { success: false, cancelled: true };
     if (result.error) return { success: false, error: result.error };
-    const accumulatedMarkdown = [...turnMarkdown.entries()]
+    const turnTexts = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap(([, turn]) => [turn.text, ...turn.toolBlocks])
-      .filter(Boolean)
-      .concat(result.finalText || '')
+      .filter(Boolean);
+    const hasFinalInTurn = result.finalText && turnTexts.some(txt => txt && txt.includes(result.finalText));
+    const accumulatedMarkdown = turnTexts
+      .concat(hasFinalInTurn ? [] : (result.finalText ? [result.finalText] : []))
       .filter(Boolean)
       .join('\n\n');
     return {

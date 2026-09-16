@@ -39,6 +39,7 @@
 
       // Metadatos y Encabezados
       app_title: APP_TITLE,
+      app_description: 'ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
       
       // Estado de Bienvenida inicial
       welcome_heading: 'ZeroChat',
@@ -225,6 +226,8 @@
       debug_status_streaming: 'Generando...',
       debug_status_thinking: 'Razonando...',
       debug_status_done: 'Completado',
+      debug_status_loop_detected: 'Bucle infinito detectado',
+      agent_loop_warning_notice: 'Protección de bucle infinito: las herramientas se invocaron repetidamente sin avances. El ciclo agéntico se detuvo de forma ordenada.',
       debug_status_error: 'Error',
       btn_copy_debug_title: 'Copiar logs al portapapeles',
       btn_clear_debug_title: 'Limpiar logs',
@@ -530,6 +533,7 @@ find ~/storage/downloads -name zmcp.py -print`,
       generation_status_generating: 'Generando respuesta…',
       generation_status_rag: 'Consultando RAG…',
       generation_status_tool: 'Ejecutando {name}…',
+      generation_status_loop_detected: 'Parada ordenada: bucle infinito detectado',
       generation_status_percent: '{text} · {percent} %',
       generation_status_elapsed: '{text} · {seconds} s',
       webllm_download: 'Descargar',
@@ -698,6 +702,7 @@ find ~/storage/downloads -name zmcp.py -print`,
 
       // Metadata & Headers
       app_title: APP_TITLE,
+      app_description: 'ZeroChat - Universal web chat client, autonomous AI agent, and local RAG in a single zero-install file',
       
       // Welcome state
       welcome_heading: 'ZeroChat',
@@ -884,6 +889,8 @@ find ~/storage/downloads -name zmcp.py -print`,
       debug_status_streaming: 'Generating...',
       debug_status_thinking: 'Thinking...',
       debug_status_done: 'Completed',
+      debug_status_loop_detected: 'Infinite loop detected',
+      agent_loop_warning_notice: 'Infinite Loop Protection: tools were repeatedly invoked without progress. The agent cycle stopped cleanly.',
       debug_status_error: 'Error',
       btn_copy_debug_title: 'Copy logs to clipboard',
       btn_clear_debug_title: 'Clear logs',
@@ -1189,6 +1196,7 @@ find ~/storage/downloads -name zmcp.py -print`,
       generation_status_generating: 'Generating response…',
       generation_status_rag: 'Querying RAG…',
       generation_status_tool: 'Executing {name}…',
+      generation_status_loop_detected: 'Orderly stop: infinite loop detected',
       generation_status_percent: '{text} · {percent} %',
       generation_status_elapsed: '{text} · {seconds} s',
       webllm_download: 'Download',

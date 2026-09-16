@@ -20,3 +20,10 @@ test('Storage - persiste exclusivamente el documento de configuración operativa
   loaded.enabledTools.search_web = true;
   assert.equal(Storage.loadRuntimeConfigV2().enabledTools.search_web, false);
 });
+
+test('Storage - alias heredados conservan compatibilidad hacia atrás', () => {
+  Storage.setCookie('legacy_key', 'legacy_val');
+  assert.equal(Storage.getCookie('legacy_key'), 'legacy_val');
+  Storage.deleteCookie('legacy_key');
+  assert.equal(Storage.getCookie('legacy_key'), null);
+});

@@ -27,14 +27,24 @@
     '#84cc16'  // lime
   ];
 
+  function getUtils() {
+    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
+    if (typeof require !== 'undefined') {
+      try { return require('./utils.js'); } catch (e) { return null; }
+    }
+    return null;
+  }
+
   function escapeHtml(str) {
+    const Utils = getUtils();
+    if (Utils && typeof Utils.escapeHtml === 'function') return Utils.escapeHtml(str);
     if (!str) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#39;');
   }
 
   /**

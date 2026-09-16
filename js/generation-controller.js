@@ -257,16 +257,16 @@
           isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
           lang: runtimeConfig.language || 'es'
         });
-        if (State?.set) State.set('agent', { ragSystemContext: ragContext });
+        if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: ragContext });
       } catch (err) {
         console.warn('Error al cargar contexto inicial de RAG:', err);
         if (typeof options.addDebugLog === 'function') {
           options.addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
         }
-        if (State?.set) State.set('agent', { ragSystemContext: '' });
+        if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: '' });
       }
     } else {
-      if (State?.set) State.set('agent', { ragSystemContext: '' });
+      if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: '' });
     }
 
     const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
@@ -354,7 +354,17 @@
         return;
       }
 
-      if (loopResult && loopResult.error) {
+      if (loopResult && loopResult.loopDetected) {
+        if (State?.set) {
+          State.set('agent', { loopWarning: true });
+        }
+        if (typeof options.setDebugStatus === 'function') {
+          options.setDebugStatus('error', t('debug_status_loop_detected'));
+        }
+        if (typeof options.addDebugLog === 'function') {
+          options.addDebugLog('error', t('agent_loop_warning_notice'));
+        }
+      } else if (loopResult && loopResult.error) {
         if (currentAbortController && currentAbortController.signal.aborted) {
           return;
         }
@@ -375,7 +385,7 @@
       if (actions) actions.style.display = 'inline-flex';
       UIConversation.bindMessageCopy(btnCopy, () => loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '');
 
-      if (typeof options.setDebugStatus === 'function') {
+      if (typeof options.setDebugStatus === 'function' && !loopResult?.loopDetected) {
         options.setDebugStatus('done', t('debug_status_done'));
       }
     } catch (err) {

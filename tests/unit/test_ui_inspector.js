@@ -126,6 +126,40 @@ test('UIInspector - handleQueryServer informa si la consulta fue satisfactoria',
   }
 });
 
+test('UIInspector - handleQueryServer utiliza endpoint por defecto si apiUrl está vacío', async () => {
+  let queriedUrl = '';
+  const originalFetch = API.fetchServerModels;
+  API.fetchServerModels = async (url) => {
+    queriedUrl = url;
+    return {
+      success: true,
+      count: 1,
+      endpoint: url,
+      models: [{ id: 'model-fallback' }]
+    };
+  };
+  const elements = {
+    btnQueryServer: {
+      disabled: false,
+      classList: { add() {}, remove() {} },
+      querySelector: () => ({ textContent: '' })
+    },
+    settingApiUrl: { value: '' },
+    settingApiKey: { value: '' },
+    settingApiType: { value: 'openai' },
+    serverQueryStatus: { style: {}, className: '', innerHTML: '', textContent: '' }
+  };
+
+  try {
+    const result = await UIInspector.handleQueryServer(elements, {});
+    assert.equal(result, true);
+    assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
+    assert.equal(queriedUrl, 'http://localhost:1234/v1');
+  } finally {
+    API.fetchServerModels = originalFetch;
+  }
+});
+
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
   const datalistOptions = [];
   const selectOptions = [];
@@ -292,5 +326,22 @@ test('UIInspector - formatWebLLMErrorMessage descarta [object Object] y extrae m
   // Limpieza de prefijo Error:
   assert.equal(UIInspector.formatWebLLMErrorMessage('Error: Program terminated with exit(1)'), 'Program terminated with exit(1)');
   assert.equal(UIInspector.formatWebLLMErrorMessage(new Error('Error: Program terminated with exit(1)')), 'Program terminated with exit(1)');
+});
+
+test('UIInspector - renderInspectorReport escapa caracteres del modelo sin doble escape', () => {
+  const fakeResultsContainer = { innerHTML: '' };
+  const elements = { inspectorResults: fakeResultsContainer };
+  const report = {
+    success: true,
+    connected: true,
+    provider: { label: 'Custom & Provider' },
+    endpoint: { normalized: 'http://localhost:1234/v1' },
+    model: { selected: 'Model & Special <Name>' },
+    capabilities: {}
+  };
+
+  UIInspector.renderInspectorReport(elements, report);
+  assert.ok(fakeResultsContainer.innerHTML.includes('Model &amp; Special &lt;Name&gt;'));
+  assert.equal(fakeResultsContainer.innerHTML.includes('&amp;amp;'), false, 'No debe haber doble escape HTML');
 });
 

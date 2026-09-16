@@ -67,10 +67,22 @@ function createMockElement(tag, className = '') {
       listeners[evt] = listeners[evt].filter(f => f !== fn);
     },
     querySelector(sel) {
-      if (sel === '.message-content') return children.find(c => c.className?.includes('message-content'));
-      if (sel === '.btn-delete') return children.find(c => c.className?.includes('btn-delete'));
-      if (sel === 'img') return children.find(c => c.tagName === 'IMG');
-      return null;
+      function findDeep(node) {
+        for (const c of node.children) {
+          if (sel.startsWith('.')) {
+            const targetClass = sel.slice(1);
+            const classes = (c.className || '').split(' ').filter(Boolean);
+            if (classes.includes(targetClass)) return c;
+          }
+          if (sel === 'img' && c.tagName === 'IMG') return c;
+          if (c.children?.length) {
+            const found = findDeep(c);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      return findDeep(el);
     },
     querySelectorAll(sel) {
       if (sel === '.message-wrapper') return children.filter(c => c.className?.includes('message-wrapper'));
@@ -292,4 +304,41 @@ test('UIConversation - removeMessage removes turn, removes from DOM, and shows w
   assert.equal(saved, true);
   assert.equal(container.children.includes(welcomeBanner), true);
   assert.equal(welcomeBanner.style.display, '');
+});
+
+test('UIConversation - renderiza imágenes adjuntas de forma segura sanitizando URLs y evitando inyección', () => {
+  const doc = createMockDocument();
+  const container = doc.createElement('div');
+  const attachedImages = [
+    { name: 'segura.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+    { name: 'peligrosa.png', dataUrl: 'javascript:alert(1)' },
+    { name: 'xss.png', dataUrl: 'data:text/html,<script>alert(1)</script>' }
+  ];
+
+  const msgId = UIConversation.appendUserMessage(container, null, {
+    text: 'Mensaje con imágenes',
+    attachedImages
+  });
+  assert.ok(msgId, 'Debe devolver un id de mensaje');
+
+  const wrapper = container.children[0];
+  const grid = wrapper.querySelector('.message-content').children.find(c => c.className === 'message-images-grid');
+  assert.ok(grid, 'Debe crear la rejilla de imágenes');
+  // Solo la imagen válida data:image/png debe producir un elemento IMG
+  const itemDivs = grid.children;
+  assert.equal(itemDivs.length, 3);
+
+  const safeItem = itemDivs[0];
+  const safeImg = safeItem.children.find(c => c.tagName === 'IMG');
+  assert.ok(safeImg, 'La imagen segura debe renderizar un elemento IMG');
+  assert.equal(safeImg.getAttribute('src'), 'data:image/png;base64,iVBORw0KGgo=');
+  assert.equal(safeImg.getAttribute('alt'), 'segura.png');
+
+  const unsafeItem1 = itemDivs[1];
+  const unsafeImg1 = unsafeItem1.children.find(c => c.tagName === 'IMG');
+  assert.equal(unsafeImg1, undefined, 'La URL javascript: no debe generar elemento IMG');
+
+  const unsafeItem2 = itemDivs[2];
+  const unsafeImg2 = unsafeItem2.children.find(c => c.tagName === 'IMG');
+  assert.equal(unsafeImg2, undefined, 'La URL data:text/html no debe generar elemento IMG');
 });
