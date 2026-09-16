@@ -383,6 +383,18 @@ class ExternalMcpHostBridge:
     def running(self):
         return self.process is not None and self.process.poll() is None
 
+    def has_enabled_services(self) -> bool:
+        config_path = self.home / "config" / "services.json"
+        if not config_path.is_file():
+            return False
+        try:
+            prefs = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(prefs, dict):
+                return any(isinstance(v, dict) and v.get("enabled") is True for v in prefs.values())
+        except Exception:
+            return False
+        return False
+
     def bootstrap_status(self):
         with self._bootstrap_lock:
             return dict(self._bootstrap_state)
@@ -719,7 +731,14 @@ class ZeroChatLocalServerHandler(BaseHTTPRequestHandler):
             else:
                 error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
         elif method == "zerochat/external/status":
-            result = external_host.request("status") if external_host and external_host.running() else {"host": "stopped", "servers": []}
+            if external_host and external_host.running():
+                result = external_host.request("status")
+            elif external_host and external_host.has_enabled_services():
+                if external_host.bootstrap_status().get("state") != "running":
+                    external_host.start_host_background()
+                result = {"host": "starting", "servers": []}
+            else:
+                result = {"host": "stopped", "servers": []}
         elif method == "zerochat/external/start":
             try:
                 server_base_url = params.get("serverBaseUrl") if isinstance(params, dict) else None
@@ -795,6 +814,8 @@ def main():
     mcp_source_url = args.mcp_source_url or f"{args.server_base_url.rstrip('/')}{MCP_RELATIVE_PATH}"
     external_host = ExternalMcpHostBridge(args.mcp_home, mcp_source_url)
     atexit.register(external_host.stop_host)
+    if external_host.has_enabled_services():
+        external_host.start_host_background()
     server = ThreadingHTTPServer((args.host, args.port), ZeroChatLocalServerHandler)
     log_line(f"SERVER active http://{args.host}:{args.port}")
     log_line("SERVER local tools ready")

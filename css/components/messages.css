@@ -166,6 +166,13 @@
   font-weight: 600;
 }
 
+@media (max-width: 640px) {
+  .message-stats .stat-item:not(.stat-item-speed):not(.stat-item-total),
+  .message-stats .stat-sep:not(.stat-sep-2) {
+    display: none !important;
+  }
+}
+
 /* Acciones del mensaje (Copiar, Borrar, Reusar) */
 .message-actions {
   display: inline-flex;

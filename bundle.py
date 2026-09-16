@@ -650,8 +650,6 @@ def build_standalone_html(input_file: str, output_file: str, mode: str = "prod",
     with open(input_path, "r", encoding="utf-8") as f:
         raw_html = f.read()
     channel = read_build_channel(document_dir, build_channel)
-    if channel == "dev":
-        raw_html = re.sub(r"(<title>\s*ZeroChat\s+v[^<]+)(</title>)", r"\1 · DEV\2", raw_html, count=1, flags=re.IGNORECASE)
     raw_html_size = len(raw_html.encode("utf-8"))
 
     # 2. Cargar CSS local según el orden de las etiquetas <link> del HTML base.

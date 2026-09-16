@@ -25,7 +25,7 @@ El servidor local compone la URL de origen combinando la URL base del servidor Z
 
 `services/lsp.mcp/` instala el servidor `@axivo/mcp-lsp` para ofrecer análisis estático y navegación de código (búsqueda de símbolos, definición de tipos, referencias cruzadas y jerarquías de llamadas) mediante el protocolo estándar LSP sin requerir la inyección manual de archivos masivos en el contexto.
 
-El host no inicia, instala ni descarga productos mientras solo se usan las herramientas locales. La primera descarga de bootstrap ocurre al solicitar los MCP externos. La instalación de un producto ocurre al solicitar su arranque.
+El host no inicia, instala ni descarga productos mientras solo se usan las herramientas locales. La primera descarga de bootstrap ocurre al solicitar los MCP externos. La instalación de un producto ocurre al solicitar su arranque. Cuando un servicio externo se inicia o configura, su estado (`enabled: true`) y opciones se persisten en `config/services.json`. Al reiniciar ZeroChat con auto-conexión o reiniciar `zmcp.py`, el host externo y sus servicios activos configurados se auto-arrancan y sus herramientas se sincronizan y registran automáticamente con el agente.
 
 ## Seguridad y aislamiento
 

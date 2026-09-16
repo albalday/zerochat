@@ -43,7 +43,7 @@ test('Bundler - Generación en modo Producción (Gzip Base64 Level 9)', () => {
     assert.ok(content.includes('<style>'));
     assert.ok(content.includes('id="compressed-js"'));
     assert.ok(content.includes('DecompressionStream'));
-    assert.ok(content.includes(`ZeroChat v${version} · DEV`));
+    assert.ok(content.includes(`<title>ZeroChat v${version}</title>`));
 
     // Verificar que el tamaño de producción es ultra-compacto (< 400 KB)
     assert.ok(stats.size < 400000, `El bundle comprimido debe ser ultra-compacto (actual: ${stats.size} bytes)`);

@@ -117,16 +117,16 @@
     const dbSvg = getMsgIcon('database', 11);
 
     const cacheHtml = (stats.cachedTokens && stats.cachedTokens > 0)
-      ? `<span>•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
+      ? `<span class="stat-sep stat-sep-4">•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
       : '';
     statsContainer.innerHTML = `
-      <span class="stat-item" title="${t('stat_ttft_title')}">${clockSvg} <span>${t('stat_ttft', { sec: stats.ttftSec })}</span></span>
-      <span>•</span>
-      <span class="stat-item" title="${t('stat_speed_title')}">${zapSvg} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
-      <span>•</span>
-      <span class="stat-item" title="${t('stat_total_time_title')}">${clockSvg} <span>${t('stat_total_time', { sec: stats.totalSec })}</span></span>
-      <span>•</span>
-      <span class="stat-item" title="${t('stat_tokens_title')}">${docSvg} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
+      <span class="stat-item stat-item-ttft" title="${t('stat_ttft_title')}">${clockSvg} <span>${t('stat_ttft', { sec: stats.ttftSec })}</span></span>
+      <span class="stat-sep stat-sep-1">•</span>
+      <span class="stat-item stat-item-speed" title="${t('stat_speed_title')}">${zapSvg} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
+      <span class="stat-sep stat-sep-2">•</span>
+      <span class="stat-item stat-item-total" title="${t('stat_total_time_title')}">${clockSvg} <span>${t('stat_total_time', { sec: stats.totalSec })}</span></span>
+      <span class="stat-sep stat-sep-3">•</span>
+      <span class="stat-item stat-item-tokens" title="${t('stat_tokens_title')}">${docSvg} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
     `;
 
     if (typeof options.updateConnectionTokensBadge === 'function') {

@@ -996,7 +996,6 @@
       }
 
       if (this.clients.has('mcp_proxy')) {
-        await this.stopExternalHost(registry).catch(() => {});
         try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
         this.clients.delete('mcp_proxy');
       }
@@ -1005,7 +1004,9 @@
       const registerResult = await this.connectAndRegisterServer('mcp_proxy', registry);
 
       if (State?.set) {
+        const currentMcp = State.get('mcp') || {};
         State.set('mcp', {
+          ...currentMcp,
           status: registerResult.success ? 'connected' : 'error',
           host, port, endpoint: targetEndpoint,
           serverInfo: probe.serverInfo,
@@ -1016,7 +1017,19 @@
         });
       }
 
-      return { success: registerResult.success, available: true, probe, register: registerResult, tools: registerResult.tools || [] };
+      let externalSync = null;
+      if (registerResult.success) {
+        externalSync = await this.syncExternalServers(registry).catch(() => null);
+      }
+
+      return {
+        success: registerResult.success,
+        available: true,
+        probe,
+        register: registerResult,
+        tools: registerResult.tools || [],
+        externalSync
+      };
     }
 
     /**
@@ -1095,6 +1108,39 @@
       } catch (_) {
         return { host: 'stopped', servers: [] };
       }
+    }
+
+    async syncExternalServers(registry = null, { maxWaitMs = 4000, pollIntervalMs = 400 } = {}) {
+      const State = getState();
+      let status = await this.fetchExternalServers().catch(() => ({ host: 'stopped', servers: [] }));
+      if (status?.host === 'starting' && maxWaitMs > 0) {
+        const start = Date.now();
+        while (Date.now() - start < maxWaitMs) {
+          await new Promise(r => setTimeout(r, pollIntervalMs));
+          status = await this.fetchExternalServers().catch(() => ({ host: 'stopped', servers: [] }));
+          if (status?.host !== 'starting') break;
+        }
+      }
+
+      let externalTools = [];
+      if (status?.host === 'running') {
+        const refresh = await this.refreshExternalProvider(registry).catch(() => null);
+        if (refresh?.success) {
+          externalTools = refresh.tools || [];
+        }
+      }
+
+      if (State?.set) {
+        const current = State.get('mcp') || {};
+        State.set('mcp', {
+          ...current,
+          externalHost: status?.host || 'stopped',
+          externalServers: status?.servers || [],
+          externalTools
+        });
+      }
+
+      return { status, externalTools };
     }
 
     async fetchExternalBootstrapStatus(options = {}) {

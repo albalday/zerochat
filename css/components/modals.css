@@ -1188,7 +1188,6 @@ input.form-input:focus-visible,
 }
 
 @media (max-width: 768px) {
-  .rag-modal { width: 98vw; height: 94vh; }
   .rag-manage-toolbar { align-items: stretch; flex-direction: column; }
   .rag-ingestion-progress-item { grid-template-columns: 1fr; }
   .rag-ingestion-global-progress { grid-template-columns: 1fr; }
@@ -1241,3 +1240,48 @@ input.form-input:focus-visible,
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   Modales en Dispositivos Móviles (Ancho Completo de Pantalla)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .settings-modal,
+  .debug-interceptor-modal {
+    width: 100vw;
+    width: 100dvw;
+    max-width: 100vw;
+    max-width: 100dvw;
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .rag-modal {
+    width: 100vw;
+    width: 100dvw;
+    max-width: 100vw;
+    max-width: 100dvw;
+    height: 94vh;
+  }
+
+  .notice-dialog {
+    width: 100vw;
+    width: 100dvw;
+    max-width: 100vw;
+    max-width: 100dvw;
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+}
+

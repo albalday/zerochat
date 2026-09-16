@@ -509,7 +509,8 @@
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
-      renderToolsList(elements.toolsContainer, isConn ? (state.tools || []) : [], currentConfig.enabledTools || {}, translator);
+      const allTools = isConn ? [...(state.tools || []), ...(state.externalTools || [])] : [];
+      renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
     }
 
     const serversListEl = elements.mcpServersList || elements.serversList || (typeof document !== 'undefined' ? document.getElementById('mcp-servers-list') : null);
@@ -591,7 +592,8 @@
           if (elements?.toolsContainer) {
             const currentConfig = getConfig()?.get?.() || {};
             const state = getState()?.get?.('mcp') || {};
-            renderToolsList(elements.toolsContainer, state.tools || [], currentConfig.enabledTools || {}, translator);
+            const allTools = [...(state.tools || []), ...(state.externalTools || [])];
+            renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
           }
         }
       });
@@ -670,7 +672,8 @@
       if (elements.toolsContainer) {
         const currentCfg = getConfig()?.get?.() || {};
         const st = State?.get?.('mcp') || {};
-        renderToolsList(elements.toolsContainer, st.tools || [], currentCfg.enabledTools || {}, t);
+        const allTools = [...(st.tools || []), ...(st.externalTools || [])];
+        renderToolsList(elements.toolsContainer, allTools, currentCfg.enabledTools || {}, t);
       }
     }
 

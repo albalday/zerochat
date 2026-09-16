@@ -20,8 +20,7 @@
     return 'dev';
   };
   const APP_VERSION = (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_VERSION__) || extractVersionFromTitle();
-  const APP_BUILD_CHANNEL = typeof globalThis !== 'undefined' ? globalThis.__ZEROCHAT_BUILD_CHANNEL__ : null;
-  const APP_TITLE = `ZeroChat v${APP_VERSION}${APP_BUILD_CHANNEL === 'dev' ? ' · DEV' : ''}`;
+  const APP_TITLE = `ZeroChat v${APP_VERSION}`;
 
   const TRANSLATIONS = {
     es: {
@@ -282,7 +281,7 @@
       // Estadísticas
       stat_ttft: '1º token: {sec}s',
       stat_ttft_title: 'Tiempo hasta recibir el 1º token (Latencia / TTFT)',
-      stat_speed: '{speed} tok/s',
+      stat_speed: '{speed} t/s',
       stat_speed_title: 'Velocidad de generación (calculada desde el 1º token)',
       stat_total_time: '{sec}s',
       stat_total_time_title: 'Tiempo total de respuesta',
@@ -945,7 +944,7 @@ find ~/storage/downloads -name zmcp.py -print`,
       // Estadísticas
       stat_ttft: '1st token: {sec}s',
       stat_ttft_title: 'Time to first token (Latency / TTFT)',
-      stat_speed: '{speed} tok/s',
+      stat_speed: '{speed} t/s',
       stat_speed_title: 'Generation speed (calculated from 1st token)',
       stat_total_time: '{sec}s',
       stat_total_time_title: 'Total response time',
