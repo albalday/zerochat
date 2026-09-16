@@ -381,6 +381,20 @@
         const act = btn.getAttribute?.('data-action');
         if (!sid) return;
         btn.disabled = true;
+        btn.textContent = act === 'start'
+          ? translator('mcp_btn_starting_server')
+          : translator('mcp_btn_stopping_server');
+        const item = btn.closest?.('.mcp-server-item');
+        const badge = item?.querySelector?.('.mcp-server-badge');
+        if (badge) {
+          if (act === 'start') {
+            badge.className = 'mcp-server-badge status-starting';
+            badge.textContent = translator('mcp_external_status_starting');
+          } else {
+            badge.className = 'mcp-server-badge status-stopped';
+            badge.textContent = translator('mcp_external_status_stopped');
+          }
+        }
         const MCP = getMCP();
         try {
           if (act === 'start') {
@@ -408,8 +422,17 @@
           }
         } catch (e) {
           console.error('[MCP UI] Error toggling server:', e);
-        } finally {
-          btn.disabled = false;
+          const updated = await MCP?.manager?.fetchExternalServers?.().catch(() => null);
+          if (updated) {
+            renderExternalServers(container, updated?.servers || [], updated?.host || 'stopped', translator);
+          } else {
+            btn.disabled = false;
+            btn.textContent = act === 'start' ? translator('mcp_btn_start_server') : translator('mcp_btn_stop_server');
+            if (badge) {
+              badge.className = 'mcp-server-badge status-error';
+              badge.textContent = translator('mcp_external_status_error');
+            }
+          }
         }
       });
     });
@@ -743,14 +766,20 @@
         renderBootstrapStatus(status);
         if (status.state === 'running') return;
         stopBootstrapPolling();
-        btnStartExternal.disabled = false;
+        if (btnStartExternal) {
+          btnStartExternal.disabled = false;
+          btnStartExternal.textContent = t('mcp_external_start');
+        }
         if (status.state === 'completed') {
           await MCP?.manager?.refreshExternalProvider?.();
           await refreshExternalHost();
         }
       } catch (_) {
         stopBootstrapPolling();
-        btnStartExternal.disabled = false;
+        if (btnStartExternal) {
+          btnStartExternal.disabled = false;
+          btnStartExternal.textContent = t('mcp_external_start');
+        }
         renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
       }
     }
@@ -763,12 +792,15 @@
 
     btnStartExternal?.addEventListener?.('click', async () => {
       btnStartExternal.disabled = true;
+      const originalText = btnStartExternal.textContent;
+      btnStartExternal.textContent = t('mcp_external_starting');
       try {
         const status = await MCP?.manager?.startExternalHost?.();
         renderBootstrapStatus(status);
         if (status?.state === 'running') startBootstrapPolling();
         else {
           btnStartExternal.disabled = false;
+          btnStartExternal.textContent = originalText;
           if (status?.state === 'completed') {
             await MCP?.manager?.refreshExternalProvider?.();
             await refreshExternalHost();
@@ -776,13 +808,19 @@
         }
       } catch (_) {
         btnStartExternal.disabled = false;
+        btnStartExternal.textContent = originalText;
         renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
       }
     });
     btnStopExternal?.addEventListener?.('click', async () => {
       btnStopExternal.disabled = true;
+      const originalText = btnStopExternal.textContent;
+      btnStopExternal.textContent = t('mcp_external_stopping');
       try { await MCP?.manager?.stopExternalHost?.(); await refreshExternalHost(); }
-      finally { btnStopExternal.disabled = false; }
+      finally {
+        btnStopExternal.disabled = false;
+        btnStopExternal.textContent = originalText;
+      }
     });
 
     function persistMcpAutoConnect(enabled, host = null, port = null) {

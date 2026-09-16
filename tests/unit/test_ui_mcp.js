@@ -381,15 +381,21 @@ test('ChatUIMcp - initMcpUI gestiona apertura y cierre del modal de configuraci�
 });
 
 test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconectado o sin herramientas', () => {
-  const container = {
-    innerHTML: '',
-    style: {}
-  };
+  const previousState = ChatState.get('mcp');
+  ChatState.set('mcp', { ...previousState, status: 'disconnected' });
+  try {
+    const container = {
+      innerHTML: '',
+      style: {}
+    };
 
-  ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
-  assert.equal(container.style.display, 'block');
-  assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-  assert.ok(container.innerHTML.includes('servidor Python local'));
+    ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
+    assert.equal(container.style.display, 'block');
+    assert.ok(container.innerHTML.includes('mcp-tools-empty'));
+    assert.ok(container.innerHTML.includes('servidor Python local'));
+  } finally {
+    ChatState.set('mcp', previousState);
+  }
 });
 
 test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura cambios', () => {
@@ -738,6 +744,8 @@ test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de 
   try {
     ChatMCP.manager.startExternalServer = async (sid) => {
       startCalled = sid;
+      assert.equal(buttons[0].textContent, 'Iniciando...');
+      assert.equal(buttons[0].disabled, true);
       return { success: true };
     };
     ChatMCP.manager.fetchExternalServers = async () => ({
