@@ -101,6 +101,7 @@ test('I18n - Simetría completa de diccionarios es y en y claves de auditoría',
   assert.deepEqual(missingInEs, [], 'No debe haber claves en inglés faltantes en español');
 
   const requiredAuditKeys = [
+    'app_description',
     'err_server_connect_title',
     'err_file_too_large',
     'not_specified',

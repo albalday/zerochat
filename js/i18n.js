@@ -39,6 +39,7 @@
 
       // Metadatos y Encabezados
       app_title: APP_TITLE,
+      app_description: 'ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
       
       // Estado de Bienvenida inicial
       welcome_heading: 'ZeroChat',
@@ -701,6 +702,7 @@ find ~/storage/downloads -name zmcp.py -print`,
 
       // Metadata & Headers
       app_title: APP_TITLE,
+      app_description: 'ZeroChat - Universal web chat client, autonomous AI agent, and local RAG in a single zero-install file',
       
       // Welcome state
       welcome_heading: 'ZeroChat',

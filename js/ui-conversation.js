@@ -289,17 +289,30 @@
       attachedImages.forEach(img => {
         const itemDiv = doc.createElement('div');
         itemDiv.className = 'message-image-item';
-        const safeName = Markdown?.escapeHtml ? Markdown.escapeHtml(img.name || '') : (img.name || '');
-        itemDiv.innerHTML = `
-          <img src="${img.dataUrl}" alt="${safeName}" class="message-image-thumb" title="${safeName}">
-          <div class="message-image-caption">${safeName}</div>
-        `;
-        const imgEl = itemDiv.querySelector('img');
-        if (imgEl) {
+        const imgName = img.name || '';
+        const safeUrl = Markdown?.sanitizeImageUrl ? Markdown.sanitizeImageUrl(img.dataUrl) : '';
+        if (safeUrl) {
+          const imgEl = doc.createElement('img');
+          imgEl.src = safeUrl;
+          if (typeof imgEl.setAttribute === 'function') {
+            imgEl.setAttribute('src', safeUrl);
+            imgEl.setAttribute('alt', imgName);
+            imgEl.setAttribute('title', imgName);
+          }
+          imgEl.alt = imgName;
+          imgEl.className = 'message-image-thumb';
+          imgEl.title = imgName;
           imgEl.addEventListener('click', () => {
-            if (typeof window !== 'undefined') window.open(img.dataUrl, '_blank');
+            if (typeof window !== 'undefined' && /^https?:\/\/|^blob:|^data:image\//i.test(safeUrl)) {
+              window.open(safeUrl, '_blank');
+            }
           });
+          itemDiv.appendChild(imgEl);
         }
+        const caption = doc.createElement('div');
+        caption.className = 'message-image-caption';
+        caption.textContent = imgName;
+        itemDiv.appendChild(caption);
         imagesGrid.appendChild(itemDiv);
       });
       content.appendChild(imagesGrid);
