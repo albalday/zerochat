@@ -1130,10 +1130,24 @@
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+.mcp-server-badge.status-starting,
+.mcp-server-badge.status-installing {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 .mcp-server-badge.status-stopped {
   background: rgba(100, 116, 139, 0.15);
   color: var(--text-muted);
   border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.mcp-server-badge.status-error,
+.mcp-server-badge.status-needs_attention {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .mcp-server-tool-count {
