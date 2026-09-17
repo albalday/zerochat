@@ -33,23 +33,6 @@
     return Boolean(w && ['http:', 'https:'].includes(w.location?.protocol));
   }
 
-  function getStandaloneDownloadUrl(win) {
-    const w = win || (typeof window !== 'undefined' ? window : null);
-    if (!isHttpExecution(w)) return null;
-    const url = new URL(w.location.href);
-    const path = url.pathname;
-    if (/\/index\.html$/i.test(path)) {
-      url.pathname = path.replace(/index\.html$/i, 'zerochat.html');
-    } else if (path.endsWith('/')) {
-      url.pathname = `${path}zerochat.html`;
-    } else {
-      url.pathname = `${path.slice(0, path.lastIndexOf('/') + 1)}zerochat.html`;
-    }
-    url.search = '';
-    url.hash = '';
-    return url.href;
-  }
-
   function updateViewportHeight(doc, win) {
     const d = doc || (typeof document !== 'undefined' ? document : null);
     const w = win || (typeof window !== 'undefined' ? window : null);
@@ -68,15 +51,6 @@
     const httpExecution = isHttpExecution();
     if (els.executionStorageScope) {
       els.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
-    }
-    if (els.btnDownloadStandalone) {
-      const downloadUrl = getStandaloneDownloadUrl();
-      els.btnDownloadStandalone.hidden = !downloadUrl;
-      if (downloadUrl) {
-        els.btnDownloadStandalone.href = downloadUrl;
-      } else {
-        els.btnDownloadStandalone.removeAttribute('href');
-      }
     }
   }
 
@@ -229,7 +203,6 @@
 
   return {
     isHttpExecution,
-    getStandaloneDownloadUrl,
     updateViewportHeight,
     updateExecutionInfo,
     openExecutionInfo,

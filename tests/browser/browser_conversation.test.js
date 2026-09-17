@@ -303,7 +303,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../index.html');
+    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
@@ -404,7 +404,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../index.html');
+    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
@@ -440,10 +440,10 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
   }
 });
 
-test('Browser UI - fecha inicial persistente y hora solo mediante herramienta en fuente y bundle', async () => {
+test('Browser UI - fecha inicial persistente y hora solo mediante herramienta', async () => {
   const browser = await createTestBrowser();
   try {
-    for (const file of ['index.html', 'zerochat.html']) {
+    for (const file of ['zerochat.html']) {
       const context = await browser.newContext({ timezoneId: 'Europe/Madrid' });
       const page = await context.newPage();
       await page.clock.setFixedTime(new Date('2026-09-05T23:30:00Z'));

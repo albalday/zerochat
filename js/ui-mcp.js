@@ -10,7 +10,6 @@
   'use strict';
   const DEFAULT_HOST = '127.0.0.1';
   const DEFAULT_PORT = 6388;
-  const DEFAULT_OPERATING_SYSTEM = 'linux';
   const resolveDep = (name, path) => (typeof window !== 'undefined' && window.ChatUtils?.resolveDep
     ? window.ChatUtils.resolveDep(name, path)
     : ((typeof window !== 'undefined' && window[name]) || (typeof require !== 'undefined'
@@ -57,77 +56,11 @@
     const suffix = path ? (path.startsWith('/') ? path : `/${path}`) : '/sse';
     return `http://${sanitizeHost(host)}:${sanitizePort(port)}${suffix}`;
   }
-  function generateMcpServerScript() {
-    const localServerPayload = typeof globalThis !== 'undefined' ? globalThis.__ZMCP_LOCAL_SERVER_B64__ : null;
-    if (!localServerPayload) {
-      throw new Error('This ZeroChat bundle does not include its local MCP server');
-    }
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(localServerPayload, 'base64').toString('utf8');
-    }
-    if (typeof atob === 'function') {
-      const binary = atob(localServerPayload);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      return new TextDecoder('utf-8').decode(bytes);
-    }
-    return '';
-  }
 
-  function downloadMcpServerScript(options = {}) {
-    const host = sanitizeHost(options.host);
-    const port = sanitizePort(options.port);
-    const content = generateMcpServerScript({ host, port });
-    const filename = 'zmcp.py';
-
-    if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
-      try {
-        const blob = new Blob([content], { type: 'text/x-python;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 3000);
-        return true;
-      } catch (e) {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  function sanitizeOperatingSystem(operatingSystem) {
-    return ['linux', 'windows', 'android'].includes(String(operatingSystem || '').toLowerCase())
-      ? String(operatingSystem).toLowerCase()
-      : DEFAULT_OPERATING_SYSTEM;
-  }
-
-  function generateTerminalCommand(port, operatingSystem = DEFAULT_OPERATING_SYSTEM) {
+  function generateTerminalCommand(port) {
     const normalizedPort = sanitizePort(port);
-    const os = sanitizeOperatingSystem(operatingSystem);
-    const executable = os === 'windows' ? 'py' : 'python3';
-    const portArgument = normalizedPort === DEFAULT_PORT ? '' : ` --port ${normalizedPort}`;
-    return `${executable} zmcp.py${portArgument}`;
-  }
-
-  function getOperatingSystemHelpKey(operatingSystem) {
-    const os = sanitizeOperatingSystem(operatingSystem);
-    return os === 'windows' ? 'mcp_copy_help_windows' : (os === 'android' ? 'mcp_copy_help_android' : 'mcp_copy_help_linux');
-  }
-
-  function generateOperatingSystemInstructions(operatingSystem = DEFAULT_OPERATING_SYSTEM, translator = t) {
-    return translator(getOperatingSystemHelpKey(operatingSystem));
-  }
-
-  function generateClipboardCommand(port, operatingSystem = DEFAULT_OPERATING_SYSTEM, translator = t) {
-    const os = sanitizeOperatingSystem(operatingSystem);
-    return `${generateOperatingSystemInstructions(os, translator)}\n\n${generateTerminalCommand(port, os)}`;
+    const portArg = normalizedPort === DEFAULT_PORT ? '' : ` --port ${normalizedPort}`;
+    return `curl -sSL https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py -o zerochat.py && python3 zerochat.py${portArg}`;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -281,163 +214,6 @@
     });
   }
 
-  function renderExternalServers(container, servers, hostState, translator = t) {
-    if (!container) return;
-    if (hostState !== 'running') {
-      container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(translator('mcp_external_stopped'))}</div>`;
-      return;
-    }
-    if (!Array.isArray(servers) || servers.length === 0) {
-      container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(translator('mcp_servers_empty'))}</div>`;
-      return;
-    }
-
-    container.innerHTML = servers.map(server => {
-      const isRunning = server.status === 'running';
-      const statusText = escapeHtml(translator(`mcp_external_status_${server.status || 'available'}`));
-      const btnText = escapeHtml(isRunning ? translator('mcp_btn_stop_server') : translator('mcp_btn_start_server'));
-      const toolCount = server.toolCount || 0;
-      const toolCountHtml = isRunning && toolCount > 0 ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: toolCount }))}</span>` : '';
-      const language = getI18n()?.getLanguage?.() || 'es';
-      const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
-      const err = server.error ? `<p class="mcp-server-error">${escapeHtml(server.error)}</p>` : '';
-      let optionsHtml = '';
-      if (Array.isArray(server.options) && server.options.length > 0) {
-        optionsHtml = `<div class="mcp-server-options">` + server.options.map(opt => {
-          const optLabel = escapeHtml(opt.label?.[language] || opt.label?.es || opt.label || opt.id);
-          const optDesc = opt.description ? `<span class="label-hint">${escapeHtml(opt.description?.[language] || opt.description?.es || opt.description || '')}</span>` : '';
-          const userVal = server.userOptions && opt.id in server.userOptions ? server.userOptions[opt.id] : opt.default;
-          if (opt.type === 'boolean') {
-            const isChecked = Boolean(userVal);
-            return `
-              <div class="mcp-server-option-row">
-                <label class="switch switch-sm">
-                  <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(opt.id)}" ${isChecked ? 'checked' : ''}>
-                  <span class="slider round"></span>
-                </label>
-                <div class="mcp-server-option-meta">
-                  <span class="mcp-server-option-label">${optLabel}</span>
-                  ${optDesc}
-                </div>
-              </div>`;
-          }
-          return '';
-        }).join('') + `</div>`;
-      }
-
-      return `
-        <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
-          <div class="mcp-server-info">
-            <div class="mcp-server-title-row">
-              <strong class="mcp-server-name">${escapeHtml(server.displayName?.[language] || server.displayName?.es || server.name || server.id)}</strong>
-              <span class="mcp-server-badge status-${escapeHtml(server.status || 'available')}">${statusText}</span>
-              ${toolCountHtml}
-            </div>
-            ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
-            ${err}
-            ${optionsHtml}
-          </div>
-          <div class="mcp-server-actions">
-            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}">
-              ${btnText}
-            </button>
-          </div>
-        </div>`;
-    }).join('');
-
-    container.querySelectorAll?.('.mcp-server-option-checkbox').forEach(cb => {
-      cb.addEventListener?.('change', async () => {
-        const sid = cb.getAttribute?.('data-server-id');
-        const optId = cb.getAttribute?.('data-option-id');
-        if (!sid || !optId) return;
-        cb.disabled = true;
-        const MCP = getMCP();
-        try {
-          await MCP?.manager?.configureExternalServer?.(sid, {
-            options: { [optId]: cb.checked }
-          });
-          const updated = await MCP?.manager?.fetchExternalServers?.();
-          const State = getState();
-          if (updated && State?.set) {
-            const current = State.get('mcp') || {};
-            State.set('mcp', {
-              ...current,
-              externalHost: updated.host || 'stopped',
-              externalServers: updated.servers || []
-            });
-          }
-        } catch (e) {
-          console.error('[MCP UI] Error configuring server option:', e);
-          cb.checked = !cb.checked;
-        } finally {
-          cb.disabled = false;
-        }
-      });
-    });
-
-    container.querySelectorAll?.('.btn-mcp-server-toggle').forEach(btn => {
-      btn.addEventListener?.('click', async () => {
-        const sid = btn.getAttribute?.('data-server-id');
-        const act = btn.getAttribute?.('data-action');
-        if (!sid) return;
-        btn.disabled = true;
-        btn.textContent = act === 'start'
-          ? translator('mcp_btn_starting_server')
-          : translator('mcp_btn_stopping_server');
-        const item = btn.closest?.('.mcp-server-item');
-        const badge = item?.querySelector?.('.mcp-server-badge');
-        if (badge) {
-          if (act === 'start') {
-            badge.className = 'mcp-server-badge status-starting';
-            badge.textContent = translator('mcp_external_status_starting');
-          } else {
-            badge.className = 'mcp-server-badge status-stopped';
-            badge.textContent = translator('mcp_external_status_stopped');
-          }
-        }
-        const MCP = getMCP();
-        try {
-          if (act === 'start') {
-            await MCP?.manager?.startExternalServer?.(sid);
-          } else {
-            await MCP?.manager?.stopExternalServer?.(sid);
-          }
-          const updated = await MCP?.manager?.fetchExternalServers?.();
-          const State = getState();
-          if (updated && State?.set) {
-            const current = State.get('mcp') || {};
-            State.set('mcp', {
-              ...current,
-              externalHost: updated.host || 'stopped',
-              externalServers: updated.servers || []
-            });
-          }
-          renderExternalServers(container, updated?.servers || [], updated?.host || 'stopped', translator);
-
-          const toolsContainer = typeof document !== 'undefined' ? document.getElementById('mcp-tools-container') : null;
-          if (toolsContainer) {
-            const currentConfig = getConfig()?.get?.() || {};
-            const st = getState()?.get?.('mcp') || {};
-            renderToolsList(toolsContainer, [...(st.tools || []), ...(st.externalTools || [])], currentConfig.enabledTools || {}, translator);
-          }
-        } catch (e) {
-          console.error('[MCP UI] Error toggling server:', e);
-          const updated = await MCP?.manager?.fetchExternalServers?.().catch(() => null);
-          if (updated) {
-            renderExternalServers(container, updated?.servers || [], updated?.host || 'stopped', translator);
-          } else {
-            btn.disabled = false;
-            btn.textContent = act === 'start' ? translator('mcp_btn_start_server') : translator('mcp_btn_stop_server');
-            if (badge) {
-              badge.className = 'mcp-server-badge status-error';
-              badge.textContent = translator('mcp_external_status_error');
-            }
-          }
-        }
-      });
-    });
-  }
-
   function renderConnectionStatus(elements, mcpState, translator = t) {
     if (!elements) return;
     const State = getState();
@@ -465,14 +241,6 @@
     }
 
     if (elements.btnDisconnect) elements.btnDisconnect.style.display = isConn ? 'inline-flex' : 'none';
-    if (elements.btnMcpStartExternal || elements.btnStartExternal) {
-      (elements.btnMcpStartExternal || elements.btnStartExternal).disabled = !isConn;
-    }
-    if (elements.btnMcpStopExternal || elements.btnStopExternal) {
-      (elements.btnMcpStopExternal || elements.btnStopExternal).disabled = !isConn;
-    }
-    const serversCard = elements.mcpServersCard || (typeof document !== 'undefined' ? document.getElementById('mcp-servers-card') : null);
-    if (serversCard) serversCard.hidden = !isConn;
 
     if (elements.serverDetails) {
       elements.serverDetails.style.display = isConn ? 'flex' : 'none';
@@ -503,27 +271,13 @@
 
     const host = elements.hostInput?.value || state.host || DEFAULT_HOST;
     const port = elements.portInput?.value || state.port || DEFAULT_PORT;
-    const operatingSystem = elements.osInput?.value || elements.mcpOsSelect?.value || DEFAULT_OPERATING_SYSTEM;
-    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port, operatingSystem);
+    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
     if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
-      const allTools = isConn ? [...(state.tools || []), ...(state.externalTools || [])] : [];
+      const allTools = isConn ? (state.tools || []) : [];
       renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
-    }
-
-    const serversListEl = elements.mcpServersList || elements.serversList || (typeof document !== 'undefined' ? document.getElementById('mcp-servers-list') : null);
-    if (serversListEl) {
-      renderExternalServers(serversListEl, state.externalServers || [], state.externalHost || 'stopped', translator);
-      if (isConn) {
-        const MCP = getMCP();
-        MCP?.manager?.fetchExternalServers?.().then(res => {
-          if (res && res.servers) {
-            renderExternalServers(serversListEl, res.servers, res.host, translator);
-          }
-        }).catch(() => {});
-      }
     }
   }
 
@@ -592,7 +346,7 @@
           if (elements?.toolsContainer) {
             const currentConfig = getConfig()?.get?.() || {};
             const state = getState()?.get?.('mcp') || {};
-            const allTools = [...(state.tools || []), ...(state.externalTools || [])];
+            const allTools = state.tools || [];
             renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
           }
         }
@@ -611,28 +365,21 @@
     const currentConfig = Config?.get?.() || {};
     if (elements.hostInput && !elements.hostInput.value) elements.hostInput.value = currentConfig.mcpHost || DEFAULT_HOST;
     if (elements.portInput && !elements.portInput.value) elements.portInput.value = currentConfig.mcpPort || DEFAULT_PORT;
-    const getOsInput = () => elements.osInput || elements.mcpOsSelect || (typeof document !== 'undefined' ? document.getElementById('mcp-os-select') : null);
-    const getOsInstructions = () => elements.osInstructions || (typeof document !== 'undefined' ? document.getElementById('mcp-os-instructions') : null);
 
     function updateCommandAndEndpoint() {
       const host = elements.hostInput?.value || DEFAULT_HOST;
       const port = elements.portInput?.value || DEFAULT_PORT;
-      const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
-      if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port, operatingSystem);
-      const instructions = getOsInstructions();
-      if (instructions) instructions.textContent = generateOperatingSystemInstructions(operatingSystem, t);
+      if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
       if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
       Config?.update?.({ mcpHost: host, mcpPort: sanitizePort(port) });
     }
 
     elements.portInput?.addEventListener?.('input', updateCommandAndEndpoint);
     elements.hostInput?.addEventListener?.('input', updateCommandAndEndpoint);
-    getOsInput()?.addEventListener?.('change', updateCommandAndEndpoint);
 
     const openModal = () => {
       elements.mcpSetupDialog?.showModal?.();
       syncSecurityControls();
-      syncExternalServers();
     };
     const closeModal = () => elements.mcpSetupDialog?.close?.();
     elements.btnConfigure?.addEventListener?.('click', openModal);
@@ -645,22 +392,6 @@
     const radioAllowAll = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
     const btnClearAuths = elements.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
 
-    function syncExternalServers() {
-      const serversListEl = elements.mcpSetupDialog?.querySelector?.('#mcp-servers-list') || (typeof document !== 'undefined' ? document.getElementById('mcp-servers-list') : null);
-      if (serversListEl) {
-        const st = State?.get?.('mcp') || {};
-        const isConn = st.status === 'connected';
-        renderExternalServers(serversListEl, st.externalServers || [], st.externalHost || 'stopped', t);
-        if (isConn) {
-          MCP?.manager?.fetchExternalServers?.().then(res => {
-            if (res && res.servers) {
-              renderExternalServers(serversListEl, res.servers, res.host, t);
-            }
-          }).catch(() => {});
-        }
-      }
-    }
-
     function syncSecurityControls() {
       const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
       if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
@@ -672,7 +403,7 @@
       if (elements.toolsContainer) {
         const currentCfg = getConfig()?.get?.() || {};
         const st = State?.get?.('mcp') || {};
-        const allTools = [...(st.tools || []), ...(st.externalTools || [])];
+        const allTools = st.tools || [];
         renderToolsList(elements.toolsContainer, allTools, currentCfg.enabledTools || {}, t);
       }
     }
@@ -704,128 +435,6 @@
       renderCurrentToolsList();
     }) : null;
 
-    let pollTimer = null;
-    function startAutoConnectPolling() {
-      if (pollTimer) clearInterval(pollTimer);
-      let attempts = 0;
-      pollTimer = setInterval(async () => {
-        attempts++;
-        if (attempts > 40 || State?.get?.('mcp')?.status === 'connected') {
-          clearInterval(pollTimer);
-          pollTimer = null;
-          return;
-        }
-        const host = elements.hostInput?.value || DEFAULT_HOST;
-        const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
-        try {
-          const res = await autoConnectIfAvailable({ host, port, timeoutMs: 1200 });
-          if (res && res.available && res.success) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-          }
-        } catch (e) {}
-      }, 1500);
-    }
-
-    const btnDownload = elements.btnDownloadScript || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-download-script') : null);
-    btnDownload?.addEventListener?.('click', () => {
-      const host = elements.hostInput?.value || DEFAULT_HOST;
-      const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
-      downloadMcpServerScript({ host, port });
-      startAutoConnectPolling();
-    });
-
-    const btnStartExternal = elements.btnMcpStartExternal || elements.btnStartExternal || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-start-external') : null);
-    const btnStopExternal = elements.btnMcpStopExternal || elements.btnStopExternal || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-stop-external') : null);
-    const bootstrapStatus = elements.bootstrapStatus || (typeof document !== 'undefined' ? document.getElementById('mcp-bootstrap-status') : null);
-    let bootstrapPollTimer = null;
-
-    function renderBootstrapStatus(status) {
-      if (!bootstrapStatus) return;
-      const message = String(status?.message || '').trim();
-      bootstrapStatus.hidden = !message;
-      bootstrapStatus.textContent = message;
-    }
-
-    function stopBootstrapPolling() {
-      if (bootstrapPollTimer) clearInterval(bootstrapPollTimer);
-      bootstrapPollTimer = null;
-    }
-
-    async function refreshExternalHost() {
-      const snapshot = await MCP?.manager?.fetchExternalServers?.();
-      if (snapshot && State?.set) {
-        const current = State.get('mcp') || {};
-        State.set('mcp', { ...current, externalHost: snapshot.host, externalServers: snapshot.servers || [] });
-      }
-      syncExternalServers();
-      return snapshot;
-    }
-
-    async function pollBootstrapStatus() {
-      try {
-        const status = await MCP?.manager?.fetchExternalBootstrapStatus?.();
-        if (!status) return;
-        renderBootstrapStatus(status);
-        if (status.state === 'running') return;
-        stopBootstrapPolling();
-        if (btnStartExternal) {
-          btnStartExternal.disabled = false;
-          btnStartExternal.textContent = t('mcp_external_start');
-        }
-        if (status.state === 'completed') {
-          await MCP?.manager?.refreshExternalProvider?.();
-          await refreshExternalHost();
-        }
-      } catch (_) {
-        stopBootstrapPolling();
-        if (btnStartExternal) {
-          btnStartExternal.disabled = false;
-          btnStartExternal.textContent = t('mcp_external_start');
-        }
-        renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
-      }
-    }
-
-    function startBootstrapPolling() {
-      stopBootstrapPolling();
-      pollBootstrapStatus();
-      bootstrapPollTimer = setInterval(pollBootstrapStatus, 1000);
-    }
-
-    btnStartExternal?.addEventListener?.('click', async () => {
-      btnStartExternal.disabled = true;
-      const originalText = btnStartExternal.textContent;
-      btnStartExternal.textContent = t('mcp_external_starting');
-      try {
-        const status = await MCP?.manager?.startExternalHost?.();
-        renderBootstrapStatus(status);
-        if (status?.state === 'running') startBootstrapPolling();
-        else {
-          btnStartExternal.disabled = false;
-          btnStartExternal.textContent = originalText;
-          if (status?.state === 'completed') {
-            await MCP?.manager?.refreshExternalProvider?.();
-            await refreshExternalHost();
-          }
-        }
-      } catch (_) {
-        btnStartExternal.disabled = false;
-        btnStartExternal.textContent = originalText;
-        renderBootstrapStatus({ message: t('mcp_bootstrap_status_unavailable') });
-      }
-    });
-    btnStopExternal?.addEventListener?.('click', async () => {
-      btnStopExternal.disabled = true;
-      const originalText = btnStopExternal.textContent;
-      btnStopExternal.textContent = t('mcp_external_stopping');
-      try { await MCP?.manager?.stopExternalHost?.(); await refreshExternalHost(); }
-      finally {
-        btnStopExternal.disabled = false;
-        btnStopExternal.textContent = originalText;
-      }
-    });
-
     function persistMcpAutoConnect(enabled, host = null, port = null) {
       const Config = getConfig();
       if (!Config) return;
@@ -836,8 +445,7 @@
     }
 
     elements.btnCopyCmd?.addEventListener?.('click', () => {
-      const operatingSystem = getOsInput()?.value || DEFAULT_OPERATING_SYSTEM;
-      const cmd = generateClipboardCommand(elements.portInput?.value, operatingSystem, t);
+      const cmd = generateTerminalCommand(elements.portInput?.value);
       copyCommandToClipboard(cmd, elements.btnCopyCmd, t);
     });
 
@@ -866,7 +474,6 @@
     const handleLanguageChange = () => {
       renderConnectionStatus(elements, State?.get?.('mcp'), t);
       renderSavedAuthorizations(elements, t);
-      syncExternalServers();
     };
     const I18n = getI18n();
     let unsubscribeLang = null;
@@ -881,13 +488,9 @@
       updateCommandAndEndpoint,
       openSetupModal: openModal,
       closeSetupModal: closeModal,
-      startAutoConnectPolling,
       syncSecurityControls,
-      syncExternalServers,
       render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
       destroy: () => {
-        if (pollTimer) clearInterval(pollTimer);
-        stopBootstrapPolling();
         if (typeof unsubscribe === 'function') unsubscribe();
         if (typeof unsubscribeSecurity === 'function') unsubscribeSecurity();
         if (typeof unsubscribeLang === 'function') unsubscribeLang();
@@ -917,14 +520,6 @@
             <label for="mcp-port-input" data-i18n="mcp_field_port">Puerto (Rango 63xx recomendado)</label>
             <input type="number" id="mcp-port-input" class="form-input" value="6388" min="1024" max="65535" placeholder="6388">
           </div>
-          <div class="form-field">
-            <label for="mcp-os-select" data-i18n="mcp_field_os">Sistema operativo local</label>
-            <select id="mcp-os-select" class="combobox-select-helper form-input" style="width: 100%; max-width: 100%;">
-              <option value="linux" data-i18n="mcp_os_linux">Linux</option>
-              <option value="windows" data-i18n="mcp_os_windows">Windows</option>
-              <option value="android" data-i18n="mcp_os_android">Android / Termux</option>
-            </select>
-          </div>
         </div>
         <div class="mcp-endpoint-row">
           <span class="label-hint">Endpoint:</span>
@@ -932,37 +527,28 @@
         </div>
       </div>
 
-      <!-- Instrucciones de Descarga y Arranque -->
+      <!-- Instrucciones de Descarga y Arranque con curl -->
       <div class="mcp-instructions-card">
         <div class="mcp-instructions-header">
           <span class="mcp-instructions-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
           </span>
           <div>
-            <strong data-i18n="mcp_instructions_title">Instalación y Arranque del Servidor</strong>
+            <strong data-i18n="mcp_instructions_title">Servidor Local ZeroChat</strong>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_instructions_desc">
-              Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zmcp.py:
+              Ejecuta este comando en tu terminal para arrancar el entorno local con Python:
             </p>
           </div>
         </div>
 
-        <div class="mcp-download-actions">
-          <button type="button" id="btn-mcp-download-script" class="btn-primary btn-mcp-download" data-i18n-title="mcp_btn_download_title">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-            <span data-i18n="mcp_btn_download_server">Descargar servidor (zmcp.py)</span>
-          </button>
-        </div>
-
         <div class="mcp-command-wrapper">
-          <span class="label-hint" data-i18n="mcp_run_instruction">Comando de ejecución:</span>
           <div class="mcp-cmd-row">
-            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">python3 zmcp.py</code></pre>
+            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">curl -sSL https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py -o zerochat.py && python3 zerochat.py</code></pre>
             <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
               <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
               <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
             </button>
           </div>
-          <pre id="mcp-os-instructions" class="mcp-command-box mcp-os-instructions"></pre>
         </div>
       </div>
     </div>
@@ -1006,20 +592,13 @@
   return {
     DEFAULT_HOST,
     DEFAULT_PORT,
-    DEFAULT_OPERATING_SYSTEM,
     sanitizePort,
     sanitizeHost,
-    sanitizeOperatingSystem,
     buildMcpEndpoint,
     generateTerminalCommand,
-    generateOperatingSystemInstructions,
-    generateClipboardCommand,
-    generateMcpServerScript,
-    downloadMcpServerScript,
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,
-    renderExternalServers,
     initMcpUI,
     autoConnectIfAvailable,
     ensureDialogMarkup,

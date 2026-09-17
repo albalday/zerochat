@@ -32,7 +32,8 @@ test('UI Modernization - Header incluye acciones superiores limpias y safe-area'
   const headerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/header.css'), 'utf8');
   assert.ok(headerCss.includes('env(safe-area-inset-top'), 'header.css debe soportar safe-area-inset-top');
 
-  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
   assert.ok(!indexHtml.includes('id="btn-quick-export"'), 'index.html no debe incluir #btn-quick-export en la barra superior');
   assert.ok(!indexHtml.includes('id="btn-clear-chat"'), 'index.html no debe incluir #btn-clear-chat');
   assert.ok(indexHtml.includes('id="btn-toggle-debug"'), 'index.html debe incluir #btn-toggle-debug en la barra superior');
@@ -46,7 +47,8 @@ test('UI Modernization - Header incluye acciones superiores limpias y safe-area'
 });
 
 test('UI Modernization - Pantalla de bienvenida limpia sin sugerencias intrusivas', () => {
-  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
   assert.ok(indexHtml.includes('class="welcome-banner"'), 'index.html debe incluir .welcome-banner');
   assert.ok(indexHtml.includes('class="welcome-icon"'), 'index.html debe incluir .welcome-icon');
   assert.ok(!indexHtml.includes('id="welcome-suggestions"'), 'index.html no debe incluir sugerencias de bienvenida');
@@ -54,13 +56,15 @@ test('UI Modernization - Pantalla de bienvenida limpia sin sugerencias intrusiva
 
 
 test('UI Modernization - Modales soportan atributo closedby="any"', () => {
-  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
   assert.match(indexHtml, /id="settings-dialog"[^>]*closedby="any"/, 'settings-dialog debe tener closedby="any"');
   assert.match(indexHtml, /id="profiles-dialog"[^>]*closedby="any"/, 'profiles-dialog debe tener closedby="any"');
 });
 
 test('UI Modernization - Sidebar incluye backdrop accesible para móvil', () => {
-  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
   assert.ok(indexHtml.includes('id="sidebar-backdrop"'), 'index.html debe incluir #sidebar-backdrop');
 });
 
@@ -91,7 +95,8 @@ test('UI Modernization - Estándar unificado de UI para textboxes y combos', () 
   assert.ok(modalsCss.includes('var(--input-focus-ring)'), 'modals.css debe aplicar el anillo de foco accesible');
   assert.ok(modalsCss.includes("background-image: url(\"data:image/svg+xml"), 'modals.css debe aplicar chevron SVG en selects');
 
-  const indexHtml = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
   assert.match(indexHtml, /id="notice-input"[^>]*class="form-input"/, 'index.html debe declarar class="form-input" en notice-input');
 
   const composerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/composer.css'), 'utf8');

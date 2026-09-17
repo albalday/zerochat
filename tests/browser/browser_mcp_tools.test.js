@@ -219,8 +219,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
         hasConfigureBtn: !!btnConfigure,
         hasConnectBtn: !!btnConnect,
         hasToolsContainer: !!document.getElementById('mcp-tools-container'),
-        toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none',
-        hasBootstrapStatus: !!document.getElementById('mcp-bootstrap-status')
+        toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none'
       };
     });
 
@@ -230,7 +229,6 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(mcpUiState.hasConnectBtn, 'El botón Conectar debe estar presente en el panel MCP');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
-    assert.ok(mcpUiState.hasBootstrapStatus, 'Debe existir una línea de estado para el arranque del bootstrap MCP');
 
     const permissionsTabBtn = await page.$('button[data-tab="tab-permissions"]');
     assert.ok(permissionsTabBtn, 'Debe existir la pestaña Permisos en la navegación de pestañas');
@@ -255,27 +253,19 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
 
     const modalState = await page.evaluate(() => {
       const portInput = document.getElementById('mcp-port-input');
-      const osSelect = document.getElementById('mcp-os-select');
       const command = document.getElementById('mcp-terminal-command');
       const endpoint = document.getElementById('mcp-endpoint-preview');
       return {
         port: portInput?.value,
-        operatingSystem: osSelect?.value,
         commandText: command?.textContent?.trim(),
         endpointText: endpoint?.textContent?.trim()
       };
     });
 
     assert.equal(modalState.port, '6388', 'El puerto por defecto debe ser 6388 (rango 63xx)');
-    assert.equal(modalState.operatingSystem, 'linux', 'Linux debe ser el sistema operativo por defecto');
-    assert.equal(modalState.commandText, 'python3 zmcp.py', 'El comando no debe repetir el puerto por defecto');
+    assert.ok(modalState.commandText.includes('curl -sSL'), 'El comando debe usar curl');
+    assert.ok(modalState.commandText.includes('zerochat.py'), 'El comando debe apuntar a zerochat.py');
     assert.equal(modalState.endpointText, 'http://127.0.0.1:6388/sse');
-
-    await page.selectOption('#mcp-os-select', 'windows');
-    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'py zmcp.py');
-    await page.selectOption('#mcp-os-select', 'android');
-    assert.equal(await page.$eval('#mcp-terminal-command', el => el.textContent.trim()), 'python3 zmcp.py');
-    await page.selectOption('#mcp-os-select', 'linux');
 
     // Cambiar interactivamente el puerto en el input del modal y verificar reactividad inmediata
     await page.fill('#mcp-port-input', '6395');
@@ -283,10 +273,6 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     const updatedEndpoint = await page.$eval('#mcp-endpoint-preview', el => el.textContent.trim());
     assert.ok(updatedCommand.includes('--port 6395'), 'El comando debe actualizarse reactivamente a 6395');
     assert.equal(updatedEndpoint, 'http://127.0.0.1:6395/sse', 'El endpoint debe actualizarse reactivamente a 6395');
-
-    await page.selectOption('#mcp-os-select', 'android');
-    const androidInstructions = await page.$eval('#mcp-os-instructions', el => el.textContent.trim());
-    assert.ok(androidInstructions.includes('TERMUX'), 'Las instrucciones deben cambiar al seleccionar Android');
 
     // Cerrar el modal de configuración de MCP
     await page.click('#btn-close-mcp-setup-footer');

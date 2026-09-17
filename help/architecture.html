@@ -25,18 +25,18 @@
     </header>
 
     <div class="card">
-      <h2>1. El Concepto de Archivo Único Autónomo</h2>
+      <h2>1. Arquitectura Web Estática y Backend Unificado</h2>
       <p>
-        ZeroChat está diseñado bajo una premisa fundamental: <strong>máxima portabilidad sin sacrificar capacidades avanzadas</strong>.
+        ZeroChat está diseñado bajo una premisa fundamental: <strong>máxima simplicidad, velocidad y control sin dependencias pesadas</strong>.
       </p>
       <p>
-        El producto final se compila en un único archivo distribuible denominado <code>zerochat.html</code>. Este archivo contiene todo el código HTML, los estilos CSS minificados y comprimidos con Gzip L9 en Base64, los módulos JavaScript de la aplicación y las bibliotecas cliente esenciales (incluyendo el motor de búsqueda Orama).
+        La aplicación web se sirve de forma directa y estática por HTTPS desde GitHub Pages como <code>zerochat.html</code>, cargando sus módulos <code>css/</code> y <code>js/</code> de manera transparente y sin empaquetado (bundle).
       </p>
       <p>
-        Al abrir <code>zerochat.html</code>, un bootstrap ultraligero descomprime en milisegundos los componentes utilizando la API nativa <code>DecompressionStream</code> del navegador, permitiendo que la aplicación arranque de inmediato.
+        Toda la interacción con el sistema local (ejecución de comandos, lectura y edición de archivos) se canaliza a través de un único ejecutable en Python: <code>zerochat.py</code>, que gestiona su propio entorno virtual en <code>./zerochat</code> y autentica las sesiones mediante tokens efímeros.
       </p>
       <div class="alert alert-success">
-        <strong>Ventaja clave:</strong> Puedes guardar <code>zerochat.html</code> en una memoria USB, en tu escritorio, enviártelo por correo o WhatsApp y ejecutarlo en cualquier navegador moderno sin necesidad de instalar Node.js, Python, Docker ni dependencias del sistema operativo.
+        <strong>Ventaja clave:</strong> Sin compiladores ni herramientas complejas de empaquetado. La aplicación web se sirve estáticamente y el backend local se ejecuta en cualquier equipo con un simple comando de terminal.
       </div>
     </div>
 
@@ -45,14 +45,14 @@
       <p>ZeroChat está adaptado para funcionar con total normalidad bajo dos modos de despliegue:</p>
       <ul>
         <li>
-          <strong>Protocolo local <code>file://</code>:</strong> Haciendo doble clic directamente sobre el archivo en tu explorador de archivos. No requiere levantar ningún servidor local. Las peticiones a APIs remotas o a servidores locales (como Ollama o LM Studio) se realizan mediante <code>fetch</code> directo desde el navegador (con soporte de CORS habilitado en el proveedor).
+          <strong>Protocolo local <code>file://</code>:</strong> Abriendo directamente el archivo en tu explorador. No requiere levantar ningún servidor local para chatear con APIs remotas o servidores locales como Ollama o LM Studio (con CORS habilitado).
         </li>
         <li>
-          <strong>Servidor estático o GitHub Pages (HTTP/HTTPS):</strong> Hospedado en cualquier servidor web básico (Nginx, Apache, Caddy, Vercel o GitHub Pages). En este modo se cuenta además con acceso completo a APIs modernas como <code>navigator.storage.persist()</code> y facilidades adicionales de seguridad de contexto seguro.
+          <strong>Servidor estático o GitHub Pages (HTTP/HTTPS):</strong> Hospedado en GitHub Pages o cualquier servidor web básico. En este modo se cuenta además con acceso completo a APIs modernas como <code>navigator.storage.persist()</code> y facilidades adicionales de contexto seguro.
         </li>
       </ul>
       <div class="alert alert-warning">
-        <strong>Nota sobre restricciones en <code>file://</code>:</strong> Algunos navegadores limitan ciertas capacidades en el origen <code>file://</code> (como la descarga automática del propio bundle o ciertos accesos a Service Workers). Para la máxima potencia en modelos locales WebGPU o RAG pesado, se recomienda un origen HTTP local o HTTPS.
+        <strong>Nota sobre restricciones en <code>file://</code>:</strong> Algunos navegadores limitan ciertas capacidades en el origen <code>file://</code> (como ciertos accesos a Service Workers). Para la máxima potencia en modelos locales WebGPU o RAG pesado, se recomienda un origen HTTP local o HTTPS.
       </div>
     </div>
 

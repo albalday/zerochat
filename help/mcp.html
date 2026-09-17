@@ -53,41 +53,38 @@
     </div>
 
     <div class="card">
-      <h2>3. Servidor Local en Python (Zero Dependencias y Gestor Stdio)</h2>
+      <h2>3. Servidor Local en Python (zerochat.py)</h2>
       <p>
-        Para que no tengas que escribir un servidor desde cero, ZeroChat incluye en el propio diálogo de configuración un <strong>generador automático de código Python para el servidor local</strong> (<code>zmcp.py</code>).
+        ZeroChat unifica toda su infraestructura local en un único script ejecutable: <code>zerochat.py</code>.
       </p>
       <p>
-        Este servidor cumple un doble rol transparente:
+        Al ejecutarse, <code>zerochat.py</code> comprueba la versión, crea y gestiona automáticamente un entorno virtual en <code>./zerochat</code>, arranca el servidor local SSE y abre el navegador apuntando a <code>zerochat.html</code> con un token efímero de sesión de un solo uso.
       </p>
-      <ol>
-        <li><strong>Herramientas Locales Esenciales (Core):</strong> Implementadas directamente con la librería estándar de Python 3, sin requerir dependencias externas ni entornos virtuales:
-          <ul>
-            <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
-            <li><strong><code>read_file</code>:</strong> Lectura segura de archivos con rangos de líneas y límites de contexto.</li>
-            <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
-            <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos de archivos.</li>
-          </ul>
-        </li>
-        <li><strong>Gestor de Servidores MCP Externos (stdio):</strong> Permite arrancar y consumir servidores MCP de la comunidad que se comunican por entrada/salida estándar (stdio JSON-RPC 2.0). Cada servicio publicado declara su propio instalador y comando de arranque, y puede iniciarse o detenerse desde la interfaz.</li>
-      </ol>
-      <p>Los servicios se organizan de forma independiente, uno por directorio. El catálogo distribuido incluye el servicio de prueba <code>dummy_mcp</code> y Playwright MCP para automatización de navegador; ambos permanecen desactivados hasta que decidas iniciarlos.</p>
+      <p>
+        <strong>Herramientas Locales Esenciales:</strong>
+      </p>
+      <ul>
+        <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
+        <li><strong><code>read_file</code>:</strong> Lectura segura de archivos con rangos de líneas y límites de contexto.</li>
+        <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
+        <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos de archivos.</li>
+      </ul>
+      <p>
+        <strong>Seguridad por Token:</strong> Todas las peticiones desde <code>zerochat.html</code> requieren el token efímero de sesión generado por <code>zerochat.py</code> en el arranque. Sin este token, el servidor local rechaza cualquier conexión externa.
+      </p>
       <div class="code-wrapper">
-        <pre><code># Arrancar el servidor local en Python para ZeroChat (puerto 6388 por defecto)
-python3 zmcp.py</code></pre>
+        <pre><code># Descargar y arrancar el backend local de ZeroChat
+curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | python3 -</code></pre>
       </div>
     </div>
 
     <div class="card">
       <h2>4. Control de Permisos y Autorización por Herramienta</h2>
       <p>
-        Dado que las herramientas MCP externas pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o consultar bases de datos), ZeroChat incorpora un panel de control granular para cada herramienta descubierta:
+        Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un panel de control granular para cada herramienta:
       </p>
       <p>
-        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar los permisos recordados y restablecerlos cuando sea necesario. La configuración del servidor MCP se mantiene separada en la pestaña <strong>MCP</strong>.
-      </p>
-      <p>
-        Al pulsar <strong>Arrancar servicios MCP externos</strong>, la preparación se ejecuta en segundo plano. Una única línea bajo el botón muestra su estado hasta que los servicios estén preparados o se produzca un error. Cada servicio externo puede incluir opciones declarativas de configuración (como conmutar la navegación visible o en segundo plano en Playwright), ajustables directamente desde la interfaz.
+        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar los permisos recordados y restablecerlos cuando sea necesario. La configuración de conexión del servidor MCP se mantiene separada en la pestaña <strong>MCP</strong>.
       </p>
       <ul>
         <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta por el servidor MCP sin necesidad de reiniciar el servicio.</li>

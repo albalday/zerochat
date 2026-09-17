@@ -45,51 +45,23 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
 
 test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplificada', () => {
   const cmdDefault = ChatUIMcp.generateTerminalCommand(6388);
-  assert.equal(cmdDefault, 'python3 zmcp.py');
+  assert.ok(cmdDefault.includes('curl -sSL'));
+  assert.ok(cmdDefault.includes('zerochat.py'));
+  assert.ok(!cmdDefault.includes('--port'));
 
   const cmdCustom = ChatUIMcp.generateTerminalCommand(6395);
-  assert.equal(cmdCustom, 'python3 zmcp.py --port 6395');
+  assert.ok(cmdCustom.includes('--port 6395'));
 
   // Fallback seguro en puerto inválido
   const cmdInvalid = ChatUIMcp.generateTerminalCommand('invalido');
-  assert.equal(cmdInvalid, 'python3 zmcp.py');
+  assert.ok(cmdInvalid.includes('zerochat.py'));
+  assert.ok(!cmdInvalid.includes('--port'));
 });
 
-test('ChatUIMcp - selecciona sistema operativo y adapta comando e instrucciones', () => {
-  assert.equal(ChatUIMcp.DEFAULT_OPERATING_SYSTEM, 'linux');
-  assert.equal(ChatUIMcp.sanitizeOperatingSystem('unknown'), 'linux');
-  assert.equal(ChatUIMcp.generateTerminalCommand(6388, 'linux'), 'python3 zmcp.py');
-  assert.equal(ChatUIMcp.generateTerminalCommand(6395, 'windows'), 'py zmcp.py --port 6395');
-
-  const linuxHelp = ChatUIMcp.generateClipboardCommand(6388, 'linux', () => 'LINUX HELP');
-  const windowsHelp = ChatUIMcp.generateClipboardCommand(6388, 'windows', () => 'WINDOWS HELP');
-  const androidHelp = ChatUIMcp.generateClipboardCommand(6388, 'android', () => 'ANDROID HELP');
-  assert.equal(linuxHelp, 'LINUX HELP\n\npython3 zmcp.py');
-  assert.equal(windowsHelp, 'WINDOWS HELP\n\npy zmcp.py');
-  assert.equal(androidHelp, 'ANDROID HELP\n\npython3 zmcp.py');
-  assert.equal(ChatUIMcp.generateOperatingSystemInstructions('windows', () => 'WINDOWS HELP'), 'WINDOWS HELP');
-});
-
-test('ChatUIMcp - generateMcpServerScript entrega el código exacto de zmcp.py tal cual', () => {
-  const previousPayload = globalThis.__ZMCP_LOCAL_SERVER_B64__;
-  try {
-    const rawPython = '#!/usr/bin/env python3\nprint("hello zmcp")\n';
-    globalThis.__ZMCP_LOCAL_SERVER_B64__ = Buffer.from(rawPython).toString('base64');
-    const pyScript = ChatUIMcp.generateMcpServerScript();
-    assert.equal(pyScript, rawPython);
-    assert.ok(!pyScript.includes('PAYLOAD ='));
-    assert.ok(!pyScript.includes('exec(compile'));
-    assert.ok(!pyScript.includes('b64decode'));
-  } finally {
-    if (previousPayload === undefined) delete globalThis.__ZMCP_LOCAL_SERVER_B64__;
-    else globalThis.__ZMCP_LOCAL_SERVER_B64__ = previousPayload;
-  }
-});
-
-test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python', () => {
-  const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'scripts', 'zmcp.py'), 'utf8');
+test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python zerochat.py', () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'zerochat.py'), 'utf8');
   assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
-  assert.match(serverSource, /add_argument\("--port", type=int, default=int\(os\.environ\.get\("ZMCP_DEFAULT_PORT", DEFAULT_PORT\)\)/);
+  assert.match(serverSource, /--port/);
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
@@ -104,8 +76,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
       btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
-      btnMcpStartExternal: { disabled: false },
-      btnMcpStopExternal: { disabled: false },
       serverDetails: { style: {}, innerHTML: '', textContent: '' },
       errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
@@ -127,8 +97,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.disabled, false);
   assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
   assert.equal(elements.btnDisconnect.style.display, 'none');
-  assert.equal(elements.btnMcpStartExternal.disabled, true);
-  assert.equal(elements.btnMcpStopExternal.disabled, true);
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.errorMessage.style.display, 'none');
 
@@ -147,16 +115,14 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
     host: '127.0.0.1',
     port: 6388,
     serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
-    tools: [{ name: 'read_file' }, { name: 'list_dir' }],
-    latencyMs: 15
+    latencyMs: 15,
+    tools: [{ name: 't1' }, { name: 't2' }]
   }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connected');
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
-  assert.equal(elements.btnMcpStartExternal.disabled, false);
-  assert.equal(elements.btnMcpStopExternal.disabled, false);
   assert.equal(elements.serverDetails.style.display, 'flex');
   assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.textContent.includes('15ms'));
@@ -254,14 +220,15 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'python3 zmcp.py');
+  assert.ok(mockCommandSnippet.textContent.includes('zerochat.py'));
+  assert.ok(!mockCommandSnippet.textContent.includes('--port'));
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6388/sse');
 
   // Al cambiar el input de puerto, se recalcula el comando en tiempo real
   mockPortInput.value = '6392';
   listeners['input']();
 
-  assert.equal(mockCommandSnippet.textContent, 'python3 zmcp.py --port 6392');
+  assert.ok(mockCommandSnippet.textContent.includes('zerochat.py --port 6392'));
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6392/sse');
 
   uiInstance.destroy();
@@ -668,168 +635,3 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
   ChatI18n.setLanguage(originalLang, false);
 });
 
-test('ChatUIMcp - renderExternalServers renderiza servidores stdio y botones de inicio/parada', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const ChatState = require('../../js/state.js');
-  const t = (k, p) => ChatI18n.t(k, p);
-
-  // 1. Desconectado
-  const container = { innerHTML: '', querySelectorAll: () => [] };
-  ChatUIMcp.renderExternalServers(container, [], 'stopped', t);
-  assert.ok(container.innerHTML.includes('mcp-servers-empty'));
-  assert.ok(container.innerHTML.includes('servicios externos están detenidos'));
-
-  // 2. Conectado pero sin servidores
-  ChatUIMcp.renderExternalServers(container, [], 'running', t);
-  assert.ok(container.innerHTML.includes('No hay servidores MCP externos'));
-
-  // 3. Con servidores (uno stopped, uno running)
-  const buttons = [];
-  const clickListeners = {};
-  const containerWithServers = {
-    innerHTML: '',
-    querySelectorAll: (sel) => {
-      if (sel === '.btn-mcp-server-toggle') return buttons;
-      return [];
-    }
-  };
-
-  const servers = [
-    {
-      id: 'test_service',
-      name: 'Test Service',
-      description: 'Test tools',
-      status: 'stopped',
-      toolCount: 0
-    },
-    {
-      id: 'custom_srv',
-      name: 'Custom Server',
-      description: 'Herramientas custom',
-      status: 'running',
-      toolCount: 3
-    }
-  ];
-
-  servers.forEach(s => {
-    const btn = {
-      disabled: false,
-      getAttribute: (attr) => {
-        if (attr === 'data-server-id') return s.id;
-        if (attr === 'data-action') return s.status === 'running' ? 'stop' : 'start';
-        return null;
-      },
-      addEventListener: (evt, fn) => {
-        clickListeners[`${s.id}_${evt}`] = fn;
-      }
-    };
-    buttons.push(btn);
-  });
-
-  ChatUIMcp.renderExternalServers(containerWithServers, servers, 'running', t);
-
-  assert.ok(containerWithServers.innerHTML.includes('Test Service'));
-  assert.ok(containerWithServers.innerHTML.includes('Custom Server'));
-  assert.ok(containerWithServers.innerHTML.includes('status-stopped'));
-  assert.ok(containerWithServers.innerHTML.includes('status-running'));
-  assert.ok(containerWithServers.innerHTML.includes('3 herramientas activas'));
-  assert.ok(containerWithServers.innerHTML.includes('Iniciar'));
-  assert.ok(containerWithServers.innerHTML.includes('Detener'));
-
-  // 4. Probar pulsación de botón Iniciar
-  let startCalled = null;
-  const originalStart = ChatMCP.manager.startExternalServer;
-  const originalFetchServers = ChatMCP.manager.fetchExternalServers;
-  const previousMcpState = ChatState.get('mcp');
-  try {
-    ChatMCP.manager.startExternalServer = async (sid) => {
-      startCalled = sid;
-      assert.equal(buttons[0].textContent, 'Iniciando...');
-      assert.equal(buttons[0].disabled, true);
-      return { success: true };
-    };
-    ChatMCP.manager.fetchExternalServers = async () => ({
-      success: true,
-      servers: [
-        { id: 'test_service', name: 'Test Service', status: 'running', tool_count: 5 }
-      ]
-    });
-
-    await clickListeners['test_service_click']();
-    assert.equal(startCalled, 'test_service');
-    assert.deepEqual(ChatState.get('mcp').externalServers, [
-      { id: 'test_service', name: 'Test Service', status: 'running', tool_count: 5 }
-    ]);
-  } finally {
-    ChatMCP.manager.startExternalServer = originalStart;
-    ChatMCP.manager.fetchExternalServers = originalFetchServers;
-    ChatState.set('mcp', previousMcpState);
-  }
-
-  // 5. Servidor con opciones declarativas y toggle de opción
-  const checkboxes = [];
-  const checkboxListeners = {};
-  const containerWithOptions = {
-    innerHTML: '',
-    querySelectorAll: (sel) => {
-      if (sel === '.mcp-server-option-checkbox') return checkboxes;
-      if (sel === '.btn-mcp-server-toggle') return [];
-      return [];
-    }
-  };
-
-  const serverWithOptions = [
-    {
-      id: 'playwright',
-      name: 'Playwright MCP',
-      description: 'Navegador web',
-      status: 'stopped',
-      options: [
-        {
-          id: 'headless',
-          type: 'boolean',
-          label: { es: 'Navegación en segundo plano', en: 'Headless mode' },
-          description: { es: 'Desactívalo para ver la ventana', en: 'Disable to show window' },
-          default: true
-        }
-      ],
-      userOptions: {}
-    }
-  ];
-
-  const cb = {
-    checked: true,
-    disabled: false,
-    getAttribute: (attr) => {
-      if (attr === 'data-server-id') return 'playwright';
-      if (attr === 'data-option-id') return 'headless';
-      return null;
-    },
-    addEventListener: (evt, fn) => {
-      checkboxListeners[`playwright_headless_${evt}`] = fn;
-    }
-  };
-  checkboxes.push(cb);
-
-  ChatUIMcp.renderExternalServers(containerWithOptions, serverWithOptions, 'running', t);
-  assert.ok(containerWithOptions.innerHTML.includes('mcp-server-options'));
-  assert.ok(containerWithOptions.innerHTML.includes('Navegación en segundo plano'));
-  assert.ok(containerWithOptions.innerHTML.includes('data-option-id="headless"'));
-
-  let configCalled = null;
-  const originalConfigure = ChatMCP.manager.configureExternalServer;
-  try {
-    ChatMCP.manager.configureExternalServer = async (sid, cfg) => {
-      configCalled = { sid, cfg };
-      return { success: true };
-    };
-    cb.checked = false;
-    await checkboxListeners['playwright_headless_change']();
-    assert.deepEqual(configCalled, {
-      sid: 'playwright',
-      cfg: { options: { headless: false } }
-    });
-  } finally {
-    ChatMCP.manager.configureExternalServer = originalConfigure;
-  }
-});

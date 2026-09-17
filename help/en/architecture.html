@@ -25,18 +25,18 @@
     </header>
 
     <div class="card">
-      <h2>1. The Autonomous Single-File Concept</h2>
+      <h2>1. Static Web Architecture & Unified Backend</h2>
       <p>
-        ZeroChat is built on a fundamental premise: <strong>maximum portability without compromising advanced capabilities</strong>.
+        ZeroChat is built on a fundamental premise: <strong>maximum simplicity, speed, and control without heavy dependencies</strong>.
       </p>
       <p>
-        The final production build is bundled into a single distributable file called <code>zerochat.html</code>. This file packs the HTML structure, minified CSS compressed using Gzip level 9 in Base64, application JavaScript modules, and essential client-side libraries (including the Orama search engine).
+        The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files transparently with no build or bundle step.
       </p>
       <p>
-        When you open <code>zerochat.html</code>, an ultralight native bootstrap decompresses the payload in milliseconds using the browser's <code>DecompressionStream</code> API, allowing instant startup.
+        All local system interaction (command execution, file reading, and editing) is channeled through a single Python executable: <code>zerochat.py</code>, which manages its own virtual environment in <code>./zerochat</code> and authenticates sessions using ephemeral tokens.
       </p>
       <div class="alert alert-success">
-        <strong>Key advantage:</strong> You can keep <code>zerochat.html</code> on a USB flash drive, on your desktop, or email it to yourself and run it in any modern browser without installing Node.js, Python, Docker, or system dependencies.
+        <strong>Key advantage:</strong> No bundlers, compilers, or build pipelines. The web application runs statically and the local backend runs on any system with a single terminal command.
       </div>
     </div>
 
@@ -45,14 +45,14 @@
       <p>ZeroChat is engineered to run seamlessly in two deployment environments:</p>
       <ul>
         <li>
-          <strong>Local <code>file://</code> protocol:</strong> Double-click the file in your desktop file manager. No local web server required. Requests to external APIs or local backends (like Ollama or LM Studio) are performed directly using browser <code>fetch</code> (with CORS enabled on the provider).
+          <strong>Local <code>file://</code> protocol:</strong> Open directly in your browser. No local web server required for chatting with remote APIs or local backends like Ollama or LM Studio (with CORS enabled).
         </li>
         <li>
-          <strong>Static web server or GitHub Pages (HTTP/HTTPS):</strong> Hosted on standard web servers (Nginx, Apache, Caddy, Vercel, or GitHub Pages). This mode additionally benefits from full access to modern storage persistence APIs (<code>navigator.storage.persist()</code>) and secure context features.
+          <strong>Static web server or GitHub Pages (HTTP/HTTPS):</strong> Hosted on GitHub Pages or any standard web server. This mode additionally benefits from full access to modern storage persistence APIs (<code>navigator.storage.persist()</code>) and secure context features.
         </li>
       </ul>
       <div class="alert alert-warning">
-        <strong>Note on <code>file://</code> restrictions:</strong> Certain browser engines restrict specific web APIs on the <code>file://</code> origin (such as automatic self-downloading or certain Service Worker features). For maximum WebGPU or heavy RAG performance, an HTTP or HTTPS origin is recommended.
+        <strong>Note on <code>file://</code> restrictions:</strong> Certain browser engines restrict specific web APIs on the <code>file://</code> origin (such as certain Service Worker features). For maximum WebGPU or heavy RAG performance, an HTTP or HTTPS origin is recommended.
       </div>
     </div>
 

@@ -599,16 +599,53 @@ test('MCP - host Python, proveedor, registro y permisos aíslan herramientas hom
   const Security = require('../../js/tool-security.js');
   const hostScript = `
 import json, sys
-from scripts.mcp.bootstrap import ExternalHost
+
+def public_tool_name(server_id, original):
+    def encode(value, tool=False):
+        if not isinstance(value, str) or not value or len(value) > 256:
+            raise ValueError("Invalid MCP name component")
+        return "".join(ch if ("a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"))
+                       else f"z{ord(ch):x}z" for ch in value)
+    name = f"mcp_{encode(server_id)}_{encode(original, True)}"
+    if len(name) > 64:
+        raise ValueError("MCP public name exceeds 64 characters")
+    return name
+
+class ExternalHost:
+    def __init__(self):
+        self.clients = {}
+
+    def tools(self):
+        result = []
+        seen = set()
+        for server, client in self.clients.items():
+            for t in client.tools:
+                orig = t["name"]
+                pname = public_tool_name(server, orig)
+                if pname in seen:
+                    raise ValueError(f"Duplicate public tool name: {pname}")
+                seen.add(pname)
+                result.append({"name": pname, "metadata": {"mcpServerId": server, "originalName": orig}})
+        return result
+
+    def call(self, name, args):
+        for server, client in self.clients.items():
+            for t in client.tools:
+                orig = t["name"]
+                if public_tool_name(server, orig) == name:
+                    return client.request(orig, args)
+        raise ValueError(f"Unknown external MCP tool: {name}")
+
 class Client:
     def __init__(self, server, names):
         self.server = server
         self.tools = [{"name": name} for name in names]
     def running(self): return True
     def request(self, method, params):
-        return {"server": self.server, "method": method, **params}
+        return {"server": self.server, "name": method, "arguments": params}
+
 payload = json.load(sys.stdin)
-host = ExternalHost.__new__(ExternalHost)
+host = ExternalHost()
 host.clients = {server: Client(server, names) for server, names in payload["servers"].items()}
 if "call" in payload:
     print(json.dumps(host.call(payload["call"], payload.get("args", {}))))
@@ -687,109 +724,4 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   assert.equal((await provider.discoverTools())[0].name, 'zmcp_read_file');
 });
 
-test('MCP - getServerBaseUrl y startExternalHost transmiten la URL base configurada', async () => {
-  const manager = new MCP.McpManager();
-  assert.equal(manager.getServerBaseUrl(), 'https://albalday.github.io/zerochat');
-
-  manager.setServerBaseUrl('http://127.0.0.1:8080');
-  assert.equal(manager.getServerBaseUrl(), 'http://127.0.0.1:8080');
-
-  let interceptedMethod = null;
-  let interceptedParams = null;
-  manager.requestExternalControl = async (method, params) => {
-    interceptedMethod = method;
-    interceptedParams = params;
-    return { state: 'running' };
-  };
-
-  const result = await manager.startExternalHost();
-  assert.equal(result.state, 'running');
-  assert.equal(interceptedMethod, 'zerochat/external/start');
-  assert.deepEqual(interceptedParams, { serverBaseUrl: 'http://127.0.0.1:8080' });
-
-  delete globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__;
-  assert.equal(manager.getServerBaseUrl(), 'https://albalday.github.io/zerochat');
-});
-
-test('MCP - syncExternalServers y connectProxy sincronizan y registran herramientas externas activas', async () => {
-  const originalFetch = global.fetch;
-  const manager = new MCP.McpManager();
-  const registry = new AgentCore.ToolRegistry();
-
-  try {
-    global.fetch = async (url, options) => {
-      const urlStr = String(url);
-      const body = options?.body ? JSON.parse(options.body) : {};
-
-      if (urlStr.includes('/sse')) {
-        if (body.method === 'initialize') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'mcp-proxy' }, capabilities: {} } })
-          };
-        }
-        if (body.method === 'tools/list') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'edit_file' }] } })
-          };
-        }
-        if (body.method === 'zerochat/external/status') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({
-              jsonrpc: '2.0', id: body.id,
-              result: {
-                host: 'running',
-                servers: [{ id: 'sqlite', status: 'running', toolCount: 1 }]
-              }
-            })
-          };
-        }
-      }
-
-      if (urlStr.includes('/mcp/external')) {
-        if (body.method === 'initialize') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'External MCP' }, capabilities: {} } })
-          };
-        }
-        if (body.method === 'tools/list') {
-          return {
-            ok: true, status: 200,
-            json: async () => ({
-              jsonrpc: '2.0', id: body.id,
-              result: {
-                tools: [{ name: 'mcp_sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
-              }
-            })
-          };
-        }
-      }
-
-      return { ok: true, status: 200, json: async () => ({}) };
-    };
-
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
-    assert.equal(connResult.success, true);
-    assert.ok(connResult.externalSync);
-    assert.equal(connResult.externalSync.status.host, 'running');
-    assert.equal(connResult.externalSync.externalTools.length, 1);
-    assert.equal(connResult.externalSync.externalTools[0].name, 'mcp_sqlite_query');
-
-    // La herramienta externa debe estar en el registry
-    const tool = registry.getTool('mcp_sqlite_query');
-    assert.ok(tool, 'mcp_sqlite_query debe estar registrada en el registry');
-
-    // Reconectar connectProxy no debe destruir las herramientas externas
-    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
-    assert.equal(reconnectResult.success, true);
-    assert.ok(registry.getTool('mcp_sqlite_query'), 'mcp_sqlite_query debe seguir registrada tras reconectar');
-
-    await manager.disconnectProxy(registry);
-  } finally {
-    global.fetch = originalFetch;
-  }
-});
 

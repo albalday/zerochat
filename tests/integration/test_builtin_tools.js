@@ -35,8 +35,8 @@ test('Builtin Tools - Todos los módulos cumplen el contrato declarativo y se re
   }
 });
 
-test('Builtin Tools - index.html carga exactamente los módulos builtin disponibles', () => {
-  const html = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf-8');
+test('Builtin Tools - zerochat.html carga exactamente los módulos builtin disponibles', () => {
+  const html = fs.readFileSync(path.join(ROOT_DIR, 'zerochat.html'), 'utf-8');
   const loaded = Array.from(html.matchAll(/<script[^>]+src=["'](js\/tools\/builtin\/[^"']+\.tool\.js)["']/gi), match => path.basename(match[1]));
   const available = fs.readdirSync(BUILTIN_DIR).filter(file => file.endsWith('.tool.js')).sort();
   assert.deepEqual(loaded.sort(), available);
