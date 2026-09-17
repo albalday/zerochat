@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "playwright",
+  "displayName": {
+    "es": "Playwright MCP",
+    "en": "Playwright MCP"
+  },
+  "description": {
+    "es": "Automatización de navegador mediante el servidor MCP oficial de Playwright.",
+    "en": "Browser automation through the official Playwright MCP server."
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": ["${serviceDir}/node_modules/@playwright/mcp/cli.js", "--browser=chromium"],
+    "cwd": "${serviceDir}",
+    "env": {},
+    "handshakeTimeoutSeconds": 30
+  },
+  "options": [
+    {
+      "id": "headless",
+      "type": "boolean",
+      "label": {
+        "es": "Navegación en segundo plano (Headless)",
+        "en": "Headless background mode"
+      },
+      "description": {
+        "es": "Desactívalo para ver la ventana del navegador durante la automatización",
+        "en": "Disable to display the browser window during automation"
+      },
+      "default": true,
+      "argsWhenTrue": ["--headless"],
+      "argsWhenFalse": []
+    }
+  ]
+}

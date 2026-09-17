@@ -2087,13 +2087,27 @@
         console.warn('Error leyendo parámetros de sesión:', err);
       }
 
-      const currentCfg = getRuntimeConfig();
-      const targetPort = incomingPort ? parseInt(incomingPort, 10) : (currentCfg?.mcpPort || 6388);
-      const targetHost = currentCfg?.mcpHost || '127.0.0.1';
+      if (incomingToken) {
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('zerochat_mcp_token', incomingToken);
+          }
+        } catch (_) {}
+      } else {
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            incomingToken = sessionStorage.getItem('zerochat_mcp_token');
+          }
+        } catch (_) {}
+      }
 
       if (incomingToken && window.ChatMCP?.manager?.setSessionToken) {
         window.ChatMCP.manager.setSessionToken(incomingToken);
       }
+
+      const currentCfg = getRuntimeConfig();
+      const targetPort = incomingPort ? parseInt(incomingPort, 10) : (currentCfg?.mcpPort || 6388);
+      const targetHost = currentCfg?.mcpHost || '127.0.0.1';
 
       if ((incomingToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({

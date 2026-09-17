@@ -224,7 +224,9 @@
     container.innerHTML = servers.map(server => {
       const isRunning = server.status === 'running';
       const isStarting = server.status === 'starting';
-      const statusClass = isRunning ? 'status-running' : (isStarting ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
+      const isInstalling = server.status === 'installing';
+      const isBusy = isStarting || isInstalling;
+      const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
       const statusLabel = translator(`mcp_external_status_${server.status || 'stopped'}`);
       const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
       const err = server.error ? `<p class="mcp-server-error">${escapeHtml(server.error)}</p>` : '';
@@ -265,7 +267,7 @@
             ${optionsHtml}
           </div>
           <div class="mcp-server-actions">
-            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}">
+            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled' : ''}>
               ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : translator('mcp_btn_start_server'))}
             </button>
           </div>

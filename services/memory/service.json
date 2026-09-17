@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "memory",
+  "displayName": {
+    "es": "Memoria y Grafos (Knowledge Graph)",
+    "en": "Memory & Knowledge Graph"
+  },
+  "description": {
+    "es": "Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.",
+    "en": "Persistent storage of entities, preferences, and historical context structured as a knowledge graph."
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": ["${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
+    "cwd": "${serviceDir}",
+    "env": {
+      "MEMORY_FILE_PATH": "${serviceDir}/memory.jsonl"
+    },
+    "handshakeTimeoutSeconds": 30
+  }
+}

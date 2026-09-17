@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -127,9 +127,13 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(statusRes.status, 200);
     const statusJson = await statusRes.json();
     assert.equal(statusJson.result?.host, 'running');
+    const serverIds = (statusJson.result?.servers || []).map(s => s.id);
+    assert.ok(serverIds.includes('dummy_mcp'), 'dummy_mcp debe estar provisto');
+    assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
+    assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
+    assert.ok(serverIds.includes('lsp'), 'lsp debe estar provisto');
     const dummyServer = (statusJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
-    assert.ok(dummyServer, 'dummy_mcp debe estar provisto automáticamente');
-    assert.equal(dummyServer.status, 'stopped');
+    assert.equal(dummyServer?.status, 'stopped');
 
     // Iniciar individualmente dummy_mcp
     const startRes = await fetch(baseUrl, {
@@ -186,3 +190,20 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     serverProc.kill('SIGTERM');
   }
 });
+
+test('Generación y persistencia de token diario en zerochat.py', async () => {
+  const code = `
+import zerochat
+token1 = zerochat.get_daily_token()
+token2 = zerochat.get_daily_token()
+assert token1 == token2, "El token diario debe ser idempotente en el mismo día"
+assert len(token1) > 20, "El token debe ser de longitud segura"
+print("DAILY_TOKEN_OK")
+`;
+  const output = execFileSync('python3', ['-c', code], {
+    cwd: path.resolve(__dirname, '../..'),
+    encoding: 'utf8'
+  });
+  assert.ok(output.includes('DAILY_TOKEN_OK'));
+});
+

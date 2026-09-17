@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import datetime
 import hmac
 import json
 import os
@@ -37,20 +38,40 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 
-# Estado de sesión en memoria
-SESSION_TOKEN = secrets.token_urlsafe(32)
+def get_venv_dir() -> Path:
+    """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
+    return (Path.cwd() / "zerochat").resolve()
+
+
+def get_daily_token() -> str:
+    """Devuelve un token de sesión diario persistido en ./zerochat/config/token.json."""
+    config_dir = get_venv_dir() / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    token_file = config_dir / "token.json"
+    today = datetime.date.today().isoformat()
+    if token_file.exists():
+        try:
+            data = json.loads(token_file.read_text(encoding="utf-8"))
+            if data.get("date") == today and data.get("token") and isinstance(data["token"], str):
+                return data["token"]
+        except Exception:
+            pass
+    token = secrets.token_urlsafe(32)
+    try:
+        tmp_file = token_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps({"token": token, "date": today}, indent=2), encoding="utf-8")
+        tmp_file.replace(token_file)
+    except Exception:
+        pass
+    return token
+
+
+# Estado de sesión en memoria (generación diaria por defecto)
+SESSION_TOKEN = get_daily_token()
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 
 DETECTED_OS = "windows" if sys.platform.startswith("win") else ("android" if "ANDROID_ROOT" in os.environ else "linux")
-
-# ==============================================================================
-# Gestión Automática del Entorno Virtual (./zerochat)
-# ==============================================================================
-
-def get_venv_dir() -> Path:
-    """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
-    return (Path.cwd() / "zerochat").resolve()
 
 
 def get_venv_python(venv_dir: Path) -> Path:
@@ -576,6 +597,137 @@ for raw in sys.stdin:
         })
 ''', encoding="utf-8")
 
+        # 2. playwright
+        playwright_dir = self.services_root / "playwright"
+        playwright_dir.mkdir(parents=True, exist_ok=True)
+        pw_service = playwright_dir / "service.json"
+        pw_installer = playwright_dir / "installer.json"
+        if not pw_service.exists():
+            pw_service.write_text(json.dumps({
+                "schemaVersion": 1,
+                "id": "playwright",
+                "displayName": {
+                    "es": "Playwright MCP",
+                    "en": "Playwright MCP"
+                },
+                "description": {
+                    "es": "Automatización de navegador mediante el servidor MCP oficial de Playwright.",
+                    "en": "Browser automation through the official Playwright MCP server."
+                },
+                "enabledByDefault": False,
+                "transport": "stdio",
+                "launch": {
+                    "executable": "${nodeExecutable}",
+                    "args": ["${serviceDir}/node_modules/@playwright/mcp/cli.js", "--browser=chromium"],
+                    "cwd": "${serviceDir}",
+                    "env": {},
+                    "handshakeTimeoutSeconds": 30
+                },
+                "options": [
+                    {
+                        "id": "headless",
+                        "type": "boolean",
+                        "label": {
+                            "es": "Navegación en segundo plano (Headless)",
+                            "en": "Headless background mode"
+                        },
+                        "description": {
+                            "es": "Desactívalo para ver la ventana del navegador durante la automatización",
+                            "en": "Disable to display the browser window during automation"
+                        },
+                        "default": True,
+                        "argsWhenTrue": ["--headless"],
+                        "argsWhenFalse": []
+                    }
+                ]
+            }, indent=2), encoding="utf-8")
+        if not pw_installer.exists():
+            pw_installer.write_text(json.dumps({
+                "schemaVersion": 1,
+                "type": "npm",
+                "product": {
+                    "package": "@playwright/mcp",
+                    "version": "0.0.81",
+                    "browser": "chromium"
+                }
+            }, indent=2), encoding="utf-8")
+
+        # 3. memory
+        memory_dir = self.services_root / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        mem_service = memory_dir / "service.json"
+        mem_installer = memory_dir / "installer.json"
+        if not mem_service.exists():
+            mem_service.write_text(json.dumps({
+                "schemaVersion": 1,
+                "id": "memory",
+                "displayName": {
+                    "es": "Memoria y Grafos (Knowledge Graph)",
+                    "en": "Memory & Knowledge Graph"
+                },
+                "description": {
+                    "es": "Almacenamiento persistente de entidades, preferencias y contexto histórico estructurado en un grafo de conocimiento.",
+                    "en": "Persistent storage of entities, preferences, and historical context structured as a knowledge graph."
+                },
+                "enabledByDefault": False,
+                "transport": "stdio",
+                "launch": {
+                    "executable": "${nodeExecutable}",
+                    "args": ["${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
+                    "cwd": "${serviceDir}",
+                    "env": {
+                        "MEMORY_FILE_PATH": "${serviceDir}/memory.jsonl"
+                    },
+                    "handshakeTimeoutSeconds": 30
+                }
+            }, indent=2), encoding="utf-8")
+        if not mem_installer.exists():
+            mem_installer.write_text(json.dumps({
+                "schemaVersion": 1,
+                "type": "npm",
+                "product": {
+                    "package": "@modelcontextprotocol/server-memory",
+                    "version": "2026.8.31"
+                }
+            }, indent=2), encoding="utf-8")
+
+        # 4. lsp
+        lsp_dir = self.services_root / "lsp"
+        lsp_dir.mkdir(parents=True, exist_ok=True)
+        lsp_service = lsp_dir / "service.json"
+        lsp_installer = lsp_dir / "installer.json"
+        if not lsp_service.exists():
+            lsp_service.write_text(json.dumps({
+                "schemaVersion": 1,
+                "id": "lsp",
+                "displayName": {
+                    "es": "LSP y Navegación de Código",
+                    "en": "LSP & Code Intelligence"
+                },
+                "description": {
+                    "es": "Servidor de protocolos de lenguaje (LSP): salto a definiciones, búsqueda de símbolos, referencias e inspección de tipos sin sobrecargar el contexto.",
+                    "en": "Language Server Protocol (LSP) server: jump to definitions, symbol search, references, and type inspection without context overload."
+                },
+                "enabledByDefault": False,
+                "transport": "stdio",
+                "launch": {
+                    "executable": "${nodeExecutable}",
+                    "args": ["${serviceDir}/node_modules/@axivo/mcp-lsp/dist/index.js"],
+                    "cwd": "${serviceDir}",
+                    "env": {},
+                    "handshakeTimeoutSeconds": 30
+                }
+            }, indent=2), encoding="utf-8")
+        if not lsp_installer.exists():
+            lsp_installer.write_text(json.dumps({
+                "schemaVersion": 1,
+                "type": "npm",
+                "product": {
+                    "package": "@axivo/mcp-lsp",
+                    "version": "1.0.5"
+                }
+            }, indent=2), encoding="utf-8")
+
     def _load_services(self) -> dict[str, dict]:
         servers = {}
         for directory in sorted(self.services_root.iterdir()):
@@ -637,6 +789,59 @@ for raw in sys.stdin:
             value = value.replace("${" + key + "}", str(replacement))
         return value
 
+    def _prepare_service(self, server_id: str, server: dict) -> dict[str, str]:
+        service_dir = server["_directory"]
+        installer_file = service_dir / "installer.json"
+        node = shutil.which("node") or "node"
+        npm = shutil.which("npm") or "npm"
+
+        if installer_file.exists():
+            marker = service_dir / ".installed.json"
+            try:
+                installer = json.loads(installer_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                raise RuntimeError(f"Error leyendo installer.json: {e}")
+            kind = installer.get("type", "npm")
+            if kind == "npm":
+                product = installer.get("product", {})
+                package = product.get("package")
+                version = product.get("version")
+                if not package or not version:
+                    raise RuntimeError("El instalador npm debe definir package y version")
+                if not shutil.which("node") or not shutil.which("npm"):
+                    raise RuntimeError("Node.js 18+ y npm son necesarios para instalar este servicio MCP")
+
+                needs_install = not marker.exists()
+                if not needs_install:
+                    try:
+                        installation = json.loads(marker.read_text(encoding="utf-8"))
+                        if installation.get("package") != package or installation.get("version") != version:
+                            needs_install = True
+                    except Exception:
+                        needs_install = True
+
+                if needs_install:
+                    self.states[server_id] = "installing"
+                    manifest = service_dir / "package.json"
+                    manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
+                    res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
+                    if res.returncode != 0:
+                        raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
+                    installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
+                    browser = product.get("browser")
+                    if browser:
+                        playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
+                        if playwright_cli.is_file():
+                            subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
+                            installation["browser"] = browser
+                    marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
+
+        return {
+            "serviceDir": str(service_dir),
+            "pythonExecutable": sys.executable,
+            "nodeExecutable": node
+        }
+
     def start(self, server_id: str) -> list[dict]:
         with self._lock:
             self.services = self._load_services()
@@ -649,11 +854,7 @@ for raw in sys.stdin:
             self.states[server_id] = "starting"
             try:
                 service_dir = server["_directory"]
-                values = {
-                    "serviceDir": str(service_dir),
-                    "pythonExecutable": sys.executable,
-                    "nodeExecutable": shutil.which("node") or "node"
-                }
+                values = self._prepare_service(server_id, server)
                 pref = self.preferences.get(server_id, {})
                 user_opts = pref.get("options", {})
                 for opt in server.get("options", []):
@@ -1095,6 +1296,8 @@ def main():
     ACTIVE_HOST = args.host
     if args.token:
         SESSION_TOKEN = args.token
+    else:
+        SESSION_TOKEN = get_daily_token()
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
 
@@ -1106,7 +1309,7 @@ def main():
     print(f"  Directorio de trabajo : {Path.cwd()}")
     print(f"  Entorno virtual       : {get_venv_dir()}")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
-    print(f"  Token de sesión       : {SESSION_TOKEN}")
+    print(f"  Token de sesión (diario): {SESSION_TOKEN}")
     print(f"  Destino Web           : {args.ui_url}")
     print("=" * 64, flush=True)
 

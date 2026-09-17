@@ -108,6 +108,15 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
       <p>
         In the <strong>Settings → MCP</strong> tab, the <em>"Available MCP Servers"</em> section lists all configured services and allows users to start and stop them individually using dedicated action buttons (<em>Start</em> / <em>Stop</em>), as well as configure service-specific options. Once a service is running, its tools are dynamically discovered and registered for agent use.
       </p>
+      <p>
+        The local server provides ready-to-use definitions in individual folders under <code>services/</code> (or <code>./zerochat/services</code>):
+      </p>
+      <ul>
+        <li><code>dummy_mcp</code>: Minimal test service in pure Python without external dependencies.</li>
+        <li><code>playwright</code>: Web automation and navigation with the official Playwright MCP server.</li>
+        <li><code>memory</code>: Knowledge graph and structured persistent memory.</li>
+        <li><code>lsp</code>: Language Server Protocol for code navigation and type inspection.</li>
+      </ul>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
