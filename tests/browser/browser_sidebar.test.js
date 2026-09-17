@@ -115,7 +115,7 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../index.html'), { waitUntil: 'load' });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
       const suffix = Date.now().toString();
@@ -176,7 +176,7 @@ test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y ses
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
 
-    const filePath = 'file://' + path.resolve(__dirname, '../../index.html');
+    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 

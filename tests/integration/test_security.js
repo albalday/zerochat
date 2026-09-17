@@ -71,8 +71,8 @@ test('Security - Validación de URLs y mitigación SSRF en WebBrowser', () => {
   assert.equal(resJs.valid, false);
 });
 
-test('Security - Presencia de Content Security Policy (CSP) en index.html', () => {
-  const indexPath = path.join(__dirname, '../..', 'index.html');
+test('Security - Presencia de Content Security Policy (CSP) en zerochat.html', () => {
+  const indexPath = path.join(__dirname, '../..', 'zerochat.html');
   const html = fs.readFileSync(indexPath, 'utf8');
 
   assert.ok(html.includes('http-equiv="Content-Security-Policy"'), 'Debe contener la etiqueta meta CSP');

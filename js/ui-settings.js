@@ -569,24 +569,6 @@
             <div id="mcp-error-message" class="mcp-error-message" style="display: none;"></div>
           </div>
 
-          <!-- Servicios MCP externos -->
-          <div class="mcp-servers-card" id="mcp-servers-card">
-            <div class="mcp-servers-header">
-              <span class="mcp-servers-icon">
-                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>
-              </span>
-              <div>
-                <strong data-i18n="mcp_servers_section_title">Servidores MCP Externos</strong>
-              </div>
-              <div class="mcp-external-host-actions">
-                <button type="button" id="btn-mcp-start-external" class="btn-primary btn-mcp-action" data-i18n="mcp_external_start" disabled>Arrancar servicios MCP externos</button>
-                <button type="button" id="btn-mcp-stop-external" class="btn-secondary btn-mcp-action" data-i18n="mcp_external_stop" disabled>Detener servicios externos</button>
-              </div>
-            </div>
-            <div id="mcp-bootstrap-status" class="label-hint mcp-bootstrap-status" role="status" aria-live="polite" hidden></div>
-            <div id="mcp-servers-list" class="mcp-servers-list"></div>
-          </div>
-
           <!-- Contenedor dinámico de herramientas MCP registradas -->
           <div id="mcp-tools-container" class="mcp-tools-container"></div>
         </div>

@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "type": "npm",
-  "product": {
-    "package": "@modelcontextprotocol/server-memory",
-    "version": "2026.8.31"
-  }
-}
-

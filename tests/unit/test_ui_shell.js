@@ -10,28 +10,6 @@ test('UIShell - isHttpExecution detects http/https protocols correctly', () => {
   assert.equal(UIShell.isHttpExecution(null), false);
 });
 
-test('UIShell - getStandaloneDownloadUrl returns null for file protocol and resolves bundle path for http', () => {
-  assert.equal(UIShell.getStandaloneDownloadUrl({ location: { protocol: 'file:', href: 'file:///path/index.html' } }), null);
-
-  const mockHttp = {
-    location: {
-      protocol: 'http:',
-      href: 'http://localhost:8080/index.html',
-      pathname: '/index.html'
-    }
-  };
-  assert.equal(UIShell.getStandaloneDownloadUrl(mockHttp), 'http://localhost:8080/zerochat.html');
-
-  const mockHttpSlash = {
-    location: {
-      protocol: 'http:',
-      href: 'http://localhost:8080/subpath/',
-      pathname: '/subpath/'
-    }
-  };
-  assert.equal(UIShell.getStandaloneDownloadUrl(mockHttpSlash), 'http://localhost:8080/subpath/zerochat.html');
-});
-
 test('UIShell - updateViewportHeight sets CSS custom property --app-height', () => {
   let propertyName = '';
   let propertyValue = '';

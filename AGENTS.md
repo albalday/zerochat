@@ -8,15 +8,15 @@ Se aplican tanto al desarrollo humano como a los agentes de generación de códi
 
 El código fuente se mantiene en:
 
-- `index.html`
+- `zerochat.html` (interfaz web universal servida por GitHub Pages)
+- `zerochat.py` (backend local unificado y gestor de entorno venv)
 - `js/`
 - `css/`
 - `tests/`
 - `scripts/`
 
-`zerochat.html` es un artefacto generado. No debe editarse manualmente.
-Cualquier modificación del código fuente que afecte a la aplicación debe terminar
-con la regeneración del bundle mediante `npm run build`.
+No existe proceso de empaquetado (bundle). La aplicación web se sirve de forma directa
+y estática por HTTPS desde GitHub Pages cargando sus módulos `css/` y `js/`.
 
 Los cambios deben ser pequeños, coherentes con la arquitectura existente y limitarse
 al problema solicitado. No se deben introducir refactorizaciones generales, nuevas
@@ -106,28 +106,24 @@ credenciales o contenido HTML debe incluir pruebas específicas y revisar:
 - comportamiento ante errores y cancelación.
 
 No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
-
-### Excepción para perfiles de demostración precargados en el bundle
-
-Se autoriza expresamente la incorporación de copias de perfiles `.zcp` situadas en `bundle-profiles/` dentro del bundle distribuible `zerochat.html`. Dichos archivos residen únicamente en local (ignorados por `.gitignore` para no versionarse en el repositorio) y su contenido se incorpora cifrado mediante el mecanismo de restauración del bundle. El riesgo de empaquetar credenciales de demostración cifradas dentro de dicho distribuible se considera asumido, por lo que no debe bloquearse, eliminarse ni impedirse su inclusión en la compilación y confirmación del bundle generado.
+Las comunicaciones con `zerochat.py` requieren obligatoriamente el token efímero de sesión
+suministrado en el arranque.
 
 
-## 5. Pruebas y build
+## 5. Pruebas y validación
 
 Durante el desarrollo se puede usar la validación más específica:
 
 - lógica sin interfaz: `npm run test:unit`;
-- cambios de HTML, CSS o DOM: `npm run test:browser`;
-- validación completa: `npm test`;
-- regeneración del distribuible: `npm run build`.
+- infraestructura de servidor local: `npm run test:infrastructure`;
+- contratos de arquitectura: `npm run test:architecture`;
+- integración de componentes: `npm run test:integration`;
+- cambios de HTML, CSS o DOM: `npm run test:browser`.
 
 Antes de considerar terminado un cambio:
 
 1. deben pasar las pruebas aplicables;
-2. debe ejecutarse `npm test`;
-3. debe ejecutarse `npm run build`;
-4. debe comprobarse que `zerochat.html` queda actualizado;
-5. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
+2. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
 
 ## 6. Control de versiones y Git
 
@@ -135,7 +131,6 @@ El flujo de trabajo en el repositorio debe seguir estas pautas:
 
 - **Rama de trabajo**: Todo desarrollo o cambio se realiza sobre la rama `dev`.
 - **Formato de commits**: Usar la convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
-- **Sincronización del bundle**: El archivo distribuible `zerochat.html` debe incluirse en la confirmación siempre que se modifique código fuente de la aplicación.
 
 ## 7. Regla de promoción a `master`
 
@@ -150,8 +145,10 @@ La promoción a `master` queda prohibida si:
 
 La validación automática mínima para un pase a `master` debe incluir:
 
-- `npm test`;
-- `npm run build`;
+- `npm run test:unit`;
+- `npm run test:infrastructure`;
+- `npm run test:architecture`;
+- `npm run test:integration`;
 - `npm run test:browser` si el cambio afecta a HTML, CSS o DOM.
 
 Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
@@ -186,8 +183,6 @@ La documentación se organiza de forma canónica en los siguientes niveles:
   La documentación técnica profunda reside obligatoriamente en la carpeta raíz del subsistema que describe bajo el nombre estándar `README.md`. Está prohibido que los agentes creen archivos `.md` sueltos en la raíz o en carpetas genéricas:
   - Pruebas y suite de test: `tests/README.md`.
   - Herramientas agénticas y contratos de ejecución: `js/tools/README.md`.
-  - Servicios externos MCP y runtime del host: `scripts/mcp/README.md`.
-  - Copias de perfiles precargados: `bundle-profiles/README.md`.
 - **Documentación de usuario final (`help/`)**:
   Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
 - **Histórico y archivo (`docs/`)**:

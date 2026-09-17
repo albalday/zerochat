@@ -106,7 +106,7 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
 test('Browser UI - Notices disappear immediately after a blocked import and confirmation', async () => {
   const browser = await createTestBrowser();
   try {
-    for (const file of ['index.html', 'zerochat.html']) {
+    for (const file of ['zerochat.html']) {
       const page = await browser.newPage();
       await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
         ? { status: 204, body: '' }

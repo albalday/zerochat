@@ -48,8 +48,3 @@ públicos de más de 64 caracteres y los duplicados se rechazan explícitamente.
 El registro no genera alias MCP ni elimina sus guiones bajos para resolverlos.
 Los permisos persistidos se consultan exclusivamente por identificador canónico,
 nunca por nombre original, sufijo o alias. No existe migración de nombres antiguos.
-
-Los servicios stdio se describen en directorios `scripts/mcp/services/<id>.mcp/`.
-Su `installer.json` usa `type: "none"` para ejecutables ya presentes o
-`type: "npm"` para un paquete con versión exacta. El host no contiene reglas
-para servicios concretos ni instala recursos de un producto específico.

@@ -1,238 +1,124 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn, execFileSync } = require('node:child_process');
-const http = require('node:http');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 
-test('Ruta publicada del host MCP: instala, inicia, enruta, detiene y desconecta un servicio stdio', async () => {
+test('Servidor local zerochat.py: token de sesión, herramientas core y aislamiento', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
-  const serverPath = path.resolve(repoRoot, 'scripts/zmcp.py');
-  const sourceRoot = path.resolve(repoRoot, 'scripts/mcp');
-  const playwrightInstaller = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'installer.json'), 'utf8'));
-  const playwrightService = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'services', 'playwright.mcp', 'service.json'), 'utf8'));
-  assert.equal(playwrightInstaller.product.browser, 'chromium');
-  assert.ok(playwrightService.launch.args.includes('--browser=chromium'));
-  const mcpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-home-'));
+  const serverPath = path.resolve(repoRoot, 'zerochat.py');
   const port = 6400 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
-
-  // Levantar servidor HTTP local contra el directorio del repositorio
-  const testServer = http.createServer((req, res) => {
-    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
-    const safePath = path.normalize(parsedUrl.pathname).replace(/^(\.\.[\/\\])+/, '');
-    const filePath = path.join(repoRoot, safePath);
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-      fs.createReadStream(filePath).pipe(res);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
-    }
-  });
-  await new Promise(resolve => testServer.listen(0, '127.0.0.1', resolve));
-  const testServerPort = testServer.address().port;
-  const serverBaseUrl = `http://127.0.0.1:${testServerPort}`;
+  const testToken = 'test-token-secret-12345';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--server-base-url', serverBaseUrl, '--mcp-home', mcpHome
+    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
   let serverError = '';
   let serverOutput = '';
   serverProc.stderr.on('data', chunk => { serverError += chunk; });
   serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
 
-  async function rpc(id, method, params = {}, endpoint = baseUrl) {
-    let response;
-    try {
-      response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Client': '1' },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
-      });
-    } catch (error) {
-      assert.fail(`${serverError || error.message}`);
-    }
-    assert.equal(response.status, 200);
-    return response.json();
-  }
-
   try {
-    for (let attempt = 0; attempt < 40; attempt++) {
+    // 1. Esperar arranque
+    for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        if ((await fetch(baseUrl)).ok) break;
+        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        if (probeRes.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
-      if (attempt === 39) assert.fail('El servidor local no arrancó');
+      if (attempt === 29) {
+        assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl}. Error: ${serverError}`);
+      }
     }
 
-    // Comprobaciones de seguridad de origen y cabecera de cliente
-    const evilOptions = await fetch(baseUrl, { method: 'OPTIONS', headers: { Origin: 'https://evil.com' } });
-    assert.equal(evilOptions.status, 403);
-    assert.equal(evilOptions.headers.get('access-control-allow-origin'), null);
+    // 2. Comprobar rechazo sin token (HTTP 401)
+    const unauthGet = await fetch(`${baseUrl}/`);
+    assert.equal(unauthGet.status, 401, 'Petición GET sin token debe ser rechazada con 401');
 
-    const evilGet = await fetch(baseUrl, { headers: { Origin: 'https://evil.com' } });
-    assert.equal(evilGet.status, 403);
-
-    const evilPost = await fetch(baseUrl, {
+    const unauthPost = await fetch(baseUrl, {
       method: 'POST',
-      headers: { Origin: 'https://evil.com', 'Content-Type': 'application/json', 'X-ZeroChat-Client': '1' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     });
-    assert.equal(evilPost.status, 403);
+    assert.equal(unauthPost.status, 401, 'Petición POST sin token debe ser rechazada con 401');
 
-    const missingClientHeader = await fetch(baseUrl, {
+    // 3. Comprobar rechazo con token inválido
+    const invalidPost = await fetch(baseUrl, {
       method: 'POST',
-      headers: { Origin: 'https://albalday.github.io', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/list' })
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer wrong-token'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })
     });
-    assert.equal(missingClientHeader.status, 403);
+    assert.equal(invalidPost.status, 401, 'Petición con token erróneo debe ser 401');
 
-    const allowedPreflight = await fetch(baseUrl, {
-      method: 'OPTIONS',
-      headers: { Origin: 'https://albalday.github.io' }
+    // 4. Comprobar autorización con cabecera Authorization: Bearer <token>
+    const initRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: {} })
     });
-    assert.equal(allowedPreflight.status, 204);
-    assert.equal(allowedPreflight.headers.get('access-control-allow-origin'), 'https://albalday.github.io');
-    assert.ok(allowedPreflight.headers.get('access-control-allow-headers').includes('X-ZeroChat-Client'));
+    assert.equal(initRes.status, 200);
+    const initJson = await initRes.json();
+    assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
+    assert.equal(initJson.result?.serverInfo?.version, '7.0.0');
 
-    const localTools = await rpc(1, 'tools/list');
-    assert.deepEqual(localTools.result.tools.map(tool => tool.name).sort(), [
-      'edit_file', 'execute_command', 'list_directory', 'read_file'
-    ]);
-    assert.equal((await fetch(`${baseUrl}/mcp/external/status`)).status, 200);
-    const before = await rpc(2, 'zerochat/external/status');
-    assert.equal(before.result.host, 'stopped');
-    assert.deepEqual(before.result.servers, []);
-
-    const startAt = Date.now();
-    const started = await rpc(3, 'zerochat/external/start', { serverBaseUrl });
-    assert.equal(started.error, undefined, started.error?.message);
-    assert.equal(started.result.state, 'running');
-    assert.ok(Date.now() - startAt < 1500, 'El arranque debe devolver antes de completar el bootstrap');
-
-    const duplicateStart = await rpc(4, 'zerochat/external/start');
-    assert.equal(duplicateStart.result.state, 'running', 'Un segundo arranque no debe crear otro bootstrap');
-
-    let bootstrapStatus;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      bootstrapStatus = await (await fetch(`${baseUrl}/mcp/external/bootstrap/status`)).json();
-      if (bootstrapStatus.state === 'completed' || bootstrapStatus.state === 'failed') break;
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    assert.equal(bootstrapStatus.state, 'completed', bootstrapStatus.message);
-    assert.equal(bootstrapStatus.message, 'Servicios preparados.');
-
-    const externalAfterBootstrap = await rpc(5, 'zerochat/external/status');
-    assert.equal(externalAfterBootstrap.result.host, 'running');
-    assert.deepEqual(externalAfterBootstrap.result.servers.map(server => server.id).sort(), ['dummy_mcp', 'lsp', 'memory', 'playwright']);
-    assert.notEqual(externalAfterBootstrap.result.servers.find(server => server.id === 'dummy_mcp').status, 'running');
-    const playwrightBefore = externalAfterBootstrap.result.servers.find(server => server.id === 'playwright');
-    assert.ok(Array.isArray(playwrightBefore.options));
-    assert.equal(playwrightBefore.options.length, 1);
-    assert.equal(playwrightBefore.options[0].id, 'headless');
-    assert.equal(playwrightBefore.options[0].default, true);
-    assert.deepEqual(playwrightBefore.userOptions, {});
-
-    const configured = await rpc(51, 'zerochat/external/servers/configure', {
-      serverId: 'playwright',
-      options: { headless: false }
+    // 5. Comprobar tools/list
+    const toolsRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ZeroChat-Token': testToken
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} })
     });
-    const playwrightAfterConfig = configured.result.servers.find(server => server.id === 'playwright');
-    assert.equal(playwrightAfterConfig.userOptions?.headless, false);
+    assert.equal(toolsRes.status, 200);
+    const toolsJson = await toolsRes.json();
+    const toolNames = (toolsJson.result?.tools || []).map(t => t.name);
+    assert.ok(toolNames.includes('list_directory'));
+    assert.ok(toolNames.includes('read_file'));
+    assert.ok(toolNames.includes('edit_file'));
+    assert.ok(toolNames.includes('execute_command'));
 
-    const afterStartLocalTools = await rpc(6, 'tools/list');
-    assert.equal(afterStartLocalTools.result.tools.length, 4, 'El host externo no se agrega al proveedor local');
+    // 6. Comprobar ejecución de herramienta read_file
+    const callRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: {
+          name: 'read_file',
+          arguments: { path: 'package.json', max_lines: 10 }
+        }
+      })
+    });
+    assert.equal(callRes.status, 200);
+    const callJson = await callRes.json();
+    assert.equal(callJson.result?.isError, false);
+    const parsedContent = JSON.parse(callJson.result?.content?.[0]?.text);
+    assert.equal(parsedContent.success, true);
+    assert.match(parsedContent.content, /"version": "7.0.0"/);
 
-    const externalTools = await rpc(7, 'tools/list', {}, `${baseUrl}/mcp/external`);
-    assert.deepEqual(externalTools.result.tools, [], 'No se publican herramientas hasta arrancar un servicio externo');
+    // 7. Comprobar flujo SSE con token en query param
+    const sseRes = await fetch(`${baseUrl}/sse?token=${testToken}`, {
+      headers: { 'Accept': 'text/event-stream' }
+    });
+    assert.equal(sseRes.status, 200);
+    assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
 
-    const invalidService = await rpc(8, 'zerochat/external/servers/start', { serverId: 'missing' });
-    assert.equal(invalidService.error.code, -32011);
-
-    const serviceStarted = await rpc(9, 'zerochat/external/servers/start', { serverId: 'dummy_mcp' });
-    const dummy = serviceStarted.result.servers.find(server => server.id === 'dummy_mcp');
-    assert.equal(dummy.status, 'running');
-    assert.equal(dummy.installed, true);
-    assert.equal(dummy.toolCount, 1);
-    assert.equal(serviceStarted.result.servers.find(server => server.id === 'playwright').status, 'available');
-
-    const published = await rpc(10, 'tools/list', {}, `${baseUrl}/mcp/external`);
-    assert.equal(published.result.tools.length, 1);
-    assert.equal(published.result.tools[0].name, 'mcp_dummyz5fzmcp_echo');
-    assert.deepEqual(published.result.tools[0].metadata, { mcpServerId: 'dummy_mcp', originalName: 'echo' });
-
-    const echo = await rpc(11, 'tools/call', { name: 'mcp_dummyz5fzmcp_echo', arguments: { message: 'hello' } }, `${baseUrl}/mcp/external`);
-    assert.deepEqual(echo.result.content, [{ type: 'text', text: 'echo: hello' }]);
-    await new Promise(resolve => setTimeout(resolve, 25));
-    assert.match(serverOutput, /^\[\d{2}:\d{2}:\d{2}\] REQUEST MCP tools\/call$/m);
-    assert.match(serverOutput, /^\[\d{2}:\d{2}:\d{2}\] RESPONSE MCP tools\/call HTTP 200 ok$/m);
-    assert.doesNotMatch(serverOutput, /hello/);
-    const rejectedTool = await rpc(12, 'tools/call', { name: 'mcp_dummy_missing', arguments: {} }, `${baseUrl}/mcp/external`);
-    assert.equal(rejectedTool.error.code, -32001);
-
-    // Verificar que dummy_mcp quedó registrado como enabled en services.json
-    const servicesJsonPath = path.join(mcpHome, 'config', 'services.json');
-    assert.ok(fs.existsSync(servicesJsonPath), 'services.json debe existir');
-    const savedPrefs = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
-    assert.equal(savedPrefs.dummy_mcp?.enabled, true);
-
-    // Detener el host externo completamente con dummy_mcp aún habilitado
-    const stoppedHostWithServiceEnabled = await rpc(121, 'zerochat/external/stop');
-    assert.equal(stoppedHostWithServiceEnabled.result.host, 'stopped');
-
-    // Al consultar zerochat/external/status con servicios guardados habilitados, debe auto-arrancar
-    const autoStatus = await rpc(122, 'zerochat/external/status');
-    assert.ok(autoStatus.result.host === 'starting' || autoStatus.result.host === 'running');
-
-    // Esperar a que el bootstrap auto-arranque complete
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const bStatus = await (await fetch(`${baseUrl}/mcp/external/bootstrap/status`)).json();
-      if (bStatus.state === 'completed') break;
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    const autoRunningStatus = await rpc(123, 'zerochat/external/status');
-    assert.equal(autoRunningStatus.result.host, 'running');
-    const autoDummy = autoRunningStatus.result.servers.find(server => server.id === 'dummy_mcp');
-    assert.equal(autoDummy.status, 'running', 'dummy_mcp debe haberse auto-arrancado');
-    assert.equal(autoDummy.toolCount, 1);
-
-    const autoTools = await rpc(124, 'tools/list', {}, `${baseUrl}/mcp/external`);
-    assert.equal(autoTools.result.tools.length, 1);
-    assert.equal(autoTools.result.tools[0].name, 'mcp_dummyz5fzmcp_echo');
-
-    const serviceStopped = await rpc(13, 'zerochat/external/servers/stop', { serverId: 'dummy_mcp' });
-    assert.equal(serviceStopped.result.servers.find(server => server.id === 'dummy_mcp').status, 'stopped');
-    assert.deepEqual((await rpc(14, 'tools/list', {}, `${baseUrl}/mcp/external`)).result.tools, []);
-
-    // services.json debe tener enabled: false
-    const updatedPrefs = JSON.parse(fs.readFileSync(servicesJsonPath, 'utf8'));
-    assert.equal(updatedPrefs.dummy_mcp?.enabled, false);
-
-    const stopped = await rpc(15, 'zerochat/external/stop');
-    assert.equal(stopped.result.host, 'stopped');
-    const afterDisabledStopStatus = await rpc(151, 'zerochat/external/status');
-    assert.equal(afterDisabledStopStatus.result.host, 'stopped', 'No debe auto-arrancar si no hay servicios habilitados');
-    const disconnected = await rpc(16, 'tools/list', {}, `${baseUrl}/mcp/external`);
-    assert.equal(disconnected.error.code, -32001);
   } finally {
-    serverProc.kill('SIGINT');
-    if (serverProc.exitCode === null) {
-      await new Promise(resolve => serverProc.once('close', resolve));
-    }
-    await new Promise(resolve => testServer.close(resolve));
-    fs.rmSync(mcpHome, { recursive: true, force: true });
+    serverProc.kill('SIGTERM');
   }
 });
-
-test('Rechazo de URL de release MCP no autorizada', async () => {
-  const serverPath = path.resolve(__dirname, '../../scripts/zmcp.py');
-  assert.throws(() => {
-    execFileSync('python3', [serverPath, '--server-base-url', 'https://evil.com'], { stdio: 'pipe' });
-  }, /Origen de descarga MCP no autorizado/);
-  assert.throws(() => {
-    execFileSync('python3', [serverPath, '--mcp-source-url', 'https://evil.com/releases'], { stdio: 'pipe' });
-  }, /Origen de descarga MCP no autorizado/);
-});
-

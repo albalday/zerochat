@@ -215,7 +215,6 @@
       executionStorageScope: document.getElementById('execution-storage-scope'),
       btnCloseExecutionInfo: document.getElementById('btn-close-execution-info'),
       btnCloseExecutionInfoFooter: document.getElementById('btn-close-execution-info-footer'),
-      btnDownloadStandalone: document.getElementById('btn-download-standalone'),
 
       // Modal de Configuración
       settingsDialog: document.getElementById('settings-dialog'),
@@ -274,11 +273,6 @@
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
       mcpToolsContainer: document.getElementById('mcp-tools-container'),
-      mcpServersCard: document.getElementById('mcp-servers-card'),
-      mcpServersList: document.getElementById('mcp-servers-list'),
-      btnMcpStartExternal: document.getElementById('btn-mcp-start-external'),
-      btnMcpStopExternal: document.getElementById('btn-mcp-stop-external'),
-      mcpBootstrapStatus: document.getElementById('mcp-bootstrap-status'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
@@ -288,10 +282,8 @@
       mcpErrorMessage: document.getElementById('mcp-error-message'),
       mcpHostInput: document.getElementById('mcp-host-input'),
       mcpPortInput: document.getElementById('mcp-port-input'),
-      mcpOsSelect: document.getElementById('mcp-os-select'),
       mcpEndpointPreview: document.getElementById('mcp-endpoint-preview'),
       mcpTerminalCommand: document.getElementById('mcp-terminal-command'),
-      mcpOsInstructions: document.getElementById('mcp-os-instructions'),
       btnMcpCopyCmd: document.getElementById('btn-mcp-copy-cmd'),
       btnMcpConfigure: document.getElementById('btn-mcp-configure'),
       mcpSetupDialog: document.getElementById('mcp-setup-dialog'),
@@ -312,34 +304,11 @@
     return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
   }
 
-  function getStandaloneDownloadUrl() {
-    if (UIShell.getStandaloneDownloadUrl) return UIShell.getStandaloneDownloadUrl();
-    if (!isHttpExecution()) return null;
-    const url = new URL(window.location.href);
-    const path = url.pathname;
-    if (/\/index\.html$/i.test(path)) {
-      url.pathname = path.replace(/index\.html$/i, 'zerochat.html');
-    } else if (path.endsWith('/')) {
-      url.pathname = `${path}zerochat.html`;
-    } else {
-      url.pathname = `${path.slice(0, path.lastIndexOf('/') + 1)}zerochat.html`;
-    }
-    url.search = '';
-    url.hash = '';
-    return url.href;
-  }
-
   function updateExecutionInfo() {
     if (UIShell.updateExecutionInfo) return UIShell.updateExecutionInfo(elements);
     const httpExecution = isHttpExecution();
     if (elements.executionStorageScope) {
       elements.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
-    }
-    if (elements.btnDownloadStandalone) {
-      const downloadUrl = getStandaloneDownloadUrl();
-      elements.btnDownloadStandalone.hidden = !downloadUrl;
-      if (downloadUrl) elements.btnDownloadStandalone.href = downloadUrl;
-      else elements.btnDownloadStandalone.removeAttribute('href');
     }
   }
 
@@ -2089,24 +2058,47 @@
         errorMessage: elements.mcpErrorMessage,
         hostInput: elements.mcpHostInput,
         portInput: elements.mcpPortInput,
-        mcpOsSelect: elements.mcpOsSelect,
         endpointPreview: elements.mcpEndpointPreview,
         commandSnippet: elements.mcpTerminalCommand,
-        osInstructions: elements.mcpOsInstructions,
         btnCopyCmd: elements.btnMcpCopyCmd,
-        toolsContainer: elements.mcpToolsContainer,
-        mcpServersCard: elements.mcpServersCard,
-        mcpServersList: elements.mcpServersList,
-        btnMcpStartExternal: elements.btnMcpStartExternal,
-        btnMcpStopExternal: elements.btnMcpStopExternal,
-        bootstrapStatus: elements.mcpBootstrapStatus
+        toolsContainer: elements.mcpToolsContainer
       });
+
+      // Extraer token y port pasados desde zerochat.py por hash o query string
+      let incomingToken = null;
+      let incomingPort = null;
+      try {
+        if (typeof window !== 'undefined' && window.location) {
+          const hashRaw = (window.location.hash || '').replace(/^#/, '');
+          const hashParams = new URLSearchParams(hashRaw);
+          const queryParams = new URLSearchParams(window.location.search || '');
+          incomingToken = hashParams.get('token') || queryParams.get('token');
+          incomingPort = hashParams.get('port') || queryParams.get('port');
+
+          if (incomingToken && window.history && typeof window.history.replaceState === 'function') {
+            // Limpiar el fragmento de la barra de direcciones para no exponer el token
+            const cleanUrl = window.location.pathname + (window.location.search ? window.location.search.replace(/([?&])token=[^&]+(&|$)/, '$1').replace(/[?&]$/, '') : '');
+            window.history.replaceState(null, '', cleanUrl || window.location.pathname);
+          }
+        }
+      } catch (err) {
+        console.warn('Error leyendo parámetros de sesión:', err);
+      }
+
       const currentCfg = getRuntimeConfig();
-      if (currentCfg?.mcpAutoConnect && window.ChatMCP?.manager?.connectProxy) {
+      const targetPort = incomingPort ? parseInt(incomingPort, 10) : (currentCfg?.mcpPort || 6388);
+      const targetHost = currentCfg?.mcpHost || '127.0.0.1';
+
+      if (incomingToken && window.ChatMCP?.manager?.setSessionToken) {
+        window.ChatMCP.manager.setSessionToken(incomingToken);
+      }
+
+      if ((incomingToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({
-          host: currentCfg?.mcpHost || '127.0.0.1',
-          port: currentCfg?.mcpPort || 6388,
-          silentOnFailure: true
+          host: targetHost,
+          port: targetPort,
+          token: incomingToken || window.ChatMCP.manager.getSessionToken(),
+          silentOnFailure: !incomingToken
         });
       }
     }
@@ -2126,7 +2118,6 @@
       createConversationBranch,
       deleteSession,
       renameSession,
-      getStandaloneDownloadUrl,
       openExecutionInfo,
       exportConversationAsMarkdown,
       exportConversationAsJson,
@@ -2136,6 +2127,7 @@
     // Fase 6: configurar light-dismiss fallback para navegadores sin closedby
     setupLightDismissDialogs();
 
+    document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
   }
 

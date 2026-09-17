@@ -24,7 +24,7 @@ tests/
 - **`integration/`**: Validación de la colaboración entre múltiples módulos (p. ej., `ChatEngine` con `ChatState`, `RagService` con `RagStorage`, `MCPClient` con `ToolDispatcher`).
 - **`browser/`**: Pruebas sobre Chromium headless mediante Playwright verificando renderizado de DOM, interacción de usuario, accesibilidad (ARIA/teclado), temas y carga limpia de `zerochat.html`.
 - **`architecture/`**: Restricciones estáticas sobre código fuente y contratos públicos (p. ej. validación de esquemas de herramientas, no regresión de dependencias).
-- **`infrastructure/`**: Validación de scripts de compilación (`scripts/bundle.py`), servidor de pruebas (`scripts/local-server.py`) y orquestador (`scripts/test-runner.mjs`).
+- **`infrastructure/`**: Validación del servidor de pruebas (`scripts/local-server.py`) y orquestador (`scripts/test-runner.mjs`).
 - **`helpers/`**: Funciones auxiliares reutilizables (p. ej., `tests/helpers/browser-env.js`). Los archivos en esta carpeta nunca se descubren ni ejecutan como tests.
 
 ---
@@ -180,11 +180,10 @@ Ejecutadas con Chromium headless mediante Playwright con concurrencia controlada
 | `test_tool_contract.js` | Inspecciona los esquemas JSON de las herramientas declaradas asegurando tipos válidos y ausencia de APIs obsoletas (`ui`, `handler`). |
 | `test_ui_modernization.js` | Valida el cumplimiento de diseño moderno: sin emojis crudos en controles, uso exclusivo de `ChatIcons` o `<svg class="ui-icon">`, y ausencia de diálogos nativos. |
 
-### Pruebas de Infraestructura (`tests/infrastructure/` - 3 suites)
+### Pruebas de Infraestructura (`tests/infrastructure/` - 2 suites)
 
 | Suite | Responsabilidad |
 |---|---|
-| `test_bundle.js` | Verifica la compilación de `zerochat.html` con `scripts/bundle.py`, compresión Gzip Base64 Level 9, modo dev, y empaquetado seguro de copias `.zcp`. |
 | `test_local_server.js` | Valida el comportamiento del servidor local Python (`scripts/local-server.py`), resolución de tipos MIME y encabezados CORS. |
 | `test_runner.js` | Valida el orquestador `scripts/test-runner.mjs` (descubrimiento determinista, propagación de códigos de salida, rechazo de argumentos desconocidos). |
 

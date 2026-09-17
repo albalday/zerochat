@@ -50,9 +50,8 @@
       execution_info_title: 'Modo de ejecución y almacenamiento',
       execution_info_http: 'En modo servidor, los chats, perfiles y preferencias se comparten con cualquier ZeroChat del mismo protocolo, host y puerto. La ruta no los separa.',
       execution_info_file: 'En modo archivo local, el navegador decide cómo aísla o comparte los datos. Usa siempre el mismo lugar para almacenar y ejecutar zerochat.html si quieres que permanezcan las configuraciones.',
-      execution_info_portable_tool: 'Herramienta portátil: guarda zerochat.html en una ubicación que controles —Escritorio, Descargas, correo o WhatsApp— y ábrelo desde ahí cuando lo necesites. La interfaz arranca sin conexión a Internet.',
+      execution_info_portable_tool: 'ZeroChat funciona directamente en tu navegador web. La interfaz arranca de forma estática y segura.',
       execution_info_requirements: 'La conversación seguirá necesitando el proveedor que hayas configurado: un modelo local puede funcionar sin red; una API remota y las funciones web, no.',
-      execution_info_download: 'Descargar zerochat.html',
 
       // Barra de herramientas superior
       profile_badge_title: 'Perfil de conexión activo',
@@ -361,33 +360,8 @@
       mcp_setup_modal_title: 'Configuración del Servidor Local (MCP)',
       mcp_field_host: 'Host del servidor',
       mcp_field_port: 'Puerto (Rango 63xx recomendado)',
-      mcp_field_os: 'Sistema operativo local',
-      mcp_os_linux: 'Linux',
-      mcp_os_windows: 'Windows',
-      mcp_os_android: 'Android / Termux',
-      mcp_instructions_title: 'Instalación y Arranque del Servidor',
-      mcp_instructions_desc: 'Descarga el servidor Python autogenerado y ejecútalo en tu terminal con python3 zmcp.py:',
-      mcp_btn_download_server: 'Descargar servidor (zmcp.py)',
-      mcp_btn_download_title: 'Descargar script Python autogenerado para iniciar el servidor local',
-      mcp_run_instruction: 'Comando de ejecución:',
-      mcp_copy_help_linux: `LINUX
-Descarga el archivo en Descargas y ejecuta:
-cd ~/Downloads
-python3 zmcp.py`,
-      mcp_copy_help_windows: `WINDOWS
-Descarga el archivo en Descargas y ejecútalo en PowerShell:
-cd "$env:USERPROFILE\\Downloads"
-py zmcp.py`,
-      mcp_copy_help_android: `ANDROID / TERMUX
-1. Instala Termux desde F-Droid: https://f-droid.org/packages/com.termux/
-2. Abre Termux y ejecuta estas líneas:
-pkg update -y && pkg install -y python
-termux-setup-storage
-cd ~/storage/downloads
-python zmcp.py
-
-Si el archivo no aparece, comprueba que el navegador lo descargó en Descargas y ejecuta:
-find ~/storage/downloads -name zmcp.py -print`,
+      mcp_instructions_title: 'Servidor Local ZeroChat',
+      mcp_instructions_desc: 'Ejecuta este comando en tu terminal para arrancar el entorno local con Python:',
       mcp_btn_copy_cmd: 'Copiar comando',
       mcp_cmd_copied: '¡Copiado!',
       mcp_tools_discovered: '{count} herramientas activas',
@@ -420,29 +394,6 @@ find ~/storage/downloads -name zmcp.py -print`,
       mcp_security_badge_ask: 'Preguntar',
       mcp_security_select_title: 'Cambiar política de ejecución para esta herramienta',
       mcp_security_constrained: 'Acotada',
-      mcp_servers_section_title: 'Servidores MCP Externos',
-      mcp_servers_desc: 'Servidores stdio gestionados por el servidor local.',
-      mcp_external_start: 'Arrancar servicios MCP externos',
-      mcp_external_stop: 'Detener servicios externos',
-      mcp_bootstrap_status_unavailable: 'No se pudo consultar el estado del arranque.',
-      mcp_external_stopped: 'Los servicios externos están detenidos. Arráncalos para descargar el catálogo y ver los servidores disponibles.',
-      mcp_external_status_available: 'Disponible',
-      mcp_external_status_installing: 'Instalando',
-      mcp_external_status_starting: 'Iniciando',
-      mcp_external_status_running: 'En ejecución',
-      mcp_external_status_stopped: 'Detenido',
-      mcp_external_status_needs_attention: 'Requiere atención',
-      mcp_external_status_error: 'Error',
-      mcp_btn_start_server: 'Iniciar',
-      mcp_btn_starting_server: 'Iniciando...',
-      mcp_btn_stop_server: 'Detener',
-      mcp_btn_stopping_server: 'Deteniendo...',
-      mcp_external_starting: 'Arrancando...',
-      mcp_external_stopping: 'Deteniendo...',
-      mcp_server_status_running: 'En ejecución',
-      mcp_server_status_stopped: 'Detenido',
-      mcp_servers_empty: 'No hay servidores MCP externos configurados.',
-      mcp_servers_count_tools: '{count} herramientas activas',
       tool_auth_allow_cmd_btn: 'Permitir siempre "{cmd}"',
       tool_auth_allow_cmd_title: 'Permitir permanentemente solo comandos que comiencen por "{cmd}"',
       tool_auth_allow_path_btn: 'Permitir siempre en ruta actual',
@@ -713,9 +664,8 @@ find ~/storage/downloads -name zmcp.py -print`,
       execution_info_title: 'Execution mode and storage',
       execution_info_http: 'In server mode, chats, profiles, and preferences are shared with every ZeroChat page using the same protocol, host, and port. The path does not separate them.',
       execution_info_file: 'In local file mode, the browser decides how data is isolated or shared. Always store and run zerochat.html from the same location if you want settings to persist.',
-      execution_info_portable_tool: 'Portable tool: save zerochat.html in a location you control —Desktop, Downloads, email, or WhatsApp— and open it from there whenever needed. The interface starts without an Internet connection.',
+      execution_info_portable_tool: 'ZeroChat runs directly in your web browser. The interface starts statically and securely.',
       execution_info_requirements: 'The conversation still needs the provider you configured: a local model can work offline; a remote API and web features cannot.',
-      execution_info_download: 'Download zerochat.html',
 
       // Barra de herramientas superior
       profile_badge_title: 'Active connection profile',
@@ -1024,33 +974,8 @@ find ~/storage/downloads -name zmcp.py -print`,
       mcp_setup_modal_title: 'Local Server Configuration (MCP)',
       mcp_field_host: 'Server Host',
       mcp_field_port: 'Port (63xx range recommended)',
-      mcp_field_os: 'Local operating system',
-      mcp_os_linux: 'Linux',
-      mcp_os_windows: 'Windows',
-      mcp_os_android: 'Android / Termux',
-      mcp_instructions_title: 'Server Installation & Launch Instructions',
-      mcp_instructions_desc: 'Download the auto-generated Python server and run it in your terminal with python3 zmcp.py:',
-      mcp_btn_download_server: 'Download server (zmcp.py)',
-      mcp_btn_download_title: 'Download auto-generated Python script to start the local server',
-      mcp_run_instruction: 'Execution command:',
-      mcp_copy_help_linux: `LINUX
-Download the file to Downloads and run:
-cd ~/Downloads
-python3 zmcp.py`,
-      mcp_copy_help_windows: `WINDOWS
-Download the file to Downloads and run it in PowerShell:
-cd "$env:USERPROFILE\\Downloads"
-py zmcp.py`,
-      mcp_copy_help_android: `ANDROID / TERMUX
-1. Install Termux from F-Droid: https://f-droid.org/packages/com.termux/
-2. Open Termux and run these lines:
-pkg update -y && pkg install -y python
-termux-setup-storage
-cd ~/storage/downloads
-python zmcp.py
-
-If the file is not found, check that the browser downloaded it to Downloads and run:
-find ~/storage/downloads -name zmcp.py -print`,
+      mcp_instructions_title: 'ZeroChat Local Server',
+      mcp_instructions_desc: 'Run this command in your terminal to start the local Python environment:',
       mcp_btn_copy_cmd: 'Copy command',
       mcp_cmd_copied: 'Copied!',
       mcp_tools_discovered: '{count} tools active',
@@ -1083,29 +1008,6 @@ find ~/storage/downloads -name zmcp.py -print`,
       mcp_security_badge_ask: 'Ask',
       mcp_security_select_title: 'Change execution policy for this tool',
       mcp_security_constrained: 'Restricted',
-      mcp_servers_section_title: 'External MCP Servers',
-      mcp_servers_desc: 'Stdio servers managed by the local server host.',
-      mcp_external_start: 'Start external MCP services',
-      mcp_external_stop: 'Stop external services',
-      mcp_bootstrap_status_unavailable: 'Could not retrieve the startup status.',
-      mcp_external_stopped: 'External services are stopped. Start them to download the catalog and view available servers.',
-      mcp_external_status_available: 'Available',
-      mcp_external_status_installing: 'Installing',
-      mcp_external_status_starting: 'Starting',
-      mcp_external_status_running: 'Running',
-      mcp_external_status_stopped: 'Stopped',
-      mcp_external_status_needs_attention: 'Needs attention',
-      mcp_external_status_error: 'Error',
-      mcp_btn_start_server: 'Start',
-      mcp_btn_starting_server: 'Starting...',
-      mcp_btn_stop_server: 'Stop',
-      mcp_btn_stopping_server: 'Stopping...',
-      mcp_external_starting: 'Starting...',
-      mcp_external_stopping: 'Stopping...',
-      mcp_server_status_running: 'Running',
-      mcp_server_status_stopped: 'Stopped',
-      mcp_servers_empty: 'No external MCP servers configured in local host.',
-      mcp_servers_count_tools: '{count} active tools',
       tool_auth_allow_cmd_btn: 'Always allow "{cmd}"',
       tool_auth_allow_cmd_title: 'Permanently allow only commands starting with "{cmd}"',
       tool_auth_allow_path_btn: 'Always allow in current path',

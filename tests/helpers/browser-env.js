@@ -60,7 +60,7 @@ function getBundleUrl() {
 }
 
 function getIndexUrl() {
-  return 'file://' + path.resolve(__dirname, '../../index.html');
+  return 'file://' + path.resolve(__dirname, '../../zerochat.html');
 }
 
 module.exports = {

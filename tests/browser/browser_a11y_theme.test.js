@@ -721,7 +721,7 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
   const page = await browser.newPage();
 
   try {
-    const fileUrl = 'file://' + path.resolve(__dirname, '../../index.html');
+    const fileUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html');
     await page.goto(fileUrl, { waitUntil: 'load' });
 
     // 1. Verificar estructura y renderizado de SVGs

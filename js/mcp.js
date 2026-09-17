@@ -30,8 +30,6 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const DEFAULT_MCP_SERVER_BASE_URL = 'https://albalday.github.io/zerochat';
-
   // Shared wire contract with bootstrap.py: escape z and non-lowercase
   // characters as z<hex code point>z; only tool components retain underscores.
   function publicToolName(serverId, originalName) {
@@ -109,7 +107,7 @@
 
     let client = null;
     try {
-      client = new McpClient({ url: normalizedUrl, timeoutMs });
+      client = new McpClient({ url: normalizedUrl, timeoutMs, token: options.token });
       const initResult = await client.initialize({ timeoutMs });
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const latencyMs = Math.max(1, Math.round(endTime - startTime));
@@ -124,9 +122,19 @@
       }
 
       // Si initialize no devuelve éxito estricto, probamos un GET simple por si el endpoint SSE está activo
-      const probeRes = await fetchWithTimeout(normalizedUrl, {
+      const probeHeaders = { 'Accept': 'text/event-stream, application/json, */*' };
+      if (options.token) {
+        probeHeaders['Authorization'] = `Bearer ${options.token}`;
+        probeHeaders['X-ZeroChat-Token'] = options.token;
+      }
+      let probeUrl = normalizedUrl;
+      if (options.token) {
+        const joiner = probeUrl.includes('?') ? '&' : '?';
+        probeUrl = `${probeUrl}${joiner}token=${encodeURIComponent(options.token)}`;
+      }
+      const probeRes = await fetchWithTimeout(probeUrl, {
         method: 'GET',
-        headers: { 'Accept': 'text/event-stream, application/json, */*' }
+        headers: probeHeaders
       }, timeoutMs).catch(() => null);
 
       if (probeRes) {
@@ -184,6 +192,7 @@
       this.pendingRequests = new Map();
       this.headers = config.headers || {};
       this.timeoutMs = config.timeoutMs || DEFAULT_TIMEOUT_MS;
+      this.token = config.token || null;
       this.requestId = 1;
       this.serverCapabilities = null;
       this.serverInfo = null;
@@ -228,6 +237,10 @@
         'Accept': 'application/json, text/event-stream, */*',
         'X-ZeroChat-Client': '1'
       };
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+        headers['X-ZeroChat-Token'] = this.token;
+      }
       if (this.headers && typeof this.headers === 'object') {
         Object.assign(headers, this.headers);
       }
@@ -261,8 +274,14 @@
         const timer = setTimeout(() => finish(this.url), timeoutMs);
 
         try {
+          let sseUrl = this.url;
+          if (this.token) {
+            const joiner = sseUrl.includes('?') ? '&' : '?';
+            sseUrl = `${sseUrl}${joiner}token=${encodeURIComponent(this.token)}`;
+          }
+
           if (typeof EventSource !== 'undefined') {
-            const es = new EventSource(this.url);
+            const es = new EventSource(sseUrl);
             this.sseSource = es;
             this.isSseActive = true;
 
@@ -787,7 +806,19 @@
       this.clients = new Map();
       this.providers = new Map();
       this.storageKey = 'chat_mcp_servers';
+      this.sessionToken = null;
       this.loadConfig();
+    }
+
+    setSessionToken(token) {
+      this.sessionToken = token ? String(token).trim() : null;
+      for (const client of this.clients.values()) {
+        client.token = this.sessionToken;
+      }
+    }
+
+    getSessionToken() {
+      return this.sessionToken;
     }
 
     /**
@@ -892,7 +923,7 @@
       const serverConfig = this.servers.find(s => s.id === serverId);
       if (!serverConfig) return null;
 
-      const client = new McpClient(serverConfig);
+      const client = new McpClient({ ...serverConfig, token: this.sessionToken });
       this.clients.set(serverId, client);
       return client;
     }
@@ -973,14 +1004,17 @@
      * Si silentOnFailure es true (p. ej. comprobación inicial de arranque), no marca estado 'error'
      * si el servidor simplemente no está levantado, sino que registra 'disconnected' limpiamente.
      */
-    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false } = {}, registry = null) {
+    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false, token = null } = {}, registry = null) {
+      if (token) {
+        this.setSessionToken(token);
+      }
       const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
       const State = getState();
       if (!silentOnFailure && State?.set) {
         State.set('mcp', { status: 'connecting', host, port, endpoint: targetEndpoint, error: null });
       }
 
-      const probe = await probeConnection(targetEndpoint, { timeoutMs });
+      const probe = await probeConnection(targetEndpoint, { timeoutMs, token: this.sessionToken });
       if (!probe.success) {
         if (this.clients.has('mcp_proxy')) {
           await this.disconnectProxy(registry).catch(() => {});
@@ -1017,18 +1051,12 @@
         });
       }
 
-      let externalSync = null;
-      if (registerResult.success) {
-        externalSync = await this.syncExternalServers(registry).catch(() => null);
-      }
-
       return {
         success: registerResult.success,
         available: true,
         probe,
         register: registerResult,
-        tools: registerResult.tools || [],
-        externalSync
+        tools: registerResult.tools || []
       };
     }
 
@@ -1045,7 +1073,6 @@
     async disconnectProxy(registry = null) {
       const AgentCore = getAgentCore();
       const targetRegistry = registry || AgentCore?.registry;
-      await this.stopExternalHost(targetRegistry).catch(() => {});
       if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_proxy');
       this.providers.delete('mcp_proxy');
 
@@ -1058,164 +1085,11 @@
       if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null });
       return { success: true };
     }
-
-    getExternalControlClient() {
-      return this.getClient('mcp_proxy');
-    }
-
-    async requestExternalControl(method, params = {}, options = {}) {
-      const client = this.getExternalControlClient();
-      if (!client) throw new Error('Servicio local de herramientas no conectado.');
-      return client.request(method, params, options);
-    }
-
-    async refreshExternalProvider(registry = null) {
-      const control = this.getExternalControlClient();
-      if (!control) throw new Error('Servicio local de herramientas no conectado.');
-      const baseUrl = (control.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '');
-      const AgentCore = getAgentCore();
-      const targetRegistry = registry || AgentCore?.registry;
-      if (this.clients.has('mcp_external')) {
-        try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
-        this.clients.delete('mcp_external');
-      }
-      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
-      this.providers.delete('mcp_external');
-      const client = new McpClient({ id: 'mcp_external', name: 'ZeroChat External MCP Host', url: `${baseUrl}/mcp/external`, enabled: true });
-      this.clients.set('mcp_external', client);
-      const provider = new McpToolProvider(client, { id: 'mcp_prov_mcp_external', name: 'ZeroChat External MCP Host' });
-      let result;
-      try {
-        const tools = await provider.discoverTools();
-        if (targetRegistry?.registerProvider) targetRegistry.registerProvider(provider);
-        this.providers.set('mcp_external', provider);
-        result = { success: true, toolCount: tools.length, tools };
-      } catch (error) {
-        this.clients.delete('mcp_external');
-        result = { success: false, error: error.message || String(error), tools: [] };
-      }
-      const State = getState();
-      if (State?.set && result.success) {
-        const current = State.get('mcp') || {};
-        State.set('mcp', { ...current, externalTools: result.tools || [] });
-      }
-      return result;
-    }
-
-    async fetchExternalServers(options = {}) {
-      try {
-        return await this.requestExternalControl('zerochat/external/status', {}, options);
-      } catch (_) {
-        return { host: 'stopped', servers: [] };
-      }
-    }
-
-    async syncExternalServers(registry = null, { maxWaitMs = 4000, pollIntervalMs = 400 } = {}) {
-      const State = getState();
-      let status = await this.fetchExternalServers().catch(() => ({ host: 'stopped', servers: [] }));
-      if (status?.host === 'starting' && maxWaitMs > 0) {
-        const start = Date.now();
-        while (Date.now() - start < maxWaitMs) {
-          await new Promise(r => setTimeout(r, pollIntervalMs));
-          status = await this.fetchExternalServers().catch(() => ({ host: 'stopped', servers: [] }));
-          if (status?.host !== 'starting') break;
-        }
-      }
-
-      let externalTools = [];
-      if (status?.host === 'running') {
-        const refresh = await this.refreshExternalProvider(registry).catch(() => null);
-        if (refresh?.success) {
-          externalTools = refresh.tools || [];
-        }
-      }
-
-      if (State?.set) {
-        const current = State.get('mcp') || {};
-        State.set('mcp', {
-          ...current,
-          externalHost: status?.host || 'stopped',
-          externalServers: status?.servers || [],
-          externalTools
-        });
-      }
-
-      return { status, externalTools };
-    }
-
-    async fetchExternalBootstrapStatus(options = {}) {
-      const control = this.getExternalControlClient();
-      if (!control) throw new Error('Servicio local de herramientas no conectado.');
-      const baseUrl = (control.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '');
-      const response = await fetchWithTimeout(`${baseUrl}/mcp/external/bootstrap/status`, {
-        headers: { Accept: 'application/json' }
-      }, options.timeoutMs || 4000);
-      if (!response.ok) throw new Error(`Estado del bootstrap no disponible (${response.status}).`);
-      return response.json();
-    }
-
-    getServerBaseUrl() {
-      if (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__) {
-        return globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__;
-      }
-      const State = getState();
-      const configured = State?.get?.('config')?.mcpServerBaseUrl;
-      if (configured) return configured;
-      return DEFAULT_MCP_SERVER_BASE_URL;
-    }
-
-    setServerBaseUrl(url) {
-      if (typeof globalThis !== 'undefined') {
-        globalThis.__ZEROCHAT_TEST_SERVER_BASE_URL__ = url;
-      }
-    }
-
-    async startExternalHost(registry = null) {
-      const serverBaseUrl = this.getServerBaseUrl();
-      return this.requestExternalControl('zerochat/external/start', { serverBaseUrl });
-    }
-
-    async stopExternalHost(registry = null) {
-      const result = await this.requestExternalControl('zerochat/external/stop');
-      const AgentCore = getAgentCore();
-      const targetRegistry = registry || AgentCore?.registry;
-      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
-      this.providers.delete('mcp_external');
-      this.clients.get('mcp_external')?.disconnect?.();
-      this.clients.delete('mcp_external');
-      const State = getState();
-      if (State?.set) {
-        const current = State.get('mcp') || {};
-        State.set('mcp', { ...current, externalHost: 'stopped', externalServers: [], externalTools: [] });
-      }
-      return result;
-    }
-
-    async startExternalServer(serverId, registry = null) {
-      const result = await this.requestExternalControl('zerochat/external/servers/start', { serverId });
-      await this.refreshExternalProvider(registry).catch(() => {});
-      return result;
-    }
-
-    async stopExternalServer(serverId, registry = null) {
-      const result = await this.requestExternalControl('zerochat/external/servers/stop', { serverId });
-      await this.refreshExternalProvider(registry).catch(() => {});
-      return result;
-    }
-
-    async configureExternalServer(serverId, config = {}) {
-      return this.requestExternalControl('zerochat/external/servers/configure', {
-        serverId,
-        enabled: config.enabled,
-        options: config.options
-      });
-    }
   }
 
   const manager = new McpManager();
 
   return {
-    DEFAULT_MCP_SERVER_BASE_URL,
     McpClient,
     McpToolProvider,
     McpManager,
