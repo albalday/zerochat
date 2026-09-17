@@ -40,15 +40,15 @@
 
     <section class="card">
       <h2>2. Aprender a dirigir agentes de codificación</h2>
-      <p>Al crecer la infraestructura —navegador, almacenamiento, proveedores, servidor MCP y bundle—, el aprendizaje también consiste en mantener el control del conjunto:</p>
+      <p>Al crecer la infraestructura —navegador, almacenamiento, proveedores, servidor MCP y backend local—, el aprendizaje también consiste en mantener el control del conjunto:</p>
       <ul>
         <li><strong>Planificar antes de ejecutar:</strong> concretar alcance, fases, criterios de aceptación y las pruebas que confirmarán el resultado antes de pedir el cambio.</li>
         <li><strong>Convertir decisiones en normas:</strong> documentar arquitectura, contratos y flujo de trabajo para orientar al agente, con estado centralizado en <code>ChatState</code> y responsabilidades separadas.</li>
         <li><strong>Discutir y simplificar con el modelo:</strong> cuestionar propuestas, reutilizar módulos y retirar complejidad innecesaria antes de que se convierta en infraestructura permanente.</li>
-        <li><strong>Verificar cada avance:</strong> usar pruebas unitarias, de navegador, auditorías de seguridad y validación del bundle para comprobar el comportamiento real.</li>
+        <li><strong>Verificar cada avance:</strong> usar pruebas unitarias, de infraestructura, de integración, de navegador y auditorías de seguridad para comprobar el comportamiento real.</li>
       </ul>
       <h3>Pruebas automatizadas como punto de control</h3>
-      <p>Las pruebas son el punto de control de cada fase del trabajo con agentes. Antes de implementar, concretan qué debe conservarse y qué debe cambiar; durante el trabajo, permiten comprobar el módulo afectado; al cerrar una fase, la suite completa confirma que el cambio no ha roto otros límites del sistema. Los cambios de interfaz se validan en el navegador y los de distribución, en el bundle. Si una prueba falla, el agente debe corregir o simplificar la propuesta antes de avanzar.</p>
+      <p>Las pruebas son el punto de control de cada fase del trabajo con agentes. Antes de implementar, concretan qué debe conservarse y qué debe cambiar; durante el trabajo, permiten comprobar el módulo afectado; al cerrar una fase, la suite completa confirma que el cambio no ha roto otros límites del sistema. Los cambios de interfaz se validan en el navegador y los de integración, en las pruebas de infraestructura del servidor local. Si una prueba falla, el agente debe corregir o simplificar la propuesta antes de avanzar.</p>
       <p>El plan es continuar este ciclo: elegir una capacidad, acordar un diseño sencillo, encargar cambios acotados, revisar las pruebas y documentar lo aprendido.</p>
     </section>
 

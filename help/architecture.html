@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Arquitectura y Portabilidad · Ayuda de ZeroChat</title>
-  <meta name="description" content="Detalles de la arquitectura técnica de ZeroChat: distribución en archivo único, ejecución offline bajo file://, almacenamiento local en IndexedDB y privacidad.">
+  <meta name="description" content="Detalles de la arquitectura técnica de ZeroChat: aplicación web estática servida por HTTPS, backend local unificado en zerochat.py, almacenamiento local en IndexedDB y privacidad.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -33,7 +33,7 @@
         La aplicación web se sirve de forma directa y estática por HTTPS desde GitHub Pages como <code>zerochat.html</code>, cargando sus módulos <code>css/</code> y <code>js/</code> de manera transparente y sin empaquetado (bundle).
       </p>
       <p>
-        Toda la interacción con el sistema local (ejecución de comandos, lectura y edición de archivos) se canaliza a través de un único ejecutable en Python: <code>zerochat.py</code>, que gestiona su propio entorno virtual en <code>./zerochat</code> y autentica las sesiones mediante tokens efímeros.
+        Toda la interacción con el sistema local (ejecución de comandos, lectura y edición de archivos) se canaliza a través de un único ejecutable en Python: <code>zerochat.py</code>, que gestiona su propio entorno virtual en <code>./zerochat</code> y autentica las sesiones mediante tokens diarios de seguridad.
       </p>
       <div class="alert alert-success">
         <strong>Ventaja clave:</strong> Sin compiladores ni herramientas complejas de empaquetado. La aplicación web se sirve estáticamente y el backend local se ejecuta en cualquier equipo con un simple comando de terminal.
@@ -41,18 +41,18 @@
     </div>
 
     <div class="card">
-      <h2>2. Ejecución con Protocolo file:// vs Servidor Web</h2>
-      <p>ZeroChat está adaptado para funcionar con total normalidad bajo dos modos de despliegue:</p>
+      <h2>2. Entrega Web Estática y Conexión con el Backend Local</h2>
+      <p>ZeroChat se sirve de manera estática y universal a través de la web:</p>
       <ul>
         <li>
-          <strong>Protocolo local <code>file://</code>:</strong> Abriendo directamente el archivo en tu explorador. No requiere levantar ningún servidor local para chatear con APIs remotas o servidores locales como Ollama o LM Studio (con CORS habilitado).
+          <strong>Servicio Web Universal (HTTPS):</strong> Servido directamente desde GitHub Pages (<code>https://albalday.github.io/zerochat/zerochat.html</code>). Toda la ejecución de interfaz, renderizado y llamadas a APIs de inferencia ocurre en el navegador con acceso a APIs modernas de persistencia como <code>navigator.storage.persist()</code> y almacenamiento seguro en IndexedDB.
         </li>
         <li>
-          <strong>Servidor estático o GitHub Pages (HTTP/HTTPS):</strong> Hospedado en GitHub Pages o cualquier servidor web básico. En este modo se cuenta además con acceso completo a APIs modernas como <code>navigator.storage.persist()</code> y facilidades adicionales de contexto seguro.
+          <strong>Backend Local Unificado (<code>zerochat.py</code>):</strong> Al ejecutar <code>python3 zerochat.py</code>, el servidor local arranca en <code>127.0.0.1:6388</code>, abre automáticamente el navegador apuntando a la aplicación web y transfiere el token de sesión diario de forma segura en el fragmento de la URL.
         </li>
       </ul>
-      <div class="alert alert-warning">
-        <strong>Nota sobre restricciones en <code>file://</code>:</strong> Algunos navegadores limitan ciertas capacidades en el origen <code>file://</code> (como ciertos accesos a Service Workers). Para la máxima potencia en modelos locales WebGPU o RAG pesado, se recomienda un origen HTTP local o HTTPS.
+      <div class="alert alert-info">
+        <strong>Desarrollo y pruebas locales:</strong> Para probar cambios en local sin depender de la versión publicada, <code>zerochat.py</code> permite especificar la URL de destino mediante el parámetro <code>--ui-url</code> (por ejemplo, <code>--ui-url http://localhost:8000/zerochat.html</code>).
       </div>
     </div>
 
