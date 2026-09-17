@@ -32,7 +32,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "7.0.0"
+VERSION = "7.0.1"
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"

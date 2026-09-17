@@ -68,7 +68,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(initRes.status, 200);
     const initJson = await initRes.json();
     assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
-    assert.equal(initJson.result?.serverInfo?.version, '7.0.0');
+    assert.equal(initJson.result?.serverInfo?.version, '7.0.1');
 
     // 5. Comprobar tools/list
     const toolsRes = await fetch(baseUrl, {
@@ -109,7 +109,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(callJson.result?.isError, false);
     const parsedContent = JSON.parse(callJson.result?.content?.[0]?.text);
     assert.equal(parsedContent.success, true);
-    assert.match(parsedContent.content, /"version": "7.0.0"/);
+    assert.match(parsedContent.content, /"version": "7.0.1"/);
 
     // 7. Comprobar flujo SSE con token en query param
     const sseRes = await fetch(`${baseUrl}/sse?token=${testToken}`, {

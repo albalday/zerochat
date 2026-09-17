@@ -44,3 +44,4 @@ for raw in sys.stdin:
             "content": [{"type": "text", "text": f"echo: {msg}"}],
             "isError": False
         })
+
