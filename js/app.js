@@ -273,6 +273,7 @@
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
       mcpToolsContainer: document.getElementById('mcp-tools-container'),
+      mcpServersList: document.getElementById('mcp-servers-list'),
       settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
@@ -2061,7 +2062,8 @@
         endpointPreview: elements.mcpEndpointPreview,
         commandSnippet: elements.mcpTerminalCommand,
         btnCopyCmd: elements.btnMcpCopyCmd,
-        toolsContainer: elements.mcpToolsContainer
+        toolsContainer: elements.mcpToolsContainer,
+        serversList: elements.mcpServersList
       });
 
       // Extraer token y port pasados desde zerochat.py por hash o query string

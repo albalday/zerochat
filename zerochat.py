@@ -17,7 +17,9 @@ import hmac
 import json
 import os
 import platform
+import queue
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -344,6 +346,417 @@ def is_allowed_origin(origin: str | None) -> bool:
     return False
 
 
+def public_tool_name(server_id: str, original: str) -> str:
+    """Codificación inyectiva de nombres de herramientas MCP idéntica a publicToolName en js/mcp.js."""
+    def encode(value: str, tool: bool = False) -> str:
+        if not isinstance(value, str) or not value or len(value) > 256:
+            raise ValueError("Componente de nombre MCP no válido")
+        return "".join(ch if ("a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"))
+                       else f"z{ord(ch):x}z" for ch in value)
+    name = f"mcp_{encode(server_id)}_{encode(original, True)}"
+    if len(name) > 64:
+        raise ValueError(f"El nombre público de la herramienta MCP excede 64 caracteres: {name}")
+    return name
+
+
+class StdioMcpClient:
+    def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str]):
+        self.command = command
+        self.args = args
+        self.cwd = cwd
+        self.env = env
+        self.process: subprocess.Popen | None = None
+        self._pending: dict[int, queue.Queue] = {}
+        self._next = 0
+        self._lock = threading.Lock()
+        self._alive = False
+        self.tools: list[dict] = []
+
+    def running(self) -> bool:
+        return self._alive and self.process is not None and self.process.poll() is None
+
+    def start(self, handshake_timeout: int = 30):
+        cmd = [self.command] + self.args
+        self.process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=self.cwd,
+            env=self.env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1
+        )
+        self._alive = True
+        threading.Thread(target=self._drain_stderr, daemon=True).start()
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+
+        self.request("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "zerochat", "version": VERSION}
+        }, timeout=handshake_timeout)
+        self.notify("notifications/initialized")
+        tools_resp = self.request("tools/list", {}, timeout=10)
+        self.tools = tools_resp.get("tools", [])
+
+    def _drain_stderr(self):
+        if self.process and self.process.stderr:
+            for _ in self.process.stderr:
+                pass
+
+    def _read_stdout(self):
+        try:
+            if not self.process or not self.process.stdout:
+                return
+            for line in self.process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except Exception:
+                    continue
+                req_id = msg.get("id")
+                if req_id is not None:
+                    with self._lock:
+                        waiter = self._pending.pop(req_id, None)
+                    if waiter:
+                        waiter.put(msg)
+        finally:
+            self._alive = False
+            with self._lock:
+                pending = list(self._pending.values())
+                self._pending.clear()
+            for waiter in pending:
+                waiter.put({"error": {"message": "MCP process ended unexpectedly"}})
+
+    def request(self, method: str, params: dict, timeout: int = 30) -> dict:
+        if not self.running():
+            raise RuntimeError("MCP process is not running")
+        with self._lock:
+            self._next += 1
+            req_id = self._next
+            waiter = queue.Queue(maxsize=1)
+            self._pending[req_id] = waiter
+            payload = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}) + "\n"
+            try:
+                self.process.stdin.write(payload)
+                self.process.stdin.flush()
+            except Exception as exc:
+                self._alive = False
+                self._pending.pop(req_id, None)
+                raise RuntimeError(f"Failed writing to MCP process: {exc}") from exc
+        try:
+            response = waiter.get(timeout=timeout)
+        except queue.Empty as exc:
+            with self._lock:
+                self._pending.pop(req_id, None)
+            raise TimeoutError(f"MCP request timed out: {method}") from exc
+        if response.get("error"):
+            raise RuntimeError(str(response["error"].get("message", "MCP request failed")))
+        return response.get("result", {})
+
+    def notify(self, method: str):
+        if self.running():
+            with self._lock:
+                try:
+                    self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
+                    self.process.stdin.flush()
+                except Exception:
+                    self._alive = False
+
+    def stop(self):
+        self._alive = False
+        if not self.process:
+            return
+        try:
+            self.process.terminate()
+            self.process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+        self.process = None
+        self.tools = []
+
+
+class McpServiceManager:
+    def __init__(self, services_root: Path | None = None):
+        if services_root:
+            self.services_root = Path(services_root)
+        else:
+            candidates = [
+                Path.cwd() / "services",
+                get_venv_dir() / "services"
+            ]
+            self.services_root = candidates[0] if candidates[0].is_dir() else candidates[1]
+        self.services_root.mkdir(parents=True, exist_ok=True)
+        self.config_file = get_venv_dir() / "config" / "services.json"
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        self.clients: dict[str, StdioMcpClient] = {}
+        self.states: dict[str, str] = {}
+        self.errors: dict[str, str] = {}
+        self._lock = threading.Lock()
+        self._ensure_default_services()
+        self.services = self._load_services()
+        self.preferences = self._load_preferences()
+
+    def _ensure_default_services(self):
+        dummy_dir = self.services_root / "dummy_mcp"
+        dummy_dir.mkdir(parents=True, exist_ok=True)
+        service_json_file = dummy_dir / "service.json"
+        dummy_server_file = dummy_dir / "dummy_mcp_server.py"
+
+        if not service_json_file.exists():
+            service_json_file.write_text(json.dumps({
+                "schemaVersion": 1,
+                "id": "dummy_mcp",
+                "displayName": {
+                    "es": "MCP de prueba",
+                    "en": "Test MCP"
+                },
+                "description": {
+                    "es": "Servicio MCP mínimo para comprobar la infraestructura externa.",
+                    "en": "Minimal MCP service for verifying the external infrastructure."
+                },
+                "enabledByDefault": False,
+                "transport": "stdio",
+                "launch": {
+                    "executable": "${pythonExecutable}",
+                    "args": ["${serviceDir}/dummy_mcp_server.py"],
+                    "cwd": "${serviceDir}",
+                    "env": {},
+                    "handshakeTimeoutSeconds": 10
+                }
+            }, indent=2), encoding="utf-8")
+
+        if not dummy_server_file.exists():
+            dummy_server_file.write_text('''#!/usr/bin/env python3
+import json, sys
+
+def reply(req_id, result=None, error=None):
+    resp = {"jsonrpc": "2.0", "id": req_id}
+    if error: resp["error"] = error
+    else: resp["result"] = result
+    sys.stdout.write(json.dumps(resp) + "\\n")
+    sys.stdout.flush()
+
+for raw in sys.stdin:
+    try: req = json.loads(raw)
+    except: continue
+    req_id, method, params = req.get("id"), req.get("method"), req.get("params", {})
+    if method == "initialize":
+        reply(req_id, {
+            "protocolVersion": "2024-11-05",
+            "serverInfo": {"name": "ZeroChat Dummy MCP", "version": "1.0.0"},
+            "capabilities": {"tools": {}}
+        })
+    elif method == "tools/list":
+        reply(req_id, {"tools": [{
+            "name": "echo",
+            "description": "Echo back a message for testing.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"message": {"type": "string", "description": "Message to echo."}},
+                "required": ["message"]
+            }
+        }]})
+    elif method == "tools/call":
+        if params.get("name") != "echo":
+            reply(req_id, error={"code": -32601, "message": "Tool not found"})
+            continue
+        msg = params.get("arguments", {}).get("message", "")
+        reply(req_id, {
+            "content": [{"type": "text", "text": f"echo: {msg}"}],
+            "isError": False
+        })
+''', encoding="utf-8")
+
+    def _load_services(self) -> dict[str, dict]:
+        servers = {}
+        for directory in sorted(self.services_root.iterdir()):
+            if not directory.is_dir():
+                continue
+            service_file = directory / "service.json"
+            if not service_file.exists():
+                continue
+            try:
+                server = json.loads(service_file.read_text(encoding="utf-8"))
+                server_id = server.get("id") or directory.name.replace(".mcp", "")
+                server["id"] = server_id
+                server["_directory"] = directory
+                servers[server_id] = server
+            except Exception:
+                continue
+        return servers
+
+    def _load_preferences(self) -> dict:
+        if self.config_file.exists():
+            try:
+                return json.loads(self.config_file.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        return {}
+
+    def _save_preferences(self):
+        try:
+            tmp = self.config_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
+            tmp.replace(self.config_file)
+        except Exception:
+            pass
+
+    def list_servers(self) -> list[dict]:
+        self.services = self._load_services()
+        result = []
+        for server_id, server in self.services.items():
+            client = self.clients.get(server_id)
+            running = bool(client and client.running())
+            pref = self.preferences.get(server_id, {})
+            result.append({
+                "id": server_id,
+                "displayName": server.get("displayName", {}),
+                "description": server.get("description", {}),
+                "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
+                "status": "running" if running else self.states.get(server_id, "stopped"),
+                "toolCount": len(client.tools) if running else 0,
+                "error": self.errors.get(server_id),
+                "options": server.get("options", []),
+                "userOptions": pref.get("options", {})
+            })
+        return result
+
+    def _expand(self, value: str, values: dict[str, str]) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Invalid process argument")
+        for key, replacement in values.items():
+            value = value.replace("${" + key + "}", str(replacement))
+        return value
+
+    def start(self, server_id: str) -> list[dict]:
+        with self._lock:
+            self.services = self._load_services()
+            server = self.services.get(server_id)
+            if not server:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            current = self.clients.get(server_id)
+            if current and current.running():
+                return self.list_servers()
+            self.states[server_id] = "starting"
+            try:
+                service_dir = server["_directory"]
+                values = {
+                    "serviceDir": str(service_dir),
+                    "pythonExecutable": sys.executable,
+                    "nodeExecutable": shutil.which("node") or "node"
+                }
+                pref = self.preferences.get(server_id, {})
+                user_opts = pref.get("options", {})
+                for opt in server.get("options", []):
+                    opt_id = opt.get("id")
+                    if opt_id:
+                        val = user_opts.get(opt_id, opt.get("default"))
+                        values[f"option:{opt_id}"] = str(val)
+
+                launch = server.get("launch", {})
+                command = self._expand(launch.get("executable", sys.executable), values)
+                args = [self._expand(arg, values) for arg in launch.get("args", [])]
+                for opt in server.get("options", []):
+                    opt_id = opt.get("id")
+                    if not opt_id:
+                        continue
+                    val = user_opts.get(opt_id, opt.get("default"))
+                    if opt.get("type") == "boolean":
+                        extra = opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", [])
+                        args.extend([self._expand(a, values) for a in extra])
+
+                env = os.environ.copy()
+                for k, v in launch.get("env", {}).items():
+                    env[k] = self._expand(v, values)
+
+                client = StdioMcpClient(command, args, str(service_dir), env)
+                client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
+                self.clients[server_id] = client
+                self.states[server_id] = "running"
+                self.errors.pop(server_id, None)
+                entry = self.preferences.setdefault(server_id, {})
+                entry["enabled"] = True
+                self._save_preferences()
+            except Exception as exc:
+                self.states[server_id] = "error"
+                self.errors[server_id] = str(exc)
+                if server_id in self.clients:
+                    self.clients.pop(server_id).stop()
+            return self.list_servers()
+
+    def stop(self, server_id: str) -> list[dict]:
+        with self._lock:
+            client = self.clients.pop(server_id, None)
+            if client:
+                client.stop()
+            self.states[server_id] = "stopped"
+            self.errors.pop(server_id, None)
+            entry = self.preferences.setdefault(server_id, {})
+            entry["enabled"] = False
+            self._save_preferences()
+            return self.list_servers()
+
+    def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
+        with self._lock:
+            self.services = self._load_services()
+            if server_id not in self.services:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
+            entry = self.preferences.setdefault(server_id, {})
+            if options is not None:
+                opts = entry.setdefault("options", {})
+                opts.update(options)
+            self._save_preferences()
+            return self.list_servers()
+
+    def tools(self) -> list[dict]:
+        aggregated = []
+        with self._lock:
+            for server_id, client in self.clients.items():
+                if not client.running():
+                    continue
+                for t in client.tools:
+                    try:
+                        pname = public_tool_name(server_id, t["name"])
+                        tcopy = dict(t)
+                        tcopy["name"] = pname
+                        tcopy["metadata"] = {
+                            "mcpServerId": server_id,
+                            "originalName": t["name"]
+                        }
+                        aggregated.append(tcopy)
+                    except Exception:
+                        continue
+        return aggregated
+
+    def call(self, public_name: str, arguments: dict) -> dict:
+        with self._lock:
+            for server_id, client in self.clients.items():
+                if not client.running():
+                    continue
+                for t in client.tools:
+                    if public_tool_name(server_id, t["name"]) == public_name:
+                        return client.request("tools/call", {"name": t["name"], "arguments": arguments})
+        raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+
+    def close(self):
+        with self._lock:
+            for client in list(self.clients.values()):
+                client.stop()
+            self.clients.clear()
+
+
+GLOBAL_MCP_MANAGER = McpServiceManager()
+
+
 class ZeroChatServerHandler(BaseHTTPRequestHandler):
     server_version = f"ZeroChatServer/{VERSION}"
 
@@ -385,6 +798,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
 
+    def _send_json_response(self, status: int, data: dict):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
@@ -402,6 +824,15 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(err_msg)
             return
 
+        path_clean = self.path.split("?", 1)[0].rstrip("/")
+        if path_clean in ("/zerochat/external/status", "zerochat/external/status"):
+            self._send_json_response(200, {
+                "host": "running",
+                "version": VERSION,
+                "servers": GLOBAL_MCP_MANAGER.list_servers()
+            })
+            return
+
         accept = self.headers.get("Accept", "")
         if "/sse" in self.path or "text/event-stream" in accept:
             self.send_response(200)
@@ -410,7 +841,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "keep-alive")
             self.send_cors_headers()
             self.end_headers()
-            self.wfile.write(b"event: endpoint\r\ndata: /\r\n\r\n")
+            endpoint_data = b"/mcp/external" if "/mcp/external" in self.path else b"/"
+            self.wfile.write(b"event: endpoint\r\ndata: " + endpoint_data + b"\r\n\r\n")
             self.wfile.flush()
             return
 
@@ -469,9 +901,38 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(err_resp)
             return
 
+        req_path = self.path.split("?", 1)[0].rstrip("/")
         req_id = req.get("id")
         method = req.get("method")
         params = req.get("params", {})
+
+        # Manejo de rutas REST directas (sin método JSON-RPC o con él)
+        if req_path in ("/zerochat/external/status", "zerochat/external/status") and not method:
+            self._send_json_response(200, {
+                "host": "running",
+                "version": VERSION,
+                "servers": GLOBAL_MCP_MANAGER.list_servers()
+            })
+            return
+
+        if req_path in ("/zerochat/external/servers/start", "zerochat/external/servers/start") and not method:
+            server_id = req.get("serverId") or params.get("serverId")
+            servers = GLOBAL_MCP_MANAGER.start(server_id)
+            self._send_json_response(200, {"servers": servers})
+            return
+
+        if req_path in ("/zerochat/external/servers/stop", "zerochat/external/servers/stop") and not method:
+            server_id = req.get("serverId") or params.get("serverId")
+            servers = GLOBAL_MCP_MANAGER.stop(server_id)
+            self._send_json_response(200, {"servers": servers})
+            return
+
+        if req_path in ("/zerochat/external/servers/configure", "zerochat/external/servers/configure") and not method:
+            server_id = req.get("serverId") or params.get("serverId")
+            opts = req.get("options") or params.get("options", {})
+            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+            self._send_json_response(200, {"servers": servers})
+            return
 
         if req_id is None and (method or "").startswith("notifications/"):
             self.send_response(204)
@@ -481,41 +942,103 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         result = None
         error = None
+        is_external_endpoint = "/mcp/external" in req_path
 
-        if method == "initialize":
-            result = {
-                "protocolVersion": "2024-11-05",
-                "serverInfo": {
-                    "name": "ZeroChat Local Server",
-                    "version": VERSION
-                },
-                "capabilities": {
-                    "tools": {"listChanged": True}
-                }
-            }
-        elif method == "tools/list":
-            result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
-        elif method == "tools/call":
-            tool_name = params.get("name", "")
-            tool_args = params.get("arguments", {})
-
-            if tool_name in LOCAL_TOOL_HANDLERS:
-                handler = LOCAL_TOOL_HANDLERS[tool_name]
-                try:
-                    tool_output_json = handler(**tool_args)
-                    result = {
-                        "content": [{"type": "text", "text": tool_output_json}],
-                        "isError": False
+        if is_external_endpoint:
+            if method == "initialize":
+                result = {
+                    "protocolVersion": "2024-11-05",
+                    "serverInfo": {
+                        "name": "ZeroChat External MCP Host",
+                        "version": VERSION
+                    },
+                    "capabilities": {
+                        "tools": {"listChanged": True}
                     }
+                }
+            elif method == "tools/list":
+                result = {"tools": GLOBAL_MCP_MANAGER.tools()}
+            elif method == "tools/call":
+                tool_name = params.get("name", "")
+                tool_args = params.get("arguments", {})
+                try:
+                    result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
                 except Exception as ex:
                     result = {
                         "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
                         "isError": True
                     }
             else:
-                error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
+                error = {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}
         else:
-            error = {"code": -32601, "message": f"Método '{method}' no soportado."}
+            if method == "initialize":
+                result = {
+                    "protocolVersion": "2024-11-05",
+                    "serverInfo": {
+                        "name": "ZeroChat Local Server",
+                        "version": VERSION
+                    },
+                    "capabilities": {
+                        "tools": {"listChanged": True}
+                    }
+                }
+            elif method == "tools/list":
+                result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
+            elif method == "tools/call":
+                tool_name = params.get("name", "")
+                tool_args = params.get("arguments", {})
+
+                if tool_name in LOCAL_TOOL_HANDLERS:
+                    handler = LOCAL_TOOL_HANDLERS[tool_name]
+                    try:
+                        tool_output_json = handler(**tool_args)
+                        result = {
+                            "content": [{"type": "text", "text": tool_output_json}],
+                            "isError": False
+                        }
+                    except Exception as ex:
+                        result = {
+                            "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
+                            "isError": True
+                        }
+                elif tool_name.startswith("mcp_"):
+                    try:
+                        result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
+                    except Exception as ex:
+                        result = {
+                            "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
+                            "isError": True
+                        }
+                else:
+                    error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
+            elif method == "zerochat/external/status":
+                result = {
+                    "host": "running",
+                    "version": VERSION,
+                    "servers": GLOBAL_MCP_MANAGER.list_servers()
+                }
+            elif method == "zerochat/external/servers/start":
+                server_id = params.get("serverId") or req.get("serverId")
+                servers = GLOBAL_MCP_MANAGER.start(server_id)
+                result = {"servers": servers}
+            elif method == "zerochat/external/servers/stop":
+                server_id = params.get("serverId") or req.get("serverId")
+                servers = GLOBAL_MCP_MANAGER.stop(server_id)
+                result = {"servers": servers}
+            elif method == "zerochat/external/servers/configure":
+                server_id = params.get("serverId") or req.get("serverId")
+                opts = params.get("options") or req.get("options", {})
+                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+                result = {"servers": servers}
+            elif method in ("zerochat/external/start", "zerochat/external/stop"):
+                if method == "zerochat/external/stop":
+                    GLOBAL_MCP_MANAGER.close()
+                result = {
+                    "host": "running",
+                    "servers": GLOBAL_MCP_MANAGER.list_servers()
+                }
+            else:
+                error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 
         response_payload = {"jsonrpc": "2.0", "id": req_id}
         if error:
@@ -596,6 +1119,7 @@ def main():
 
     def shutdown(*_):
         print(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+        GLOBAL_MCP_MANAGER.close()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGINT, shutdown)
@@ -604,6 +1128,7 @@ def main():
     try:
         server.serve_forever()
     finally:
+        GLOBAL_MCP_MANAGER.close()
         server.server_close()
 
 

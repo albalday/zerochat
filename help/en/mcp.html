@@ -100,6 +100,16 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
       </div>
     </div>
 
+    <div class="card">
+      <h2>5. External MCP Services & Individual Activation</h2>
+      <p>
+        The local server <code>zerochat.py</code> manages external MCP services configured in the services folder (such as <code>./zerochat/services</code>). No global external host daemon needs to be toggled: the service manager is always running within the local backend.
+      </p>
+      <p>
+        In the <strong>Settings → MCP</strong> tab, the <em>"Available MCP Servers"</em> section lists all configured services and allows users to start and stop them individually using dedicated action buttons (<em>Start</em> / <em>Stop</em>), as well as configure service-specific options. Once a service is running, its tools are dynamically discovered and registered for agent use.
+      </p>
+    </div>
+
     <nav class="page-navigation" aria-label="Help navigation">
       <a href="rag.html" class="nav-button prev">
         <span class="nav-direction">← Previous</span>

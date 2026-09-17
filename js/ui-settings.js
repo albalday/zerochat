@@ -551,10 +551,6 @@
                   <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>
                   <span data-i18n="mcp_btn_connect">Conectar</span>
                 </button>
-                <button type="button" id="btn-mcp-disconnect" class="btn-secondary btn-mcp-action" style="display: none;">
-                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-                  <span data-i18n="mcp_btn_disconnect">Desconectar</span>
-                </button>
                 <button type="button" id="btn-mcp-configure" class="btn-secondary btn-mcp-action" data-i18n-title="mcp_btn_configure_title" title="Configurar parámetros de conexión e instrucciones">
                   <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
                   <span data-i18n="mcp_btn_configure">Configurar</span>
@@ -571,6 +567,20 @@
 
           <!-- Contenedor dinámico de herramientas MCP registradas -->
           <div id="mcp-tools-container" class="mcp-tools-container"></div>
+
+          <!-- Tarjeta de Servidores MCP Disponibles -->
+          <div id="mcp-servers-card" class="mcp-status-card" style="margin-top: 1rem;">
+            <div class="mcp-status-header">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-cpu"></use></svg>
+                </span>
+                <strong data-i18n="mcp_servers_section_title">Servidores MCP Disponibles</strong>
+              </div>
+            </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_section_desc">Servicios MCP externos configurados en el servidor local listos para arrancar de forma individual.</p>
+            <div id="mcp-servers-list" class="mcp-servers-list"></div>
+          </div>
         </div>
 
         <!-- Pestaña 5: Permisos de ejecución MCP -->

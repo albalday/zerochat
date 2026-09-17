@@ -75,7 +75,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
         getAttribute: (k) => attrs[k]
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
-      btnDisconnect: { style: {}, disabled: false, innerHTML: '' },
       serverDetails: { style: {}, innerHTML: '', textContent: '' },
       errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
@@ -96,7 +95,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.btnConnect.style.display, 'inline-flex');
   assert.equal(elements.btnConnect.disabled, false);
   assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
-  assert.equal(elements.btnDisconnect.style.display, 'none');
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.errorMessage.style.display, 'none');
 
@@ -107,7 +105,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
   assert.equal(elements.btnConnect.disabled, true);
   assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connecting"'));
-  assert.equal(elements.btnDisconnect.style.display, 'none');
 
   // 3. Estado conectado
   ChatUIMcp.renderConnectionStatus(elements, {
@@ -122,7 +119,6 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
-  assert.equal(elements.btnDisconnect.style.display, 'inline-flex');
   assert.equal(elements.serverDetails.style.display, 'flex');
   assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.textContent.includes('15ms'));
@@ -212,7 +208,7 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
     statusBadge: { className: '' },
     statusText: { textContent: '' },
     btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-    btnDisconnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
+
     serverDetails: { style: {}, innerHTML: '' },
     errorMessage: { style: {}, innerHTML: '' },
     btnCopyCmd: { addEventListener: () => {} }
@@ -232,57 +228,6 @@ test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
   assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6392/sse');
 
   uiInstance.destroy();
-});
-
-test('ChatUIMcp - conectar y desconectar actualiza mcpAutoConnect en la configuración', async () => {
-  const ChatConfig = require('../../js/config-store.js');
-  const updates = [];
-  const originalUpdateRuntime = ChatConfig.updateRuntime;
-  ChatConfig.updateRuntime = (patch) => {
-    updates.push(patch);
-    if (typeof originalUpdateRuntime === 'function') {
-      return originalUpdateRuntime(patch);
-    }
-    return patch;
-  };
-
-  try {
-    const listeners = {};
-    const elements = {
-      portInput: { value: '6388', addEventListener: () => {} },
-      hostInput: { value: '127.0.0.1', addEventListener: () => {} },
-      commandSnippet: { textContent: '' },
-      endpointPreview: { textContent: '' },
-      statusBadge: { className: '' },
-      statusText: { textContent: '' },
-      btnConnect: {
-        style: {}, disabled: false, innerHTML: '',
-        addEventListener: (evt, fn) => { listeners['connect:' + evt] = fn; }
-      },
-      btnDisconnect: {
-        style: {}, disabled: false, innerHTML: '',
-        addEventListener: (evt, fn) => { listeners['disconnect:' + evt] = fn; }
-      },
-      serverDetails: { style: {}, innerHTML: '' },
-      errorMessage: { style: {}, innerHTML: '' },
-      btnCopyCmd: { addEventListener: () => {} }
-    };
-
-    const uiInstance = ChatUIMcp.initMcpUI(elements);
-    assert.ok(uiInstance);
-
-    // Al pulsar conectar
-    await listeners['connect:click']();
-    assert.ok(updates.some(p => p.mcpAutoConnect === true && p.mcpHost === '127.0.0.1' && p.mcpPort === 6388));
-
-    // Al pulsar desconectar
-    listeners['disconnect:click']();
-    assert.ok(updates.some(p => p.mcpAutoConnect === false));
-
-    uiInstance.destroy();
-  } finally {
-    ChatConfig.updateRuntime = originalUpdateRuntime;
-  }
 });
 
 test('ChatUIMcp - initMcpUI gestiona apertura y cierre del modal de configuración', () => {
@@ -315,7 +260,7 @@ test('ChatUIMcp - initMcpUI gestiona apertura y cierre del modal de configuraci�
     statusBadge: { className: '' },
     statusText: { textContent: '' },
     btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-    btnDisconnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
+
     serverDetails: { style: {}, innerHTML: '' },
     errorMessage: { style: {}, innerHTML: '' },
     btnCopyCmd: { addEventListener: () => {} }
@@ -595,7 +540,7 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
     statusBadge: { className: 'mcp-status-badge mcp-status-disconnected' },
     statusText: mockStatusText,
     btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-    btnDisconnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
+
     serverDetails: { style: {}, innerHTML: '' },
     errorMessage: { style: {}, innerHTML: '' }
   };
@@ -633,5 +578,41 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
 
   // Restaurar idioma
   ChatI18n.setLanguage(originalLang, false);
+});
+
+test('ChatUIMcp - renderExternalServers muestra mensaje vacío si no hay servidores', () => {
+  const container = { innerHTML: '' };
+  ChatUIMcp.renderExternalServers(container, [], (k) => k);
+  assert.ok(container.innerHTML.includes('mcp-servers-empty'));
+  assert.ok(container.innerHTML.includes('mcp_servers_empty'));
+});
+
+test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón Iniciar/Detener individual', () => {
+  const container = { innerHTML: '' };
+  const mockServers = [
+    {
+      id: 'dummy_mcp',
+      displayName: { es: 'Dummy MCP', en: 'Dummy MCP' },
+      description: { es: 'Servidor de prueba', en: 'Test server' },
+      status: 'stopped',
+      toolCount: 0
+    },
+    {
+      id: 'sqlite',
+      displayName: { es: 'SQLite', en: 'SQLite' },
+      description: { es: 'Base de datos', en: 'Database' },
+      status: 'running',
+      toolCount: 2
+    }
+  ];
+
+  ChatUIMcp.renderExternalServers(container, mockServers, (k, p) => ChatI18n.t(k, p));
+  assert.ok(container.innerHTML.includes('dummy_mcp'));
+  assert.ok(container.innerHTML.includes('status-stopped'));
+  assert.ok(container.innerHTML.includes('Iniciar'));
+  assert.ok(container.innerHTML.includes('sqlite'));
+  assert.ok(container.innerHTML.includes('status-running'));
+  assert.ok(container.innerHTML.includes('Detener'));
+  assert.ok(container.innerHTML.includes('2 herramientas activas'));
 });
 

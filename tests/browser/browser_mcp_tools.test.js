@@ -22,7 +22,6 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
         statusBadge: document.createElement('div'),
         statusText: document.createElement('span'),
         btnConnect: document.createElement('button'),
-        btnDisconnect: document.createElement('button'),
         serverDetails,
         errorMessage
       };

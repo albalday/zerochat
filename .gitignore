@@ -5,3 +5,4 @@ tests/tmp_*
 .vscode/
 __pycache__/
 bundle-profiles/*.zcp
+zerochat/

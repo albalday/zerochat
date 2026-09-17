@@ -118,6 +118,70 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(sseRes.status, 200);
     assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
 
+    // 8. Comprobar servicios MCP externos arrancables individualmente
+    const statusRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'zerochat/external/status', params: {} })
+    });
+    assert.equal(statusRes.status, 200);
+    const statusJson = await statusRes.json();
+    assert.equal(statusJson.result?.host, 'running');
+    const dummyServer = (statusJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
+    assert.ok(dummyServer, 'dummy_mcp debe estar provisto automáticamente');
+    assert.equal(dummyServer.status, 'stopped');
+
+    // Iniciar individualmente dummy_mcp
+    const startRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'dummy_mcp' } })
+    });
+    assert.equal(startRes.status, 200);
+    const startJson = await startRes.json();
+    const runningDummy = (startJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
+    assert.equal(runningDummy?.status, 'running');
+    assert.equal(runningDummy?.toolCount, 1);
+
+    // tools/list en /mcp/external
+    const extToolsRes = await fetch(`${baseUrl}/mcp/external`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} })
+    });
+    assert.equal(extToolsRes.status, 200);
+    const extToolsJson = await extToolsRes.json();
+    const extToolNames = (extToolsJson.result?.tools || []).map(t => t.name);
+    assert.ok(extToolNames.includes('mcp_dummyz5fzmcp_echo'));
+
+    // tools/call ejecutando dummy_mcp echo
+    const extCallRes = await fetch(`${baseUrl}/mcp/external`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'tools/call',
+        params: { name: 'mcp_dummyz5fzmcp_echo', arguments: { message: 'probando mcp' } }
+      })
+    });
+    assert.equal(extCallRes.status, 200);
+    const extCallJson = await extCallRes.json();
+    assert.equal(extCallJson.result?.isError, false);
+    assert.equal(extCallJson.result?.content?.[0]?.text, 'echo: probando mcp');
+
+    // Detener individualmente dummy_mcp
+    const stopRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'zerochat/external/servers/stop', params: { serverId: 'dummy_mcp' } })
+    });
+    assert.equal(stopRes.status, 200);
+    const stopJson = await stopRes.json();
+    const stoppedDummy = (stopJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
+    assert.equal(stoppedDummy?.status, 'stopped');
+    assert.equal(stoppedDummy?.toolCount, 0);
+
   } finally {
     serverProc.kill('SIGTERM');
   }
