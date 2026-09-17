@@ -565,9 +565,6 @@
             <div id="mcp-error-message" class="mcp-error-message" style="display: none;"></div>
           </div>
 
-          <!-- Contenedor dinámico de herramientas MCP registradas -->
-          <div id="mcp-tools-container" class="mcp-tools-container"></div>
-
           <!-- Tarjeta de Servidores MCP Disponibles -->
           <div id="mcp-servers-card" class="mcp-status-card" style="margin-top: 1rem;">
             <div class="mcp-status-header">
@@ -581,6 +578,9 @@
             <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_section_desc">Servicios MCP externos configurados en el servidor local listos para arrancar de forma individual.</p>
             <div id="mcp-servers-list" class="mcp-servers-list"></div>
           </div>
+
+          <!-- Contenedor dinámico de herramientas MCP registradas -->
+          <div id="mcp-tools-container" class="mcp-tools-container" style="margin-top: 1rem;"></div>
         </div>
 
         <!-- Pestaña 5: Permisos de ejecución MCP -->
