@@ -214,6 +214,116 @@
     });
   }
 
+  function renderExternalServers(container, servers, translator = t) {
+    if (!container) return;
+    if (!Array.isArray(servers) || servers.length === 0) {
+      container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(translator('mcp_servers_empty'))}</div>`;
+      return;
+    }
+    const language = getI18n()?.getLanguage?.() || 'es';
+    container.innerHTML = servers.map(server => {
+      const isRunning = server.status === 'running';
+      const isStarting = server.status === 'starting';
+      const isInstalling = server.status === 'installing';
+      const isBusy = isStarting || isInstalling;
+      const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
+      const statusLabel = translator(`mcp_external_status_${server.status || 'stopped'}`);
+      const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
+      const err = server.error ? `<p class="mcp-server-error">${escapeHtml(server.error)}</p>` : '';
+      let optionsHtml = '';
+      if (Array.isArray(server.options) && server.options.length > 0) {
+        optionsHtml = `<div class="mcp-server-options">` + server.options.map(opt => {
+          const optLabel = escapeHtml(opt.label?.[language] || opt.label?.es || opt.label || opt.id);
+          const optDesc = opt.description ? `<span class="label-hint">${escapeHtml(opt.description?.[language] || opt.description?.es || opt.description || '')}</span>` : '';
+          const userVal = server.userOptions && opt.id in server.userOptions ? server.userOptions[opt.id] : opt.default;
+          if (opt.type === 'boolean') {
+            const isChecked = Boolean(userVal);
+            return `
+              <div class="mcp-server-option-row">
+                <label class="switch switch-sm">
+                  <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(opt.id)}" ${isChecked ? 'checked' : ''}>
+                  <span class="slider round"></span>
+                </label>
+                <div class="mcp-server-option-meta">
+                  <span class="mcp-server-option-label">${optLabel}</span>
+                  ${optDesc}
+                </div>
+              </div>`;
+          }
+          return '';
+        }).join('') + `</div>`;
+      }
+
+      return `
+        <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
+          <div class="mcp-server-info">
+            <div class="mcp-server-title-row">
+              <strong class="mcp-server-name">${escapeHtml(server.displayName?.[language] || server.displayName?.es || server.displayName || server.id)}</strong>
+              <span class="mcp-server-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+              ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
+            </div>
+            ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
+            ${err}
+            ${optionsHtml}
+          </div>
+          <div class="mcp-server-actions">
+            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled' : ''}>
+              ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : translator('mcp_btn_start_server'))}
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll?.('.mcp-server-option-checkbox').forEach(cb => {
+      cb.addEventListener?.('change', async () => {
+        const sid = cb.getAttribute?.('data-server-id');
+        const optId = cb.getAttribute?.('data-option-id');
+        if (!sid || !optId) return;
+        cb.disabled = true;
+        const MCP = getMCP();
+        try {
+          await MCP?.manager?.configureExternalServer?.(sid, {
+            options: { [optId]: cb.checked }
+          });
+          const updated = await MCP?.manager?.fetchExternalServers?.();
+          const State = getState();
+          if (updated && State?.set) {
+            const current = State.get('mcp') || {};
+            State.set('mcp', {
+              ...current,
+              externalHost: updated.host || 'running',
+              externalServers: updated.servers || []
+            });
+          }
+        } catch (e) {
+          console.error('[MCP UI] Error configuring server option:', e);
+          cb.checked = !cb.checked;
+        } finally {
+          cb.disabled = false;
+        }
+      });
+    });
+
+    container.querySelectorAll?.('.btn-mcp-server-toggle').forEach(btn => {
+      btn.addEventListener?.('click', async () => {
+        const sid = btn.getAttribute?.('data-server-id');
+        const action = btn.getAttribute?.('data-action');
+        if (!sid) return;
+        btn.disabled = true;
+        const MCP = getMCP();
+        try {
+          if (action === 'start') {
+            await MCP?.manager?.startExternalServer?.(sid);
+          } else {
+            await MCP?.manager?.stopExternalServer?.(sid);
+          }
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
   function renderConnectionStatus(elements, mcpState, translator = t) {
     if (!elements) return;
     const State = getState();
@@ -240,7 +350,7 @@
       elements.btnConnect.innerHTML = `${icon} <span data-i18n="${labelKey}">${label}</span>`;
     }
 
-    if (elements.btnDisconnect) elements.btnDisconnect.style.display = isConn ? 'inline-flex' : 'none';
+
 
     if (elements.serverDetails) {
       elements.serverDetails.style.display = isConn ? 'flex' : 'none';
@@ -278,6 +388,11 @@
       const currentConfig = getConfig()?.get?.() || {};
       const allTools = isConn ? (state.tools || []) : [];
       renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
+    }
+
+    if (elements.serversList) {
+      const servers = isConn ? (state.externalServers || []) : [];
+      renderExternalServers(elements.serversList, servers, translator);
     }
   }
 
@@ -456,10 +571,6 @@
       await MCP?.manager?.connectProxy?.({ host, port, endpoint: buildMcpEndpoint(host, port) });
     });
 
-    elements.btnDisconnect?.addEventListener?.('click', async () => {
-      persistMcpAutoConnect(false);
-      await MCP?.manager?.disconnectProxy?.();
-    });
 
     const unsubscribe = State?.subscribe?.('mcp', (newState) => {
       if (newState?.status === 'connected') {
@@ -471,9 +582,25 @@
     updateCommandAndEndpoint();
     syncSecurityControls();
 
+    async function syncExternalServers() {
+      if (!elements.serversList) return;
+      const MCP = getMCP();
+      const State = getState();
+      if (State?.get?.('mcp')?.status !== 'connected') {
+        renderExternalServers(elements.serversList, [], t);
+        return;
+      }
+      try {
+        await MCP?.manager?.syncExternalServers?.();
+      } catch (e) {
+        console.warn('[MCP UI] syncExternalServers failed:', e);
+      }
+    }
+
     const handleLanguageChange = () => {
       renderConnectionStatus(elements, State?.get?.('mcp'), t);
       renderSavedAuthorizations(elements, t);
+      syncExternalServers();
     };
     const I18n = getI18n();
     let unsubscribeLang = null;
@@ -489,6 +616,7 @@
       openSetupModal: openModal,
       closeSetupModal: closeModal,
       syncSecurityControls,
+      syncExternalServers,
       render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
       destroy: () => {
         if (typeof unsubscribe === 'function') unsubscribe();
@@ -599,6 +727,7 @@
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,
+    renderExternalServers,
     initMcpUI,
     autoConnectIfAvailable,
     ensureDialogMarkup,

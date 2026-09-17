@@ -5,3 +5,8 @@ tests/tmp_*
 .vscode/
 __pycache__/
 bundle-profiles/*.zcp
+zerochat/
+services/*/.installed.json
+services/*/package.json
+services/*/package-lock.json
+services/*/*.jsonl

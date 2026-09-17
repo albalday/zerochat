@@ -1051,12 +1051,18 @@
         });
       }
 
+      let externalSync = null;
+      if (registerResult.success) {
+        externalSync = await this.syncExternalServers(registry).catch(() => null);
+      }
+
       return {
         success: registerResult.success,
         available: true,
         probe,
         register: registerResult,
-        tools: registerResult.tools || []
+        tools: registerResult.tools || [],
+        externalSync
       };
     }
 
@@ -1081,9 +1087,127 @@
         this.clients.delete('mcp_proxy');
       }
 
+      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
+      this.providers.delete('mcp_external');
+      if (this.clients.has('mcp_external')) {
+        try { this.clients.get('mcp_external').disconnect(); } catch (e) {}
+        this.clients.delete('mcp_external');
+      }
+
       const State = getState();
-      if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null });
+      if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [] });
       return { success: true };
+    }
+
+    getExternalControlClient() {
+      return this.getClient('mcp_proxy');
+    }
+
+    async requestExternalControl(method, params = {}, options = {}) {
+      const client = this.getExternalControlClient();
+      if (!client) throw new Error('Servicio local de herramientas no conectado.');
+      return client.request(method, params, options);
+    }
+
+    async refreshExternalProvider(registry = null) {
+      const control = this.getExternalControlClient();
+      if (!control) throw new Error('Servicio local de herramientas no conectado.');
+      const baseUrl = (control.url || 'http://127.0.0.1:6388/sse').replace(/\/sse\/?$/, '');
+      const AgentCore = getAgentCore();
+      const targetRegistry = registry || AgentCore?.registry;
+      if (this.clients.has('mcp_external')) {
+        try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
+        this.clients.delete('mcp_external');
+      }
+      if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
+      this.providers.delete('mcp_external');
+      const client = new McpClient({
+        id: 'mcp_external',
+        name: 'ZeroChat External MCP Host',
+        url: `${baseUrl}/mcp/external`,
+        token: this.sessionToken,
+        enabled: true
+      });
+      this.clients.set('mcp_external', client);
+      const provider = new McpToolProvider(client, { id: 'mcp_prov_mcp_external', name: 'ZeroChat External MCP Host' });
+      let result;
+      try {
+        const tools = await provider.discoverTools();
+        if (targetRegistry?.registerProvider) targetRegistry.registerProvider(provider);
+        this.providers.set('mcp_external', provider);
+        result = { success: true, toolCount: tools.length, tools };
+      } catch (error) {
+        this.clients.delete('mcp_external');
+        result = { success: false, error: error.message || String(error), tools: [] };
+      }
+      const State = getState();
+      if (State?.set && result.success) {
+        const current = State.get('mcp') || {};
+        State.set('mcp', { ...current, externalTools: result.tools || [] });
+      }
+      return result;
+    }
+
+    async fetchExternalServers(options = {}) {
+      try {
+        return await this.requestExternalControl('zerochat/external/status', {}, options);
+      } catch (_) {
+        return { host: 'running', servers: [] };
+      }
+    }
+
+    async syncExternalServers(registry = null) {
+      const State = getState();
+      const status = await this.fetchExternalServers().catch(() => ({ host: 'running', servers: [] }));
+
+      let externalTools = [];
+      const hasRunningServers = (status?.servers || []).some(s => s.status === 'running');
+      if (hasRunningServers) {
+        const refresh = await this.refreshExternalProvider(registry).catch(() => null);
+        if (refresh?.success) {
+          externalTools = refresh.tools || [];
+        }
+      } else {
+        const AgentCore = getAgentCore();
+        const targetRegistry = registry || AgentCore?.registry;
+        if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
+        this.providers.delete('mcp_external');
+        if (this.clients.has('mcp_external')) {
+          try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
+          this.clients.delete('mcp_external');
+        }
+      }
+
+      if (State?.set) {
+        const current = State.get('mcp') || {};
+        State.set('mcp', {
+          ...current,
+          externalHost: status?.host || 'running',
+          externalServers: status?.servers || [],
+          externalTools
+        });
+      }
+
+      return { status, externalTools };
+    }
+
+    async startExternalServer(serverId, registry = null) {
+      const result = await this.requestExternalControl('zerochat/external/servers/start', { serverId });
+      await this.syncExternalServers(registry).catch(() => {});
+      return result;
+    }
+
+    async stopExternalServer(serverId, registry = null) {
+      const result = await this.requestExternalControl('zerochat/external/servers/stop', { serverId });
+      await this.syncExternalServers(registry).catch(() => {});
+      return result;
+    }
+
+    async configureExternalServer(serverId, config = {}) {
+      return this.requestExternalControl('zerochat/external/servers/configure', {
+        serverId,
+        options: config.options || config
+      });
     }
   }
 

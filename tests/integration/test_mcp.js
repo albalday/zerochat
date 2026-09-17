@@ -724,4 +724,86 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   assert.equal((await provider.discoverTools())[0].name, 'zmcp_read_file');
 });
 
+test('MCP - syncExternalServers y connectProxy sincronizan y registran herramientas externas activas', async () => {
+  const originalFetch = global.fetch;
+  const manager = new MCP.McpManager();
+  const registry = new AgentCore.ToolRegistry();
+
+  try {
+    global.fetch = async (url, options) => {
+      const urlStr = String(url);
+      const body = options?.body ? JSON.parse(options.body) : {};
+
+      if (urlStr.includes('/sse')) {
+        if (body.method === 'initialize') {
+          return {
+            ok: true, status: 200,
+            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'mcp-proxy' }, capabilities: {} } })
+          };
+        }
+        if (body.method === 'tools/list') {
+          return {
+            ok: true, status: 200,
+            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { tools: [{ name: 'edit_file' }] } })
+          };
+        }
+        if (body.method === 'zerochat/external/status') {
+          return {
+            ok: true, status: 200,
+            json: async () => ({
+              jsonrpc: '2.0', id: body.id,
+              result: {
+                host: 'running',
+                servers: [{ id: 'sqlite', status: 'running', toolCount: 1 }]
+              }
+            })
+          };
+        }
+      }
+
+      if (urlStr.includes('/mcp/external')) {
+        if (body.method === 'initialize') {
+          return {
+            ok: true, status: 200,
+            json: async () => ({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'External MCP' }, capabilities: {} } })
+          };
+        }
+        if (body.method === 'tools/list') {
+          return {
+            ok: true, status: 200,
+            json: async () => ({
+              jsonrpc: '2.0', id: body.id,
+              result: {
+                tools: [{ name: 'mcp_sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
+              }
+            })
+          };
+        }
+      }
+
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    assert.equal(connResult.success, true);
+    assert.ok(connResult.externalSync);
+    assert.equal(connResult.externalSync.status.host, 'running');
+    assert.equal(connResult.externalSync.externalTools.length, 1);
+    assert.equal(connResult.externalSync.externalTools[0].name, 'mcp_sqlite_query');
+
+    // La herramienta externa debe estar en el registry
+    const tool = registry.getTool('mcp_sqlite_query');
+    assert.ok(tool, 'mcp_sqlite_query debe estar registrada en el registry');
+
+    // Reconectar connectProxy no debe destruir las herramientas externas
+    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    assert.equal(reconnectResult.success, true);
+    assert.ok(registry.getTool('mcp_sqlite_query'), 'mcp_sqlite_query debe seguir registrada tras reconectar');
+
+    await manager.disconnectProxy(registry);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 
