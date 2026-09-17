@@ -249,7 +249,7 @@ li {
   color: var(--text-main);
 }
 
-/* Bloque y botón de descarga del bundle */
+/* Bloque y botón de acceso a la aplicación */
 .download-action-box {
   display: flex;
   flex-direction: column;
@@ -262,6 +262,7 @@ li {
   border-radius: var(--radius);
 }
 
+.btn-open-app,
 .btn-download-bundle {
   display: inline-flex;
   align-items: center;
@@ -277,16 +278,19 @@ li {
   transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
+.btn-open-app:hover,
 .btn-download-bundle:hover {
   background: var(--primary-hover);
   transform: translateY(-1px);
   color: #ffffff;
 }
 
+.btn-open-app:active,
 .btn-download-bundle:active {
   transform: translateY(0);
 }
 
+.btn-open-app svg,
 .btn-download-bundle svg {
   flex-shrink: 0;
 }
@@ -298,9 +302,11 @@ li {
 }
 
 @media (prefers-color-scheme: dark) {
+  .btn-open-app,
   .btn-download-bundle {
     color: #0b0f19;
   }
+  .btn-open-app:hover,
   .btn-download-bundle:hover {
     color: #0b0f19;
   }

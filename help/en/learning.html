@@ -40,15 +40,15 @@
 
     <section class="card">
       <h2>2. Learning to guide coding agents</h2>
-      <p>As the infrastructure grows—browser, storage, providers, MCP server and bundle—learning also means keeping control of the whole system:</p>
+      <p>As the infrastructure grows—browser, storage, providers, MCP server, and local backend—learning also means keeping control of the whole system:</p>
       <ul>
         <li><strong>Plan before executing:</strong> define scope, stages, acceptance criteria and the tests that will confirm the outcome before requesting a change.</li>
         <li><strong>Turn decisions into rules:</strong> document architecture, contracts and the workflow to guide the agent, with centralized state in <code>ChatState</code> and separate responsibilities.</li>
         <li><strong>Discuss and simplify with the model:</strong> question proposals, reuse modules and remove unnecessary complexity before it becomes permanent infrastructure.</li>
-        <li><strong>Verify each step:</strong> use unit and browser tests, security audits and bundle validation to check real behavior.</li>
+        <li><strong>Verify each step:</strong> use unit, infrastructure, integration, and browser tests alongside security audits to check real behavior.</li>
       </ul>
       <h3>Automated tests as a checkpoint</h3>
-      <p>Tests are the checkpoint at every stage of work with coding agents. Before implementation, they define what must remain stable and what must change; during the work, they check the affected module; when a stage closes, the full suite confirms that the change has not broken other system boundaries. Interface changes are checked in the browser and distribution changes in the bundle. If a test fails, the agent must correct or simplify the proposal before moving forward.</p>
+      <p>Tests are the checkpoint at every stage of work with coding agents. Before implementation, they define what must remain stable and what must change; during the work, they check the affected module; when a stage closes, the full suite confirms that the change has not broken other system boundaries. Interface changes are checked in the browser and integration changes in local server infrastructure tests. If a test fails, the agent must correct or simplify the proposal before moving forward.</p>
       <p>The plan is to keep repeating this cycle: choose a capability, agree on a simple design, assign scoped changes, review tests and document what was learned.</p>
     </section>
 
