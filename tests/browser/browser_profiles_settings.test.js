@@ -93,6 +93,7 @@ test('Browser UI - guardar perfiles exige un cambio', async () => {
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
 
     const state = await page.evaluate(() => ({
@@ -117,6 +118,7 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.click('#profile-tab-settings');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
@@ -142,6 +144,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => true;
@@ -221,6 +224,7 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
 
@@ -358,6 +362,7 @@ test('Browser UI - carga una copia cifrada de perfiles tras confirmación', asyn
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     const encrypted = await page.evaluate(async () => window.ChatProfileBackup.encryptProfiles([{
@@ -392,6 +397,7 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
       await repository.saveEditable({ id: 'profile:locked-test', name: 'Locked test', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-locked', apiKeyLocked: true } });
     });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.selectOption('#profile-select-helper', 'profile:unlocked-test');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);

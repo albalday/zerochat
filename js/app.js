@@ -120,6 +120,12 @@
       btnImportChatFile: document.getElementById('btn-import-chat-file'),
       importJsonInput: document.getElementById('import-json-input'),
       btnDeleteAllChats: document.getElementById('btn-delete-all-chats'),
+      sidebarViewChat: document.getElementById('sidebar-view-chat'),
+      sidebarViewSettings: document.getElementById('sidebar-view-settings'),
+      btnSidebarBackToChats: document.getElementById('btn-sidebar-back-to-chats'),
+      btnCloseSidebarSettings: document.getElementById('btn-close-sidebar-settings'),
+      sidebarSettingsNav: document.getElementById('sidebar-settings-nav'),
+      sidebarSettingsItems: document.querySelectorAll('.sidebar-settings-item'),
 
       // Modal de exportación
       exportModal: document.getElementById('export-modal'),
@@ -221,6 +227,8 @@
       settingsDialog: document.getElementById('settings-dialog'),
       settingsActiveProfileName: document.getElementById('settings-active-profile-name'),
       settingsForm: document.getElementById('settings-form'),
+      btnSettingsBack: document.getElementById('btn-settings-back'),
+      settingsSectionTitle: document.getElementById('settings-section-title'),
       btnCloseSettings: document.getElementById('btn-close-settings'),
       btnCancelSettings: document.getElementById('btn-cancel-settings'),
       btnResetSettings: document.getElementById('btn-reset-settings'),
@@ -977,14 +985,24 @@
     }
   }
 
-  function openSettingsModal(initialTabId = 'tab-general') {
-    if (UISettings.openSettingsModal) {
+  function openSettingsSection(sectionId = 'tab-general') {
+    if (UISettings.openSettingsSection) {
+      UISettings.openSettingsSection(elements, getRuntimeConfig(), {
+        populateProfileSelector,
+        loadCachedModels,
+        updateReasoningUI
+      }, sectionId);
+    } else if (UISettings.openSettingsModal) {
       UISettings.openSettingsModal(elements, getRuntimeConfig(), {
         populateProfileSelector,
         loadCachedModels,
         updateReasoningUI
-      }, initialTabId);
+      }, sectionId);
     }
+  }
+
+  function openSettingsModal(initialTabId = 'tab-general') {
+    openSettingsSection(initialTabId);
   }
 
   function openProfilesModal() {
@@ -1008,6 +1026,21 @@
   function closeSettingsModal() {
     if (UISettings.closeSettingsModal) {
       UISettings.closeSettingsModal(elements);
+    }
+    if (UISidebar.setSidebarMode) {
+      UISidebar.setSidebarMode(elements, 'chat');
+    }
+  }
+
+  function backToSettingsNavigation() {
+    if (UISettings.closeSettingsModal) {
+      UISettings.closeSettingsModal(elements);
+    }
+    if (UISidebar.setSidebarMode) {
+      UISidebar.setSidebarMode(elements, 'settings');
+    }
+    if (UISidebar.openSidebar) {
+      UISidebar.openSidebar(elements);
     }
   }
 
@@ -1500,13 +1533,41 @@
 
 
     if (elements.btnOpenSettings) {
-      elements.btnOpenSettings.addEventListener('click', () => openSettingsModal('tab-general'));
+      elements.btnOpenSettings.addEventListener('click', () => {
+        if (UISidebar.setSidebarMode) {
+          UISidebar.setSidebarMode(elements, 'settings');
+        }
+      });
+    }
+    if (elements.btnSidebarBackToChats) {
+      elements.btnSidebarBackToChats.addEventListener('click', () => {
+        if (UISidebar.setSidebarMode) {
+          UISidebar.setSidebarMode(elements, 'chat');
+        }
+      });
+    }
+    if (elements.btnCloseSidebarSettings) {
+      elements.btnCloseSidebarSettings.addEventListener('click', closeSidebar);
+    }
+    if (elements.sidebarSettingsItems) {
+      elements.sidebarSettingsItems.forEach(item => {
+        item.addEventListener('click', () => {
+          const sectionId = item.dataset?.section || item.getAttribute('data-section');
+          if (UISidebar.setActiveSettingsSection) {
+            UISidebar.setActiveSettingsSection(elements, sectionId);
+          }
+          openSettingsSection(sectionId);
+          if (UISidebar.isMobile && UISidebar.isMobile()) {
+            closeSidebar();
+          }
+        });
+      });
     }
     if (elements.btnComposerTools) {
-      elements.btnComposerTools.addEventListener('click', () => openSettingsModal('tab-agent'));
+      elements.btnComposerTools.addEventListener('click', () => openSettingsSection('tab-agent'));
     }
     if (elements.btnComposerMcp) {
-      elements.btnComposerMcp.addEventListener('click', () => openSettingsModal('tab-mcp'));
+      elements.btnComposerMcp.addEventListener('click', () => openSettingsSection('tab-mcp'));
     }
 
     function updateComposerMcpState(mcpState) {
@@ -1735,6 +1796,9 @@
     });
 
     // Modal de Configuración & Perfiles
+    if (elements.btnSettingsBack) {
+      elements.btnSettingsBack.addEventListener('click', backToSettingsNavigation);
+    }
     elements.btnCloseSettings.addEventListener('click', closeSettingsModal);
     elements.btnCancelSettings.addEventListener('click', closeSettingsModal);
     elements.settingsForm.addEventListener('submit', handleSaveSettings);

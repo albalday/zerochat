@@ -84,7 +84,7 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
         Because local tools can perform sensitive operations on your system (such as modifying files or running shell commands), ZeroChat provides granular security controls for each tool:
       </p>
       <p>
-        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered permissions, and reset them when needed. MCP server connection setup remains separate in the <strong>MCP</strong> tab.
+        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered permissions, and reset them when needed. MCP server connection setup remains separate in the <strong>MCP</strong> section.
       </p>
       <ul>
         <li><strong>On/Off Switches:</strong> Enable or disable individual tools without restarting the MCP server process.</li>
@@ -106,7 +106,7 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
         The local server <code>zerochat.py</code> manages external MCP services configured in the services folder (such as <code>./zerochat/services</code>). No global external host daemon needs to be toggled: the service manager is always running within the local backend.
       </p>
       <p>
-        In the <strong>Settings → MCP</strong> tab, the <em>"Available MCP Servers"</em> section lists all configured services and allows users to start and stop them individually using dedicated action buttons (<em>Start</em> / <em>Stop</em>), as well as configure service-specific options. Once a service is running, its tools are dynamically discovered and registered for agent use.
+        In the <strong>Settings → MCP</strong> section, the <em>"Available MCP Servers"</em> section lists all configured services and allows users to start and stop them individually using dedicated action buttons (<em>Start</em> / <em>Stop</em>), as well as configure service-specific options. Once a service is running, its tools are dynamically discovered and registered for agent use.
       </p>
       <p>
         The local server provides ready-to-use definitions in individual folders under <code>services/</code> (or <code>./zerochat/services</code>):

@@ -322,7 +322,32 @@
     if (typeof timer?.unref === 'function') timer.unref();
   }
 
-  function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-general') {
+  const SECTION_TITLES = {
+    'tab-general': 'tab_connection',
+    'tab-model': 'tab_model',
+    'tab-agent': 'tab_agent',
+    'tab-mcp': 'tab_mcp',
+    'tab-permissions': 'tab_permissions',
+    'tab-appearance': 'tab_appearance',
+    'tab-inspector': 'tab_inspector',
+    'general': 'tab_connection',
+    'connection': 'tab_connection',
+    'model': 'tab_model',
+    'agent': 'tab_agent',
+    'mcp': 'tab_mcp',
+    'permissions': 'tab_permissions',
+    'appearance': 'tab_appearance',
+    'inspector': 'tab_inspector'
+  };
+
+  function normalizeSectionId(sectionId) {
+    if (!sectionId) return 'tab-general';
+    if (sectionId.startsWith('tab-')) return sectionId;
+    if (sectionId === 'connection') return 'tab-general';
+    return 'tab-' + sectionId;
+  }
+
+  function openSettingsSection(elements, appConfig, callbacks = {}, sectionId = 'tab-general') {
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
     if (elements.settingsActiveProfileName) {
@@ -346,22 +371,42 @@
       elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
     }
 
-    const settingsTabs = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tabs-nav .modal-tab-btn') : elements.modalTabs;
-    const settingsPanes = elements.settingsDialog?.querySelectorAll ? elements.settingsDialog.querySelectorAll('.modal-tab-pane') : elements.modalPanes;
-    if (settingsTabs && settingsTabs.length > 0) {
-      settingsTabs.forEach(b => b.classList.remove('active'));
-      if (settingsPanes) settingsPanes.forEach(p => p.classList.remove('active'));
-      const doc = elements.settingsDialog?.ownerDocument || document;
-      let targetTab = Array.from(settingsTabs).find(b => b.getAttribute('data-tab') === initialTabId);
-      if (!targetTab) targetTab = settingsTabs[0];
-      targetTab.classList.add('active');
-      const targetPane = doc.getElementById(targetTab.getAttribute('data-tab'));
-      if (targetPane) targetPane.classList.add('active');
+    const targetId = normalizeSectionId(sectionId);
+    const doc = elements.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+
+    const settingsPanes = elements.settingsDialog?.querySelectorAll
+      ? elements.settingsDialog.querySelectorAll('.modal-tab-pane')
+      : elements.modalPanes;
+
+    if (settingsPanes && settingsPanes.length > 0) {
+      settingsPanes.forEach(p => p.classList.remove('active'));
+      const targetPane = doc ? doc.getElementById(targetId) : null;
+      if (targetPane) {
+        targetPane.classList.add('active');
+      } else if (settingsPanes[0]) {
+        settingsPanes[0].classList.add('active');
+      }
+    }
+
+    const titleEl = elements.settingsSectionTitle || (doc ? doc.getElementById('settings-section-title') : null);
+    if (titleEl) {
+      const titleKey = SECTION_TITLES[targetId] || 'tab_connection';
+      titleEl.setAttribute('data-i18n', titleKey);
+      titleEl.textContent = t(titleKey);
+    }
+
+    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
+    if (Sidebar && typeof Sidebar.setActiveSettingsSection === 'function') {
+      Sidebar.setActiveSettingsSection(elements, targetId);
     }
 
     if (typeof elements.settingsDialog.showModal === 'function') {
       elements.settingsDialog.showModal();
     }
+  }
+
+  function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-general') {
+    return openSettingsSection(elements, appConfig, callbacks, initialTabId);
   }
 
   function closeSettingsModal(elements) {
@@ -426,45 +471,15 @@
   }
 
   function getSettingsDialogHTML() {
-    return `<div class="modal-header">
+    return `<div class="modal-header settings-section-header">
+      <button type="button" id="btn-settings-back" class="btn-sidebar-icon btn-settings-back" data-i18n-title="btn_back_to_settings" data-i18n-aria="btn_back_to_settings" title="Volver a Configuración" aria-label="Volver a Configuración">
+        <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-left"></use></svg>
+      </button>
       <div class="modal-title">
-        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-        <h3 data-i18n="modal_title">Configuración del Chat</h3>
+        <h3 id="settings-section-title" data-i18n="tab_connection">Conexión</h3>
       </div>
       <button id="btn-close-settings" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
         <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-      </button>
-    </div>
-
-    <!-- Navegación por pestañas -->
-    <div class="modal-tabs-nav">
-      <button type="button" class="modal-tab-btn active" data-tab="tab-general">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
-        <span data-i18n="tab_connection">Conexión</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-model">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-        <span data-i18n="tab_model">Modelo</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-agent">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg>
-        <span data-i18n="tab_agent">Agente</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-mcp">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
-        <span data-i18n="tab_mcp">MCP</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-permissions">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-        <span data-i18n="tab_permissions">Permisos</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-appearance">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-palette"></use></svg>
-        <span data-i18n="tab_appearance">Visualización</span>
-      </button>
-      <button type="button" class="modal-tab-btn" data-tab="tab-inspector">
-        <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
-        <span data-i18n="tab_inspector">Inspector</span>
       </button>
     </div>
 
@@ -476,7 +491,10 @@
             <span class="connection-active-label" data-i18n="connection_active_profile">Perfil activo</span>
             <strong id="settings-active-profile-name"></strong>
             <p data-i18n="connection_active_hint">Los perfiles se seleccionan y editan desde la caja de prompt.</p>
-            <button type="button" id="btn-manage-profiles" class="btn-primary" data-i18n="btn_manage_profiles">Gestionar perfiles de conexión</button>
+            <button type="button" id="btn-manage-profiles" class="btn-primary" data-i18n-title="btn_manage_profiles" title="Gestionar perfiles de conexión" aria-label="Gestionar perfiles">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-sliders"></use></svg>
+              <span data-i18n="btn_manage_profiles_short">Perfiles</span>
+            </button>
           </div>
         </div>
 
@@ -672,11 +690,11 @@
                 </p>
               </div>
             </div>
-            <button type="button" id="btn-run-inspector" class="btn-primary btn-inspector-run" style="margin-top: 0.85rem; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.6rem;">
+            <button type="button" id="btn-run-inspector" class="btn-primary btn-inspector-run" data-i18n-title="btn_run_inspector" title="Ejecutar Diagnóstico de Capacidades" style="margin-top: 0.85rem; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 40px; padding: 0.6rem;">
               <span class="inspector-btn-icon">
-                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg>
+                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg>
               </span>
-              <span class="inspector-btn-text" data-i18n="btn_run_inspector">Ejecutar Diagnóstico de Capacidades</span>
+              <span class="inspector-btn-text" data-i18n="btn_diagnose_short">Diagnóstico</span>
             </button>
           </div>
 
@@ -689,7 +707,10 @@
       <!-- Pie del Modal FIJO con botones siempre visibles -->
       <div class="modal-footer">
         <div class="footer-actions-left">
-          <button type="button" id="btn-reset-settings" class="btn-secondary" data-i18n="btn_reset">Restablecer valores</button>
+          <button type="button" id="btn-reset-settings" class="btn-secondary" data-i18n-title="btn_reset" title="Restablecer valores">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-refresh"></use></svg>
+            <span data-i18n="btn_reset_short">Restaurar</span>
+          </button>
           <button type="button" id="btn-clear-all-data" class="btn-danger-outline" data-i18n-title="btn_clear_all_data_title" title="Borrar todas las cookies, sesiones y datos locales">
             <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
             <span data-i18n="btn_clear_all_data">Borrar todo</span>
@@ -697,7 +718,10 @@
         </div>
         <div class="footer-actions-right">
           <button type="button" id="btn-cancel-settings" class="btn-secondary" data-i18n="btn_cancel">Cancelar</button>
-          <button type="submit" class="btn-primary" data-i18n="btn_save">Guardar Configuración</button>
+          <button type="submit" id="btn-save-settings" class="btn-primary" data-i18n-title="btn_save" title="Guardar configuración">
+            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
+            <span data-i18n="btn_save_short">Guardar</span>
+          </button>
         </div>
       </div>
     </form>`;
@@ -852,6 +876,7 @@
     syncApiKeyLock,
     gatherCurrentFormConfig,
     showProfileFeedback,
+    openSettingsSection,
     openSettingsModal,
     closeSettingsModal,
     handleResetSettings,

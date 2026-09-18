@@ -111,6 +111,57 @@
       closeSidebar(elements);
     }
   }
+  function getSidebarMode(elements) {
+    const settingsView = elements?.sidebarViewSettings || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-settings') : null);
+    if (settingsView && !settingsView.hidden && settingsView.style?.display !== 'none') {
+      return 'settings';
+    }
+    return 'chat';
+  }
+
+  function setSidebarMode(elements, mode = 'chat') {
+    if (!elements) return;
+    const chatView = elements.sidebarViewChat || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-chat') : null);
+    const settingsView = elements.sidebarViewSettings || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-settings') : null);
+
+    if (mode === 'settings') {
+      if (chatView) {
+        chatView.hidden = true;
+        if (chatView.style) chatView.style.display = 'none';
+      }
+      if (settingsView) {
+        settingsView.hidden = false;
+        if (settingsView.style) settingsView.style.display = 'flex';
+      }
+      if (elements.chatSidebar?.classList) {
+        elements.chatSidebar.classList.add('mode-settings');
+      }
+    } else {
+      if (settingsView) {
+        settingsView.hidden = true;
+        if (settingsView.style) settingsView.style.display = 'none';
+      }
+      if (chatView) {
+        chatView.hidden = false;
+        if (chatView.style) chatView.style.display = 'flex';
+      }
+      if (elements.chatSidebar?.classList) {
+        elements.chatSidebar.classList.remove('mode-settings');
+      }
+      setActiveSettingsSection(elements, '');
+    }
+  }
+
+  function setActiveSettingsSection(elements, sectionId = '') {
+    const items = elements?.sidebarSettingsItems || (typeof document !== 'undefined' ? document.querySelectorAll('#sidebar-settings-nav .sidebar-settings-item') : []);
+    items.forEach(item => {
+      const match = (item.dataset?.section || item.getAttribute?.('data-section')) === sectionId;
+      if (item.classList) {
+        if (match) item.classList.add('active');
+        else item.classList.remove('active');
+      }
+    });
+  }
 
 
   function filterSessions(sessions, filterText = '') {
@@ -314,6 +365,42 @@
       els.importJsonInput.addEventListener('change', onImportChange);
       activeCleanupFns.push(() => els.importJsonInput.removeEventListener('change', onImportChange));
     }
+    if (els.btnOpenSettings) {
+      const onOpenSettings = () => {
+        setSidebarMode(els, 'settings');
+        if (typeof callbacks.onOpenSettingsMode === 'function') callbacks.onOpenSettingsMode();
+      };
+      els.btnOpenSettings.addEventListener('click', onOpenSettings);
+      activeCleanupFns.push(() => els.btnOpenSettings.removeEventListener('click', onOpenSettings));
+    }
+
+    if (els.btnSidebarBackToChats) {
+      const onBackToChats = () => {
+        setSidebarMode(els, 'chat');
+        if (typeof callbacks.onBackToChats === 'function') callbacks.onBackToChats();
+      };
+      els.btnSidebarBackToChats.addEventListener('click', onBackToChats);
+      activeCleanupFns.push(() => els.btnSidebarBackToChats.removeEventListener('click', onBackToChats));
+    }
+
+    if (els.btnCloseSidebarSettings) {
+      const onCloseSettings = () => closeSidebar(els);
+      els.btnCloseSidebarSettings.addEventListener('click', onCloseSettings);
+      activeCleanupFns.push(() => els.btnCloseSidebarSettings.removeEventListener('click', onCloseSettings));
+    }
+
+    if (els.sidebarSettingsItems) {
+      els.sidebarSettingsItems.forEach(item => {
+        const onSelect = () => {
+          const sectionId = item.dataset?.section || item.getAttribute('data-section');
+          if (typeof callbacks.onSelectSettingsSection === 'function') {
+            callbacks.onSelectSettingsSection(sectionId);
+          }
+        };
+        item.addEventListener('click', onSelect);
+        activeCleanupFns.push(() => item.removeEventListener('click', onSelect));
+      });
+    }
   }
 
   function dispose() {
@@ -323,6 +410,10 @@
   }
 
   return {
+    isMobile,
+    getSidebarMode,
+    setSidebarMode,
+    setActiveSettingsSection,
     toggleSidebar,
     openSidebar,
     closeSidebar,

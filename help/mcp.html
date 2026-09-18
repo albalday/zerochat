@@ -84,7 +84,7 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
         Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un panel de control granular para cada herramienta:
       </p>
       <p>
-        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar los permisos recordados y restablecerlos cuando sea necesario. La configuración de conexión del servidor MCP se mantiene separada en la pestaña <strong>MCP</strong>.
+        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar los permisos recordados y restablecerlos cuando sea necesario. La configuración de conexión del servidor MCP se mantiene separada en la sección <strong>MCP</strong>.
       </p>
       <ul>
         <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta por el servidor MCP sin necesidad de reiniciar el servicio.</li>
@@ -106,7 +106,7 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py | 
         El servidor local <code>zerochat.py</code> gestiona servicios MCP externos configurados en el directorio de servicios (como <code>./zerochat/services</code>). No es necesario arrancar ningún daemon externo global: el gestor de servicios está siempre activo en el backend local.
       </p>
       <p>
-        En la pestaña <strong>Ajustes → MCP</strong>, la sección <em>"Servidores MCP Disponibles"</em> lista los servicios disponibles en el servidor y permite a los usuarios arrancarlos o detenerlos de manera individual con sus botones de acción (<em>Iniciar</em> / <em>Detener</em>), así como activar opciones específicas de cada servicio. Una vez iniciado un servicio, sus herramientas se registran y se hacen disponibles de inmediato para el agente.
+        En la sección <strong>Ajustes → MCP</strong>, el apartado <em>"Servidores MCP Disponibles"</em> lista los servicios disponibles en el servidor y permite a los usuarios arrancarlos o detenerlos de manera individual con sus botones de acción (<em>Iniciar</em> / <em>Detener</em>), así como activar opciones específicas de cada servicio. Una vez iniciado un servicio, sus herramientas se registran y se hacen disponibles de inmediato para el agente.
       </p>
       <p>
         El servidor local incluye definiciones listas para usar organizadas en subdirectorios bajo <code>services/</code> (o <code>./zerochat/services</code>):

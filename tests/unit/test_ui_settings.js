@@ -2,12 +2,40 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UISettings = require('../../js/ui-settings.js');
 
-test('UISettings - sitúa los permisos de ejecución MCP en su propia pestaña', () => {
+test('UISettings - sitúa los permisos de ejecución MCP en su propio panel sin barra de pestañas', () => {
   const settingsHtml = UISettings.getSettingsDialogHTML();
-  assert.match(settingsHtml, /data-tab="tab-permissions"/);
+  assert.equal(settingsHtml.includes('modal-tabs-nav'), false, 'No debe existir la barra de pestañas modal-tabs-nav');
   assert.match(settingsHtml, /id="tab-permissions" class="modal-tab-pane"/);
   assert.match(settingsHtml, /id="mcp-policy-ask"/);
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
+  assert.match(settingsHtml, /id="btn-settings-back"/);
+  assert.match(settingsHtml, /id="settings-section-title"/);
+});
+
+test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
+  const panes = [
+    { id: 'tab-general', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
+    { id: 'tab-mcp', classList: { add: () => { panes[1].active = true; }, remove: () => { panes[1].active = false; } }, active: false }
+  ];
+  const titleEl = { textContent: '', setAttribute: (k, v) => { titleEl[k] = v; } };
+  const fakeDoc = {
+    getElementById: (id) => panes.find(p => p.id === id) || (id === 'settings-section-title' ? titleEl : null)
+  };
+  const fakeDialog = {
+    ownerDocument: fakeDoc,
+    showModal: () => { fakeDialog.isOpen = true; },
+    querySelectorAll: (sel) => sel === '.modal-tab-pane' ? panes : []
+  };
+  const elements = {
+    settingsDialog: fakeDialog,
+    settingsSectionTitle: titleEl
+  };
+
+  UISettings.openSettingsSection(elements, {}, {}, 'mcp');
+  assert.equal(panes[0].active, false);
+  assert.equal(panes[1].active, true);
+  assert.equal(titleEl['data-i18n'], 'tab_mcp');
+  assert.equal(fakeDialog.isOpen, true);
 });
 
 test('UISettings - applyTheme actualiza data-theme y botones activos', () => {

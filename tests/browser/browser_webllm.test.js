@@ -34,6 +34,7 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.click('#profile-tab-settings');
 
@@ -71,6 +72,7 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.click('#profile-tab-settings');
 
@@ -119,6 +121,7 @@ test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y m
     });
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.click('#btn-manage-profiles');
     await page.click('#profile-tab-settings');
 

@@ -58,6 +58,7 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
 
     // 1. Abrir diálogo de Configuración y validar propiedades de modal moderno
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
 
     const dialogMetrics = await page.evaluate(() => {
@@ -99,17 +100,22 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(contextCachePlacement.legacyToggle, false, 'La caché no debe exponerse como un interruptor de Agente');
     assert.equal(contextCachePlacement.agentCacheText, false, 'La pestaña Agente no debe presentar la caché como herramienta');
 
-    // 2. Navegar entre pestañas del modal (Ej. pestaña Proveedores / Herramientas)
-    const tabButtons = await page.$$('.modal-tab-btn');
-    assert.ok(tabButtons.length >= 2, 'Debe haber múltiples pestañas en el modal de configuración');
+    // 2. Navegar entre secciones del sidebar de configuración
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#sidebar-settings-nav');
+    const sectionButtons = await page.$$('#sidebar-settings-nav .sidebar-settings-item');
+    assert.ok(sectionButtons.length >= 2, 'Debe haber múltiples opciones en la navegación de configuración');
 
-    // Hacer click en la segunda pestaña
-    await tabButtons[1].click();
-    const isSecondTabActive = await tabButtons[1].evaluate(el => el.classList.contains('active'));
-    assert.ok(isSecondTabActive, 'Hacer click en la pestaña debe marcarla como .active');
+    // Hacer click en la segunda sección (tab-model)
+    await sectionButtons[1].click();
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    const isSecondSectionActive = await sectionButtons[1].evaluate(el => el.classList.contains('active'));
+    assert.ok(isSecondSectionActive, 'Hacer click en la sección debe marcarla como .active');
 
-    // 2b. El mantenedor de perfiles es independiente de la configuración general.
-    await tabButtons[0].click();
+    // 2b. Volver a la sección Conexión y comprobar el perfil activo
+    await page.click('#btn-settings-back');
+    await sectionButtons[0].click();
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const connectionTab = await page.evaluate(() => ({
       hasActiveProfile: !!document.getElementById('settings-active-profile-name'),
       hasConnectionInputs: !!document.querySelector('#settings-dialog #setting-api-url'),
@@ -193,19 +199,24 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(renamedActiveResult.runtimeName, 'Perfil Temporal renombrado', 'El perfil activo debe reflejar el nuevo nombre');
     assert.equal(renamedActiveResult.runtimeUrl, 'http://active-profile-test:1234/v1', 'Los cambios del perfil activo deben recargarse');
 
-    // 2c. Verificar las pestañas MCP y Permisos, además del modal de configuración reactivo y comando
-    const tabOrder = await page.$$eval('#settings-dialog .modal-tabs-nav .modal-tab-btn', els => els.map(e => e.getAttribute('data-tab')));
-    const agentIndex = tabOrder.indexOf('tab-agent');
-    const mcpIndex = tabOrder.indexOf('tab-mcp');
-    const permissionsIndex = tabOrder.indexOf('tab-permissions');
-    assert.ok(agentIndex >= 0 && mcpIndex === agentIndex + 1, 'La pestaña MCP debe estar posicionada inmediatamente al lado de la de Agente');
-    assert.ok(permissionsIndex === mcpIndex + 1, 'La pestaña Permisos debe estar inmediatamente después de MCP');
+    // 2c. Verificar las secciones MCP y Permisos en el sidebar de configuración
+    const sectionOrder = await page.$$eval('#sidebar-settings-nav .sidebar-settings-item', els => els.map(e => e.getAttribute('data-section')));
+    const agentIndex = sectionOrder.indexOf('tab-agent');
+    const mcpIndex = sectionOrder.indexOf('tab-mcp');
+    const permissionsIndex = sectionOrder.indexOf('tab-permissions');
+    assert.ok(agentIndex >= 0 && mcpIndex === agentIndex + 1, 'La sección MCP debe estar posicionada inmediatamente al lado de la de Agente');
+    assert.ok(permissionsIndex === mcpIndex + 1, 'La sección Permisos debe estar inmediatamente después de MCP');
 
-    const mcpTabBtn = await page.$('button[data-tab="tab-mcp"]');
-    assert.ok(mcpTabBtn, 'Debe existir la pestaña MCP en la navegación de pestañas');
-    await mcpTabBtn.click();
-    const isMcpActive = await mcpTabBtn.evaluate(el => el.classList.contains('active'));
-    assert.ok(isMcpActive, 'La pestaña MCP debe quedar activa al hacer click');
+    // Volver al sidebar de configuración antes de seleccionar otra sección
+    await page.click('#btn-settings-back');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
+    const mcpSectionBtn = await page.$('#sidebar-settings-nav button[data-section="tab-mcp"]');
+    assert.ok(mcpSectionBtn, 'Debe existir la sección MCP en la navegación de configuración');
+    await mcpSectionBtn.click();
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    const isMcpActive = await mcpSectionBtn.evaluate(el => el.classList.contains('active'));
+    assert.ok(isMcpActive, 'La sección MCP debe quedar activa al hacer click');
 
     const mcpUiState = await page.evaluate(() => {
       const pane = document.getElementById('tab-mcp');
@@ -229,9 +240,13 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
 
-    const permissionsTabBtn = await page.$('button[data-tab="tab-permissions"]');
-    assert.ok(permissionsTabBtn, 'Debe existir la pestaña Permisos en la navegación de pestañas');
-    await permissionsTabBtn.click();
+    await page.click('#btn-settings-back');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
+    const permissionsSectionBtn = await page.$('#sidebar-settings-nav button[data-section="tab-permissions"]');
+    assert.ok(permissionsSectionBtn, 'Debe existir la sección Permisos en la navegación de configuración');
+    await permissionsSectionBtn.click();
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const permissionsState = await page.evaluate(() => ({
       paneActive: document.getElementById('tab-permissions')?.classList.contains('active'),
       hasAskPolicy: !!document.getElementById('mcp-policy-ask'),
@@ -241,8 +256,11 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.ok(permissionsState.hasAskPolicy, 'La política de permisos debe estar disponible en la nueva pestaña');
     assert.ok(permissionsState.hasSavedAuthorizations, 'Las autorizaciones recordadas deben estar disponibles en la nueva pestaña');
 
-    // Volver a la pestaña MCP
-    await mcpTabBtn.click();
+    // Volver a la sección MCP
+    await page.click('#btn-settings-back');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    await mcpSectionBtn.click();
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
 
     // Abrir modal de configuración e instrucciones desde el botón Configurar
     await page.click('#btn-mcp-configure');

@@ -255,3 +255,96 @@ test('UISidebar - mount attaches events and dispose cleans them up', () => {
   assert.equal(listeners['deleteAll:click'], undefined);
 });
 
+test('UISidebar - getSidebarMode y setSidebarMode alternan entre chat y settings', () => {
+  const fakeChatView = { hidden: false, style: { display: 'flex' } };
+  const fakeSettingsView = { hidden: true, style: { display: 'none' } };
+  const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
+  const elements = {
+    chatSidebar: fakeSidebar,
+    sidebarViewChat: fakeChatView,
+    sidebarViewSettings: fakeSettingsView
+  };
+
+  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+
+  UISidebar.setSidebarMode(elements, 'settings');
+  assert.equal(fakeChatView.hidden, true);
+  assert.equal(fakeChatView.style.display, 'none');
+  assert.equal(fakeSettingsView.hidden, false);
+  assert.equal(fakeSettingsView.style.display, 'flex');
+  assert.equal(UISidebar.getSidebarMode(elements), 'settings');
+
+  UISidebar.setSidebarMode(elements, 'chat');
+  assert.equal(fakeChatView.hidden, false);
+  assert.equal(fakeChatView.style.display, 'flex');
+  assert.equal(fakeSettingsView.hidden, true);
+  assert.equal(fakeSettingsView.style.display, 'none');
+  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+});
+
+test('UISidebar - mount gestiona navegación de configuración y selección de sección', () => {
+  const listeners = {};
+  function add(name, evt, fn) { listeners[name + ':' + evt] = fn; }
+  function remove(name, evt) { delete listeners[name + ':' + evt]; }
+
+  const fakeChatView = { hidden: false, style: { display: 'flex' } };
+  const fakeSettingsView = { hidden: true, style: { display: 'none' } };
+  const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
+
+  const fakeSettingItemMcp = {
+    dataset: { section: 'tab-mcp' },
+    getAttribute: (name) => name === 'data-section' ? 'tab-mcp' : null,
+    addEventListener: (evt, fn) => add('itemMcp', evt, fn),
+    removeEventListener: (evt, fn) => remove('itemMcp', evt, fn)
+  };
+
+  const elements = {
+    chatSidebar: fakeSidebar,
+    sidebarViewChat: fakeChatView,
+    sidebarViewSettings: fakeSettingsView,
+    btnOpenSettings: {
+      addEventListener: (evt, fn) => add('openSettings', evt, fn),
+      removeEventListener: (evt, fn) => remove('openSettings', evt, fn)
+    },
+    btnSidebarBackToChats: {
+      addEventListener: (evt, fn) => add('backToChats', evt, fn),
+      removeEventListener: (evt, fn) => remove('backToChats', evt, fn)
+    },
+    btnCloseSidebarSettings: {
+      addEventListener: (evt, fn) => add('closeSettings', evt, fn),
+      removeEventListener: (evt, fn) => remove('closeSettings', evt, fn)
+    },
+    sidebarSettingsItems: [fakeSettingItemMcp]
+  };
+
+  let selectedSection = null;
+  let backToChatsCalled = false;
+
+  UISidebar.mount(elements, {
+    onSelectSettingsSection: (sec) => { selectedSection = sec; },
+    onBackToChats: () => { backToChatsCalled = true; }
+  });
+
+  // Pulsar abrir settings en el sidebar cambia a modo settings
+  listeners['openSettings:click']();
+  assert.equal(fakeSettingsView.hidden, false);
+  assert.equal(UISidebar.getSidebarMode(elements), 'settings');
+
+  // Pulsar una sección ejecuta el callback correspondiente
+  listeners['itemMcp:click']();
+  assert.equal(selectedSection, 'tab-mcp');
+
+  // Pulsar volver restaura modo chat
+  listeners['backToChats:click']();
+  assert.equal(fakeSettingsView.hidden, true);
+  assert.equal(fakeChatView.hidden, false);
+  assert.equal(backToChatsCalled, true);
+  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+
+  UISidebar.dispose();
+  assert.equal(listeners['openSettings:click'], undefined);
+  assert.equal(listeners['backToChats:click'], undefined);
+  assert.equal(listeners['itemMcp:click'], undefined);
+});
+
+

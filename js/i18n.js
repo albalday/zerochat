@@ -441,6 +441,13 @@
       field_language_hint: 'Selecciona el idioma visual de la aplicación.',
       field_profile: 'Perfil de Conexión / Servidor',
       tab_connection: 'Conexión',
+      sidebar_settings_title: 'Configuración',
+      btn_back_to_chats: 'Volver al historial',
+      btn_back_to_settings: 'Volver a Configuración',
+      btn_manage_profiles_short: 'Perfiles',
+      btn_save_short: 'Guardar',
+      btn_reset_short: 'Restaurar',
+      btn_diagnose_short: 'Diagnóstico',
       connection_active_profile: 'Perfil activo',
       connection_active_hint: 'Los perfiles se seleccionan y editan desde la caja de prompt.',
       btn_manage_profiles: 'Gestionar perfiles de conexión',
@@ -1068,6 +1075,13 @@
       field_language_hint: 'Select the visual language of the application.',
       field_profile: 'Connection Profile / Server',
       tab_connection: 'Connection',
+      sidebar_settings_title: 'Settings',
+      btn_back_to_chats: 'Back to chat history',
+      btn_back_to_settings: 'Back to Settings',
+      btn_manage_profiles_short: 'Profiles',
+      btn_save_short: 'Save',
+      btn_reset_short: 'Restore',
+      btn_diagnose_short: 'Diagnose',
       connection_active_profile: 'Active profile',
       connection_active_hint: 'Profiles are selected and edited from the prompt box.',
       btn_manage_profiles: 'Manage connection profiles',
@@ -1338,7 +1352,7 @@
     const target = (lang === 'en') ? 'en' : 'es';
     currentLang = target;
 
-    if (persist && Storage.setStorageItem) {
+    if (persist && typeof Storage !== 'undefined' && Storage?.setStorageItem) {
       Storage.setStorageItem('language', target);
     }
 

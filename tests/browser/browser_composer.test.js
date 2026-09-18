@@ -193,36 +193,30 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
     assert.ok(structure.hasTokensBadge, 'El contador de tokens debe estar a la derecha');
     assert.ok(structure.hasBtnSend, 'El botón enviar debe estar a la derecha');
 
-    // 2. Probar que pulsar #btn-composer-tools abre #settings-dialog en la pestaña tab-agent
+    // 2. Probar que pulsar #btn-composer-tools abre #settings-dialog en la sección tab-agent
     await page.click('#btn-composer-tools');
     await page.waitForSelector('#settings-dialog[open]');
     const activeTabAfterTools = await page.evaluate(() => {
-      const activeBtn = document.querySelector('.modal-tabs-nav .modal-tab-btn.active');
       const activePane = document.querySelector('.modal-tab-pane.active');
       return {
-        tabKey: activeBtn?.getAttribute('data-tab'),
         paneId: activePane?.id
       };
     });
-    assert.equal(activeTabAfterTools.tabKey, 'tab-agent', 'Al hacer clic en Tools debe abrirse la pestaña tab-agent');
     assert.equal(activeTabAfterTools.paneId, 'tab-agent', 'El panel visible debe ser tab-agent');
 
     // Cerrar modal de settings
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.querySelector('#settings-dialog')?.open);
 
-    // 3. Probar que pulsar #btn-composer-mcp abre #settings-dialog en la pestaña tab-mcp
+    // 3. Probar que pulsar #btn-composer-mcp abre #settings-dialog en la sección tab-mcp
     await page.click('#btn-composer-mcp');
     await page.waitForSelector('#settings-dialog[open]');
     const activeTabAfterMcp = await page.evaluate(() => {
-      const activeBtn = document.querySelector('.modal-tabs-nav .modal-tab-btn.active');
       const activePane = document.querySelector('.modal-tab-pane.active');
       return {
-        tabKey: activeBtn?.getAttribute('data-tab'),
         paneId: activePane?.id
       };
     });
-    assert.equal(activeTabAfterMcp.tabKey, 'tab-mcp', 'Al hacer clic en MCP debe abrirse la pestaña tab-mcp');
     assert.equal(activeTabAfterMcp.paneId, 'tab-mcp', 'El panel visible debe ser tab-mcp');
 
     // Cerrar modal de settings

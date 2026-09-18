@@ -152,11 +152,12 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     await page.click('#btn-close-profiles');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
 
-    // 5. Botón de Configuración en la cabecera del sidebar abre el diálogo
+    // 5. Botón de Configuración en la cabecera del sidebar y selección de sección
     await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-general"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const isSettingsOpen = await page.$eval('#settings-dialog', el => el.open);
-    assert.ok(isSettingsOpen, 'Pulsar el botón de ajustes en el sidebar debe abrir #settings-dialog');
+    assert.ok(isSettingsOpen, 'Pulsar el botón de ajustes en el sidebar y elegir sección debe abrir #settings-dialog');
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
 
@@ -515,16 +516,25 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
-    // 1. Abrir modal de Ajustes
+    // 1. Abrir modal de Ajustes desde el sidebar
     await page.click('#btn-open-settings');
+    await page.waitForSelector('#sidebar-settings-nav');
+
+    const sidebarIcons = await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('#sidebar-settings-nav .sidebar-settings-item'));
+      const itemsHaveSvg = items.every(t => !!t.querySelector('svg'));
+      const itemsText = items.map(t => t.textContent).join(' ');
+      const hasItemEmojis = /🌐|⚙️|🤖|🎨|🔍/.test(itemsText);
+      return { itemsHaveSvg, hasItemEmojis };
+    });
+
+    assert.ok(sidebarIcons.itemsHaveSvg, 'Todas las opciones de configuración del sidebar deben contener un icono SVG');
+    assert.equal(sidebarIcons.hasItemEmojis, false, 'Las opciones de configuración no deben contener emojis residuales');
+
+    await page.click('[data-section="tab-general"]');
     await page.waitForSelector('#settings-dialog[open]');
 
     const settingsIcons = await page.evaluate(() => {
-      const tabs = Array.from(document.querySelectorAll('#settings-dialog .modal-tab-btn'));
-      const tabsHaveSvg = tabs.every(t => !!t.querySelector('svg'));
-      const tabsText = tabs.map(t => t.textContent).join(' ');
-      const hasTabEmojis = /🌐|⚙️|🤖|🎨|🔍/.test(tabsText);
-
       const toggleKeySvg = !!document.querySelector('#btn-toggle-key svg');
       const clearAllBtn = document.getElementById('btn-clear-all-data');
       const clearAllSvg = !!clearAllBtn?.querySelector('svg');
@@ -534,8 +544,6 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
       const themeHaveSvg = themeButtons.every(b => !!b.querySelector('svg'));
 
       return {
-        tabsHaveSvg,
-        hasTabEmojis,
         toggleKeySvg,
         clearAllSvg,
         clearAllHasEmoji,
@@ -544,8 +552,6 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
       };
     });
 
-    assert.ok(settingsIcons.tabsHaveSvg, 'Todas las pestañas de configuración deben contener un icono SVG');
-    assert.equal(settingsIcons.hasTabEmojis, false, 'Las pestañas no deben contener emojis residuales');
     assert.ok(settingsIcons.toggleKeySvg, 'El botón de visibilidad de clave debe contener icono SVG');
     assert.ok(settingsIcons.clearAllSvg, 'El botón de borrar todo debe contener icono SVG');
     assert.equal(settingsIcons.clearAllHasEmoji, false, 'El botón de borrar todo no debe contener emoji');
