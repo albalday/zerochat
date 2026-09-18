@@ -30,7 +30,7 @@
         ZeroChat is built on a fundamental premise: <strong>maximum simplicity, speed, and control without heavy dependencies</strong>.
       </p>
       <p>
-        The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files transparently with no build or bundle step.
+        The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files transparently with no build or bundle step, accelerated by a PWA Service Worker with stale-while-revalidate caching that ensures instant startup (0 ms network roundtrips) on mobile devices.
       </p>
       <p>
         All local system interaction (command execution, file reading, and editing) is channeled through a single Python executable: <code>zerochat.py</code>, which manages its own virtual environment in <code>./zerochat</code> and authenticates sessions using secure daily tokens.
@@ -40,8 +40,129 @@
       </div>
     </div>
 
+    <div class="card" id="modos-arranque">
+      <h2>2. Launch Modes: zerochat.html (Web / Android) vs. zerochat.py (Local Backend)</h2>
+      <p>
+        ZeroChat is designed to deliver two complementary experiences depending on the workflow context: an <strong>autonomous universal web application</strong> (ideal for mobile devices and zero-install daily usage) and a <strong>local workstation host</strong> (for developer workflows requiring direct operating system control).
+      </p>
+
+      <h3>A. The Standalone Web Version (<code>zerochat.html</code>)</h3>
+      <p>
+        Accessible directly online (via GitHub Pages) or by opening the HTML file locally in any browser. It is a complete, self-contained application that <strong>requires neither Python, terminal commands, auxiliary servers, nor installation</strong>.
+      </p>
+      <ul>
+        <li>
+          <strong>Mobile &amp; Android Orientation:</strong>
+          Engineered as an installable Progressive Web App (PWA) on Android and tablet devices through Chrome or modern browsers. Its Service Worker with stale-while-revalidate caching provides instantaneous startup (0 ms network roundtrip), a touch-friendly drawer sidebar with backdrop, an auto-expanding composer for virtual keyboards, and ultra-low battery/memory consumption. No Termux, root access, or terminal tools are needed.
+        </li>
+        <li>
+          <strong>Universal Multi-Model Connectivity:</strong>
+          Connects directly from the browser to commercial cloud AI providers (OpenAI, Anthropic Claude, Google Gemini, OpenRouter) as well as CORS-enabled local network endpoints (Ollama, LM Studio).
+        </li>
+        <li>
+          <strong>Private In-Browser Local Inference (WebLLM / WebGPU):</strong>
+          Downloads and executes open-source LLMs directly on your device GPU with WebGPU, ensuring absolute data privacy without sending messages over the wire.
+        </li>
+        <li>
+          <strong>Integrated Document RAG Knowledge Engine:</strong>
+          Vector and lexical indexing of PDFs, Markdown, and text files using Orama running entirely inside Web Workers and persisted in IndexedDB.
+        </li>
+        <li>
+          <strong>Browser-Sandboxed Agent Mode:</strong>
+          Autonomous multi-turn loop capable of executing JavaScript code in a secure browser sandbox, rendering interactive SVG charts, performing web searches, and fetching public web pages.
+        </li>
+        <li>
+          <strong>Total User Data Sovereignty:</strong>
+          Conversations, branches, attachments, and configurations reside exclusively in your browser's private IndexedDB storage.
+        </li>
+      </ul>
+
+      <h3>B. What the Local Backend Adds (<code>zerochat.py</code>)</h3>
+      <p>
+        Tailored for desktop workstations (Linux, macOS, Windows) where an agent needs to act as a coding assistant with access to the host operating system:
+      </p>
+      <ul>
+        <li>
+          <strong>Host File System Control:</strong>
+          Inspect directory structures, read workspace source code, and apply atomic or chunk-level file modifications on the local disk (<code>read_file</code>, <code>edit_file</code>, <code>list_directory</code>).
+        </li>
+        <li>
+          <strong>Terminal Command Execution:</strong>
+          Run build tools, test runners, scripts, and shell commands in the host terminal environment (<code>execute_command</code>).
+        </li>
+        <li>
+          <strong>External MCP Server Ecosystem:</strong>
+          Integrate Model Context Protocol servers to expand agent capabilities (headless browser automation with Playwright, LSP static analysis servers, SQLite relational storage).
+        </li>
+        <li>
+          <strong>Automated Environment Management:</strong>
+          Manages its own virtual environment in <code>./zerochat</code>, binds to port 6388 with strict ephemeral daily token authorization, and streams real-time terminal logs with timestamping and error diagnostics.
+        </li>
+      </ul>
+
+      <h3>Feature Comparison Matrix</h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature / Capability</th>
+              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA / Android)</th>
+              <th style="text-align: center;"><code>zerochat.py</code> (Local Backend)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Commercial AI API connections (OpenAI, Claude, Gemini, etc.)</td>
+              <td style="text-align: center;">✅ Yes</td>
+              <td style="text-align: center;">✅ Yes</td>
+            </tr>
+            <tr>
+              <td>100% In-browser local inference via WebLLM &amp; WebGPU</td>
+              <td style="text-align: center;">✅ Yes</td>
+              <td style="text-align: center;">✅ Yes</td>
+            </tr>
+            <tr>
+              <td>In-browser Document RAG Knowledge Base (Orama)</td>
+              <td style="text-align: center;">✅ Yes</td>
+              <td style="text-align: center;">✅ Yes</td>
+            </tr>
+            <tr>
+              <td>Agent Mode with JS sandbox, web search &amp; SVG charts</td>
+              <td style="text-align: center;">✅ Yes</td>
+              <td style="text-align: center;">✅ Yes</td>
+            </tr>
+            <tr>
+              <td>Private IndexedDB persistence and JSON/Markdown export</td>
+              <td style="text-align: center;">✅ Yes</td>
+              <td style="text-align: center;">✅ Yes</td>
+            </tr>
+            <tr>
+              <td>Direct usage on Mobile (Android / iOS) without Python/terminal</td>
+              <td style="text-align: center;">✅ Native (PWA)</td>
+              <td style="text-align: center;">⚠️ Requires Python / Desktop PC</td>
+            </tr>
+            <tr>
+              <td>Host file system navigation, reading and atomic editing</td>
+              <td style="text-align: center;">❌ Not available</td>
+              <td style="text-align: center;">✅ Yes (host tools)</td>
+            </tr>
+            <tr>
+              <td>Host terminal shell command execution</td>
+              <td style="text-align: center;">❌ Not available</td>
+              <td style="text-align: center;">✅ Yes (bash/shell)</td>
+            </tr>
+            <tr>
+              <td>External MCP servers (Playwright, memory, LSP)</td>
+              <td style="text-align: center;">❌ Not available</td>
+              <td style="text-align: center;">✅ Yes (integrated MCP manager)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card">
-      <h2>2. Static Web Delivery & Local Backend Connectivity</h2>
+      <h2>3. Static Web Delivery & Local Backend Connectivity</h2>
       <p>ZeroChat is distributed as a universal static web application:</p>
       <ul>
         <li>
@@ -52,12 +173,20 @@
         </li>
       </ul>
       <div class="alert alert-info">
-        <strong>Local development &amp; testing:</strong> To test local changes without relying on the deployed version, <code>zerochat.py</code> accepts a custom target URL via the <code>--ui-url</code> argument (for example, <code>--ui-url http://localhost:8000/zerochat.html</code>).
+        <strong>Automatic local development &amp; testing:</strong> When running <code>python3 zerochat.py</code> directly inside the cloned repository, it automatically detects the development environment and serves the local interface at <code>http://127.0.0.1:6388/zerochat.html</code> without requiring auxiliary servers or launch scripts.
+        <br><br>
+        <strong>How to run tests:</strong>
+        <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+          <li><code>python3 zerochat.py</code>: Starts the backend and automatically opens the local development web UI in the default browser.</li>
+          <li><code>python3 zerochat.py --test</code>: Runs quick internal self-tests for core host tools (file reading, directory listing, command execution).</li>
+          <li><code>npm test</code>: Runs the full automated test suite (unit, integration, architecture, infrastructure, and Playwright browser tests).</li>
+          <li><code>npm run test:browser</code>: Runs only browser and visual UI tests.</li>
+        </ul>
       </div>
     </div>
 
     <div class="card">
-      <h2>3. Local Storage & Data Privacy</h2>
+      <h2>4. Local Storage & Data Privacy</h2>
       <p>
         ZeroChat's storage architecture strictly respects <strong>user data sovereignty</strong>. The application never transmits conversation history, credentials, or documents to any telemetry backend.
       </p>
@@ -79,7 +208,7 @@
     </div>
 
     <div class="card">
-      <h2>4. Canonical State (ChatState)</h2>
+      <h2>5. Canonical State (ChatState)</h2>
       <p>
         To prevent memory leaks or state desynchronization across components, ZeroChat uses a single canonical state store: <code>ChatState</code>.
       </p>
@@ -89,7 +218,7 @@
     </div>
 
     <div class="card">
-      <h2>Shared conversation rules</h2>
+      <h2>6. Shared conversation rules</h2>
       <p>New and restored responses share visual block and copy components. Streaming retains its cursor during generation. Connection errors use a common view that escapes the received message and URL before inserting them into HTML.</p>
       <p>Active configuration comes from <code>ChatConfig</code>. Profile and catalog interfaces query the WebLLM provider for completed models instead of independently parsing stored metadata.</p>
       <p>State, engine and views reuse <code>message-turns.js</code> rules to identify turns and recognize initial date messages. Turn removal shares a sanitization algorithm; <code>ChatState</code> retains the generation guard and atomic history update.</p>

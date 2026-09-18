@@ -41,6 +41,22 @@
         </a>
         <span class="download-hint">Ready to use directly in your browser or connect with your local backend in <code>zerochat.py</code>.</span>
       </div>
+
+      <div class="alert alert-info" style="margin-top: 1rem;">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Two Ways to Launch: Standalone Web vs. Local Backend</h3>
+        <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
+          <li>
+            <strong><code>zerochat.html</code> (Direct Web / PWA):</strong> Opens directly in any desktop or mobile browser (specifically optimized for Android as an installable PWA). Delivers commercial or local inference (WebLLM/WebGPU), in-browser RAG knowledge bases (Orama), Agent mode with a secure JS sandbox, and private IndexedDB storage without requiring Python, a terminal, or installation.
+          </li>
+          <li>
+            <strong><code>zerochat.py</code> (Local with Python backend):</strong> Background local server (port 6388 with a secure ephemeral token). Extends the web app with host operating system control: reading and editing local project files, executing terminal commands, and connecting external MCP servers (Playwright, LSP, memory).
+          </li>
+        </ul>
+        <div style="font-size: 0.9rem;">
+          <a href="architecture.html#modos-arranque">View full technical comparison & capabilities in Architecture →</a>
+        </div>
+      </div>
+
       <div class="alert alert-info">
         <strong>Project and learning:</strong> The self-learning purpose and the evolution of both the technology and the work with coding agents. <a href="learning.html">View learning plan →</a>
       </div>
