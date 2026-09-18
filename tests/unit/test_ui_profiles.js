@@ -2,58 +2,49 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UIProfiles = require('../../js/ui-profiles.js');
 
-test('UIProfiles - isProfileFormDirty detects differences with baseline profile', () => {
-  const baseline = {
-    activeProfile: { id: 'prof_test' }
+test('UIProfiles - isProfileFormDirty y canSaveProfile detectan modificación y la mantienen activa', () => {
+  const elements = {
+    profilesDialog: { dataset: {} },
+    profileSelectHelper: { value: 'prof_test' },
+    settingProfileName: { value: 'Test Profile' },
+    settingModel: { value: 'gpt-4o' }
   };
 
-  global.ChatProfileRepository = {
-    get: (id) => ({
-      id: 'prof_test',
-      name: 'Test Profile',
-      settings: {
-        apiType: 'openai',
-        apiUrl: 'http://localhost:1234/v1',
-        model: 'gpt-4o',
-        systemPrompt: '',
-        temperature: '0.7'
-      }
-    })
-  };
+  // 1. Estado inicial sin modificar: no está sucio y no se puede guardar
+  assert.equal(UIProfiles.isProfileFormDirty(elements), false);
+  assert.equal(UIProfiles.canSaveProfile(elements), false);
 
-  try {
-    const cleanElements = {
-      profileSelectHelper: { value: 'prof_test' },
-      settingProfileName: { value: 'Test Profile' },
-      settingProfileDescription: { value: '' },
-      settingApiType: { value: 'openai' },
-      settingApiUrl: { value: 'http://localhost:1234/v1' },
-      settingApiKey: { value: '', _loadedApiKey: '' },
-      settingModel: { value: 'gpt-4o' },
-      settingSystemPrompt: { value: '' },
-      settingTemperature: { value: '0.7' }
-    };
+  // 2. Cualquier modificación activa el estado sucio y permite guardar
+  UIProfiles.setProfileDirty(elements, true);
+  assert.equal(UIProfiles.isProfileFormDirty(elements), true);
+  assert.equal(UIProfiles.canSaveProfile(elements), true);
 
-    assert.equal(UIProfiles.isProfileFormDirty(cleanElements, { getRuntimeConfig: () => baseline }), false);
+  // 3. Aunque el valor vuelva al original, cualquier modificación previa lo deja activado
+  elements.settingModel.value = 'gpt-4o';
+  assert.equal(UIProfiles.isProfileFormDirty(elements), true, 'Debe permanecer activado aunque se revierta el campo');
+  assert.equal(UIProfiles.canSaveProfile(elements), true);
 
-    // Modificar modelo
-    const dirtyElements = {
-      ...cleanElements,
-      settingModel: { value: 'claude-3-5-sonnet' }
-    };
-    assert.equal(UIProfiles.isProfileFormDirty(dirtyElements, { getRuntimeConfig: () => baseline }), true);
-  } finally {
-    delete global.ChatProfileRepository;
-  }
+  // 4. Al resetear explícitamente (ej: cambio de perfil o tras guardar), vuelve a quedar limpio
+  UIProfiles.setProfileDirty(elements, false);
+  assert.equal(UIProfiles.isProfileFormDirty(elements), false);
+  assert.equal(UIProfiles.canSaveProfile(elements), false);
 });
 
-test('UIProfiles - canSaveProfile requires dirty form state', () => {
+test('UIProfiles - canSaveProfile requiere modificación o consulta lista', () => {
   const elements = {
-    profileSelectHelper: { value: 'none' },
-    settingProfileName: { value: 'Default' }
+    profilesDialog: { dataset: {}, querySelectorAll: () => [] },
+    profileSelectHelper: { value: 'prof_test' }
   };
-  // Si no hay cambios ni API key cargada, canSaveProfile es false
-  assert.equal(typeof UIProfiles.canSaveProfile(elements), 'boolean');
+  assert.equal(UIProfiles.canSaveProfile(elements), false);
+
+  UIProfiles.setProfileDirty(elements, true);
+  assert.equal(UIProfiles.canSaveProfile(elements), true);
+
+  UIProfiles.setProfileDirty(elements, false);
+  assert.equal(UIProfiles.canSaveProfile(elements), false);
+
+  UIProfiles.setProfileQueryState(elements, true);
+  assert.equal(UIProfiles.canSaveProfile(elements), true);
 });
 test('UIProfiles - setProfileQueryState updates dataset attribute correctly', () => {
   const mockDialog = {

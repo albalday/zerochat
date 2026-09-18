@@ -125,7 +125,7 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     await page.fill('#setting-model', 'modelo-personalizado');
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
     await page.fill('#setting-model', initialModel);
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Al deshacer el cambio vuelve a deshabilitarse');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Al deshacer el cambio permanece habilitado');
     await page.click('#profile-tab-model');
     await page.fill('#setting-system-prompt', 'Instrucción personalizada');
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otra pestaña habilita Guardar');

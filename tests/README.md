@@ -61,6 +61,15 @@ npm run test:group -- composer --list
 node --test tests/unit/test_icons.js
 ```
 
+### Pruebas Interactivas y Backend con `zerochat.py`
+
+| Comando | Propósito |
+|---|---|
+| `python3 zerochat.py` | Detecta automáticamente el entorno de desarrollo y abre en el navegador `http://127.0.0.1:6388/zerochat.html` con token diario, sin requerir scripts bash ni servidores adicionales. |
+| `python3 zerochat.py --test` | Autocomprobación interna rápida de herramientas locales (`list_directory`, `read_file`, `execute_command`). |
+| `python3 zerochat.py --no-browser` | Arranca el servidor local sin abrir navegador (útil para pruebas automatizadas o con `curl`). |
+| `python3 zerochat.py --no-venv` | Omite la comprobación/creación del entorno virtual `./zerochat` para un arranque inmediato. |
+
 ---
 
 ## 3. Grupos Funcionales
@@ -119,6 +128,7 @@ Para acelerar el ciclo de desarrollo sin necesidad de ejecutar siempre los 79 ar
 | `test_ui_transfer.js` | Importación y exportación visual | `js/ui-transfer.js` | File API mockeada | Sin lecturas de disco |
 | `test_utils.js` | Utilidades generales (debounce, IDs, etc.) | `js/utils.js` | Ninguno | Funciones puras |
 | `test_web_tools.js` | Herramientas web del navegador | `js/web-tools.js` | fetch mockeado | Sin peticiones de red |
+| `test_service_worker.js` | Service Worker PWA, caché y manifest | `sw.js`, `manifest.webmanifest` | Ninguno | Validación estática y de activos |
 
 ### Pruebas de Integración (`tests/integration/` - 31 suites)
 

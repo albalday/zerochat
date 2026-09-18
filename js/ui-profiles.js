@@ -103,6 +103,7 @@
         keyInput._loadedApiKey = undefined;
         keyInput.value = '';
       }
+      setProfileDirty(els, false);
       UISettings.applyProfileToForm(els, profileData);
       syncProfileSaveState(els, opts);
       try {
@@ -112,10 +113,16 @@
         const apiKey = profile?.settings?.apiKey || '';
         keyInput.value = apiKey;
         keyInput._loadedApiKey = apiKey;
+        if (!isProfileFormDirty(els)) {
+          setProfileDirty(els, false);
+        }
         syncProfileSaveState(els, opts);
       } catch (error) {
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (currentSelectedId !== id) return;
+        if (!isProfileFormDirty(els)) {
+          setProfileDirty(els, false);
+        }
         syncProfileSaveState(els, opts);
         showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
       }
@@ -135,92 +142,26 @@
     return els.profilesDialog?.dataset?.queryReady === 'true';
   }
 
-  function isProfileFormDirty(elements, options = {}) {
+  function isProfileFormDirty(elements) {
     const els = elements || cachedElements || {};
-    const opts = options || cachedOptions || {};
-    const Profiles = getProfiles();
-    const Config = getConfig();
-    const runtimeConfig = opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const selectedId = els.profileSelectHelper?.value || runtimeConfig.activeProfile?.id || '';
-    const profile = Profiles?.get ? Profiles.get(selectedId) : null;
-    const baseSettings = profile?.settings || runtimeConfig;
+    if (els._profileDirty !== undefined) return Boolean(els._profileDirty);
+    return els.profilesDialog?.dataset?.profileDirty === 'true';
+  }
 
-    if (els.settingProfileName) {
-      const currentName = els.settingProfileName.value.trim();
-      const baseName = (profile?.name || '').trim();
-      if (currentName !== baseName) return true;
+  function setProfileDirty(elements, dirty = true) {
+    const els = elements || cachedElements || {};
+    const isDirty = Boolean(dirty);
+    els._profileDirty = isDirty;
+    if (els.profilesDialog) {
+      if (!els.profilesDialog.dataset) els.profilesDialog.dataset = {};
+      els.profilesDialog.dataset.profileDirty = String(isDirty);
     }
-
-    if (els.settingProfileDescription) {
-      const currentDesc = els.settingProfileDescription.value.trim();
-      const baseDesc = (profile?.description || '').trim();
-      if (currentDesc !== baseDesc) return true;
-    }
-
-    if (els.settingApiType) {
-      const currentType = els.settingApiType.value;
-      const baseType = baseSettings.apiType || 'openai';
-      if (currentType !== baseType) return true;
-    }
-
-    if (els.settingApiUrl) {
-      const currentUrl = els.settingApiUrl.value.trim();
-      const baseUrl = (baseSettings.apiUrl || '').trim();
-      const baseType = baseSettings.apiType || els.settingApiType?.value || 'openai';
-      const defaultEndpoint = (getProviders()?.registry?.get?.(baseType)?.getConnectionConfig?.().endpoint || '').trim();
-      const effectiveBaseUrl = baseUrl || defaultEndpoint;
-      if (currentUrl !== effectiveBaseUrl) return true;
-    }
-
-    if (els.settingApiKey) {
-      const currentKey = els.settingApiKey.value.trim();
-      const baseKey = els.settingApiKey._loadedApiKey;
-      if (baseKey === undefined) return false;
-      if (currentKey !== baseKey) return true;
-    }
-    if (els.settingApiKeyLocked && els.settingApiKeyLocked.checked !== (baseSettings.apiKeyLocked === true)) return true;
-
-    if (els.settingModel) {
-      const currentModel = els.settingModel.value.trim();
-      const baseModel = (baseSettings.model || '').trim();
-      if (currentModel !== baseModel) return true;
-    }
-
-    if (els.settingSystemPrompt) {
-      const currentPrompt = els.settingSystemPrompt.value.trim();
-      const basePrompt = (baseSettings.systemPrompt || '').trim();
-      if (currentPrompt !== basePrompt) return true;
-    }
-
-    if (els.settingTemperature) {
-      const currentTemp = Number(els.settingTemperature.value);
-      const baseTemp = Number(baseSettings.temperature ?? 0.7);
-      if (!Number.isNaN(currentTemp) && !Number.isNaN(baseTemp)) {
-        if (Math.abs(currentTemp - baseTemp) > 0.001) return true;
-      } else if (String(els.settingTemperature.value) !== String(baseSettings.temperature ?? '0.7')) {
-        return true;
-      }
-    }
-
-    if (els.settingWebllmContextWindow) {
-      const currentVal = els.settingWebllmContextWindow.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.context_window_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
-    if (els.settingWebllmPrefillChunk) {
-      const currentVal = els.settingWebllmPrefillChunk.value || 'default';
-      const rawBase = baseSettings.webllmConfig?.prefill_chunk_size;
-      const baseVal = (rawBase && rawBase !== 'default') ? String(rawBase) : 'default';
-      if (currentVal !== baseVal) return true;
-    }
-
-    return false;
+    return isDirty;
   }
 
   function canSaveProfile(elements, options = {}) {
-    return isProfileFormDirty(elements, options);
+    const els = elements || cachedElements || {};
+    return isProfileFormDirty(els) || isProfileQueryReady(els);
   }
 
   function syncProfileSaveState(elements, options = {}) {
@@ -242,7 +183,7 @@
       if (els.profileSaveQueryHint) {
         const apiType = els.settingApiType?.value || '';
         const selectedModel = (els.settingModel?.value || els.modelSelectHelper?.value || '').trim();
-        if (!isProfileFormDirty(els, opts)) {
+        if (!canSave) {
           els.profileSaveQueryHint.textContent = t('profile_save_changes_required');
         } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
           els.profileSaveQueryHint.textContent = t('webllm_query_optional');
@@ -388,8 +329,10 @@
 
     populateProfileSelector(els, saved.id);
     if (els.settingApiKey) els.settingApiKey._loadedApiKey = apiKey;
-    setSelectedProfileAsDefault(saved, opts);
+    setProfileDirty(els, false);
     setProfileQueryState(els, false);
+    setSelectedProfileAsDefault(saved, opts);
+    syncProfileSaveState(els, opts);
     showProfileFeedback(els, t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
     return true;
   }
@@ -560,6 +503,7 @@
     if (els.serverQueryStatus) els.serverQueryStatus.style.display = 'none';
     if (els.profileActionFeedback) els.profileActionFeedback.style.display = 'none';
     setProfileQueryState(els, false);
+    setProfileDirty(els, false);
     const nameTab = document.getElementById('profile-tab-name') || els.profileTabs?.[0];
     if (nameTab) activateProfileTab(els, nameTab);
     if (typeof opts.loadCachedModels === 'function') opts.loadCachedModels();
@@ -599,6 +543,7 @@
       }
     }
     setProfileQueryState(els, false);
+    setProfileDirty(els, false);
     resetProfileFormToSelected(els, opts);
     if (typeof els.profilesDialog.close === 'function') {
       els.profilesDialog.close();
@@ -622,6 +567,16 @@
       };
       els.profilesDialog.addEventListener('cancel', onCancel);
       activeCleanupFns.push(() => els.profilesDialog.removeEventListener('cancel', onCancel));
+
+      const onModify = (e) => {
+        if (e && (e.target === els.profileSelectHelper || e.target === els.profilesImportInput)) return;
+        setProfileDirty(els, true);
+        syncProfileSaveState(els, cachedOptions);
+      };
+      els.profilesDialog.addEventListener('input', onModify);
+      els.profilesDialog.addEventListener('change', onModify);
+      activeCleanupFns.push(() => els.profilesDialog.removeEventListener('input', onModify));
+      activeCleanupFns.push(() => els.profilesDialog.removeEventListener('change', onModify));
     }
 
     if (els.profileSelectHelper) {
@@ -769,7 +724,8 @@
       populateProfileSelector: (name) => populateProfileSelector(els, name),
       applyProfileToForm: (data, id) => applyProfileToForm(els, data, id, cachedOptions),
       syncProfileSaveState: () => syncProfileSaveState(els, cachedOptions),
-      isProfileFormDirty: () => isProfileFormDirty(els, cachedOptions),
+      isProfileFormDirty: () => isProfileFormDirty(els),
+      setProfileDirty: (dirty) => setProfileDirty(els, dirty),
       openProfilesModal: () => openProfilesModal(els, cachedOptions),
       closeProfilesModal: (force) => closeProfilesModal(els, force, cachedOptions),
       handleSaveProfile: () => handleSaveProfile(els, cachedOptions),
@@ -791,6 +747,7 @@
     syncProfileSaveState,
     canSaveProfile,
     isProfileFormDirty,
+    setProfileDirty,
     isProfileQueryReady,
     setProfileQueryState,
     activateProfileTab,

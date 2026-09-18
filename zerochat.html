@@ -9,9 +9,25 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v7.0.1</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <title>ZeroChat v7.0.2</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components/icons.css">
+  <link rel="stylesheet" href="css/components/header.css">
+  <link rel="stylesheet" href="css/components/sidebar.css">
+  <link rel="stylesheet" href="css/components/messages.css">
+  <link rel="stylesheet" href="css/components/markdown.css">
+  <link rel="stylesheet" href="css/components/composer.css">
+  <link rel="stylesheet" href="css/components/modals.css">
+  <link rel="stylesheet" href="css/components/tools.css">
+  <link rel="stylesheet" href="css/components/debug.css">
+  <link rel="stylesheet" href="css/theme-overrides.css">
+  <link rel="stylesheet" href="css/print.css" media="print">
 </head>
 <body>
   <!-- Catálogo de Símbolos SVG Monocromáticos (ZeroChat Icons Sprite) -->
@@ -466,69 +482,69 @@
     <div class="modal-footer"><button type="button" id="notice-cancel" class="btn-secondary" data-i18n="notice_cancel" hidden></button><button type="button" id="notice-accept" class="btn-primary" data-i18n="notice_accept"></button></div>
   </dialog>
 
-  <!-- Scripts de la aplicación (compatibles con file:// y http://) -->
-  <script src="js/vendor/orama.browser.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/storage-db.js"></script>
-  <script src="js/message-turns.js"></script>
-  <script src="js/state.js"></script>
-  <script src="js/cookies.js"></script>
-  <script src="js/ragStorage.js"></script>
-  <script src="js/rag-index.js"></script>
-  <script src="js/ingestionEngine.js"></script>
-  <script src="js/rag-service.js"></script>
-  <script src="js/rag-ui.js"></script>
-  <script src="js/i18n.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/ui-dialogs.js"></script>
-  <script src="js/ui-generation-status.js"></script>
-  <script src="js/sandbox.js"></script>
-  <script src="js/charts.js"></script>
-  <script src="js/web-browser.js"></script>
-  <script src="js/web-search.js"></script>
-  <script src="js/markdown.js"></script>
-  <script src="js/providers.js"></script>
-  <script src="js/providers-webllm.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/file-parser.js"></script>
-  <script src="js/tools/tool-runtime.js"></script>
-  <script src="js/tools/tool-manifest.js"></script>
-  <script src="js/tools/builtin/execute-javascript.tool.js"></script>
-  <script src="js/tools/builtin/search-web.tool.js"></script>
-  <script src="js/tools/builtin/fetch-web-page.tool.js"></script>
-  <script src="js/tools/builtin/download-pdf.tool.js"></script>
-  <script src="js/tools/builtin/render-chart.tool.js"></script>
-  <script src="js/tools/builtin/list-documents.tool.js"></script>
-  <script src="js/tools/builtin/search-knowledge-base.tool.js"></script>
-  <script src="js/tools/builtin/read-knowledge-chunk.tool.js"></script>
-  <script src="js/tools/builtin/read-knowledge-image.tool.js"></script>
-  <script src="js/tools/builtin/agent-checkpoint.tool.js"></script>
-  <script src="js/tool-security.js"></script>
-  <script src="js/agent-core.js"></script>
-  <script src="js/mcp.js"></script>
-  <script src="js/debug.js"></script>
-  <script src="js/tool-cards.js"></script>
-  <script src="js/attachments.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/profile-backup.js"></script>
-  <script src="js/profile-repository.js"></script>
-  <script src="js/config-store.js"></script>
-  <script src="js/context-manager.js"></script>
-  <script src="js/chat-engine.js"></script>
-  <script src="js/ui-reasoning.js"></script>
-  <script src="js/ui-inspector.js"></script>
-  <script src="js/ui-sidebar.js"></script>
-  <script src="js/ui-settings.js"></script>
-  <script src="js/ui-telemetry.js"></script>
-  <script src="js/ui-mcp.js"></script>
-  <script src="js/ui-shell.js"></script>
-  <script src="js/data-reset-service.js"></script>
-  <script src="js/ui-transfer.js"></script>
-  <script src="js/ui-profiles.js"></script>
-  <script src="js/ui-composer.js"></script>
-  <script src="js/conversation-service.js"></script>
-  <script src="js/ui-conversation.js"></script>
-  <script src="js/generation-controller.js"></script>
-  <script src="js/app.js"></script>
+  <!-- Scripts de la aplicación con carga diferida (compatibles con file:// y http://) -->
+  <script defer src="js/vendor/orama.browser.js"></script>
+  <script defer src="js/utils.js"></script>
+  <script defer src="js/storage-db.js"></script>
+  <script defer src="js/message-turns.js"></script>
+  <script defer src="js/state.js"></script>
+  <script defer src="js/cookies.js"></script>
+  <script defer src="js/ragStorage.js"></script>
+  <script defer src="js/rag-index.js"></script>
+  <script defer src="js/ingestionEngine.js"></script>
+  <script defer src="js/rag-service.js"></script>
+  <script defer src="js/rag-ui.js"></script>
+  <script defer src="js/i18n.js"></script>
+  <script defer src="js/icons.js"></script>
+  <script defer src="js/ui-dialogs.js"></script>
+  <script defer src="js/ui-generation-status.js"></script>
+  <script defer src="js/sandbox.js"></script>
+  <script defer src="js/charts.js"></script>
+  <script defer src="js/web-browser.js"></script>
+  <script defer src="js/web-search.js"></script>
+  <script defer src="js/markdown.js"></script>
+  <script defer src="js/providers.js"></script>
+  <script defer src="js/providers-webllm.js"></script>
+  <script defer src="js/api.js"></script>
+  <script defer src="js/file-parser.js"></script>
+  <script defer src="js/tools/tool-runtime.js"></script>
+  <script defer src="js/tools/tool-manifest.js"></script>
+  <script defer src="js/tools/builtin/execute-javascript.tool.js"></script>
+  <script defer src="js/tools/builtin/search-web.tool.js"></script>
+  <script defer src="js/tools/builtin/fetch-web-page.tool.js"></script>
+  <script defer src="js/tools/builtin/download-pdf.tool.js"></script>
+  <script defer src="js/tools/builtin/render-chart.tool.js"></script>
+  <script defer src="js/tools/builtin/list-documents.tool.js"></script>
+  <script defer src="js/tools/builtin/search-knowledge-base.tool.js"></script>
+  <script defer src="js/tools/builtin/read-knowledge-chunk.tool.js"></script>
+  <script defer src="js/tools/builtin/read-knowledge-image.tool.js"></script>
+  <script defer src="js/tools/builtin/agent-checkpoint.tool.js"></script>
+  <script defer src="js/tool-security.js"></script>
+  <script defer src="js/agent-core.js"></script>
+  <script defer src="js/mcp.js"></script>
+  <script defer src="js/debug.js"></script>
+  <script defer src="js/tool-cards.js"></script>
+  <script defer src="js/attachments.js"></script>
+  <script defer src="js/export.js"></script>
+  <script defer src="js/profile-backup.js"></script>
+  <script defer src="js/profile-repository.js"></script>
+  <script defer src="js/config-store.js"></script>
+  <script defer src="js/context-manager.js"></script>
+  <script defer src="js/chat-engine.js"></script>
+  <script defer src="js/ui-reasoning.js"></script>
+  <script defer src="js/ui-inspector.js"></script>
+  <script defer src="js/ui-sidebar.js"></script>
+  <script defer src="js/ui-settings.js"></script>
+  <script defer src="js/ui-telemetry.js"></script>
+  <script defer src="js/ui-mcp.js"></script>
+  <script defer src="js/ui-shell.js"></script>
+  <script defer src="js/data-reset-service.js"></script>
+  <script defer src="js/ui-transfer.js"></script>
+  <script defer src="js/ui-profiles.js"></script>
+  <script defer src="js/ui-composer.js"></script>
+  <script defer src="js/conversation-service.js"></script>
+  <script defer src="js/ui-conversation.js"></script>
+  <script defer src="js/generation-controller.js"></script>
+  <script defer src="js/app.js"></script>
 </body>
 </html>
