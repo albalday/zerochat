@@ -229,5 +229,92 @@ test('Browser UI - zerochat.html optimiza carga con defer, CSS paralelos y PWA m
   assert.match(swContent, /CACHE_NAME/, 'sw.js debe declarar CACHE_NAME');
   assert.match(swContent, /caches\.open/, 'sw.js debe gestionar la Cache API');
 });
+
+test('Browser UI - arranque con parámetros de sesión (#token & #port) inicializa ChatApp y heartbeat sin errores', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const pageErrors = [];
+    page.on('pageerror', err => pageErrors.push(err.message));
+
+    const testToken = 'startup-token-test-12345';
+    const testPort = '6388';
+    const targetUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html') + `#token=${testToken}&port=${testPort}`;
+
+    await page.goto(targetUrl, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    assert.equal(pageErrors.length, 0, 'No deben producirse errores en tiempo de ejecución: ' + pageErrors.join(' | '));
+
+    const state = await page.evaluate(() => ({
+      hasChatApp: typeof window.ChatApp === 'object' && window.ChatApp !== null,
+      hasStartServerHeartbeat: typeof window.ChatApp?.startServerHeartbeat === 'function',
+      hasStopServerHeartbeat: typeof window.ChatApp?.stopServerHeartbeat === 'function',
+      sessionToken: sessionStorage.getItem('zerochat_mcp_token'),
+      isReady: document.documentElement.classList.contains('zerochat-ready'),
+      hasOldLifecycle: typeof window.__zerochat_heartbeat_lifecycle !== 'undefined'
+    }));
+
+    assert.equal(state.hasChatApp, true, 'window.ChatApp debe estar definido');
+    assert.equal(state.hasStartServerHeartbeat, true, 'window.ChatApp.startServerHeartbeat debe ser función');
+    assert.equal(state.hasStopServerHeartbeat, true, 'window.ChatApp.stopServerHeartbeat debe ser función');
+    assert.equal(state.sessionToken, testToken, 'El token debe haberse almacenado en sessionStorage');
+    assert.equal(state.isReady, true, 'La página debe haber completado init()');
+    assert.equal(state.hasOldLifecycle, false, 'No deben existir variables obsoletas de ciclo de vida');
+
+    // Verificar que stopServerHeartbeat y re-startServerHeartbeat funcionan limpiamente
+    await page.evaluate(() => {
+      window.ChatApp.stopServerHeartbeat();
+      window.ChatApp.startServerHeartbeat('127.0.0.1', 6388, 'startup-token-test-12345');
+      window.ChatApp.stopServerHeartbeat();
+    });
+  } finally {
+    await browser.close();
+  }
 });
+
+test('Browser UI - el botón de abrir en nueva pestaña propaga token y puerto de sesión', async () => {
+  const browser = await createTestBrowser();
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const testToken = 'new-tab-token-abcde-67890';
+    const testPort = '6388';
+    const targetUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html') + `#token=${testToken}&port=${testPort}`;
+
+    await page.goto(targetUrl, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // Comprobar que el enlace #btn-sidebar-new-tab tiene el token y puerto
+    const linkHref = await page.$eval('#btn-sidebar-new-tab', el => el.getAttribute('href'));
+    assert.ok(linkHref.includes(`token=${testToken}`), 'El href de btn-sidebar-new-tab debe incluir el token de sesión');
+    assert.ok(linkHref.includes(`port=${testPort}`), 'El href de btn-sidebar-new-tab debe incluir el puerto');
+
+    // Hacer clic en el enlace y esperar a que se abra la nueva pestaña
+    const [newPage] = await Promise.all([
+      context.waitForEvent('page'),
+      page.click('#btn-sidebar-new-tab')
+    ]);
+
+    await newPage.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    const newPageState = await newPage.evaluate(() => ({
+      hasChatApp: typeof window.ChatApp === 'object' && window.ChatApp !== null,
+      sessionToken: sessionStorage.getItem('zerochat_mcp_token'),
+      sessionPort: sessionStorage.getItem('zerochat_mcp_port'),
+      newTabHref: document.getElementById('btn-sidebar-new-tab')?.getAttribute('href')
+    }));
+
+    assert.equal(newPageState.hasChatApp, true, 'La nueva pestaña debe tener ChatApp inicializado');
+    assert.equal(newPageState.sessionToken, testToken, 'La nueva pestaña debe haber recibido y guardado el token');
+    assert.equal(newPageState.sessionPort, testPort, 'La nueva pestaña debe haber recibido y guardado el puerto');
+    assert.ok(newPageState.newTabHref && newPageState.newTabHref.includes(testToken), 'La nueva pestaña debe también propagar el token a subsiguientes pestañas');
+
+    await newPage.close();
+  } finally {
+    await context.close();
+  }
+});
+});
+
 

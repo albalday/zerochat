@@ -113,6 +113,7 @@
       chatSidebar: document.getElementById('chat-sidebar'),
       btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
       btnCloseSidebar: document.getElementById('btn-close-sidebar'),
+      btnSidebarNewTab: document.getElementById('btn-sidebar-new-tab'),
       btnSidebarNewChat: document.getElementById('btn-sidebar-new-chat'),
       sidebarSearchInput: document.getElementById('sidebar-search-input'),
       sidebarChatsList: document.getElementById('sidebar-chats-list'),
@@ -1578,6 +1579,10 @@
     if (elements.btnSidebarNewChat) {
       elements.btnSidebarNewChat.addEventListener('click', createNewSession);
     }
+    if (elements.btnSidebarNewTab) {
+      elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
+      elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
+    }
     if (elements.sidebarSearchInput) {
       elements.sidebarSearchInput.addEventListener('input', () => {
         renderSidebarChats(elements.sidebarSearchInput.value);
@@ -2028,6 +2033,88 @@
     if (Debug && typeof Debug.ensureDialogMarkup === 'function') Debug.ensureDialogMarkup();
   }
 
+  const HEARTBEAT_INTERVAL_MS = 10000;
+  let heartbeatTimer = null;
+  let activeHeartbeatTarget = null;
+
+  function buildHeartbeatUrl(host, port, token) {
+    const encToken = encodeURIComponent(token);
+    if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
+      const locHost = window.location.hostname;
+      const locPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+      const isSamePort = String(port) === String(locPort);
+      const isLocalHostMatch = (locHost === host) ||
+        (['127.0.0.1', 'localhost'].includes(locHost) && ['127.0.0.1', 'localhost'].includes(host));
+      if (isSamePort && isLocalHostMatch) {
+        return `/zerochat/heartbeat?token=${encToken}`;
+      }
+    }
+    return `http://${host}:${port}/zerochat/heartbeat?token=${encToken}`;
+  }
+
+  function sendHeartbeatPing() {
+    if (!activeHeartbeatTarget || typeof fetch !== 'function') return;
+    const endpoint = buildHeartbeatUrl(activeHeartbeatTarget.host, activeHeartbeatTarget.port, activeHeartbeatTarget.token);
+    fetch(endpoint, {
+      method: 'GET',
+      cache: 'no-store',
+      mode: 'cors'
+    }).catch(() => {
+      // Ignorar silenciosamente desconexiones si el servidor ya se ha cerrado
+    });
+  }
+
+  function startServerHeartbeat(host, port, token) {
+    if (!token || !host || !port) return;
+    const targetChanged = !activeHeartbeatTarget
+      || activeHeartbeatTarget.host !== host
+      || activeHeartbeatTarget.port !== port
+      || activeHeartbeatTarget.token !== token;
+
+    activeHeartbeatTarget = { host, port, token };
+    updateNewTabLink();
+
+    if (targetChanged) {
+      sendHeartbeatPing();
+    }
+
+    if (!heartbeatTimer) {
+      heartbeatTimer = setInterval(sendHeartbeatPing, HEARTBEAT_INTERVAL_MS);
+    }
+  }
+
+  function stopServerHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  function getNewTabUrl() {
+    if (typeof window === 'undefined' || !window.location) return '';
+    const base = (window.location.pathname || '') + (window.location.search || '');
+    const token = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_token') : null)
+      || window.ChatMCP?.manager?.getSessionToken()
+      || activeHeartbeatTarget?.token;
+    const port = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_port') : null)
+      || activeHeartbeatTarget?.port
+      || getRuntimeConfig()?.mcpPort
+      || 6388;
+
+    if (token) {
+      return `${base}#token=${encodeURIComponent(token)}&port=${encodeURIComponent(port)}`;
+    }
+    return base || window.location.href;
+  }
+
+  function updateNewTabLink() {
+    if (!elements?.btnSidebarNewTab) return;
+    const url = getNewTabUrl();
+    if (url) {
+      elements.btnSidebarNewTab.href = url;
+    }
+  }
+
   function init() {
     ensureModalsMarkup();
     cacheDomElements();
@@ -2091,25 +2178,32 @@
       });
 
       // Extraer token y port pasados desde zerochat.py por hash o query string
-      let incomingToken = null;
-      let incomingPort = null;
-      try {
-        if (typeof window !== 'undefined' && window.location) {
-          const hashRaw = (window.location.hash || '').replace(/^#/, '');
-          const hashParams = new URLSearchParams(hashRaw);
-          const queryParams = new URLSearchParams(window.location.search || '');
-          incomingToken = hashParams.get('token') || queryParams.get('token');
-          incomingPort = hashParams.get('port') || queryParams.get('port');
+      function extractSessionParams() {
+        let token = null;
+        let port = null;
+        try {
+          if (typeof window !== 'undefined' && window.location) {
+            const hashRaw = (window.location.hash || '').replace(/^#/, '');
+            const hashParams = new URLSearchParams(hashRaw);
+            const queryParams = new URLSearchParams(window.location.search || '');
+            token = hashParams.get('token') || queryParams.get('token');
+            port = hashParams.get('port') || queryParams.get('port');
 
-          if (incomingToken && window.history && typeof window.history.replaceState === 'function') {
-            // Limpiar el fragmento de la barra de direcciones para no exponer el token
-            const cleanUrl = window.location.pathname + (window.location.search ? window.location.search.replace(/([?&])token=[^&]+(&|$)/, '$1').replace(/[?&]$/, '') : '');
-            window.history.replaceState(null, '', cleanUrl || window.location.pathname);
+            if (token && window.history && typeof window.history.replaceState === 'function') {
+              // Limpiar el fragmento de la barra de direcciones para no exponer el token
+              const cleanUrl = window.location.pathname + (window.location.search ? window.location.search.replace(/([?&])token=[^&]+(&|$)/, '$1').replace(/[?&]$/, '') : '');
+              window.history.replaceState(null, '', cleanUrl || window.location.pathname);
+            }
           }
+        } catch (err) {
+          console.warn('Error leyendo parámetros de sesión:', err);
         }
-      } catch (err) {
-        console.warn('Error leyendo parámetros de sesión:', err);
+        return { token, port };
       }
+
+      const initialParams = extractSessionParams();
+      let incomingToken = initialParams.token;
+      let incomingPort = initialParams.port;
 
       if (incomingToken) {
         try {
@@ -2125,64 +2219,73 @@
         } catch (_) {}
       }
 
-      if (incomingToken && window.ChatMCP?.manager?.setSessionToken) {
-        window.ChatMCP.manager.setSessionToken(incomingToken);
+      if (incomingPort) {
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('zerochat_mcp_port', incomingPort);
+          }
+        } catch (_) {}
+      } else {
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            incomingPort = sessionStorage.getItem('zerochat_mcp_port');
+          }
+        } catch (_) {}
+      }
+
+      const effectiveToken = incomingToken || window.ChatMCP?.manager?.getSessionToken();
+      if (effectiveToken && window.ChatMCP?.manager?.setSessionToken) {
+        window.ChatMCP.manager.setSessionToken(effectiveToken);
       }
 
       const currentCfg = getRuntimeConfig();
       const targetPort = incomingPort ? parseInt(incomingPort, 10) : (currentCfg?.mcpPort || 6388);
       const targetHost = currentCfg?.mcpHost || '127.0.0.1';
 
-      if ((incomingToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
+      if ((effectiveToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({
           host: targetHost,
           port: targetPort,
-          token: incomingToken || window.ChatMCP.manager.getSessionToken(),
-          silentOnFailure: !incomingToken
+          token: effectiveToken,
+          silentOnFailure: !effectiveToken
         });
       }
 
       // Iniciar latido periódico al servidor local zerochat.py si hay token de sesión activo
-      if (incomingToken) {
-        startServerHeartbeat(targetHost, targetPort, incomingToken);
+      if (effectiveToken) {
+        startServerHeartbeat(targetHost, targetPort, effectiveToken);
       }
-    }
-
-    let heartbeatTimer = null;
-
-    function startServerHeartbeat(host, port, token) {
-      if (heartbeatTimer) return;
-      if (!token || !host || !port) return;
-
-      const endpoint = `http://${host}:${port}/zerochat/heartbeat?token=${encodeURIComponent(token)}`;
-      const ping = () => {
-        if (typeof fetch !== 'function') return;
-        fetch(endpoint, {
-          method: 'GET',
-          cache: 'no-store',
-          mode: 'cors'
-        }).catch(() => {
-          // Ignorar silenciosamente desconexiones si el servidor ya se ha cerrado
-        });
-      };
-
-      // Primer latido inmediato para registrar presencia temprana
-      ping();
-
-      // Latidos sucesivos cada 4 segundos
-      heartbeatTimer = setInterval(ping, 4000);
+      updateNewTabLink();
 
       if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('pagehide', () => {
-          stopServerHeartbeat();
-        }, { once: true });
-      }
-    }
-
-    function stopServerHeartbeat() {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
+        window.addEventListener('hashchange', () => {
+          const updated = extractSessionParams();
+          if (updated.token) {
+            incomingToken = updated.token;
+            try { sessionStorage.setItem('zerochat_mcp_token', updated.token); } catch (_) {}
+            if (window.ChatMCP?.manager?.setSessionToken) {
+              window.ChatMCP.manager.setSessionToken(updated.token);
+            }
+          }
+          if (updated.port) {
+            incomingPort = updated.port;
+            try { sessionStorage.setItem('zerochat_mcp_port', updated.port); } catch (_) {}
+          }
+          const activeTok = updated.token || sessionStorage.getItem('zerochat_mcp_token') || window.ChatMCP?.manager?.getSessionToken();
+          const activePort = updated.port ? parseInt(updated.port, 10) : (sessionStorage.getItem('zerochat_mcp_port') ? parseInt(sessionStorage.getItem('zerochat_mcp_port'), 10) : (currentCfg?.mcpPort || 6388));
+          if (activeTok) {
+            if (window.ChatMCP?.manager?.connectProxy) {
+              window.ChatMCP.manager.connectProxy({
+                host: targetHost,
+                port: activePort,
+                token: activeTok,
+                silentOnFailure: true
+              });
+            }
+            startServerHeartbeat(targetHost, activePort, activeTok);
+            updateNewTabLink();
+          }
+        });
       }
     }
 
@@ -2206,7 +2309,9 @@
       exportConversationAsJson,
       exportConversationAsPrint,
       startServerHeartbeat,
-      stopServerHeartbeat
+      stopServerHeartbeat,
+      getNewTabUrl,
+      updateNewTabLink
     };
 
     // Fase 6: configurar light-dismiss fallback para navegadores sin closedby

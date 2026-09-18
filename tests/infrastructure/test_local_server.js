@@ -466,9 +466,12 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
       }
     }
 
-    // 2. Rechazo de /zerochat/heartbeat sin token (401)
+    // 2. Rechazo de /zerochat/heartbeat sin token o con token inválido (401)
     const unauthHb = await fetch(`${baseUrl}/zerochat/heartbeat`);
     assert.equal(unauthHb.status, 401, 'Heartbeat sin token debe ser 401');
+
+    const invalidHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=token-invalido-xyz`);
+    assert.equal(invalidHb.status, 401, 'Heartbeat con token inválido debe ser 401');
 
     // 3. Aceptación de /zerochat/heartbeat con token válido (200 {"ok": true})
     const authHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
@@ -476,7 +479,17 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     const hbData = await authHb.json();
     assert.equal(hbData.ok, true, 'Heartbeat debe responder {"ok": true}');
 
-    // 4. Esperar a que el watchdog detecte la inactividad (>0.2s) y apague el servidor automáticamente
+    // 4. Latido sucesivo antes de que expire el timeout (a los 100ms) mantiene vivo el servidor
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const keepAliveHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
+    assert.equal(keepAliveHb.status, 200, 'Heartbeat periódico debe mantener vivo el servidor');
+
+    // 5. Intento con token inválido a los 50ms no debe renovar el watchdog
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const badTokenHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=fake-token`);
+    assert.equal(badTokenHb.status, 401, 'Token inválido debe seguir siendo rechazado');
+
+    // 6. Esperar a que el watchdog detecte la inactividad (>0.2s desde el último válido) y apague el servidor automáticamente
     const exitPromise = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 3000);
       serverProc.on('exit', (code) => {
@@ -532,6 +545,94 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   } finally {
     serverProc.kill('SIGTERM');
   }
+});
+
+test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) inicializan y renuevan el watchdog sin /zerochat/heartbeat', async () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const serverPath = path.resolve(repoRoot, 'zerochat.py');
+  const port = 7600 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const testToken = 'rpc-watchdog-token-12345';
+
+  const serverProc = spawn('python3', [
+    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
+  ], {
+    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  let serverOutput = '';
+  serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
+
+  try {
+    // 1. Esperar arranque
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        if (probeRes.ok) break;
+      } catch (_) {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // 2. Enviar petición RPC a /mcp/external con token (tools/list)
+    const rpcRes = await fetch(`${baseUrl}/mcp/external`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ZeroChat-Token': testToken
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+    });
+    assert.equal(rpcRes.status, 200, 'Llamada RPC debe devolver 200');
+
+    // 3. Esperar a que el watchdog detecte la inactividad tras la llamada RPC (>0.2s)
+    const exitPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad tras RPC')), 3000);
+      serverProc.on('exit', (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+    });
+
+    await exitPromise;
+    assert.match(serverOutput, /Navegador desconectado \(cierre detectado\)/, 'El watchdog debe registrar desconexión tras actividad RPC');
+  } finally {
+    try { serverProc.kill('SIGTERM'); } catch (_) {}
+  }
+});
+
+test('Servidor local zerochat.py: omite comprobación de versión remota en desarrollo local', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const serverPath = path.resolve(repoRoot, 'zerochat.py');
+
+  const checkPyCode = `
+import zerochat
+import sys
+
+# 1. En entorno de repo local dev_root debe estar activo
+assert zerochat.get_dev_root() is not None, "get_dev_root() debe detectar el repositorio local"
+
+# 2. check_version() no debe imprimir nada en modo dev
+import io
+out = io.StringIO()
+old_stdout = sys.stdout
+sys.stdout = out
+try:
+    zerochat.check_version()
+finally:
+    sys.stdout = old_stdout
+
+output = out.getvalue()
+assert "Nueva versión disponible" not in output, f"No debe comprobar versión en dev: {output}"
+assert "_read_package_version" not in output, f"No debe mostrar texto de función interna: {output}"
+
+# 3. parse_version compara semver adecuadamente
+assert zerochat.parse_version("7.0.5") == (7, 0, 5)
+assert zerochat.parse_version("7.0.10") > zerochat.parse_version("7.0.5")
+assert not (zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
+`;
+
+  execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
 
 

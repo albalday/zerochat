@@ -12,131 +12,8 @@
   'use strict';
 
   const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
-  const BUNDLE_CACHE_NAME = 'zerochat-webllm-runtime-v1';
-  const BUNDLE_CACHE_KEY = 'https://zerochat.local/webllm-runtime-bundle.js';
-  const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const COMPLETED_MODELS_STORAGE_KEY = 'webllm_completed_models_v1';
   let modulePromise = null;
-  let memoryBundle = null;
-  let bundleFetchPromise = null;
-
-  function resetMemoryBundle() {
-    memoryBundle = null;
-    bundleFetchPromise = null;
-  }
-
-  function transformEsmToClassic(esmCode) {
-    if (typeof esmCode !== 'string') return '';
-    const exportRegex = /export\s*\{([\s\S]*?)\};?\s*(?:\/\/#\s*sourceMappingURL=.*)?\s*$/;
-    const match = esmCode.match(exportRegex);
-    if (!match) return esmCode;
-    const exportItems = match[1].split(',').map(item => {
-      const trimmed = item.trim();
-      if (!trimmed) return null;
-      const parts = trimmed.split(/\s+as\s+/);
-      if (parts.length === 2) {
-        return `${JSON.stringify(parts[1].trim())}: ${parts[0].trim()}`;
-      }
-      return `${JSON.stringify(trimmed)}: ${trimmed}`;
-    }).filter(Boolean);
-    const replacement = `;(function(root){\nconst exp = { ${exportItems.join(', ')} };\nif (typeof self !== 'undefined') self.webllm = exp;\nif (typeof globalThis !== 'undefined') globalThis.webllm = exp;\nif (typeof root !== 'undefined' && !root.webllm) root.webllm = exp;\n})(typeof self !== 'undefined' ? self : this);`;
-    return esmCode.replace(exportRegex, replacement);
-  }
-
-  async function getRuntimeCache() {
-    if (typeof caches === 'undefined' || typeof caches.open !== 'function') return null;
-    try {
-      return await caches.open(BUNDLE_CACHE_NAME);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function getCachedBundleFromStorage() {
-    const cache = await getRuntimeCache();
-    if (cache) {
-      try {
-        const match = await cache.match(BUNDLE_CACHE_KEY);
-        if (match) {
-          const cachedAt = Number(match.headers.get('x-cached-at') || 0);
-          const text = await match.text();
-          if (text) return { text, cachedAt, from: 'cache' };
-        }
-      } catch (_) {}
-    }
-    const Storage = getStorage();
-    if (Storage?.getStorageItem) {
-      try {
-        const raw = Storage.getStorageItem('webllm_runtime_bundle_meta_v1');
-        if (raw) {
-          const meta = JSON.parse(raw);
-          if (meta?.text) return { text: meta.text, cachedAt: Number(meta.cachedAt || 0), from: 'storage' };
-        }
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  async function saveCachedBundleToStorage(classicCode) {
-    const cachedAt = Date.now().toString();
-    const cache = await getRuntimeCache();
-    if (cache) {
-      try {
-        await cache.put(BUNDLE_CACHE_KEY, new Response(classicCode, {
-          headers: {
-            'content-type': 'application/javascript',
-            'x-cached-at': cachedAt
-          }
-        }));
-      } catch (_) {}
-    }
-    const Storage = getStorage();
-    if (Storage?.setStorageItem) {
-      try {
-        Storage.setStorageItem('webllm_runtime_bundle_meta_v1', JSON.stringify({ cachedAt: Number(cachedAt) }));
-      } catch (_) {}
-    }
-  }
-
-  async function getOrFetchClassicBundle(options = {}) {
-    if (options.bundleSource) return options.bundleSource;
-    if (memoryBundle && !options.forceRefresh) return memoryBundle;
-
-    const cached = await getCachedBundleFromStorage();
-    const now = Date.now();
-    const isExpired = !cached || !cached.cachedAt || (now - cached.cachedAt > CACHE_TTL_MS);
-
-    if (cached?.text && !isExpired && !options.forceRefresh) {
-      memoryBundle = cached.text;
-      return memoryBundle;
-    }
-
-    if (bundleFetchPromise) return bundleFetchPromise;
-
-    const fetchUrl = options.url || WEBLLM_URL;
-    bundleFetchPromise = (async () => {
-      try {
-        if (typeof fetch === 'undefined') throw new Error('Fetch API no está disponible.');
-        const response = await fetch(fetchUrl, { signal: options.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status} al descargar WebLLM`);
-        const esmCode = await response.text();
-        const classicCode = transformEsmToClassic(esmCode);
-        memoryBundle = classicCode;
-        await saveCachedBundleToStorage(classicCode);
-        return classicCode;
-      } catch (err) {
-        if (cached?.text) {
-          memoryBundle = cached.text;
-          return memoryBundle;
-        }
-        throw err;
-      } finally {
-        bundleFetchPromise = null;
-      }
-    })();
-
-    return bundleFetchPromise;
-  }
 
   function supported() {
     return typeof navigator !== 'undefined' && !!navigator.gpu && typeof caches !== 'undefined' && typeof ReadableStream !== 'undefined' && typeof AbortController !== 'undefined';
@@ -214,19 +91,7 @@
         if (typeof globalThis !== 'undefined' && globalThis.webllm?.CreateWebWorkerMLCEngine) {
           return globalThis.webllm;
         }
-        try {
-          return await import(/* webpackIgnore: true */ url);
-        } catch (importErr) {
-          try {
-            const classicCode = await getOrFetchClassicBundle();
-            const evaluateScript = new Function(classicCode);
-            evaluateScript();
-            if (globalThis.webllm?.CreateWebWorkerMLCEngine) {
-              return globalThis.webllm;
-            }
-          } catch (_) {}
-          throw importErr;
-        }
+        return await import(/* webpackIgnore: true */ url);
       });
       modulePromise = Promise.resolve().then(() => importModule(WEBLLM_URL)).catch(error => {
         modulePromise = null;
@@ -361,45 +226,37 @@
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) return abort();
 
-      (async () => {
-        let classicSource = '';
-        try {
-          classicSource = await getOrFetchClassicBundle({ signal });
-        } catch (_) {
-          classicSource = 'self.webllm = self.webllm || {};';
-        }
-        const source = `${classicSource}\n;const handler = new (self.webllm?.WebWorkerMLCEngineHandler || self.WebWorkerMLCEngineHandler)();\nself.onmessage = event => handler.onmessage(event);`;
-        workerUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-        try {
-          worker = new Worker(workerUrl);
-        } catch (error) {
-          URL.revokeObjectURL(workerUrl);
-          workerUrl = null;
-          fail(error);
-          return;
-        }
+      const source = `import * as webllm from ${JSON.stringify(WEBLLM_URL)};\nconst handler = new webllm.WebWorkerMLCEngineHandler();\nself.onmessage = event => handler.onmessage(event);`;
+      workerUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+      try {
+        worker = new Worker(workerUrl, { type: 'module' });
+      } catch (error) {
+        URL.revokeObjectURL(workerUrl);
+        workerUrl = null;
+        fail(error);
+        return;
+      }
 
-        worker.addEventListener('error', workerFailure, { once: true });
-        worker.addEventListener('messageerror', workerFailure, { once: true });
+      worker.addEventListener('error', workerFailure, { once: true });
+      worker.addEventListener('messageerror', workerFailure, { once: true });
 
-        const opts = chatOpts || {};
-        webllm.CreateWebWorkerMLCEngine(worker, modelId, { appConfig, initProgressCallback: notifyProgress }, opts)
-          .then(engine => {
-            if (settled) {
-              engine.unload?.();
-              return;
+      const opts = chatOpts || {};
+      webllm.CreateWebWorkerMLCEngine(worker, modelId, { appConfig, initProgressCallback: notifyProgress }, opts)
+        .then(engine => {
+          if (settled) {
+            engine.unload?.();
+            return;
+          }
+          settled = true;
+          cleanup();
+          resolve({
+            engine,
+            release: async () => {
+              try { await engine.unload?.(); } finally { discard(); }
             }
-            settled = true;
-            cleanup();
-            resolve({
-              engine,
-              release: async () => {
-                try { await engine.unload?.(); } finally { discard(); }
-              }
-            });
-          })
-          .catch(error => fail(error, false));
-      })().catch(err => fail(err, false));
+          });
+        })
+        .catch(error => fail(error, false));
     });
   }
 
@@ -624,11 +481,6 @@
     createWorkerEngine,
     extractOverrides,
     applyModelOverrides,
-    getActiveWebllmConfig,
-    transformEsmToClassic,
-    getOrFetchClassicBundle,
-    resetMemoryBundle,
-    BUNDLE_CACHE_NAME,
-    CACHE_TTL_MS
+    getActiveWebllmConfig
   };
 });

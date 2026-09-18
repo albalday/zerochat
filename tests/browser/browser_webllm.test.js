@@ -209,7 +209,7 @@ test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los par
   }
 });
 
-test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://', async () => {
+test('Browser UI - WebLLM arranca Web Worker modular', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -221,16 +221,6 @@ test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://',
       try {
         if (!window.ChatWebLLM) return { ok: false, error: 'ChatWebLLM no está definido' };
         let workerCreated = false;
-        let workerStopped = false;
-
-        const fakeBundle = `
-          self.webllm = {
-            WebWorkerMLCEngineHandler: class {
-              constructor() {}
-              onmessage(event) {}
-            }
-          };
-        `;
 
         const fakeWebLLM = {
           CreateWebWorkerMLCEngine: async (worker, modelId, opts) => {
@@ -241,7 +231,6 @@ test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://',
           }
         };
 
-        // Pasar fakeBundle en bundleSource para comprobar la instanciación del worker sin descargar 5 MB de red
         const handle = await window.ChatWebLLM.createWorkerEngine(fakeWebLLM, 'test-model', {}, () => {}, null);
         await handle.release();
         return { ok: true, workerCreated };
@@ -250,7 +239,7 @@ test('Browser UI - WebLLM arranca Web Worker clásico en Chromium bajo file://',
       }
     });
 
-    assert.equal(result.ok, true, `Worker debe arrancar en file:// sin fallar: ${result.error || ''}`);
+    assert.equal(result.ok, true, `Worker modular debe arrancar sin fallar: ${result.error || ''}`);
     assert.equal(result.workerCreated, true);
   } finally {
     await browser.close();

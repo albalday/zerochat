@@ -1005,8 +1005,9 @@
      * si el servidor simplemente no está levantado, sino que registra 'disconnected' limpiamente.
      */
     async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false, token = null } = {}, registry = null) {
-      if (token) {
-        this.setSessionToken(token);
+      const effectiveToken = token || this.sessionToken || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_token') : null);
+      if (effectiveToken) {
+        this.setSessionToken(effectiveToken);
       }
       const targetEndpoint = endpoint || `http://${host}:${port}/sse`;
       const State = getState();
@@ -1054,6 +1055,9 @@
       let externalSync = null;
       if (registerResult.success) {
         externalSync = await this.syncExternalServers(registry).catch(() => null);
+        if (typeof window !== 'undefined' && window.ChatApp?.startServerHeartbeat && this.sessionToken) {
+          window.ChatApp.startServerHeartbeat(host, port, this.sessionToken);
+        }
       }
 
       return {

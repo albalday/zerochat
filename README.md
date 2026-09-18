@@ -1,72 +1,40 @@
 # ZeroChat
 
-ZeroChat es un cliente web autónomo para chat, agentes IA y conocimiento local.
-La distribución final es `zerochat.html`, un único archivo que puede abrirse
-directamente mediante `file://`.
+ZeroChat es un cliente web universal para interactuar con modelos de inteligencia artificial y agentes de forma privada, rápida y sin intermediarios.
 
-## Uso
+Funciona de forma estática en el navegador (servido por GitHub Pages o directamente desde local en un único archivo HTML), almacenando tus conversaciones, configuraciones y datos de forma segura en tu propio dispositivo (IndexedDB).
 
-1. Descarga `zerochat.html`.
-2. Ábrelo en un navegador moderno.
-3. En el selector del cuadro de mensaje, abre **Editar perfiles** y crea un perfil con proveedor, endpoint, clave y modelo. Consulta el servidor antes de guardarlo.
-4. Para usar documentos, abre **Conocimiento**, crea una rama, carga los archivos y actívala.
+## Características principales
 
-La primera ejecución activa **Espejo**, un perfil incorporado de solo lectura.
-Devuelve el cuerpo JSON compacto de la petición compatible con OpenAI y un aviso de
-pruebas, sin consultar servidores ni ejecutar herramientas. También es el respaldo
-al eliminar un perfil activo o recuperar una selección que ya no existe. La lista
-se abre desde el composer y admite navegación con flechas y cierre con Escape.
+- **Multi-proveedor y modelos locales**: compatible con APIs estándar (OpenAI, Anthropic Claude, Google Gemini, OpenRouter) y motores locales (Ollama, LM Studio, vLLM, WebLLM con WebGPU directo en el navegador).
+- **Herramientas y MCP (Model Context Protocol)**: soporte para agentes, herramientas de búsqueda/cálculo y servidores MCP locales coordinados mediante `zerochat.py`.
+- **Conocimiento local (RAG)**: carga de documentos y recuperación contextual procesada íntegramente en el navegador.
+- **Privacidad absoluta**: tus claves API y datos viajan directamente de tu navegador al proveedor seleccionado, sin servidores puente de terceros.
+- **Sin necesidad de empaquetado**: distribuible de forma universal y ligera.
+
+## Inicio rápido
+
+- **Uso web directo**: abre [zerochat.html en GitHub Pages](https://albalday.github.io/zerochat/zerochat.html).
+- **Servidor local con herramientas MCP**:
+  ```bash
+  python3 zerochat.py
+  ```
+  Inicia el asistente local, crea su entorno virtual de forma desatendida y abre la interfaz web en tu navegador.
+
+## Documentación y Ayuda
+
+Para consultar guías paso a paso, configuración de modelos, perfiles y agentes:
+
+- 📖 **[Centro de Ayuda de ZeroChat (Español)](https://albalday.github.io/zerochat/help/index.html)**
+- 📖 **[ZeroChat Documentation & Help (English)](https://albalday.github.io/zerochat/help/en/index.html)**
 
 ## Desarrollo
 
-Requisitos:
-
-- Node.js LTS y npm;
-- Python 3;
-- Chromium de Playwright para las pruebas de navegador.
-
-Instalación:
+Para ejecutar las pruebas del proyecto:
 
 ```bash
-npm ci
-npx playwright install chromium
-```
-
-Validación durante el desarrollo:
-
-```bash
-npm run test:unit
-npm run test:browser
-```
-
-Validación antes de entregar cambios:
-
-```bash
+npm install
 npm test
-npm run build
 ```
 
-`npm run build` genera el bundle distribuible y reconstruye `zerochat.html` a partir
-de `index.html`, `js/` y `css/`.
-
-## Estructura básica
-
-- `index.html`: aplicación fuente.
-- `js/`: módulos de aplicación.
-- `css/`: estilos y tokens de diseño.
-- `tests/`: pruebas automatizadas (véase `tests/README.md`).
-- `js/tools/README.md`: contrato de las herramientas.
-- `docs/audits/AuditFull.md`: procedimiento de auditoría completo previo a versiones mayores.
-- `zerochat.html`: distribución generada.
-
-No se debe editar manualmente `zerochat.html`.
-
-## Cambios de código
-
-Los cambios deben ser pequeños, mantenibles y coherentes con los patrones existentes.
-Toda modificación de comportamiento debe incluir o actualizar pruebas. Los cambios
-de interfaz deben mantener la localización española e inglesa y validarse mediante
-la suite de navegador.
-
-La aplicación no debe registrar claves API, tokens ni datos privados en el código,
-las pruebas o la consola.
+Consulta [`AGENTS.md`](./AGENTS.md) para conocer las normas de desarrollo y arquitectura, y [`tests/README.md`](./tests/README.md) para la suite de pruebas.

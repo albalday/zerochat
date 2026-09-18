@@ -43,13 +43,14 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.0.4"
+    return "7.0.5"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
-REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
+REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/package.json"
+REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 
 def get_venv_dir() -> Path:
     """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
@@ -138,19 +139,39 @@ def ensure_virtual_environment():
         print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Error en re-ejecución: {err}. Continuando.", flush=True)
 
 
+def parse_version(ver: str) -> tuple[int, ...]:
+    """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
+    parts = []
+    for piece in ver.split("."):
+        clean = "".join(filter(str.isdigit, piece))
+        if clean:
+            parts.append(int(clean))
+    return tuple(parts)
+
+
 def check_version():
-    """Comprueba si hay una nueva versión de zerochat.py en el repositorio remoto."""
+    """Comprueba si hay una nueva versión de zerochat.py en el repositorio remoto (solo en modo producción/standalone)."""
+    if get_dev_root() is not None:
+        return
     try:
         req = urllib.request.Request(REMOTE_VERSION_URL, headers={"User-Agent": f"ZeroChat/{VERSION}"})
         with urllib.request.urlopen(req, timeout=3) as resp:
             content = resp.read(2048).decode("utf-8", errors="ignore")
-            for line in content.splitlines():
-                if line.startswith("VERSION ="):
-                    remote_ver = line.split("=")[1].strip().strip('"').strip("'")
-                    if remote_ver and remote_ver != VERSION:
-                        print(f"[{time.strftime('%H:%M:%S')}] [zerochat] ¡Nueva versión disponible! (Local: {VERSION}, Remota: {remote_ver})", flush=True)
-                        print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_VERSION_URL} -o zerochat.py", flush=True)
-                    break
+            remote_ver = None
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict) and "version" in data and isinstance(data["version"], str):
+                    remote_ver = data["version"].strip()
+            except Exception:
+                pass
+            if not remote_ver:
+                match = re.search(r'["\']?version["\']?\s*[:=]\s*["\'](\d+\.\d+\.\d+)["\']', content)
+                if match:
+                    remote_ver = match.group(1)
+            if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver):
+                if parse_version(remote_ver) > parse_version(VERSION):
+                    print(f"[{time.strftime('%H:%M:%S')}] [zerochat] ¡Nueva versión disponible! (Local: {VERSION}, Remota: {remote_ver})", flush=True)
+                    print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
@@ -1002,13 +1023,20 @@ for raw in sys.stdin:
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
 
-DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "12.0"))
+DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
-DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "0.5"))
+DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "5.0"))
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
+
+
+def mark_browser_active():
+    """Registra la presencia activa del navegador ante cualquier petición válida."""
+    global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
+    HEARTBEAT_LAST_SEEN = time.monotonic()
+    HEARTBEAT_INITIALIZED = True
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -1131,6 +1159,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
+        mark_browser_active()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -1167,7 +1196,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         if not token_candidate:
             return False
-        return hmac.compare_digest(token_candidate, SESSION_TOKEN)
+        is_valid = hmac.compare_digest(token_candidate, SESSION_TOKEN)
+        if is_valid:
+            mark_browser_active()
+        return is_valid
 
     def do_OPTIONS(self):
         t0 = time.monotonic()
@@ -1233,9 +1265,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
 
         if is_heartbeat:
-            global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
-            HEARTBEAT_LAST_SEEN = time.monotonic()
-            HEARTBEAT_INITIALIZED = True
+            mark_browser_active()
             self._send_json_response(200, {"ok": True})
             return
 
@@ -1606,8 +1636,13 @@ def main():
     if not args.no_venv:
         ensure_virtual_environment()
 
-    # 2. Comprobar versión remota en segundo plano
-    threading.Thread(target=check_version, daemon=True).start()
+    # 2. Detectar entorno de desarrollo y resolver URL de destino
+    dev_root = get_dev_root()
+    is_dev = dev_root is not None
+
+    # 3. Comprobar versión remota en segundo plano (solo fuera del entorno de desarrollo local)
+    if not is_dev:
+        threading.Thread(target=check_version, daemon=True).start()
 
     ACTIVE_PORT = args.port
     ACTIVE_HOST = args.host
@@ -1617,10 +1652,6 @@ def main():
         SESSION_TOKEN = get_daily_token()
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
-
-    # 3. Detectar entorno de desarrollo y resolver URL de destino
-    dev_root = get_dev_root()
-    is_dev = dev_root is not None
 
     if args.ui_url:
         ui_url = args.ui_url
