@@ -417,34 +417,6 @@
     if (ResetService?.resetAllData) {
       return await ResetService.resetAllData();
     }
-    if (!await ChatDialogs.confirm(t('confirm_clear_all_data'))) return;
-    const Storage = getStorage();
-    let cleared = true;
-    try {
-      await getProviders()?.registry?.get?.('webllm')?.deactivate?.();
-    } catch (_) {
-      await ChatDialogs.alert(t('clear_all_data_failed'), { type: 'error' });
-      return;
-    }
-    if (Storage?.clearAllStorage) {
-      try {
-        cleared = await Storage.clearAllStorage();
-      } catch (error) {
-        console.warn('No se pudieron borrar todos los datos locales:', error);
-        cleared = false;
-      }
-    } else {
-      try { localStorage.clear(); } catch (e) {}
-      try { sessionStorage.clear(); } catch (e) {}
-    }
-    if (cleared === false) {
-      const detail = Storage?.getLastClearAllStorageError?.();
-      await ChatDialogs.alert(detail ? t('clear_all_data_failed_detail', { detail }) : t('clear_all_data_failed'), { type: 'error' });
-      return;
-    }
-    if (typeof window !== 'undefined' && window.location) {
-      window.location.reload();
-    }
   }
 
   function getSettingsDialogHTML() {

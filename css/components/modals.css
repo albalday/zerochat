@@ -997,44 +997,6 @@ input.form-input:focus-visible,
   align-items: center;
 }
 
-.settings-modal .modal-footer {
-  position: sticky;
-  bottom: 0;
-  padding: 0.75rem 1rem;
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
-  background-color: var(--bg-surface);
-  border-top: 1px solid var(--border-color);
-  flex-shrink: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  z-index: 10;
-}
-
-.settings-modal .footer-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex-wrap: nowrap;
-  margin-left: auto;
-}
-
-.settings-modal .modal-footer .btn-primary,
-.settings-modal .modal-footer .btn-secondary {
-  min-height: 40px;
-  padding: 0 0.85rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  white-space: nowrap;
-  font-size: 0.85rem;
-  font-weight: 500;
-  border-radius: var(--radius-sm, 6px);
-  box-sizing: border-box;
-}
-
 .btn-primary,
 .btn-secondary {
   font-size: 0.9rem;
@@ -1362,13 +1324,6 @@ input.form-input:focus-visible,
     top: 0;
     z-index: 10;
     padding-top: max(0.75rem, env(safe-area-inset-top, 0.75rem));
-  }
-
-  .settings-modal .modal-footer {
-    position: sticky;
-    bottom: 0;
-    z-index: 10;
-    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
   }
 
   .debug-interceptor-modal {

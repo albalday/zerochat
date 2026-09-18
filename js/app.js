@@ -274,8 +274,6 @@
       maxAgentTurnsVal: document.getElementById('max-agent-turns-val'),
       themeButtons: document.querySelectorAll('.btn-theme-toggle'),
       langButtons: document.querySelectorAll('.btn-lang-toggle'),
-      modalTabs: document.querySelectorAll('#settings-dialog .modal-tabs-nav .modal-tab-btn'),
-      modalPanes: document.querySelectorAll('#settings-dialog .modal-tab-pane'),
       btnRunInspector: document.getElementById('btn-run-inspector'),
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
@@ -285,7 +283,6 @@
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
       btnMcpConnect: document.getElementById('btn-mcp-connect'),
-      btnMcpDisconnect: document.getElementById('btn-mcp-disconnect'),
       mcpServerDetails: document.getElementById('mcp-server-details'),
       mcpErrorMessage: document.getElementById('mcp-error-message'),
       mcpHostInput: document.getElementById('mcp-host-input'),
@@ -1435,17 +1432,6 @@
   // Fase 6 — View Transitions para Cambio de Pestaña y Light-Dismiss
   // ==========================================================================
 
-  function switchModalTab(tabBtn, allTabs, allPanes) {
-    const targetTabId = tabBtn.getAttribute('data-tab');
-    if (!targetTabId) return;
-
-    allTabs.forEach(b => b.classList.remove('active'));
-    allPanes.forEach(p => p.classList.remove('active'));
-    tabBtn.classList.add('active');
-    const targetPane = document.getElementById(targetTabId);
-    if (targetPane) targetPane.classList.add('active');
-  }
-
   function setupLightDismissDialogs() {
     if (UIShell.setupLightDismissDialogs) {
       return UIShell.setupLightDismissDialogs(document, {
@@ -1545,9 +1531,6 @@
       elements.sidebarSettingsItems.forEach(item => {
         item.addEventListener('click', () => {
           const sectionId = item.dataset?.section || item.getAttribute('data-section');
-          if (UISidebar.setActiveSettingsSection) {
-            UISidebar.setActiveSettingsSection(elements, sectionId);
-          }
           openSettingsSection(sectionId);
           if (UISidebar.isMobile && UISidebar.isMobile()) {
             closeSidebar();
@@ -1791,9 +1774,6 @@
     if (elements.btnCloseSettings) {
       elements.btnCloseSettings.addEventListener('click', closeSettingsPanelOnly);
     }
-    if (elements.btnSaveSettings) {
-      elements.btnSaveSettings.addEventListener('click', handleSaveSettings);
-    }
     if (elements.settingsForm) {
       elements.settingsForm.addEventListener('submit', handleSaveSettings);
     }
@@ -1972,15 +1952,6 @@
         }
         setProfileDirty(true);
         syncProfileSaveState();
-      });
-    }
-
-    if (elements.modalTabs && elements.modalTabs.length > 0) {
-      elements.modalTabs.forEach(tabBtn => {
-        tabBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          switchModalTab(tabBtn, elements.modalTabs, elements.modalPanes);
-        });
       });
     }
 
@@ -2219,7 +2190,6 @@
         statusBadge: elements.mcpStatusBadge,
         statusText: elements.mcpStatusText,
         btnConnect: elements.btnMcpConnect,
-        btnDisconnect: elements.btnMcpDisconnect,
         btnConfigure: elements.btnMcpConfigure,
         mcpSetupDialog: elements.mcpSetupDialog,
         btnCloseSetup: elements.btnCloseMcpSetup,

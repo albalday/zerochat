@@ -1269,15 +1269,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._send_json_response(200, {"ok": True})
             return
 
-        if path_clean in ("/zerochat/external/status", "zerochat/external/status"):
-            self._send_json_response(200, {
-                "host": "running",
-                "version": VERSION,
-                "servers": GLOBAL_MCP_MANAGER.list_servers()
-            })
-            self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
-            return
-
         accept = self.headers.get("Accept", "")
         if "/sse" in self.path or "text/event-stream" in accept:
             self.send_response(200)
@@ -1373,38 +1364,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             action_tag = f"[{safe_path}]"
 
         self._log_req("POST", f"{safe_path} {action_tag}")
-
-        # Manejo de rutas REST directas (sin método JSON-RPC o con él)
-        if req_path in ("/zerochat/external/status", "zerochat/external/status") and not method:
-            self._send_json_response(200, {
-                "host": "running",
-                "version": VERSION,
-                "servers": GLOBAL_MCP_MANAGER.list_servers()
-            })
-            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
-            return
-
-        if req_path in ("/zerochat/external/servers/start", "zerochat/external/servers/start") and not method:
-            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
-            servers = GLOBAL_MCP_MANAGER.start(server_id)
-            self._send_json_response(200, {"servers": servers})
-            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
-            return
-
-        if req_path in ("/zerochat/external/servers/stop", "zerochat/external/servers/stop") and not method:
-            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
-            servers = GLOBAL_MCP_MANAGER.stop(server_id)
-            self._send_json_response(200, {"servers": servers})
-            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
-            return
-
-        if req_path in ("/zerochat/external/servers/configure", "zerochat/external/servers/configure") and not method:
-            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
-            opts = req.get("options") or (params.get("options", {}) if isinstance(params, dict) else {})
-            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-            self._send_json_response(200, {"servers": servers})
-            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
-            return
 
         if req_id is None and (method or "").startswith("notifications/"):
             self.send_response(204)
@@ -1528,13 +1487,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 opts = params.get("options") or req.get("options", {})
                 servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
                 result = {"servers": servers}
-            elif method in ("zerochat/external/start", "zerochat/external/stop"):
-                if method == "zerochat/external/stop":
-                    GLOBAL_MCP_MANAGER.close()
-                result = {
-                    "host": "running",
-                    "servers": GLOBAL_MCP_MANAGER.list_servers()
-                }
             else:
                 error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 
