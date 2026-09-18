@@ -902,7 +902,17 @@
     if (UIProfiles.isProfileFormDirty) {
       return UIProfiles.isProfileFormDirty(elements, getProfilesHelperOptions());
     }
-    return false;
+    return elements.profilesDialog?.dataset.profileDirty === 'true';
+  }
+
+  function setProfileDirty(dirty = true) {
+    if (UIProfiles.setProfileDirty) {
+      return UIProfiles.setProfileDirty(elements, dirty);
+    }
+    if (elements.profilesDialog) {
+      if (!elements.profilesDialog.dataset) elements.profilesDialog.dataset = {};
+      elements.profilesDialog.dataset.profileDirty = String(Boolean(dirty));
+    }
   }
 
   function setProfileQueryState(ready) {
@@ -1741,11 +1751,19 @@
       });
     }
     if (elements.profilesDialog) {
-      elements.profilesDialog.addEventListener('input', () => syncProfileSaveState());
-      elements.profilesDialog.addEventListener('change', () => syncProfileSaveState());
+      const markProfileModified = (e) => {
+        if (e && (e.target === elements.profileSelectHelper || e.target === elements.profilesImportInput)) {
+          return;
+        }
+        setProfileDirty(true);
+        syncProfileSaveState();
+      };
+      elements.profilesDialog.addEventListener('input', markProfileModified);
+      elements.profilesDialog.addEventListener('change', markProfileModified);
       elements.profilesDialog.addEventListener('cancel', function (e) {
         if (!isProfileQueryReady() && !isProfileFormDirty()) {
           setProfileQueryState(false);
+          setProfileDirty(false);
           resetProfileFormToSelected();
           return;
         }
@@ -1768,6 +1786,7 @@
         applyProfileToForm(profile.settings);
         setSelectedProfileAsDefault(profile);
         setProfileQueryState(false);
+        setProfileDirty(false);
         if (typeof loadCachedModels === 'function') loadCachedModels();
         syncProfileSaveState();
       });
@@ -1789,6 +1808,7 @@
             }
             setSelectedProfileAsDefault(profile);
             setProfileQueryState(false);
+            setProfileDirty(false);
             if (typeof loadCachedModels === 'function') loadCachedModels();
             syncProfileSaveState();
           }
@@ -1840,6 +1860,7 @@
         if (typeof loadCachedModels === 'function') {
           loadCachedModels();
         }
+        setProfileDirty(true);
         syncProfileSaveState();
       });
     }
@@ -1866,6 +1887,7 @@
         if (this.value) {
           elements.settingModel.value = this.value;
         }
+        setProfileDirty(true);
         syncProfileSaveState();
       });
     }
@@ -1876,6 +1898,7 @@
         if (elements.modelSelectHelper) {
           elements.modelSelectHelper.value = val;
         }
+        setProfileDirty(true);
         syncProfileSaveState();
       });
 
@@ -1884,6 +1907,7 @@
         if (elements.modelSelectHelper) {
           elements.modelSelectHelper.value = val;
         }
+        setProfileDirty(true);
         syncProfileSaveState();
       });
     }
@@ -2117,6 +2141,49 @@
           silentOnFailure: !incomingToken
         });
       }
+
+      // Iniciar latido periódico al servidor local zerochat.py si hay token de sesión activo
+      if (incomingToken) {
+        startServerHeartbeat(targetHost, targetPort, incomingToken);
+      }
+    }
+
+    let heartbeatTimer = null;
+
+    function startServerHeartbeat(host, port, token) {
+      if (heartbeatTimer) return;
+      if (!token || !host || !port) return;
+
+      const endpoint = `http://${host}:${port}/zerochat/heartbeat?token=${encodeURIComponent(token)}`;
+      const ping = () => {
+        if (typeof fetch !== 'function') return;
+        fetch(endpoint, {
+          method: 'GET',
+          cache: 'no-store',
+          mode: 'cors'
+        }).catch(() => {
+          // Ignorar silenciosamente desconexiones si el servidor ya se ha cerrado
+        });
+      };
+
+      // Primer latido inmediato para registrar presencia temprana
+      ping();
+
+      // Latidos sucesivos cada 4 segundos
+      heartbeatTimer = setInterval(ping, 4000);
+
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('pagehide', () => {
+          stopServerHeartbeat();
+        }, { once: true });
+      }
+    }
+
+    function stopServerHeartbeat() {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
     }
 
     window.ChatApp = {
@@ -2137,14 +2204,35 @@
       openExecutionInfo,
       exportConversationAsMarkdown,
       exportConversationAsJson,
-      exportConversationAsPrint
+      exportConversationAsPrint,
+      startServerHeartbeat,
+      stopServerHeartbeat
     };
 
     // Fase 6: configurar light-dismiss fallback para navegadores sin closedby
     setupLightDismissDialogs();
 
+    // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
+    registerServiceWorker();
+
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
+  }
+
+  function registerServiceWorker() {
+    if (typeof window !== 'undefined' &&
+        'serviceWorker' in navigator &&
+        (location.protocol === 'http:' || location.protocol === 'https:')) {
+      const register = () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .catch(() => {});
+      };
+      if (document.readyState === 'complete') {
+        register();
+      } else {
+        window.addEventListener('load', register, { once: true });
+      }
+    }
   }
 
   if (document.readyState === 'loading') {

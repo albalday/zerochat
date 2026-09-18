@@ -19,6 +19,7 @@ import json
 import os
 import platform
 import queue
+import re
 import secrets
 import shutil
 import signal
@@ -32,7 +33,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "7.0.1"
+VERSION = "7.0.2"
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
@@ -41,6 +42,19 @@ REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master
 def get_venv_dir() -> Path:
     """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
     return (Path.cwd() / "zerochat").resolve()
+
+
+def get_dev_root() -> Path | None:
+    """
+    Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
+    Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
+    """
+    script_dir = Path(__file__).resolve().parent
+    cwd = Path.cwd().resolve()
+    for candidate in (script_dir, cwd):
+        if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
+            return candidate
+    return None
 
 
 def get_daily_token() -> str:
@@ -352,6 +366,25 @@ LOCAL_TOOL_HANDLERS = {
 # ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
+
+def sanitize_log_path(raw_path: str) -> str:
+    """Oculta tokens de sesión o parámetros sensibles en la query string para logs seguros."""
+    if not raw_path or "?" not in raw_path:
+        return raw_path or "/"
+    path, query = raw_path.split("?", 1)
+    safe_query = re.sub(r'(token=)[^&]+', r'\1***', query, flags=re.IGNORECASE)
+    return f"{path}?{safe_query}"
+
+
+def format_log_error(msg: str, max_len: int = 160) -> str:
+    """Limpia y trunca mensajes de error para mantener el log en una sola línea legible."""
+    if not msg:
+        return ""
+    cleaned = " ".join(str(msg).strip().splitlines())
+    if len(cleaned) > max_len:
+        return cleaned[:max_len - 3] + "..."
+    return cleaned
+
 
 def is_allowed_origin(origin: str | None) -> bool:
     """Verifica si el origen CORS está autorizado."""
@@ -957,9 +990,142 @@ for raw in sys.stdin:
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
 
+DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "12.0"))
+DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
+HEARTBEAT_LAST_SEEN = 0.0
+HEARTBEAT_INITIALIZED = False
+HEARTBEAT_WATCHDOG_STOP = threading.Event()
+_SERVER_SHUTTING_DOWN = threading.Event()
+
+
+def stop_zerochat_server(server: ThreadingHTTPServer):
+    """Detiene limpiamente el servidor y todos los subsistemas evitando reentradas."""
+    if _SERVER_SHUTTING_DOWN.is_set():
+        return
+    _SERVER_SHUTTING_DOWN.set()
+    HEARTBEAT_WATCHDOG_STOP.set()
+    GLOBAL_MCP_MANAGER.close()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
+    """
+    Supervisa la presencia de la pestaña del navegador mediante latidos HTTP.
+    Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
+    """
+    start_time = time.monotonic()
+    while not HEARTBEAT_WATCHDOG_STOP.is_set():
+        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=0.5):
+            break
+
+        now = time.monotonic()
+
+        # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
+        if not HEARTBEAT_INITIALIZED:
+            if require_initial_connection and (now - start_time > initial_grace_seconds):
+                print(f"[{time.strftime('%H:%M:%S')}] Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...", flush=True)
+                stop_zerochat_server(server)
+                break
+            continue
+
+        # 2. Inactividad tras haber recibido latidos
+        if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
+            print(f"[{time.strftime('%H:%M:%S')}] Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...", flush=True)
+            stop_zerochat_server(server)
+            break
+
+
+DEV_CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".ico": "image/x-icon",
+    ".txt": "text/plain; charset=utf-8",
+    ".map": "application/json",
+}
+
 
 class ZeroChatServerHandler(BaseHTTPRequestHandler):
     server_version = f"ZeroChatServer/{VERSION}"
+
+    def _log_req(self, method: str, detail: str):
+        now = time.strftime("%H:%M:%S")
+        print(f"[{now}] --> {method} {detail}", flush=True)
+
+    def _log_res(self, status: int, detail: str, duration_ms: float, error_info: str = ""):
+        now = time.strftime("%H:%M:%S")
+        status_text = {
+            200: "200 OK",
+            204: "204 No Content",
+            400: "400 Bad Request",
+            401: "401 Unauthorized",
+            403: "403 Forbidden",
+            404: "404 Not Found",
+            500: "500 Internal Server Error",
+        }.get(status, str(status))
+        err_suffix = f" - ERROR: {format_log_error(error_info)}" if error_info else ""
+        print(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
+
+    def serve_static_dev_file(self, rel_path: str) -> bool:
+        """Sirve un archivo estático del repositorio si existe y estamos en el directorio de desarrollo."""
+        dev_root = get_dev_root()
+        if not dev_root:
+            return False
+
+        clean_rel = rel_path.split("?", 1)[0].lstrip("/")
+        if not clean_rel:
+            return False
+
+        target_path = (dev_root / clean_rel).resolve()
+        try:
+            rel_parts = target_path.relative_to(dev_root.resolve()).parts
+        except ValueError:
+            return False
+
+        # Whitelist de archivos y carpetas autorizados para servir la interfaz web
+        is_allowed_static = (
+            clean_rel == "zerochat.html" or
+            clean_rel in ("manifest.webmanifest", "sw.js", "favicon.ico") or
+            clean_rel.startswith("js/") or
+            clean_rel.startswith("css/") or
+            clean_rel.startswith("help/")
+        )
+        if not is_allowed_static:
+            return False
+
+        # Protección: bloquear archivos ocultos y entorno virtual ./zerochat
+        for part in rel_parts:
+            if part.startswith(".") and part != ".":
+                return False
+            if part in ("zerochat", "node_modules", ".git", "tests"):
+                return False
+
+        if not target_path.is_file():
+            return False
+
+        ext = target_path.suffix.lower()
+        content_type = DEV_CONTENT_TYPES.get(ext, "application/octet-stream")
+        try:
+            data = target_path.read_bytes()
+        except Exception:
+            return False
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        if clean_rel == "sw.js":
+            self.send_header("Service-Worker-Allowed", "/")
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(data)
+        return True
 
     def send_cors_headers(self):
         origin = self.headers.get("Origin")
@@ -990,14 +1156,23 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         return hmac.compare_digest(token_candidate, SESSION_TOKEN)
 
     def do_OPTIONS(self):
+        t0 = time.monotonic()
+        safe_path = sanitize_log_path(self.path)
+        path_clean = self.path.split("?", 1)[0].rstrip("/")
+        is_heartbeat = path_clean == "/zerochat/heartbeat"
+        if not is_heartbeat:
+            self._log_req("OPTIONS", safe_path)
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
             self.send_response(403)
             self.end_headers()
+            self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
         self.send_response(204)
         self.send_cors_headers()
         self.end_headers()
+        if not is_heartbeat:
+            self._log_res(204, safe_path, (time.monotonic() - t0) * 1000)
 
     def _send_json_response(self, status: int, data: dict):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -1009,11 +1184,28 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        t0 = time.monotonic()
+        safe_path = sanitize_log_path(self.path)
+        path_clean = self.path.split("?", 1)[0].rstrip("/")
+        is_heartbeat = path_clean == "/zerochat/heartbeat"
+
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
+            if not is_heartbeat:
+                self._log_req("GET", safe_path)
             self.send_response(403)
             self.end_headers()
+            self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
+
+        # Servir archivos estáticos del repositorio si estamos en entorno de desarrollo
+        if path_clean and self.serve_static_dev_file(path_clean):
+            self._log_req("GET", safe_path)
+            self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
+            return
+
+        if not is_heartbeat:
+            self._log_req("GET", safe_path)
 
         if not self.verify_token():
             err_msg = json.dumps({"error": "Unauthorized: invalid or missing session token"}).encode("utf-8")
@@ -1023,15 +1215,23 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.send_cors_headers()
             self.end_headers()
             self.wfile.write(err_msg)
+            self._log_res(401, safe_path, (time.monotonic() - t0) * 1000, "Token de sesión ausente o inválido")
             return
 
-        path_clean = self.path.split("?", 1)[0].rstrip("/")
+        if is_heartbeat:
+            global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
+            HEARTBEAT_LAST_SEEN = time.monotonic()
+            HEARTBEAT_INITIALIZED = True
+            self._send_json_response(200, {"ok": True})
+            return
+
         if path_clean in ("/zerochat/external/status", "zerochat/external/status"):
             self._send_json_response(200, {
                 "host": "running",
                 "version": VERSION,
                 "servers": GLOBAL_MCP_MANAGER.list_servers()
             })
+            self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
 
         accept = self.headers.get("Accept", "")
@@ -1045,6 +1245,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             endpoint_data = b"/mcp/external" if "/mcp/external" in self.path else b"/"
             self.wfile.write(b"event: endpoint\r\ndata: " + endpoint_data + b"\r\n\r\n")
             self.wfile.flush()
+            self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
             return
 
         # Status general
@@ -1062,15 +1263,21 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
         self.wfile.write(res_data)
+        self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
 
     def do_POST(self):
+        t0 = time.monotonic()
+        safe_path = sanitize_log_path(self.path)
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
+            self._log_req("POST", safe_path)
             self.send_response(403)
             self.end_headers()
+            self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
         if not self.verify_token():
+            self._log_req("POST", safe_path)
             err_msg = json.dumps({
                 "jsonrpc": "2.0",
                 "id": None,
@@ -1082,6 +1289,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.send_cors_headers()
             self.end_headers()
             self.wfile.write(err_msg)
+            self._log_res(401, safe_path, (time.monotonic() - t0) * 1000, "Token de sesión ausente o inválido")
             return
 
         content_len = int(self.headers.get("Content-Length", 0))
@@ -1090,6 +1298,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         try:
             req = json.loads(post_data.decode("utf-8"))
         except Exception as err:
+            self._log_req("POST", safe_path)
             err_resp = json.dumps({
                 "jsonrpc": "2.0",
                 "id": None,
@@ -1100,12 +1309,26 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self.send_cors_headers()
             self.end_headers()
             self.wfile.write(err_resp)
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, f"Error parseando JSON: {err}")
             return
 
         req_path = self.path.split("?", 1)[0].rstrip("/")
         req_id = req.get("id")
         method = req.get("method")
         params = req.get("params", {})
+
+        # Determinar etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
+        tool_name = params.get("name", "") if isinstance(params, dict) else ""
+        if method == "tools/call" and tool_name:
+            action_tag = f"[tools/call: {tool_name}]"
+        elif method:
+            action_tag = f"[rpc: {method}]"
+        elif req_path.startswith("/zerochat/external/servers/"):
+            action_tag = f"[REST: {req_path}]"
+        else:
+            action_tag = f"[{safe_path}]"
+
+        self._log_req("POST", f"{safe_path} {action_tag}")
 
         # Manejo de rutas REST directas (sin método JSON-RPC o con él)
         if req_path in ("/zerochat/external/status", "zerochat/external/status") and not method:
@@ -1114,35 +1337,41 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 "version": VERSION,
                 "servers": GLOBAL_MCP_MANAGER.list_servers()
             })
+            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
             return
 
         if req_path in ("/zerochat/external/servers/start", "zerochat/external/servers/start") and not method:
-            server_id = req.get("serverId") or params.get("serverId")
+            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
             servers = GLOBAL_MCP_MANAGER.start(server_id)
             self._send_json_response(200, {"servers": servers})
+            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
             return
 
         if req_path in ("/zerochat/external/servers/stop", "zerochat/external/servers/stop") and not method:
-            server_id = req.get("serverId") or params.get("serverId")
+            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
             self._send_json_response(200, {"servers": servers})
+            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
             return
 
         if req_path in ("/zerochat/external/servers/configure", "zerochat/external/servers/configure") and not method:
-            server_id = req.get("serverId") or params.get("serverId")
-            opts = req.get("options") or params.get("options", {})
+            server_id = req.get("serverId") or (params.get("serverId") if isinstance(params, dict) else None)
+            opts = req.get("options") or (params.get("options", {}) if isinstance(params, dict) else {})
             servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
             self._send_json_response(200, {"servers": servers})
+            self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
             return
 
         if req_id is None and (method or "").startswith("notifications/"):
             self.send_response(204)
             self.send_cors_headers()
             self.end_headers()
+            self._log_res(204, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
             return
 
         result = None
         error = None
+        tool_error_info = ""
         is_external_endpoint = "/mcp/external" in req_path
 
         if is_external_endpoint:
@@ -1160,11 +1389,18 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             elif method == "tools/list":
                 result = {"tools": GLOBAL_MCP_MANAGER.tools()}
             elif method == "tools/call":
-                tool_name = params.get("name", "")
-                tool_args = params.get("arguments", {})
+                tool_name = params.get("name", "") if isinstance(params, dict) else ""
+                tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
                 try:
                     result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
+                    if isinstance(result, dict) and result.get("isError"):
+                        c_list = result.get("content", [])
+                        if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                            tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
+                        else:
+                            tool_error_info = "Error en herramienta MCP externa"
                 except Exception as ex:
+                    tool_error_info = str(ex)
                     result = {
                         "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
                         "isError": True
@@ -1186,18 +1422,28 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             elif method == "tools/list":
                 result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
             elif method == "tools/call":
-                tool_name = params.get("name", "")
-                tool_args = params.get("arguments", {})
+                tool_name = params.get("name", "") if isinstance(params, dict) else ""
+                tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
 
                 if tool_name in LOCAL_TOOL_HANDLERS:
                     handler = LOCAL_TOOL_HANDLERS[tool_name]
                     try:
                         tool_output_json = handler(**tool_args)
+                        is_tool_err = False
+                        try:
+                            parsed_out = json.loads(tool_output_json)
+                            if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
+                                is_tool_err = True
+                                tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
+                        except Exception:
+                            pass
+
                         result = {
                             "content": [{"type": "text", "text": tool_output_json}],
-                            "isError": False
+                            "isError": is_tool_err
                         }
                     except Exception as ex:
+                        tool_error_info = str(ex)
                         result = {
                             "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
                             "isError": True
@@ -1205,7 +1451,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 elif tool_name.startswith("mcp_"):
                     try:
                         result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
+                        if isinstance(result, dict) and result.get("isError"):
+                            c_list = result.get("content", [])
+                            if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                                tool_error_info = c_list[0].get("text", "Error en herramienta MCP")
+                            else:
+                                tool_error_info = "Error en herramienta MCP"
                     except Exception as ex:
+                        tool_error_info = str(ex)
                         result = {
                             "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
                             "isError": True
@@ -1242,10 +1495,14 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 
         response_payload = {"jsonrpc": "2.0", "id": req_id}
+        error_info = ""
         if error:
             response_payload["error"] = error
+            error_info = f"[{error.get('code')}] {error.get('message')}"
         else:
             response_payload["result"] = result
+            if tool_error_info:
+                error_info = tool_error_info
 
         resp_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
 
@@ -1255,10 +1512,55 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_cors_headers()
         self.end_headers()
         self.wfile.write(resp_bytes)
+        self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000, error_info=error_info)
 
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
+
+def open_browser(url: str) -> bool:
+    """
+    Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
+    En Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
+    desacoplando el proceso hijo para evitar ruidos en la terminal.
+    """
+    if sys.platform.startswith("linux"):
+        for cmd in ("xdg-open", "gio"):
+            if shutil.which(cmd):
+                try:
+                    args = ["gio", "open", url] if cmd == "gio" else ["xdg-open", url]
+                    subprocess.Popen(
+                        args,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    return True
+                except Exception:
+                    pass
+    elif sys.platform == "darwin":
+        if shutil.which("open"):
+            try:
+                subprocess.Popen(
+                    ["open", url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except Exception:
+                pass
+    elif sys.platform == "win32":
+        try:
+            os.startfile(url)
+            return True
+        except Exception:
+            pass
+
+    try:
+        return webbrowser.open(url)
+    except Exception:
+        return False
 
 
 # ==============================================================================
@@ -1272,8 +1574,9 @@ def main():
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--token", default=None, help="Fijar un token de sesión específico (opcional)")
-    parser.add_argument("--ui-url", default=DEFAULT_UI_URL, help="URL de la interfaz web a abrir")
+    parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
+    parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación del venv ./zerochat")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     args = parser.parse_args()
@@ -1301,29 +1604,56 @@ def main():
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
 
-    # 3. Construir URL y lanzar navegador
-    target_url = f"{args.ui_url}#token={SESSION_TOKEN}&port={ACTIVE_PORT}"
+    # 3. Detectar entorno de desarrollo y resolver URL de destino
+    dev_root = get_dev_root()
+    is_dev = dev_root is not None
+
+    if args.ui_url:
+        ui_url = args.ui_url
+    elif is_dev:
+        ui_url = f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
+    else:
+        ui_url = DEFAULT_UI_URL
+
+    target_url = f"{ui_url}#token={SESSION_TOKEN}&port={ACTIVE_PORT}"
+    exit_on_close = not args.no_exit_on_close
 
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION}")
     print(f"  Directorio de trabajo : {Path.cwd()}")
     print(f"  Entorno virtual       : {get_venv_dir()}")
+    if is_dev:
+        print(f"  Modo de ejecución     : Desarrollo local ({dev_root})")
+    else:
+        print(f"  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
     print(f"  Token de sesión (diario): {SESSION_TOKEN}")
-    print(f"  Destino Web           : {args.ui_url}")
+    print(f"  Destino Web           : {ui_url}")
+    if exit_on_close:
+        print(f"  Auto-cierre           : Activado (al cerrar navegador)")
+    else:
+        print(f"  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
     if not args.no_browser:
         print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en {target_url}...", flush=True)
         try:
-            webbrowser.open(target_url)
+            if not open_browser(target_url):
+                print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente.", flush=True)
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
 
+    if exit_on_close:
+        require_initial = not args.no_browser
+        threading.Thread(
+            target=heartbeat_watchdog,
+            args=(server, DEFAULT_HEARTBEAT_GRACE, DEFAULT_HEARTBEAT_TIMEOUT, require_initial),
+            daemon=True
+        ).start()
+
     def shutdown(*_):
         print(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
-        GLOBAL_MCP_MANAGER.close()
-        threading.Thread(target=server.shutdown, daemon=True).start()
+        stop_zerochat_server(server)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
@@ -1331,7 +1661,7 @@ def main():
     try:
         server.serve_forever()
     finally:
-        GLOBAL_MCP_MANAGER.close()
+        stop_zerochat_server(server)
         server.server_close()
 
 

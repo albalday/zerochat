@@ -194,4 +194,40 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
     await browser.close();
   }
 });
+
+test('Browser UI - zerochat.html optimiza carga con defer, CSS paralelos y PWA manifest', async () => {
+  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
+  const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+
+  // Comprobar enlace a manifest
+  assert.match(htmlContent, /<link rel="manifest" href="manifest\.webmanifest">/, 'Debe declarar manifest.webmanifest');
+  assert.match(htmlContent, /<meta name="theme-color" content="#0d1117">/, 'Debe declarar theme-color');
+
+  // Comprobar que no hay @import en zerochat.html y que los estilos se cargan en paralelo
+  assert.ok(!htmlContent.includes('<link rel="stylesheet" href="css/styles.css">'), 'No debe usar la cascada de styles.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/tokens\.css">/, 'Debe enlazar tokens.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/base\.css">/, 'Debe enlazar base.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/components\/composer\.css">/, 'Debe enlazar composer.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/print\.css" media="print">/, 'print.css debe tener media="print"');
+
+  // Comprobar que los scripts usan defer para carga concurrente
+  const scriptsWithoutDefer = [...htmlContent.matchAll(/<script\s+src="js\/([^"]+)"/g)];
+  assert.equal(scriptsWithoutDefer.length, 0, 'Todos los scripts de la aplicación deben declarar defer');
+  assert.match(htmlContent, /<script defer src="js\/app\.js"><\/script>/, 'js/app.js debe declarar defer');
+
+  // Comprobar validez de manifest.webmanifest
+  const manifestPath = path.resolve(__dirname, '../../manifest.webmanifest');
+  assert.ok(fs.existsSync(manifestPath), 'manifest.webmanifest debe existir');
+  const manifestJson = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.equal(manifestJson.display, 'standalone');
+  assert.equal(manifestJson.start_url, './zerochat.html');
+
+  // Comprobar existencia y contenido de sw.js
+  const swPath = path.resolve(__dirname, '../../sw.js');
+  assert.ok(fs.existsSync(swPath), 'sw.js debe existir');
+  const swContent = fs.readFileSync(swPath, 'utf8');
+  assert.match(swContent, /CACHE_NAME/, 'sw.js debe declarar CACHE_NAME');
+  assert.match(swContent, /caches\.open/, 'sw.js debe gestionar la Cache API');
 });
+});
+
