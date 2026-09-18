@@ -227,11 +227,9 @@
       settingsDialog: document.getElementById('settings-dialog'),
       settingsActiveProfileName: document.getElementById('settings-active-profile-name'),
       settingsForm: document.getElementById('settings-form'),
-      btnSettingsBack: document.getElementById('btn-settings-back'),
       settingsSectionTitle: document.getElementById('settings-section-title'),
       btnCloseSettings: document.getElementById('btn-close-settings'),
-      btnCancelSettings: document.getElementById('btn-cancel-settings'),
-      btnResetSettings: document.getElementById('btn-reset-settings'),
+      btnSaveSettings: document.getElementById('btn-save-settings'),
       btnClearAllData: document.getElementById('btn-clear-all-data'),
       btnToggleKey: document.getElementById('btn-toggle-key'),
       profilesDialog: document.getElementById('profiles-dialog'),
@@ -879,7 +877,7 @@
     }
 
     if (closeModal) {
-      closeSettingsModal();
+      closeSettingsPanelOnly();
     } else {
       showProfileFeedback(t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }) || 'Configuración actualizada.', 'success');
     }
@@ -985,7 +983,7 @@
     }
   }
 
-  function openSettingsSection(sectionId = 'tab-general') {
+  function openSettingsSection(sectionId = 'tab-model') {
     if (UISettings.openSettingsSection) {
       UISettings.openSettingsSection(elements, getRuntimeConfig(), {
         populateProfileSelector,
@@ -1001,7 +999,7 @@
     }
   }
 
-  function openSettingsModal(initialTabId = 'tab-general') {
+  function openSettingsModal(initialTabId = 'tab-model') {
     openSettingsSection(initialTabId);
   }
 
@@ -1032,14 +1030,14 @@
     }
   }
 
-  function backToSettingsNavigation() {
+  function closeSettingsPanelOnly() {
     if (UISettings.closeSettingsModal) {
       UISettings.closeSettingsModal(elements);
     }
     if (UISidebar.setSidebarMode) {
       UISidebar.setSidebarMode(elements, 'settings');
     }
-    if (UISidebar.openSidebar) {
+    if (UISidebar.isMobile && UISidebar.isMobile() && UISidebar.openSidebar) {
       UISidebar.openSidebar(elements);
     }
   }
@@ -1047,12 +1045,6 @@
   function handleSaveSettings(e) {
     if (e && e.preventDefault) e.preventDefault();
     saveCurrentSettings(true);
-  }
-
-  function handleResetSettings() {
-    if (UISettings.handleResetSettings) {
-      UISettings.handleResetSettings(elements, Config.DEFAULTS || getRuntimeConfig());
-    }
   }
 
   function handleClearAllData() {
@@ -1796,13 +1788,15 @@
     });
 
     // Modal de Configuración & Perfiles
-    if (elements.btnSettingsBack) {
-      elements.btnSettingsBack.addEventListener('click', backToSettingsNavigation);
+    if (elements.btnCloseSettings) {
+      elements.btnCloseSettings.addEventListener('click', closeSettingsPanelOnly);
     }
-    elements.btnCloseSettings.addEventListener('click', closeSettingsModal);
-    elements.btnCancelSettings.addEventListener('click', closeSettingsModal);
-    elements.settingsForm.addEventListener('submit', handleSaveSettings);
-    elements.btnResetSettings.addEventListener('click', handleResetSettings);
+    if (elements.btnSaveSettings) {
+      elements.btnSaveSettings.addEventListener('click', handleSaveSettings);
+    }
+    if (elements.settingsForm) {
+      elements.settingsForm.addEventListener('submit', handleSaveSettings);
+    }
     if (elements.btnClearAllData) {
       elements.btnClearAllData.addEventListener('click', handleClearAllData);
     }
@@ -2049,7 +2043,7 @@
 
     elements.settingsDialog.addEventListener('click', function (e) {
       if (e.target === elements.settingsDialog) {
-        closeSettingsModal();
+        closeSettingsPanelOnly();
       }
     });
 

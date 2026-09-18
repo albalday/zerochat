@@ -154,7 +154,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
 
     // 5. Botón de Configuración en la cabecera del sidebar y selección de sección
     await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
+    await page.click('[data-section="tab-model"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const isSettingsOpen = await page.$eval('#settings-dialog', el => el.open);
     assert.ok(isSettingsOpen, 'Pulsar el botón de ajustes en el sidebar y elegir sección debe abrir #settings-dialog');
@@ -531,7 +531,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
     assert.ok(sidebarIcons.itemsHaveSvg, 'Todas las opciones de configuración del sidebar deben contener un icono SVG');
     assert.equal(sidebarIcons.hasItemEmojis, false, 'Las opciones de configuración no deben contener emojis residuales');
 
-    await page.click('[data-section="tab-general"]');
+    await page.click('[data-section="tab-model"]');
     await page.waitForSelector('#settings-dialog[open]');
 
     const settingsIcons = await page.evaluate(() => {

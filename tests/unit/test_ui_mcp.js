@@ -75,7 +75,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
         getAttribute: (k) => attrs[k]
       },
       btnConnect: { style: {}, disabled: false, innerHTML: '' },
-      serverDetails: { style: {}, innerHTML: '', textContent: '' },
+      serverDetails: { style: {}, innerHTML: '', textContent: '', title: '' },
       errorMessage: { style: {}, innerHTML: '', textContent: '' },
       hostInput: { value: '127.0.0.1' },
       portInput: { value: '6388' },
@@ -119,9 +119,9 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.btnConnect.style.display, 'none');
-  assert.equal(elements.serverDetails.style.display, 'flex');
-  assert.ok(elements.serverDetails.textContent.includes('mcp-proxy v0.4.0'));
-  assert.ok(elements.serverDetails.textContent.includes('15ms'));
+  assert.equal(elements.serverDetails.style.display, 'inline-flex');
+  assert.ok(elements.serverDetails.title.includes('mcp-proxy v0.4.0'));
+  assert.ok(elements.serverDetails.title.includes('15ms'));
   assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
 
   // 4. Estado error

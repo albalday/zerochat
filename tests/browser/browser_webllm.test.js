@@ -33,9 +33,8 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.click('#profile-tab-settings');
 
     // Inicialmente con OpenAI el enlace de ayuda está oculto
@@ -71,9 +70,8 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.click('#profile-tab-settings');
 
     // Inicialmente con OpenAI el botón de parámetros y el panel están ocultos
@@ -120,9 +118,8 @@ test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y m
       localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" }));
     });
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.click('#profile-tab-settings');
 
     // Cambiar a WebLLM

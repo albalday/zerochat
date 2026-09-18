@@ -2,9 +2,11 @@ fichero de uso del programador como recordatorio. no analizar
 
 puntos fuerts: rag financial, tool agentico,  
 sub agente (mismo-otro)
-mcp tools resttructuracion profesional y minimos necesario, no git
-rag permitir parar importacio, tratar ficheros duplicados
+
+
 ui para movil (botoneras) simplificar herramienta de capacidades a un texto.
-mcp android
-mcp ejecutar. coje el sistema operativo para informar?
+
 mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico
+
+panel de perfiles. en el pequeño  cada una con editar, borra y bloquear
+en general nuevo, cerrar exportar e importar.

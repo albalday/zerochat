@@ -353,7 +353,7 @@
 
 
     if (elements.serverDetails) {
-      elements.serverDetails.style.display = isConn ? 'flex' : 'none';
+      elements.serverDetails.style.display = isConn ? 'inline-flex' : 'none';
       clearSafeContent(elements.serverDetails);
       if (isConn) {
         const name = state.serverInfo?.name || 'mcp-proxy';
@@ -362,10 +362,12 @@
         const lat = Number.isFinite(latency) && latency > 0 ? ` · ${latency}ms` : '';
         const count = Array.isArray(state.tools) ? state.tools.length : 0;
         const toolLabel = count > 0 ? translator('mcp_tools_discovered', { count }) : translator('mcp_no_tools');
-        const nameItem = appendSafeText(elements.serverDetails, 'span', '', { className: 'mcp-detail-item' });
-        appendSafeText(nameItem || elements.serverDetails, 'strong', `${name}${ver}`);
-        if (lat) appendSafeText(elements.serverDetails, 'span', lat, { className: 'mcp-detail-item mcp-latency-tag' });
-        appendSafeText(elements.serverDetails, 'span', toolLabel, { className: 'mcp-detail-item mcp-tools-tag' });
+        const titleStr = `${name}${ver}${lat}`.trim();
+        if (typeof elements.serverDetails.setAttribute === 'function') {
+          elements.serverDetails.setAttribute('title', titleStr);
+        }
+        elements.serverDetails.title = titleStr;
+        appendSafeText(elements.serverDetails, 'span', toolLabel, { className: 'mcp-detail-item' });
       }
     }
 

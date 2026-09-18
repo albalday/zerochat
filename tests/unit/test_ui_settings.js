@@ -5,16 +5,24 @@ const UISettings = require('../../js/ui-settings.js');
 test('UISettings - sitúa los permisos de ejecución MCP en su propio panel sin barra de pestañas', () => {
   const settingsHtml = UISettings.getSettingsDialogHTML();
   assert.equal(settingsHtml.includes('modal-tabs-nav'), false, 'No debe existir la barra de pestañas modal-tabs-nav');
+  assert.equal(settingsHtml.includes('id="tab-general"'), false, 'No debe existir el panel tab-general');
+  assert.equal(settingsHtml.includes('id="tab-appearance"'), false, 'No debe existir el panel tab-appearance');
+  assert.equal(settingsHtml.includes('id="btn-clear-all-data"'), false, 'No debe existir el botón de borrar todo dentro de settings-dialog');
+  assert.equal(settingsHtml.includes('id="btn-reset-settings"'), false, 'No debe existir el botón de restaurar dentro de settings-dialog');
+  assert.equal(settingsHtml.includes('id="btn-cancel-settings"'), false, 'No debe existir el botón de cancelar dentro de settings-dialog');
+  assert.equal(settingsHtml.includes('class="modal-footer"'), false, 'No debe existir la botonera inferior modal-footer en settings-dialog');
   assert.match(settingsHtml, /id="tab-permissions" class="modal-tab-pane"/);
   assert.match(settingsHtml, /id="mcp-policy-ask"/);
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
-  assert.match(settingsHtml, /id="btn-settings-back"/);
+  assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
   assert.match(settingsHtml, /id="settings-section-title"/);
+  assert.match(settingsHtml, /id="btn-save-settings"[^>]*class="btn-primary btn-save-header"/);
+  assert.match(settingsHtml, /id="btn-close-settings"/);
 });
 
 test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
   const panes = [
-    { id: 'tab-general', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
+    { id: 'tab-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
     { id: 'tab-mcp', classList: { add: () => { panes[1].active = true; }, remove: () => { panes[1].active = false; } }, active: false }
   ];
   const titleEl = { textContent: '', setAttribute: (k, v) => { titleEl[k] = v; } };

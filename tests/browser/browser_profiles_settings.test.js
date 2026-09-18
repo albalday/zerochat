@@ -92,9 +92,8 @@ test('Browser UI - guardar perfiles exige un cambio', async () => {
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
 
     const state = await page.evaluate(() => ({
       disabled: document.getElementById('btn-save-profile').disabled,
@@ -117,9 +116,8 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
       activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
     })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.click('#profile-tab-settings');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Sin cambios no debe guardarse');
@@ -143,9 +141,8 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => true;
     });
@@ -189,7 +186,8 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     assert.equal(stateAfterAccept.queryReady, 'false', 'queryReady debe resetearse a false al descartar');
 
     // 4. Probar clic fuera (backdrop) con consulta pendiente: no debe cerrar prematuramente
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
@@ -223,9 +221,8 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
 
     // 1. Sin cambios: cerrar con botón Cancelar cierra de inmediato sin confirmación
@@ -235,7 +232,8 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     assert.equal(await page.$eval('#notice-dialog', el => el.open), false, 'No debe abrir notice-dialog sin cambios');
 
     // 2. Modificar un campo y pulsar Cerrar: debe pedir confirmación
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     await page.fill('#setting-profile-description', 'Modificación de prueba sin guardar');
 
@@ -264,7 +262,8 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Aceptar confirmación debe cerrar el modal de perfiles');
 
     // 5. Reabrir y verificar que los cambios no guardados fueron descartados
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     const reloadedDesc = await page.$eval('#setting-profile-description', el => el.value);
     assert.notEqual(reloadedDesc, 'Modificación de prueba sin guardar', 'Los cambios descartados no deben persistir');
@@ -361,9 +360,8 @@ test('Browser UI - carga una copia cifrada de perfiles tras confirmación', asyn
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     const encrypted = await page.evaluate(async () => window.ChatProfileBackup.encryptProfiles([{
       id: 'profile:imported-browser', name: 'Imported browser profile', description: 'Imported test',
@@ -396,9 +394,8 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
       await repository.saveEditable({ id: 'profile:unlocked-test', name: 'Unlocked test', settings: { apiType: 'openai', model: 'test', apiKey: '' } });
       await repository.saveEditable({ id: 'profile:locked-test', name: 'Locked test', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-locked', apiKeyLocked: true } });
     });
-    await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-general"]');
-    await page.click('#btn-manage-profiles');
+    await page.click('#active-profile-trigger');
+    await page.click('#btn-edit-profiles');
     await page.selectOption('#profile-select-helper', 'profile:unlocked-test');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
     await page.check('#setting-api-key-locked');

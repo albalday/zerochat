@@ -11,7 +11,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v7.0.5</title>
+  <title>ZeroChat v7.0.6</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -141,15 +141,35 @@
       </div>
 
       <nav id="sidebar-settings-nav" class="sidebar-settings-nav" aria-label="Secciones de Configuración">
-        <button type="button" class="sidebar-settings-item" data-section="tab-general">
+        <!-- Elección 1: Idioma -->
+        <div class="sidebar-settings-choice" id="sidebar-choice-language">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-globe"></use></svg>
           </span>
-          <span class="settings-item-label" data-i18n="tab_connection">Conexión</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
+          <span class="settings-item-label" data-i18n="field_language_short">Idioma</span>
+          <div class="sidebar-choice-toggle-group" id="lang-switcher-group">
+            <button type="button" class="btn-lang-toggle active" id="btn-lang-es" data-lang="es" title="Español" aria-label="Español">ES</button>
+            <button type="button" class="btn-lang-toggle" id="btn-lang-en" data-lang="en" title="English" aria-label="English">EN</button>
+          </div>
+        </div>
+
+        <!-- Elección 2: Modo Claro / Oscuro -->
+        <div class="sidebar-settings-choice" id="sidebar-choice-theme">
+          <span class="settings-item-icon">
+            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-palette"></use></svg>
           </span>
-        </button>
+          <span class="settings-item-label" data-i18n="field_theme_short">Tema</span>
+          <div class="sidebar-choice-toggle-group" id="theme-switcher-group">
+            <button type="button" class="btn-theme-toggle active" id="btn-theme-light" data-theme="light" data-i18n-title="theme_light" title="Modo Claro" aria-label="Modo Claro">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-sun"></use></svg>
+            </button>
+            <button type="button" class="btn-theme-toggle" id="btn-theme-dark" data-theme="dark" data-i18n-title="theme_dark" title="Modo Oscuro" aria-label="Modo Oscuro">
+              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-moon"></use></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Secciones de panel -->
         <button type="button" class="sidebar-settings-item" data-section="tab-model">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
@@ -186,15 +206,6 @@
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
           </span>
         </button>
-        <button type="button" class="sidebar-settings-item" data-section="tab-appearance">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-palette"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="tab_appearance">Visualización</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
         <button type="button" class="sidebar-settings-item" data-section="tab-inspector">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
@@ -205,6 +216,13 @@
           </span>
         </button>
       </nav>
+
+      <div class="sidebar-footer sidebar-settings-footer">
+        <button type="button" id="btn-clear-all-data" class="btn-sidebar-settings-clear" data-i18n-title="btn_clear_all_data_title" title="Borrar todas las cookies, sesiones y configuraciones locales">
+          <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
+          <span data-i18n="btn_clear_all_data">Borrar todo</span>
+        </button>
+      </div>
     </div>
   </aside>
 
