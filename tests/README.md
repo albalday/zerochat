@@ -36,20 +36,34 @@ tests/
 | Comando | Descripción |
 |---|---|
 | `npm test` | Ejecuta la suite completa organizada por niveles en orden secuencial. |
+| `npm run test:all` | Ejecuta la batería completa en un único proceso Node en tiempo récord (~4.5s). |
+| `npm run test:changed` | Ejecuta únicamente las pruebas impactadas por los cambios detectados en git. |
 | `npm run test:unit` | Ejecuta exclusivamente las pruebas unitarias (`tests/unit/`). No inicia servidor ni navegador. |
 | `npm run test:integration` | Ejecuta las pruebas de integración entre subsistemas (`tests/integration/`). |
 | `npm run test:browser` | Ejecuta las pruebas modulares de navegador con Playwright (`tests/browser/`). |
 | `npm run test:architecture` | Ejecuta las comprobaciones arquitectónicas estáticas (`tests/architecture/`). |
 | `npm run test:infrastructure` | Ejecuta las pruebas del empaquetador, servidor local y runner (`tests/infrastructure/`). |
 | `npm run test:group -- <grupo>` | Ejecuta un grupo funcional específico (`turns`, `composer`, `generation`, etc.). |
+| `npm run bump -- <version>` | Sincroniza la versión del producto en todos los componentes en un solo comando. |
 
 ### Flags del Test Runner (`scripts/test-runner.mjs`)
 
-El runner soporta flags para filtrar e inspeccionar:
+El runner soporta flags para filtrar, acelerar e inspeccionar:
 
 ```bash
+# Ejecución selectiva e inteligente de archivos impactados según git status
+npm run test:changed
+node scripts/test-runner.mjs --changed
+
+# Ejecución completa en un solo proceso
+npm run test:all
+node scripts/test-runner.mjs --all
+
 # Listar todos los archivos que se ejecutarían en npm test
 node scripts/test-runner.mjs --list
+
+# Listar los archivos impactados por los cambios actuales
+node scripts/test-runner.mjs --changed --list
 
 # Listar los archivos que pertenecen a un nivel
 node scripts/test-runner.mjs --level=unit --list

@@ -33,7 +33,19 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "7.0.2"
+def _read_package_version() -> str:
+    try:
+        pkg_path = Path(__file__).resolve().parent / "package.json"
+        if pkg_path.is_file():
+            import json
+            data = json.loads(pkg_path.read_text(encoding="utf-8"))
+            if "version" in data and isinstance(data["version"], str):
+                return data["version"].strip()
+    except Exception:
+        pass
+    return "7.0.4"
+
+VERSION = _read_package_version()
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
@@ -992,6 +1004,7 @@ GLOBAL_MCP_MANAGER = McpServiceManager()
 
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "12.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
+DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "0.5"))
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
@@ -1014,8 +1027,9 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
+    poll_interval = min(DEFAULT_HEARTBEAT_POLL, max(0.02, inactivity_timeout_seconds / 2))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
-        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=0.5):
+        if HEARTBEAT_WATCHDOG_STOP.wait(timeout=poll_interval):
             break
 
         now = time.monotonic()

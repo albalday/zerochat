@@ -4,6 +4,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const pkg = require('../../package.json');
 
 test('Servidor local zerochat.py: token de sesión, herramientas core y aislamiento', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
@@ -68,7 +69,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(initRes.status, 200);
     const initJson = await initRes.json();
     assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
-    assert.equal(initJson.result?.serverInfo?.version, '7.0.2');
+    assert.equal(initJson.result?.serverInfo?.version, pkg.version);
 
     // 5. Comprobar tools/list
     const toolsRes = await fetch(baseUrl, {
@@ -109,7 +110,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(callJson.result?.isError, false);
     const parsedContent = JSON.parse(callJson.result?.content?.[0]?.text);
     assert.equal(parsedContent.success, true);
-    assert.match(parsedContent.content, /"version": "7.0.2"/);
+    assert.match(parsedContent.content, new RegExp(`"version": "${pkg.version}"`));
 
     // 7. Comprobar flujo SSE con token en query param
     const sseRes = await fetch(`${baseUrl}/sse?token=${testToken}`, {
@@ -441,11 +442,11 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
   const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'heartbeat-test-token-67890';
 
-  // Iniciar servidor con timeout de heartbeat de 1 segundo para prueba ágil
+  // Iniciar servidor con timeout de heartbeat de 0.2 segundos para prueba ágil
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '1.0' },
+    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -475,9 +476,9 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     const hbData = await authHb.json();
     assert.equal(hbData.ok, true, 'Heartbeat debe responder {"ok": true}');
 
-    // 4. Esperar a que el watchdog detecte la inactividad (>1s) y apague el servidor automáticamente
+    // 4. Esperar a que el watchdog detecte la inactividad (>0.2s) y apague el servidor automáticamente
     const exitPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 5000);
+      const timeout = setTimeout(() => reject(new Error('El servidor no se apagó por inactividad de heartbeat')), 3000);
       serverProc.on('exit', (code) => {
         clearTimeout(timeout);
         resolve(code);
@@ -501,7 +502,7 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-exit-on-close', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '1.0' },
+    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -521,8 +522,8 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
     const hbRes = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
     assert.equal(hbRes.status, 200);
 
-    // Esperar 1.5s (> ZEROCHAT_HEARTBEAT_TIMEOUT=1.0)
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Esperar 400ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.2)
+    await new Promise(resolve => setTimeout(resolve, 400));
 
     // El servidor debe seguir activo porque --no-exit-on-close desactivó el watchdog
     const checkRes = await fetch(`${baseUrl}/?token=${testToken}`);

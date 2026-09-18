@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -143,18 +143,101 @@ export function resolveGroupFiles(groupName) {
 }
 
 /**
+ * Obtiene los archivos modificados en el árbol de trabajo mediante git.
+ */
+export function getChangedFiles() {
+  try {
+    const statusOutput = execSync('git status --porcelain', { cwd: ROOT_DIR, encoding: 'utf8' });
+    const diffOutput = execSync('git diff --name-only HEAD', { cwd: ROOT_DIR, encoding: 'utf8' });
+    const set = new Set();
+    for (const line of (statusOutput + '\n' + diffOutput).split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const cleanPath = trimmed.replace(/^[MADRCU?!]{1,2}\s+/, '').split(' -> ').pop().trim();
+      if (cleanPath) set.add(cleanPath);
+    }
+    return Array.from(set);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Resuelve los archivos de prueba impactados por los cambios detectados en git.
+ */
+export function resolveChangedFiles() {
+  const changed = getChangedFiles();
+  if (changed.length === 0) return [];
+
+  // Excepción AGENTS.md: cambios exclusivos de documentación/ayuda no disparan tests
+  const isDocOnly = changed.every(f => f.startsWith('help/') || f.startsWith('docs/') || f.endsWith('.md') || f === 'LICENSE');
+  if (isDocOnly) return [];
+
+  const levelsToRun = new Set();
+  const directTestFiles = new Set();
+
+  for (const f of changed) {
+    if (f.startsWith('tests/')) {
+      if (f.endsWith('.js')) {
+        directTestFiles.add(f);
+      }
+      for (const lvl of VALID_LEVELS) {
+        if (f.startsWith(`tests/${lvl}/`)) {
+          levelsToRun.add(lvl);
+        }
+      }
+      continue;
+    }
+
+    if (f === 'zerochat.py') {
+      levelsToRun.add('infrastructure');
+    }
+    if (f.startsWith('css/') || f === 'zerochat.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || f === 'js/icons.js' || f === 'sw.js') {
+      levelsToRun.add('browser');
+      levelsToRun.add('architecture');
+    }
+    if (f.startsWith('js/engine/') || f.startsWith('js/providers') || f.startsWith('js/tools/') || f.startsWith('js/mcp')) {
+      levelsToRun.add('integration');
+      levelsToRun.add('unit');
+    }
+    if (f.startsWith('js/')) {
+      levelsToRun.add('unit');
+    }
+    if (f === 'package.json' || f === 'package-lock.json' || f.startsWith('scripts/')) {
+      levelsToRun.add('unit');
+      levelsToRun.add('architecture');
+      levelsToRun.add('infrastructure');
+    }
+  }
+
+  const resultFiles = new Set(directTestFiles);
+  for (const lvl of levelsToRun) {
+    for (const file of resolveLevelFiles(lvl)) {
+      resultFiles.add(file);
+    }
+  }
+
+  return Array.from(resultFiles).sort();
+}
+
+/**
  * Parsea los argumentos de la línea de comandos.
  */
 export function parseArgs(rawArgs) {
   let level = null;
   let group = null;
   let listOnly = false;
+  let changedOnly = false;
   const positionalFiles = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
     if (arg === '--list') {
       listOnly = true;
+    } else if (arg === '--changed') {
+      changedOnly = true;
+    } else if (arg === '--all') {
+      level = 'all';
     } else if (arg.startsWith('--level=')) {
       level = arg.slice(8).trim();
     } else if (arg === '--level' && i + 1 < rawArgs.length) {
@@ -170,7 +253,7 @@ export function parseArgs(rawArgs) {
     }
   }
 
-  return { level, group, listOnly, positionalFiles, showHelp: false };
+  return { level, group, listOnly, changedOnly, positionalFiles, showHelp: false };
 }
 
 /**
@@ -185,12 +268,16 @@ Uso:
 
 Opciones:
   --level=<nivel>    Ejecutar suite por nivel (${VALID_LEVELS.join(', ')}, all)
+  --all              Alias para ejecutar todas las suites en una sola invocación
+  --changed          Ejecutar únicamente los tests impactados por cambios en git
   --group=<grupo>    Ejecutar tests por área funcional (${Object.keys(GROUPS).join(', ')})
   --list             Listar archivos seleccionados sin ejecutarlos
   --help, -h         Mostrar esta ayuda
 
 Ejemplos:
   node scripts/test-runner.mjs --level=unit
+  node scripts/test-runner.mjs --all
+  node scripts/test-runner.mjs --changed
   node scripts/test-runner.mjs --level=browser
   node scripts/test-runner.mjs --group=composer --list
   node scripts/test-runner.mjs --group=turns
@@ -212,6 +299,12 @@ export async function run() {
 
   if (args.positionalFiles.length > 0) {
     filesToRun = args.positionalFiles.map(f => path.relative(ROOT_DIR, path.resolve(ROOT_DIR, f)));
+  } else if (args.changedOnly) {
+    filesToRun = resolveChangedFiles();
+    if (filesToRun.length === 0) {
+      console.log('No se detectaron cambios en el código que requieran ejecutar pruebas.');
+      process.exit(0);
+    }
   } else if (args.group) {
     filesToRun = resolveGroupFiles(args.group);
   } else if (args.level && args.level !== 'all') {

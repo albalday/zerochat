@@ -41,3 +41,16 @@ test('Test Runner - define grupos funcionales requeridos por tests/README.md', a
     assert.ok(Array.isArray(runner.GROUPS[grp]), `El grupo ${grp} debe ser un array de archivos`);
   }
 });
+
+test('Test Runner - soporte de flags --changed y --all para aceleración', async () => {
+  const runner = await import('../../scripts/test-runner.mjs');
+
+  const parsedChanged = runner.parseArgs(['--changed']);
+  assert.equal(parsedChanged.changedOnly, true);
+
+  const parsedAll = runner.parseArgs(['--all']);
+  assert.equal(parsedAll.level, 'all');
+
+  assert.ok(typeof runner.getChangedFiles === 'function');
+  assert.ok(typeof runner.resolveChangedFiles === 'function');
+});
