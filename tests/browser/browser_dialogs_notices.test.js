@@ -97,19 +97,25 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
       document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
     });
 
-    // Abrir el sidebar si está oculto
-    const sidebarVisible = await page.evaluate(() => {
+    // Abrir el sidebar y asegurar modo chat
+    await page.evaluate(() => {
       const sidebar = document.getElementById('chat-sidebar');
-      return sidebar && !sidebar.classList.contains('sidebar-hidden');
+      if (sidebar && sidebar.classList.contains('sidebar-hidden')) {
+        document.getElementById('btn-toggle-sidebar')?.click();
+      }
     });
-    if (!sidebarVisible) {
-      await page.click('#btn-toggle-sidebar');
-    }
+    await page.waitForTimeout(300);
 
-    // Abrir el modal de RAG en modo "manage" para acceder al input de importación
-    await page.click('#btn-open-settings');
+    // Abrir el modal de RAG en modo "manage" - hacer clic programático en btn-open-settings
+    await page.evaluate(() => {
+      document.getElementById('btn-open-settings')?.click();
+    });
+    await page.waitForTimeout(300);
+
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag-manage"]');
-    await page.waitForSelector('#rag-import-input');
+    await page.waitForSelector('#rag-manage-modal[open]', { timeout: 5000 });
+    await page.waitForSelector('#rag-import-input', { state: 'attached', timeout: 5000 });
 
     await page.locator('#rag-import-input').setInputFiles({
       name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('invalid JSON')

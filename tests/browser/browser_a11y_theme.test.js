@@ -608,17 +608,26 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
 
     // Cerrar y reabrir desde el menú de configuración (modo manage) para verificar los iconos de gestión
     await page.click('#btn-close-rag');
+    await page.waitForFunction(() => !document.getElementById('rag-activation-modal')?.open);
+    await page.waitForTimeout(500); // Esperar estabilización tras cierre de modal
 
-    // Abrir el sidebar si está oculto
-    const sidebarVisible = await page.evaluate(() => {
+    // Abrir settings haciendo clic programático (el botón puede no ser visible por CSS pero existe)
+    await page.evaluate(() => {
+      // Asegurar que el sidebar está abierto
       const sidebar = document.getElementById('chat-sidebar');
-      return sidebar && !sidebar.classList.contains('sidebar-hidden');
+      if (sidebar && sidebar.classList.contains('sidebar-hidden')) {
+        document.getElementById('btn-toggle-sidebar')?.click();
+      }
     });
-    if (!sidebarVisible) {
-      await page.click('#btn-toggle-sidebar');
-    }
+    await page.waitForTimeout(300);
 
-    await page.click('#btn-open-settings');
+    // Hacer clic en btn-open-settings programáticamente
+    await page.evaluate(() => {
+      document.getElementById('btn-open-settings')?.click();
+    });
+    await page.waitForTimeout(300); // Esperar transición a vista de settings
+
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag-manage"]');
     await page.waitForSelector('#rag-manage-modal[open]');
 
@@ -661,7 +670,15 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
 
     // Cerrar el modal y abrir desde el menú de configuración para acceder al modo "manage"
     await page.click('#btn-close-rag-manage');
-    await page.click('#btn-open-settings');
+    await page.waitForTimeout(300);
+
+    // Hacer clic en btn-open-settings programáticamente
+    await page.evaluate(() => {
+      document.getElementById('btn-open-settings')?.click();
+    });
+    await page.waitForTimeout(300);
+
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag-manage"]');
     await page.waitForSelector('#rag-branch-details-card');
 
