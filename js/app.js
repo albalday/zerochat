@@ -193,7 +193,6 @@
       debugTabs: document.querySelectorAll('.debug-tab'),
       chkEnableDebugMessages: document.getElementById('chk-enable-debug-messages'),
       debugMessagesStatusBadge: document.getElementById('debug-messages-status-badge'),
-      rawStatusBadge: document.getElementById('raw-status-badge'),
 
       // Modal de Depuración de Mensajes Salientes (Interceptor)
       debugInterceptorDialog: document.getElementById('debug-interceptor-dialog'),
@@ -613,11 +612,6 @@
     updateReasoningUI(config.reasoningEffort || 'none');
     applyTheme(config.theme || 'light');
     applyLanguage(config.language || 'es');
-
-    if (elements.rawStatusBadge) {
-      elements.rawStatusBadge.className = 'raw-status-badge active';
-      elements.rawStatusBadge.textContent = t('raw_status_active');
-    }
 
     syncDebugMessagesState(config.enableDebugMessages, false);
     updateConnectionTokensBadge(null);
