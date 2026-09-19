@@ -14,3 +14,5 @@ botones panel derecho cambiar para no abrir nueva pestañapor error
 
 gestion de razonamiento flujo y opciones en el defecto
 
+raw siempre
+
