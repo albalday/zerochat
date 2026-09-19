@@ -17,5 +17,9 @@ gestion de razonamiento flujo y opciones en el defecto
 raw siempre
 
 panel de debug feo
-
+webllm lista de modelos mejorar para movil
 HTML DE ENVIO DE PERFIL. CAMBIA A PAGFINA DEL SERVIDOR PASANDO PERFIL A AÑADIR
+
+norma de cambio de version rapido ande ta
+
+nivel 3 claude no encuantra
