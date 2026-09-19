@@ -23,6 +23,8 @@
 
   const STORAGE_PREFIX = 'zerochat_';
   const DEFAULT_EXPIRY_DAYS = 365;
+  const BACKEND_SESSION_COOKIE = 'zerochat_backend_session_v1';
+  const BACKEND_SESSION_MAX_AGE_SECONDS = 26 * 60 * 60;
   const memoryStorage = new Map();
   const memoryConversations = new Map();
   const memoryMessages = new Map();
@@ -107,6 +109,59 @@
       } catch (e) {}
     }
     memoryStorage.delete(key);
+  }
+
+  function normalizeBackendSession(session) {
+    if (!session || typeof session !== 'object' || Array.isArray(session)) return null;
+    const token = typeof session.token === 'string' ? session.token : '';
+    const host = typeof session.host === 'string' ? session.host.toLowerCase() : '';
+    const port = Number(session.port);
+    if (!token || token.length > 512 || token.trim() !== token || /[\u0000-\u001f\u007f]/.test(token)) return null;
+    if (!['127.0.0.1', 'localhost'].includes(host)) return null;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { token, host, port };
+  }
+
+  function getCookieValue(name) {
+    if (typeof document === 'undefined' || location.protocol === 'file:') return null;
+    try {
+      const prefix = `${encodeURIComponent(name)}=`;
+      const cookie = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(prefix));
+      return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setBackendSession(session, maxAgeSeconds = BACKEND_SESSION_MAX_AGE_SECONDS) {
+    const normalized = normalizeBackendSession(session);
+    const maxAge = Number(maxAgeSeconds);
+    if (!normalized || !Number.isInteger(maxAge) || maxAge < 1 || typeof document === 'undefined' || location.protocol === 'file:') return false;
+    try {
+      const secure = location.protocol === 'https:' ? ';Secure' : '';
+      document.cookie = `${encodeURIComponent(BACKEND_SESSION_COOKIE)}=${encodeURIComponent(JSON.stringify(normalized))};Max-Age=${maxAge};Path=/;SameSite=Strict${secure}`;
+      return getBackendSession() !== null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getBackendSession() {
+    const raw = getCookieValue(BACKEND_SESSION_COOKIE);
+    if (!raw) return null;
+    try {
+      return normalizeBackendSession(JSON.parse(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function deleteBackendSession() {
+    if (typeof document === 'undefined' || location.protocol === 'file:') return;
+    try {
+      const secure = location.protocol === 'https:' ? ';Secure' : '';
+      document.cookie = `${encodeURIComponent(BACKEND_SESSION_COOKIE)}=;Max-Age=0;Path=/;SameSite=Strict${secure}`;
+    } catch (_) {}
   }
 
   function loadRuntimeConfigV2() {
@@ -586,6 +641,11 @@
     setCookie: setStorageItem,
     getCookie: getStorageItem,
     deleteCookie: deleteStorageItem,
+    // Sesión efímera del backend local. Se mantiene separada de localStorage.
+    normalizeBackendSession,
+    setBackendSession,
+    getBackendSession,
+    deleteBackendSession,
     loadRuntimeConfigV2,
     saveRuntimeConfigV2,
     clearAllStorage,

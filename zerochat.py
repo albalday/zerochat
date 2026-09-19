@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import urllib.request
+from urllib.parse import urlencode
 import venv
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1612,7 +1613,8 @@ def main():
     else:
         ui_url = DEFAULT_UI_URL
 
-    target_url = f"{ui_url}#token={SESSION_TOKEN}&port={ACTIVE_PORT}"
+    browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
+    target_url = f"{ui_url}#{urlencode({'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT})}"
     exit_on_close = not args.no_exit_on_close
 
     print("=" * 64)
@@ -1624,7 +1626,7 @@ def main():
     else:
         print(f"  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
-    print(f"  Token de sesión (diario): {SESSION_TOKEN}")
+    print("  Token de sesión (diario): configurado")
     print(f"  Destino Web           : {ui_url}")
     if exit_on_close:
         print(f"  Auto-cierre           : Activado (al cerrar navegador)")
@@ -1633,7 +1635,7 @@ def main():
     print("=" * 64, flush=True)
 
     if not args.no_browser:
-        print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en {target_url}...", flush=True)
+        print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
         try:
             if not open_browser(target_url):
                 print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente.", flush=True)
@@ -1664,4 +1666,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

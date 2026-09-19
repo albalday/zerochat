@@ -7,21 +7,17 @@ const { version } = require('../../package.json');
 const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
 const bundleTitle = `ZeroChat v${version}`;
 
-describe('Browser UI - startup', { concurrency: 2 }, () => {
-  after(async () => {
-    await closeGlobalBrowser();
-  });
-
-test('Browser UI - informa del alcance de almacenamiento en HTTP', async () => {
+async function startStaticServer() {
   const rootDir = path.resolve(__dirname, '../..');
   const server = http.createServer((req, res) => {
     const parsedUrl = new URL(req.url, 'http://127.0.0.1');
-    let relPath = parsedUrl.pathname === '/' ? 'zerochat.html' : parsedUrl.pathname.replace(/^\//, '');
-    let target = path.join(rootDir, relPath);
-    if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
-      target = path.join(rootDir, 'zerochat.html');
+    const relPath = parsedUrl.pathname === '/' ? 'zerochat.html' : parsedUrl.pathname.replace(/^\//, '');
+    const target = path.join(rootDir, relPath);
+    if (!target.startsWith(rootDir + path.sep) || !fs.existsSync(target) || fs.statSync(target).isDirectory()) {
+      res.writeHead(404);
+      res.end();
+      return;
     }
-    const ext = path.extname(target);
     const contentTypes = {
       '.html': 'text/html; charset=utf-8',
       '.js': 'application/javascript; charset=utf-8',
@@ -29,11 +25,26 @@ test('Browser UI - informa del alcance de almacenamiento en HTTP', async () => {
       '.json': 'application/json; charset=utf-8',
       '.svg': 'image/svg+xml'
     };
-    res.writeHead(200, { 'content-type': contentTypes[ext] || 'application/octet-stream' });
+    res.writeHead(200, { 'content-type': contentTypes[path.extname(target)] || 'application/octet-stream' });
     res.end(fs.readFileSync(target));
   });
   server.keepAliveTimeout = 0;
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return server;
+}
+
+async function stopStaticServer(server) {
+  if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}
+
+describe('Browser UI - startup', { concurrency: 2 }, () => {
+  after(async () => {
+    await closeGlobalBrowser();
+  });
+
+test('Browser UI - informa del alcance de almacenamiento en HTTP', async () => {
+  const server = await startStaticServer();
   const { port } = server.address();
   const browser = await createTestBrowser();
   try {
@@ -51,10 +62,7 @@ test('Browser UI - informa del alcance de almacenamiento en HTTP', async () => {
     assert.match(state.scope, /protocol|protocolo/i);
   } finally {
     await browser.close();
-    if (typeof server.closeAllConnections === 'function') {
-      server.closeAllConnections();
-    }
-    await new Promise(resolve => server.close(resolve));
+    await stopStaticServer(server);
   }
 });
 
@@ -230,7 +238,8 @@ test('Browser UI - zerochat.html optimiza carga con defer, CSS paralelos y PWA m
   assert.match(swContent, /caches\.open/, 'sw.js debe gestionar la Cache API');
 });
 
-test('Browser UI - arranque con parámetros de sesión (#token & #port) inicializa ChatApp y heartbeat sin errores', async () => {
+test('Browser UI - el fragmento inicial persiste la sesión del backend en cookie y limpia la URL', async () => {
+  const server = await startStaticServer();
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -239,7 +248,7 @@ test('Browser UI - arranque con parámetros de sesión (#token & #port) iniciali
 
     const testToken = 'startup-token-test-12345';
     const testPort = '6388';
-    const targetUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html') + `#token=${testToken}&port=${testPort}`;
+    const targetUrl = `http://127.0.0.1:${server.address().port}/zerochat.html#token=${testToken}&host=127.0.0.1&port=${testPort}`;
 
     await page.goto(targetUrl, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
@@ -250,7 +259,8 @@ test('Browser UI - arranque con parámetros de sesión (#token & #port) iniciali
       hasChatApp: typeof window.ChatApp === 'object' && window.ChatApp !== null,
       hasStartServerHeartbeat: typeof window.ChatApp?.startServerHeartbeat === 'function',
       hasStopServerHeartbeat: typeof window.ChatApp?.stopServerHeartbeat === 'function',
-      sessionToken: sessionStorage.getItem('zerochat_mcp_token'),
+      backendSession: window.ChatStorage.getBackendSession(),
+      href: window.location.href,
       isReady: document.documentElement.classList.contains('zerochat-ready'),
       hasOldLifecycle: typeof window.__zerochat_heartbeat_lifecycle !== 'undefined'
     }));
@@ -258,9 +268,15 @@ test('Browser UI - arranque con parámetros de sesión (#token & #port) iniciali
     assert.equal(state.hasChatApp, true, 'window.ChatApp debe estar definido');
     assert.equal(state.hasStartServerHeartbeat, true, 'window.ChatApp.startServerHeartbeat debe ser función');
     assert.equal(state.hasStopServerHeartbeat, true, 'window.ChatApp.stopServerHeartbeat debe ser función');
-    assert.equal(state.sessionToken, testToken, 'El token debe haberse almacenado en sessionStorage');
+    assert.deepEqual(state.backendSession, { token: testToken, host: '127.0.0.1', port: Number(testPort) }, 'La sesión debe haberse guardado exclusivamente en la cookie');
+    assert.equal(state.href.includes(testToken), false, 'La URL no debe conservar el token');
     assert.equal(state.isReady, true, 'La página debe haber completado init()');
     assert.equal(state.hasOldLifecycle, false, 'No deben existir variables obsoletas de ciclo de vida');
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const reloadedSession = await page.evaluate(() => window.ChatStorage.getBackendSession());
+    assert.deepEqual(reloadedSession, { token: testToken, host: '127.0.0.1', port: Number(testPort) }, 'F5 debe recuperar la sesión desde la cookie');
 
     // Verificar que stopServerHeartbeat y re-startServerHeartbeat funcionan limpiamente
     await page.evaluate(() => {
@@ -270,25 +286,27 @@ test('Browser UI - arranque con parámetros de sesión (#token & #port) iniciali
     });
   } finally {
     await browser.close();
+    await stopStaticServer(server);
   }
 });
 
-test('Browser UI - el botón de abrir en nueva pestaña propaga token y puerto de sesión', async () => {
+test('Browser UI - una nueva pestaña usa la cookie sin propagar el token en la URL', async () => {
+  const server = await startStaticServer();
   const browser = await createTestBrowser();
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
     const testToken = 'new-tab-token-abcde-67890';
     const testPort = '6388';
-    const targetUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html') + `#token=${testToken}&port=${testPort}`;
+    const targetUrl = `http://127.0.0.1:${server.address().port}/zerochat.html#token=${testToken}&host=127.0.0.1&port=${testPort}`;
 
     await page.goto(targetUrl, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
-    // Comprobar que el enlace #btn-sidebar-new-tab tiene el token y puerto
+    // El enlace no contiene secretos: la nueva pestaña leerá la cookie del mismo origen.
     const linkHref = await page.$eval('#btn-sidebar-new-tab', el => el.getAttribute('href'));
-    assert.ok(linkHref.includes(`token=${testToken}`), 'El href de btn-sidebar-new-tab debe incluir el token de sesión');
-    assert.ok(linkHref.includes(`port=${testPort}`), 'El href de btn-sidebar-new-tab debe incluir el puerto');
+    assert.equal(linkHref.includes(testToken), false, 'El href de nueva pestaña no debe incluir el token');
+    assert.equal(linkHref.includes(`port=${testPort}`), false, 'El href de nueva pestaña no debe incluir el puerto');
 
     // Hacer clic en el enlace y esperar a que se abra la nueva pestaña
     const [newPage] = await Promise.all([
@@ -300,21 +318,19 @@ test('Browser UI - el botón de abrir en nueva pestaña propaga token y puerto d
 
     const newPageState = await newPage.evaluate(() => ({
       hasChatApp: typeof window.ChatApp === 'object' && window.ChatApp !== null,
-      sessionToken: sessionStorage.getItem('zerochat_mcp_token'),
-      sessionPort: sessionStorage.getItem('zerochat_mcp_port'),
+      backendSession: window.ChatStorage.getBackendSession(),
       newTabHref: document.getElementById('btn-sidebar-new-tab')?.getAttribute('href')
     }));
 
     assert.equal(newPageState.hasChatApp, true, 'La nueva pestaña debe tener ChatApp inicializado');
-    assert.equal(newPageState.sessionToken, testToken, 'La nueva pestaña debe haber recibido y guardado el token');
-    assert.equal(newPageState.sessionPort, testPort, 'La nueva pestaña debe haber recibido y guardado el puerto');
-    assert.ok(newPageState.newTabHref && newPageState.newTabHref.includes(testToken), 'La nueva pestaña debe también propagar el token a subsiguientes pestañas');
+    assert.deepEqual(newPageState.backendSession, { token: testToken, host: '127.0.0.1', port: Number(testPort) }, 'La nueva pestaña debe recuperar la sesión desde la cookie');
+    assert.equal(newPageState.newTabHref.includes(testToken), false, 'Las pestañas posteriores tampoco deben propagar el token');
 
     await newPage.close();
   } finally {
     await context.close();
+    await browser.close();
+    await stopStaticServer(server);
   }
 });
 });
-
-

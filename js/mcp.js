@@ -127,12 +127,7 @@
         probeHeaders['Authorization'] = `Bearer ${options.token}`;
         probeHeaders['X-ZeroChat-Token'] = options.token;
       }
-      let probeUrl = normalizedUrl;
-      if (options.token) {
-        const joiner = probeUrl.includes('?') ? '&' : '?';
-        probeUrl = `${probeUrl}${joiner}token=${encodeURIComponent(options.token)}`;
-      }
-      const probeRes = await fetchWithTimeout(probeUrl, {
+      const probeRes = await fetchWithTimeout(normalizedUrl, {
         method: 'GET',
         headers: probeHeaders
       }, timeoutMs).catch(() => null);
@@ -1005,7 +1000,7 @@
      * si el servidor simplemente no está levantado, sino que registra 'disconnected' limpiamente.
      */
     async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false, token = null } = {}, registry = null) {
-      const effectiveToken = token || this.sessionToken || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_token') : null);
+      const effectiveToken = token || this.sessionToken;
       if (effectiveToken) {
         this.setSessionToken(effectiveToken);
       }

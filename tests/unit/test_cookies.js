@@ -27,3 +27,15 @@ test('Storage - alias heredados conservan compatibilidad hacia atrás', () => {
   Storage.deleteCookie('legacy_key');
   assert.equal(Storage.getCookie('legacy_key'), null);
 });
+
+test('Storage - valida el contrato restrictivo de la sesión del backend local', () => {
+  assert.deepEqual(
+    Storage.normalizeBackendSession({ token: 'token_seguro-123', host: 'LOCALHOST', port: '6388' }),
+    { token: 'token_seguro-123', host: 'localhost', port: 6388 }
+  );
+  assert.equal(Storage.normalizeBackendSession({ token: '', host: '127.0.0.1', port: 6388 }), null);
+  assert.equal(Storage.normalizeBackendSession({ token: ' token ', host: '127.0.0.1', port: 6388 }), null);
+  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: 'example.test', port: 6388 }), null);
+  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 0 }), null);
+  assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 65536 }), null);
+});

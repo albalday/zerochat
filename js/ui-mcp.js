@@ -569,7 +569,7 @@
     elements.btnConnect?.addEventListener?.('click', async () => {
       const host = elements.hostInput?.value || DEFAULT_HOST;
       const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
-      const token = MCP?.manager?.getSessionToken?.() || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_token') : null);
+      const token = MCP?.manager?.getSessionToken?.();
       persistMcpAutoConnect(true, host, port);
       await MCP?.manager?.connectProxy?.({ host, port, endpoint: buildMcpEndpoint(host, port), token });
     });

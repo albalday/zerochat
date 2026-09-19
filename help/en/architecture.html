@@ -169,7 +169,7 @@
           <strong>Universal Web Delivery (HTTPS):</strong> Served directly from GitHub Pages (<code>https://albalday.github.io/zerochat/zerochat.html</code>). All interface rendering, agent execution, and inference calls happen in the browser with full access to modern web APIs like <code>navigator.storage.persist()</code> and private local IndexedDB storage.
         </li>
         <li>
-          <strong>Unified Local Backend (<code>zerochat.py</code>):</strong> Running <code>python3 zerochat.py</code> launches the local server on <code>127.0.0.1:6388</code>, opens the browser pointing to the web app, and passes the daily session token securely via the URL fragment.
+          <strong>Unified Local Backend (<code>zerochat.py</code>):</strong> Running <code>python3 zerochat.py</code> launches the local server on <code>127.0.0.1:6388</code>, opens the browser pointing to the web app, and passes the daily session token securely via the URL fragment. The app consumes that fragment only once, removes it from the address bar, and retains the local session in a short-lived cookie, so reloads and new tabs neither expose nor propagate the token again.
         </li>
       </ul>
       <div class="alert alert-info">

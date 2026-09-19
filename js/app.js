@@ -2086,8 +2086,7 @@
   let heartbeatTimer = null;
   let activeHeartbeatTarget = null;
 
-  function buildHeartbeatUrl(host, port, token) {
-    const encToken = encodeURIComponent(token);
+  function buildHeartbeatUrl(host, port) {
     if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
       const locHost = window.location.hostname;
       const locPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
@@ -2095,19 +2094,20 @@
       const isLocalHostMatch = (locHost === host) ||
         (['127.0.0.1', 'localhost'].includes(locHost) && ['127.0.0.1', 'localhost'].includes(host));
       if (isSamePort && isLocalHostMatch) {
-        return `/zerochat/heartbeat?token=${encToken}`;
+        return '/zerochat/heartbeat';
       }
     }
-    return `http://${host}:${port}/zerochat/heartbeat?token=${encToken}`;
+    return `http://${host}:${port}/zerochat/heartbeat`;
   }
 
   function sendHeartbeatPing() {
     if (!activeHeartbeatTarget || typeof fetch !== 'function') return;
-    const endpoint = buildHeartbeatUrl(activeHeartbeatTarget.host, activeHeartbeatTarget.port, activeHeartbeatTarget.token);
+    const endpoint = buildHeartbeatUrl(activeHeartbeatTarget.host, activeHeartbeatTarget.port);
     fetch(endpoint, {
       method: 'GET',
       cache: 'no-store',
-      mode: 'cors'
+      mode: 'cors',
+      headers: { 'X-ZeroChat-Token': activeHeartbeatTarget.token }
     }).catch(() => {
       // Ignorar silenciosamente desconexiones si el servidor ya se ha cerrado
     });
@@ -2141,19 +2141,7 @@
 
   function getNewTabUrl() {
     if (typeof window === 'undefined' || !window.location) return '';
-    const base = (window.location.pathname || '') + (window.location.search || '');
-    const token = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_token') : null)
-      || window.ChatMCP?.manager?.getSessionToken()
-      || activeHeartbeatTarget?.token;
-    const port = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('zerochat_mcp_port') : null)
-      || activeHeartbeatTarget?.port
-      || getRuntimeConfig()?.mcpPort
-      || 6388;
-
-    if (token) {
-      return `${base}#token=${encodeURIComponent(token)}&port=${encodeURIComponent(port)}`;
-    }
-    return base || window.location.href;
+    return (window.location.pathname || '') + (window.location.search || '') || window.location.href;
   }
 
   function updateNewTabLink() {
@@ -2225,70 +2213,44 @@
         serversList: elements.mcpServersList
       });
 
-      // Extraer token y port pasados desde zerochat.py por hash o query string
-      function extractSessionParams() {
-        let token = null;
-        let port = null;
+      // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
+      // Después la sesión se resuelve mediante una cookie del mismo origen.
+      function persistBackendSessionFromLaunchFragment() {
         try {
           if (typeof window !== 'undefined' && window.location) {
             const hashRaw = (window.location.hash || '').replace(/^#/, '');
             const hashParams = new URLSearchParams(hashRaw);
-            const queryParams = new URLSearchParams(window.location.search || '');
-            token = hashParams.get('token') || queryParams.get('token');
-            port = hashParams.get('port') || queryParams.get('port');
-
-            if (token && window.history && typeof window.history.replaceState === 'function') {
-              // Limpiar el fragmento de la barra de direcciones para no exponer el token
-              const cleanUrl = window.location.pathname + (window.location.search ? window.location.search.replace(/([?&])token=[^&]+(&|$)/, '$1').replace(/[?&]$/, '') : '');
-              window.history.replaceState(null, '', cleanUrl || window.location.pathname);
+            const token = hashParams.get('token');
+            if (!token) return;
+            const session = Storage.normalizeBackendSession?.({
+              token,
+              host: hashParams.get('host') || '127.0.0.1',
+              port: hashParams.get('port') || 6388
+            });
+            if (session) {
+              if (!Storage.setBackendSession?.(session)) {
+                console.warn('No se pudo persistir la sesión inicial del backend.');
+              }
+            }
+            if (window.history && typeof window.history.replaceState === 'function') {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
             }
           }
         } catch (err) {
-          console.warn('Error leyendo parámetros de sesión:', err);
+          console.warn('Error leyendo la sesión inicial del backend:', err);
         }
-        return { token, port };
       }
 
-      const initialParams = extractSessionParams();
-      let incomingToken = initialParams.token;
-      let incomingPort = initialParams.port;
-
-      if (incomingToken) {
-        try {
-          if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem('zerochat_mcp_token', incomingToken);
-          }
-        } catch (_) {}
-      } else {
-        try {
-          if (typeof sessionStorage !== 'undefined') {
-            incomingToken = sessionStorage.getItem('zerochat_mcp_token');
-          }
-        } catch (_) {}
-      }
-
-      if (incomingPort) {
-        try {
-          if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem('zerochat_mcp_port', incomingPort);
-          }
-        } catch (_) {}
-      } else {
-        try {
-          if (typeof sessionStorage !== 'undefined') {
-            incomingPort = sessionStorage.getItem('zerochat_mcp_port');
-          }
-        } catch (_) {}
-      }
-
-      const effectiveToken = incomingToken || window.ChatMCP?.manager?.getSessionToken();
+      persistBackendSessionFromLaunchFragment();
+      const backendSession = Storage.getBackendSession?.();
+      const effectiveToken = backendSession?.token || window.ChatMCP?.manager?.getSessionToken();
       if (effectiveToken && window.ChatMCP?.manager?.setSessionToken) {
         window.ChatMCP.manager.setSessionToken(effectiveToken);
       }
 
       const currentCfg = getRuntimeConfig();
-      const targetPort = incomingPort ? parseInt(incomingPort, 10) : (currentCfg?.mcpPort || 6388);
-      const targetHost = currentCfg?.mcpHost || '127.0.0.1';
+      const targetPort = backendSession?.port || (currentCfg?.mcpPort || 6388);
+      const targetHost = backendSession?.host || currentCfg?.mcpHost || '127.0.0.1';
 
       if ((effectiveToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
         window.ChatMCP.manager.connectProxy({
@@ -2304,37 +2266,6 @@
         startServerHeartbeat(targetHost, targetPort, effectiveToken);
       }
       updateNewTabLink();
-
-      if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('hashchange', () => {
-          const updated = extractSessionParams();
-          if (updated.token) {
-            incomingToken = updated.token;
-            try { sessionStorage.setItem('zerochat_mcp_token', updated.token); } catch (_) {}
-            if (window.ChatMCP?.manager?.setSessionToken) {
-              window.ChatMCP.manager.setSessionToken(updated.token);
-            }
-          }
-          if (updated.port) {
-            incomingPort = updated.port;
-            try { sessionStorage.setItem('zerochat_mcp_port', updated.port); } catch (_) {}
-          }
-          const activeTok = updated.token || sessionStorage.getItem('zerochat_mcp_token') || window.ChatMCP?.manager?.getSessionToken();
-          const activePort = updated.port ? parseInt(updated.port, 10) : (sessionStorage.getItem('zerochat_mcp_port') ? parseInt(sessionStorage.getItem('zerochat_mcp_port'), 10) : (currentCfg?.mcpPort || 6388));
-          if (activeTok) {
-            if (window.ChatMCP?.manager?.connectProxy) {
-              window.ChatMCP.manager.connectProxy({
-                host: targetHost,
-                port: activePort,
-                token: activeTok,
-                silentOnFailure: true
-              });
-            }
-            startServerHeartbeat(targetHost, activePort, activeTok);
-            updateNewTabLink();
-          }
-        });
-      }
     }
 
     window.ChatApp = {
