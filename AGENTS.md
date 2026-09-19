@@ -132,6 +132,30 @@ El flujo de trabajo en el repositorio debe seguir estas pautas:
 - **Rama de trabajo**: Todo desarrollo o cambio se realiza sobre la rama `dev`.
 - **Formato de commits**: Usar la convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
 
+### Gestión unificada de versiones
+
+La versión del producto debe mantenerse sincronizada en todos los archivos mediante el script automatizado:
+
+```bash
+npm run bump <nueva_version | patch | minor | major>
+```
+
+El script `scripts/bump-version.mjs` actualiza automáticamente:
+- `package.json` y `package-lock.json`
+- `zerochat.html` (título)
+- `zerochat.py` (función de versión)
+- `sw.js` (nombre de caché)
+
+**Prohibido** modificar manualmente los números de versión en archivos individuales. Toda actualización de versión debe realizarse exclusivamente mediante este script para garantizar la sincronización y evitar inconsistencias entre componentes.
+
+Ejemplos:
+```bash
+npm run bump patch      # 7.0.8 → 7.0.9
+npm run bump minor      # 7.0.9 → 7.1.0
+npm run bump major      # 7.1.0 → 8.0.0
+npm run bump 7.2.5      # Versión específica
+```
+
 ## 7. Regla de promoción a `master`
 
 Todo cambio destinado a `master` debe prepararse primero en `dev`.
