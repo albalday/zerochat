@@ -117,12 +117,9 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
 
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('#btn-menu-new-profile');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
-    await page.click('#btn-new-profile');
-    await page.fill('#notice-input', 'Perfil Temporal Browser');
-    await page.click('#notice-accept');
-    await page.click('#profile-tab-settings');
+    await page.fill('#setting-profile-name', 'Perfil Temporal Browser');
     await page.fill('#setting-api-url', 'http://browser-test:1234/v1');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => {
@@ -156,13 +153,11 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     assert.equal(profileSaveResult.runtimeUrl, 'http://browser-test:1234/v1', 'El perfil guardado debe quedar activo por defecto');
 
     // Renombrar el perfil creado actualiza el mismo registro y recarga sus datos.
-    await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
     const createdProfileId = await page.evaluate(() => window.ChatProfileRepository.findByName('Perfil Temporal Browser').id);
-    await page.selectOption('#profile-select-helper', createdProfileId);
+    await page.click('#active-profile-trigger');
+    await page.click(`.header-profile-item:has([data-profile-id="${createdProfileId}"]) [data-profile-action="edit"]`);
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
     await page.fill('#setting-profile-name', 'Perfil Temporal renombrado');
-    await page.click('#profile-tab-settings');
     await page.fill('#setting-api-url', 'http://active-profile-test:1234/v1');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => {

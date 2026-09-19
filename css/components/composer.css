@@ -983,7 +983,7 @@
   top: calc(100% + 0.5rem);
   left: 50%;
   transform: translateX(-50%);
-  width: min(320px, calc(100vw - 2rem));
+  width: min(340px, calc(100vw - 2rem));
   padding: 0.45rem;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -996,27 +996,84 @@
 }
 
 .header-profile-popover-header {
-  padding: 0.35rem 0.45rem 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.45rem 0.45rem;
   color: var(--text-muted);
+}
+
+.header-profile-popover-title {
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
+.header-profile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.btn-profile-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-profile-header-icon:hover,
+.btn-profile-header-icon:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+  color: var(--text-main);
+  outline: none;
+}
+
 .header-profile-list {
   display: grid;
-  gap: 0.15rem;
-  max-height: 220px;
+  gap: 0.2rem;
+  max-height: 240px;
   overflow-y: auto;
+}
+
+.header-profile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.header-profile-item:hover {
+  background: var(--bg-hover);
+}
+
+.header-profile-item.active {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
 }
 
 .header-profile-option {
   display: grid;
   gap: 0.12rem;
-  width: 100%;
-  padding: 0.5rem 0.55rem;
-  border: 1px solid transparent;
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.45rem;
+  border: 0;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-main);
@@ -1027,13 +1084,7 @@
 
 .header-profile-option:hover,
 .header-profile-option:focus-visible {
-  background: var(--bg-hover);
   outline: none;
-}
-
-.header-profile-option.active {
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
-  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
 }
 
 .header-profile-option-name {
@@ -1052,29 +1103,43 @@
   white-space: nowrap;
 }
 
-.header-profile-popover-footer {
-  margin-top: 0.4rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid var(--border-color);
+.header-profile-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding-right: 0.25rem;
+  flex-shrink: 0;
 }
 
-.header-profile-edit {
-  width: 100%;
-  min-height: 32px;
-  border: 0;
-  border-radius: var(--radius-md);
+.btn-profile-item-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--primary);
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 650;
+  color: var(--text-muted);
   cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.header-profile-edit:hover,
-.header-profile-edit:focus-visible {
-  background: var(--bg-hover);
+.btn-profile-item-action:hover,
+.btn-profile-item-action:focus-visible {
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+  color: var(--text-main);
   outline: none;
+}
+
+.btn-profile-item-action.btn-profile-item-delete:hover,
+.btn-profile-item-action.btn-profile-item-delete:focus-visible {
+  background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, transparent);
+  color: var(--danger, #ef4444);
+}
 }
 
 @media (max-width: 640px) {

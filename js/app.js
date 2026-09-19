@@ -140,6 +140,10 @@
       activeProfileName: document.getElementById('active-profile-name'),
       activeProfilePopover: document.getElementById('active-profile-popover'),
       activeProfileList: document.getElementById('active-profile-list'),
+      btnMenuNewProfile: document.getElementById('btn-menu-new-profile'),
+      btnMenuExportProfiles: document.getElementById('btn-menu-export-profiles'),
+      btnMenuImportProfiles: document.getElementById('btn-menu-import-profiles'),
+      btnMenuCloseProfiles: document.getElementById('btn-menu-close-profiles'),
       btnEditProfiles: document.getElementById('btn-edit-profiles'),
       connectionTokensBadge: document.getElementById('connection-tokens-badge'),
       connectionTokensText: document.getElementById('connection-tokens-text'),
@@ -959,9 +963,21 @@
     }
   }
 
+  async function handleDeleteProfileById(profileId) {
+    if (UIProfiles.handleDeleteProfileById) {
+      return UIProfiles.handleDeleteProfileById(profileId, elements, getProfilesHelperOptions());
+    }
+  }
+
   async function handleNewProfile() {
     if (UIProfiles.handleNewProfile) {
       return UIProfiles.handleNewProfile(elements, getProfilesHelperOptions());
+    }
+  }
+
+  async function handleMenuNewProfile() {
+    if (UIProfiles.handleMenuNewProfile) {
+      return UIProfiles.handleMenuNewProfile(elements, getProfilesHelperOptions());
     }
   }
 
@@ -997,9 +1013,15 @@
     openSettingsSection(initialTabId);
   }
 
-  function openProfilesModal() {
+  function openProfilesModal(targetId = null) {
     if (UIProfiles.openProfilesModal) {
-      return UIProfiles.openProfilesModal(elements, getProfilesHelperOptions());
+      return UIProfiles.openProfilesModal(elements, getProfilesHelperOptions(), targetId);
+    }
+  }
+
+  function openNewProfileModal() {
+    if (UIProfiles.openNewProfileModal) {
+      return UIProfiles.openNewProfileModal(elements, getProfilesHelperOptions());
     }
   }
 
@@ -1551,8 +1573,43 @@
         else openProfileMenu();
       });
     }
+    if (elements.btnMenuNewProfile) {
+      elements.btnMenuNewProfile.addEventListener('click', () => {
+        handleMenuNewProfile();
+      });
+    }
+    if (elements.btnMenuExportProfiles) {
+      elements.btnMenuExportProfiles.addEventListener('click', () => {
+        handleExportProfiles();
+      });
+    }
+    if (elements.btnMenuImportProfiles) {
+      elements.btnMenuImportProfiles.addEventListener('click', () => {
+        elements.profilesImportInput?.click();
+      });
+    }
+    if (elements.btnMenuCloseProfiles) {
+      elements.btnMenuCloseProfiles.addEventListener('click', () => {
+        closeProfileMenu();
+        elements.activeProfileTrigger?.focus();
+      });
+    }
     if (elements.activeProfileList) {
-      elements.activeProfileList.addEventListener('click', (event) => {
+      elements.activeProfileList.addEventListener('click', async (event) => {
+        const actionBtn = event.target.closest('[data-profile-action]');
+        if (actionBtn && elements.activeProfileList.contains(actionBtn)) {
+          event.stopPropagation();
+          const action = actionBtn.dataset.profileAction;
+          const targetId = actionBtn.dataset.targetId;
+          if (action === 'edit') {
+            closeProfileMenu();
+            openProfilesModal(targetId);
+          } else if (action === 'delete') {
+            await handleDeleteProfileById(targetId);
+          }
+          return;
+        }
+
         const option = event.target.closest('[data-profile-id]');
         if (!option || !elements.activeProfileList.contains(option)) return;
         if (!Profiles.get(option.dataset.profileId)) return;
@@ -1565,7 +1622,7 @@
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
       if (elements.activeProfilePopover.hidden) openProfileMenu();
-      const buttons = [...elements.activeProfileList.querySelectorAll('button'), elements.btnEditProfiles];
+      const buttons = [...elements.activeProfileList.querySelectorAll('button'), elements.btnEditProfiles].filter(Boolean);
       const index = buttons.indexOf(document.activeElement);
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
         : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
@@ -1856,9 +1913,11 @@
       elements.btnExportProfiles.addEventListener('click', handleExportProfiles);
     }
 
+    if (elements.profilesImportInput) {
+      elements.profilesImportInput.addEventListener('change', handleImportProfiles);
+    }
     if (elements.btnImportProfiles && elements.profilesImportInput) {
       elements.btnImportProfiles.addEventListener('click', () => elements.profilesImportInput.click());
-      elements.profilesImportInput.addEventListener('change', handleImportProfiles);
     }
 
     if (elements.btnDeleteProfile) {

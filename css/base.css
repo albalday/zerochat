@@ -189,8 +189,7 @@ select:focus-visible {
 .mcp-status-card,
 .mcp-config-card,
 .mcp-instructions-card,
-.mcp-tool-card,
-.profile-values-card {
+.mcp-tool-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);

@@ -34,8 +34,7 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.click('#profile-tab-settings');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
     // Inicialmente con OpenAI el enlace de ayuda está oculto
     const initialLinkHidden = await page.$eval('#webllm-help-link', el => el.hidden);
@@ -45,19 +44,22 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
     await page.selectOption('#setting-api-type', 'webllm');
     const webllmLinkState = await page.$eval('#webllm-help-link', el => ({
       hidden: el.hidden,
-      href: el.getAttribute('href'),
       target: el.getAttribute('target'),
-      rel: el.getAttribute('rel')
+      rel: el.getAttribute('rel'),
+      href: el.getAttribute('href')
     }));
     assert.equal(webllmLinkState.hidden, false);
-    assert.equal(webllmLinkState.href, 'http://albalday.github.io/zerochat/help/webllm.html');
     assert.equal(webllmLinkState.target, '_blank');
-    assert.ok(webllmLinkState.rel.includes('noopener'));
+    assert.equal(webllmLinkState.rel, 'noopener noreferrer');
+    assert.match(webllmLinkState.href, /webllm\.html$/);
 
-    // Cambiar de nuevo a OpenAI oculta el enlace
+    // Cambiar de nuevo a OpenAI lo vuelve a ocultar
     await page.selectOption('#setting-api-type', 'openai');
-    const finalLinkHidden = await page.$eval('#webllm-help-link', el => el.hidden);
-    assert.equal(finalLinkHidden, true);
+    assert.equal(await page.$eval('#webllm-help-link', el => el.hidden), true);
+
+    // Cambiar a Claude también lo mantiene oculto
+    await page.selectOption('#setting-api-type', 'claude');
+    assert.equal(await page.$eval('#webllm-help-link', el => el.hidden), true);
   } finally {
     await browser.close();
   }
@@ -71,8 +73,7 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.click('#profile-tab-settings');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
     // Inicialmente con OpenAI el botón de parámetros y el panel están ocultos
     assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), true);
@@ -119,8 +120,7 @@ test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y m
     });
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.click('#profile-tab-settings');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
     // Cambiar a WebLLM
     await page.selectOption('#setting-api-type', 'webllm');

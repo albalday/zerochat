@@ -247,11 +247,25 @@
             <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
           </button>
           <div id="active-profile-popover" class="header-profile-popover" hidden>
-            <div id="profile-menu-title" class="header-profile-popover-header" data-i18n="profile_menu_title">Perfiles de conexión</div>
-            <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
-            <div class="header-profile-popover-footer">
-              <button type="button" id="btn-edit-profiles" class="header-profile-edit" data-i18n="edit_profiles">Editar perfiles</button>
+            <div class="header-profile-popover-header">
+              <span id="profile-menu-title" class="header-profile-popover-title" data-i18n="profile_menu_title">Perfiles de conexión</span>
+              <div class="header-profile-header-actions">
+                <button type="button" id="btn-menu-new-profile" class="btn-profile-header-icon" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo" aria-label="Crear un perfil nuevo">
+                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg>
+                </button>
+                <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
+                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+                </button>
+                <button type="button" id="btn-menu-import-profiles" class="btn-profile-header-icon" data-i18n-title="btn_import_profiles_title" title="Cargar perfiles desde un archivo cifrado" aria-label="Cargar perfiles">
+                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
+                </button>
+                <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
+                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+                </button>
+              </div>
             </div>
+            <input id="profiles-import-input" type="file" accept="application/json,.zcp" hidden>
+            <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
           </div>
         </div>
       </div>

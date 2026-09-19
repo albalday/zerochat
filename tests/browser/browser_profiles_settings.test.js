@@ -41,12 +41,14 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
-    assert.equal(await page.locator('#btn-delete-profile').isDisabled(), true);
+    assert.equal(await page.locator('#btn-delete-profile').count(), 0);
     assert.equal(await page.locator('#btn-clone-profile').count(), 0);
-    await page.selectOption('#profile-select-helper', 'profile:remote');
-    await page.click('#profile-tab-settings');
+    await page.click('#btn-close-profiles');
+
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:remote"]) [data-profile-action="edit"]');
     assert.equal(await page.locator('#setting-api-key').isEnabled(), true);
     await page.selectOption('#setting-api-type', 'webllm');
     assert.equal(await page.inputValue('#setting-api-url'), 'webllm://local');
@@ -76,10 +78,11 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.selectOption('#setting-api-type', 'openai');
     assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
     assert.equal(await page.locator('.api-key-field').isVisible(), true);
-    await page.click('#profile-tab-name');
-    await page.click('#btn-delete-profile');
-    await page.click('#notice-accept');
     await page.click('#btn-close-profiles');
+    await page.click('#notice-accept');
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:remote"]) [data-profile-action="delete"]');
+    await page.click('#notice-accept');
     assert.equal(await page.textContent('#active-profile-name'), 'Espejo');
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().apiKey), undefined);
     await page.reload({ waitUntil: 'load' });
@@ -105,7 +108,7 @@ test('Browser UI - guardar perfiles exige un cambio', async () => {
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
     const state = await page.evaluate(() => ({
       disabled: document.getElementById('btn-save-profile').disabled,
@@ -129,8 +132,7 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.click('#profile-tab-settings');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Sin cambios no debe guardarse');
     const initialModel = await page.locator('#setting-model').inputValue();
@@ -138,9 +140,8 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un modelo escrito libremente habilita Guardar');
     await page.fill('#setting-model', initialModel);
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Al deshacer el cambio permanece habilitado');
-    await page.click('#profile-tab-model');
     await page.fill('#setting-system-prompt', 'Instrucción personalizada');
-    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otra pestaña habilita Guardar');
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), false, 'Un cambio en otro campo habilita Guardar');
   } finally {
     await browser.close();
   }
@@ -154,16 +155,15 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.evaluate(() => {
       window.ChatUIInspector.handleQueryServer = async () => true;
     });
-    await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
 
     // 1. Pulsar botón Cerrar con consulta pendiente abre diálogo de confirmación (con Cancelar y Aceptar)
-    await page.click('#btn-cancel-profiles');
+    await page.click('#btn-close-profiles');
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
 
     const stateNotice = await page.evaluate(() => ({
@@ -186,7 +186,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     assert.equal(stateAfterCancel.queryReady, 'true', 'queryReady debe conservarse para permitir guardar');
 
     // 3. Pulsar Cerrar y luego Aceptar descarta la consulta y cierra el modal
-    await page.click('#btn-cancel-profiles');
+    await page.click('#btn-close-profiles');
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
@@ -199,9 +199,8 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
 
     // 4. Probar clic fuera (backdrop) con consulta pendiente: no debe cerrar prematuramente
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    await page.click('#profile-tab-settings');
     await page.click('#btn-query-server');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').dataset.queryReady === 'true');
 
@@ -234,22 +233,22 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
 
-    // 1. Sin cambios: cerrar con botón Cancelar cierra de inmediato sin confirmación
-    await page.click('#btn-cancel-profiles');
+    // 1. Sin cambios: cerrar con botón X cierra de inmediato sin confirmación
+    await page.click('#btn-close-profiles');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
     assert.equal(await page.$eval('#profiles-dialog', el => el.open), false, 'Sin cambios debe cerrar sin confirmar');
     assert.equal(await page.$eval('#notice-dialog', el => el.open), false, 'No debe abrir notice-dialog sin cambios');
 
     // 2. Modificar un campo y pulsar Cerrar: debe pedir confirmación
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     await page.fill('#setting-profile-description', 'Modificación de prueba sin guardar');
 
-    await page.click('#btn-cancel-profiles');
+    await page.click('#btn-close-profiles');
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
 
     const stateNotice = await page.evaluate(() => ({
@@ -275,7 +274,7 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
 
     // 5. Reabrir y verificar que los cambios no guardados fueron descartados
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     const reloadedDesc = await page.$eval('#setting-profile-description', el => el.value);
     assert.notEqual(reloadedDesc, 'Modificación de prueba sin guardar', 'Los cambios descartados no deben persistir');
@@ -373,7 +372,7 @@ test('Browser UI - carga una copia cifrada de perfiles tras confirmación', asyn
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
+    await page.click('.btn-profile-item-edit');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     const encrypted = await page.evaluate(async () => window.ChatProfileBackup.encryptProfiles([{
       id: 'profile:imported-browser', name: 'Imported browser profile', description: 'Imported test',
@@ -407,19 +406,24 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
       await repository.saveEditable({ id: 'profile:locked-test', name: 'Locked test', settings: { apiType: 'openai', model: 'test', apiKey: 'sk-locked', apiKeyLocked: true } });
     });
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.selectOption('#profile-select-helper', 'profile:unlocked-test');
+    await page.click('.header-profile-item:has([data-profile-id="profile:unlocked-test"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
     await page.check('#setting-api-key-locked');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), false, 'Marcar el borrador no bloquea de inmediato');
-    await page.selectOption('#profile-select-helper', 'profile:locked-test');
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:locked-test"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
     assert.equal(await page.locator('#api-key-locked-status').isVisible(), true);
     assert.equal(await page.locator('#api-key-lock-control').isVisible(), false);
     for (const selector of ['#setting-profile-name', '#setting-api-url', '#setting-api-key', '#setting-model', '#setting-system-prompt', '#setting-temperature']) {
       assert.equal(await page.locator(selector).isDisabled(), true, `${selector} debe quedar bloqueado`);
     }
-    assert.equal(await page.locator('#profile-select-helper').isDisabled(), false);
+    assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Guardar debe estar deshabilitado en perfil bloqueado');
   } finally {
     await browser.close();
   }
@@ -479,11 +483,7 @@ test('Browser UI - nuevo perfil permite query inmediato con el conector por defe
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
 
     await page.click('#active-profile-trigger');
-    await page.click('#btn-edit-profiles');
-    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
-
     await page.evaluate(() => {
-      window.ChatDialogs.prompt = async () => 'Perfil OpenAI Test';
       window.ChatAPI.fetchServerModels = async () => ({
         success: true,
         count: 1,
@@ -492,15 +492,98 @@ test('Browser UI - nuevo perfil permite query inmediato con el conector por defe
       });
     });
 
-    await page.click('#btn-new-profile');
-    await page.click('#profile-tab-settings');
+    await page.click('#btn-menu-new-profile');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
 
+    assert.equal(await page.inputValue('#setting-profile-name'), '', 'El nombre del nuevo perfil debe empezar en blanco');
+    assert.equal(await page.inputValue('#setting-profile-description'), '', 'La descripción del nuevo perfil debe empezar en blanco');
     assert.equal(await page.inputValue('#setting-api-type'), 'openai');
     assert.equal(await page.inputValue('#setting-api-url'), 'http://localhost:1234/v1');
 
+    await page.fill('#setting-profile-name', 'Perfil OpenAI Test');
     await page.click('#btn-query-server');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.dataset.queryReady === 'true');
     assert.equal(await page.inputValue('#setting-model'), 'test-openai-model');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - selector de perfiles con 4 iconos de cabecera y acciones de editar y borrar con confirmacion', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await seedConnectionProfiles(page);
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+
+    // 1. Abrir selector y comprobar los 4 iconos de cabecera
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+
+    assert.ok(await page.locator('#btn-menu-new-profile').isVisible(), 'Debe tener icono Nuevo');
+    assert.ok(await page.locator('#btn-menu-export-profiles').isVisible(), 'Debe tener icono Exportar');
+    assert.ok(await page.locator('#btn-menu-import-profiles').isVisible(), 'Debe tener icono Importar');
+    assert.ok(await page.locator('#btn-menu-close-profiles').isVisible(), 'Debe tener icono Cerrar');
+
+    // 2. Probar que el icono de Cerrar cierra el selector
+    await page.click('#btn-menu-close-profiles');
+    await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
+
+    // 3. Reabrir y verificar acciones por fila (Editar y Borrar)
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+
+    // Espejo no tiene boton de borrado
+    const mirrorDelete = await page.locator('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="delete"]').count();
+    assert.equal(mirrorDelete, 0, 'El perfil Espejo no debe tener boton de borrar');
+
+    const mirrorEdit = await page.locator('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]').count();
+    assert.equal(mirrorEdit, 1, 'El perfil Espejo debe tener boton de editar');
+
+    // Perfil editable (profile:local) tiene ambos botones
+    const localDelete = await page.locator('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="delete"]').count();
+    assert.equal(localDelete, 1, 'El perfil local debe tener boton de borrar');
+
+    // 4. Probar que Editar abre el mantenedor con ese perfil
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
+    await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
+    assert.equal(await page.inputValue('#setting-profile-name'), 'Local chat');
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+
+    // 5. Reabrir y probar Borrar con confirmacion
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+
+    // Cancelar borrado
+    await page.click('.header-profile-item:has([data-profile-id="profile:remote"]) [data-profile-action="delete"]');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    assert.match(await page.locator('#notice-message').textContent(), /Remoto chat/);
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+
+    // Reabrir y confirmar borrado
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+    await page.click('.header-profile-item:has([data-profile-id="profile:remote"]) [data-profile-action="delete"]');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+
+    // Comprobar que profile:remote ya no existe en el selector
+    const remoteCount = await page.locator('[data-profile-id="profile:remote"]').count();
+    assert.equal(remoteCount, 0, 'El perfil remoto debe haber sido eliminado');
+
+    // 6. Seleccionar un perfil (pulsar en la fila lo activa y cierra el selector)
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+    await page.click('[data-profile-id="profile:local"]');
+    await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
+    assert.equal(await page.textContent('#active-profile-name'), 'Local chat');
+
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

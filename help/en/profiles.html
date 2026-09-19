@@ -30,16 +30,16 @@
         ZeroChat lets you define multiple <strong>connection profiles</strong>. A profile encapsulates the API protocol type, server endpoint URL, authentication key (optional for local servers), and selected model name.
       </p>
       <p>
-        To manage profiles, click the active profile name button located in the bottom-right corner of the composer and choose <strong>"Edit profiles"</strong>, or open the settings dialog from the sidebar.
+        To manage profiles, click the active profile button in the top header. The dropdown selector includes header icons for <strong>New profile</strong> (+, opens the profile editor directly with blank name and description fields), <strong>Export</strong> encrypted backup, <strong>Import</strong>, and <strong>Close</strong>. Each profile in the list provides quick action buttons to <strong>Edit</strong> (opens the editor for that selected profile; all profile selection takes place in the profile selector) and <strong>Delete</strong> (with confirmation). Clicking any profile in the list selects it as active and closes the selector.
       </p>
       <div class="alert alert-info">
         <strong>Instant switching:</strong> You can switch models or providers mid-conversation without losing context. Simply open the profile dropdown and select another one.
       </div>
       <p>
-        The profile manager can also <strong>Export</strong> all editable definitions and <strong>Load</strong> a previous backup. The <code>.zcp</code> file includes API keys and is encrypted before download; when loading it, ZeroChat asks for confirmation and updates profiles with the same identifier without changing the Mirror profile.
+        The profile selector allows you to <strong>Export</strong> all editable definitions and <strong>Load</strong> (import) a previous backup directly from its header icons. The <code>.zcp</code> file includes API keys and is encrypted before download; when loading it, ZeroChat asks for confirmation and updates profiles with the same identifier without changing the Mirror profile.
       </p>
       <p>
-        API keys are encrypted in the browser's local profile storage and remain encrypted inside the backup, which adds a second encryption layer. The <strong>Lock changes</strong> checkbox on the General tab marks a profile as non-editable when it is loaded again; the lock covers every tab.
+        API keys are encrypted in the browser's local profile storage and remain encrypted inside the backup, which adds a second encryption layer. The <strong>Lock changes</strong> checkbox, located in the editor header, marks a profile as non-editable when it is loaded again; the lock protects all profile settings. Changes are saved using the <strong>Save</strong> button in the modal header.
       </p>
       <div class="alert alert-warning">
         <strong>Transport protection:</strong> the master key is embedded in ZeroChat to make profile reuse convenient. Encryption prevents keys from being visible when opening the file, but it must not be considered protection against someone who has access to the application source. Share these backups only through trusted channels.

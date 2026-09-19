@@ -127,6 +127,9 @@
   border: 1px solid #334155;
   box-shadow: var(--shadow-sm);
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .code-block-header {
@@ -139,6 +142,9 @@
   color: #94a3b8;
   border-bottom: 1px solid #334155;
   font-family: var(--font-mono);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .code-lang {
@@ -195,6 +201,9 @@
   overflow-x: auto;
   white-space: pre;
   tab-size: 2;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .code-block-container code {
@@ -203,6 +212,7 @@
   font-size: 0.9rem;
   line-height: 1.55;
   display: block;
+  max-width: 100%;
 }
 
 /* Salida de Ejecución en Sandbox Local */

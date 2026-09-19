@@ -220,7 +220,7 @@
 
   function syncApiKeyLock(elements, readOnly = false) {
     const locked = elements?.profilesDialog?.dataset.profileLocked === 'true';
-    elements?.profilesDialog?.querySelectorAll('.modal-tab-pane input, .modal-tab-pane textarea, .modal-tab-pane select, .modal-tab-pane button').forEach(control => {
+    elements?.profilesDialog?.querySelectorAll('.modal-body input, .modal-body textarea, .modal-body select, .modal-body button').forEach(control => {
       if (control === elements.profileSelectHelper || control.hasAttribute('data-profile-global-action')) return;
       control.disabled = readOnly || locked || (control === elements.settingApiKey && control.closest('.api-key-field')?.hidden === true);
     });
@@ -611,34 +611,65 @@
   function renderProfileMenu(elements, profiles, activeId) {
     const list = elements.activeProfileList;
     if (!list) return;
+    const doc = list.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return;
     const descriptionFor = profile => profile.id === 'profile:mirror' ? t('profile_mirror_description') : profile.description;
-    const existing = [...list.children];
-    if (existing.length === profiles.length && profiles.every((profile, index) => {
-      const option = existing[index];
-      return option.dataset.profileId === profile.id
-        && option.getAttribute('aria-checked') === String(profile.id === activeId)
-        && option.querySelector('.header-profile-option-name')?.textContent === profile.name
-        && (option.querySelector('.header-profile-option-description')?.textContent || '') === (descriptionFor(profile) || '');
-    })) return;
     list.replaceChildren();
     profiles.forEach(profile => {
-      const option = document.createElement('button');
+      const item = doc.createElement('div');
+      item.className = 'header-profile-item' + (profile.id === activeId ? ' active' : '');
+
+      const option = doc.createElement('button');
       option.type = 'button';
       option.className = 'header-profile-option' + (profile.id === activeId ? ' active' : '');
       option.dataset.profileId = profile.id;
       option.setAttribute('role', 'menuitemradio');
       option.setAttribute('aria-checked', String(profile.id === activeId));
-      const name = document.createElement('span');
+      option.setAttribute('title', profile.name);
+
+      const name = doc.createElement('span');
       name.className = 'header-profile-option-name';
       name.textContent = profile.name;
       option.appendChild(name);
-      if (profile.description) {
-        const description = document.createElement('span');
+
+      const descText = descriptionFor(profile);
+      if (descText) {
+        const description = doc.createElement('span');
         description.className = 'header-profile-option-description';
-        description.textContent = descriptionFor(profile);
+        description.textContent = descText;
         option.appendChild(description);
       }
-      list.appendChild(option);
+      item.appendChild(option);
+
+      const actions = doc.createElement('div');
+      actions.className = 'header-profile-item-actions';
+
+      const editBtn = doc.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn-profile-item-action btn-profile-item-edit';
+      editBtn.dataset.profileAction = 'edit';
+      editBtn.dataset.targetId = profile.id;
+      const editTitle = t('btn_edit_profile_title') || 'Editar este perfil';
+      editBtn.title = editTitle;
+      editBtn.setAttribute('aria-label', `${editTitle}: ${profile.name}`);
+      editBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>';
+      actions.appendChild(editBtn);
+
+      if (profile.id !== 'profile:mirror') {
+        const deleteBtn = doc.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'btn-profile-item-action btn-profile-item-delete';
+        deleteBtn.dataset.profileAction = 'delete';
+        deleteBtn.dataset.targetId = profile.id;
+        const deleteTitle = t('btn_delete_profile_item_title') || t('btn_delete_profile_title') || 'Eliminar este perfil';
+        deleteBtn.title = deleteTitle;
+        deleteBtn.setAttribute('aria-label', `${deleteTitle}: ${profile.name}`);
+        deleteBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>';
+        actions.appendChild(deleteBtn);
+      }
+
+      item.appendChild(actions);
+      list.appendChild(item);
     });
   }
 
@@ -656,70 +687,40 @@
   }
 
   function getProfilesDialogHTML() {
-    return `<div class="modal-header">
+    return `<div class="modal-header settings-section-header">
       <div class="modal-title">
-        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-user-plus"></use></svg>
-        <h3 data-i18n="profiles_modal_title">Mantenimiento de perfiles</h3>
+        <h3 data-i18n="profiles_modal_title">Perfil</h3>
       </div>
-      <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
-    </div>
-    <div class="modal-tabs-nav profile-tabs-nav" role="tablist" aria-label="Secciones del perfil">
-      <button type="button" id="profile-tab-name" class="modal-tab-btn active" role="tab" aria-selected="true" aria-controls="profile-tab-name-pane" data-profile-tab="profile-tab-name-pane"><span data-i18n="profile_tab_name">General</span></button>
-      <button type="button" id="profile-tab-settings" class="modal-tab-btn" role="tab" aria-selected="false" aria-controls="profile-tab-settings-pane" data-profile-tab="profile-tab-settings-pane"><span data-i18n="profile_tab_settings">Configuración</span></button>
-      <button type="button" id="profile-tab-model" class="modal-tab-btn" role="tab" aria-selected="false" aria-controls="profile-tab-model-pane" data-profile-tab="profile-tab-model-pane"><span data-i18n="profile_tab_model">Modelo</span></button>
+      <div class="settings-header-actions">
+        <label id="api-key-lock-control" class="profile-lock-control" for="setting-api-key-locked"><input type="checkbox" id="setting-api-key-locked"><span data-i18n="profile_api_key_lock">Bloquear cambios</span></label>
+        <span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span>
+        <button type="button" id="btn-save-profile" class="btn-primary btn-save-header" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil" disabled>
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
+          <span data-i18n="btn_save_short">Guardar</span>
+        </button>
+        <button id="btn-close-profiles" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
+      </div>
     </div>
     <form id="profiles-form" class="settings-form-wrapper">
       <div class="modal-body">
-        <div id="profile-tab-name-pane" class="modal-tab-pane active" role="tabpanel" aria-labelledby="profile-tab-name">
-          <div class="form-field profile-selection-field">
-          <label for="profile-select-helper"><strong data-i18n="field_profile">Perfil de Conexión / Servidor</strong></label>
-          <div class="combobox-wrapper profile-combobox-wrapper">
-            <select id="profile-select-helper" class="combobox-select-helper" title="Seleccionar perfil existente" style="flex: 1; max-width: 100%;"><option value="" disabled selected data-i18n="profile_select_default">▾ Elegir perfil guardado...</option></select>
-            <datalist id="profile-datalist"></datalist>
-          </div>
-          <div id="profile-action-feedback" class="server-query-status" style="display: none;"></div>
+        <input type="hidden" id="profile-select-helper">
+        <div id="profile-action-feedback" class="server-query-status" style="display: none;"></div>
+
+        <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
+        <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="2" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
+
+        <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
+        <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
+        <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
+        <div class="form-field"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist><button type="button" id="btn-webllm-params" class="btn-webllm-params" data-i18n-title="btn_webllm_params_title" title="Parámetros avanzados de rendimiento WebLLM" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg></button></div><div id="webllm-params-panel" class="webllm-params-panel" hidden><div class="webllm-params-title"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg><span data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</span></div><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="2048">2048 (2K)</option><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div></div>
+
+        <div class="form-field">
+          <label for="setting-system-prompt"><strong data-i18n="field_system_prompt">Prompt del Sistema (Opcional)</strong><span class="label-hint" data-i18n="field_system_prompt_hint">Instrucciones base personalizadas que guían el comportamiento del asistente (opcional).</span></label>
+          <textarea id="setting-system-prompt" rows="4" data-i18n-placeholder="field_system_prompt_placeholder" placeholder="Escribe aquí tus instrucciones personalizadas para el modelo (opcional)..."></textarea>
         </div>
-          <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" list="profile-datalist" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
-          <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="3" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
-          <div class="profile-profile-lock-row"><span id="api-key-lock-control" class="profile-lock-control"><input type="checkbox" id="setting-api-key-locked"><span data-i18n="profile_api_key_lock">Bloquear cambios</span></span><span id="api-key-locked-status" class="profile-lock-status" hidden data-i18n="profile_api_key_locked">Cambios bloqueados</span></div>
-          <section class="profile-values-card profile-backup-card" aria-labelledby="profiles-backup-title">
-            <div class="profile-backup-copy"><strong id="profiles-backup-title" data-i18n="profiles_backup_title">Copia y restauración de perfiles</strong><span data-i18n="profiles_backup_description">Estas acciones afectan a todos los perfiles editables, no solo al perfil seleccionado.</span></div>
-            <div class="profile-backup-actions">
-              <button type="button" id="btn-export-profiles" class="btn-profile-action btn-secondary" data-profile-global-action data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg><span data-i18n="btn_export_profiles">Exportar</span></button>
-              <button type="button" id="btn-import-profiles" class="btn-profile-action btn-secondary" data-profile-global-action data-i18n-title="btn_import_profiles_title" title="Cargar perfiles desde un archivo cifrado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg><span data-i18n="btn_import_profiles">Cargar</span></button>
-              <input id="profiles-import-input" type="file" accept="application/json,.zcp" data-profile-global-action hidden>
-            </div>
-          </section>
-        </div>
-        <div id="profile-tab-settings-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-settings">
-        <div class="profile-values-card">
-          <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
-          <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
-          <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
-          <div class="form-field" style="margin-bottom: 0;"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist><button type="button" id="btn-webllm-params" class="btn-webllm-params" data-i18n-title="btn_webllm_params_title" title="Parámetros avanzados de rendimiento WebLLM" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg></button></div><div id="webllm-params-panel" class="webllm-params-panel" hidden><div class="webllm-params-title"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg><span data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</span></div><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="2048">2048 (2K)</option><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div></div>
-        </div>
-        </div>
-        <div id="profile-tab-model-pane" class="modal-tab-pane" role="tabpanel" aria-labelledby="profile-tab-model">
-          <div class="profile-values-card">
-            <div class="form-field">
-              <label for="setting-system-prompt"><strong data-i18n="field_system_prompt">Prompt del Sistema (Opcional)</strong><span class="label-hint" data-i18n="field_system_prompt_hint">Instrucciones base personalizadas que guían el comportamiento del asistente (opcional).</span></label>
-              <textarea id="setting-system-prompt" rows="5" data-i18n-placeholder="field_system_prompt_placeholder" placeholder="Escribe aquí tus instrucciones personalizadas para el modelo (opcional)..."></textarea>
-            </div>
-            <div class="form-field" style="margin-bottom: 0;">
-              <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
-              <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer profile-actions-footer">
-        <div class="footer-actions-left">
-          <button type="button" id="btn-new-profile" class="btn-profile-action btn-secondary" data-i18n-title="btn_new_profile_title" title="Crear un perfil nuevo"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg><span data-i18n="btn_new_profile">Nuevo</span></button>
-          <button type="button" id="btn-delete-profile" class="btn-profile-action btn-delete-profile" data-i18n-title="btn_delete_profile_title" title="Eliminar el perfil seleccionado"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg><span data-i18n="btn_delete_profile">Borrar</span></button>
-        </div>
-        <div class="footer-actions-right">
-          <button type="button" id="btn-cancel-profiles" class="btn-secondary" data-i18n="btn_close">Cerrar</button>
-          <button type="button" id="btn-save-profile" class="btn-profile-action btn-save-profile" data-i18n-title="btn_save_profile_title" title="Guardar todos los valores actuales en este perfil" disabled><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg><span data-i18n="btn_save_profile">Guardar</span></button>
+        <div class="form-field" style="margin-bottom: 0;">
+          <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
+          <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
         </div>
       </div>
     </form>`;

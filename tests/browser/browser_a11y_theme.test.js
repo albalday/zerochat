@@ -137,16 +137,16 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const menuState = await page.evaluate(() => ({
       open: document.getElementById('active-profile-trigger').getAttribute('aria-expanded'),
       list: document.getElementById('active-profile-list').textContent,
-      editText: document.getElementById('btn-edit-profiles').textContent
+      hasEditBtn: !!document.querySelector('.btn-profile-item-edit')
     }));
     assert.equal(menuState.open, 'true', 'El disparador debe abrir el menú de perfiles');
     assert.match(menuState.list, /Espejo/, 'La primera instalación debe incluir el perfil Espejo');
-    assert.equal(menuState.editText, 'Editar perfiles', 'El menú debe incluir el botón para editar perfiles');
+    assert.ok(menuState.hasEditBtn, 'El menú debe incluir el botón para editar el perfil');
 
-    await page.click('#btn-edit-profiles');
+    await page.click('.btn-profile-item-edit');
     await page.waitForFunction(() => document.getElementById('profiles-dialog')?.open);
     const isProfilesOpen = await page.$eval('#profiles-dialog', el => el.open);
-    assert.ok(isProfilesOpen, 'Pulsar "Editar perfiles" debe abrir #profiles-dialog');
+    assert.ok(isProfilesOpen, 'Pulsar editar perfil debe abrir #profiles-dialog');
     await page.click('#btn-close-profiles');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
 

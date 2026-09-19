@@ -66,16 +66,19 @@
     }
 
     if (els.profileSelectHelper) {
-      els.profileSelectHelper.innerHTML = `<option value="" disabled data-i18n="profile_select_default">▾ Elegir perfil guardado...</option>`;
-      profiles.forEach(profile => {
-        const opt = document.createElement('option');
-        opt.value = profile.id;
-        opt.textContent = profile.name;
-        if (profile.id === selectedProfileName) {
-          opt.selected = true;
-        }
-        els.profileSelectHelper.appendChild(opt);
-      });
+      if (els.profileSelectHelper.tagName === 'SELECT') {
+        els.profileSelectHelper.innerHTML = `<option value="" disabled data-i18n="profile_select_default">▾ Elegir perfil guardado...</option>`;
+        profiles.forEach(profile => {
+          const opt = document.createElement('option');
+          opt.value = profile.id;
+          opt.textContent = profile.name;
+          if (profile.id === selectedProfileName) {
+            opt.selected = true;
+          }
+          els.profileSelectHelper.appendChild(opt);
+        });
+      }
+      els.profileSelectHelper.value = selectedProfileName || '';
     }
 
     if (els.settingProfileName) {
@@ -161,6 +164,9 @@
 
   function canSaveProfile(elements, options = {}) {
     const els = elements || cachedElements || {};
+    if (els.settingProfileName && !String(els.settingProfileName.value || '').trim()) {
+      return false;
+    }
     return isProfileFormDirty(els) || isProfileQueryReady(els);
   }
 
@@ -169,7 +175,8 @@
     const opts = options || cachedOptions || {};
     const Profiles = getProfiles();
     const canSave = canSaveProfile(els, opts);
-    const isReadOnly = els.profileSelectHelper?.value === Profiles?.READONLY_PROFILE_ID;
+    const currentId = els.profileSelectHelper?.value || els.profilesDialog?.dataset?.profileId || '';
+    const isReadOnly = currentId === Profiles?.READONLY_PROFILE_ID;
     const UISettings = getUISettings();
     UISettings?.syncProfileEditor?.(els, isReadOnly, canSave);
 
@@ -183,7 +190,10 @@
       if (els.profileSaveQueryHint) {
         const apiType = els.settingApiType?.value || '';
         const selectedModel = (els.settingModel?.value || els.modelSelectHelper?.value || '').trim();
-        if (!canSave) {
+        const profileName = String(els.settingProfileName?.value || '').trim();
+        if (!profileName) {
+          els.profileSaveQueryHint.textContent = t('field_profile_placeholder') || 'Nombre del perfil requerido.';
+        } else if (!canSave) {
           els.profileSaveQueryHint.textContent = t('profile_save_changes_required');
         } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
           els.profileSaveQueryHint.textContent = t('webllm_query_optional');
@@ -277,7 +287,8 @@
     }
     const name = String(els.settingProfileName?.value || '').trim();
     if (!name || !Profiles?.saveEditable) return false;
-    const selected = Profiles.get?.(els.profileSelectHelper?.value || '') || null;
+    const selectedId = els.profileSelectHelper?.value || els.profilesDialog?.dataset?.profileId || '';
+    const selected = Profiles.get?.(selectedId) || null;
     if (selected?.id === Profiles.READONLY_PROFILE_ID) {
       showProfileFeedback(els, t('err_profile_read_only'), 'error');
       return false;
@@ -291,9 +302,13 @@
       showProfileFeedback(els, t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
       return false;
     }
+    if (!selected && sameName) {
+      showProfileFeedback(els, t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
+      return false;
+    }
 
-    const existing = selected || sameName;
-    const baseSettings = existing?.settings || runtimeConfig;
+    const existing = selected;
+    const baseSettings = existing?.settings || Profiles?.NEW_PROFILE_SETTINGS || runtimeConfig;
     const UISettings = getUISettings();
     const formConfig = UISettings?.gatherCurrentFormConfig ? UISettings.gatherCurrentFormConfig(els, runtimeConfig) : runtimeConfig;
     const apiKey = els.settingApiKey?.value.trim() || '';
@@ -328,6 +343,11 @@
     });
 
     populateProfileSelector(els, saved.id);
+    if (els.profileSelectHelper) els.profileSelectHelper.value = saved.id;
+    if (els.profilesDialog) {
+      els.profilesDialog.dataset.profileId = saved.id;
+      delete els.profilesDialog.dataset.isNew;
+    }
     if (els.settingApiKey) els.settingApiKey._loadedApiKey = apiKey;
     setProfileDirty(els, false);
     setProfileQueryState(els, false);
@@ -339,23 +359,28 @@
 
   async function handleDeleteProfile(elements, options = {}) {
     const els = elements || cachedElements || {};
+    const id = els.profileSelectHelper?.value || '';
+    return handleDeleteProfileById(id, els, options);
+  }
+
+  async function handleDeleteProfileById(profileId, elements, options = {}) {
+    const els = elements || cachedElements || {};
     const opts = options || cachedOptions || {};
     const Profiles = getProfiles();
     const Config = getConfig();
     const Dialogs = getDialogs();
     const runtimeConfig = opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {});
 
-    const id = els.profileSelectHelper?.value || '';
-    const profile = Profiles?.get ? Profiles.get(id) : null;
-    if (profile?.id === Profiles?.READONLY_PROFILE_ID) {
+    if (!profileId || profileId === Profiles?.READONLY_PROFILE_ID || profileId === 'profile:mirror') {
       showProfileFeedback(els, t('err_profile_read_only'), 'error');
-      return;
+      return false;
     }
-    if (!profile) return;
-    if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return;
+    const profile = Profiles?.get ? Profiles.get(profileId) : null;
+    if (!profile) return false;
+    if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_delete_profile', { name: profile.name }))) return false;
 
-    const currentProfile = Profiles?.get ? Profiles.get(id) : null;
-    if (!currentProfile || currentProfile.name !== profile.name) return;
+    const currentProfile = Profiles?.get ? Profiles.get(profileId) : null;
+    if (!currentProfile) return false;
     if (Profiles?.remove?.(currentProfile.id)) {
       if (runtimeConfig.activeProfile?.id === currentProfile.id) {
         Config?.activateFallbackProfile?.();
@@ -364,9 +389,21 @@
       populateProfileSelector(els, nextActiveId);
       applyProfileToForm(els, opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {}));
       setProfileQueryState(els, false);
+      const UISettings = getUISettings();
+      UISettings?.renderProfileMenu?.(els, Profiles?.list?.() || [], nextActiveId);
       showProfileFeedback(els, t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
       if (typeof opts.updateUIFromConfig === 'function') opts.updateUIFromConfig();
+      return true;
     }
+    return false;
+  }
+
+  async function handleMenuNewProfile(elements, options = {}) {
+    const els = elements || cachedElements || {};
+    const opts = options || cachedOptions || {};
+    closeProfileMenu(els);
+    openNewProfileModal(els, opts);
+    return null;
   }
 
   async function requestNewProfileName(message) {
@@ -487,16 +524,74 @@
     setProfileQueryState(els, false);
   }
 
-  function openProfilesModal(elements, options = {}) {
+  function openNewProfileModal(elements, options = {}) {
     const els = elements || cachedElements || {};
     const opts = options || cachedOptions || {};
     closeProfileMenu(els);
     if (typeof opts.closeSettingsModal === 'function') opts.closeSettingsModal();
 
+    const Profiles = getProfiles();
+    const defaultSettings = Profiles?.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: '' };
+
+    if (els.profilesDialog) {
+      els.profilesDialog.dataset.profileId = '';
+      els.profilesDialog.dataset.profileLocked = 'false';
+      els.profilesDialog.dataset.isNew = 'true';
+    }
+    if (els.profileSelectHelper) {
+      els.profileSelectHelper.value = '';
+    }
+
+    applyProfileToForm(els, defaultSettings, '', opts);
+    if (els.settingProfileName) els.settingProfileName.value = '';
+    if (els.settingProfileDescription) els.settingProfileDescription.value = '';
+    if (els.settingApiKey) {
+      els.settingApiKey.value = '';
+      els.settingApiKey._loadedApiKey = '';
+    }
+    if (els.settingApiKeyLocked) els.settingApiKeyLocked.checked = false;
+
+    if (els.serverQueryStatus) els.serverQueryStatus.style.display = 'none';
+    if (els.profileActionFeedback) els.profileActionFeedback.style.display = 'none';
+    setProfileQueryState(els, false);
+    setProfileDirty(els, false);
+
+    const UISettings = getUISettings();
+    UISettings?.syncProviderFields?.(els);
+    UISettings?.syncApiKeyLock?.(els, false);
+
+    if (typeof opts.loadCachedModels === 'function') opts.loadCachedModels();
+    syncProfileSaveState(els, opts);
+
+    if (els.profilesDialog && !els.profilesDialog.open) {
+      if (typeof els.profilesDialog.showModal === 'function') {
+        els.profilesDialog.showModal();
+      } else {
+        els.profilesDialog.style.display = 'block';
+      }
+    }
+    els.settingProfileName?.focus?.();
+  }
+
+  function openProfilesModal(elements, options = {}, targetProfileId = null) {
+    const els = elements || cachedElements || {};
+    const opts = options || cachedOptions || {};
+    closeProfileMenu(els);
+    if (typeof opts.closeSettingsModal === 'function') opts.closeSettingsModal();
+
+    if (targetProfileId === '__new__') {
+      openNewProfileModal(els, opts);
+      return;
+    }
+
     const Config = getConfig();
     const Profiles = getProfiles();
     const runtimeConfig = opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const activeId = runtimeConfig.activeProfile?.id || '';
+    const activeId = targetProfileId || runtimeConfig.activeProfile?.id || '';
+    if (els.profilesDialog) {
+      els.profilesDialog.dataset.profileId = activeId;
+      delete els.profilesDialog.dataset.isNew;
+    }
     populateProfileSelector(els, activeId);
     const activeProfile = Profiles?.get ? Profiles.get(activeId) : null;
     applyProfileToForm(els, activeProfile?.settings || runtimeConfig, activeId, opts);
@@ -598,7 +693,11 @@
     if (els.settingProfileName) {
       const onChange = () => syncProfileSaveState(els, cachedOptions);
       els.settingProfileName.addEventListener('change', onChange);
-      activeCleanupFns.push(() => els.settingProfileName.removeEventListener('change', onChange));
+      els.settingProfileName.addEventListener('input', onChange);
+      activeCleanupFns.push(() => {
+        els.settingProfileName.removeEventListener('change', onChange);
+        els.settingProfileName.removeEventListener('input', onChange);
+      });
     }
 
     if (els.settingApiType) {
@@ -720,17 +819,44 @@
       activeCleanupFns.push(() => els.btnEditProfiles.removeEventListener('click', onClick));
     }
 
+    if (els.btnMenuNewProfile) {
+      const onClick = () => handleMenuNewProfile(els, cachedOptions);
+      els.btnMenuNewProfile.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnMenuNewProfile.removeEventListener('click', onClick));
+    }
+
+    if (els.btnMenuExportProfiles) {
+      const onClick = () => handleExportProfiles(els);
+      els.btnMenuExportProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnMenuExportProfiles.removeEventListener('click', onClick));
+    }
+
+    if (els.btnMenuImportProfiles) {
+      const onClick = () => { if (els.profilesImportInput) els.profilesImportInput.click(); };
+      els.btnMenuImportProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnMenuImportProfiles.removeEventListener('click', onClick));
+    }
+
+    if (els.btnMenuCloseProfiles) {
+      const onClick = () => closeProfileMenu(els);
+      els.btnMenuCloseProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnMenuCloseProfiles.removeEventListener('click', onClick));
+    }
+
     return {
       populateProfileSelector: (name) => populateProfileSelector(els, name),
       applyProfileToForm: (data, id) => applyProfileToForm(els, data, id, cachedOptions),
       syncProfileSaveState: () => syncProfileSaveState(els, cachedOptions),
       isProfileFormDirty: () => isProfileFormDirty(els),
       setProfileDirty: (dirty) => setProfileDirty(els, dirty),
-      openProfilesModal: () => openProfilesModal(els, cachedOptions),
+      openProfilesModal: (targetId) => openProfilesModal(els, cachedOptions, targetId),
+      openNewProfileModal: () => openNewProfileModal(els, cachedOptions),
       closeProfilesModal: (force) => closeProfilesModal(els, force, cachedOptions),
       handleSaveProfile: () => handleSaveProfile(els, cachedOptions),
       handleDeleteProfile: () => handleDeleteProfile(els, cachedOptions),
-      handleNewProfile: () => handleNewProfile(els, cachedOptions)
+      handleDeleteProfileById: (id) => handleDeleteProfileById(id, els, cachedOptions),
+      handleNewProfile: () => handleNewProfile(els, cachedOptions),
+      handleMenuNewProfile: () => handleMenuNewProfile(els, cachedOptions)
     };
   }
 
@@ -752,11 +878,14 @@
     setProfileQueryState,
     activateProfileTab,
     openProfilesModal,
+    openNewProfileModal,
     closeProfilesModal,
     resetProfileFormToSelected,
     handleSaveProfile,
     handleDeleteProfile,
+    handleDeleteProfileById,
     handleNewProfile,
+    handleMenuNewProfile,
     handleExportProfiles,
     handleImportProfiles,
     openProfileMenu,
