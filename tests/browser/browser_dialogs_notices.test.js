@@ -91,6 +91,26 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
     });
     assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '', null, null]);
     assert.equal(await page.locator('#notice-input').inputValue(), '');
+
+    // Cerrar cualquier modal abierto antes de proceder
+    await page.evaluate(() => {
+      document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
+    });
+
+    // Abrir el sidebar si está oculto
+    const sidebarVisible = await page.evaluate(() => {
+      const sidebar = document.getElementById('chat-sidebar');
+      return sidebar && !sidebar.classList.contains('sidebar-hidden');
+    });
+    if (!sidebarVisible) {
+      await page.click('#btn-toggle-sidebar');
+    }
+
+    // Abrir el modal de RAG en modo "manage" para acceder al input de importación
+    await page.click('#btn-open-settings');
+    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
+    await page.waitForSelector('#rag-import-input');
+
     await page.locator('#rag-import-input').setInputFiles({
       name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('invalid JSON')
     });

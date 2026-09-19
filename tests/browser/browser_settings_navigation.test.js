@@ -84,8 +84,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
           }))
         };
       });
-      assert.equal(sectionsInfo.count, 5, 'Debe haber exactamente 5 secciones en la lista de navegación');
-      const expectedSections = ['tab-model', 'tab-agent', 'tab-mcp', 'tab-permissions', 'tab-inspector'];
+      assert.equal(sectionsInfo.count, 6, 'Debe haber exactamente 6 secciones en la lista de navegación');
+      const expectedSections = ['tab-model', 'tab-agent', 'rag-manage', 'tab-mcp', 'tab-permissions', 'tab-inspector'];
       assert.deepEqual(sectionsInfo.sections.map(s => s.section), expectedSections, 'El orden y claves de sección deben coincidir con el diseño');
       assert.ok(sectionsInfo.sections.every(s => s.hasSvg), 'Cada sección debe tener un icono SVG');
       assert.ok(sectionsInfo.sections.every(s => s.hasText), 'Cada sección debe tener un título descriptivo');
@@ -111,7 +111,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
 
       const agentSectionState = await page.evaluate(() => {
         const dialog = document.getElementById('settings-dialog');
-        const activePane = dialog.querySelector('.modal-tab-pane.active');
+        const activePane = dialog.querySelector('.settings-section-pane.active');
         const oldTabs = dialog.querySelectorAll('.modal-tabs-nav, .modal-tab-btn');
         const sectionHeader = dialog.querySelector('.settings-section-header');
         const titleEl = document.getElementById('settings-section-title');
@@ -314,4 +314,3 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     }
   });
 });
-

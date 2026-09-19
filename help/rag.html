@@ -44,7 +44,7 @@
       </p>
       <ul>
         <li>Puedes crear diferentes ramas según la temática (por ejemplo: <em>"Documentación API"</em>, <em>"Finanzas 2026"</em>, <em>"Apuntes de Física"</em>).</li>
-        <li>Una rama puede activarse o desactivarse con un simple clic desde el botón <strong>RAG</strong> de la barra inferior.</li>
+        <li>Una rama puede activarse o desactivarse con un simple clic desde el botón <strong>RAG</strong> de la barra inferior. Para crear ramas, cargar o gestionar documentos, abre <strong>RAG</strong> desde el menú general de configuración.</li>
         <li>Cuando una rama está activa, el agente o el chat tienen acceso directo a los documentos contenidos en ella.</li>
       </ul>
     </div>
@@ -52,7 +52,7 @@
     <div class="card">
       <h2>3. Ingestión y Procesamiento de Documentos</h2>
       <p>
-        Dentro del modal de gestión RAG puedes arrastrar archivos o pulsar sobre el área de carga:
+        Dentro del panel de gestión RAG, accesible desde el menú general de configuración, puedes arrastrar archivos o pulsar sobre el área de carga:
       </p>
       <ul>
         <li><strong>PDFs y Libros:</strong> Se analiza cada página, se extrae el texto continuo y se identifican las posibles imágenes o esquemas relevantes.</li>
@@ -85,6 +85,30 @@
       </ol>
     </div>
 
+    <div class="card">
+      <h2>5. Configuración y Recomendaciones</h2>
+
+      <h3>IndexedDB + Orama</h3>
+      <p>
+        Los archivos, metadatos y fragmentos se guardan en IndexedDB. Orama construye en memoria un índice de búsqueda local para la rama activa.
+      </p>
+
+      <h3>Sin permisos ni costes de ingesta</h3>
+      <p>
+        Seleccionar un archivo solo permite leer esa carga. No se solicitan permisos sobre carpetas y no se llama a ningún LLM para resumir o indexar.
+      </p>
+
+      <h3>Configurar el modelo para responder sobre documentos</h3>
+      <p>
+        Para preguntas factuales sobre documentos, usa una temperatura baja (0 a 0,2): reduce variaciones y hace más probable que el modelo se atenga a los fragmentos recuperados. Una temperatura de 0,7 o superior conviene para redacción creativa, no para extraer cifras o hechos. El modelo también debe admitir llamadas a herramientas; si no las admite, no podrá consultar esta base documental.
+      </p>
+
+      <h3>Punto de control agéntico para modelos de poco contexto</h3>
+      <p>
+        Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios y registre el siguiente paso para continuar investigando con coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.
+      </p>
+    </div>
+
     <nav class="page-navigation" aria-label="Navegación de ayuda">
       <a href="tools-agent.html" class="nav-button prev">
         <span class="nav-direction">← Anterior</span>
@@ -106,4 +130,3 @@
   </div>
 </body>
 </html>
-

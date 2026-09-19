@@ -371,17 +371,17 @@
     const targetId = normalizeSectionId(sectionId);
     const doc = elements.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
 
-    const settingsPanes = elements.settingsDialog?.querySelectorAll
-      ? elements.settingsDialog.querySelectorAll('.modal-tab-pane')
-      : elements.modalPanes;
+    const settingsSections = elements.settingsDialog?.querySelectorAll
+      ? elements.settingsDialog.querySelectorAll('.settings-section-pane')
+      : elements.settingsSections;
 
-    if (settingsPanes && settingsPanes.length > 0) {
-      settingsPanes.forEach(p => p.classList.remove('active'));
+    if (settingsSections && settingsSections.length > 0) {
+      settingsSections.forEach(section => section.classList.remove('active'));
       const targetPane = doc ? doc.getElementById(targetId) : null;
       if (targetPane) {
         targetPane.classList.add('active');
-      } else if (settingsPanes[0]) {
-        settingsPanes[0].classList.add('active');
+      } else if (settingsSections[0]) {
+        settingsSections[0].classList.add('active');
       }
     }
 
@@ -400,10 +400,6 @@
     if (typeof elements.settingsDialog.showModal === 'function') {
       elements.settingsDialog.showModal();
     }
-  }
-
-  function openSettingsModal(elements, appConfig, callbacks = {}, initialTabId = 'tab-model') {
-    return openSettingsSection(elements, appConfig, callbacks, initialTabId);
   }
 
   function closeSettingsModal(elements) {
@@ -437,8 +433,8 @@
 
     <form id="settings-form" class="settings-form-wrapper">
       <div class="modal-body">
-        <!-- Pestaña 1: Modelo y Prompt -->
-        <div id="tab-model" class="modal-tab-pane active">
+        <!-- Sección: Modelo y Prompt -->
+        <div id="tab-model" class="settings-section-pane active">
           <div class="form-field">
             <label for="setting-system-data-prompt">
               <strong data-i18n="field_system_data_prompt">Perfil del sistema · datos ZeroChat</strong>
@@ -463,8 +459,8 @@
           </div>
         </div>
 
-        <!-- Pestaña 3: Modo Agente y Herramientas -->
-        <div id="tab-agent" class="modal-tab-pane">
+        <!-- Sección: Modo Agente y Herramientas -->
+        <div id="tab-agent" class="settings-section-pane">
           <div class="settings-section-intro">
             <p data-i18n="agent_intro">Configura las herramientas agénticas que se transmiten al modelo.</p>
           </div>
@@ -486,8 +482,8 @@
           <div id="agent-tools-container" class="agent-tools-container"></div>
         </div>
 
-        <!-- Pestaña 4: Servidor Local (MCP) -->
-        <div id="tab-mcp" class="modal-tab-pane">
+        <!-- Sección: Servidor Local (MCP) -->
+        <div id="tab-mcp" class="settings-section-pane">
           <!-- Tarjeta de Estado y Conexión Principal -->
           <div class="mcp-status-card">
             <div class="mcp-status-header">
@@ -538,8 +534,8 @@
           <div id="mcp-tools-container" class="mcp-tools-container" style="margin-top: 1rem;"></div>
         </div>
 
-        <!-- Pestaña 5: Permisos de ejecución MCP -->
-        <div id="tab-permissions" class="modal-tab-pane">
+        <!-- Sección: Permisos de ejecución MCP -->
+        <div id="tab-permissions" class="settings-section-pane">
           <div class="mcp-security-card">
             <div class="mcp-security-header">
               <span class="mcp-security-icon">
@@ -578,8 +574,8 @@
           </div>
         </div>
 
-        <!-- Pestaña 5: Inspector de Proveedor -->
-        <div id="tab-inspector" class="modal-tab-pane">
+        <!-- Sección: Inspector de Proveedor -->
+        <div id="tab-inspector" class="settings-section-pane">
           <div class="inspector-intro-card">
             <div class="inspector-intro-header">
               <span class="inspector-intro-icon">
@@ -759,7 +755,6 @@
     gatherCurrentFormConfig,
     showProfileFeedback,
     openSettingsSection,
-    openSettingsModal,
     closeSettingsModal,
     handleClearAllData,
     ensureDialogMarkup,

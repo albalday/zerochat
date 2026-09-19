@@ -1,6 +1,6 @@
 /**
  * Módulo de Interfaz de Usuario para Perfiles de Conexión (ZeroChat).
- * Gestiona el modal de edición de perfiles, pestañas, detección de cambios sin guardar (dirty state),
+ * Gestiona el diálogo de edición de perfiles, detección de cambios sin guardar (dirty state),
  * guardado, borrado, importación cifrada, exportación y menú desplegable de perfiles activos.
  */
 (function (root, factory) {
@@ -211,26 +211,6 @@
       els.profilesDialog.dataset.queryReady = String(ready);
     }
     syncProfileSaveState(els);
-  }
-
-  function activateProfileTab(elements, tabBtn) {
-    const els = elements || cachedElements || {};
-    const targetPane = document.getElementById(tabBtn?.getAttribute?.('data-profile-tab'));
-    if (!targetPane) return;
-    const isNameTab = targetPane.id === 'profile-tab-name-pane';
-    if (els.profileTabs?.forEach) {
-      els.profileTabs.forEach(button => {
-        const active = button === tabBtn;
-        button.classList.toggle('active', active);
-        button.setAttribute('aria-selected', String(active));
-      });
-    }
-    if (els.profilePanes?.forEach) {
-      els.profilePanes.forEach(pane => pane.classList.toggle('active', pane === targetPane));
-    }
-    if (els.btnNewProfile) {
-      els.btnNewProfile.disabled = !isNameTab;
-    }
   }
 
   function activateConnectionProfile(profileId, options = {}) {
@@ -599,8 +579,6 @@
     if (els.profileActionFeedback) els.profileActionFeedback.style.display = 'none';
     setProfileQueryState(els, false);
     setProfileDirty(els, false);
-    const nameTab = document.getElementById('profile-tab-name') || els.profileTabs?.[0];
-    if (nameTab) activateProfileTab(els, nameTab);
     if (typeof opts.loadCachedModels === 'function') opts.loadCachedModels();
     syncProfileSaveState(els, opts);
     if (els.profilesDialog && !els.profilesDialog.open) {
@@ -740,17 +718,6 @@
       activeCleanupFns.push(() => els.settingModel.removeEventListener('input', onInput));
     }
 
-    if (els.profileTabs?.forEach) {
-      els.profileTabs.forEach(tabBtn => {
-        const onClick = (e) => {
-          e.preventDefault();
-          activateProfileTab(els, tabBtn);
-        };
-        tabBtn.addEventListener('click', onClick);
-        activeCleanupFns.push(() => tabBtn.removeEventListener('click', onClick));
-      });
-    }
-
     if (els.btnSaveProfile) {
       const onClick = () => handleSaveProfile(els, cachedOptions);
       els.btnSaveProfile.addEventListener('click', onClick);
@@ -876,7 +843,6 @@
     setProfileDirty,
     isProfileQueryReady,
     setProfileQueryState,
-    activateProfileTab,
     openProfilesModal,
     openNewProfileModal,
     closeProfilesModal,

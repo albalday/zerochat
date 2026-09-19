@@ -17,6 +17,18 @@ test('RagUI - exporta la superficie mínima', () => {
   assert.equal(typeof RagUI.exportBranch, 'function');
   assert.equal(typeof RagUI.importBranchFile, 'function');
   assert.equal(typeof RagUI.ingestionResultMarkup, 'function');
+  assert.equal(typeof RagUI.openRagModal, 'function');
+});
+
+test('RagUI - genera diálogos separados para activar y gestionar documentos', () => {
+  const activationHtml = RagUI.getRagModalHTML('activate');
+  const manageHtml = RagUI.getRagModalHTML('manage');
+
+  assert.match(activationHtml, /btn-rag-activate-all/);
+  assert.doesNotMatch(activationHtml, /rag-manage-branch-select/);
+  assert.match(manageHtml, /rag-manage-branch-select/);
+  assert.doesNotMatch(manageHtml, /btn-rag-activate-all/);
+  assert.doesNotMatch(`${activationHtml}${manageHtml}`, /data-rag-tab|rag-modal-tabs-nav/);
 });
 
 test('RagUI - conserva un resumen claro de archivos no indexados', () => {

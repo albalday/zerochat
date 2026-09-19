@@ -242,8 +242,6 @@
       settingProfileDescription: document.getElementById('setting-profile-description'),
       profileSelectHelper: document.getElementById('profile-select-helper'),
       profileDatalist: document.getElementById('profile-datalist'),
-      profileTabs: document.querySelectorAll('#profiles-dialog [data-profile-tab]'),
-      profilePanes: document.querySelectorAll('#profiles-dialog .modal-tab-pane'),
       btnNewProfile: document.getElementById('btn-new-profile'),
       btnExportProfiles: document.getElementById('btn-export-profiles'),
       btnImportProfiles: document.getElementById('btn-import-profiles'),
@@ -926,12 +924,6 @@
     }
   }
 
-  function activateProfileTab(tabBtn) {
-    if (UIProfiles.activateProfileTab) {
-      return UIProfiles.activateProfileTab(elements, tabBtn);
-    }
-  }
-
   function setSelectedProfileAsDefault(profile) {
     if (UIProfiles.setSelectedProfileAsDefault) {
       return UIProfiles.setSelectedProfileAsDefault(profile, getProfilesHelperOptions());
@@ -994,23 +986,19 @@
   }
 
   function openSettingsSection(sectionId = 'tab-model') {
+    if (sectionId === 'rag-manage') {
+      if (window.ChatRagUI && typeof window.ChatRagUI.openRagModal === 'function') {
+        window.ChatRagUI.openRagModal('manage');
+      }
+      return;
+    }
     if (UISettings.openSettingsSection) {
       UISettings.openSettingsSection(elements, getRuntimeConfig(), {
         populateProfileSelector,
         loadCachedModels,
         updateReasoningUI
       }, sectionId);
-    } else if (UISettings.openSettingsModal) {
-      UISettings.openSettingsModal(elements, getRuntimeConfig(), {
-        populateProfileSelector,
-        loadCachedModels,
-        updateReasoningUI
-      }, sectionId);
     }
-  }
-
-  function openSettingsModal(initialTabId = 'tab-model') {
-    openSettingsSection(initialTabId);
   }
 
   function openProfilesModal(targetId = null) {
@@ -1448,7 +1436,7 @@
   }
 
   // ==========================================================================
-  // Fase 6 — View Transitions para Cambio de Pestaña y Light-Dismiss
+  // Fase 6 — View Transitions y Light-Dismiss
   // ==========================================================================
 
   function setupLightDismissDialogs() {
@@ -1993,15 +1981,6 @@
         }
         setProfileDirty(true);
         syncProfileSaveState();
-      });
-    }
-
-    if (elements.profileTabs && elements.profileTabs.length > 0) {
-      elements.profileTabs.forEach(tabBtn => {
-        tabBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          activateProfileTab(tabBtn);
-        });
       });
     }
 

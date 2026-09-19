@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UISettings = require('../../js/ui-settings.js');
 
-test('UISettings - sitúa los permisos de ejecución MCP en su propio panel sin barra de pestañas', () => {
+test('UISettings - sitúa los permisos de ejecución MCP en su propia sección sin navegación por pestañas', () => {
   const settingsHtml = UISettings.getSettingsDialogHTML();
   assert.equal(settingsHtml.includes('modal-tabs-nav'), false, 'No debe existir la barra de pestañas modal-tabs-nav');
   assert.equal(settingsHtml.includes('id="tab-general"'), false, 'No debe existir el panel tab-general');
@@ -11,7 +11,7 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propio panel sin 
   assert.equal(settingsHtml.includes('id="btn-reset-settings"'), false, 'No debe existir el botón de restaurar dentro de settings-dialog');
   assert.equal(settingsHtml.includes('id="btn-cancel-settings"'), false, 'No debe existir el botón de cancelar dentro de settings-dialog');
   assert.equal(settingsHtml.includes('class="modal-footer"'), false, 'No debe existir la botonera inferior modal-footer en settings-dialog');
-  assert.match(settingsHtml, /id="tab-permissions" class="modal-tab-pane"/);
+  assert.match(settingsHtml, /id="tab-permissions" class="settings-section-pane"/);
   assert.match(settingsHtml, /id="mcp-policy-ask"/);
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
   assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
@@ -32,7 +32,7 @@ test('UISettings - openSettingsSection activa la sección indicada y actualiza e
   const fakeDialog = {
     ownerDocument: fakeDoc,
     showModal: () => { fakeDialog.isOpen = true; },
-    querySelectorAll: (sel) => sel === '.modal-tab-pane' ? panes : []
+    querySelectorAll: (sel) => sel === '.settings-section-pane' ? panes : []
   };
   const elements = {
     settingsDialog: fakeDialog,

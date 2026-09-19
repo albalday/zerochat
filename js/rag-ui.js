@@ -184,7 +184,7 @@
     }
     if (!list) return;
     if (!branches.length) {
-      list.innerHTML = `<div class="rag-empty-state">${t('rag_no_branches_active') || 'No hay ramas. Crea la primera en la pestaña Documentos.'}</div>`;
+      list.innerHTML = `<div class="rag-empty-state">${t('rag_no_branches_active') || 'No hay ramas. Crea la primera desde RAG en Configuración.'}</div>`;
       return;
     }
     list.innerHTML = branches.map(branch => {
@@ -269,15 +269,12 @@
     return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errors.length ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>` : ''}</div>`;
   }
 
-  function syncFooterSummaryVisibility(isManage) {
+  function syncFooterSummaryVisibility() {
     const el = document.getElementById('rag-branch-summary-footer');
     const sep = document.getElementById('rag-footer-separator');
-    const active = typeof isManage === 'boolean'
-      ? isManage
-      : !!document.querySelector('#rag-modal-tabs-nav [data-rag-tab="tab-rag-manage"]')?.classList.contains('active');
     const hasText = !!(el && el.textContent.trim());
-    if (el) el.style.display = (active && hasText) ? '' : 'none';
-    if (sep) sep.style.display = (active && hasText) ? '' : 'none';
+    if (el) el.style.display = hasText ? '' : 'none';
+    if (sep) sep.style.display = hasText ? '' : 'none';
   }
 
   function updateBranchSummaryFooter(metrics) {
@@ -757,31 +754,22 @@
     await updateToolbarStatus();
   }
 
-  function initRagUI() {
-    if (initialized || typeof document === 'undefined') return;
-    initialized = true;
-    const cfg = runtimeConfig()?.getActive?.() || {};
-    if (Array.isArray(cfg.activeRagBranchIds) && cfg.activeRagBranchIds.length > 0) {
-      activeBranchIds = new Set(cfg.activeRagBranchIds.map(String).filter(Boolean));
-    } else if (cfg.activeRagBranchId) {
-      activeBranchIds = new Set([String(cfg.activeRagBranchId)]);
-    } else {
-      activeBranchIds = new Set();
-    }
-    ensureDialogMarkup();
+  function openRagModal(mode = 'activate') {
+    if (typeof document === 'undefined') return;
+    const isManage = mode === 'manage';
+    const modal = document.getElementById(isManage ? 'rag-manage-modal' : 'rag-modal');
+    if (!modal) return;
+
+    (isManage ? renderManageTab() : renderActiveTab())
+      .then(() => updateQuota())
+      .catch(() => {});
+    modal.showModal();
+  }
+
+  function bindActivationDialog() {
     const modal = document.getElementById('rag-modal');
-    document.getElementById('btn-open-rag')?.addEventListener('click', async () => {
-      await refresh();
-      const navButtons = document.querySelectorAll('#rag-modal-tabs-nav [data-rag-tab]');
-      const activeBtn = Array.from(navButtons).find(b => b.classList.contains('active')) || navButtons[0];
-      if (activeBtn) {
-        navButtons.forEach(item => item.classList.toggle('active', item === activeBtn));
-        document.querySelectorAll('#rag-modal .modal-tab-pane').forEach(pane => pane.classList.toggle('active', pane.id === activeBtn.dataset.ragTab));
-        syncFooterSummaryVisibility(activeBtn.dataset.ragTab === 'tab-rag-manage');
-        if (activeBtn.dataset.ragTab === 'tab-rag-manage') await renderManageTab();
-      }
-      modal?.showModal();
-    });
+    if (!modal) return;
+
     document.getElementById('btn-close-rag')?.addEventListener('click', () => modal?.close());
     document.getElementById('btn-close-rag-footer')?.addEventListener('click', () => modal?.close());
     document.getElementById('btn-rag-toggle-master')?.addEventListener('click', async () => { setActiveBranchIds([]); await renderActiveTab(); });
@@ -790,6 +778,14 @@
       setActiveBranchIds(branches.map(b => b.id));
       await renderActiveTab();
     });
+  }
+
+  function bindManageDialog() {
+    const modal = document.getElementById('rag-manage-modal');
+    if (!modal) return;
+
+    document.getElementById('btn-close-rag-manage')?.addEventListener('click', () => modal.close());
+    document.getElementById('btn-close-rag-manage-footer')?.addEventListener('click', () => modal.close());
     document.getElementById('btn-rag-new-branch')?.addEventListener('click', handleNewBranchButtonClick);
     document.getElementById('btn-rag-edit-branch')?.addEventListener('click', editBranch);
 
@@ -816,13 +812,25 @@
       finally { importInput.value = ''; }
     });
     document.getElementById('rag-manage-branch-select')?.addEventListener('change', event => renderWorkspace(event.target.value));
-    document.querySelectorAll('[data-rag-tab]').forEach(button => button.addEventListener('click', async () => {
-      document.querySelectorAll('[data-rag-tab]').forEach(item => item.classList.toggle('active', item === button));
-      document.querySelectorAll('#rag-modal .modal-tab-pane').forEach(pane => pane.classList.toggle('active', pane.id === button.dataset.ragTab));
-      const isManage = button.dataset.ragTab === 'tab-rag-manage';
-      syncFooterSummaryVisibility(isManage);
-      if (isManage) await renderManageTab();
-    }));
+  }
+
+  function initRagUI() {
+    if (initialized || typeof document === 'undefined') return;
+    initialized = true;
+    const cfg = runtimeConfig()?.getActive?.() || {};
+    if (Array.isArray(cfg.activeRagBranchIds) && cfg.activeRagBranchIds.length > 0) {
+      activeBranchIds = new Set(cfg.activeRagBranchIds.map(String).filter(Boolean));
+    } else if (cfg.activeRagBranchId) {
+      activeBranchIds = new Set([String(cfg.activeRagBranchId)]);
+    } else {
+      activeBranchIds = new Set();
+    }
+    ensureDialogMarkup();
+
+    document.getElementById('btn-open-rag')?.addEventListener('click', () => openRagModal('activate'));
+    bindActivationDialog();
+    bindManageDialog();
+
     updateToolbarStatus();
 
     if (typeof window !== 'undefined') {
@@ -838,25 +846,24 @@
     }
   }
 
-  function getRagModalHTML() {
+  function getRagModalHTML(mode = 'activate') {
+    const isActivateMode = mode === 'activate';
+    const titleKey = isActivateMode ? 'rag_modal_title_activate' : 'rag_modal_title_manage';
+    const titleFallback = isActivateMode ? 'Activar conocimiento local' : 'Gestionar documentos';
+
     return `<div class="modal-header">
       <div class="modal-title">
         <span class="rag-header-icon">
           <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
         </span>
-        <h3 data-i18n="rag_modal_title">Conocimiento local</h3>
+        <h3 data-i18n="${titleKey}">${titleFallback}</h3>
       </div>
-      <button type="button" id="btn-close-rag" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+      <button type="button" id="${isActivateMode ? 'btn-close-rag' : 'btn-close-rag-manage'}" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
         <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
       </button>
     </div>
-    <div class="modal-tabs-nav rag-tabs-nav" id="rag-modal-tabs-nav">
-      <button type="button" class="modal-tab-btn active" data-rag-tab="tab-rag-active" data-i18n="rag_tab_active">Activar</button>
-      <button type="button" class="modal-tab-btn" data-rag-tab="tab-rag-manage" data-i18n="rag_tab_documents">Documentos</button>
-      <button type="button" class="modal-tab-btn" data-rag-tab="tab-rag-help" data-i18n="rag_tab_help">Ayuda</button>
-    </div>
-    <div class="modal-body rag-modal-body-tabbed">
-      <div id="tab-rag-active" class="modal-tab-pane active">
+    <div class="modal-body rag-modal-body">
+      ${isActivateMode ? `<div class="rag-modal-content">
         <div class="setting-toggle-card rag-master-toggle-card">
           <div class="toggle-card-info">
             <div class="toggle-card-title"><span id="rag-active-status-title" data-i18n="rag_status_disabled">Conocimiento desactivado</span></div>
@@ -871,6 +878,11 @@
           <label><strong data-i18n="rag_available_branches">Ramas disponibles</strong><span class="label-hint" data-i18n="rag_available_branches_hint">Puedes activar una o varias ramas simultáneamente para búsquedas cruzadas.</span></label>
           <div id="rag-active-branch-list" class="rag-active-branch-list"></div>
         </div>
+        <div class="rag-help-link-card">
+          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
+          <span data-i18n="rag_help_link_text">¿Necesitas ayuda con RAG?</span>
+          <a href="http://albalday.github.io/zerochat/help/rag.html" target="_blank" rel="noopener noreferrer" class="rag-help-external-link" data-i18n="rag_help_link_label">Ver guía completa</a>
+        </div>
         <div class="rag-active-tip-card">
           <span class="rag-active-tip-icon" style="color: var(--accent, #f59e0b); display: inline-flex; align-items: center;">${getIcon('lightbulb', { size: 18 })}</span>
           <div class="rag-active-tip-content">
@@ -878,8 +890,7 @@
             <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y mantener un plan de investigación claro.</span>
           </div>
         </div>
-      </div>
-      <div id="tab-rag-manage" class="modal-tab-pane">
+      </div>` : `<div class="rag-modal-content">
         <div class="rag-manage-toolbar">
           <div class="form-field rag-manage-branch-field">
             <label for="rag-manage-branch-select"><strong data-i18n="rag_branch_label">Rama:</strong></label>
@@ -934,27 +945,7 @@
           <div id="rag-branch-feedback" class="server-query-status" style="display: none; margin-top: 0.5rem;"></div>
         </div>
         <div id="rag-manage-workspace" class="rag-manage-workspace"></div>
-      </div>
-      <div id="tab-rag-help" class="modal-tab-pane">
-        <div class="rag-help-container">
-          <div class="setting-card">
-            <div class="setting-card-title"><strong>IndexedDB + Orama</strong></div>
-            <p class="setting-card-desc" data-i18n="rag_help_storage_desc">Los archivos, metadatos y fragmentos se guardan en IndexedDB. Orama construye en memoria un índice de búsqueda local para la rama activa.</p>
-          </div>
-          <div class="setting-card">
-            <div class="setting-card-title"><strong data-i18n="rag_help_private_title">Sin permisos ni costes de ingesta</strong></div>
-            <p class="setting-card-desc" data-i18n="rag_help_private_desc">Seleccionar un archivo solo permite leer esa carga. No se solicitan permisos sobre carpetas y no se llama a ningún LLM para resumir o indexar.</p>
-          </div>
-          <div class="setting-card">
-            <div class="setting-card-title"><strong data-i18n="rag_help_llm_title">Configurar el modelo para responder sobre documentos</strong></div>
-            <p class="setting-card-desc" data-i18n="rag_help_llm_desc">Para preguntas factuales sobre documentos, usa una temperatura baja (0 a 0,2): reduce variaciones y hace más probable que el modelo se atenga a los fragmentos recuperados. Una temperatura de 0,7 o superior conviene para redacción creativa, no para extraer cifras o hechos. El modelo también debe admitir llamadas a herramientas; si no las admite, no podrá consultar esta base documental.</p>
-          </div>
-          <div class="setting-card">
-            <div class="setting-card-title"><strong data-i18n="rag_help_checkpoint_title">Punto de control agéntico para modelos de poco contexto</strong></div>
-            <p class="setting-card-desc" data-i18n-html="rag_help_checkpoint_desc">Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios y registre el siguiente paso para continuar investigando con coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.</p>
-          </div>
-        </div>
-      </div>
+      </div>`}
     </div>
     <div class="modal-footer">
       <div class="modal-footer-info">
@@ -965,16 +956,16 @@
           <span>IndexedDB</span>
         </div>
       </div>
-      <div class="modal-footer-actions"><button type="button" id="btn-close-rag-footer" class="btn-secondary" data-i18n="btn_close">Cerrar</button></div>
+      <div class="modal-footer-actions"><button type="button" id="${isActivateMode ? 'btn-close-rag-footer' : 'btn-close-rag-manage-footer'}" class="btn-secondary" data-i18n="btn_close">Cerrar</button></div>
     </div>`;
   }
 
   function ensureDialogMarkup() {
     if (typeof document === 'undefined') return;
-    const dialog = document.getElementById('rag-modal');
-    if (dialog && !dialog.firstElementChild) {
-      dialog.innerHTML = getRagModalHTML();
-    }
+    const activationDialog = document.getElementById('rag-modal');
+    const manageDialog = document.getElementById('rag-manage-modal');
+    if (activationDialog && !activationDialog.firstElementChild) activationDialog.innerHTML = getRagModalHTML('activate');
+    if (manageDialog && !manageDialog.firstElementChild) manageDialog.innerHTML = getRagModalHTML('manage');
   }
 
   if (typeof document !== 'undefined') {
@@ -990,6 +981,6 @@
     getActiveBranchId, setActiveBranchId,
     getActiveBranchIds, setActiveBranchIds, toggleBranchActive, isBranchActive,
     updateToolbarStatus, exportBranch, importBranchFile, ingestionResultMarkup,
-    ensureDialogMarkup, getRagModalHTML
+    ensureDialogMarkup, getRagModalHTML, openRagModal
   };
 });

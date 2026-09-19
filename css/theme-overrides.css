@@ -289,24 +289,6 @@
   color: #99f6e4;
 }
 
-/* Modo Oscuro: Pestañas de Navegación y Switches */
-[data-theme="dark"] .modal-tabs-nav {
-  background-color: #090d16;
-  border-bottom-color: var(--border-color);
-}
-
-[data-theme="dark"] .modal-tab-btn:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
-}
-
-[data-theme="dark"] .modal-tab-btn.active {
-  color: #60a5fa;
-  background-color: #0f172a;
-  border-color: #1e293b;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
 [data-theme="dark"] .setting-toggle-card {
   background-color: #0c1829;
   border-color: var(--border-color);

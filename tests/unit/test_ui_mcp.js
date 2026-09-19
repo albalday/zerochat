@@ -556,7 +556,7 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
   assert.equal(mockStatusText.textContent, 'Conectado');
   assert.equal(mockStatusText.getAttribute('data-i18n'), 'mcp_status_connected');
 
-  // Simular escaneo de data-i18n (como hace applyTranslations en openSettingsModal)
+  // Simular escaneo de data-i18n al abrir una sección de configuración
   const mockRoot = {
     querySelectorAll(selector) {
       if (selector === '[data-i18n]') {
@@ -615,4 +615,3 @@ test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón I
   assert.ok(container.innerHTML.includes('Detener'));
   assert.ok(container.innerHTML.includes('2 herramientas activas'));
 });
-

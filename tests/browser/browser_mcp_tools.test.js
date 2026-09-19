@@ -197,9 +197,11 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     }
     const sectionOrder = await page.$$eval('#sidebar-settings-nav .sidebar-settings-item', els => els.map(e => e.getAttribute('data-section')));
     const agentIndex = sectionOrder.indexOf('tab-agent');
+    const ragIndex = sectionOrder.indexOf('rag-manage');
     const mcpIndex = sectionOrder.indexOf('tab-mcp');
     const permissionsIndex = sectionOrder.indexOf('tab-permissions');
-    assert.ok(agentIndex >= 0 && mcpIndex === agentIndex + 1, 'La sección MCP debe estar posicionada inmediatamente al lado de la de Agente');
+    assert.ok(agentIndex >= 0 && ragIndex === agentIndex + 1, 'La sección RAG debe estar posicionada inmediatamente después de Agente');
+    assert.ok(mcpIndex === ragIndex + 1, 'La sección MCP debe estar posicionada inmediatamente después de RAG');
     assert.ok(permissionsIndex === mcpIndex + 1, 'La sección Permisos debe estar inmediatamente después de MCP');
 
     const mcpSectionBtn = await page.$('#sidebar-settings-nav button[data-section="tab-mcp"]');

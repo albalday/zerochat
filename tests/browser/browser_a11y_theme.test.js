@@ -506,7 +506,7 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
   }
 });
 
-test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, Exportación y RAG', async () => {
+test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, Exportación y RAG', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -586,17 +586,43 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
 
     await page.evaluate(() => document.getElementById('export-modal').close());
 
-    // 3. Abrir modal de RAG
+    // 3. Abrir modal de RAG desde el compositor (modo activate)
     await page.click('#btn-open-rag');
     await page.waitForSelector('#rag-modal[open]');
 
-    const ragIcons = await page.evaluate(() => {
+    const ragIconsActivate = await page.evaluate(() => {
       const headerSvg = document.querySelector('#rag-modal .rag-header-icon svg');
-      const activeTab = document.querySelector('#rag-modal-tabs-nav .modal-tab-btn.active');
-      const activeTabId = activeTab ? activeTab.dataset.ragTab : null;
-      const activePane = document.querySelector('#rag-modal .modal-tab-pane.active');
-      const activePaneDisplay = activePane ? window.getComputedStyle(activePane).display : 'none';
+      const activationContent = document.querySelector('#rag-modal .rag-modal-content');
+      const activationContentDisplay = activationContent ? window.getComputedStyle(activationContent).display : 'none';
 
+      return {
+        hasHeaderSvg: !!headerSvg,
+        hasActivationContent: !!activationContent,
+        activationContentDisplay
+      };
+    });
+
+    assert.ok(ragIconsActivate.hasHeaderSvg, 'La cabecera de RAG debe tener icono SVG');
+    assert.ok(ragIconsActivate.hasActivationContent, 'El modal de conocimiento debe mostrar el contenido de activación desde el composer');
+    assert.notEqual(ragIconsActivate.activationContentDisplay, 'none', 'El contenido de activación debe estar visible');
+
+    // Cerrar y reabrir desde el menú de configuración (modo manage) para verificar los iconos de gestión
+    await page.click('#btn-close-rag');
+
+    // Abrir el sidebar si está oculto
+    const sidebarVisible = await page.evaluate(() => {
+      const sidebar = document.getElementById('chat-sidebar');
+      return sidebar && !sidebar.classList.contains('sidebar-hidden');
+    });
+    if (!sidebarVisible) {
+      await page.click('#btn-toggle-sidebar');
+    }
+
+    await page.click('#btn-open-settings');
+    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
+    await page.waitForSelector('#rag-manage-modal[open]');
+
+    const ragIcons = await page.evaluate(() => {
       const newBranchBtn = document.getElementById('btn-rag-new-branch');
       const newBranchSvg = newBranchBtn?.querySelector('svg');
       const newBranchHasPlusInText = (newBranchBtn?.textContent || '').includes('+');
@@ -609,9 +635,6 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
       const quotaSvg = document.querySelector('#rag-storage-quota-info svg');
 
       return {
-        hasHeaderSvg: !!headerSvg,
-        activeTabId,
-        activePaneDisplay,
         hasNewBranchSvg: !!newBranchSvg,
         newBranchHasPlusInText,
         newBranchText,
@@ -623,9 +646,6 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
       };
     });
 
-    assert.ok(ragIcons.hasHeaderSvg, 'La cabecera de RAG debe tener icono SVG');
-    assert.equal(ragIcons.activeTabId, 'tab-rag-active', 'El modal de conocimiento debe activar la pestaña Activar por defecto');
-    assert.equal(ragIcons.activePaneDisplay, 'flex', 'El pane de la pestaña activa debe estar visible');
     assert.ok(ragIcons.hasNewBranchSvg, 'El botón de nueva rama debe tener icono SVG');
     assert.equal(ragIcons.newBranchHasPlusInText, false, 'El botón de nueva rama no debe tener símbolo + en el texto');
     assert.equal(ragIcons.newBranchText, 'Nueva rama', 'El texto del botón de nueva rama debe ser exactamente "Nueva rama"');
@@ -639,7 +659,10 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
     let dialogTriggered = false;
     page.on('dialog', () => { dialogTriggered = true; });
 
-    await page.click('#rag-modal-tabs-nav [data-rag-tab="tab-rag-manage"]');
+    // Cerrar el modal y abrir desde el menú de configuración para acceder al modo "manage"
+    await page.click('#btn-close-rag-manage');
+    await page.click('#btn-open-settings');
+    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
     await page.waitForSelector('#rag-branch-details-card');
 
     // Verificar que el textbox en la pestaña de documentos fue eliminado para ganar espacio
@@ -677,7 +700,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
     });
     assert.ok(footerSummary.text.includes('Esta rama cargó'), 'El pie del modal debe contener el resumen "Esta rama cargó"');
     assert.ok(footerSummary.text.includes('documentos de'), 'El pie del modal debe indicar "documentos de"');
-    assert.notEqual(footerSummary.display, 'none', 'El resumen en el pie del modal debe ser visible en la pestaña Documentos');
+    assert.notEqual(footerSummary.display, 'none', 'El resumen en el pie del diálogo de gestión debe ser visible');
 
     const createdBranch = await page.evaluate(async () => {
       const branches = await window.ChatRagStorage.getBranches();
@@ -708,8 +731,11 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Pestañas, 
     assert.equal(dialogTriggered, false, 'No debe haberse mostrado ningún diálogo emergente bloqueante');
 
     const btnTextFinal = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
-    // Verificar que en la pestaña Activar el resumen de cada rama también dice "Esta rama cargó"
-    await page.click('#rag-modal-tabs-nav [data-rag-tab="tab-rag-active"]');
+    assert.equal(btnTextFinal, 'Nueva rama', 'Tras guardar la modificación el botón debe volver a Nueva rama');
+    // Verificar que el diálogo de activación también muestra el resumen de cada rama
+    await page.click('#btn-close-rag-manage');
+    await page.click('#btn-open-rag');
+    await page.waitForSelector('#rag-modal[open]');
     const activeBranchMetricsText = await page.$eval('.rag-branch-select-card .rag-branch-metrics', el => el.textContent.trim());
     assert.ok(activeBranchMetricsText.includes('Esta rama cargó'), 'El resumen de cada rama en la pestaña Activar debe decir "Esta rama cargó"');
     assert.ok(activeBranchMetricsText.includes('documentos de'), 'El resumen de cada rama en la pestaña Activar debe usar "documentos de"');
@@ -752,12 +778,12 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
       // Validar que la cabecera, sidebar y controles de ajuste no contienen emojis residuales
       const headerText = document.querySelector('.app-header')?.textContent || '';
       const sidebarText = document.querySelector('.sidebar')?.textContent || '';
-      const settingsTabsText = document.querySelector('#settings-dialog .modal-tabs-nav')?.textContent || '';
+      const settingsSectionsText = document.querySelector('#settings-dialog .settings-section-pane')?.textContent || '';
 
       const forbiddenEmojis = /⚡|📊|🌿|📤|📜|🧠|➕|🔍|🗑️|✏️|👁️|☀️|🌙/;
       const hasHeaderEmojis = forbiddenEmojis.test(headerText);
       const hasSidebarEmojis = /➕|🗑️|✏️/.test(sidebarText);
-      const hasSettingsTabsEmojis = /🌐|⚙️|🤖|🎨|🔍/.test(settingsTabsText);
+      const hasSettingsSectionsEmojis = /🌐|⚙️|🤖|🎨|🔍/.test(settingsSectionsText);
 
       return {
         svgCount: svgs.length,
@@ -766,7 +792,7 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
         hasOptionEmojis,
         hasHeaderEmojis,
         hasSidebarEmojis,
-        hasSettingsTabsEmojis
+        hasSettingsSectionsEmojis
       };
     });
 
@@ -776,7 +802,7 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
     assert.equal(svgValidation.hasOptionEmojis, false, 'El selector de proveedor no debe contener emojis');
     assert.equal(svgValidation.hasHeaderEmojis, false, 'La cabecera no debe contener emojis residuales');
     assert.equal(svgValidation.hasSidebarEmojis, false, 'La barra lateral no debe contener emojis residuales');
-    assert.equal(svgValidation.hasSettingsTabsEmojis, false, 'Las pestañas de configuración no deben contener emojis residuales');
+    assert.equal(svgValidation.hasSettingsSectionsEmojis, false, 'Las secciones de configuración no deben contener emojis residuales');
 
     // 2. Verificar alternancia de temas claro/oscuro y stroke de currentColor
     const themeTest = await page.evaluate(() => {

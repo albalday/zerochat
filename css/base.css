@@ -159,7 +159,6 @@ select:focus-visible {
 .btn-danger-outline,
 .modal-btn-action,
 .modal-btn-close,
-.modal-tab-btn,
 .export-card-btn {
   font-family: inherit;
   cursor: pointer;

@@ -44,7 +44,7 @@
       </p>
       <ul>
         <li>Create topic-specific branches (e.g., <em>"API Specs"</em>, <em>"Financial Reports"</em>, <em>"Research Papers"</em>).</li>
-        <li>Switch or toggle branches on and off with a single click from the <strong>RAG</strong> button in the composer toolbar.</li>
+        <li>Switch or toggle branches on and off with a single click from the <strong>RAG</strong> button in the composer toolbar. To create branches, upload, or manage documents, open <strong>RAG</strong> from the general settings menu.</li>
         <li>When a branch is active, the chat engine and agents gain direct retrieval access to its documents.</li>
       </ul>
     </div>
@@ -52,7 +52,7 @@
     <div class="card">
       <h2>3. Document Ingestion & Chunking</h2>
       <p>
-        Drop files into the RAG modal or select them from disk:
+        Open RAG from the general settings menu, then drop files into its management panel or select them from disk:
       </p>
       <ul>
         <li><strong>PDFs & Books:</strong> Parses text per page and captures embedded figures and diagrams.</li>
@@ -83,6 +83,30 @@
           </ul>
         </li>
       </ol>
+    </div>
+
+    <div class="card">
+      <h2>5. Configuration & Recommendations</h2>
+
+      <h3>IndexedDB + Orama</h3>
+      <p>
+        Files, metadata, and chunks are stored in IndexedDB. Orama builds an in-memory search index for the active branch.
+      </p>
+
+      <h3>No permissions or ingestion costs</h3>
+      <p>
+        Selecting a file only grants read access to that specific upload. No folder permissions are requested, and no LLM calls are made to summarize or index documents.
+      </p>
+
+      <h3>Configuring the model for document queries</h3>
+      <p>
+        For factual queries over documents, use a low temperature (0 to 0.2): this reduces variation and increases the likelihood that the model sticks to retrieved passages. Higher temperatures (0.7+) are better suited for creative writing tasks, not for extracting numbers or facts. The model must also support tool calling; if it doesn't, it won't be able to query this knowledge base.
+      </p>
+
+      <h3>Agent checkpoint for low-context models</h3>
+      <p>
+        Compact models or those with limited context windows can become overwhelmed when accumulating multiple document fragments. Enable the <strong>Agent Checkpoint (agent_checkpoint)</strong> from the Reasoning menu: it allows the model to consolidate intermediate findings and maintain a clear research plan. Especially recommended for models with fewer than 14B parameters or context windows under 32k tokens.
+      </p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
