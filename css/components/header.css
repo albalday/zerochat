@@ -10,13 +10,10 @@
   min-height: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) 1rem 0 1rem;
   border-bottom: none;
-  background: transparent;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  background-color: var(--bg-app);
+  position: relative;
   z-index: var(--z-header, 100);
-  pointer-events: none;
+  flex-shrink: 0;
   user-select: none;
 }
 
@@ -25,7 +22,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  pointer-events: auto;
+  z-index: 1;
 }
 
 .header-left {
@@ -35,13 +32,15 @@
 }
 
 .header-center {
-  flex: 0 1 auto;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: auto;
   min-width: 0;
-  max-width: 260px;
+  max-width: min(320px, calc(100% - 100px));
+  z-index: 2;
 }
 
 .header-right {

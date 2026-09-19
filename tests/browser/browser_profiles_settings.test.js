@@ -23,11 +23,21 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     const alignment = await page.evaluate(() => {
       const menu = document.getElementById('active-profile-popover').getBoundingClientRect();
       const trigger = document.getElementById('active-profile-trigger').getBoundingClientRect();
+      const header = document.querySelector('.app-header').getBoundingClientRect();
+      const messagesList = document.getElementById('messages-list').getBoundingClientRect();
       const triggerCenter = trigger.left + trigger.width / 2;
       const menuCenter = menu.left + menu.width / 2;
-      return Math.abs(triggerCenter - menuCenter);
+      const headerCenter = header.left + header.width / 2;
+      return {
+        popoverOffset: Math.abs(triggerCenter - menuCenter),
+        headerOffset: Math.abs(headerCenter - triggerCenter),
+        headerBottom: header.bottom,
+        messagesTop: messagesList.top
+      };
     });
-    assert.ok(alignment <= 2, `El popover debe estar centrado respecto al trigger (desv: ${alignment}px)`);
+    assert.ok(alignment.popoverOffset <= 2, `El popover debe estar centrado respecto al trigger (desv: ${alignment.popoverOffset}px)`);
+    assert.ok(alignment.headerOffset <= 2, `El selector de perfiles debe estar centrado en el panel superior (desv: ${alignment.headerOffset}px)`);
+    assert.ok(alignment.messagesTop >= alignment.headerBottom - 1, 'El chat (#messages-list) no debe pasar por encima del panel superior');
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
     await page.click('#active-profile-trigger');
