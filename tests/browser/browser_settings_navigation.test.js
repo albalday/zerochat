@@ -166,6 +166,21 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.click('#btn-close-settings');
       await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
 
+      // Los cambios pendientes deben confirmarse antes de cerrar y el rechazo conserva el borrador.
+      await page.click('[data-section="tab-model"]');
+      await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+      await page.fill('#setting-system-data-prompt', 'Borrador sin guardar');
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+      assert.equal(await page.$eval('#settings-dialog', el => el.open), true, 'Cancelar el descarte debe mantener abierto el diálogo de ajustes');
+      await page.click('#notice-cancel');
+      await page.waitForFunction(() => !document.getElementById('notice-dialog')?.open);
+      assert.equal(await page.inputValue('#setting-system-data-prompt'), 'Borrador sin guardar');
+      await page.click('#btn-close-settings');
+      await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+      await page.click('#notice-accept');
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+
       // Req: El botón borrar todo reside exclusivamente en la parte baja del sidebar de configuración
       const sidebarClearBtn = await page.evaluate(() => {
         const btn = document.querySelector('#sidebar-view-settings .sidebar-settings-footer #btn-clear-all-data');

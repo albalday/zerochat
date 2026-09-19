@@ -182,6 +182,39 @@ test('UIProfiles - handleMenuNewProfile no pide nombre y abre editor con campos 
   assert.equal(modalOpened, true, 'Debe abrir el modal de perfiles directamente');
   assert.equal(elements.settingProfileName.value, '', 'El campo nombre debe quedar en blanco');
   assert.equal(elements.settingProfileDescription.value, '', 'El campo descripción debe quedar en blanco');
+  assert.equal(elements.settingApiKey.value, '', 'La clave del perfil anterior no debe heredarse');
+  assert.equal(elements.settingApiKey._loadedApiKey, '', 'El estado interno de la clave debe inicializarse vacío');
   assert.equal(elements.settingApiKeyLocked.checked, false, 'El bloqueo de cambios debe inicializarse desmarcado');
   assert.equal(elements.profilesDialog.dataset.isNew, 'true', 'Debe marcar dataset.isNew');
+});
+
+test('UIProfiles - un identificador vacío de perfil nuevo no carga la API key del perfil activo', async () => {
+  const previousProfiles = global.ChatProfileRepository;
+  const previousSettings = global.ChatUISettings;
+  let loadCalls = 0;
+  global.ChatProfileRepository = {
+    load: async () => {
+      loadCalls += 1;
+      return { settings: { apiKey: 'sk-active-profile-key' } };
+    }
+  };
+  global.ChatUISettings = { applyProfileToForm: () => {} };
+
+  try {
+    const keyInput = { value: 'sk-previous-key', _loadedApiKey: 'sk-previous-key' };
+    await UIProfiles.applyProfileToForm({
+      settingApiKey: keyInput,
+      profileSelectHelper: { value: '' }
+    }, {}, '', {
+      getRuntimeConfig: () => ({ activeProfile: { id: 'profile:active' } })
+    });
+
+    assert.equal(loadCalls, 0, 'Un perfil nuevo no debe consultar el perfil activo');
+    assert.equal(keyInput.value, '', 'Un perfil nuevo debe conservar la clave vacía');
+  } finally {
+    if (previousProfiles === undefined) delete global.ChatProfileRepository;
+    else global.ChatProfileRepository = previousProfiles;
+    if (previousSettings === undefined) delete global.ChatUISettings;
+    else global.ChatUISettings = previousSettings;
+  }
 });

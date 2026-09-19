@@ -500,6 +500,27 @@
     setNewBranchButtonMode(hasChanged ? 'save' : 'new');
   }
 
+  function hasPendingBranchChanges() {
+    const name = document.getElementById('rag-branch-name-input')?.value?.trim() || '';
+    const description = document.getElementById('rag-branch-desc-input')?.value?.trim() || '';
+    const language = (document.getElementById('rag-branch-lang-select')?.value || 'spanish').trim().toLowerCase();
+    if (isCreatingBranch) return Boolean(name || description || language !== 'spanish');
+    return name !== loadedBranchName.trim() ||
+      description !== (loadedBranchDesc || '').trim() ||
+      language !== (loadedBranchLang || 'spanish').trim().toLowerCase();
+  }
+
+  async function closeManageDialog() {
+    const modal = document.getElementById('rag-manage-modal');
+    if (!modal) return false;
+    if (hasPendingBranchChanges()) {
+      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+      if (!Dialogs?.confirm || !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes'))) return false;
+    }
+    modal.close();
+    return true;
+  }
+
   async function updateBranchFields(branchId) {
     if (typeof document === 'undefined') return;
     const nameInput = document.getElementById('rag-branch-name-input');
@@ -784,8 +805,13 @@
     const modal = document.getElementById('rag-manage-modal');
     if (!modal) return;
 
-    document.getElementById('btn-close-rag-manage')?.addEventListener('click', () => modal.close());
-    document.getElementById('btn-close-rag-manage-footer')?.addEventListener('click', () => modal.close());
+    document.getElementById('btn-close-rag-manage')?.addEventListener('click', () => { closeManageDialog(); });
+    document.getElementById('btn-close-rag-manage-footer')?.addEventListener('click', () => { closeManageDialog(); });
+    modal.addEventListener('cancel', event => {
+      if (!hasPendingBranchChanges()) return;
+      event.preventDefault();
+      closeManageDialog();
+    });
     document.getElementById('btn-rag-new-branch')?.addEventListener('click', handleNewBranchButtonClick);
     document.getElementById('btn-rag-edit-branch')?.addEventListener('click', editBranch);
 

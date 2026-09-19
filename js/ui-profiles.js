@@ -100,7 +100,7 @@
 
     if (UISettings?.applyProfileToForm) {
       const currentActiveId = opts.getRuntimeConfig?.()?.activeProfile?.id || Config?.getActive?.()?.activeProfile?.id;
-      const id = profileId || els.profileSelectHelper?.value || currentActiveId;
+      const id = profileId !== null ? profileId : (els.profileSelectHelper?.value || currentActiveId);
       const keyInput = els.settingApiKey;
       if (keyInput) {
         keyInput._loadedApiKey = undefined;

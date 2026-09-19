@@ -16,3 +16,6 @@ gestion de razonamiento flujo y opciones en el defecto
 
 raw siempre
 
+panel de debug feo
+
+HTML DE ENVIO DE PERFIL. CAMBIA A PAGFINA DEL SERVIDOR PASANDO PERFIL A AÑADIR

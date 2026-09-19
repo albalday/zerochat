@@ -20,6 +20,35 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propia sección s
   assert.match(settingsHtml, /id="btn-close-settings"/);
 });
 
+test('UISettings - exige API key para proveedores remotos y enlaza las guías gratuitas correspondientes', () => {
+  const hint = { dataset: {}, textContent: '' };
+  const helpLink = { hidden: true, href: '' };
+  const apiKeyField = {
+    hidden: false,
+    querySelector: (selector) => selector === '#api-key-hint-text'
+      ? hint
+      : (selector === '#api-key-free-help-link' ? helpLink : null)
+  };
+  const elements = {
+    settingApiType: { value: 'openrouter' },
+    settingApiKey: { disabled: false, closest: () => apiKeyField }
+  };
+
+  UISettings.syncProviderFields(elements);
+  assert.equal(hint.dataset.i18n, 'field_api_key_required_hint');
+  assert.equal(helpLink.hidden, false);
+  assert.equal(helpLink.href, 'help/openrouter-free.html');
+
+  elements.settingApiType.value = 'gemini';
+  UISettings.syncProviderFields(elements);
+  assert.equal(helpLink.href, 'help/gemini-free.html');
+
+  elements.settingApiType.value = 'ollama';
+  UISettings.syncProviderFields(elements);
+  assert.equal(hint.dataset.i18n, 'field_api_key_hint');
+  assert.equal(helpLink.hidden, true);
+});
+
 test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
   const panes = [
     { id: 'tab-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
@@ -44,6 +73,27 @@ test('UISettings - openSettingsSection activa la sección indicada y actualiza e
   assert.equal(panes[1].active, true);
   assert.equal(titleEl['data-i18n'], 'tab_mcp');
   assert.equal(fakeDialog.isOpen, true);
+});
+
+test('UISettings - confirma antes de cerrar ajustes con cambios sin guardar', async () => {
+  const originalDialogs = global.ChatDialogs;
+  const dialog = { dataset: {}, close: () => { dialog.closed = true; } };
+  const elements = { settingsDialog: dialog };
+
+  try {
+    UISettings.setSettingsFormDirty(elements, true);
+    global.ChatDialogs = { confirm: async () => false };
+    assert.equal(await UISettings.closeSettingsModal(elements), false);
+    assert.equal(dialog.closed, undefined);
+
+    global.ChatDialogs = { confirm: async () => true };
+    assert.equal(await UISettings.closeSettingsModal(elements), true);
+    assert.equal(dialog.closed, true);
+    assert.equal(UISettings.isSettingsFormDirty(elements), false);
+  } finally {
+    if (originalDialogs === undefined) delete global.ChatDialogs;
+    else global.ChatDialogs = originalDialogs;
+  }
 });
 
 test('UISettings - applyTheme actualiza data-theme y botones activos', () => {

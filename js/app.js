@@ -858,6 +858,7 @@
   function saveCurrentSettings(closeModal = true) {
     const newConfig = gatherCurrentFormConfig();
     const savedConfig = Config.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
+    if (UISettings.setSettingsFormDirty) UISettings.setSettingsFormDirty(elements, false);
     loadCachedModels();
 
     const currentHistory = getChatHistory();
@@ -873,7 +874,7 @@
     }
 
     if (closeModal) {
-      closeSettingsPanelOnly();
+      closeSettingsPanelOnly(true);
     } else {
       showProfileFeedback(t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }) || 'Configuración actualizada.', 'success');
     }
@@ -1025,25 +1026,30 @@
     }
   }
 
-  function closeSettingsModal() {
+  async function closeSettingsModal(force = false) {
+    let closed = true;
     if (UISettings.closeSettingsModal) {
-      UISettings.closeSettingsModal(elements);
+      closed = await UISettings.closeSettingsModal(elements, force);
     }
-    if (UISidebar.setSidebarMode) {
+    if (closed && UISidebar.setSidebarMode) {
       UISidebar.setSidebarMode(elements, 'chat');
     }
+    return closed;
   }
 
-  function closeSettingsPanelOnly() {
+  async function closeSettingsPanelOnly(force = false) {
+    let closed = true;
     if (UISettings.closeSettingsModal) {
-      UISettings.closeSettingsModal(elements);
+      closed = await UISettings.closeSettingsModal(elements, force);
     }
+    if (!closed) return false;
     if (UISidebar.setSidebarMode) {
       UISidebar.setSidebarMode(elements, 'settings');
     }
     if (UISidebar.isMobile && UISidebar.isMobile() && UISidebar.openSidebar) {
       UISidebar.openSidebar(elements);
     }
+    return true;
   }
 
   function handleSaveSettings(e) {
@@ -1803,6 +1809,12 @@
     }
     if (elements.settingsForm) {
       elements.settingsForm.addEventListener('submit', handleSaveSettings);
+      const markSettingsModified = (event) => {
+        if (event?.target === elements.settingEnableRawLogs) return;
+        if (UISettings.setSettingsFormDirty) UISettings.setSettingsFormDirty(elements, true);
+      };
+      elements.settingsForm.addEventListener('input', markSettingsModified);
+      elements.settingsForm.addEventListener('change', markSettingsModified);
     }
     if (elements.btnClearAllData) {
       elements.btnClearAllData.addEventListener('click', handleClearAllData);
@@ -2036,6 +2048,11 @@
       if (e.target === elements.settingsDialog) {
         closeSettingsPanelOnly();
       }
+    });
+    elements.settingsDialog.addEventListener('cancel', function (e) {
+      if (!UISettings.isSettingsFormDirty || !UISettings.isSettingsFormDirty(elements)) return;
+      e.preventDefault();
+      closeSettingsPanelOnly();
     });
 
     const UITel = getUITelemetry();

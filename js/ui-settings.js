@@ -24,6 +24,7 @@
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -247,6 +248,24 @@
     if (elements?.settingApiKey) elements.settingApiKey.disabled = connection.credentials === false;
     const apiKeyField = elements?.settingApiKey?.closest?.('.api-key-field');
     if (apiKeyField) apiKeyField.hidden = connection.credentials === false;
+    const apiKeyHintText = apiKeyField?.querySelector?.('#api-key-hint-text');
+    const apiKeyFreeHelpLink = apiKeyField?.querySelector?.('#api-key-free-help-link');
+    const freeTierHelp = {
+      openrouter: 'help/openrouter-free.html',
+      gemini: 'help/gemini-free.html'
+    };
+    if (apiKeyHintText) {
+      const hintKey = ['openai', 'ollama'].includes(providerId)
+        ? 'field_api_key_hint'
+        : 'field_api_key_required_hint';
+      apiKeyHintText.dataset.i18n = hintKey;
+      apiKeyHintText.textContent = t(hintKey);
+    }
+    if (apiKeyFreeHelpLink) {
+      const helpUrl = freeTierHelp[providerId];
+      apiKeyFreeHelpLink.hidden = !helpUrl;
+      if (helpUrl) apiKeyFreeHelpLink.href = helpUrl;
+    }
     const field = typeof elements?.settingApiUrl?.closest === 'function'
       ? elements.settingApiUrl.closest('.form-field') : null;
     const hint = field?.querySelector('.webllm-local-hint') || elements?.webllmLocalHint;
@@ -361,6 +380,15 @@
     if (elements.settingEnableRawLogs) {
       elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
     }
+    if (elements.settingMaxAgentTurns) {
+      elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 15;
+    }
+    if (elements.maxAgentTurnsVal) {
+      elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 15;
+    }
+    if (elements.settingEnableContextCache) {
+      elements.settingEnableContextCache.checked = appConfig?.enableContextCache !== false;
+    }
     if (elements.mcpHostInput) {
       elements.mcpHostInput.value = appConfig?.mcpHost || '127.0.0.1';
     }
@@ -400,12 +428,32 @@
     if (typeof elements.settingsDialog.showModal === 'function') {
       elements.settingsDialog.showModal();
     }
+    setSettingsFormDirty(elements, false);
   }
 
-  function closeSettingsModal(elements) {
+  function setSettingsFormDirty(elements, dirty) {
+    if (elements?.settingsDialog?.dataset) {
+      elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty));
+    }
+  }
+
+  function isSettingsFormDirty(elements) {
+    return elements?.settingsDialog?.dataset?.settingsDirty === 'true';
+  }
+
+  async function closeSettingsModal(elements, force = false) {
+    if (!force && isSettingsFormDirty(elements)) {
+      const Dialogs = getDialogs();
+      const discard = Dialogs?.confirm
+        ? await Dialogs.confirm(t('confirm_settings_unsaved_changes'))
+        : false;
+      if (!discard) return false;
+    }
     if (elements?.settingsDialog && typeof elements.settingsDialog.close === 'function') {
       elements.settingsDialog.close();
     }
+    setSettingsFormDirty(elements, false);
+    return true;
   }
 
   async function handleClearAllData() {
@@ -707,7 +755,7 @@
 
         <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
         <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="http://albalday.github.io/zerochat/help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
-        <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
+        <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint"><span id="api-key-hint-text" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span> <a id="api-key-free-help-link" href="" target="_blank" rel="noopener noreferrer" data-i18n="field_api_key_free_help" hidden>Cómo obtener una API key gratuita</a></span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
         <div class="form-field"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist><button type="button" id="btn-webllm-params" class="btn-webllm-params" data-i18n-title="btn_webllm_params_title" title="Parámetros avanzados de rendimiento WebLLM" hidden><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg></button></div><div id="webllm-params-panel" class="webllm-params-panel" hidden><div class="webllm-params-title"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg><span data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</span></div><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="2048">2048 (2K)</option><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div></div>
 
         <div class="form-field">
@@ -756,6 +804,8 @@
     showProfileFeedback,
     openSettingsSection,
     closeSettingsModal,
+    setSettingsFormDirty,
+    isSettingsFormDirty,
     handleClearAllData,
     ensureDialogMarkup,
     getSettingsDialogHTML,
