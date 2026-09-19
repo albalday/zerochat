@@ -10,3 +10,7 @@ mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico
 
 panel de perfiles. en el pequeño  cada una con editar, borra y bloquear
 en general nuevo, cerrar exportar e importar.
+
+paso de session por cookie. llamada inicial desde py solo guarda cokkie, resto se activa solo por ver la cookie
+
+boton free tier get apikey opentouter

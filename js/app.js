@@ -169,10 +169,7 @@
       btnSend: document.getElementById('btn-send'),
       btnStopStream: document.getElementById('btn-stop-stream'),
       generationStatus: document.getElementById('generation-status'),
-      btnComposerTools: document.getElementById('btn-composer-tools'),
-      btnComposerMcp: document.getElementById('btn-composer-mcp'),
-
-      // Razonamiento (Thinking)
+      btnOpenRag: document.getElementById('btn-open-rag'),
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
       reasoningMenu: document.getElementById('reasoning-menu'),
@@ -1538,22 +1535,7 @@
         });
       });
     }
-    if (elements.btnComposerTools) {
-      elements.btnComposerTools.addEventListener('click', () => openSettingsSection('tab-agent'));
-    }
-    if (elements.btnComposerMcp) {
-      elements.btnComposerMcp.addEventListener('click', () => openSettingsSection('tab-mcp'));
-    }
-
-    function updateComposerMcpState(mcpState) {
-      if (UIComposer.updateComposerMcpState) {
-        return UIComposer.updateComposerMcpState(elements, mcpState);
-      }
-    }
-    State.subscribe('mcp', (newState) => updateComposerMcpState(newState));
-    updateComposerMcpState(State.get('mcp'));
     window.addEventListener('zerochat:languagechange', () => {
-      updateComposerMcpState(State.get('mcp'));
       updateExecutionInfo();
     });
 

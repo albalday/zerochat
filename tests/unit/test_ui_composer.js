@@ -60,26 +60,6 @@ test('UIComposer - syncGenerationControls updates btnSend and btnStopStream stat
   assert.equal(cleared, true);
 });
 
-test('UIComposer - updateComposerMcpState sets classes and accessibility text', () => {
-  const classes = new Set();
-  const attributes = {};
-  const elements = {
-    btnComposerMcp: {
-      classList: {
-        add: (c) => classes.add(c),
-        remove: (...cs) => cs.forEach(c => classes.delete(c)),
-        contains: (c) => classes.has(c)
-      },
-      setAttribute: (k, v) => { attributes[k] = v; },
-      title: ''
-    }
-  };
-
-  UIComposer.updateComposerMcpState(elements, { status: 'connected' });
-  assert.equal(classes.has('mcp-connected'), true);
-  assert.equal(attributes['aria-label'].includes('connected') || attributes['aria-label'].includes('Conectado'), true);
-});
-
 test('UIComposer - mount attaches submit and keydown handlers and disposes cleanly', () => {
   const listeners = {};
   function addListener(target, event, fn) {

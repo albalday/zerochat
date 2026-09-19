@@ -153,13 +153,15 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
 
       const btnAttach = controlsLeft?.querySelector('#btn-attach-file');
       const btnReasoning = controlsLeft?.querySelector('#btn-reasoning');
-      const btnTools = controlsLeft?.querySelector('#btn-composer-tools');
-      const btnMcp = controlsLeft?.querySelector('#btn-composer-mcp');
       const btnRag = controlsLeft?.querySelector('#btn-open-rag');
 
       const tokensBadge = actionsRight?.querySelector('#connection-tokens-badge');
       const btnStop = actionsRight?.querySelector('#btn-stop-stream');
       const btnSend = actionsRight?.querySelector('#btn-send');
+
+      // Los botones de agente y MCP ya no están en el composer
+      const btnTools = controlsLeft?.querySelector('#btn-composer-tools');
+      const btnMcp = controlsLeft?.querySelector('#btn-composer-mcp');
 
       return {
         hasTopRow: !!topRow,
@@ -169,14 +171,13 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
         hasActionsRight: !!actionsRight,
         hasBtnAttach: !!btnAttach,
         hasBtnReasoning: !!btnReasoning,
-        hasBtnTools: !!btnTools,
-        hasBtnMcp: !!btnMcp,
         hasBtnRag: !!btnRag,
         ragIcon: btnRag?.querySelector('svg use')?.getAttribute('href'),
-        mcpIcon: btnMcp?.querySelector('svg use')?.getAttribute('href'),
         hasTokensBadge: !!tokensBadge,
         hasBtnStop: !!btnStop,
-        hasBtnSend: !!btnSend
+        hasBtnSend: !!btnSend,
+        hasBtnTools: !!btnTools,
+        hasBtnMcp: !!btnMcp
       };
     });
 
@@ -185,45 +186,14 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
     assert.ok(structure.userInputInTopRow, '#user-input debe estar en la fila superior');
     assert.ok(structure.hasBtnAttach, 'El botón adjuntar debe estar en los controles inferiores izquierdos');
     assert.ok(structure.hasBtnReasoning, 'El botón de razonamiento debe estar en los controles inferiores izquierdos');
-    assert.ok(structure.hasBtnTools, 'El botón de tools debe estar en los controles inferiores izquierdos');
-    assert.ok(structure.hasBtnMcp, 'El botón de MCP debe estar en los controles inferiores izquierdos');
     assert.ok(structure.hasBtnRag, 'El botón de RAG debe estar en los controles inferiores izquierdos');
     assert.equal(structure.ragIcon, '#icon-layers', 'El botón de RAG debe usar el icono de conocimiento');
-    assert.equal(structure.mcpIcon, '#icon-plug', 'El botón de MCP debe usar el icono de conexión');
     assert.ok(structure.hasTokensBadge, 'El contador de tokens debe estar a la derecha');
     assert.ok(structure.hasBtnSend, 'El botón enviar debe estar a la derecha');
+    assert.equal(structure.hasBtnTools, false, 'El botón de tools no debe estar en el composer');
+    assert.equal(structure.hasBtnMcp, false, 'El botón de MCP no debe estar en el composer');
 
-    // 2. Probar que pulsar #btn-composer-tools abre #settings-dialog en la sección tab-agent
-    await page.click('#btn-composer-tools');
-    await page.waitForSelector('#settings-dialog[open]');
-    const activeTabAfterTools = await page.evaluate(() => {
-      const activePane = document.querySelector('.modal-tab-pane.active');
-      return {
-        paneId: activePane?.id
-      };
-    });
-    assert.equal(activeTabAfterTools.paneId, 'tab-agent', 'El panel visible debe ser tab-agent');
-
-    // Cerrar modal de settings
-    await page.click('#btn-close-settings');
-    await page.waitForFunction(() => !document.querySelector('#settings-dialog')?.open);
-
-    // 3. Probar que pulsar #btn-composer-mcp abre #settings-dialog en la sección tab-mcp
-    await page.click('#btn-composer-mcp');
-    await page.waitForSelector('#settings-dialog[open]');
-    const activeTabAfterMcp = await page.evaluate(() => {
-      const activePane = document.querySelector('.modal-tab-pane.active');
-      return {
-        paneId: activePane?.id
-      };
-    });
-    assert.equal(activeTabAfterMcp.paneId, 'tab-mcp', 'El panel visible debe ser tab-mcp');
-
-    // Cerrar modal de settings
-    await page.click('#btn-close-settings');
-    await page.waitForFunction(() => !document.querySelector('#settings-dialog')?.open);
-
-    // 4. Probar que pulsar #btn-open-rag abre el diálogo de RAG
+    // 2. Probar que pulsar #btn-open-rag abre el diálogo de RAG
     await page.click('#btn-open-rag');
     await page.waitForFunction(() => document.getElementById('rag-modal')?.open);
     const isRagOpen = await page.$eval('#rag-modal', el => el.open);
@@ -250,7 +220,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
       const metrics = await page.evaluate(language => {
         window.ChatI18n.setLanguage(language, false);
         const input = document.getElementById('user-input');
-        const controls = ['btn-attach-file', 'btn-reasoning', 'btn-composer-tools', 'btn-composer-mcp', 'btn-open-rag'];
+        const controls = ['btn-attach-file', 'btn-reasoning', 'btn-open-rag'];
         const buttons = controls.map(id => document.getElementById(id));
         const rects = buttons.map(button => button.getBoundingClientRect());
         const inputStyle = getComputedStyle(input);
@@ -272,16 +242,6 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
       assert.equal(metrics.withinViewport, true);
     }
 
-    await page.evaluate(() => {
-      window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected' });
-    });
-    await page.waitForFunction(() => getComputedStyle(document.getElementById('btn-composer-mcp')).borderColor === 'rgb(22, 163, 74)');
-    const mcpState = await page.$eval('#btn-composer-mcp', button => ({
-      border: getComputedStyle(button).borderColor,
-      label: button.getAttribute('aria-label')
-    }));
-    assert.equal(mcpState.border, 'rgb(22, 163, 74)');
-    assert.match(mcpState.label, /MCP:/);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

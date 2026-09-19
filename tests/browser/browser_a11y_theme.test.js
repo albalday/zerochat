@@ -111,20 +111,18 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
 
-    // 4. Menú de perfiles activo en el composer e integración de 'Editar perfiles'
-    const hasProfileMenu = await page.$eval('.chat-input-container #active-profile-menu', el => !!el);
-    assert.ok(hasProfileMenu, 'El selector de perfil debe residir dentro del composer');
+    // 4. Menú de perfiles activo en el header superior
+    const hasProfileMenu = await page.$eval('.app-header #active-profile-menu', el => !!el);
+    assert.ok(hasProfileMenu, 'El selector de perfil debe residir dentro del header');
 
-    const profileStyle = await page.$eval('.composer-profile-trigger', el => {
+    const profileStyle = await page.$eval('.header-profile-trigger', el => {
       const computed = getComputedStyle(el);
       return {
         borderStyle: computed.borderStyle,
-        fontSize: computed.fontSize,
-        maxWidth: getComputedStyle(el.closest('.composer-profile-menu')).maxWidth
+        fontSize: computed.fontSize
       };
     });
     assert.equal(profileStyle.borderStyle, 'solid', 'El disparador debe tener un borde sutil');
-    assert.equal(profileStyle.maxWidth, 'none', 'El menú debe poder adaptarse al nombre del perfil');
 
     // Botón de editar perfiles en cabecera removido
     const hasBtnOpenProfiles = await page.$eval('#btn-open-profiles', el => !!el).catch(() => false);
@@ -252,7 +250,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 
     // 1. Validar iconos SVG en el Header
     const headerIcons = await page.evaluate(() => {
-      const profileSvg = document.querySelector('.composer-profile-trigger .profile-icon svg');
+      const profileSvg = document.querySelector('.header-profile-trigger .profile-icon svg');
       const ragSvg = document.querySelector('#btn-open-rag svg');
       const debugSvg = document.querySelector('#btn-toggle-debug svg');
       const reasoningSvg = document.querySelector('#btn-reasoning svg');

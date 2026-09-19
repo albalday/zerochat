@@ -34,6 +34,16 @@
   min-width: 0;
 }
 
+.header-center {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  min-width: 0;
+  max-width: 260px;
+}
+
 .header-right {
   flex: 0 0 auto;
   justify-content: flex-end;

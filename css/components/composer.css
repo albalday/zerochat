@@ -217,24 +217,6 @@
   transform: scale(0.95);
 }
 
-.btn-composer-chip.mcp-connected {
-  border-color: #16a34a;
-  background-color: color-mix(in srgb, #16a34a 14%, var(--bg-surface));
-  color: #15803d;
-}
-
-.btn-composer-chip.mcp-connecting {
-  border-color: #ca8a04;
-  background-color: color-mix(in srgb, #ca8a04 14%, var(--bg-surface));
-  color: #a16207;
-}
-
-.btn-composer-chip.mcp-error {
-  border-color: var(--danger);
-  background-color: color-mix(in srgb, var(--danger) 14%, var(--bg-surface));
-  color: var(--danger);
-}
-
 /* Botón para Adjuntar Archivos */
 .btn-attach {
   margin-bottom: 0;
@@ -929,14 +911,14 @@
 }
 
 /* ==========================================================================
-   Selector de Perfiles Integrado en Composer (Fila Inferior)
+   Selector de Perfiles en Header Superior
    ========================================================================== */
-.composer-profile-menu {
-  flex: 0 1 260px;
+.header-profile-menu {
+  position: relative;
   min-width: 0;
 }
 
-.composer-profile-trigger {
+.header-profile-trigger {
   display: inline-flex;
   align-items: center;
   width: 100%;
@@ -954,16 +936,16 @@
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.composer-profile-trigger:hover,
-.composer-profile-trigger:focus-visible,
-.composer-profile-trigger[aria-expanded="true"] {
+.header-profile-trigger:hover,
+.header-profile-trigger:focus-visible,
+.header-profile-trigger[aria-expanded="true"] {
   background-color: var(--bg-surface);
   border-color: var(--border-color);
   color: var(--text-main);
   outline: none;
 }
 
-.composer-profile-trigger .profile-icon {
+.header-profile-trigger .profile-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -971,7 +953,7 @@
   flex-shrink: 0;
 }
 
-.composer-profile-name {
+.header-profile-name {
   min-width: 0;
   margin: 0 0.45rem;
   overflow: hidden;
@@ -980,7 +962,7 @@
   white-space: nowrap;
 }
 
-.composer-profile-trigger .profile-chevron {
+.header-profile-trigger .profile-chevron {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -989,17 +971,18 @@
   transition: color var(--transition-fast);
 }
 
-.composer-profile-trigger:hover .profile-chevron,
-.composer-profile-trigger:focus-visible .profile-chevron,
-.composer-profile-trigger[aria-expanded="true"] .profile-chevron {
+.header-profile-trigger:hover .profile-chevron,
+.header-profile-trigger:focus-visible .profile-chevron,
+.header-profile-trigger[aria-expanded="true"] .profile-chevron {
   color: var(--text-main);
 }
 
-.composer-profile-popover {
+.header-profile-popover {
   position: absolute;
   z-index: 30;
-  bottom: calc(100% + 0.5rem);
-  right: 0;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
   width: min(320px, calc(100vw - 2rem));
   padding: 0.45rem;
   border: 1px solid var(--border-color);
@@ -1008,11 +991,11 @@
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.18);
 }
 
-.composer-profile-popover[hidden] {
+.header-profile-popover[hidden] {
   display: none;
 }
 
-.composer-profile-popover-header {
+.header-profile-popover-header {
   padding: 0.35rem 0.45rem 0.5rem;
   color: var(--text-muted);
   font-size: 0.7rem;
@@ -1021,14 +1004,14 @@
   text-transform: uppercase;
 }
 
-.composer-profile-list {
+.header-profile-list {
   display: grid;
   gap: 0.15rem;
   max-height: 220px;
   overflow-y: auto;
 }
 
-.composer-profile-option {
+.header-profile-option {
   display: grid;
   gap: 0.12rem;
   width: 100%;
@@ -1042,18 +1025,18 @@
   cursor: pointer;
 }
 
-.composer-profile-option:hover,
-.composer-profile-option:focus-visible {
+.header-profile-option:hover,
+.header-profile-option:focus-visible {
   background: var(--bg-hover);
   outline: none;
 }
 
-.composer-profile-option.active {
+.header-profile-option.active {
   border-color: color-mix(in srgb, var(--primary) 45%, transparent);
   background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
 }
 
-.composer-profile-option-name {
+.header-profile-option-name {
   overflow: hidden;
   font-size: 0.8rem;
   font-weight: 650;
@@ -1061,7 +1044,7 @@
   white-space: nowrap;
 }
 
-.composer-profile-option-description {
+.header-profile-option-description {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.72rem;
@@ -1069,13 +1052,13 @@
   white-space: nowrap;
 }
 
-.composer-profile-popover-footer {
+.header-profile-popover-footer {
   margin-top: 0.4rem;
   padding-top: 0.4rem;
   border-top: 1px solid var(--border-color);
 }
 
-.composer-profile-edit {
+.header-profile-edit {
   width: 100%;
   min-height: 32px;
   border: 0;
@@ -1088,18 +1071,14 @@
   cursor: pointer;
 }
 
-.composer-profile-edit:hover,
-.composer-profile-edit:focus-visible {
+.header-profile-edit:hover,
+.header-profile-edit:focus-visible {
   background: var(--bg-hover);
   outline: none;
 }
 
 @media (max-width: 640px) {
-  .composer-profile-menu {
-    max-width: 175px;
-  }
-
-  .composer-profile-popover {
+  .header-profile-popover {
     width: min(300px, calc(100vw - 1.5rem));
   }
 }

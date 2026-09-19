@@ -22,10 +22,12 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     assert.equal(await page.locator('[data-profile-id="profile:mirror"]').evaluate(el => el === document.activeElement), true);
     const alignment = await page.evaluate(() => {
       const menu = document.getElementById('active-profile-popover').getBoundingClientRect();
-      const composer = document.querySelector('.chat-input-container').getBoundingClientRect();
-      return Math.abs(menu.right - composer.right);
+      const trigger = document.getElementById('active-profile-trigger').getBoundingClientRect();
+      const triggerCenter = trigger.left + trigger.width / 2;
+      const menuCenter = menu.left + menu.width / 2;
+      return Math.abs(triggerCenter - menuCenter);
     });
-    assert.ok(alignment <= 2);
+    assert.ok(alignment <= 2, `El popover debe estar centrado respecto al trigger (desv: ${alignment}px)`);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#active-profile-popover').isVisible(), false);
     await page.click('#active-profile-trigger');

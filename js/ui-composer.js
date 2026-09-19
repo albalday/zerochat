@@ -172,19 +172,6 @@
     }
   }
 
-  function updateComposerMcpState(elements, mcpState) {
-    const els = elements || cachedElements || {};
-    if (!els.btnComposerMcp) return;
-    const State = getState();
-    const st = mcpState || State?.get?.('mcp') || {};
-    const status = st.status || 'disconnected';
-    els.btnComposerMcp.classList.remove('mcp-connected', 'mcp-connecting', 'mcp-disconnected', 'mcp-error');
-    els.btnComposerMcp.classList.add(`mcp-${status}`);
-    const labelKey = `mcp_status_${status}`;
-    const statusText = t(labelKey) || status;
-    els.btnComposerMcp.title = `MCP: ${statusText}`;
-    els.btnComposerMcp.setAttribute('aria-label', `MCP: ${statusText}`);
-  }
 
   function syncGenerationControls(elements, isGenerating, options = {}) {
     const els = elements || cachedElements || {};
@@ -196,7 +183,7 @@
     }
   }
 
-  function mount(elements, { onSendMessage, onStopGeneration, onOpenSettings } = {}) {
+  function mount(elements, { onSendMessage, onStopGeneration } = {}) {
     dispose();
     cachedElements = elements || {};
     const els = cachedElements;
@@ -296,22 +283,6 @@
       activeCleanupFns.push(() => els.fileInput.removeEventListener('change', onChange));
     }
 
-    if (els.btnComposerTools) {
-      const onTools = function () {
-        if (typeof onOpenSettings === 'function') onOpenSettings('tab-agent');
-      };
-      els.btnComposerTools.addEventListener('click', onTools);
-      activeCleanupFns.push(() => els.btnComposerTools.removeEventListener('click', onTools));
-    }
-
-    if (els.btnComposerMcp) {
-      const onMcp = function () {
-        if (typeof onOpenSettings === 'function') onOpenSettings('tab-mcp');
-      };
-      els.btnComposerMcp.addEventListener('click', onMcp);
-      activeCleanupFns.push(() => els.btnComposerMcp.removeEventListener('click', onMcp));
-    }
-
     return {
       autoResizeTextarea: () => autoResizeTextarea(els),
       focusInput: () => focusInput(els),
@@ -320,8 +291,7 @@
       setPromptValue: (text) => setPromptValue(els, text),
       renderAttachedFiles: () => renderAttachedFiles(els),
       clearAttachedFiles: () => clearAttachedFiles(els),
-      syncGenerationControls: (isGenerating, opts) => syncGenerationControls(els, isGenerating, opts),
-      updateComposerMcpState: (st) => updateComposerMcpState(els, st)
+      syncGenerationControls: (isGenerating, opts) => syncGenerationControls(els, isGenerating, opts)
     };
   }
 
@@ -342,7 +312,6 @@
     readFileAsText,
     processFiles,
     handlePasteEvent,
-    updateComposerMcpState,
     syncGenerationControls,
     mount,
     dispose

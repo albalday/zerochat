@@ -617,24 +617,24 @@
       const option = existing[index];
       return option.dataset.profileId === profile.id
         && option.getAttribute('aria-checked') === String(profile.id === activeId)
-        && option.querySelector('.composer-profile-option-name')?.textContent === profile.name
-        && (option.querySelector('.composer-profile-option-description')?.textContent || '') === (descriptionFor(profile) || '');
+        && option.querySelector('.header-profile-option-name')?.textContent === profile.name
+        && (option.querySelector('.header-profile-option-description')?.textContent || '') === (descriptionFor(profile) || '');
     })) return;
     list.replaceChildren();
     profiles.forEach(profile => {
       const option = document.createElement('button');
       option.type = 'button';
-      option.className = 'composer-profile-option' + (profile.id === activeId ? ' active' : '');
+      option.className = 'header-profile-option' + (profile.id === activeId ? ' active' : '');
       option.dataset.profileId = profile.id;
       option.setAttribute('role', 'menuitemradio');
       option.setAttribute('aria-checked', String(profile.id === activeId));
       const name = document.createElement('span');
-      name.className = 'composer-profile-option-name';
+      name.className = 'header-profile-option-name';
       name.textContent = profile.name;
       option.appendChild(name);
       if (profile.description) {
         const description = document.createElement('span');
-        description.className = 'composer-profile-option-description';
+        description.className = 'header-profile-option-description';
         description.textContent = descriptionFor(profile);
         option.appendChild(description);
       }

@@ -238,6 +238,24 @@
         </button>
       </div>
 
+      <div class="header-center">
+        <!-- Selector de Perfil Activo (movido desde el compositor) -->
+        <div id="active-profile-menu" class="header-profile-menu">
+          <button type="button" id="active-profile-trigger" class="header-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
+            <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
+            <span id="active-profile-name" class="header-profile-name">Espejo</span>
+            <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
+          </button>
+          <div id="active-profile-popover" class="header-profile-popover" hidden>
+            <div id="profile-menu-title" class="header-profile-popover-header" data-i18n="profile_menu_title">Perfiles de conexión</div>
+            <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
+            <div class="header-profile-popover-footer">
+              <button type="button" id="btn-edit-profiles" class="header-profile-edit" data-i18n="edit_profiles">Editar perfiles</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="header-right">
         <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs">
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-panel-right"></use></svg>
@@ -338,16 +356,6 @@
               </div>
             </div>
 
-            <!-- Botón de configuración de Herramientas / Agentes -->
-            <button type="button" id="btn-composer-tools" class="btn-composer-chip" data-i18n-title="btn_composer_tools_title" data-i18n-aria="btn_composer_tools_title" title="Configurar herramientas y agentes" aria-label="Configurar herramientas y agentes">
-              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-bot"></use></svg>
-            </button>
-
-            <!-- Botón de estado y configuración MCP -->
-            <button type="button" id="btn-composer-mcp" class="btn-composer-chip mcp-disconnected" data-i18n-title="btn_composer_mcp_title" title="Estado y configuración MCP" aria-label="Estado y configuración MCP">
-              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-plug"></use></svg>
-            </button>
-
             <!-- Botón de gestión de conocimiento RAG (movido desde el header) -->
             <button type="button" id="btn-open-rag" class="btn-composer-chip btn-rag-mini" data-i18n-title="btn_rag_title" data-i18n-aria="btn_rag_title" title="Gestionar conocimiento local (RAG)" aria-label="Gestionar conocimiento local (RAG)">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-layers"></use></svg>
@@ -443,22 +451,6 @@
                       <span id="context-metric-turn-latency-val" class="context-metric-val">-</span>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Selector de Perfil Activo en Composer -->
-            <div id="active-profile-menu" class="composer-profile-menu">
-              <button type="button" id="active-profile-trigger" class="composer-profile-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="active-profile-list" data-i18n-title="profile_badge_title" title="Perfil de conexión activo">
-                <span class="profile-icon"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg></span>
-                <span id="active-profile-name" class="composer-profile-name">Espejo</span>
-                <span class="profile-chevron"><svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-up"></use></svg></span>
-              </button>
-              <div id="active-profile-popover" class="composer-profile-popover" hidden>
-                <div id="profile-menu-title" class="composer-profile-popover-header" data-i18n="profile_menu_title">Perfiles de conexión</div>
-                <div id="active-profile-list" class="composer-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
-                <div class="composer-profile-popover-footer">
-                  <button type="button" id="btn-edit-profiles" class="composer-profile-edit" data-i18n="edit_profiles">Editar perfiles</button>
                 </div>
               </div>
             </div>
