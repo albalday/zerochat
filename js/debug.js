@@ -33,7 +33,8 @@
   let isAutoscroll = true;
   let activeFilter = 'all';
   let activeThinkingBlock = null;
-  let rawLogsEnabled = false;
+  let rawLogsEnabled = true;
+  const MAX_RAW_ENTRIES = 2000;
 
   function setElements(elements) {
     dom = elements || {};
@@ -155,6 +156,13 @@
       }
 
       dom.debugLogContent.appendChild(entry);
+
+      // Limitar el número de entradas raw para evitar acumulación excesiva en memoria
+      const rawEntries = dom.debugLogContent.querySelectorAll('[data-type="raw"]');
+      if (rawEntries.length > MAX_RAW_ENTRIES) {
+        rawEntries[0].remove();
+      }
+
       if (isAutoscroll) {
         dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
       }

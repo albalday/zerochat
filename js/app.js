@@ -193,7 +193,6 @@
       debugTabs: document.querySelectorAll('.debug-tab'),
       chkEnableDebugMessages: document.getElementById('chk-enable-debug-messages'),
       debugMessagesStatusBadge: document.getElementById('debug-messages-status-badge'),
-      chkEnableRaw: document.getElementById('chk-enable-raw'),
       rawStatusBadge: document.getElementById('raw-status-badge'),
 
       // Modal de Depuración de Mensajes Salientes (Interceptor)
@@ -278,7 +277,6 @@
       agentToolsContainer: document.getElementById('agent-tools-container'),
       mcpToolsContainer: document.getElementById('mcp-tools-container'),
       mcpServersList: document.getElementById('mcp-servers-list'),
-      settingEnableRawLogs: document.getElementById('setting-enable-raw-logs'),
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
       btnMcpConnect: document.getElementById('btn-mcp-connect'),
@@ -616,16 +614,9 @@
     applyTheme(config.theme || 'light');
     applyLanguage(config.language || 'es');
 
-    const isRawEnabled = config.enableRawLogs === true;
-    if (elements.chkEnableRaw) {
-      elements.chkEnableRaw.checked = isRawEnabled;
-    }
     if (elements.rawStatusBadge) {
-      elements.rawStatusBadge.className = isRawEnabled ? 'raw-status-badge active' : 'raw-status-badge';
-      elements.rawStatusBadge.textContent = isRawEnabled ? t('raw_status_active') : t('raw_status_inactive');
-    }
-    if (elements.settingEnableRawLogs) {
-      elements.settingEnableRawLogs.checked = isRawEnabled;
+      elements.rawStatusBadge.className = 'raw-status-badge active';
+      elements.rawStatusBadge.textContent = t('raw_status_active');
     }
 
     syncDebugMessagesState(config.enableDebugMessages, false);
@@ -1744,30 +1735,6 @@
       });
     }
 
-    function syncRawLogsState(enabled) {
-      const value = Boolean(enabled);
-      if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(enabled);
-      if (elements.chkEnableRaw) elements.chkEnableRaw.checked = enabled;
-      if (elements.settingEnableRawLogs) elements.settingEnableRawLogs.checked = enabled;
-      if (elements.rawStatusBadge) {
-        elements.rawStatusBadge.className = enabled ? 'raw-status-badge active' : 'raw-status-badge';
-        elements.rawStatusBadge.textContent = enabled ? t('raw_status_active') : t('raw_status_inactive');
-      }
-      if (Config.updateRuntime) Config.updateRuntime({ enableRawLogs: value });
-    }
-
-    if (elements.chkEnableRaw) {
-      elements.chkEnableRaw.addEventListener('change', () => {
-        syncRawLogsState(elements.chkEnableRaw.checked);
-      });
-    }
-
-    if (elements.settingEnableRawLogs) {
-      elements.settingEnableRawLogs.addEventListener('change', () => {
-        syncRawLogsState(elements.settingEnableRawLogs.checked);
-      });
-    }
-
     if (elements.chkEnableDebugMessages) {
       elements.chkEnableDebugMessages.addEventListener('change', () => {
         syncDebugMessagesState(elements.chkEnableDebugMessages.checked);
@@ -1809,8 +1776,7 @@
     }
     if (elements.settingsForm) {
       elements.settingsForm.addEventListener('submit', handleSaveSettings);
-      const markSettingsModified = (event) => {
-        if (event?.target === elements.settingEnableRawLogs) return;
+      const markSettingsModified = () => {
         if (UISettings.setSettingsFormDirty) UISettings.setSettingsFormDirty(elements, true);
       };
       elements.settingsForm.addEventListener('input', markSettingsModified);
@@ -2173,7 +2139,7 @@
     ensureModalsMarkup();
     cacheDomElements();
     if (Debug.setElements) Debug.setElements(elements);
-    if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(appConfig.enableRawLogs);
+    if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(true);
     if (Debug.registerGlobalErrorHandlers && typeof window !== 'undefined') Debug.registerGlobalErrorHandlers(window);
 
     if (State.subscribe) {
