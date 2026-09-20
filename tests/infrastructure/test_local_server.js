@@ -331,8 +331,9 @@ with patch('subprocess.Popen', side_effect=PermissionError('permiso denegado')),
         try:
             zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
             raise AssertionError('open_browser debe propagar el error de termux-open-url')
-        except PermissionError as err:
+        except RuntimeError as err:
             assert 'permiso denegado' in str(err)
+            assert 'termux_detectado=True' in str(err)
 
 # 7. En Linux sin xdg-open pero con gio disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
@@ -358,7 +359,9 @@ with patch('shutil.which', return_value=None), patch('webbrowser.open', return_v
             zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
             raise AssertionError('open_browser debe explicar un lanzamiento rechazado')
         except RuntimeError as err:
-            assert 'Ningún lanzador de navegador disponible' in str(err)
+            assert 'Ningún lanzador de navegador aceptó' in str(err)
+            assert 'termux_detectado=False' in str(err)
+            assert 'webbrowser: devolvió False' in str(err)
 
 print("OPEN_BROWSER_TEST_OK")
 `;
