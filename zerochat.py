@@ -46,7 +46,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.8"
+    return "7.1.9"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1574,27 +1574,27 @@ def open_browser(url: str) -> bool:
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
     attempts = []
-    if sys.platform.startswith("linux"):
-        termux_open_url = get_termux_open_url_executable() if is_termux_environment() else None
-        if is_termux_environment():
-            if not termux_open_url:
-                raise FileNotFoundError(
-                    "Termux fue detectado, pero no se encontró termux-open-url.\n  "
-                    + browser_launch_diagnostics(["termux-open-url: no localizado"])
-                )
-            try:
-                subprocess.Popen(
-                    [termux_open_url, url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                return True
-            except OSError as error:
-                raise RuntimeError(
-                    f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
-                    + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
-                ) from error
+    if is_termux_environment():
+        termux_open_url = get_termux_open_url_executable()
+        if not termux_open_url:
+            raise FileNotFoundError(
+                "Termux fue detectado, pero no se encontró termux-open-url.\n  "
+                + browser_launch_diagnostics(["termux-open-url: no localizado"])
+            )
+        try:
+            subprocess.Popen(
+                [termux_open_url, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True
+        except OSError as error:
+            raise RuntimeError(
+                f"termux-open-url no pudo iniciarse: {type(error).__name__}: {error}\n  "
+                + browser_launch_diagnostics(["termux-open-url: error al iniciar"])
+            ) from error
+    elif sys.platform.startswith("linux"):
         for cmd in ("xdg-open", "gio"):
             if shutil.which(cmd):
                 try:
