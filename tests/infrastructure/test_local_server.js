@@ -312,12 +312,20 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         args, kwargs = mock_popen.call_args
         assert args[0] == ['termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
 
-# 4. Termux recibe un comando manual seguro que conserva el token de sesión
+# 4. Termux usa termux-open-url aunque Python se identifique como Android
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value='/data/data/com.termux/files/usr/bin/termux-open-url'), patch.dict(os.environ, {'TERMUX_VERSION': '0.118'}, clear=True):
+    with patch.object(sys, 'platform', 'android'):
+        res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
+        assert res is True, "open_browser debe priorizar Termux también en Android"
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ['termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
+
+# 5. Termux recibe un comando manual seguro que conserva el token de sesión
 termux_url = 'https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388'
 with patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
     assert zerochat.get_manual_browser_command(termux_url) == "termux-open-url 'https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388'"
 
-# 5. Termux usa la ruta absoluta de PREFIX si el venv no hereda PATH
+# 6. Termux usa la ruta absoluta de PREFIX si el venv no hereda PATH
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value=None), patch.object(zerochat.Path, 'is_file', return_value=True), patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -325,7 +333,7 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value
         args, kwargs = mock_popen.call_args
         assert args[0] == ['/data/data/com.termux/files/usr/bin/termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
 
-# 6. Termux informa el fallo de lanzamiento en lugar de ocultarlo y probar otro launcher
+# 7. Termux informa el fallo de lanzamiento en lugar de ocultarlo y probar otro launcher
 with patch('subprocess.Popen', side_effect=PermissionError('permiso denegado')), patch('shutil.which', return_value='/data/data/com.termux/files/usr/bin/termux-open-url'), patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         try:
@@ -335,7 +343,7 @@ with patch('subprocess.Popen', side_effect=PermissionError('permiso denegado')),
             assert 'permiso denegado' in str(err)
             assert 'termux_detectado=True' in str(err)
 
-# 7. En Linux sin xdg-open pero con gio disponible
+# 8. En Linux sin xdg-open pero con gio disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -345,14 +353,14 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert args[0] == ['gio', 'open', 'http://127.0.0.1:6388/zerochat.html']
         assert kwargs.get('start_new_session') is True
 
-# 8. Fallback a webbrowser cuando no hay herramientas de sistema
+# 9. Fallback a webbrowser cuando no hay herramientas de sistema
 with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb, patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
         assert res is True
         mock_wb.assert_called_once_with('http://127.0.0.1:6388/zerochat.html')
 
-# 9. Un navegador que rechaza la URL conserva un error diagnosticable
+# 10. Un navegador que rechaza la URL conserva un error diagnosticable
 with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=False), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         try:
