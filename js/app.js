@@ -1721,8 +1721,12 @@
     if (elements.debugTabs && elements.debugTabs.length > 0) {
       elements.debugTabs.forEach(tab => {
         tab.addEventListener('click', () => {
-          elements.debugTabs.forEach(t => t.classList.remove('active'));
+          elements.debugTabs.forEach(t => {
+            t.classList.remove('active');
+            t.setAttribute('aria-pressed', 'false');
+          });
           tab.classList.add('active');
+          tab.setAttribute('aria-pressed', 'true');
           const filter = tab.getAttribute('data-debug-tab') || 'all';
           filterDebugLogs(filter);
         });

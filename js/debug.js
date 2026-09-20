@@ -68,13 +68,21 @@
 
     if (shouldOpen) {
       dom.debugPanel.style.display = 'flex';
-      if (dom.btnToggleDebug) dom.btnToggleDebug.classList.add('active');
+      dom.debugPanel.setAttribute('aria-hidden', 'false');
+      if (dom.btnToggleDebug) {
+        dom.btnToggleDebug.classList.add('active');
+        dom.btnToggleDebug.setAttribute('aria-expanded', 'true');
+      }
       if (isAutoscroll && dom.debugLogContent) {
         dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
       }
     } else {
       dom.debugPanel.style.display = 'none';
-      if (dom.btnToggleDebug) dom.btnToggleDebug.classList.remove('active');
+      dom.debugPanel.setAttribute('aria-hidden', 'true');
+      if (dom.btnToggleDebug) {
+        dom.btnToggleDebug.classList.remove('active');
+        dom.btnToggleDebug.setAttribute('aria-expanded', 'false');
+      }
     }
   }
 
