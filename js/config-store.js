@@ -4,14 +4,15 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./state.js'), require('./cookies.js'), require('./profile-repository.js'));
+    module.exports = factory(require('./state.js'), require('./cookies.js'), require('./profile-repository.js'), require('./defaults.js'));
   } else {
-    root.ChatConfig = factory(root.ChatState, root.ChatStorage, root.ChatProfileRepository);
+    root.ChatConfig = factory(root.ChatState, root.ChatStorage, root.ChatProfileRepository, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles) {
+}(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults) {
   'use strict';
 
   const SCHEMA_VERSION = 2;
+  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
   const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
   const DEFAULTS = Object.freeze({
@@ -24,7 +25,7 @@
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true,
     apiKeyLocked: false,
-    theme: 'light', language: 'es', enableDebugMessages: false,
+    theme: DEFAULT_THEME, language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     webllmConfig: {

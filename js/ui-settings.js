@@ -4,12 +4,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./defaults.js'));
   } else {
-    root.ChatUISettings = factory();
+    root.ChatUISettings = factory(root.ChatDefaults);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Defaults) {
   'use strict';
+
+  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
 
   function resolveDep(globalName, relPath) {
     if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
@@ -314,7 +316,7 @@
       reasoningTransport: appConfig?.reasoningTransport || 'auto',
       maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 15),
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
-      theme: appConfig?.theme || 'light',
+      theme: appConfig?.theme || DEFAULT_THEME,
       language: appConfig?.language || 'es',
       enabledTools: {
         ...gatherEnabledToolsFromUI(elements?.agentToolsContainer),
@@ -371,7 +373,7 @@
     }
     if (elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
 
-    applyTheme(elements, appConfig, appConfig?.theme || 'light');
+    applyTheme(elements, appConfig, appConfig?.theme || DEFAULT_THEME);
     applyLanguage(elements, appConfig, appConfig?.language || 'es', callbacks);
 
     if (elements.agentToolsContainer) {

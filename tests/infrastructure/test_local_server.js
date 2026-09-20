@@ -273,12 +273,25 @@ test('Apertura de navegador en zerochat.py: open_browser prioriza herramientas d
   const repoRoot = path.resolve(__dirname, '../..');
   const testScript = `
 import sys
+import os
 import subprocess
 from unittest.mock import patch, MagicMock
 import zerochat
 
-# 1. En Linux con xdg-open disponible
-with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'xdg-open' else None):
+# 1. En Termux se prioriza termux-open-url incluso si xdg-open está disponible
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/data/data/com.termux/files/usr/bin/' + cmd if cmd in ('termux-open-url', 'xdg-open') else None), patch.dict(os.environ, {'TERMUX_VERSION': '0.118'}, clear=True):
+    with patch.object(sys, 'platform', 'linux'):
+        res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
+        assert res is True, "open_browser debe retornar True con termux-open-url"
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ['termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
+        assert kwargs.get('start_new_session') is True
+        assert kwargs.get('stdout') == subprocess.DEVNULL
+        assert kwargs.get('stderr') == subprocess.DEVNULL
+
+# 2. En Linux de escritorio con xdg-open disponible
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'xdg-open' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
         assert res is True, "open_browser debe retornar True con xdg-open"
@@ -289,8 +302,8 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert kwargs.get('stdout') == subprocess.DEVNULL
         assert kwargs.get('stderr') == subprocess.DEVNULL
 
-# 2. En Linux sin xdg-open pero con gio disponible
-with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None):
+# 3. En Linux sin xdg-open pero con gio disponible
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
         assert res is True, "open_browser debe retornar True con gio"
@@ -299,8 +312,8 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert args[0] == ['gio', 'open', 'http://127.0.0.1:6388/zerochat.html']
         assert kwargs.get('start_new_session') is True
 
-# 3. Fallback a webbrowser cuando no hay xdg-open ni gio
-with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb:
+# 4. Fallback a webbrowser cuando no hay herramientas de sistema
+with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb, patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
         assert res is True
@@ -634,7 +647,6 @@ assert not (zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
-
 
 
 

@@ -573,6 +573,14 @@
     max-width: 320px;
     padding-top: env(safe-area-inset-top, 0px);
   }
+
+  /* El drawer móvil se mantiene cerrado hasta que el usuario lo solicite. */
+  .chat-sidebar:not(.sidebar-visible) {
+    translate: -100% 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 
 /* Backdrop oscuro detrás del sidebar en móvil */

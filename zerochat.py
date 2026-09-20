@@ -44,7 +44,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.0"
+    return "7.1.1"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1518,10 +1518,22 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
-    En Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
+    En Termux usa termux-open-url para delegar la apertura en Android. En el resto de
+    Linux prioriza xdg-open o gio para respetar el gestor de ventanas y mimeapps.list,
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
     if sys.platform.startswith("linux"):
+        if os.environ.get("TERMUX_VERSION") and shutil.which("termux-open-url"):
+            try:
+                subprocess.Popen(
+                    ["termux-open-url", url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except Exception:
+                pass
         for cmd in ("xdg-open", "gio"):
             if shutil.which(cmd):
                 try:

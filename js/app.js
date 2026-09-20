@@ -610,7 +610,7 @@
       }
     }
     updateReasoningUI(config.reasoningEffort || 'none');
-    applyTheme(config.theme || 'light');
+    applyTheme(config.theme);
     applyLanguage(config.language || 'es');
 
     syncDebugMessagesState(config.enableDebugMessages, false);
@@ -2165,6 +2165,10 @@
     updateUIFromConfig();
     loadSessionsFromStorage();
     setupEventListeners();
+
+    if (UISidebar.isMobile && UISidebar.isMobile() && UISidebar.closeSidebar) {
+      UISidebar.closeSidebar(elements);
+    }
 
     if (window.ChatRagUI && window.ChatRagUI.initRagUI) {
       window.ChatRagUI.initRagUI();

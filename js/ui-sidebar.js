@@ -52,6 +52,7 @@
     if (!elements || !elements.chatSidebar) return;
     if (elements.chatSidebar.classList) {
       elements.chatSidebar.classList.remove('sidebar-hidden');
+      elements.chatSidebar.classList.add('sidebar-visible');
     }
     if (elements.chatSidebar.style) {
       elements.chatSidebar.style.display = 'flex';
@@ -83,6 +84,7 @@
     if (!elements || !elements.chatSidebar) return;
     if (elements.chatSidebar.classList) {
       elements.chatSidebar.classList.add('sidebar-hidden');
+      elements.chatSidebar.classList.remove('sidebar-visible');
     }
     if (elements.chatSidebar.style) {
       elements.chatSidebar.style.display = 'none';
