@@ -299,7 +299,6 @@
         }
         dom.debugInterceptorDialog.classList.remove('maximized');
         if (dom.btnMaximizeDebugModal) dom.btnMaximizeDebugModal.onclick = null;
-        if (dom.btnDebugCancel) dom.btnDebugCancel.onclick = null;
         if (dom.btnDebugSend) dom.btnDebugSend.onclick = null;
         if (dom.btnDebugSendDisable) dom.btnDebugSendDisable.onclick = null;
         if (dom.btnCloseDebugModal) dom.btnCloseDebugModal.onclick = null;
@@ -373,19 +372,12 @@
       if (dom.btnDebugSendDisable) {
         dom.btnDebugSendDisable.onclick = () => handleSend(true);
       }
-      if (dom.btnDebugCancel) {
-        dom.btnDebugCancel.onclick = () => {
-          cleanup();
-          resolve({ cancel: true });
-        };
-      }
       if (dom.btnCloseDebugModal) {
         dom.btnCloseDebugModal.onclick = () => {
           cleanup();
           resolve({ cancel: true });
         };
       }
-
       dom.debugInterceptorDialog.showModal();
       if (dom.txtDebugPayload) {
         dom.txtDebugPayload.focus();
@@ -396,16 +388,17 @@
   function getDebugInterceptorDialogHTML() {
     return `<div class="modal-header">
       <div class="modal-title">
-        <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
-        <h3 data-i18n="debug_modal_title">Debug de Mensaje Saliente</h3>
+        <h3 data-i18n="debug_modal_title">Debug</h3>
       </div>
       <div class="modal-header-actions">
+        <div class="debug-modal-send-actions">
+          <button type="button" id="btn-debug-send-disable" class="btn-debug-header-action btn-debug-header-stop" data-i18n="btn_send_and_stop_debug"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg><span>Enviar y parar debug</span></button>
+          <button type="button" id="btn-debug-send" class="btn-debug-header-action btn-debug-header-send" data-i18n="btn_send"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-send"></use></svg><span>Enviar</span></button>
+        </div>
         <button type="button" id="btn-maximize-debug-modal" class="modal-btn-action" data-i18n-title="btn_maximize_title" title="Maximizar / Restaurar">
           <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shuffle"></use></svg>
         </button>
-        <button type="button" id="btn-close-debug-modal" class="modal-btn-close" title="Cancelar envío">
-          <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-        </button>
+        <button type="button" id="btn-close-debug-modal" class="modal-btn-close" data-i18n-title="btn_cancel" title="Cancelar envío"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
       </div>
     </div>
     
@@ -420,11 +413,11 @@
         <div class="debug-editor-header">
           <span id="debug-modal-endpoint-badge" class="debug-endpoint-badge">POST /v1/chat/completions</span>
           <div class="debug-editor-actions">
-            <button type="button" id="btn-format-debug-json" class="btn-tool-mini" title="Formatear JSON">
+            <button type="button" id="btn-format-debug-json" class="btn-secondary btn-debug-editor-action" title="Formatear JSON">
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-sparkles"></use></svg>
               <span data-i18n="btn_format_json">Formatear</span>
             </button>
-            <button type="button" id="btn-copy-debug-json" class="btn-tool-mini" title="Copiar todo al portapapeles">
+            <button type="button" id="btn-copy-debug-json" class="btn-secondary btn-debug-editor-action" title="Copiar todo al portapapeles">
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
               <span data-i18n="btn_copy_all">Copiar todo</span>
             </button>
@@ -434,13 +427,6 @@
         <div id="debug-json-error" class="debug-json-error" style="display: none;"></div>
       </div>
 
-      <div class="debug-modal-footer">
-        <div class="debug-modal-footer-actions">
-          <button type="button" id="btn-debug-cancel" class="btn-secondary" data-i18n="btn_cancel">Cancelar</button>
-          <button type="button" id="btn-debug-send-disable" class="btn-secondary-action" data-i18n="btn_send_and_stop_debug">Enviar y parar debug</button>
-          <button type="button" id="btn-debug-send" class="btn-primary" data-i18n="btn_send">Enviar</button>
-        </div>
-      </div>
     </div>`;
   }
 
@@ -450,6 +436,17 @@
     if (dialog && !dialog.firstElementChild) {
       dialog.innerHTML = getDebugInterceptorDialogHTML();
     }
+    if (!dialog) return;
+    dom.debugInterceptorDialog = dialog;
+    dom.btnMaximizeDebugModal = dialog.querySelector('#btn-maximize-debug-modal');
+    dom.debugModalEndpointBadge = dialog.querySelector('#debug-modal-endpoint-badge');
+    dom.btnFormatDebugJson = dialog.querySelector('#btn-format-debug-json');
+    dom.btnCopyDebugJson = dialog.querySelector('#btn-copy-debug-json');
+    dom.txtDebugPayload = dialog.querySelector('#txt-debug-payload');
+    dom.debugJsonError = dialog.querySelector('#debug-json-error');
+    dom.btnCloseDebugModal = dialog.querySelector('#btn-close-debug-modal');
+    dom.btnDebugSendDisable = dialog.querySelector('#btn-debug-send-disable');
+    dom.btnDebugSend = dialog.querySelector('#btn-debug-send');
   }
 
   let globalHandlersRegistered = false;

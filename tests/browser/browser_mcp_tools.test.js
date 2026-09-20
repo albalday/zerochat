@@ -47,6 +47,49 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-agent"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    await page.$eval('#setting-max-agent-turns', (input) => {
+      input.value = String(Number(input.value) + 1);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
+
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+    assert.match(await page.$eval('#notice-message', el => el.textContent), /cambios sin guardar/i);
+    await page.click('#notice-cancel');
+    await page.waitForFunction(() => !document.getElementById('notice-dialog')?.open);
+
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    await page.click('[data-section="tab-permissions"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
+    assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+    await page.click('#notice-cancel');
+    await page.locator('.mcp-policy-option:has(#mcp-policy-ask)').click();
+    await page.click('#btn-close-settings');
+    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - configuración MCP, perfiles y secciones permanecen operativas', async () => {
   const browser = await createTestBrowser();
   try {

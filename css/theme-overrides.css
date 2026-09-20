@@ -57,19 +57,6 @@
   border-color: #334155;
 }
 
-/* Reglas de Modo Oscuro */
-[data-theme="dark"] .btn-tool-mini {
-  background-color: var(--bg-surface);
-  color: var(--text-muted);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .btn-tool-mini:hover {
-  background-color: #1e293b;
-  color: var(--text-main);
-  border-color: #475569;
-}
-
 [data-theme="dark"] .chat-input-container {
   background-color: var(--bg-surface);
   border-color: var(--border-color);
