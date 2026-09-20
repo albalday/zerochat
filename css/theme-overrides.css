@@ -57,19 +57,6 @@
   border-color: #334155;
 }
 
-/* Reglas de Modo Oscuro */
-[data-theme="dark"] .btn-tool-mini {
-  background-color: var(--bg-surface);
-  color: var(--text-muted);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .btn-tool-mini:hover {
-  background-color: #1e293b;
-  color: var(--text-main);
-  border-color: #475569;
-}
-
 [data-theme="dark"] .chat-input-container {
   background-color: var(--bg-surface);
   border-color: var(--border-color);
@@ -104,15 +91,15 @@
 }
 
 [data-theme="dark"] .btn-reasoning.active-medium {
-  border-color: #eab308;
-  background-color: rgba(234, 179, 8, 0.2);
-  color: #fef08a;
+  border-color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #86efac;
 }
 
 [data-theme="dark"] .btn-reasoning.active-high {
-  border-color: #ef4444;
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  border-color: #eab308;
+  background-color: rgba(234, 179, 8, 0.2);
+  color: #fef08a;
 }
 
 [data-theme="dark"] .btn-reasoning.active-xhigh {
@@ -358,4 +345,211 @@
 [data-theme="dark"] .reasoning-option.recommended::after {
   background-color: rgba(52, 211, 153, 0.2);
   color: #34d399;
+}
+
+/* ========================================================================== */
+/* Correcciones de Contraste para Modo Oscuro                                */
+/* ========================================================================== */
+
+/* 1. Botón de toggle de visibilidad en campo API Key (ALTA PRIORIDAD) */
+[data-theme="dark"] .btn-toggle-visibility {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-toggle-visibility:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 2. Iconos en botones de la Sidebar (MEDIA PRIORIDAD) */
+[data-theme="dark"] .btn-sidebar-icon,
+[data-theme="dark"] .btn-sidebar-close {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-sidebar-icon:hover,
+[data-theme="dark"] .btn-sidebar-close:hover {
+  color: var(--text-main);
+}
+
+/* 3. Iconos en botones del Header (VERIFICACIÓN) */
+[data-theme="dark"] .btn-header-icon {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-header-icon:hover {
+  color: var(--text-main);
+}
+
+/* 4. Icono de búsqueda en Sidebar (MEDIA PRIORIDAD) */
+[data-theme="dark"] .sidebar-search-icon {
+  color: var(--text-secondary);
+}
+
+/* 5. Botones del compositor - chips (VERIFICACIÓN) */
+[data-theme="dark"] .btn-composer-chip {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-composer-chip:hover {
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .btn-composer-icon-btn {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-composer-icon-btn:hover {
+  color: var(--text-main);
+}
+
+/* 6. Botón de adjuntar archivos */
+[data-theme="dark"] .btn-attach {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-attach:hover {
+  color: var(--text-main);
+}
+
+/* 7. Mejora de contraste para elementos críticos con text-muted */
+[data-theme="dark"] .file-chip-size {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .file-chip-remove {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .file-chip-remove:hover {
+  background-color: var(--danger);
+  color: white;
+}
+
+/* 8. Botones de acciones en mensajes (copiar, regenerar, eliminar) */
+[data-theme="dark"] .btn-msg-action {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-msg-action:hover {
+  color: var(--text-main);
+}
+
+/* 9. Mejora de contraste en thought-summary */
+[data-theme="dark"] .thought-summary {
+  color: var(--text-secondary);
+}
+
+/* 10. Botones de profile header */
+[data-theme="dark"] .btn-profile-header-icon {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-profile-header-icon:hover {
+  color: var(--text-main);
+}
+
+/* 11. Botones del contexto hub y telemetría */
+[data-theme="dark"] .btn-close-popover {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-close-popover:hover {
+  color: var(--text-main);
+}
+
+/* 12. Iconos en settings items */
+[data-theme="dark"] .settings-item-icon {
+  color: var(--text-secondary);
+}
+
+/* 13. Chevron icons en settings */
+[data-theme="dark"] .settings-item-chevron {
+  color: var(--text-muted);
+}
+
+/* 14. Mejora del botón de cerrar reasoning menu */
+[data-theme="dark"] .btn-reasoning-close {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-reasoning-close:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 15. Botón de envío del compositor */
+[data-theme="dark"] .btn-send {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-send:hover {
+  color: var(--text-main);
+}
+
+/* 16. Mejora general para iconos en inputs y campos de formulario */
+[data-theme="dark"] .form-field .ui-icon {
+  color: var(--text-secondary);
+}
+
+/* 17. Botones del panel de debug */
+[data-theme="dark"] .btn-debug-toggle {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-debug-action {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-debug-action:hover {
+  color: var(--text-main);
+}
+
+/* 18. Status indicator en debug con mejor contraste */
+[data-theme="dark"] .debug-status-indicator.idle {
+  color: var(--text-secondary);
+}
+
+/* 19. Botones de cierre genéricos */
+[data-theme="dark"] .btn-close-panel {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-close-panel:hover {
+  color: var(--text-main);
+}
+
+/* 20. Mejora de labels y hints en formularios */
+[data-theme="dark"] .label-hint {
+  color: var(--text-secondary);
+}
+
+/* 21. Placeholder en inputs para mejor legibilidad */
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+/* 22. Enlaces en hints y ayuda */
+[data-theme="dark"] .label-hint a {
+  color: var(--primary);
+}
+
+[data-theme="dark"] .label-hint a:hover {
+  color: var(--primary-hover);
+}
+
+/* 23. Mejora del icono en generation status */
+[data-theme="dark"] .generation-status-icon {
+  color: var(--text-secondary);
+}
+
+/* 24. Botones de la welcome screen */
+[data-theme="dark"] .welcome-help-link {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .welcome-help-link:hover {
+  color: var(--primary);
 }

@@ -1021,6 +1021,29 @@ input.form-input:focus-visible,
 .rag-modal-body { min-height: 420px; }
 .rag-active-branch-list, .rag-documents-list { display: grid; gap: 0.65rem; }
 .rag-master-toggle-card { margin-bottom: 1rem; }
+.rag-activation-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rag-manage-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rag-activation-header-actions .btn-secondary,
+.rag-manage-header-actions .btn-secondary,
+.rag-manage-header-actions .btn-primary {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+}
+.rag-master-storage {
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-subtle);
+}
 
 .rag-branch-select-card {
   width: 100%;
@@ -1093,7 +1116,8 @@ input.form-input:focus-visible,
   gap: 1rem;
   margin-bottom: 1rem;
 }
-.rag-manage-branch-field { flex: 1; margin: 0; }
+.rag-manage-branch-field { flex: 1; min-width: 0; margin: 0; }
+.rag-manage-branch-field .combobox-select-helper { width: 100%; max-width: none; }
 .rag-manage-toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
 .rag-branch-details-card {
@@ -1166,6 +1190,12 @@ input.form-input:focus-visible,
 }
 
 @media (max-width: 768px) {
+  .rag-modal .modal-header { align-items: flex-start; gap: 0.5rem; }
+  .rag-activation-header-actions,
+  .rag-manage-header-actions { justify-content: flex-end; flex-wrap: wrap; }
+  .rag-activation-header-actions .btn-secondary,
+  .rag-manage-header-actions .btn-secondary,
+  .rag-manage-header-actions .btn-primary { padding: 0.35rem 0.5rem; }
   .rag-manage-toolbar { align-items: stretch; flex-direction: column; }
   .rag-ingestion-progress-item { grid-template-columns: 1fr; }
   .rag-ingestion-global-progress { grid-template-columns: 1fr; }

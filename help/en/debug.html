@@ -61,10 +61,11 @@
         <li>Type a prompt and press Send. The request is <strong>held before reaching the network</strong>.</li>
         <li>An inspection dialog opens showing the exact <strong>JSON payload</strong> (system prompts, message history, registered tool schemas, temperature, etc.).</li>
         <li>You can inspect fields, manually edit parameters, or test prompt mutations directly.</li>
-        <li>Choose between:
+        <li>The header contains the send actions and an X button to cancel:
           <ul>
             <li><strong>Continue / Send:</strong> Sends the edited payload to the provider.</li>
-            <li><strong>Cancel:</strong> Aborts the request cleanly with zero tokens spent.</li>
+            <li><strong>Send &amp; stop debug:</strong> Sends the payload and disables the interceptor for subsequent requests.</li>
+            <li><strong>X:</strong> Aborts the request cleanly with zero tokens spent.</li>
           </ul>
         </li>
       </ol>

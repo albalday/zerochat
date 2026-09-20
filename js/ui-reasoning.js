@@ -1,348 +1,146 @@
-/**
- * Módulo de Interfaz de Usuario para Selección de Razonamiento (Thinking / CoT).
- * ZeroChat - js/ui-reasoning.js
- */
+/** UI del selector compacto de intensidad de razonamiento. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
-  } else {
-    root.ChatUIReasoning = factory();
-  }
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
+  else root.ChatUIReasoning = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
+
   function resolveDep(globalName, relPath) {
     if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof require !== 'undefined') { try { return require(relPath); } catch (e) { return null; } }
+    if (typeof require !== 'undefined') { try { return require(relPath); } catch (_) { return null; } }
     return null;
   }
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getApi = () => resolveDep('ChatAPI', './api.js');
-
   function t(key, params) {
-    const I18n = getI18n();
-    if (I18n && typeof I18n.t === 'function') return I18n.t(key, params);
-    return key;
+    const I18n = resolveDep('ChatI18n', './i18n.js');
+    return I18n?.t ? I18n.t(key, params) : key;
   }
 
-  function getReasoningLevelLabel(lvl) {
-    const lower = String(lvl).toLowerCase().trim();
-    switch (lower) {
-      case 'off':
-      case 'none':
-        return { icon: '⚪', label: t('reasoning_level_none'), desc: t('reasoning_desc_none') };
-      case 'on':
-        return { icon: '🧠', label: t('reasoning_level_on'), desc: t('reasoning_desc_on') };
-      case 'minimal':
-        return { icon: '🟢', label: t('reasoning_level_minimal'), desc: t('reasoning_desc_minimal') };
-      case 'low':
-        return { icon: '🟢', label: t('reasoning_level_low'), desc: t('reasoning_desc_low') };
-      case 'medium':
-        return { icon: '🟡', label: t('reasoning_level_medium'), desc: t('reasoning_desc_medium') };
-      case 'high':
-        return { icon: '🔴', label: t('reasoning_level_high'), desc: t('reasoning_desc_high') };
-      case 'xhigh':
-        return { icon: '🔥', label: t('reasoning_level_xhigh'), desc: t('reasoning_desc_xhigh') };
-      default:
-        return { icon: '⚙️', label: lvl.charAt(0).toUpperCase() + lvl.slice(1), desc: '' };
+  function getReasoningIntensity(level) {
+    const normalized = String(level || 'none').toLowerCase().trim();
+    const index = INTENSITY_LEVELS.indexOf(normalized === 'off' ? 'none' : normalized);
+    return index >= 0 ? index : 0;
+  }
+
+  function getReasoningLevelFromIntensity(intensity) {
+    const parsed = Number.parseInt(intensity, 10);
+    const index = Math.max(0, Math.min(INTENSITY_LEVELS.length - 1, Number.isFinite(parsed) ? parsed : 0));
+    return INTENSITY_LEVELS[index];
+  }
+
+  function getReasoningLevelLabel(level) {
+    const labels = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
+    return t(labels[getReasoningLevelFromIntensity(getReasoningIntensity(level))]);
+  }
+
+  function syncReasoningIntensity(elements, level) {
+    const intensity = getReasoningIntensity(level);
+    const label = getReasoningLevelLabel(level);
+    if (elements?.reasoningIntensity) {
+      elements.reasoningIntensity.value = String(intensity);
+      elements.reasoningIntensity.style?.setProperty?.('--reasoning-intensity', `${intensity * 25}%`);
+      elements.reasoningIntensity.setAttribute?.('aria-valuetext', label);
     }
+    if (elements?.reasoningIntensityValue) elements.reasoningIntensityValue.textContent = label;
+    return intensity;
   }
 
-  function renderReasoningMenuOptions(elements, reasoningInfo, activeLevel, onSelect) {
-    if (!elements || !elements.reasoningOptionsContainer) return;
-
-    elements.reasoningOptionsContainer.innerHTML = '';
-    const levels = (reasoningInfo && Array.isArray(reasoningInfo.levels)) ? reasoningInfo.levels : ['off', 'low', 'medium', 'high'];
-
-    levels.forEach(lvl => {
-      const doc = elements.reasoningOptionsContainer.ownerDocument || document;
-      const btn = doc.createElement('button');
-      btn.type = 'button';
-      btn.className = 'reasoning-option';
-      btn.setAttribute('data-level', lvl);
-      if (typeof btn.setAttribute === 'function') {
-        btn.setAttribute('role', 'menuitemradio');
-      }
-
-      const info = getReasoningLevelLabel(lvl);
-      const lower = String(lvl).toLowerCase().trim();
-      const activeLower = String(activeLevel || 'off').toLowerCase().trim();
-      const isSelected = lower === activeLower || (activeLower === 'off' && lower === 'none') || (activeLower === 'none' && lower === 'off');
-
-      if (isSelected) {
-        btn.classList.add('active');
-        if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-checked', 'true');
-      } else {
-        if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-checked', 'false');
-      }
-
-      btn.innerHTML = `
-        <span class="option-icon" aria-hidden="true">${info.icon}</span>
-        <div class="option-text">
-          <strong class="option-title">${info.label}</strong>
-          ${info.desc ? `<small class="option-desc">${info.desc}</small>` : ''}
-        </div>
-        <span class="option-check" aria-hidden="true">
-          <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        </span>
-      `;
-
-      btn.addEventListener('click', (e) => {
-        if (e && typeof e.stopPropagation === 'function') {
-          e.stopPropagation();
-        }
-        if (typeof onSelect === 'function') {
-          onSelect(lvl);
-        }
-      });
-
-      elements.reasoningOptionsContainer.appendChild(btn);
-    });
-  }
-
-  function renderReasoningTransportOptions(elements, reasoningInfo, activeTransport, onSelect) {
-    const options = Array.isArray(reasoningInfo?.transportOptions) ? reasoningInfo.transportOptions : [];
-    if (!elements?.reasoningOptionsContainer || options.length === 0) return;
-    const doc = elements.reasoningOptionsContainer.ownerDocument || document;
-    const heading = doc.createElement('div');
-    heading.className = 'reasoning-transport-heading';
-    heading.textContent = t('reasoning_transport_title');
-    elements.reasoningOptionsContainer.appendChild(heading);
-
-    options.forEach(transport => {
-      const button = doc.createElement('button');
-      button.type = 'button';
-      button.className = 'reasoning-option reasoning-transport-option';
-      button.setAttribute('data-reasoning-transport', transport);
-      button.setAttribute('role', 'menuitemradio');
-      const selected = transport === activeTransport || (activeTransport === 'auto' && transport === 'omit');
-      button.setAttribute('aria-checked', selected ? 'true' : 'false');
-      if (selected) button.classList.add('active');
-      const titleKey = transport === 'send-none' ? 'reasoning_transport_send_none' : 'reasoning_transport_omit';
-      const descKey = transport === 'send-none' ? 'reasoning_transport_send_none_desc' : 'reasoning_transport_omit_desc';
-      button.innerHTML = `<div class="option-text"><strong class="option-title">${t(titleKey)}</strong><small class="option-desc">${t(descKey)}</small></div>`;
-      button.addEventListener('click', event => {
-        event?.stopPropagation?.();
-        if (typeof onSelect === 'function') onSelect(transport);
-      });
-      elements.reasoningOptionsContainer.appendChild(button);
-    });
-  }
-
-  function initReasoningKeyboardNav(elements) {
-    if (!elements || !elements.reasoningMenu || typeof elements.reasoningMenu.addEventListener !== 'function' || elements.reasoningMenu._hasKeyNav) return;
-    elements.reasoningMenu._hasKeyNav = true;
-
-    elements.reasoningMenu.addEventListener('keydown', (e) => {
-      if (!elements.reasoningOptionsContainer) return;
-      const options = Array.from(elements.reasoningOptionsContainer.querySelectorAll ? elements.reasoningOptionsContainer.querySelectorAll('.reasoning-option') : []);
-      if (!options.length) return;
-
-      const activeEl = elements.reasoningMenu.ownerDocument ? elements.reasoningMenu.ownerDocument.activeElement : document.activeElement;
-      const currentIndex = options.findIndex(opt => opt === activeEl);
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
-        if (options[nextIndex] && typeof options[nextIndex].focus === 'function') {
-          options[nextIndex].focus();
-        }
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
-        if (options[prevIndex] && typeof options[prevIndex].focus === 'function') {
-          options[prevIndex].focus();
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        closeReasoningMenu(elements);
-        if (elements.btnReasoning && typeof elements.btnReasoning.focus === 'function') {
-          elements.btnReasoning.focus();
-        }
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        if (options[0] && typeof options[0].focus === 'function') {
-          options[0].focus();
-        }
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        if (options[options.length - 1] && typeof options[options.length - 1].focus === 'function') {
-          options[options.length - 1].focus();
-        }
-      }
-    });
+  function syncReasoningGauge(elements, level) {
+    const needle = elements?.btnReasoning?.querySelector?.('#reasoning-gauge-needle');
+    if (needle) needle.setAttribute('transform', `rotate(${-60 + (getReasoningIntensity(level) * 30)} 12 15)`);
   }
 
   function positionReasoningMenu(elements) {
-    if (!elements || !elements.reasoningMenu || !elements.btnReasoning) return;
-    if (elements.reasoningMenu.style.display === 'none') return;
-
-    const btnRect = elements.btnReasoning.getBoundingClientRect ? elements.btnReasoning.getBoundingClientRect() : { top: 0, left: 0 };
-    const win = elements.reasoningMenu.ownerDocument?.defaultView || (typeof window !== 'undefined' ? window : null);
-    if (!win) return;
-    const viewportHeight = win.visualViewport ? win.visualViewport.height : (win.innerHeight || 800);
-    const viewportWidth = win.innerWidth || 1200;
-
-    const spaceAbove = btnRect.top;
-    const menuWidth = Math.min(290, viewportWidth - 16);
-
-    let leftPos = btnRect.left;
-    if (leftPos + menuWidth > viewportWidth - 8) {
-      leftPos = viewportWidth - menuWidth - 8;
-    }
-    if (leftPos < 8) {
-      leftPos = 8;
-    }
-
+    if (!elements?.reasoningMenu || !elements?.btnReasoning || elements.reasoningMenu.style.display === 'none') return;
+    const rect = elements.btnReasoning.getBoundingClientRect?.() || { top: 0, left: 0 };
+    const win = elements.reasoningMenu.ownerDocument?.defaultView || window;
+    const width = Math.min(290, (win?.innerWidth || 1200) - 16);
+    const left = Math.max(8, Math.min(rect.left, (win?.innerWidth || 1200) - width - 8));
     elements.reasoningMenu.style.position = 'fixed';
-    elements.reasoningMenu.style.left = `${Math.round(leftPos)}px`;
-    elements.reasoningMenu.style.width = `${Math.round(menuWidth)}px`;
-
-    const bottomPos = Math.max(8, viewportHeight - btnRect.top + 8);
-    const maxHeight = Math.max(140, Math.min(380, spaceAbove - 16));
-
-    elements.reasoningMenu.style.bottom = `${Math.round(bottomPos)}px`;
+    elements.reasoningMenu.style.left = `${Math.round(left)}px`;
+    elements.reasoningMenu.style.width = `${Math.round(width)}px`;
+    elements.reasoningMenu.style.bottom = `${Math.round(Math.max(8, (win?.visualViewport?.height || win?.innerHeight || 800) - rect.top + 8))}px`;
     elements.reasoningMenu.style.top = 'auto';
-    elements.reasoningMenu.style.maxHeight = `${Math.round(maxHeight)}px`;
-  }
-
-  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect) {
-    if (!elements || !elements.reasoningMenu) return;
-    elements.reasoningMenu.style.display = 'flex';
-
-    if (elements.btnReasoning && typeof elements.btnReasoning.setAttribute === 'function') {
-      elements.btnReasoning.setAttribute('aria-expanded', 'true');
-    }
-
-    const API = getApi();
-    const apiType = appConfig?.apiType || (elements.settingApiType ? elements.settingApiType.value : 'openai');
-    const reasoningConfig = API?.getStandardReasoningOptions
-      ? API.getStandardReasoningOptions(apiType, appConfig?.apiUrl)
-      : { levels: ['off', 'low', 'medium', 'high'], label: 'OpenAI / LM Studio' };
-
-    if (elements.reasoningModelBadge) {
-      elements.reasoningModelBadge.textContent = reasoningConfig.label || apiType.toUpperCase();
-      elements.reasoningModelBadge.title = `Protocol: ${reasoningConfig.label || apiType}`;
-    }
-
-    renderReasoningMenuOptions(elements, reasoningConfig, appConfig?.reasoningEffort || 'off', onSelect);
-    renderReasoningTransportOptions(elements, reasoningConfig, appConfig?.reasoningTransport || 'auto', onTransportSelect);
-    syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
-    positionReasoningMenu(elements);
-    initReasoningKeyboardNav(elements);
-
-    // Focus active or first option for keyboard accessibility
-    if (elements.reasoningOptionsContainer && typeof elements.reasoningOptionsContainer.querySelector === 'function') {
-      const activeBtn = elements.reasoningOptionsContainer.querySelector('.reasoning-option.active') ||
-                        elements.reasoningOptionsContainer.querySelector('.reasoning-option');
-      if (activeBtn && typeof activeBtn.focus === 'function') {
-        activeBtn.focus();
-      }
-    }
-  }
-
-  function syncCheckpointToggle(elements, isEnabled, onToggleCheckpoint) {
-    if (!elements) return;
-    const chk = elements.chkReasoningAgentCheckpoint ||
-      (elements.reasoningMenu?.querySelector ? elements.reasoningMenu.querySelector('#chk-reasoning-agent-checkpoint') : null);
-    if (!chk) return;
-
-    chk.checked = Boolean(isEnabled);
-
-    if (!chk._hasAgentListener && typeof onToggleCheckpoint === 'function') {
-      chk._hasAgentListener = true;
-      chk.addEventListener('change', (e) => {
-        onToggleCheckpoint(e.target.checked);
-      });
-    }
   }
 
   function closeReasoningMenu(elements) {
-    if (!elements || !elements.reasoningMenu) return;
+    if (!elements?.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'none';
-    elements.reasoningMenu.style.left = '0px';
-    elements.reasoningMenu.style.right = 'auto';
+    elements.btnReasoning?.setAttribute?.('aria-expanded', 'false');
+  }
 
-    if (elements.btnReasoning && typeof elements.btnReasoning.setAttribute === 'function') {
-      elements.btnReasoning.setAttribute('aria-expanded', 'false');
+  function syncCheckpointToggle(elements, enabled, onToggleCheckpoint) {
+    const checkbox = elements?.chkReasoningAgentCheckpoint;
+    if (!checkbox) return;
+    checkbox.checked = Boolean(enabled);
+    checkbox._onToggleCheckpoint = onToggleCheckpoint;
+    if (!checkbox._hasReasoningListener) {
+      checkbox._hasReasoningListener = true;
+      checkbox.addEventListener('change', event => checkbox._onToggleCheckpoint?.(event.target.checked));
     }
   }
 
-  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect) {
-    if (!elements || !elements.reasoningMenu) return;
-    const isVisible = elements.reasoningMenu.style.display === 'flex' || elements.reasoningMenu.style.display === 'block';
-    if (isVisible) {
-      closeReasoningMenu(elements);
-    } else {
-      openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint, onTransportSelect);
-    }
-  }
-
-  function selectReasoningLevel(elements, appConfig, level, onLevelChanged) {
-    let norm = String(level).trim();
-    if (norm.toLowerCase() === 'off') norm = 'none';
-    updateReasoningUI(elements, norm);
-    closeReasoningMenu(elements);
-    if (typeof onLevelChanged === 'function') {
-      onLevelChanged(norm);
-    }
-  }
-
-  function updateReasoningUI(elements, level) {
-    if (!elements) return;
-    const val = level || 'none';
-    const lower = String(val).toLowerCase().trim();
-
-    if (elements.reasoningLabel && elements.btnReasoning) {
-      if (lower === 'off' || lower === 'none') {
-        elements.reasoningLabel.textContent = 'None';
-        elements.btnReasoning.classList.remove('active', 'active-on', 'active-low', 'active-medium', 'active-high', 'active-xhigh', 'level-low', 'level-medium', 'level-high', 'level-xhigh');
-      } else {
-        let displayTxt = lower.charAt(0).toUpperCase() + lower.slice(1);
-        if (lower === 'low') displayTxt = 'Low';
-        else if (lower === 'medium') displayTxt = 'Med';
-        else if (lower === 'high') displayTxt = 'High';
-        else if (lower === 'xhigh') displayTxt = 'XHigh';
-        else if (lower === 'on') displayTxt = 'On';
-
-        elements.reasoningLabel.textContent = displayTxt;
-        elements.btnReasoning.classList.add('active');
-        elements.btnReasoning.classList.remove('active-on', 'active-low', 'active-medium', 'active-high', 'active-xhigh', 'level-low', 'level-medium', 'level-high', 'level-xhigh');
-        if (['low', 'medium', 'high', 'xhigh', 'on'].includes(lower)) {
-          elements.btnReasoning.classList.add(`active-${lower}`);
-        }
-      }
-    }
-
-    if (elements.reasoningOptionsContainer && typeof elements.reasoningOptionsContainer.querySelectorAll === 'function') {
-      const options = elements.reasoningOptionsContainer.querySelectorAll('.reasoning-option');
-      if (options && options.forEach) {
-        options.forEach(opt => {
-          const optLower = String(opt.getAttribute ? opt.getAttribute('data-level') : '').toLowerCase().trim();
-          const isSelected = optLower === lower || (lower === 'off' && optLower === 'none') || (lower === 'none' && optLower === 'off');
-          if (isSelected) {
-            if (opt.classList && typeof opt.classList.add === 'function') opt.classList.add('active');
-            if (typeof opt.setAttribute === 'function') opt.setAttribute('aria-checked', 'true');
-          } else {
-            if (opt.classList && typeof opt.classList.remove === 'function') opt.classList.remove('active');
-            if (typeof opt.setAttribute === 'function') opt.setAttribute('aria-checked', 'false');
-          }
+  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+    if (!elements?.reasoningMenu) return;
+    elements.reasoningMenu.style.display = 'flex';
+    elements.btnReasoning?.setAttribute?.('aria-expanded', 'true');
+    syncReasoningIntensity(elements, appConfig?.reasoningEffort || 'none');
+    syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
+    const slider = elements.reasoningIntensity;
+    if (slider) {
+      slider._onReasoningIntensityChange = onSelect;
+      if (!slider._hasReasoningListener) {
+        slider._hasReasoningListener = true;
+        slider.addEventListener('input', event => {
+          const level = getReasoningLevelFromIntensity(event.target.value);
+          syncReasoningIntensity(elements, level);
+          updateReasoningUI(elements, level);
+          event.target._onReasoningIntensityChange?.(level);
         });
       }
     }
+    if (elements.btnCloseReasoning && !elements.btnCloseReasoning._hasReasoningListener) {
+      elements.btnCloseReasoning._hasReasoningListener = true;
+      elements.btnCloseReasoning.addEventListener('click', () => closeReasoningMenu(elements));
+    }
+    if (!elements.reasoningMenu._hasEscapeListener) {
+      elements.reasoningMenu._hasEscapeListener = true;
+      elements.reasoningMenu.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        closeReasoningMenu(elements);
+        elements.btnReasoning?.focus?.();
+      });
+    }
+    positionReasoningMenu(elements);
+    slider?.focus?.();
   }
 
-  return {
-    getReasoningLevelLabel,
-    renderReasoningMenuOptions,
-    renderReasoningTransportOptions,
-    positionReasoningMenu,
-    openReasoningMenu,
-    closeReasoningMenu,
-    toggleReasoningMenu,
-    selectReasoningLevel,
-    updateReasoningUI,
-    syncCheckpointToggle
-  };
+  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+    if (!elements?.reasoningMenu) return;
+    if (elements.reasoningMenu.style.display === 'flex') closeReasoningMenu(elements);
+    else openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint);
+  }
+
+  function updateReasoningUI(elements, level) {
+    const normalized = getReasoningLevelFromIntensity(getReasoningIntensity(level));
+    if (elements?.reasoningLabel) elements.reasoningLabel.textContent = getReasoningLevelLabel(normalized);
+    if (elements?.btnReasoning?.classList) {
+      elements.btnReasoning.classList.toggle('active', normalized !== 'none');
+      INTENSITY_LEVELS.forEach(name => elements.btnReasoning.classList.toggle(`active-${name}`, normalized === name && name !== 'none'));
+    }
+    syncReasoningIntensity(elements, normalized);
+    syncReasoningGauge(elements, normalized);
+  }
+
+  function selectReasoningLevel(elements, _appConfig, level, onLevelChanged) {
+    const normalized = getReasoningLevelFromIntensity(getReasoningIntensity(level));
+    updateReasoningUI(elements, normalized);
+    closeReasoningMenu(elements);
+    onLevelChanged?.(normalized);
+  }
+
+  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, syncCheckpointToggle };
 });

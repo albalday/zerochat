@@ -62,10 +62,11 @@
         <li>Al escribir un mensaje en el chat y pulsar Enviar, la petición <strong>no viaja inmediatamente a la red</strong>.</li>
         <li>Se abre una ventana modal de inspección interactiva mostrando el <strong>payload JSON exacto</strong> que se iba a transmitir al proveedor (mensajes del historial, sistema de prompts, herramientas registradas, temperatura, etc.).</li>
         <li>Puedes inspeccionar los campos, editar manualmente cualquier parámetro o inyectar roles de prueba directamente en el editor.</li>
-        <li>Dispones de dos opciones:
+        <li>La cabecera reúne las acciones de envío y el botón X para cancelar:
           <ul>
             <li><strong>Continuar / Enviar:</strong> Transmite la petición (con las modificaciones que hayas realizado) al servidor.</li>
-            <li><strong>Cancelar:</strong> Aborta el envío de forma limpia sin generar tráfico ni consumir tokens.</li>
+            <li><strong>Enviar y parar debug:</strong> Transmite la petición y desactiva el interceptor para los siguientes envíos.</li>
+            <li><strong>X:</strong> Aborta el envío de forma limpia sin generar tráfico ni consumir tokens.</li>
           </ul>
         </li>
       </ol>
@@ -105,4 +106,3 @@
   </div>
 </body>
 </html>
-

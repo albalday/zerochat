@@ -194,7 +194,7 @@
         }
       }
 
-      if (capabilities.reasoning || (reasoningTransport === 'send-none' && String(reasoningEffort).toLowerCase() === 'none')) {
+      if (capabilities.reasoning && !['none', 'off', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
         this.applyReasoning(payload, reasoningEffort);
       }
 
@@ -927,7 +927,7 @@
         payload.stream = true;
       }
 
-      if (capabilities.reasoning) {
+      if (capabilities.reasoning && !['none', 'off', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
         this.applyReasoning(payload, reasoningEffort);
       }
 

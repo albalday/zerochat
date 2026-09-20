@@ -177,8 +177,9 @@
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
       reasoningMenu: document.getElementById('reasoning-menu'),
-      reasoningOptionsContainer: document.getElementById('reasoning-options-container'),
-      reasoningModelBadge: document.getElementById('reasoning-model-badge'),
+      reasoningIntensity: document.getElementById('reasoning-intensity'),
+      reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
+      btnCloseReasoning: document.getElementById('btn-close-reasoning'),
       chkReasoningAgentCheckpoint: document.getElementById('chk-reasoning-agent-checkpoint'),
 
       // Panel de Debug & Logs
@@ -197,13 +198,11 @@
       // Modal de Depuración de Mensajes Salientes (Interceptor)
       debugInterceptorDialog: document.getElementById('debug-interceptor-dialog'),
       btnMaximizeDebugModal: document.getElementById('btn-maximize-debug-modal'),
-      btnCloseDebugModal: document.getElementById('btn-close-debug-modal'),
       debugModalEndpointBadge: document.getElementById('debug-modal-endpoint-badge'),
       btnFormatDebugJson: document.getElementById('btn-format-debug-json'),
       btnCopyDebugJson: document.getElementById('btn-copy-debug-json'),
       txtDebugPayload: document.getElementById('txt-debug-payload'),
       debugJsonError: document.getElementById('debug-json-error'),
-      btnDebugCancel: document.getElementById('btn-debug-cancel'),
       btnDebugSendDisable: document.getElementById('btn-debug-send-disable'),
       btnDebugSend: document.getElementById('btn-debug-send'),
 
@@ -463,11 +462,8 @@
   }
 
   function selectReasoningLevel(level) {
-    if (UIReasoning.selectReasoningLevel) {
-      UIReasoning.selectReasoningLevel(elements, getRuntimeConfig(), level, (reasoningEffort) => {
-        if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort });
-      });
-    }
+    if (UIReasoning.updateReasoningUI) UIReasoning.updateReasoningUI(elements, level);
+    if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort: level });
   }
 
   function selectReasoningTransport(reasoningTransport) {
@@ -1770,15 +1766,20 @@
 
     // Modal de Configuración & Perfiles
     if (elements.btnCloseSettings) {
-      elements.btnCloseSettings.addEventListener('click', closeSettingsPanelOnly);
+      elements.btnCloseSettings.addEventListener('click', () => closeSettingsPanelOnly());
     }
     if (elements.settingsForm) {
       elements.settingsForm.addEventListener('submit', handleSaveSettings);
+    }
+    if (elements.settingsDialog) {
       const markSettingsModified = () => {
         if (UISettings.setSettingsFormDirty) UISettings.setSettingsFormDirty(elements, true);
       };
-      elements.settingsForm.addEventListener('input', markSettingsModified);
-      elements.settingsForm.addEventListener('change', markSettingsModified);
+      elements.settingsDialog.addEventListener('input', markSettingsModified);
+      elements.settingsDialog.addEventListener('change', markSettingsModified);
+      elements.settingsDialog.addEventListener('click', (event) => {
+        if (event.target.closest?.('#btn-mcp-clear-auths')) markSettingsModified();
+      });
     }
     if (elements.btnClearAllData) {
       elements.btnClearAllData.addEventListener('click', handleClearAllData);

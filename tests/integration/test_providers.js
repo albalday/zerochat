@@ -272,6 +272,16 @@ test('Capabilities - Utilización en buildPayload para filtrar parámetros no so
   assert.equal(textOnlyMessages[0].content, 'Descripción textual', 'Debe extraer sólo texto si vision=false');
 });
 
+test('Reasoning intensity - ninguno omite los parámetros de razonamiento', () => {
+  const openAI = new BaseProviderAdapter();
+  const openAIPayload = openAI.buildPayload({ model: 'test', messages: [{ role: 'user', content: 'hola' }], reasoningEffort: 'none' });
+  assert.equal(openAIPayload.reasoning_effort, undefined);
+
+  const claude = new ClaudeProviderAdapter();
+  const claudePayload = claude.buildPayload({ model: 'claude-test', messages: [{ role: 'user', content: 'hola' }], reasoningEffort: 'none' });
+  assert.equal(claudePayload.thinking, undefined);
+});
+
 test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ y compatibilidad de payload', () => {
   const adapter = new GeminiProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta/openai'), 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');

@@ -368,34 +368,37 @@
   function openSettingsSection(elements, appConfig, callbacks = {}, sectionId = 'tab-model') {
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
+    const preservePendingChanges = elements.settingsDialog.open && isSettingsFormDirty(elements);
     if (elements.settingsActiveProfileName) {
       elements.settingsActiveProfileName.textContent = appConfig?.activeProfile?.name || 'Espejo';
     }
-    if (elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
+    if (!preservePendingChanges && elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
 
-    applyTheme(elements, appConfig, appConfig?.theme || DEFAULT_THEME);
-    applyLanguage(elements, appConfig, appConfig?.language || 'es', callbacks);
+    if (!preservePendingChanges) {
+      applyTheme(elements, appConfig, appConfig?.theme || DEFAULT_THEME);
+      applyLanguage(elements, appConfig, appConfig?.language || 'es', callbacks);
 
-    if (elements.agentToolsContainer) {
-      renderAgentToolsUI(elements.agentToolsContainer, appConfig?.enabledTools || {});
-    }
-    if (elements.settingEnableRawLogs) {
-      elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
-    }
-    if (elements.settingMaxAgentTurns) {
-      elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 15;
-    }
-    if (elements.maxAgentTurnsVal) {
-      elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 15;
-    }
-    if (elements.settingEnableContextCache) {
-      elements.settingEnableContextCache.checked = appConfig?.enableContextCache !== false;
-    }
-    if (elements.mcpHostInput) {
-      elements.mcpHostInput.value = appConfig?.mcpHost || '127.0.0.1';
-    }
-    if (elements.mcpPortInput) {
-      elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
+      if (elements.agentToolsContainer) {
+        renderAgentToolsUI(elements.agentToolsContainer, appConfig?.enabledTools || {});
+      }
+      if (elements.settingEnableRawLogs) {
+        elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
+      }
+      if (elements.settingMaxAgentTurns) {
+        elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 15;
+      }
+      if (elements.maxAgentTurnsVal) {
+        elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 15;
+      }
+      if (elements.settingEnableContextCache) {
+        elements.settingEnableContextCache.checked = appConfig?.enableContextCache !== false;
+      }
+      if (elements.mcpHostInput) {
+        elements.mcpHostInput.value = appConfig?.mcpHost || '127.0.0.1';
+      }
+      if (elements.mcpPortInput) {
+        elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
+      }
     }
 
     const targetId = normalizeSectionId(sectionId);
@@ -430,7 +433,7 @@
     if (typeof elements.settingsDialog.showModal === 'function') {
       elements.settingsDialog.showModal();
     }
-    setSettingsFormDirty(elements, false);
+    if (!preservePendingChanges) setSettingsFormDirty(elements, false);
   }
 
   function setSettingsFormDirty(elements, dirty) {

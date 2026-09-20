@@ -34,12 +34,12 @@
       </p>
       <h3>El Selector de Nivel de Razonamiento</h3>
       <p>
-        En la barra inferior del composer encontrarás el botón con el icono de cerebro. Al hacer clic se despliega el menú de configuración de esfuerzo:
+        En la barra inferior del composer encontrarás un indicador de velocímetro. Su aguja refleja la intensidad elegida; al pulsarlo se abre un panel compacto con una barra de intensidad y un cierre X.
       </p>
       <ul>
-        <li><strong>None (Desactivado):</strong> El modelo responde directamente sin generar cadena de pensamiento extendida (ideal para respuestas rápidas y concisas).</li>
-        <li><strong>Low / Medium / High:</strong> Gradúa el presupuesto de tokens asignado a la deliberación interna del modelo según la complejidad de la tarea.</li>
-        <li><strong>send-none experimental:</strong> Para proveedores o servidores locales (como WebLLM o ciertas instancias vLLM) que requieren declarar explícitamente el parámetro <code>reasoning_effort: "none"</code>.</li>
+        <li><strong>Ninguno:</strong> No se envía ninguna configuración de razonamiento; es la opción adecuada para respuestas rápidas y concisas.</li>
+        <li><strong>Bajo a Máximo:</strong> Desliza la barra para graduar el esfuerzo de razonamiento según la complejidad de la tarea.</li>
+        <li><strong>Compatibilidad:</strong> ZeroChat adapta el nivel al formato que entiende el proveedor. Si el modelo no admite razonamiento, continúa con una respuesta normal.</li>
       </ul>
       <div class="alert alert-info">
         <strong>Punto de Control Agéntico (<code>agent_checkpoint</code>):</strong> En el menú de razonamiento puedes activar esta herramienta especial. Permite al modelo guardar reflexiones o hallazgos clave antes de ejecutar acciones complejas o búsquedas documentales.
@@ -109,4 +109,3 @@
   </div>
 </body>
 </html>
-

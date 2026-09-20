@@ -269,27 +269,6 @@
     return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errors.length ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>` : ''}</div>`;
   }
 
-  function syncFooterSummaryVisibility() {
-    const el = document.getElementById('rag-branch-summary-footer');
-    const sep = document.getElementById('rag-footer-separator');
-    const hasText = !!(el && el.textContent.trim());
-    if (el) el.style.display = hasText ? '' : 'none';
-    if (sep) sep.style.display = hasText ? '' : 'none';
-  }
-
-  function updateBranchSummaryFooter(metrics) {
-    const el = document.getElementById('rag-branch-summary-footer');
-    if (!el) return;
-    if (metrics) {
-      const formatted = formatBranchMetrics(metrics);
-      const loadedHtml = t('rag_branch_loaded', { summary: `<strong>${escapeHtml(formatted)}</strong>` }) || `Esta rama cargó <strong>${escapeHtml(formatted)}</strong>.`;
-      el.innerHTML = loadedHtml.endsWith('.') ? loadedHtml : `${loadedHtml}.`;
-    } else {
-      el.innerHTML = '';
-    }
-    syncFooterSummaryVisibility();
-  }
-
   async function renderWorkspace(branchId, ingestionResult) {
     if (typeof document === 'undefined') return;
     await updateBranchFields(branchId);
@@ -297,16 +276,10 @@
     if (!workspace) return;
     if (!branchId) {
       workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty') || 'Escribe un nombre arriba y pulsa "Crear rama" para empezar.'}</div>`;
-      updateBranchSummaryFooter(null);
       return;
     }
     const documents = await storage().getDocumentsByBranch(branchId);
     const branch = await storage().getBranchById(branchId);
-    const branchMetrics = {
-      documentCount: documents.length,
-      totalBytes: documents.reduce((sum, document) => sum + (Number(document.fileSize) || 0), 0)
-    };
-    updateBranchSummaryFooter(branchMetrics);
     const dropzoneTitle = t('rag_dropzone_title') || 'Arrastra o selecciona archivos';
     const dropzoneHint = t('rag_dropzone_hint') || 'PDF o archivos de texto · guardado privado en IndexedDB';
     const deleteDocTitle = t('rag_delete_doc_title') || 'Eliminar documento';
@@ -792,7 +765,6 @@
     if (!modal) return;
 
     document.getElementById('btn-close-rag')?.addEventListener('click', () => modal?.close());
-    document.getElementById('btn-close-rag-footer')?.addEventListener('click', () => modal?.close());
     document.getElementById('btn-rag-toggle-master')?.addEventListener('click', async () => { setActiveBranchIds([]); await renderActiveTab(); });
     document.getElementById('btn-rag-activate-all')?.addEventListener('click', async () => {
       const branches = await storage().getBranches();
@@ -806,7 +778,6 @@
     if (!modal) return;
 
     document.getElementById('btn-close-rag-manage')?.addEventListener('click', () => { closeManageDialog(); });
-    document.getElementById('btn-close-rag-manage-footer')?.addEventListener('click', () => { closeManageDialog(); });
     modal.addEventListener('cancel', event => {
       if (!hasPendingBranchChanges()) return;
       event.preventDefault();
@@ -875,18 +846,31 @@
   function getRagModalHTML(mode = 'activate') {
     const isActivateMode = mode === 'activate';
     const titleKey = isActivateMode ? 'rag_modal_title_activate' : 'rag_modal_title_manage';
-    const titleFallback = isActivateMode ? 'Activar conocimiento local' : 'Gestionar documentos';
+    const titleFallback = isActivateMode ? 'RAG' : 'RAG. Gestionar';
 
     return `<div class="modal-header">
       <div class="modal-title">
-        <span class="rag-header-icon">
-          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
-        </span>
         <h3 data-i18n="${titleKey}">${titleFallback}</h3>
       </div>
-      <button type="button" id="${isActivateMode ? 'btn-close-rag' : 'btn-close-rag-manage'}" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
-        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-      </button>
+      <div class="${isActivateMode ? 'rag-activation-header-actions' : 'rag-manage-header-actions'}">
+        ${isActivateMode ? `<button type="button" id="btn-rag-activate-all" class="btn-secondary" data-i18n="rag_activate_all">Activar todas</button>
+        <button type="button" id="btn-rag-toggle-master" class="btn-secondary" data-i18n="rag_disable_all">Desactivar todas</button>` : `<button type="button" id="btn-rag-new-branch" class="btn-primary">
+          <span id="rag-new-branch-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg></span>
+          <span id="rag-new-branch-text" data-i18n="rag_new_branch">Nueva rama</span>
+        </button>
+        <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch">
+          <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
+          <span data-i18n="rag_export_branch">Respaldo</span>
+        </button>
+        <button type="button" id="btn-rag-import-branch" class="btn-secondary" data-i18n-title="rag_import_branch">
+          <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
+          <span data-i18n="rag_import_branch">Restaurar</span>
+        </button>
+        <input id="rag-import-input" type="file" accept="application/json,.json,.gz,.json.gz,application/gzip" hidden>`}
+        <button type="button" id="${isActivateMode ? 'btn-close-rag' : 'btn-close-rag-manage'}" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
+          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+        </button>
+      </div>
     </div>
     <div class="modal-body rag-modal-body">
       ${isActivateMode ? `<div class="rag-modal-content">
@@ -895,9 +879,9 @@
             <div class="toggle-card-title"><span id="rag-active-status-title" data-i18n="rag_status_disabled">Conocimiento desactivado</span></div>
             <p class="toggle-card-desc" id="rag-active-status-desc" data-i18n="rag_status_disabled_desc">Selecciona una o varias ramas para que el agente pueda buscar en tus documentos.</p>
           </div>
-          <div class="rag-master-toggle-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" id="btn-rag-activate-all" class="btn-secondary" data-i18n="rag_activate_all">Activar todas</button>
-            <button type="button" id="btn-rag-toggle-master" class="btn-secondary" data-i18n="rag_disable_all">Desactivar todas</button>
+          <div id="rag-storage-quota-info" class="rag-storage-quota-info rag-master-storage">
+            <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-database"></use></svg>
+            <span>IndexedDB</span>
           </div>
         </div>
         <div class="form-field">
@@ -923,10 +907,6 @@
             <select id="rag-manage-branch-select" class="combobox-select-helper"></select>
           </div>
           <div class="rag-manage-toolbar-actions">
-            <button type="button" id="btn-rag-new-branch" class="btn-primary">
-              <span id="rag-new-branch-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg></span>
-              <span id="rag-new-branch-text" data-i18n="rag_new_branch">Nueva rama</span>
-            </button>
             <button type="button" id="btn-rag-edit-branch" class="btn-secondary" data-i18n-title="rag_edit_branch">
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>
               <span data-i18n="rag_edit_branch">Editar</span>
@@ -935,15 +915,6 @@
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
               <span data-i18n="rag_delete_branch">Eliminar</span>
             </button>
-            <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch">
-              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-              <span data-i18n="rag_export_branch">Respaldo</span>
-            </button>
-            <button type="button" id="btn-rag-import-branch" class="btn-secondary" data-i18n-title="rag_import_branch">
-              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
-              <span data-i18n="rag_import_branch">Restaurar</span>
-            </button>
-            <input id="rag-import-input" type="file" accept="application/json,.json,.gz,.json.gz,application/gzip" hidden>
           </div>
         </div>
         <div class="rag-branch-details-card" id="rag-branch-details-card">
@@ -973,17 +944,7 @@
         <div id="rag-manage-workspace" class="rag-manage-workspace"></div>
       </div>`}
     </div>
-    <div class="modal-footer">
-      <div class="modal-footer-info">
-        <span id="rag-branch-summary-footer" class="rag-branch-summary-footer" style="display: none;"></span>
-        <span id="rag-footer-separator" class="rag-footer-separator" style="display: none;">·</span>
-        <div id="rag-storage-quota-info" class="rag-storage-quota-info">
-          <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-database"></use></svg>
-          <span>IndexedDB</span>
-        </div>
-      </div>
-      <div class="modal-footer-actions"><button type="button" id="${isActivateMode ? 'btn-close-rag-footer' : 'btn-close-rag-manage-footer'}" class="btn-secondary" data-i18n="btn_close">Cerrar</button></div>
-    </div>`;
+    `;
   }
 
   function ensureDialogMarkup() {
