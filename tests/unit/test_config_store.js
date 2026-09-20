@@ -33,7 +33,7 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   const config = store.initialize();
 
   assert.equal(config.schemaVersion, 2);
-  assert.equal(config.theme, 'light');
+  assert.equal(config.theme, 'dark');
   assert.equal(config.language, 'es');
   assert.equal(config.mcpAutoConnect, false);
   assert.equal(config.activeProfile.name, 'Servidor Oficina');

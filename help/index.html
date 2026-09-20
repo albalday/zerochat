@@ -46,7 +46,7 @@
         <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Dos formas de arranque: Web autónoma vs. Backend local</h3>
         <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
           <li>
-            <strong><code>zerochat.html</code> (Web directa / PWA):</strong> Abre directamente en cualquier navegador o dispositivo móvil (especialmente optimizado para Android como PWA). Ofrece inferencia comercial o local (WebLLM/WebGPU), base documental RAG en navegador (Orama), modo Agente con sandbox JS y persistencia en IndexedDB sin requerir Python, terminal ni instalación.
+            <strong><code>zerochat.html</code> (Web directa / PWA):</strong> Abre directamente en cualquier navegador o dispositivo móvil (especialmente optimizado para Android como PWA). Por defecto usa modo oscuro y, en móvil, mantiene cerrado el panel de conversaciones para priorizar el chat; ambos se pueden cambiar desde los controles de la interfaz. Ofrece inferencia comercial o local (WebLLM/WebGPU), base documental RAG en navegador (Orama), modo Agente con sandbox JS y persistencia en IndexedDB sin requerir Python, terminal ni instalación.
           </li>
           <li>
             <strong><code>zerochat.py</code> (Local con backend Python):</strong> Servidor local en segundo plano (puerto 6388 con token efímero seguro). Añade sobre la versión web el control del sistema operativo anfitrión: lectura y edición de archivos locales en disco, comandos de terminal y servidores MCP externos (Playwright, LSP, memoria).

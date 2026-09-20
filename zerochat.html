@@ -4,14 +4,14 @@
   Desarrollo experimental 100% asistido por IA (programación sin tocar una sola línea de código manual)
   fruto de la colaboración entre Codex y Antigravity, incorporando la librería Orama como vendor local.
 -->
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v7.1.0</title>
+  <title>ZeroChat v7.1.1</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -41,6 +41,7 @@
       <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></symbol>
       <symbol id="icon-panel-left" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></symbol>
       <symbol id="icon-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="16" y1="11" x2="22" y2="11"></line></symbol>
       <symbol id="icon-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></symbol>
       <symbol id="icon-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></symbol>
@@ -93,10 +94,6 @@
             </a>
             <button type="button" id="btn-open-settings" class="btn-sidebar-icon" data-i18n-title="btn_settings_title" title="Abrir configuración de API y Modelo" aria-label="Configuración">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-            </button>
-            <button type="button" id="btn-sidebar-new-chat" class="btn-sidebar-icon" data-i18n-title="btn_new_chat_sidebar_title" data-i18n-aria="btn_new_chat_sidebar_title" title="Crear nueva conversación" aria-label="Crear nueva conversación">
-              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-square-pen"></use></svg>
-              <span class="sr-only" data-i18n="chat_untitled">Nueva conversación</span>
             </button>
             <button type="button" id="btn-close-sidebar" class="btn-sidebar-icon btn-sidebar-close" data-i18n-title="btn_close_sidebar_title" title="Cerrar barra lateral" aria-label="Cerrar">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
@@ -160,10 +157,10 @@
           </span>
           <span class="settings-item-label" data-i18n="field_theme_short">Tema</span>
           <div class="sidebar-choice-toggle-group" id="theme-switcher-group">
-            <button type="button" class="btn-theme-toggle active" id="btn-theme-light" data-theme="light" data-i18n-title="theme_light" title="Modo Claro" aria-label="Modo Claro">
+            <button type="button" class="btn-theme-toggle" id="btn-theme-light" data-theme="light" data-i18n-title="theme_light" title="Modo Claro" aria-label="Modo Claro">
               <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-sun"></use></svg>
             </button>
-            <button type="button" class="btn-theme-toggle" id="btn-theme-dark" data-theme="dark" data-i18n-title="theme_dark" title="Modo Oscuro" aria-label="Modo Oscuro">
+            <button type="button" class="btn-theme-toggle active" id="btn-theme-dark" data-theme="dark" data-i18n-title="theme_dark" title="Modo Oscuro" aria-label="Modo Oscuro">
               <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-moon"></use></svg>
             </button>
           </div>
@@ -243,7 +240,11 @@
     <header class="app-header">
       <div class="header-left">
         <button type="button" id="btn-toggle-sidebar" class="btn-header-icon" data-i18n-title="btn_sidebar_title" title="Chats y Configuración" aria-label="Chats y Configuración" style="display: none;">
-          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-panel-left"></use></svg>
+          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-menu"></use></svg>
+        </button>
+        <button type="button" id="btn-sidebar-new-chat" class="btn-header-icon" data-i18n-title="btn_new_chat_sidebar_title" data-i18n-aria="btn_new_chat_sidebar_title" title="Crear nueva conversación" aria-label="Crear nueva conversación">
+          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-square-pen"></use></svg>
+          <span class="sr-only" data-i18n="chat_untitled">Nueva conversación</span>
         </button>
       </div>
 
@@ -281,7 +282,7 @@
 
       <div class="header-right">
         <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs">
-          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-panel-right"></use></svg>
+          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         </button>
       </div>
     </header>
@@ -599,6 +600,7 @@
   <script defer src="js/utils.js"></script>
   <script defer src="js/storage-db.js"></script>
   <script defer src="js/message-turns.js"></script>
+  <script defer src="js/defaults.js"></script>
   <script defer src="js/state.js"></script>
   <script defer src="js/cookies.js"></script>
   <script defer src="js/ragStorage.js"></script>

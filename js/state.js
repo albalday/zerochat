@@ -5,12 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'));
+    module.exports = factory(require('./message-turns.js'), require('./defaults.js'));
   } else {
-    root.ChatState = factory(root.ChatMessageTurns);
+    root.ChatState = factory(root.ChatMessageTurns, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
+}(typeof self !== 'undefined' ? self : this, function (MessageTurns, Defaults) {
   'use strict';
+
+  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
 
   function clone(obj) {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -65,7 +67,7 @@
         reasoningEffort: 'none',
         reasoningTransport: 'auto',
         maxAgentTurns: 15,
-        theme: 'light',
+        theme: DEFAULT_THEME,
         language: 'es',
         enabledTools: {
           execute_javascript: true,

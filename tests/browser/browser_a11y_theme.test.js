@@ -267,7 +267,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 
     assert.ok(headerIcons.hasProfileSvg, 'El selector de perfiles debe contener un SVG vectorial (zap)');
     assert.ok(headerIcons.hasRagSvg, 'El botón RAG debe contener un SVG vectorial (layers)');
-    assert.ok(headerIcons.hasDebugSvg, 'El botón de debug debe contener un SVG vectorial (terminal)');
+    assert.ok(headerIcons.hasDebugSvg, 'El botón de debug debe contener un SVG vectorial (lupa)');
     assert.ok(headerIcons.hasReasoningSvg, 'El botón de razonamiento debe contener un SVG vectorial (brain)');
     assert.ok(headerIcons.ragWidth >= 12, 'El icono RAG debe tener dimensiones computadas válidas');
     assert.ok(headerIcons.reasoningWidth >= 12, 'El icono de razonamiento debe tener dimensiones válidas');
@@ -341,7 +341,7 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
 
     // 2. Verificar iconos vectoriales de cabecera, buscador y footer de sidebar
     const sidebarIcons = await page.evaluate(() => {
-      const newChatSvg = document.querySelector('#btn-sidebar-new-chat svg');
+      const newChatSvg = document.querySelector('.header-left #btn-sidebar-new-chat svg');
       const settingsSvg = document.querySelector('.sidebar-header #btn-open-settings svg');
       const closeSvg = document.querySelector('#btn-close-sidebar svg');
       const searchSvg = document.querySelector('.sidebar-search-box svg');
@@ -360,7 +360,7 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
       };
     });
 
-    assert.ok(sidebarIcons.hasNewChatSvg, 'El botón de nueva conversación debe tener icono SVG');
+    assert.ok(sidebarIcons.hasNewChatSvg, 'El botón de nueva conversación en la cabecera debe tener icono SVG');
     assert.ok(sidebarIcons.hasSettingsSvg, 'El botón de configuración en la cabecera del sidebar debe tener icono SVG');
     assert.ok(sidebarIcons.hasCloseSvg, 'El botón de cerrar barra lateral debe tener icono SVG');
     assert.ok(sidebarIcons.hasSearchSvg, 'El buscador debe tener icono SVG de lupa');

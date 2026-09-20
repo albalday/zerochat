@@ -21,7 +21,7 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
     const isSidebarVisible = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display === 'flex');
     assert.ok(isSidebarVisible, 'El sidebar debe mostrarse con display flex');
 
-    // 2. Validar botón de nueva conversación como icono en la cabecera
+    // 2. Validar botón de nueva conversación como icono junto al control del sidebar
     const newChatBtnInfo = await page.evaluate(() => {
       const btn = document.getElementById('btn-sidebar-new-chat');
       const style = getComputedStyle(btn);
@@ -29,14 +29,14 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
         exists: !!btn,
         text: btn.textContent.trim(),
         hasSvg: !!btn.querySelector('svg'),
-        isInActions: !!btn.closest('.sidebar-header-actions'),
+        isInHeader: !!btn.closest('.header-left'),
         width: parseFloat(style.width),
         height: parseFloat(style.height)
       };
     });
     assert.ok(newChatBtnInfo.exists, 'El botón #btn-sidebar-new-chat debe existir');
     assert.ok(newChatBtnInfo.hasSvg, 'El botón de nueva conversación debe contener un icono SVG');
-    assert.ok(newChatBtnInfo.isInActions, 'El botón de nueva conversación debe estar en las acciones de la cabecera del sidebar');
+    assert.ok(newChatBtnInfo.isInHeader, 'El botón de nueva conversación debe estar junto al control del sidebar en la cabecera');
     assert.ok(newChatBtnInfo.width > 0 && newChatBtnInfo.height > 0, 'El botón de nueva conversación debe tener dimensiones renderizadas');
 
     // 3. Validar buscador de historial con icono
@@ -106,6 +106,23 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
     });
     assert.equal(mobileSidebarStyle.position, 'fixed', 'En móvil, el sidebar debe posicionarse como fixed drawer');
     assert.ok(mobileSidebarStyle.zIndex >= 100, 'En móvil, el zIndex debe ser elevado para superponerse al chat');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - el drawer lateral comienza cerrado en móvil y se abre desde la cabecera', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 500, height: 800 }, isMobile: true });
+    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForSelector('#welcome-banner');
+
+    assert.equal(await page.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-hidden')), true);
+    await page.click('#btn-toggle-sidebar');
+    await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+    assert.equal(await page.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-visible')), true);
   } finally {
     await browser.close();
   }
