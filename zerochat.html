@@ -11,7 +11,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v7.1.9</title>
+  <title>ZeroChat v7.2.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -266,15 +266,11 @@
                 <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
                 </button>
-                <button type="button" id="btn-menu-import-profiles" class="btn-profile-header-icon" data-i18n-title="btn_import_profiles_title" title="Cargar perfiles desde un archivo cifrado" aria-label="Cargar perfiles">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
-                </button>
                 <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
                 </button>
               </div>
             </div>
-            <input id="profiles-import-input" type="file" accept="application/json,.zcp" hidden>
             <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
           </div>
         </div>
@@ -641,6 +637,7 @@
   <script defer src="js/attachments.js"></script>
   <script defer src="js/export.js"></script>
   <script defer src="js/profile-backup.js"></script>
+  <script defer src="js/profile-export-bundle.js"></script>
   <script defer src="js/profile-repository.js"></script>
   <script defer src="js/config-store.js"></script>
   <script defer src="js/context-manager.js"></script>

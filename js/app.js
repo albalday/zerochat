@@ -2198,6 +2198,248 @@
         serversList: elements.mcpServersList
       });
 
+      // Sistema de importación de perfiles vía postMessage desde HTML exportado
+      function setupProfileImportListener() {
+        let importInProgress = false;
+
+        // Notificar al opener que estamos listos
+        function notifyReady() {
+          if (window.opener && !window.opener.closed) {
+            try {
+              window.opener.postMessage('zerochat_ready', '*');
+              console.log('[Import Mode] Notified opener that we are ready');
+            } catch (e) {
+              console.warn('[Import Mode] Could not notify opener:', e);
+            }
+          }
+        }
+
+        // Procesar importación
+        async function handleImportMessage(event) {
+          // Validar estructura del mensaje
+          if (!event.data || event.data.type !== 'import_profiles') {
+            return;
+          }
+
+          // Prevenir procesamiento múltiple
+          if (importInProgress) {
+            console.warn('[Import Mode] Import already in progress, ignoring duplicate message');
+            return;
+          }
+
+          importInProgress = true;
+          console.log('[Import Mode] Received import request');
+
+          try {
+            const payload = event.data.payload;
+            const metadata = event.data.metadata || {};
+
+            if (!payload || typeof payload !== 'string') {
+              throw new Error('Invalid payload format');
+            }
+
+            console.log('[Import Mode] Payload size:', payload.length, 'bytes');
+            console.log('[Import Mode] Metadata:', metadata);
+
+            // Descifrar y validar
+            const ProfileBackup = window.ChatProfileBackup;
+            if (!ProfileBackup?.decryptProfiles) {
+              throw new Error('Profile decryption not available');
+            }
+
+            const imported = await ProfileBackup.decryptProfiles(payload);
+            console.log('[Import Mode] Decrypted', imported.length, 'profiles');
+
+            if (!Array.isArray(imported) || imported.length === 0) {
+              throw new Error('No valid profiles found in payload');
+            }
+
+            // Confirmar con el usuario
+            const Dialogs = window.ChatDialogs;
+            const I18n = window.ChatI18n;
+            const confirmed = await Dialogs.confirm(
+              I18n.t('confirm_auto_import_profiles', { count: imported.length }) ||
+              `¿Importar ${imported.length} perfil(es) de conexión?`
+            );
+
+            if (!confirmed) {
+              throw new Error('Import cancelled by user');
+            }
+
+            // Importar
+            const Profiles = window.ChatProfileRepository;
+            const result = Profiles.mergeImported(imported);
+            console.log('[Import Mode] Import result:', result);
+
+            // Actualizar configuración activa si es necesario
+            const Config = window.ChatConfig;
+            const activeId = Config?.getActive?.()?.activeProfile?.id;
+            if (activeId && !Profiles.get(activeId)) {
+              Config?.activateFallbackProfile?.();
+            }
+
+            // Notificar éxito al opener
+            if (event.source && !event.source.closed) {
+              event.source.postMessage({
+                type: 'import_result',
+                success: true,
+                result: {
+                  added: result.added,
+                  replaced: result.replaced,
+                  total: result.total
+                }
+              }, '*');
+            }
+
+            // Mostrar feedback al usuario
+            await Dialogs.alert(
+              I18n.t('msg_profiles_auto_imported', {
+                added: result.added,
+                replaced: result.replaced
+              }) || `✅ ${result.added} perfil(es) añadido(s), ${result.replaced} actualizado(s).`
+            );
+
+            // Limpiar hash mode=import
+            if (window.location.hash.includes('mode=import')) {
+              if (window.history && typeof window.history.replaceState === 'function') {
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              }
+            }
+
+            // Quitar banner de espera
+            const banner = document.getElementById('import-waiting-banner');
+            if (banner) banner.remove();
+
+            // Restaurar UI
+            if (elements.messagesList) elements.messagesList.style.display = '';
+            if (elements.chatForm) elements.chatForm.style.display = '';
+
+            // Continuar con inicialización normal si no se hizo
+            console.log('[Import Mode] Import completed successfully, resuming normal initialization');
+
+            // Inicializar la app normalmente si aún no lo está
+            if (!document.documentElement.classList.contains('zerochat-ready')) {
+              // Remover el flag de modo importación para que init() pueda ejecutarse
+              window.location.hash = '';
+              // Llamar a la función init que quedó pendiente
+              // Esto requiere que ejecutemos la inicialización manualmente
+              window.location.reload();
+            } else {
+              // Ya está inicializada, solo refrescar UI
+              if (typeof UIProfiles?.populateProfileSelector === 'function') {
+                const nextActive = Config?.getActive?.()?.activeProfile?.id || '';
+                UIProfiles.populateProfileSelector(nextActive);
+              }
+            }
+
+          } catch (error) {
+            console.error('[Import Mode] Profile import error:', error);
+
+            // Notificar error al opener
+            if (event.source && !event.source.closed) {
+              event.source.postMessage({
+                type: 'import_result',
+                success: false,
+                error: error.message
+              }, '*');
+            }
+
+            // Mostrar error al usuario
+            const Dialogs = window.ChatDialogs;
+            const I18n = window.ChatI18n;
+            await Dialogs.alert(
+              I18n.t('err_auto_import_failed', { err: error.message }) ||
+              `❌ Error al importar perfiles: ${error.message}`
+            );
+
+            // Limpiar hash en caso de error también
+            if (window.location.hash.includes('mode=import')) {
+              if (window.history && typeof window.history.replaceState === 'function') {
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              }
+            }
+
+            // Quitar banner de espera y restaurar UI
+            const banner = document.getElementById('import-waiting-banner');
+            if (banner) banner.remove();
+
+            if (elements.messagesList) elements.messagesList.style.display = '';
+            if (elements.chatForm) elements.chatForm.style.display = '';
+
+            // Recargar para inicializar normalmente después del error
+            console.log('[Import Mode] Import failed, reloading to initialize normally');
+            window.location.reload();
+          } finally {
+            importInProgress = false;
+          }
+        }
+
+        // Registrar listener
+        window.addEventListener('message', handleImportMessage);
+
+        // Notificar que estamos listos si somos una ventana abierta para importar
+        if (window.location.hash.includes('mode=import')) {
+          console.log('[Import Mode] Detected import mode, will notify opener when ready');
+          // Notificar inmediatamente si ya estamos listos
+          if (document.readyState === 'complete') {
+            notifyReady();
+          } else {
+            window.addEventListener('load', notifyReady, { once: true });
+          }
+        }
+      }
+
+      // Detectar modo importación y mostrar UI de espera
+      function detectImportMode() {
+        if (!window.location.hash.includes('mode=import')) {
+          return false; // Flujo normal
+        }
+
+        console.log('[Import Mode] Import mode detected, showing waiting UI');
+
+        // Ocultar contenido normal temporalmente
+        if (elements.messagesList) elements.messagesList.style.display = 'none';
+        if (elements.chatForm) elements.chatForm.style.display = 'none';
+
+        // Mostrar banner de espera
+        const banner = document.createElement('div');
+        banner.id = 'import-waiting-banner';
+        banner.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--color-bg-primary);
+          z-index: 9999;
+        `;
+        banner.innerHTML = `
+          <div style="text-align: center; max-width: 400px; padding: 40px;">
+            <div style="font-size: 64px; margin-bottom: 20px;">📥</div>
+            <h2 style="margin: 0 0 10px 0; font-size: 24px;">Importando perfiles...</h2>
+            <p style="color: var(--color-text-secondary); margin: 0;">Esperando datos cifrados desde la ventana de exportación</p>
+          </div>
+        `;
+        document.body.appendChild(banner);
+
+        // Configurar listener
+        setupProfileImportListener();
+
+        return true; // Modo importación activado
+      }
+
+      // Detectar modo importación ANTES de inicializar normalmente
+      const isImportMode = detectImportMode();
+      if (isImportMode) {
+        console.log('[Import Mode] Skipping normal initialization, waiting for profile data');
+        // NO continuar con la inicialización normal
+        // El listener manejará todo y luego permitirá uso normal
+        return;
+      }
+
       // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
       // Después la sesión se resuelve mediante una cookie del mismo origen.
       function persistBackendSessionFromLaunchFragment() {
