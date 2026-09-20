@@ -315,12 +315,8 @@
         console.log('[Export] Payload size:', ENCRYPTED_PAYLOAD.length, 'bytes');
 
         try {
-          // Abrir zerochat.html en nueva ventana con parámetro mode=import
-          targetWindow = window.open(
-            TARGET_URL,
-            'zerochat_import',
-            'width=1200,height=800,menubar=no,toolbar=no,location=no,status=no'
-          );
+          // Abrir zerochat.html en nueva pestaña con parámetro mode=import
+          targetWindow = window.open(TARGET_URL, 'zerochat_import');
 
           // Verificar si el popup fue bloqueado
           if (!targetWindow || targetWindow.closed || typeof targetWindow.closed === 'undefined') {
