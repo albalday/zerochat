@@ -22,6 +22,7 @@ import queue
 import re
 import secrets
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -44,7 +45,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.2"
+    return "7.1.4"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1525,6 +1526,13 @@ def is_termux_environment() -> bool:
     )
 
 
+def get_manual_browser_command(url: str) -> str | None:
+    """Devuelve un comando pegable para abrir la sesión cuando Termux no pudo hacerlo."""
+    if is_termux_environment():
+        return shlex.join(["termux-open-url", url])
+    return None
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -1661,8 +1669,16 @@ def main():
         try:
             if not open_browser(target_url):
                 print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente.", flush=True)
+                manual_command = get_manual_browser_command(target_url)
+                if manual_command:
+                    print("  Termux detectado. Prueba este comando exacto:", flush=True)
+                    print(f"  {manual_command}", flush=True)
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+            manual_command = get_manual_browser_command(target_url)
+            if manual_command:
+                print("  Termux detectado. Prueba este comando exacto:", flush=True)
+                print(f"  {manual_command}", flush=True)
 
     if exit_on_close:
         require_initial = not args.no_browser

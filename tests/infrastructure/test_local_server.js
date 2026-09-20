@@ -192,6 +192,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   }
 });
 
+
 test('Generación y persistencia de token diario en zerochat.py', async () => {
   const code = `
 import zerochat
@@ -311,7 +312,12 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         args, kwargs = mock_popen.call_args
         assert args[0] == ['termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
 
-# 4. En Linux sin xdg-open pero con gio disponible
+# 4. Termux recibe un comando manual seguro que conserva el token de sesión
+termux_url = 'https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388'
+with patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
+    assert zerochat.get_manual_browser_command(termux_url) == "termux-open-url 'https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388'"
+
+# 5. En Linux sin xdg-open pero con gio disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -321,7 +327,7 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert args[0] == ['gio', 'open', 'http://127.0.0.1:6388/zerochat.html']
         assert kwargs.get('start_new_session') is True
 
-# 5. Fallback a webbrowser cuando no hay herramientas de sistema
+# 6. Fallback a webbrowser cuando no hay herramientas de sistema
 with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb, patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -656,5 +662,3 @@ assert not (zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
-
-
