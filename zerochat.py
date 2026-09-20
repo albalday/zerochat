@@ -45,7 +45,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.4"
+    return "7.1.5"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1533,6 +1533,18 @@ def get_manual_browser_command(url: str) -> str | None:
     return None
 
 
+def get_termux_open_url_executable() -> str | None:
+    """Localiza termux-open-url incluso si el venv recibió un PATH incompleto."""
+    if shutil.which("termux-open-url"):
+        return "termux-open-url"
+
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    executable = Path(prefix) / "bin" / "termux-open-url"
+    if executable.is_file():
+        return str(executable)
+    return None
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -1541,10 +1553,11 @@ def open_browser(url: str) -> bool:
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
     if sys.platform.startswith("linux"):
-        if is_termux_environment() and shutil.which("termux-open-url"):
+        termux_open_url = get_termux_open_url_executable() if is_termux_environment() else None
+        if termux_open_url:
             try:
                 subprocess.Popen(
-                    ["termux-open-url", url],
+                    [termux_open_url, url],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,

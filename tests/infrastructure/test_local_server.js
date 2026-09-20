@@ -317,7 +317,15 @@ termux_url = 'https://albalday.github.io/zerochat/zerochat.html#token=test-token
 with patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
     assert zerochat.get_manual_browser_command(termux_url) == "termux-open-url 'https://albalday.github.io/zerochat/zerochat.html#token=test-token&host=127.0.0.1&port=6388'"
 
-# 5. En Linux sin xdg-open pero con gio disponible
+# 5. Termux usa la ruta absoluta de PREFIX si el venv no hereda PATH
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', return_value=None), patch.object(zerochat.Path, 'is_file', return_value=True), patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
+    with patch.object(sys, 'platform', 'linux'):
+        res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
+        assert res is True, "open_browser debe usar la ruta absoluta de Termux"
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ['/data/data/com.termux/files/usr/bin/termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
+
+# 6. En Linux sin xdg-open pero con gio disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -327,7 +335,7 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert args[0] == ['gio', 'open', 'http://127.0.0.1:6388/zerochat.html']
         assert kwargs.get('start_new_session') is True
 
-# 6. Fallback a webbrowser cuando no hay herramientas de sistema
+# 7. Fallback a webbrowser cuando no hay herramientas de sistema
 with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb, patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
