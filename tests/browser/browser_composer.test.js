@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles } = require('../helpers/browser-env.js');
 
 describe('Browser UI - composer', { concurrency: 2 }, () => {
   after(async () => {
@@ -37,7 +36,7 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
   }
 });
 
-test('Browser UI - Composer Flotante Omnibox, Auto-expansión y Controles Compactos', async () => {
+test('Browser UI - composer se expande y mantiene controles de generación y razonamiento', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -45,23 +44,7 @@ test('Browser UI - Composer Flotante Omnibox, Auto-expansión y Controles Compac
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
-    // 1. Validar geometría y curvatura del Omnibox (.chat-input-container)
-    const composerMetrics = await page.evaluate(() => {
-      const container = document.querySelector('.chat-input-container');
-      const style = getComputedStyle(container);
-      const rect = container.getBoundingClientRect();
-      return {
-        borderRadius: parseFloat(style.borderRadius),
-        width: rect.width,
-        boxShadow: style.boxShadow
-      };
-    });
-
-    assert.ok(composerMetrics.borderRadius >= 20, `El radio de curvatura (${composerMetrics.borderRadius}px) debe ser estilo omnibox (>= 20px / 1.5rem)`);
-    assert.ok(composerMetrics.width <= 1120 && composerMetrics.width > 900, `El ancho del composer (${composerMetrics.width}px) debe alinearse con max-width: 68rem`);
-    assert.notEqual(composerMetrics.boxShadow, 'none', 'El composer debe tener elevación mediante sombra');
-
-    // 2. Validar autoexpansión del textarea al introducir múltiples líneas
+    // 1. Validar autoexpansión del textarea al introducir múltiples líneas
     const initialHeight = await page.$eval('#user-input', el => el.offsetHeight);
     await page.fill('#user-input', 'Línea 1\nLínea 2\nLínea 3\nLínea 4\nLínea 5');
     await page.dispatchEvent('#user-input', 'input');
@@ -75,36 +58,12 @@ test('Browser UI - Composer Flotante Omnibox, Auto-expansión y Controles Compac
     const resetHeight = await page.$eval('#user-input', el => el.offsetHeight);
     assert.ok(resetHeight <= initialHeight, 'Al vaciar el texto debe volver a la altura mínima');
 
-    // 3. Validar botón circular de envío y control compacto de adjuntos
-    await page.waitForFunction(() => {
-      const btnSend = document.getElementById('btn-send');
-      const btnAttach = document.getElementById('btn-attach-file');
-      return btnSend && btnAttach && parseFloat(getComputedStyle(btnSend).borderRadius) >= 16 && parseFloat(getComputedStyle(btnAttach).borderRadius) >= 8;
-    });
-    const buttonStyles = await page.evaluate(() => {
-      const btnSend = document.getElementById('btn-send');
-      const btnAttach = document.getElementById('btn-attach-file');
-      const sendStyle = getComputedStyle(btnSend);
-      const attachStyle = getComputedStyle(btnAttach);
-      return {
-        sendRadius: parseFloat(sendStyle.borderRadius),
-        rawRadius: sendStyle.borderRadius,
-        sendWidth: parseFloat(sendStyle.width),
-        sendHeight: parseFloat(sendStyle.height),
-        attachRadius: parseFloat(attachStyle.borderRadius)
-      };
-    });
-
-    assert.equal(buttonStyles.sendWidth, buttonStyles.sendHeight, 'El botón de envío debe ser perfectamente circular (width === height)');
-    assert.ok(buttonStyles.sendRadius >= 16, 'El botón de envío debe tener borde completamente redondeado');
-    assert.ok(buttonStyles.attachRadius >= 8, 'El botón de adjuntar debe tener esquinas redondeadas');
-
-    // 4. Validar menú desplegable de razonamiento integrado
+    // 2. Validar menú desplegable de razonamiento integrado
     await page.click('#btn-reasoning');
     const isMenuOpen = await page.$eval('#reasoning-menu', el => el.style.display !== 'none');
     assert.ok(isMenuOpen, 'Pulsar #btn-reasoning debe desplegar el menú de opciones');
 
-    // 5. Validar metamorfosis dinámica entre botón de Send y Stop
+    // 3. Validar metamorfosis dinámica entre botón de Send y Stop
     // Al simular streaming activando stop-stream:
     await page.evaluate(() => {
       const stopBtn = document.getElementById('btn-stop-stream');

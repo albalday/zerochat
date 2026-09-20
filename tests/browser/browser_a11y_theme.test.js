@@ -73,31 +73,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
     await page.goto(filePath, { waitUntil: 'load' });
 
-    // 1. Verificar presencia y posición del header moderno
-    const headerInfo = await page.$eval('.app-header', el => {
-      const rect = el.getBoundingClientRect();
-      const style = getComputedStyle(el);
-      return {
-        exists: !!el,
-        position: style.position,
-        top: rect.top,
-        height: rect.height,
-        display: style.display
-      };
-    });
-    assert.ok(headerInfo.exists, 'El header (.app-header) debe existir');
-    assert.equal(headerInfo.display, 'flex', 'El header debe ser flex');
-    assert.ok(headerInfo.height >= 40, 'El header debe tener altura suficiente');
-
-    // 2. Verificar que la antigua barra superior sobre el prompt ya NO existe
-    const hasOldToolbar = await page.$eval('.input-toolbar-top', () => true).catch(() => false);
-    assert.equal(hasOldToolbar, false, 'La barra .input-toolbar-top obsoleta debe haber sido retirada');
-
-    // 3. Verificar que el botón de toggle del sidebar reside en el header y abre/cierra la barra lateral
-    const isSidebarToggleInHeader = await page.$eval('.app-header #btn-toggle-sidebar', el => !!el);
-    assert.ok(isSidebarToggleInHeader, '#btn-toggle-sidebar debe residir dentro de .app-header');
-
-    // Estado inicial: sidebar abierto por defecto
+    // 1. El control del sidebar abre y cierra el panel en escritorio.
     const sidebarInitialDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarInitialDisplay, 'flex', 'El sidebar debe estar abierto por defecto');
 
@@ -111,28 +87,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     const sidebarOpenedDisplay = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
     assert.equal(sidebarOpenedDisplay, 'flex', 'El sidebar debe abrirse (display: flex) tras pulsar el botón del header');
 
-    // 4. Menú de perfiles activo en el header superior
-    const hasProfileMenu = await page.$eval('.app-header #active-profile-menu', el => !!el);
-    assert.ok(hasProfileMenu, 'El selector de perfil debe residir dentro del header');
-
-    const profileStyle = await page.$eval('.header-profile-trigger', el => {
-      const computed = getComputedStyle(el);
-      return {
-        borderStyle: computed.borderStyle,
-        fontSize: computed.fontSize
-      };
-    });
-    assert.equal(profileStyle.borderStyle, 'solid', 'El disparador debe tener un borde sutil');
-
-    // Botón de editar perfiles en cabecera removido
-    const hasBtnOpenProfiles = await page.$eval('#btn-open-profiles', el => !!el).catch(() => false);
-    assert.equal(hasBtnOpenProfiles, false, 'El icono de editar perfiles en la cabecera debe haber sido eliminado');
-
-    // Disclaimer inferior del textbox eliminado
-    const hasDisclaimer = await page.$eval('.chat-disclaimer', el => !!el).catch(() => false);
-    assert.equal(hasDisclaimer, false, 'La línea de ayuda/disclaimer debajo del prompt debe haber sido eliminada');
-
-    // El menú muestra perfiles y una acción explícita para editarlos.
+    // 2. El menú muestra perfiles y permite editarlos.
     await page.click('#active-profile-trigger');
     const menuState = await page.evaluate(() => ({
       open: document.getElementById('active-profile-trigger').getAttribute('aria-expanded'),
@@ -150,7 +105,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     await page.click('#btn-close-profiles');
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);
 
-    // 5. Botón de Configuración en la cabecera del sidebar y selección de sección
+    // 3. El botón de configuración abre la sección solicitada.
     await page.click('#btn-open-settings');
     await page.click('[data-section="tab-model"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
@@ -159,7 +114,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
 
-    // 6. Botón de RAG abre el diálogo de conocimiento (asíncrono con refresh)
+    // 4. Botón de RAG abre el diálogo de conocimiento.
     await page.click('#btn-open-rag');
     await page.waitForFunction(() => document.getElementById('rag-modal')?.open);
     const isRagOpen = await page.$eval('#rag-modal', el => el.open);

@@ -184,6 +184,8 @@ Para acelerar el ciclo de desarrollo sin necesidad de ejecutar siempre los 79 ar
 
 Ejecutadas con Chromium headless mediante Playwright con concurrencia controlada (`concurrency: 2`) y helper compartido `tests/helpers/browser-env.js`:
 
+Los tests de navegador cubren flujos observables de usuario, seguridad y accesibilidad en tiempo de ejecución. Los contratos estáticos de estructura, carga e iconografía se validan preferentemente en `tests/architecture/`; no se fijan radios, sombras, anchos o posiciones salvo que formen parte de un requisito de producto explícito.
+
 | Suite | Casos | Responsabilidad |
 |---|---|---|
 | `browser_startup.test.js` | 5 | Arranque desde HTTP y `file://`, enlace de ayuda, consistencia de runtime y carga limpia de `zerochat.html` sin errores en consola |

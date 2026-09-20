@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser } = require('../helpers/browser-env.js');
 
 describe('Browser UI - mcp_tools', { concurrency: 2 }, () => {
   after(async () => {
@@ -48,7 +47,7 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
-test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herramientas', async () => {
+test('Browser UI - configuración MCP, perfiles y secciones permanecen operativas', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -56,40 +55,10 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
-    // 1. Abrir diálogo de Configuración y validar propiedades de modal moderno
+    // 1. Abrir diálogo de Configuración.
     await page.click('#btn-open-settings');
     await page.click('[data-section="tab-model"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-
-    const dialogMetrics = await page.evaluate(() => {
-      const dialog = document.getElementById('settings-dialog');
-      const style = getComputedStyle(dialog);
-      return {
-        borderRadius: parseFloat(style.borderRadius),
-        boxShadow: style.boxShadow,
-        display: style.display
-      };
-    });
-
-    assert.equal(dialogMetrics.display, 'flex', 'El diálogo abierto debe tener display: flex');
-    assert.ok(dialogMetrics.borderRadius >= 16, `El radio de curvatura (${dialogMetrics.borderRadius}px) debe ser moderno (>= 16px / 1.25rem)`);
-    assert.notEqual(dialogMetrics.boxShadow, 'none', 'El modal debe tener elevación con sombra');
-
-    // Validar que en viewport móvil el modal usa todo el ancho de la pantalla
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => Promise.all(document.getElementById('settings-dialog').getAnimations().map(a => a.finished)));
-    const mobileMetrics = await page.evaluate(() => {
-      const dialog = document.getElementById('settings-dialog');
-      const rect = dialog.getBoundingClientRect();
-      return {
-        width: Math.round(rect.width),
-        windowWidth: window.innerWidth,
-        left: Math.round(rect.left)
-      };
-    });
-    assert.equal(mobileMetrics.width, mobileMetrics.windowWidth, 'En móvil el modal debe usar todo el ancho de la pantalla');
-    assert.equal(mobileMetrics.left, 0, 'En móvil el modal debe extenderse desde el borde izquierdo (left: 0)');
-    await page.setViewportSize({ width: 1280, height: 800 });
 
     const contextCachePlacement = await page.evaluate(() => ({
       automaticNotice: !!document.querySelector('#tab-model [data-i18n="model_cache_title"]'),
@@ -297,57 +266,6 @@ test('Browser UI - Fase 6: Modales <dialog> Modernos con Blur y Tarjetas de Herr
     const isClosed = await page.$eval('#settings-dialog', el => !el.open);
     assert.ok(isClosed, 'El diálogo debe cerrarse correctamente');
 
-    // 4. Validar renderizado de Tarjetas de Herramientas (Tool Cards) en el chat
-    await page.evaluate(() => {
-      const messagesList = document.getElementById('messages-list');
-      const wrapper = document.createElement('div');
-      wrapper.className = 'message-wrapper assistant';
-      wrapper.innerHTML = `
-        <div class="message-row assistant">
-          <div class="message-content-wrapper">
-            <div class="tool-card-wrapper">
-              <div class="tool-execution-card">
-                <div class="tool-card-header">
-                  <div class="tool-card-title">
-                    <span>⚡</span>
-                    <span>execute_javascript</span>
-                  </div>
-                  <div class="tool-card-header-actions">
-                    <span class="tool-card-badge status-success">✅ Completado (42ms)</span>
-                    <button type="button" class="btn-tool-collapse">▾</button>
-                  </div>
-                </div>
-                <div class="tool-card-collapsible-body">
-                  <div class="tool-card-result">
-                    <pre class="tool-card-code"><code>console.log("Prueba Fase 6");</code></pre>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-      messagesList.appendChild(wrapper);
-    });
-
-    // Validar estilos de la tarjeta de herramienta
-    const cardInfo = await page.evaluate(() => {
-      const card = document.querySelector('.tool-execution-card');
-      const badge = document.querySelector('.tool-card-badge');
-      const header = document.querySelector('.tool-card-header');
-      const cardStyle = getComputedStyle(card);
-      const badgeStyle = getComputedStyle(badge);
-      const headerStyle = getComputedStyle(header);
-      return {
-        cardRadius: parseFloat(cardStyle.borderRadius),
-        badgeRadius: parseFloat(badgeStyle.borderRadius),
-        headerBg: headerStyle.backgroundColor
-      };
-    });
-
-    assert.ok(cardInfo.cardRadius >= 8, 'La tarjeta de herramienta debe tener bordes redondeados (>= 8px)');
-    assert.ok(cardInfo.badgeRadius >= 12, 'El badge de estado de la tarjeta debe tener estilo píldora');
-    assert.ok(cardInfo.headerBg, 'La cabecera de la herramienta debe tener un fondo de superficie asignado');
   } finally {
     await browser.close();
   }

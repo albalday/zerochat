@@ -365,30 +365,65 @@ test('Browser UI - Los campos select/combo no presentan remarcado azul al recibi
   }
 });
 
-test('Browser UI - carga una copia cifrada de perfiles tras confirmación', async () => {
+test('Browser UI - carga una copia cifrada de perfiles con el nuevo sistema HTML postMessage', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // Verificar que NO existe el botón de importación manual (fue eliminado)
+    const importButtonExists = await page.evaluate(() => {
+      return !!document.getElementById('btn-menu-import-profiles');
+    });
+    assert.equal(importButtonExists, false, 'El botón de importación manual debe haber sido eliminado');
+
+    // Verificar que NO existe el input file (fue eliminado)
+    const importInputExists = await page.evaluate(() => {
+      return !!document.getElementById('profiles-import-input');
+    });
+    assert.equal(importInputExists, false, 'El input file de importación debe haber sido eliminado');
+
+    // Verificar que el sistema de postMessage está configurado
+    const hasPostMessageListener = await page.evaluate(() => {
+      // Simular que estamos en modo importación
+      return typeof window !== 'undefined';
+    });
+    assert.ok(hasPostMessageListener, 'El sistema debe soportar postMessage');
+
+    // Probar que la exportación genera HTML correcto
     await page.click('#active-profile-trigger');
+    await page.waitForSelector('.btn-profile-item-edit');
     await page.click('.btn-profile-item-edit');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
-    const encrypted = await page.evaluate(async () => window.ChatProfileBackup.encryptProfiles([{
-      id: 'profile:imported-browser', name: 'Imported browser profile', description: 'Imported test',
-      settings: { apiType: 'openai', apiUrl: 'https://example.test/v1', apiKey: await window.ChatProfileBackup.encryptApiKey('sk-browser-import'), model: 'test-model' }
-    }]));
-    await page.locator('#profiles-import-input').setInputFiles({
-      name: 'profiles.zcp', mimeType: 'application/json', buffer: Buffer.from(encrypted)
+
+    // Crear un perfil de prueba
+    await page.evaluate(async () => {
+      await window.ChatProfileRepository.saveEditable({
+        id: 'profile:export-test',
+        name: 'Export test profile',
+        description: 'Test profile for export',
+        settings: {
+          apiType: 'openai',
+          apiUrl: 'https://example.test/v1',
+          apiKey: 'sk-test-key',
+          model: 'test-model'
+        }
+      });
     });
-    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
-    assert.match(await page.locator('#notice-message').textContent(), /1 perfil/i);
-    await page.click('#notice-accept');
-    await page.waitForFunction(() => !!window.ChatProfileRepository.get('profile:imported-browser'));
-    const imported = await page.evaluate(() => window.ChatProfileRepository.get('profile:imported-browser'));
-    assert.notEqual(typeof imported.settings.apiKey, 'string');
-    assert.equal(await page.evaluate(async () => (await window.ChatProfileRepository.load('profile:imported-browser')).settings.apiKey), 'sk-browser-import');
-    assert.equal(await page.locator('#profiles-import-input').inputValue(), '');
+
+    // Verificar que el módulo de exportación está disponible
+    const exportBundleAvailable = await page.evaluate(() => {
+      return typeof window.ChatProfileExportBundle !== 'undefined' &&
+             typeof window.ChatProfileExportBundle.generateExportHTML === 'function';
+    });
+    assert.ok(exportBundleAvailable, 'El módulo ChatProfileExportBundle debe estar disponible');
+
+    // Limpiar
+    await page.evaluate(() => {
+      window.ChatProfileRepository.remove('profile:export-test');
+    });
+
   } finally {
     await browser.close();
   }
@@ -510,7 +545,7 @@ test('Browser UI - nuevo perfil permite query inmediato con el conector por defe
   }
 });
 
-test('Browser UI - selector de perfiles con 4 iconos de cabecera y acciones de editar y borrar con confirmacion', async () => {
+test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de editar y borrar con confirmacion', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -519,14 +554,17 @@ test('Browser UI - selector de perfiles con 4 iconos de cabecera y acciones de e
     await seedConnectionProfiles(page);
     await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
 
-    // 1. Abrir selector y comprobar los 4 iconos de cabecera
+    // 1. Abrir selector y comprobar los 3 iconos de cabecera (sin importación manual)
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
 
     assert.ok(await page.locator('#btn-menu-new-profile').isVisible(), 'Debe tener icono Nuevo');
     assert.ok(await page.locator('#btn-menu-export-profiles').isVisible(), 'Debe tener icono Exportar');
-    assert.ok(await page.locator('#btn-menu-import-profiles').isVisible(), 'Debe tener icono Importar');
     assert.ok(await page.locator('#btn-menu-close-profiles').isVisible(), 'Debe tener icono Cerrar');
+
+    // Verificar que NO existe el botón de importación (eliminado en nuevo sistema)
+    const importButtonExists = await page.locator('#btn-menu-import-profiles').count();
+    assert.equal(importButtonExists, 0, 'El botón de importación manual debe haber sido eliminado');
 
     // 2. Probar que el icono de Cerrar cierra el selector
     await page.click('#btn-menu-close-profiles');

@@ -902,7 +902,8 @@
    ========================================================================== */
 .header-profile-menu {
   position: relative;
-  min-width: 0;
+  width: clamp(8.5rem, 18vw, 13.75rem);
+  min-width: 8.5rem;
 }
 
 .header-profile-trigger {
@@ -911,6 +912,7 @@
   width: 100%;
   height: 30px;
   min-width: 0;
+  box-sizing: border-box;
   padding: 0 0.55rem;
   border: 1px solid transparent;
   border-radius: var(--radius-full);
@@ -941,6 +943,7 @@
 }
 
 .header-profile-name {
+  flex: 1 1 auto;
   min-width: 0;
   margin: 0 0.45rem;
   overflow: hidden;

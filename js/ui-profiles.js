@@ -24,6 +24,7 @@
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
   function getProfileBackup() { return resolveDep('ChatProfileBackup', './profile-backup.js'); }
+  function getProfileExportBundle() { return resolveDep('ChatProfileExportBundle', './profile-export-bundle.js'); }
   function getConfig() { return resolveDep('ChatConfig', './config-store.js'); }
   function getProviders() { return resolveDep('ChatProviders', './providers.js'); }
   function getExport() { return resolveDep('ChatExport', './export.js'); }
@@ -430,63 +431,37 @@
   async function handleExportProfiles(elements) {
     const els = elements || cachedElements || {};
     const ProfileBackup = getProfileBackup();
+    const ProfileExportBundle = getProfileExportBundle();
     const Export = getExport();
     const Profiles = getProfiles();
     try {
-      if (!ProfileBackup?.encryptProfiles || !Export?.downloadFile || !Profiles?.list) {
-        throw new Error('La copia de perfiles no está disponible.');
+      if (!ProfileBackup?.encryptProfiles || !ProfileExportBundle?.generateExportHTML || !Export?.downloadFile || !Profiles?.list) {
+        throw new Error('La exportación de perfiles no está disponible.');
       }
       const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
+
+      if (profiles.length === 0) {
+        showProfileFeedback(els, t('err_no_profiles_to_export') || 'No hay perfiles para exportar.', 'error');
+        return;
+      }
+
       const encrypted = await ProfileBackup.encryptProfiles(profiles);
       const date = new Date().toISOString().slice(0, 10);
-      if (!Export.downloadFile(encrypted, `zerochat_profiles_${date}.zcp`, 'application/json')) {
+
+      // Generar HTML bundle con postMessage
+      const htmlBundle = ProfileExportBundle.generateExportHTML(encrypted, {
+        profileCount: profiles.length,
+        exportDate: date
+      });
+
+      // Descargar como HTML
+      if (!Export.downloadFile(htmlBundle, `zerochat_profiles_${date}.html`, 'text/html')) {
         throw new Error('No se pudo descargar el archivo.');
       }
-      showProfileFeedback(els, t('msg_profiles_exported'), 'success');
+
+      showProfileFeedback(els, t('msg_profiles_exported_html') || 'Perfiles exportados. Abre el archivo HTML descargado para importarlos.', 'success');
     } catch (error) {
       showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-    }
-  }
-
-  async function handleImportProfiles(event, elements, options = {}) {
-    const els = elements || cachedElements || {};
-    const opts = options || cachedOptions || {};
-    const ProfileBackup = getProfileBackup();
-    const Profiles = getProfiles();
-    const Dialogs = getDialogs();
-    const Config = getConfig();
-    const file = event?.target?.files?.[0];
-
-    try {
-      if (!file || !ProfileBackup?.decryptProfiles || !Profiles?.mergeImported) return;
-      if (Number(file.size) > (ProfileBackup.MAX_FILE_BYTES || 1024 * 1024) * 2) {
-        throw new Error('El archivo supera el tamaño permitido.');
-      }
-      let rawText = '';
-      if (typeof opts.readFileAsText === 'function') {
-        rawText = await opts.readFileAsText(file);
-      } else if (file.text) {
-        rawText = await file.text();
-      }
-
-      const imported = await ProfileBackup.decryptProfiles(rawText);
-      if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_import_profiles', { count: imported.length }))) return;
-      Profiles.mergeImported(imported);
-      const runtimeConfig = opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {});
-      const activeId = runtimeConfig.activeProfile?.id || '';
-      if (Profiles.get?.(activeId)) activateConnectionProfile(activeId, opts);
-      else Config?.activateFallbackProfile?.();
-
-      const nextActive = (opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {})).activeProfile?.id || '';
-      populateProfileSelector(els, nextActive);
-      applyProfileToForm(els, opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {}));
-      setProfileQueryState(els, false);
-      showProfileFeedback(els, t('msg_profiles_imported'), 'success');
-      if (typeof opts.updateUIFromConfig === 'function') opts.updateUIFromConfig();
-    } catch (error) {
-      showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-    } finally {
-      if (event?.target) event.target.value = '';
     }
   }
 
@@ -742,18 +717,6 @@
       activeCleanupFns.push(() => els.btnExportProfiles.removeEventListener('click', onClick));
     }
 
-    if (els.btnImportProfiles) {
-      const onClick = () => { if (els.profilesImportInput) els.profilesImportInput.click(); };
-      els.btnImportProfiles.addEventListener('click', onClick);
-      activeCleanupFns.push(() => els.btnImportProfiles.removeEventListener('click', onClick));
-    }
-
-    if (els.profilesImportInput) {
-      const onChange = (e) => handleImportProfiles(e, els, cachedOptions);
-      els.profilesImportInput.addEventListener('change', onChange);
-      activeCleanupFns.push(() => els.profilesImportInput.removeEventListener('change', onChange));
-    }
-
     if (els.btnCloseProfiles) {
       const onClick = () => closeProfilesModal(els, false, cachedOptions);
       els.btnCloseProfiles.addEventListener('click', onClick);
@@ -796,12 +759,6 @@
       const onClick = () => handleExportProfiles(els);
       els.btnMenuExportProfiles.addEventListener('click', onClick);
       activeCleanupFns.push(() => els.btnMenuExportProfiles.removeEventListener('click', onClick));
-    }
-
-    if (els.btnMenuImportProfiles) {
-      const onClick = () => { if (els.profilesImportInput) els.profilesImportInput.click(); };
-      els.btnMenuImportProfiles.addEventListener('click', onClick);
-      activeCleanupFns.push(() => els.btnMenuImportProfiles.removeEventListener('click', onClick));
     }
 
     if (els.btnMenuCloseProfiles) {
@@ -853,7 +810,6 @@
     handleNewProfile,
     handleMenuNewProfile,
     handleExportProfiles,
-    handleImportProfiles,
     openProfileMenu,
     closeProfileMenu,
     setProfileMenuOpen,

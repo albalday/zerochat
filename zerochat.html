@@ -11,7 +11,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v7.1.9</title>
+  <title>ZeroChat v7.2.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -266,22 +266,18 @@
                 <button type="button" id="btn-menu-export-profiles" class="btn-profile-header-icon" data-i18n-title="btn_export_profiles_title" title="Exportar todos los perfiles a un archivo cifrado" aria-label="Exportar todos los perfiles">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
                 </button>
-                <button type="button" id="btn-menu-import-profiles" class="btn-profile-header-icon" data-i18n-title="btn_import_profiles_title" title="Cargar perfiles desde un archivo cifrado" aria-label="Cargar perfiles">
-                  <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
-                </button>
                 <button type="button" id="btn-menu-close-profiles" class="btn-profile-header-icon" data-i18n-title="btn_close_profiles_menu" title="Cerrar selector" aria-label="Cerrar selector">
                   <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
                 </button>
               </div>
             </div>
-            <input id="profiles-import-input" type="file" accept="application/json,.zcp" hidden>
             <div id="active-profile-list" class="header-profile-list" role="menu" aria-labelledby="profile-menu-title"></div>
           </div>
         </div>
       </div>
 
       <div class="header-right">
-        <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs">
+        <button type="button" id="btn-toggle-debug" class="btn-header-icon btn-debug-toggle" data-i18n-title="btn_logs_title" title="Abrir panel lateral de logs y depuración" aria-label="Abrir panel lateral de logs" aria-controls="debug-panel" aria-expanded="false">
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         </button>
       </div>
@@ -493,14 +489,14 @@
   </main>
 
   <!-- Panel Lateral Derecho: Log & Debug / Razonamiento -->
-  <aside id="debug-panel" class="debug-panel" style="display: none;">
+  <aside id="debug-panel" class="debug-panel" style="display: none;" aria-labelledby="debug-panel-title" aria-hidden="true">
     <div class="debug-panel-header">
       <div class="debug-title">
         <span class="debug-badge-icon">
           <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
         </span>
-        <span class="debug-badge-text" data-i18n="debug_panel_title">Logs y Debug</span>
-        <span id="debug-status-indicator" class="debug-status-indicator idle">Inactivo</span>
+        <span id="debug-panel-title" class="debug-badge-text" data-i18n="debug_panel_title">Logs y Debug</span>
+        <span id="debug-status-indicator" class="debug-status-indicator idle" aria-live="polite">Inactivo</span>
       </div>
       <div class="debug-actions">
         <button type="button" id="btn-copy-debug" class="btn-debug-action" data-i18n-title="btn_copy_debug_title" title="Copiar logs al portapapeles">
@@ -533,12 +529,12 @@
     </div>
 
     <!-- Pestañas de filtrado de logs -->
-    <div class="debug-tabs">
-      <button type="button" class="debug-tab active" data-debug-tab="all" data-i18n="debug_tab_all">Todo</button>
-      <button type="button" class="debug-tab" data-debug-tab="thinking" data-i18n="debug_tab_thinking">Razonamiento</button>
-      <button type="button" class="debug-tab" data-debug-tab="tool" data-i18n="debug_tab_tool">Herramientas</button>
-      <button type="button" class="debug-tab" data-debug-tab="network" data-i18n="debug_tab_network">Red</button>
-      <button type="button" class="debug-tab" data-debug-tab="raw" data-i18n="debug_tab_raw">Raw</button>
+    <div class="debug-tabs" role="group" data-i18n-aria="debug_tabs_label" aria-label="Filtros de logs">
+      <button type="button" class="debug-tab active" data-debug-tab="all" data-i18n="debug_tab_all" aria-pressed="true">Todo</button>
+      <button type="button" class="debug-tab" data-debug-tab="thinking" data-i18n="debug_tab_thinking" aria-pressed="false">Razonamiento</button>
+      <button type="button" class="debug-tab" data-debug-tab="tool" data-i18n="debug_tab_tool" aria-pressed="false">Herramientas</button>
+      <button type="button" class="debug-tab" data-debug-tab="network" data-i18n="debug_tab_network" aria-pressed="false">Red</button>
+      <button type="button" class="debug-tab" data-debug-tab="raw" data-i18n="debug_tab_raw" aria-pressed="false">Raw</button>
     </div>
 
     <!-- Contenedor del Log Monospace -->
@@ -641,6 +637,7 @@
   <script defer src="js/attachments.js"></script>
   <script defer src="js/export.js"></script>
   <script defer src="js/profile-backup.js"></script>
+  <script defer src="js/profile-export-bundle.js"></script>
   <script defer src="js/profile-repository.js"></script>
   <script defer src="js/config-store.js"></script>
   <script defer src="js/context-manager.js"></script>

@@ -41,12 +41,15 @@ test('UI Modernization - Header incluye acciones superiores limpias y safe-area'
   assert.ok(!indexHtml.includes('id="btn-quick-export"'), 'index.html no debe incluir #btn-quick-export en la barra superior');
   assert.ok(!indexHtml.includes('id="btn-clear-chat"'), 'index.html no debe incluir #btn-clear-chat');
   assert.ok(indexHtml.includes('id="btn-toggle-debug"'), 'index.html debe incluir #btn-toggle-debug en la barra superior');
+  assert.ok(!indexHtml.includes('input-toolbar-top'), 'index.html no debe incluir la barra superior obsoleta del compositor');
   assert.ok(!indexHtml.includes('class="sidebar-header-title"'), 'index.html no debe incluir un título textual en la cabecera del sidebar');
   assert.ok(indexHtml.includes('.sidebar-header #btn-open-settings') || indexHtml.includes('id="btn-open-settings" class="btn-sidebar-icon"'), 'index.html debe incluir #btn-open-settings en la cabecera del sidebar');
   assert.ok(!indexHtml.includes('id="btn-open-export-modal"'), 'index.html no debe incluir #btn-open-export-modal en el pie de la barra lateral');
   assert.match(indexHtml, /class="header-left"[\s\S]*id="btn-sidebar-new-chat"/, 'index.html debe incluir #btn-sidebar-new-chat junto al control del sidebar en la cabecera');
   assert.match(indexHtml, /id="btn-sidebar-new-tab"[^>]*target="_blank"/, 'index.html debe incluir un enlace seguro para abrir ZeroChat en una pestaña nueva');
   assert.ok(indexHtml.includes('href="#icon-external-link"'), 'El enlace de nueva pestaña debe usar un icono SVG vectorial');
+  assert.match(indexHtml, /id="btn-toggle-sidebar"[\s\S]*href="#icon-menu"/, 'el control del sidebar debe usar el icono de menú SVG');
+  assert.match(indexHtml, /id="btn-toggle-debug"[\s\S]*href="#icon-search"/, 'el control de logs debe usar el icono SVG de búsqueda');
   assert.ok(!indexHtml.includes('app-brand-title'), 'index.html no debe incluir título en la barra superior');
 });
 
