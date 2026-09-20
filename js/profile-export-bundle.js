@@ -77,16 +77,22 @@
     .container {
       background: white;
       border-radius: 16px;
-      padding: 40px;
-      max-width: 500px;
+      padding: 24px;
+      max-width: 600px;
       width: 100%;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
       text-align: center;
     }
 
+    @media (min-width: 600px) {
+      .container {
+        padding: 32px;
+      }
+    }
+
     .icon {
-      font-size: 64px;
-      margin-bottom: 20px;
+      font-size: 44px;
+      margin-bottom: 16px;
       animation: pulse 2s ease-in-out infinite;
     }
 
@@ -111,8 +117,8 @@
     .info-box {
       background: #f8f9fa;
       border-left: 4px solid #667eea;
-      padding: 20px;
-      margin: 20px 0;
+      padding: 16px 18px;
+      margin: 16px 0;
       text-align: left;
       border-radius: 8px;
     }
@@ -290,21 +296,6 @@
       <strong>⚠️ Nota sobre permisos del navegador</strong>
       Es posible que tu navegador muestre un aviso solicitando permiso para abrir una nueva pestaña.
       Esto es normal por seguridad. Si aparece, autoriza la acción para continuar con la importación.
-    </div>
-
-    <div class="meta">
-      <div class="meta-row">
-        <span class="meta-label">Perfiles:</span>
-        <span class="meta-value">${profileCount} cifrado${profileCount !== 1 ? 's' : ''}</span>
-      </div>
-      <div class="meta-row">
-        <span class="meta-label">Exportado:</span>
-        <span class="meta-value">${exportDate}</span>
-      </div>
-      <div class="meta-row">
-        <span class="meta-label">Formato:</span>
-        <span class="meta-value">AES-GCM</span>
-      </div>
     </div>
   </div>
 
