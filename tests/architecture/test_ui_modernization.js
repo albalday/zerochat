@@ -15,15 +15,18 @@ test('UI Modernization - Composer textarea usa field-sizing: content', () => {
   assert.ok(composerCss.includes('field-sizing: content'), 'El textarea debe declarar field-sizing: content');
 });
 
-test('UI Modernization - Modales y mensajes usan @starting-style para animaciones modernas', () => {
+test('UI Modernization - La interfaz desactiva transiciones y animaciones decorativas', () => {
+  const baseCss = fs.readFileSync(path.resolve(__dirname, '../../css/base.css'), 'utf8');
+  assert.match(baseCss, /animation:\s*none\s*!important/, 'base.css debe desactivar animaciones');
+  assert.match(baseCss, /transition:\s*none\s*!important/, 'base.css debe desactivar transiciones');
+
   const modalsCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/modals.css'), 'utf8');
-  assert.ok(modalsCss.includes('@starting-style'), 'modals.css debe usar @starting-style');
+  assert.equal(modalsCss.includes('@starting-style'), false, 'modals.css no debe animar la apertura de diálogos');
 
   const composerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/composer.css'), 'utf8');
-  assert.ok(composerCss.includes('@starting-style'), 'composer.css debe usar @starting-style en reasoning-menu');
+  assert.equal(composerCss.includes('@starting-style'), false, 'composer.css no debe animar el menú de razonamiento');
 
   const messagesCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/messages.css'), 'utf8');
-  assert.ok(messagesCss.includes('.is-new-message'), 'messages.css debe animar únicamente mensajes con .is-new-message');
   assert.ok(messagesCss.includes('.typing-indicator'), 'messages.css debe declarar el typing indicator');
   assert.ok(messagesCss.includes('interpolate-size: allow-keywords'), 'messages.css debe soportar interpolate-size');
 });
@@ -105,4 +108,3 @@ test('UI Modernization - Estándar unificado de UI para textboxes y combos', () 
   const sidebarCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/sidebar.css'), 'utf8');
   assert.ok(sidebarCss.includes('.sidebar-search-input:focus'), 'sidebar.css debe definir foco accesible en búsqueda de sidebar');
 });
-

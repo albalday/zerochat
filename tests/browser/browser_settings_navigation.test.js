@@ -8,16 +8,133 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     await closeGlobalBrowser();
   });
 
-  test.skip('Requisitos 1-5, 7-10: Flujo de navegación de configuración, cabecera de sección, sin pestañas y persistencia', async () => {
-    // TODO: Este test necesita actualizarse para la nueva arquitectura de settings-dialog
-    // que ahora se renderiza dinámicamente desde JS en lugar de estar en el HTML estático.
-    // El campo #setting-system-data-prompt ya no existe en el HTML actual.
-    // Requiere investigación de la implementación actual en js/ui-settings.js para reescribir el test.
+  test('Requisitos 1-5, 7-10: flujo de configuración, cabecera de sección y persistencia', { timeout: 10000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      page.setDefaultTimeout(3000);
+      await seedConnectionProfiles(page);
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      // El contenedor es estático; el formulario se crea bajo demanda al abrir una sección.
+      await page.waitForSelector('#settings-dialog', { state: 'attached' });
+
+      const initial = await page.evaluate(() => ({
+        chatVisible: !document.getElementById('sidebar-view-chat').hidden,
+        settingsHidden: document.getElementById('sidebar-view-settings').hidden,
+        dialogOpen: document.getElementById('settings-dialog').open
+      }));
+      assert.deepEqual(initial, { chatVisible: true, settingsHidden: true, dialogOpen: false });
+
+      await page.locator('#btn-open-settings').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-view-settings').hidden);
+
+      const sidebar = await page.evaluate(() => ({
+        mode: document.getElementById('chat-sidebar').classList.contains('mode-settings'),
+        languages: document.querySelectorAll('#sidebar-choice-language .btn-lang-toggle').length,
+        themes: document.querySelectorAll('#sidebar-choice-theme .btn-theme-toggle').length,
+        sections: Array.from(document.querySelectorAll('#sidebar-settings-nav .sidebar-settings-item')).map(item => ({
+          id: item.dataset.section,
+          icon: Boolean(item.querySelector('svg.ui-icon')),
+          label: Boolean(item.querySelector('.settings-item-label')?.textContent.trim())
+        }))
+      }));
+      assert.equal(sidebar.mode, true);
+      assert.equal(sidebar.languages, 2);
+      assert.equal(sidebar.themes, 2);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['tab-model', 'tab-agent', 'rag-manage', 'tab-mcp', 'tab-permissions', 'tab-inspector']);
+      assert.ok(sidebar.sections.every(item => item.icon && item.label));
+
+      await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="en"]').evaluate(button => button.click());
+      assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
+      await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="es"]').evaluate(button => button.click());
+      await page.locator('#sidebar-choice-theme .btn-theme-toggle[data-theme="dark"]').evaluate(button => button.click());
+      assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
+      await page.locator('#sidebar-choice-theme .btn-theme-toggle[data-theme="light"]').evaluate(button => button.click());
+
+      await page.locator('#btn-sidebar-back-to-chats').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-view-chat').hidden);
+      await page.locator('#btn-open-settings').evaluate(button => button.click());
+      await page.locator('#sidebar-settings-nav [data-section="tab-agent"]').evaluate(item => item.click());
+      await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+
+      const panel = await page.evaluate(() => {
+        const dialog = document.getElementById('settings-dialog');
+        return {
+          activePane: dialog.querySelector('.settings-section-pane.active')?.id,
+          oldTabs: dialog.querySelectorAll('.modal-tabs-nav, .modal-tab-btn').length,
+          header: Boolean(dialog.querySelector('.settings-section-header')),
+          close: Boolean(dialog.querySelector('#btn-close-settings svg')),
+          save: Boolean(dialog.querySelector('#btn-save-settings')),
+          activeSidebarSection: document.querySelector('#sidebar-settings-nav .sidebar-settings-item.active')?.dataset.section,
+          modalFooter: Boolean(dialog.querySelector('.modal-footer')),
+          clearInDialog: Boolean(dialog.querySelector('#btn-clear-all-data'))
+        };
+      });
+      assert.deepEqual(panel, {
+        activePane: 'tab-agent', oldTabs: 0, header: true, close: true, save: true,
+        activeSidebarSection: 'tab-agent', modalFooter: false, clearInDialog: false
+      });
+
+      await page.locator('#btn-close-settings').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      assert.equal(await page.locator('#sidebar-view-settings #btn-clear-all-data').count(), 1);
+      await page.locator('#sidebar-view-settings #btn-clear-all-data').evaluate(button => button.click());
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      await page.locator('#notice-cancel').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
+
+      await page.locator('#sidebar-settings-nav [data-section="tab-model"]').evaluate(item => item.click());
+      await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+      await page.fill('#setting-system-data-prompt', 'Instrucción de prueba persistencia');
+      await page.locator('#btn-save-settings').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('zerochat_runtime_config_v2')).systemDataPrompt), 'Instrucción de prueba persistencia');
+    } finally {
+      await browser.close();
+    }
   });
 
-  test.skip('Requisito 6: En viewport móvil (<= 768px), seleccionar sección auto-cierra el sidebar y volver reabre el sidebar de configuración', async () => {
-    // TODO: Este test también necesita actualización para la nueva arquitectura.
-    // Está fallando con timeout de 30s en la línea 46 esperando que settings-dialog se abra.
-    // El diálogo se renderiza dinámicamente desde JS y requiere investigación de js/ui-settings.js
+  test('Requisito 6: en móvil, seleccionar sección cierra el sidebar y cerrar el panel lo recupera', { timeout: 10000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      page.setDefaultTimeout(3000);
+      await seedConnectionProfiles(page);
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      // El formulario de ajustes se monta bajo demanda al abrir una sección.
+      await page.waitForSelector('#settings-dialog', { state: 'attached' });
+
+      const sidebarOpen = await page.evaluate(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+      if (sidebarOpen) {
+        await page.locator('#btn-close-sidebar').evaluate(button => button.click());
+        await page.waitForFunction(() => document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+      }
+      await page.locator('#btn-toggle-sidebar').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+      await page.locator('#btn-open-settings').evaluate(button => button.click());
+      await page.locator('#sidebar-settings-nav [data-section="tab-model"]').evaluate(item => item.click());
+      await page.waitForFunction(() => document.getElementById('settings-dialog').open);
+      await page.evaluate(() => Promise.all(
+        document.getElementById('settings-dialog').getAnimations().map(animation => animation.finished.catch(() => {}))
+      ));
+
+      const mobileOpen = await page.evaluate(() => ({
+        sidebarHidden: document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'),
+        dialogWidth: Math.round(document.getElementById('settings-dialog').getBoundingClientRect().width),
+        layoutWidth: document.documentElement.clientWidth
+      }));
+      assert.equal(mobileOpen.sidebarHidden, true);
+      assert.equal(mobileOpen.dialogWidth, mobileOpen.layoutWidth);
+
+      await page.locator('#btn-close-settings').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+      const mobileClosed = await page.evaluate(() => ({
+        sidebarHidden: document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'),
+        settingsVisible: !document.getElementById('sidebar-view-settings').hidden
+      }));
+      assert.deepEqual(mobileClosed, { sidebarHidden: false, settingsVisible: true });
+    } finally {
+      await browser.close();
+    }
   });
 });

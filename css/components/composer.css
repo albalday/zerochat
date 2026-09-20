@@ -295,20 +295,7 @@
   overflow: hidden;
   /* Se abre con display:flex desde ui-reasoning.js. */
   flex-direction: column;
-  /* Entrada animada con @starting-style */
-  transition: opacity 0.15s ease, translate 0.15s ease,
-              display 0.15s ease allow-discrete;
-  opacity: 1;
-  translate: 0 0;
 }
-
-@starting-style {
-  .reasoning-menu {
-    opacity: 0;
-    translate: 0 8px;
-  }
-}
-
 
 .reasoning-menu-header {
   display: flex;
