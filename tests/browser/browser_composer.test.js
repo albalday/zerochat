@@ -62,6 +62,11 @@ test('Browser UI - composer se expande y mantiene controles de generación y raz
     await page.click('#btn-reasoning');
     const isMenuOpen = await page.$eval('#reasoning-menu', el => el.style.display !== 'none');
     assert.ok(isMenuOpen, 'Pulsar #btn-reasoning debe desplegar el menú de opciones');
+    await page.locator('#reasoning-intensity').fill('3');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().reasoningEffort), 'high');
+    assert.equal(await page.locator('#reasoning-menu').evaluate(el => el.style.display), 'flex');
+    await page.click('#btn-close-reasoning');
+    assert.equal(await page.locator('#reasoning-menu').evaluate(el => el.style.display), 'none');
 
     // 3. Validar metamorfosis dinámica entre botón de Send y Stop
     // Al simular streaming activando stop-stream:
@@ -187,7 +192,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
           placeholder: input.placeholder,
           inputHeight: input.getBoundingClientRect().height,
           lineHeight: parseFloat(inputStyle.lineHeight),
-          hasIcons: buttons.every(button => !!button.querySelector('svg use')),
+          hasIcons: buttons.every(button => !!button.querySelector('svg')),
           hasNames: buttons.every(button => !!(button.getAttribute('aria-label') || button.getAttribute('aria-labelledby'))),
           sameRow: rects.every(rect => Math.abs(rect.top - rects[0].top) < 1),
           withinViewport: rects.every(rect => rect.left >= 0 && rect.right <= innerWidth)

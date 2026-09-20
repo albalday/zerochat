@@ -2,208 +2,42 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UIReasoning = require('../../js/ui-reasoning.js');
 
-test('UIReasoning - Formateo de etiquetas de nivel de razonamiento', () => {
-  const none = UIReasoning.getReasoningLevelLabel('none');
-  assert.equal(none.icon, '⚪');
-  assert.ok(none.label);
-
-  const low = UIReasoning.getReasoningLevelLabel('low');
-  assert.equal(low.icon, '🟢');
-
-  const med = UIReasoning.getReasoningLevelLabel('medium');
-  assert.equal(med.icon, '🟡');
-
-  const high = UIReasoning.getReasoningLevelLabel('high');
-  assert.equal(high.icon, '🔴');
-
-  const xhigh = UIReasoning.getReasoningLevelLabel('xhigh');
-  assert.equal(xhigh.icon, '🔥');
+test('UIReasoning - convierte entre intensidad y esfuerzo sin valores inválidos', () => {
+  assert.equal(UIReasoning.getReasoningIntensity('none'), 0);
+  assert.equal(UIReasoning.getReasoningIntensity('off'), 0);
+  assert.equal(UIReasoning.getReasoningIntensity('medium'), 2);
+  assert.equal(UIReasoning.getReasoningIntensity('xhigh'), 4);
+  assert.equal(UIReasoning.getReasoningLevelFromIntensity(-1), 'none');
+  assert.equal(UIReasoning.getReasoningLevelFromIntensity(3), 'high');
+  assert.equal(UIReasoning.getReasoningLevelFromIntensity(99), 'xhigh');
 });
 
-test('UIReasoning - renderReasoningMenuOptions crea botones interactivos', () => {
-  const createdButtons = [];
-  const fakeContainer = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: (tag) => {
-        const el = {
-          tagName: tag,
-          type: '',
-          className: '',
-          attributes: {},
-          classList: {
-            add: (cls) => { el.className += ' ' + cls; },
-            remove: () => {}
-          },
-          setAttribute: (name, val) => { el.attributes[name] = val; },
-          getAttribute: (name) => el.attributes[name],
-          addEventListener: (event, handler) => { el._handler = handler; }
-        };
-        return el;
-      }
+test('UIReasoning - sincroniza slider y etiqueta con el esfuerzo elegido', () => {
+  const attributes = {};
+  const elements = {
+    reasoningIntensity: {
+      value: '',
+      style: { setProperty: (key, value) => { attributes[key] = value; } },
+      setAttribute: (key, value) => { attributes[key] = value; }
     },
-    appendChild: (child) => {
-      createdButtons.push(child);
-    }
+    reasoningIntensityValue: { textContent: '' }
   };
-
-  const elements = { reasoningOptionsContainer: fakeContainer };
-  const reasoningInfo = { levels: ['off', 'low', 'medium', 'high'] };
-
-  let selectedLevel = null;
-  UIReasoning.renderReasoningMenuOptions(elements, reasoningInfo, 'low', (lvl) => {
-    selectedLevel = lvl;
-  });
-
-  assert.equal(createdButtons.length, 4);
-  assert.equal(createdButtons[1].attributes['data-level'], 'low');
-  assert.ok(createdButtons[1].className.includes('active'));
-
-  // Simular click
-  createdButtons[2]._handler({ stopPropagation: () => {} });
-  assert.equal(selectedLevel, 'medium');
+  UIReasoning.syncReasoningIntensity(elements, 'high');
+  assert.equal(elements.reasoningIntensity.value, '3');
+  assert.equal(attributes['--reasoning-intensity'], '75%');
+  assert.ok(elements.reasoningIntensityValue.textContent);
 });
 
-test('UIReasoning - ofrece el transporte experimental solo cuando el adaptador lo declara', () => {
-  const created = [];
-  const container = {
-    ownerDocument: { createElement: () => {
-      const element = { className: '', attributes: {}, classList: { add: () => {} }, setAttribute: (name, value) => { element.attributes[name] = value; }, addEventListener: (_event, handler) => { element.handler = handler; } };
-      return element;
-    } },
-    appendChild: element => created.push(element)
+test('UIReasoning - seleccionar nivel mantiene la compatibilidad y notifica la intención', () => {
+  const classes = new Set();
+  const elements = {
+    reasoningLabel: { textContent: '' },
+    btnReasoning: { classList: { toggle: (key, value) => value ? classes.add(key) : classes.delete(key) } },
+    reasoningMenu: { style: {} }
   };
   let selected = '';
-  UIReasoning.renderReasoningTransportOptions({ reasoningOptionsContainer: container }, { transportOptions: ['omit', 'send-none'] }, 'auto', value => { selected = value; });
-  const sendNone = created.find(element => element.attributes['data-reasoning-transport'] === 'send-none');
-  assert.ok(sendNone);
-  sendNone.handler({ stopPropagation: () => {} });
-  assert.equal(selected, 'send-none');
-});
-
-test('UIReasoning - selectReasoningLevel normaliza y emite la intención sin mutar configuración', () => {
-  const appConfig = { reasoningEffort: 'none' };
-  const labelEl = { textContent: '' };
-  const btnEl = {
-    classList: {
-      classes: new Set(),
-      add: function (...cls) { cls.forEach(c => this.classes.add(c)); },
-      remove: function (...cls) { cls.forEach(c => this.classes.delete(c)); }
-    }
-  };
-  const menuEl = { style: {} };
-
-  const elements = {
-    reasoningLabel: labelEl,
-    btnReasoning: btnEl,
-    reasoningMenu: menuEl
-  };
-
-  let callbackCalledWith = null;
-  UIReasoning.selectReasoningLevel(elements, appConfig, 'high', (norm) => {
-    callbackCalledWith = norm;
-  });
-
-  assert.equal(appConfig.reasoningEffort, 'none');
-  assert.equal(callbackCalledWith, 'high');
-  assert.equal(labelEl.textContent, 'High');
-  assert.ok(btnEl.classList.classes.has('active'));
-  assert.ok(btnEl.classList.classes.has('active-high'));
-  assert.equal(menuEl.style.display, 'none');
-
-  // Seleccionar 'off' normaliza a 'none'
-  UIReasoning.selectReasoningLevel(elements, appConfig, 'off');
-  assert.equal(appConfig.reasoningEffort, 'none');
-  assert.equal(labelEl.textContent, 'None');
-  assert.ok(!btnEl.classList.classes.has('active'));
-});
-
-test('UIReasoning - renderReasoningMenuOptions genera atributos ARIA estándar y checkmark SVG', () => {
-  const createdButtons = [];
-  const fakeContainer = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: (tag) => {
-        const el = {
-          tagName: tag,
-          type: '',
-          className: '',
-          attributes: {},
-          classList: {
-            add: (cls) => { el.className += ' ' + cls; },
-            remove: (cls) => { el.className = el.className.replace(cls, '').trim(); }
-          },
-          setAttribute: (name, val) => { el.attributes[name] = val; },
-          getAttribute: (name) => el.attributes[name],
-          addEventListener: (event, handler) => { el._handler = handler; }
-        };
-        return el;
-      }
-    },
-    appendChild: (child) => {
-      createdButtons.push(child);
-    }
-  };
-
-  const elements = { reasoningOptionsContainer: fakeContainer };
-  const reasoningInfo = { levels: ['off', 'low', 'medium', 'high'] };
-
-  UIReasoning.renderReasoningMenuOptions(elements, reasoningInfo, 'high', () => {});
-
-  assert.equal(createdButtons.length, 4);
-  createdButtons.forEach(btn => {
-    assert.equal(btn.attributes['role'], 'menuitemradio');
-    assert.ok(btn.innerHTML.includes('option-check'));
-    assert.ok(btn.innerHTML.includes('<svg'));
-  });
-
-  // El botón 'high' debe tener aria-checked="true"
-  const highBtn = createdButtons.find(b => b.attributes['data-level'] === 'high');
-  assert.equal(highBtn.attributes['aria-checked'], 'true');
-  assert.ok(highBtn.className.includes('active'));
-
-  // Los demás deben tener aria-checked="false"
-  const lowBtn = createdButtons.find(b => b.attributes['data-level'] === 'low');
-  assert.equal(lowBtn.attributes['aria-checked'], 'false');
-});
-
-test('UIReasoning - openReasoningMenu y closeReasoningMenu actualizan aria-expanded', () => {
-  const btnEl = {
-    attributes: {},
-    setAttribute: function(name, val) { this.attributes[name] = val; },
-    getAttribute: function(name) { return this.attributes[name]; },
-    getBoundingClientRect: () => ({ top: 100, left: 100, width: 80, height: 32 })
-  };
-  const menuEl = {
-    style: {},
-    addEventListener: () => {}
-  };
-  const fakeContainer = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: () => ({
-        attributes: {},
-        classList: { add: () => {}, remove: () => {} },
-        setAttribute: () => {},
-        getAttribute: () => '',
-        addEventListener: () => {}
-      })
-    },
-    appendChild: () => {},
-    querySelector: () => null
-  };
-
-  const elements = {
-    btnReasoning: btnEl,
-    reasoningMenu: menuEl,
-    reasoningOptionsContainer: fakeContainer
-  };
-
-  UIReasoning.openReasoningMenu(elements, { apiType: 'openai', reasoningEffort: 'low' });
-  assert.equal(btnEl.attributes['aria-expanded'], 'true');
-  assert.equal(menuEl.style.display, 'flex');
-
-  UIReasoning.closeReasoningMenu(elements);
-  assert.equal(btnEl.attributes['aria-expanded'], 'false');
-  assert.equal(menuEl.style.display, 'none');
+  UIReasoning.selectReasoningLevel(elements, {}, 'high', value => { selected = value; });
+  assert.equal(selected, 'high');
+  assert.ok(classes.has('active-high'));
+  assert.equal(elements.reasoningMenu.style.display, 'none');
 });

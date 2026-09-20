@@ -104,15 +104,15 @@
 }
 
 [data-theme="dark"] .btn-reasoning.active-medium {
-  border-color: #eab308;
-  background-color: rgba(234, 179, 8, 0.2);
-  color: #fef08a;
+  border-color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #86efac;
 }
 
 [data-theme="dark"] .btn-reasoning.active-high {
-  border-color: #ef4444;
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  border-color: #eab308;
+  background-color: rgba(234, 179, 8, 0.2);
+  color: #fef08a;
 }
 
 [data-theme="dark"] .btn-reasoning.active-xhigh {

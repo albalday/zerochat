@@ -227,25 +227,17 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
     assert.ok(headerIcons.ragWidth >= 12, 'El icono RAG debe tener dimensiones computadas válidas');
     assert.ok(headerIcons.reasoningWidth >= 12, 'El icono de razonamiento debe tener dimensiones válidas');
 
-    // 2. Abrir menú de razonamiento y verificar cabecera con SVG
+    // 2. Abrir el panel de razonamiento y verificar slider, indicador y cierre accesibles
     await page.click('#btn-reasoning');
     await page.waitForFunction(() => document.getElementById('reasoning-menu')?.style.display !== 'none');
 
     const menuHeaderInfo = await page.evaluate(() => {
       const menu = document.getElementById('reasoning-menu');
       const header = document.querySelector('.reasoning-menu-header');
-      const options = document.querySelector('.reasoning-options');
-      const lowOption = document.querySelector('.reasoning-option[data-level="low"]') || document.querySelector('.reasoning-option');
-      const lowIcon = lowOption?.querySelector('.option-icon');
-      const lowText = lowOption?.querySelector('.option-text');
+      const intensity = document.getElementById('reasoning-intensity');
+      const close = document.getElementById('btn-close-reasoning');
       const svg = header?.querySelector('svg');
       const text = header?.textContent || '';
-      const activeOption = document.querySelector('.reasoning-option.active');
-      const activeCheckSvg = activeOption?.querySelector('.option-check svg');
-      const lowBorderStyle = lowOption ? getComputedStyle(lowOption).borderStyle : '';
-      const activeBorderStyle = activeOption ? getComputedStyle(activeOption).borderStyle : '';
-      const lowBorderWidth = lowOption ? getComputedStyle(lowOption).borderWidth : '';
-      const activeBorderWidth = activeOption ? getComputedStyle(activeOption).borderWidth : '';
       const btnAriaPopup = document.getElementById('btn-reasoning')?.getAttribute('aria-haspopup');
       const btnAriaExpanded = document.getElementById('btn-reasoning')?.getAttribute('aria-expanded');
 
@@ -255,14 +247,10 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
         text: text.trim(),
         flexDirection: menu ? getComputedStyle(menu).flexDirection : '',
         headerBottom: header?.getBoundingClientRect().bottom || 0,
-        optionsTop: options?.getBoundingClientRect().top || 0,
-        lowIconRight: lowIcon?.getBoundingClientRect().right || 0,
-        lowTextLeft: lowText?.getBoundingClientRect().left || 0,
-        lowBorderStyle,
-        activeBorderStyle,
-        lowBorderWidth,
-        activeBorderWidth,
-        hasActiveCheckSvg: !!activeCheckSvg,
+        hasIntensity: !!intensity,
+        intensityMin: intensity?.min,
+        intensityMax: intensity?.max,
+        hasClose: !!close,
         btnAriaPopup,
         btnAriaExpanded
       };
@@ -270,13 +258,12 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
 
     assert.ok(menuHeaderInfo.hasSvg, 'La cabecera del menú de razonamiento debe contener un SVG (brain)');
     assert.equal(menuHeaderInfo.hasEmoji, false, 'La cabecera del menú no debe contener el emoji 🧠');
-    assert.equal(menuHeaderInfo.flexDirection, 'column', 'El menú de razonamiento debe apilar cabecera y opciones verticalmente');
-    assert.ok(menuHeaderInfo.optionsTop >= menuHeaderInfo.headerBottom, 'Las opciones deben mostrarse debajo de la cabecera, no a su lado');
-    assert.ok(menuHeaderInfo.lowTextLeft - menuHeaderInfo.lowIconRight <= 10, 'El texto del nivel bajo debe quedar junto a su indicador');
-    assert.ok(menuHeaderInfo.lowBorderStyle === 'none' || menuHeaderInfo.lowBorderWidth === '0px', 'Las opciones de razonamiento no deben tener enmarcado');
-    assert.ok(menuHeaderInfo.activeBorderStyle === 'none' || menuHeaderInfo.activeBorderWidth === '0px', 'La opción activa de razonamiento no debe tener enmarcado');
-    assert.ok(menuHeaderInfo.hasActiveCheckSvg, 'La opción activa debe indicar selección mediante icono SVG checkmark');
-    assert.equal(menuHeaderInfo.btnAriaPopup, 'menu', 'El botón de razonamiento debe declarar aria-haspopup="menu"');
+    assert.equal(menuHeaderInfo.flexDirection, 'column', 'El panel de razonamiento debe apilar sus controles verticalmente');
+    assert.ok(menuHeaderInfo.hasIntensity, 'El panel debe contener un slider de intensidad');
+    assert.equal(menuHeaderInfo.intensityMin, '0');
+    assert.equal(menuHeaderInfo.intensityMax, '4');
+    assert.ok(menuHeaderInfo.hasClose, 'El panel debe ofrecer un cierre explícito');
+    assert.equal(menuHeaderInfo.btnAriaPopup, 'dialog', 'El botón de razonamiento debe declarar aria-haspopup="dialog"');
     assert.equal(menuHeaderInfo.btnAriaExpanded, 'true', 'El botón de razonamiento debe tener aria-expanded="true" al estar desplegado');
   } finally {
     await browser.close();

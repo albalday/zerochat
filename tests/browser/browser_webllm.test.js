@@ -9,7 +9,7 @@ describe('Browser UI - webllm', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async () => {
+test('Browser UI - WebLLM mantiene la intensidad de razonamiento en cero', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -19,10 +19,9 @@ test('Browser UI - WebLLM permite elegir si envía reasoning_effort none', async
       apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none', reasoningTransport: 'auto'
     }));
     await page.click('#btn-reasoning');
-    await page.waitForSelector('[data-reasoning-transport="send-none"]');
-    assert.equal(await page.locator('[data-reasoning-transport="omit"]').getAttribute('aria-checked'), 'true');
-    await page.click('[data-reasoning-transport="send-none"]');
-    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().reasoningTransport), 'send-none');
+    await page.waitForSelector('#reasoning-intensity');
+    assert.equal(await page.locator('#reasoning-intensity').inputValue(), '0');
+    assert.equal(await page.locator('[data-reasoning-transport="send-none"]').count(), 0);
   } finally { await browser.close(); }
 });
 

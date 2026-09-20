@@ -34,12 +34,12 @@
       </p>
       <h3>The Reasoning Effort Selector</h3>
       <p>
-        Click the brain icon button in the composer toolbar to adjust thinking effort:
+        The composer toolbar includes a speedometer indicator. Its needle reflects the selected intensity; click it to open a compact panel with an intensity slider and an X close button.
       </p>
       <ul>
-        <li><strong>None (Off):</strong> Direct answers without extended deliberation tokens.</li>
-        <li><strong>Low / Medium / High:</strong> Allocates token budgets for deeper multi-step analysis.</li>
-        <li><strong>send-none (Experimental):</strong> For local backends (like WebLLM or vLLM) that require explicitly passing <code>reasoning_effort: "none"</code>.</li>
+        <li><strong>None:</strong> No reasoning configuration is sent; it is the right choice for fast, concise answers.</li>
+        <li><strong>Low to Maximum:</strong> Use the slider to adjust reasoning effort to the task's complexity.</li>
+        <li><strong>Compatibility:</strong> ZeroChat adapts the level to the format understood by the provider. If the model does not support reasoning, it continues with a normal response.</li>
       </ul>
       <div class="alert alert-info">
         <strong>Agent Checkpoint (<code>agent_checkpoint</code>):</strong> Enable this tool from the reasoning menu to let models store intermediate conclusions before complex tool loops or RAG searches.

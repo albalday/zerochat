@@ -177,8 +177,9 @@
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
       reasoningMenu: document.getElementById('reasoning-menu'),
-      reasoningOptionsContainer: document.getElementById('reasoning-options-container'),
-      reasoningModelBadge: document.getElementById('reasoning-model-badge'),
+      reasoningIntensity: document.getElementById('reasoning-intensity'),
+      reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
+      btnCloseReasoning: document.getElementById('btn-close-reasoning'),
       chkReasoningAgentCheckpoint: document.getElementById('chk-reasoning-agent-checkpoint'),
 
       // Panel de Debug & Logs
@@ -463,11 +464,8 @@
   }
 
   function selectReasoningLevel(level) {
-    if (UIReasoning.selectReasoningLevel) {
-      UIReasoning.selectReasoningLevel(elements, getRuntimeConfig(), level, (reasoningEffort) => {
-        if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort });
-      });
-    }
+    if (UIReasoning.updateReasoningUI) UIReasoning.updateReasoningUI(elements, level);
+    if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort: level });
   }
 
   function selectReasoningTransport(reasoningTransport) {

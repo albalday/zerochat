@@ -153,7 +153,7 @@ test('WebLLM - la ejecución incompleta falla antes de crear un motor', async ()
   }
 });
 
-test('WebLLM - omite por defecto parámetros no garantizados y permite probar none explícitamente', () => {
+test('WebLLM - omite parámetros de razonamiento no garantizados, incluido none', () => {
   const adapter = new WebLLM.WebLLMProviderAdapter();
   const payload = adapter.buildPayload({
     model: 'test-model', messages: [{ role: 'user', content: 'hello' }], reasoningEffort: 'high',
@@ -164,12 +164,10 @@ test('WebLLM - omite por defecto parámetros no garantizados y permite probar no
   assert.equal(payload.reasoning_effort, undefined);
   assert.equal(payload.tools, undefined);
   assert.equal(payload.stream_options, undefined);
-  assert.equal(adapter.getReasoningConfig().transportOptions.includes('send-none'), true);
-
-  const experimentalPayload = adapter.buildPayload({
+  const minimumPayload = adapter.buildPayload({
     model: 'test-model', messages: [], reasoningEffort: 'none', reasoningTransport: 'send-none'
   });
-  assert.equal(experimentalPayload.reasoning_effort, 'none');
+  assert.equal(minimumPayload.reasoning_effort, undefined);
 });
 
 test('WebLLM - no fuerza valores de razonamiento distintos de none', () => {
