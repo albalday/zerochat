@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from urllib.parse import urlencode
 import venv
@@ -45,7 +46,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.5"
+    return "7.1.6"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1554,17 +1555,18 @@ def open_browser(url: str) -> bool:
     """
     if sys.platform.startswith("linux"):
         termux_open_url = get_termux_open_url_executable() if is_termux_environment() else None
-        if termux_open_url:
-            try:
-                subprocess.Popen(
-                    [termux_open_url, url],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
+        if is_termux_environment():
+            if not termux_open_url:
+                raise FileNotFoundError(
+                    "Termux fue detectado, pero no se encontró termux-open-url en PATH ni en $PREFIX/bin."
                 )
-                return True
-            except Exception:
-                pass
+            subprocess.Popen(
+                [termux_open_url, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True
         for cmd in ("xdg-open", "gio"):
             if shutil.which(cmd):
                 try:
@@ -1678,6 +1680,9 @@ def main():
     print("=" * 64, flush=True)
 
     if not args.no_browser:
+        termux_detected = is_termux_environment()
+        if termux_detected:
+            print(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
         print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
         try:
             if not open_browser(target_url):
@@ -1688,6 +1693,9 @@ def main():
                     print(f"  {manual_command}", flush=True)
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+            if termux_detected:
+                print("  Traza de diagnóstico de Termux:", flush=True)
+                traceback.print_exc()
             manual_command = get_manual_browser_command(target_url)
             if manual_command:
                 print("  Termux detectado. Prueba este comando exacto:", flush=True)
