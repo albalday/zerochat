@@ -108,6 +108,57 @@
       margin-bottom: 30px;
     }
 
+    .info-box {
+      background: #f8f9fa;
+      border-left: 4px solid #667eea;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: left;
+      border-radius: 8px;
+    }
+
+    .info-box h2 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .info-box p {
+      font-size: 14px;
+      color: #555;
+      line-height: 1.6;
+      margin: 8px 0;
+    }
+
+    .import-button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 20px 0;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .import-button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+
+    .import-button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .import-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     .status {
       padding: 20px;
       border-radius: 12px;
@@ -184,6 +235,28 @@
       margin-top: 20px;
       line-height: 1.5;
     }
+
+    .warning-box {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 16px;
+      margin-top: 20px;
+      text-align: left;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #856404;
+      line-height: 1.5;
+    }
+
+    .warning-box strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #856404;
+    }
+
+    #status.hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -192,9 +265,31 @@
     <h1>ZeroChat</h1>
     <div class="subtitle">Importación de Perfiles Cifrados</div>
 
-    <div id="status" class="status loading">
+    <div class="info-box">
+      <h2>📦 Contenido del paquete</h2>
+      <p><strong>${profileCount}</strong> perfil${profileCount !== 1 ? 'es' : ''} de conexión cifrado${profileCount !== 1 ? 's' : ''}</p>
+      <p>Exportado: <strong>${exportDate}</strong></p>
+      <p>Formato: <strong>AES-GCM</strong></p>
+    </div>
+
+    <div class="info-box">
+      <h2>🔄 Proceso de importación</h2>
+      <p>Al hacer clic en el botón, se abrirá ZeroChat en una nueva pestaña donde podrás importar ${profileCount !== 1 ? 'estos perfiles' : 'este perfil'} de forma segura.</p>
+    </div>
+
+    <button id="importButton" class="import-button">
+      🚀 Importar Perfil${profileCount !== 1 ? 'es' : ''} en ZeroChat
+    </button>
+
+    <div id="status" class="status loading hidden">
       <span class="spinner"></span>
       Abriendo ZeroChat y transfiriendo perfiles...
+    </div>
+
+    <div class="warning-box">
+      <strong>⚠️ Nota sobre permisos del navegador</strong>
+      Es posible que tu navegador muestre un aviso solicitando permiso para abrir una nueva pestaña.
+      Esto es normal por seguridad. Si aparece, autoriza la acción para continuar con la importación.
     </div>
 
     <div class="meta">
@@ -211,11 +306,6 @@
         <span class="meta-value">AES-GCM</span>
       </div>
     </div>
-
-    <div class="help-text">
-      Si se abrió una ventana emergente, espera la confirmación.<br>
-      Si no se abrió nada, permite ventanas emergentes y recarga esta página.
-    </div>
   </div>
 
   <script>
@@ -230,6 +320,7 @@
 
       // Referencias DOM
       const statusEl = document.getElementById('status');
+      const importButton = document.getElementById('importButton');
 
       // Estado
       let targetWindow = null;
@@ -241,6 +332,7 @@
        */
       function updateStatus(message, type) {
         statusEl.className = 'status ' + type;
+        statusEl.classList.remove('hidden');
         statusEl.innerHTML = message;
       }
 
@@ -270,6 +362,7 @@
               '❌ La ventana de ZeroChat se cerró inesperadamente.',
               'error'
             );
+            importButton.disabled = false;
           }
           return;
         }
@@ -302,20 +395,29 @@
               '<small style="font-size: 14px;">' + errorMsg + '</small>',
               'error'
             );
+            importButton.disabled = false;
           }
         }
       }
 
       /**
-       * Inicializar el proceso de importación
+       * Inicializar el proceso de importación (llamado desde el botón)
        */
-      function init() {
-        console.log('[Export] Initializing import process...');
+      function startImport() {
+        console.log('[Export] Starting import process...');
         console.log('[Export] Target URL:', TARGET_URL);
         console.log('[Export] Payload size:', ENCRYPTED_PAYLOAD.length, 'bytes');
 
+        // Deshabilitar el botón
+        importButton.disabled = true;
+        updateStatus(
+          '<span class="spinner"></span>Abriendo ZeroChat...',
+          'loading'
+        );
+
         try {
           // Abrir zerochat.html en nueva pestaña con parámetro mode=import
+          // Ejecutado desde user gesture (click) para mejorar compatibilidad
           targetWindow = window.open(TARGET_URL, 'zerochat_import');
 
           // Verificar si el popup fue bloqueado
@@ -324,11 +426,13 @@
             updateStatus(
               '❌ No se pudo abrir ZeroChat<br><br>' +
               '<small style="font-size: 14px;">' +
-              'Asegúrate de <strong>permitir ventanas emergentes</strong> para este sitio ' +
-              'y recarga esta página.' +
+              'Tu navegador bloqueó la apertura de la nueva pestaña. ' +
+              'Por favor, <strong>permite ventanas emergentes</strong> para este sitio ' +
+              'y haz clic de nuevo en el botón.' +
               '</small>',
               'error'
             );
+            importButton.disabled = false;
             return;
           }
 
@@ -344,11 +448,12 @@
               updateStatus(
                 '⏱️ Timeout: ZeroChat no respondió en ' + (TIMEOUT_MS / 1000) + ' segundos<br><br>' +
                 '<small style="font-size: 14px;">' +
-                'Verifica que la ventana de ZeroChat se abrió correctamente. ' +
-                'Si es necesario, recarga esta página e intenta de nuevo.' +
+                'Verifica que la pestaña de ZeroChat se abrió correctamente. ' +
+                'Si es necesario, haz clic de nuevo en el botón.' +
                 '</small>',
                 'error'
               );
+              importButton.disabled = false;
             }
           }, TIMEOUT_MS);
 
@@ -359,15 +464,12 @@
             '<small style="font-size: 14px;">' + error.message + '</small>',
             'error'
           );
+          importButton.disabled = false;
         }
       }
 
-      // Iniciar cuando el DOM esté listo
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-      } else {
-        init();
-      }
+      // Conectar el botón al proceso de importación
+      importButton.addEventListener('click', startImport);
 
       // Limpiar al cerrar
       window.addEventListener('beforeunload', () => {
