@@ -534,17 +534,20 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
 
     const ragIconsActivate = await page.evaluate(() => {
       const headerSvg = document.querySelector('#rag-modal .rag-header-icon svg');
+      const headerTitle = document.querySelector('#rag-modal .modal-title h3')?.textContent.trim();
       const activationContent = document.querySelector('#rag-modal .rag-modal-content');
       const activationContentDisplay = activationContent ? window.getComputedStyle(activationContent).display : 'none';
 
       return {
         hasHeaderSvg: !!headerSvg,
+        headerTitle,
         hasActivationContent: !!activationContent,
         activationContentDisplay
       };
     });
 
-    assert.ok(ragIconsActivate.hasHeaderSvg, 'La cabecera de RAG debe tener icono SVG');
+    assert.equal(ragIconsActivate.hasHeaderSvg, false, 'La cabecera de activación RAG no debe tener icono');
+    assert.equal(ragIconsActivate.headerTitle, 'RAG', 'La cabecera de activación debe usar el título RAG');
     assert.ok(ragIconsActivate.hasActivationContent, 'El modal de conocimiento debe mostrar el contenido de activación desde el composer');
     assert.notEqual(ragIconsActivate.activationContentDisplay, 'none', 'El contenido de activación debe estar visible');
 
@@ -583,7 +586,10 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
       const deleteBranchSvg = document.querySelector('#btn-rag-delete-branch svg');
       const exportBranchSvg = document.querySelector('#btn-rag-export-branch svg');
       const importBranchSvg = document.querySelector('#btn-rag-import-branch svg');
-      const quotaSvg = document.querySelector('#rag-storage-quota-info svg');
+      const manageHeader = document.querySelector('#rag-manage-modal .rag-manage-header-actions');
+      const manageHeaderIcon = document.querySelector('#rag-manage-modal .rag-header-icon');
+      const manageFooter = document.querySelector('#rag-manage-modal .modal-footer');
+      const branchSelectWidth = parseFloat(window.getComputedStyle(document.getElementById('rag-manage-branch-select')).width);
 
       return {
         hasNewBranchSvg: !!newBranchSvg,
@@ -593,7 +599,10 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
         hasDeleteBranchSvg: !!deleteBranchSvg,
         hasExportBranchSvg: !!exportBranchSvg,
         hasImportBranchSvg: !!importBranchSvg,
-        hasQuotaSvg: !!quotaSvg
+        hasManageHeader: !!manageHeader,
+        hasManageHeaderIcon: !!manageHeaderIcon,
+        hasManageFooter: !!manageFooter,
+        branchSelectWidth
       };
     });
 
@@ -604,7 +613,10 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     assert.ok(ragIcons.hasDeleteBranchSvg, 'El botón de eliminar rama debe tener icono SVG');
     assert.ok(ragIcons.hasExportBranchSvg, 'El botón de respaldar rama debe tener icono SVG');
     assert.ok(ragIcons.hasImportBranchSvg, 'El botón de importar rama debe tener icono SVG');
-    assert.ok(ragIcons.hasQuotaSvg, 'El indicador de cuota debe tener icono SVG');
+    assert.equal(ragIcons.hasManageHeader, true, 'Las acciones principales deben estar en la cabecera de gestión');
+    assert.equal(ragIcons.hasManageHeaderIcon, false, 'La cabecera de gestión no debe tener icono');
+    assert.equal(ragIcons.hasManageFooter, false, 'El panel de gestión no debe tener pie de acciones');
+    assert.ok(ragIcons.branchSelectWidth > 200, 'El selector de rama debe aprovechar el ancho disponible');
 
     // Verificación de gestión de ramas con campos en pantalla (sin ventanas prompt nativas)
     let dialogTriggered = false;
@@ -648,18 +660,6 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     // Verificar que tras guardar vuelve a ser "Nueva rama"
     const btnTextAfterSave = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
     assert.equal(btnTextAfterSave, 'Nueva rama', 'Tras guardar el botón debe volver a ser "Nueva rama"');
-
-    // Ahora que la rama existe y está seleccionada en Documentos, verificar el resumen en el pie del modal
-    const footerSummary = await page.evaluate(() => {
-      const el = document.getElementById('rag-branch-summary-footer');
-      return {
-        text: el?.textContent?.trim() || '',
-        display: el ? window.getComputedStyle(el).display : 'none'
-      };
-    });
-    assert.ok(footerSummary.text.includes('Esta rama cargó'), 'El pie del modal debe contener el resumen "Esta rama cargó"');
-    assert.ok(footerSummary.text.includes('documentos de'), 'El pie del modal debe indicar "documentos de"');
-    assert.notEqual(footerSummary.display, 'none', 'El resumen en el pie del diálogo de gestión debe ser visible');
 
     const createdBranch = await page.evaluate(async () => {
       const branches = await window.ChatRagStorage.getBranches();
