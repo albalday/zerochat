@@ -44,7 +44,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.1"
+    return "7.1.2"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1515,6 +1515,16 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         # Silenciar logs ruidosos por defecto
         pass
 
+def is_termux_environment() -> bool:
+    """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
+    termux_prefix = "/data/data/com.termux/files/usr"
+    return bool(
+        os.environ.get("TERMUX_VERSION")
+        or os.environ.get("PREFIX", "").startswith(termux_prefix)
+        or sys.prefix.startswith(termux_prefix)
+    )
+
+
 def open_browser(url: str) -> bool:
     """
     Abre la URL en el navegador predeterminado del usuario respetando el entorno del sistema.
@@ -1523,7 +1533,7 @@ def open_browser(url: str) -> bool:
     desacoplando el proceso hijo para evitar ruidos en la terminal.
     """
     if sys.platform.startswith("linux"):
-        if os.environ.get("TERMUX_VERSION") and shutil.which("termux-open-url"):
+        if is_termux_environment() and shutil.which("termux-open-url"):
             try:
                 subprocess.Popen(
                     ["termux-open-url", url],
