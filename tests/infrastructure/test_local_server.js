@@ -351,6 +351,15 @@ with patch('shutil.which', return_value=None), patch('webbrowser.open', return_v
         assert res is True
         mock_wb.assert_called_once_with('http://127.0.0.1:6388/zerochat.html')
 
+# 9. Un navegador que rechaza la URL conserva un error diagnosticable
+with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=False), patch.dict(os.environ, {}, clear=True):
+    with patch.object(sys, 'platform', 'linux'):
+        try:
+            zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
+            raise AssertionError('open_browser debe explicar un lanzamiento rechazado')
+        except RuntimeError as err:
+            assert 'Ningún lanzador de navegador disponible' in str(err)
+
 print("OPEN_BROWSER_TEST_OK")
 `;
 

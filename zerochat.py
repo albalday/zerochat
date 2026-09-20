@@ -46,7 +46,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.1.6"
+    return "7.1.7"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -1600,9 +1600,11 @@ def open_browser(url: str) -> bool:
             pass
 
     try:
-        return webbrowser.open(url)
-    except Exception:
-        return False
+        if webbrowser.open(url):
+            return True
+    except Exception as error:
+        raise RuntimeError("El navegador predeterminado rechazó la URL de ZeroChat.") from error
+    raise RuntimeError("Ningún lanzador de navegador disponible aceptó la URL de ZeroChat.")
 
 
 # ==============================================================================
@@ -1686,16 +1688,11 @@ def main():
         print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
         try:
             if not open_browser(target_url):
-                print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente.", flush=True)
-                manual_command = get_manual_browser_command(target_url)
-                if manual_command:
-                    print("  Termux detectado. Prueba este comando exacto:", flush=True)
-                    print(f"  {manual_command}", flush=True)
+                raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
         except Exception as e:
             print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
-            if termux_detected:
-                print("  Traza de diagnóstico de Termux:", flush=True)
-                traceback.print_exc()
+            print("  Traza de diagnóstico:", flush=True)
+            traceback.print_exc()
             manual_command = get_manual_browser_command(target_url)
             if manual_command:
                 print("  Termux detectado. Prueba este comando exacto:", flush=True)
