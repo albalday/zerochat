@@ -302,7 +302,16 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert kwargs.get('stdout') == subprocess.DEVNULL
         assert kwargs.get('stderr') == subprocess.DEVNULL
 
-# 3. En Linux sin xdg-open pero con gio disponible
+# 3. El prefijo de Termux también se detecta cuando TERMUX_VERSION no está definido
+with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/data/data/com.termux/files/usr/bin/' + cmd if cmd in ('termux-open-url', 'xdg-open') else None), patch.dict(os.environ, {'PREFIX': '/data/data/com.termux/files/usr'}, clear=True):
+    with patch.object(sys, 'platform', 'linux'):
+        res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
+        assert res is True, "open_browser debe detectar Termux por PREFIX"
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ['termux-open-url', 'http://127.0.0.1:6388/zerochat.html']
+
+# 4. En Linux sin xdg-open pero con gio disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/usr/bin/' + cmd if cmd == 'gio' else None), patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -312,7 +321,7 @@ with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=
         assert args[0] == ['gio', 'open', 'http://127.0.0.1:6388/zerochat.html']
         assert kwargs.get('start_new_session') is True
 
-# 4. Fallback a webbrowser cuando no hay herramientas de sistema
+# 5. Fallback a webbrowser cuando no hay herramientas de sistema
 with patch('shutil.which', return_value=None), patch('webbrowser.open', return_value=True) as mock_wb, patch.dict(os.environ, {}, clear=True):
     with patch.object(sys, 'platform', 'linux'):
         res = zerochat.open_browser('http://127.0.0.1:6388/zerochat.html')
@@ -647,6 +656,5 @@ assert not (zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
-
 
 
