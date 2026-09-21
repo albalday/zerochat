@@ -13,3 +13,4 @@ idiomas rag
 
 maximizar en movil
 
+seguridad de autoejecucion zerochat.py  >>> pip?

@@ -233,6 +233,33 @@
   margin-bottom: 0.85rem;
 }
 
+.mcp-bootstrap-card {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  background: var(--bg-surface-elevated, var(--bg-surface));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.mcp-bootstrap-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text-main);
+}
+
+.mcp-bootstrap-header .ui-icon {
+  color: var(--primary);
+}
+
+.mcp-bootstrap-help {
+  display: inline-block;
+  margin-top: 0.7rem;
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .mcp-status-header {
   display: flex;
   align-items: center;

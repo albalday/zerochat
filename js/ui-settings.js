@@ -537,7 +537,7 @@
 
         <!-- Sección: Servidor Local (MCP) -->
         <div id="tab-mcp" class="settings-section-pane">
-          <!-- Tarjeta de Estado y Conexión Principal -->
+          <!-- Estado del servidor local -->
           <div class="mcp-status-card">
             <div class="mcp-status-header">
               <div class="mcp-title-group">
@@ -548,25 +548,30 @@
                 <span id="mcp-server-details" class="mcp-server-details" style="display: none;"></span>
               </div>
 
-              <!-- Indicador de Estado y Acciones de Conexión -->
+              <!-- Indicador de Estado -->
               <div class="mcp-status-actions">
                 <span id="mcp-status-badge" class="mcp-status-badge mcp-status-disconnected">
                   <span class="mcp-status-dot"></span>
                   <span id="mcp-status-text">Desconectado</span>
                 </span>
-                <button type="button" id="btn-mcp-connect" class="btn-primary btn-mcp-action">
-                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plug"></use></svg>
-                  <span data-i18n="mcp_btn_connect">Conectar</span>
-                </button>
-                <button type="button" id="btn-mcp-configure" class="btn-secondary btn-mcp-action" data-i18n-title="mcp_btn_configure_title" title="Configurar parámetros de conexión e instrucciones">
-                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-                  <span data-i18n="mcp_btn_configure">Configurar</span>
-                </button>
               </div>
             </div>
+          </div>
 
-            <!-- Mensaje de error de conexión -->
-            <div id="mcp-error-message" class="mcp-error-message" style="display: none;"></div>
+          <div id="mcp-bootstrap-card" class="mcp-bootstrap-card">
+            <div class="mcp-bootstrap-header">
+              <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
+              <strong data-i18n="mcp_bootstrap_title">MCP requiere el servidor local</strong>
+            </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Para usar MCP, inicia ZeroChat desde zerochat.py en un terminal. La aplicación se conectará automáticamente cuando el servidor esté disponible.</p>
+            <div class="mcp-cmd-row">
+              <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -</code></pre>
+              <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
+                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
+                <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
+              </button>
+            </div>
+            <a href="help/index.html" target="_blank" rel="noopener noreferrer" class="mcp-bootstrap-help" data-i18n="mcp_bootstrap_help">Abrir ayuda general de ZeroChat</a>
           </div>
 
           <!-- Tarjeta de Servidores MCP Disponibles -->

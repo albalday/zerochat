@@ -41,7 +41,7 @@
     </div>
 
     <div class="card" id="modos-arranque">
-      <h2>2. Modos de arranque: zerochat.html (Web / Android) vs. zerochat.py (Backend local)</h2>
+      <h2>2. Modos de arranque: zerochat.html (Web) vs. zerochat.py (Backend local)</h2>
       <p>
         ZeroChat está concebido para ofrecer dos experiencias complementarias según el contexto de uso: una <strong>aplicación web universal y autónoma</strong> (ideal para movilidad y uso diario sin instalación) y una <strong>estación de trabajo local</strong> (para desarrollo y control directo del sistema operativo).
       </p>
@@ -52,8 +52,8 @@
       </p>
       <ul>
         <li>
-          <strong>Orientación y optimización para Android (y dispositivos móviles):</strong>
-          Diseñada como Progressive Web App (PWA) instalable en la pantalla de inicio desde Chrome u otros navegadores en Android. Su Service Worker con estrategia de caché revalidada en segundo plano garantiza un arranque instantáneo (0 ms de red), panel lateral táctil con backdrop, composer autoexpansible para teclado virtual y consumo mínimo de batería. No requiere Termux, root ni herramientas de terminal.
+          <strong>Experiencia web universal:</strong>
+          Diseñada como Progressive Web App (PWA) instalable desde navegadores modernos. Su Service Worker con estrategia de caché revalidada en segundo plano garantiza un arranque instantáneo (0 ms de red), panel lateral táctil con backdrop y composer autoexpansible para teclado virtual. No requiere Python, root ni herramientas de terminal.
         </li>
         <li>
           <strong>Conectividad multimodelo completa:</strong>
@@ -79,7 +79,7 @@
 
       <h3>B. Qué añade el Backend local (<code>zerochat.py</code>)</h3>
       <p>
-        Diseñado para puestos de escritorio (Linux, macOS, Windows) donde el agente de IA necesita actuar como asistente de desarrollo sobre el sistema operativo:
+        Diseñado para puestos de escritorio (Linux, macOS, Windows) donde el agente de IA necesita actuar como asistente de desarrollo sobre el sistema operativo. También se ha probado en Android mediante Termux:
       </p>
       <ul>
         <li>
@@ -106,7 +106,7 @@
           <thead>
             <tr>
               <th>Capacidad / Característica</th>
-              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA / Android)</th>
+              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA)</th>
               <th style="text-align: center;"><code>zerochat.py</code> (Backend local)</th>
             </tr>
           </thead>
@@ -139,7 +139,7 @@
             <tr>
               <td>Uso directo en móviles (Android / iOS) sin terminal ni Python</td>
               <td style="text-align: center;">✅ Nativo (PWA)</td>
-              <td style="text-align: center;">⚠️ Requiere Python / PC de escritorio</td>
+              <td style="text-align: center;">⚠️ Requiere Python (Termux o escritorio)</td>
             </tr>
             <tr>
               <td>Lectura, edición y navegación de archivos en el disco local</td>

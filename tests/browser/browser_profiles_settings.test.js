@@ -344,22 +344,6 @@ test('Browser UI - Los campos select/combo no presentan remarcado azul al recibi
       assert.equal(style.boxShadow, 'none', `El combo #${id} no debe tener box-shadow`);
     }
 
-    // 2. Probar input de puerto MCP en mcp-setup-dialog
-    await page.evaluate(() => {
-      document.getElementById('settings-dialog').close();
-      document.getElementById('mcp-setup-dialog').showModal();
-    });
-    await page.focus('#mcp-port-input');
-    const mcpStyle = await page.evaluate(() => {
-      const s = getComputedStyle(document.getElementById('mcp-port-input'));
-      return {
-        outlineStyle: s.outlineStyle,
-        borderColor: s.borderColor,
-        boxShadow: s.boxShadow
-      };
-    });
-    assert.equal(mcpStyle.outlineStyle, 'none', 'El input #mcp-port-input no debe tener outline en foco');
-    assert.notEqual(mcpStyle.borderColor, 'rgb(37, 99, 235)', 'El input #mcp-port-input no debe tener borde azul primario');
   } finally {
     await browser.close();
   }

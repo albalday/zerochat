@@ -57,10 +57,8 @@
     return `http://${sanitizeHost(host)}:${sanitizePort(port)}${suffix}`;
   }
 
-  function generateTerminalCommand(port) {
-    const normalizedPort = sanitizePort(port);
-    const portArg = normalizedPort === DEFAULT_PORT ? '' : ` --port ${normalizedPort}`;
-    return `curl -sSL https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py -o zerochat.py && python3 zerochat.py${portArg}`;
+  function generateTerminalCommand() {
+    return 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -';
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {
@@ -68,6 +66,17 @@
     let ok = false;
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+    }
+    if (!ok && typeof document !== 'undefined' && document.body) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      textarea.remove();
     }
     if (btnElement && ok) {
       const orig = btnElement.innerHTML;
@@ -330,8 +339,6 @@
     const state = mcpState || State?.get?.('mcp') || { status: 'disconnected', host: DEFAULT_HOST, port: DEFAULT_PORT, tools: [] };
     const status = state.status || 'disconnected';
     const isConn = status === 'connected';
-    const isConnecting = status === 'connecting';
-    const Icons = getIcons();
 
     if (elements.statusBadge) elements.statusBadge.className = `mcp-status-badge mcp-status-${status}`;
     if (elements.statusText) {
@@ -340,17 +347,6 @@
       }
       elements.statusText.textContent = translator(`mcp_status_${status}`);
     }
-
-    if (elements.btnConnect) {
-      elements.btnConnect.style.display = isConn ? 'none' : 'inline-flex';
-      elements.btnConnect.disabled = isConnecting;
-      const icon = isConnecting ? (Icons?.get?.('spinner', { size: 14, className: 'spinning' }) || '') : (Icons?.get?.('plug', { size: 14 }) || '');
-      const labelKey = isConnecting ? 'mcp_btn_connecting' : 'mcp_btn_connect';
-      const label = translator(labelKey);
-      elements.btnConnect.innerHTML = `${icon} <span data-i18n="${labelKey}">${label}</span>`;
-    }
-
-
 
     if (elements.serverDetails) {
       elements.serverDetails.style.display = isConn ? 'inline-flex' : 'none';
@@ -371,20 +367,8 @@
       }
     }
 
-    if (elements.errorMessage) {
-      const showErr = status === 'error' && state.error;
-      elements.errorMessage.style.display = showErr ? 'flex' : 'none';
-      clearSafeContent(elements.errorMessage);
-      if (showErr) {
-        appendTrustedIcon(elements.errorMessage, Icons?.get?.('alert-circle', { size: 16 }) || '');
-        appendSafeText(elements.errorMessage, 'span', state.error);
-      }
-    }
-
-    const host = elements.hostInput?.value || state.host || DEFAULT_HOST;
-    const port = elements.portInput?.value || state.port || DEFAULT_PORT;
-    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
-    if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
+    if (elements.bootstrapCard) elements.bootstrapCard.style.display = isConn ? 'none' : 'block';
+    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand();
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
@@ -472,37 +456,9 @@
   }
 
   function initMcpUI(elements, options = {}) {
-    ensureDialogMarkup();
     if (!elements) return null;
     const State = getState();
-    const MCP = getMCP();
-    const Config = getConfig();
     const Security = getSecurity();
-
-    const currentConfig = Config?.get?.() || {};
-    if (elements.hostInput && !elements.hostInput.value) elements.hostInput.value = currentConfig.mcpHost || DEFAULT_HOST;
-    if (elements.portInput && !elements.portInput.value) elements.portInput.value = currentConfig.mcpPort || DEFAULT_PORT;
-
-    function updateCommandAndEndpoint() {
-      const host = elements.hostInput?.value || DEFAULT_HOST;
-      const port = elements.portInput?.value || DEFAULT_PORT;
-      if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand(port);
-      if (elements.endpointPreview) elements.endpointPreview.textContent = buildMcpEndpoint(host, port);
-      Config?.update?.({ mcpHost: host, mcpPort: sanitizePort(port) });
-    }
-
-    elements.portInput?.addEventListener?.('input', updateCommandAndEndpoint);
-    elements.hostInput?.addEventListener?.('input', updateCommandAndEndpoint);
-
-    const openModal = () => {
-      elements.mcpSetupDialog?.showModal?.();
-      syncSecurityControls();
-    };
-    const closeModal = () => elements.mcpSetupDialog?.close?.();
-    elements.btnConfigure?.addEventListener?.('click', openModal);
-    elements.btnCloseSetup?.addEventListener?.('click', closeModal);
-    elements.btnCloseSetupFooter?.addEventListener?.('click', closeModal);
-    elements.mcpSetupDialog?.addEventListener?.('click', (e) => { if (e.target === elements.mcpSetupDialog) closeModal(); });
 
     // Controles de Seguridad MCP
     const radioAsk = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
@@ -552,37 +508,15 @@
       renderCurrentToolsList();
     }) : null;
 
-    function persistMcpAutoConnect(enabled, host = null, port = null) {
-      const Config = getConfig();
-      if (!Config) return;
-      const patch = { mcpAutoConnect: enabled === true };
-      if (host) patch.mcpHost = host;
-      if (port) patch.mcpPort = sanitizePort(port);
-      (Config.updateRuntime || Config.update)?.call(Config, patch);
-    }
-
     elements.btnCopyCmd?.addEventListener?.('click', () => {
-      const cmd = generateTerminalCommand(elements.portInput?.value);
-      copyCommandToClipboard(cmd, elements.btnCopyCmd, t);
-    });
-
-    elements.btnConnect?.addEventListener?.('click', async () => {
-      const host = elements.hostInput?.value || DEFAULT_HOST;
-      const port = sanitizePort(elements.portInput?.value || DEFAULT_PORT);
-      const token = MCP?.manager?.getSessionToken?.();
-      persistMcpAutoConnect(true, host, port);
-      await MCP?.manager?.connectProxy?.({ host, port, endpoint: buildMcpEndpoint(host, port), token });
+      copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd, t);
     });
 
 
     const unsubscribe = State?.subscribe?.('mcp', (newState) => {
-      if (newState?.status === 'connected') {
-        persistMcpAutoConnect(true, newState.host, newState.port);
-      }
       renderConnectionStatus(elements, newState, t);
     });
     renderConnectionStatus(elements, State?.get?.('mcp'), t);
-    updateCommandAndEndpoint();
     syncSecurityControls();
 
     async function syncExternalServers() {
@@ -615,9 +549,6 @@
     }
 
     return {
-      updateCommandAndEndpoint,
-      openSetupModal: openModal,
-      closeSetupModal: closeModal,
       syncSecurityControls,
       syncExternalServers,
       render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
@@ -627,83 +558,6 @@
         if (typeof unsubscribeLang === 'function') unsubscribeLang();
       }
     };
-  }
-
-  function getMcpSetupDialogHTML() {
-    return `<div class="modal-header">
-      <div class="modal-title">
-        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-        <h3 data-i18n="mcp_setup_modal_title">Configuración del Servidor Local (MCP)</h3>
-      </div>
-      <button id="btn-close-mcp-setup" type="button" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
-        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
-      </button>
-    </div>
-    <div class="modal-body mcp-setup-modal-body">
-      <!-- Configuración de Host y Puerto (Rango 63xx) -->
-      <div class="mcp-config-card">
-        <div class="mcp-fields-grid">
-          <div class="form-field">
-            <label for="mcp-host-input" data-i18n="mcp_field_host">Host del servidor</label>
-            <input type="text" id="mcp-host-input" class="form-input" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false">
-          </div>
-          <div class="form-field">
-            <label for="mcp-port-input" data-i18n="mcp_field_port">Puerto (Rango 63xx recomendado)</label>
-            <input type="number" id="mcp-port-input" class="form-input" value="6388" min="1024" max="65535" placeholder="6388">
-          </div>
-        </div>
-        <div class="mcp-endpoint-row">
-          <span class="label-hint">Endpoint:</span>
-          <code id="mcp-endpoint-preview" class="mcp-endpoint-preview">http://127.0.0.1:6388/sse</code>
-        </div>
-      </div>
-
-      <!-- Instrucciones de Descarga y Arranque con curl -->
-      <div class="mcp-instructions-card">
-        <div class="mcp-instructions-header">
-          <span class="mcp-instructions-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
-          </span>
-          <div>
-            <strong data-i18n="mcp_instructions_title">Servidor Local ZeroChat</strong>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_instructions_desc">
-              Ejecuta este comando en tu terminal para arrancar el entorno local con Python:
-            </p>
-          </div>
-        </div>
-
-        <div class="mcp-command-wrapper">
-          <div class="mcp-cmd-row">
-            <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">curl -sSL https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py -o zerochat.py && python3 zerochat.py</code></pre>
-            <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">
-              <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-copy"></use></svg>
-              <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <div class="footer-actions-right mcp-modal-footer-end">
-        <button type="button" id="btn-close-mcp-setup-footer" class="btn-primary" data-i18n="btn_close">Cerrar</button>
-      </div>
-    </div>`;
-  }
-
-  function ensureDialogMarkup() {
-    if (typeof document === 'undefined') return;
-    const dialog = document.getElementById('mcp-setup-dialog');
-    if (dialog && !dialog.firstElementChild) {
-      dialog.innerHTML = getMcpSetupDialogHTML();
-    }
-  }
-
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
-    } else {
-      ensureDialogMarkup();
-    }
   }
 
   async function autoConnectIfAvailable(options = {}) {
@@ -732,8 +586,6 @@
     renderToolsList,
     renderExternalServers,
     initMcpUI,
-    autoConnectIfAvailable,
-    ensureDialogMarkup,
-    getMcpSetupDialogHTML
+    autoConnectIfAvailable
   };
 });

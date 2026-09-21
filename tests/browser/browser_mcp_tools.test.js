@@ -16,13 +16,10 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const result = await page.evaluate(() => {
       const serverDetails = document.createElement('div');
-      const errorMessage = document.createElement('div');
       const elements = {
         statusBadge: document.createElement('div'),
         statusText: document.createElement('span'),
-        btnConnect: document.createElement('button'),
-        serverDetails,
-        errorMessage
+        serverDetails
       };
       const payload = '<img data-xss-probe="mcp" src=x onerror="window.__mcpXss=true">';
       window.ChatUIMcp.renderConnectionStatus(elements, {
@@ -31,18 +28,12 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
         tools: []
       }, key => key);
       const detailsSafe = !serverDetails.querySelector('[data-xss-probe]') && (serverDetails.textContent.includes(payload) || (serverDetails.getAttribute('title') || '').includes(payload));
-      window.ChatUIMcp.renderConnectionStatus(elements, {
-        status: 'error',
-        error: payload
-      }, key => key);
       return {
         detailsSafe,
-        errorSafe: !errorMessage.querySelector('[data-xss-probe]') && errorMessage.textContent.includes(payload),
         executed: Boolean(window.__mcpXss)
       };
     });
     assert.equal(result.detailsSafe, true);
-    assert.equal(result.errorSafe, true);
     assert.equal(result.executed, false);
   } finally { await browser.close(); }
 });
@@ -226,13 +217,18 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     const mcpUiState = await page.evaluate(() => {
       const pane = document.getElementById('tab-mcp');
       const badge = document.getElementById('mcp-status-badge');
-      const btnConfigure = document.getElementById('btn-mcp-configure');
       const btnConnect = document.getElementById('btn-mcp-connect');
+      const bootstrap = document.getElementById('mcp-bootstrap-card');
+      const command = document.getElementById('mcp-terminal-command');
+      const help = bootstrap?.querySelector('a');
       return {
         paneActive: pane?.classList.contains('active'),
         badgeText: badge?.textContent?.trim(),
-        hasConfigureBtn: !!btnConfigure,
         hasConnectBtn: !!btnConnect,
+        hasSetupDialog: !!document.getElementById('mcp-setup-dialog'),
+        bootstrapVisible: bootstrap && getComputedStyle(bootstrap).display !== 'none',
+        commandText: command?.textContent?.trim(),
+        helpHref: help?.getAttribute('href'),
         hasToolsContainer: !!document.getElementById('mcp-tools-container'),
         toolsContainerVisible: document.getElementById('mcp-tools-container')?.style?.display !== 'none'
       };
@@ -240,8 +236,11 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
 
     assert.ok(mcpUiState.paneActive, 'El panel tab-mcp debe estar visible y activo');
     assert.ok(mcpUiState.badgeText.includes('Desconectado') || mcpUiState.badgeText.includes('Conectado'), 'El estado debe ser Desconectado o Conectado según disponibilidad');
-    assert.ok(mcpUiState.hasConfigureBtn, 'El botón Configurar debe estar presente en el panel MCP');
-    assert.ok(mcpUiState.hasConnectBtn, 'El botón Conectar debe estar presente en el panel MCP');
+    assert.equal(mcpUiState.hasConnectBtn, false, 'El panel MCP no debe ofrecer conexión manual');
+    assert.equal(mcpUiState.hasSetupDialog, false, 'El subpanel de conexión manual no debe existir');
+    assert.ok(mcpUiState.bootstrapVisible, 'Debe explicar cómo arrancar el servidor local cuando no está disponible');
+    assert.equal(mcpUiState.commandText, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
+    assert.equal(mcpUiState.helpHref, 'help/index.html');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
 
@@ -266,41 +265,6 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
     await mcpSectionBtn.click();
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-
-    // Abrir modal de configuración e instrucciones desde el botón Configurar
-    await page.click('#btn-mcp-configure');
-    await page.waitForSelector('#mcp-setup-dialog[open]');
-    const isSetupOpen = await page.$eval('#mcp-setup-dialog', el => el.open);
-    assert.ok(isSetupOpen, 'El modal de configuración de MCP debe abrirse');
-
-    const modalState = await page.evaluate(() => {
-      const portInput = document.getElementById('mcp-port-input');
-      const command = document.getElementById('mcp-terminal-command');
-      const endpoint = document.getElementById('mcp-endpoint-preview');
-      return {
-        port: portInput?.value,
-        commandText: command?.textContent?.trim(),
-        endpointText: endpoint?.textContent?.trim()
-      };
-    });
-
-    assert.equal(modalState.port, '6388', 'El puerto por defecto debe ser 6388 (rango 63xx)');
-    assert.ok(modalState.commandText.includes('curl -sSL'), 'El comando debe usar curl');
-    assert.ok(modalState.commandText.includes('zerochat.py'), 'El comando debe apuntar a zerochat.py');
-    assert.equal(modalState.endpointText, 'http://127.0.0.1:6388/sse');
-
-    // Cambiar interactivamente el puerto en el input del modal y verificar reactividad inmediata
-    await page.fill('#mcp-port-input', '6395');
-    const updatedCommand = await page.$eval('#mcp-terminal-command', el => el.textContent.trim());
-    const updatedEndpoint = await page.$eval('#mcp-endpoint-preview', el => el.textContent.trim());
-    assert.ok(updatedCommand.includes('--port 6395'), 'El comando debe actualizarse reactivamente a 6395');
-    assert.equal(updatedEndpoint, 'http://127.0.0.1:6395/sse', 'El endpoint debe actualizarse reactivamente a 6395');
-
-    // Cerrar el modal de configuración de MCP
-    await page.click('#btn-close-mcp-setup-footer');
-    await page.waitForFunction(() => !document.getElementById('mcp-setup-dialog')?.open);
-    const isSetupClosed = await page.$eval('#mcp-setup-dialog', el => !el.open);
-    assert.ok(isSetupClosed, 'El modal de configuración de MCP debe cerrarse correctamente');
 
     // 3. Cerrar ambos modales sin guardar la configuración general.
     await page.waitForFunction(() => !document.getElementById('profiles-dialog')?.open);

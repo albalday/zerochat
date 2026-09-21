@@ -43,19 +43,11 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
   );
 });
 
-test('ChatUIMcp - generateTerminalCommand genera la línea de comando simplificada', () => {
-  const cmdDefault = ChatUIMcp.generateTerminalCommand(6388);
-  assert.ok(cmdDefault.includes('curl -sSL'));
-  assert.ok(cmdDefault.includes('zerochat.py'));
-  assert.ok(!cmdDefault.includes('--port'));
-
-  const cmdCustom = ChatUIMcp.generateTerminalCommand(6395);
-  assert.ok(cmdCustom.includes('--port 6395'));
-
-  // Fallback seguro en puerto inválido
-  const cmdInvalid = ChatUIMcp.generateTerminalCommand('invalido');
-  assert.ok(cmdInvalid.includes('zerochat.py'));
-  assert.ok(!cmdInvalid.includes('--port'));
+test('ChatUIMcp - generateTerminalCommand ofrece el arranque oficial de zerochat.py', () => {
+  assert.equal(
+    ChatUIMcp.generateTerminalCommand(),
+    'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -'
+  );
 });
 
 test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python zerochat.py', () => {
@@ -64,7 +56,7 @@ test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python zeroc
   assert.match(serverSource, /--port/);
 });
 
-test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', () => {
+test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y detalles', () => {
   function createMockElements() {
     const attrs = {};
     return {
@@ -74,12 +66,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
         setAttribute: (k, v) => { attrs[k] = v; },
         getAttribute: (k) => attrs[k]
       },
-      btnConnect: { style: {}, disabled: false, innerHTML: '' },
       serverDetails: { style: {}, innerHTML: '', textContent: '', title: '' },
-      errorMessage: { style: {}, innerHTML: '', textContent: '' },
-      hostInput: { value: '127.0.0.1' },
-      portInput: { value: '6388' },
-      endpointPreview: { textContent: '' },
+      bootstrapCard: { style: {} },
       commandSnippet: { textContent: '' }
     };
   }
@@ -92,19 +80,16 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-disconnected');
   assert.equal(elements.statusText.textContent, 'Desconectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
-  assert.equal(elements.btnConnect.style.display, 'inline-flex');
-  assert.equal(elements.btnConnect.disabled, false);
-  assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connect"'));
   assert.equal(elements.serverDetails.style.display, 'none');
-  assert.equal(elements.errorMessage.style.display, 'none');
+  assert.equal(elements.bootstrapCard.style.display, 'block');
+  assert.equal(elements.commandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
 
   // 2. Estado conectando
   ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connecting');
   assert.equal(elements.statusText.textContent, 'Conectando...');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
-  assert.equal(elements.btnConnect.disabled, true);
-  assert.ok(elements.btnConnect.innerHTML.includes('data-i18n="mcp_btn_connecting"'));
+  assert.equal(elements.bootstrapCard.style.display, 'block');
 
   // 3. Estado conectado
   ChatUIMcp.renderConnectionStatus(elements, {
@@ -118,8 +103,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connected');
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
-  assert.equal(elements.btnConnect.style.display, 'none');
   assert.equal(elements.serverDetails.style.display, 'inline-flex');
+  assert.equal(elements.bootstrapCard.style.display, 'none');
   assert.ok(elements.serverDetails.title.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.title.includes('15ms'));
   assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
@@ -135,19 +120,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, botones y detalles', (
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-error');
   assert.equal(elements.statusText.textContent, 'Error de conexión');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_error');
-  assert.equal(elements.btnConnect.style.display, 'inline-flex');
-  assert.equal(elements.btnConnect.disabled, false);
-  assert.equal(elements.errorMessage.style.display, 'flex');
-  assert.ok(elements.errorMessage.textContent.includes('Conexión rechazada'));
-
-  // 5. Estado error con caracteres HTML potencialmente peligrosos (prevenir XSS)
-  ChatUIMcp.renderConnectionStatus(elements, {
-    status: 'error',
-    host: '127.0.0.1',
-    port: 6388,
-    error: '<script>alert("xss")</script>'
-  }, t);
-  assert.equal(elements.errorMessage.textContent, '<script>alert("xss")</script>');
+  assert.equal(elements.bootstrapCard.style.display, 'block');
 });
 
 test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {
@@ -187,107 +160,21 @@ test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {
   }
 });
 
-test('ChatUIMcp - initMcpUI vincula reactividad entre inputs y estado', () => {
-  const listeners = {};
-  const mockPortInput = {
-    value: '6388',
-    addEventListener: (evt, fn) => { listeners[evt] = fn; }
-  };
-  const mockHostInput = {
-    value: '127.0.0.1',
-    addEventListener: (evt, fn) => {}
-  };
+test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual', () => {
   const mockCommandSnippet = { textContent: '' };
-  const mockEndpointPreview = { textContent: '' };
 
   const elements = {
-    portInput: mockPortInput,
-    hostInput: mockHostInput,
     commandSnippet: mockCommandSnippet,
-    endpointPreview: mockEndpointPreview,
     statusBadge: { className: '' },
     statusText: { textContent: '' },
-    btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-
     serverDetails: { style: {}, innerHTML: '' },
-    errorMessage: { style: {}, innerHTML: '' },
+    bootstrapCard: { style: {} },
     btnCopyCmd: { addEventListener: () => {} }
   };
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.ok(mockCommandSnippet.textContent.includes('zerochat.py'));
-  assert.ok(!mockCommandSnippet.textContent.includes('--port'));
-  assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6388/sse');
-
-  // Al cambiar el input de puerto, se recalcula el comando en tiempo real
-  mockPortInput.value = '6392';
-  listeners['input']();
-
-  assert.ok(mockCommandSnippet.textContent.includes('zerochat.py --port 6392'));
-  assert.equal(mockEndpointPreview.textContent, 'http://127.0.0.1:6392/sse');
-
-  uiInstance.destroy();
-});
-
-test('ChatUIMcp - initMcpUI gestiona apertura y cierre del modal de configuración', () => {
-  const listeners = {};
-  let modalOpen = false;
-  const mockDialog = {
-    showModal: () => { modalOpen = true; },
-    close: () => { modalOpen = false; },
-    addEventListener: (evt, fn) => { listeners['dialog_' + evt] = fn; }
-  };
-  const mockBtnConfigure = {
-    addEventListener: (evt, fn) => { listeners['btnConfigure_' + evt] = fn; }
-  };
-  const mockBtnClose = {
-    addEventListener: (evt, fn) => { listeners['btnClose_' + evt] = fn; }
-  };
-  const mockBtnCloseFooter = {
-    addEventListener: (evt, fn) => { listeners['btnCloseFooter_' + evt] = fn; }
-  };
-
-  const elements = {
-    mcpSetupDialog: mockDialog,
-    btnConfigure: mockBtnConfigure,
-    btnCloseSetup: mockBtnClose,
-    btnCloseSetupFooter: mockBtnCloseFooter,
-    portInput: { value: '6388', addEventListener: () => {} },
-    hostInput: { value: '127.0.0.1', addEventListener: () => {} },
-    commandSnippet: { textContent: '' },
-    endpointPreview: { textContent: '' },
-    statusBadge: { className: '' },
-    statusText: { textContent: '' },
-    btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-
-    serverDetails: { style: {}, innerHTML: '' },
-    errorMessage: { style: {}, innerHTML: '' },
-    btnCopyCmd: { addEventListener: () => {} }
-  };
-
-  const uiInstance = ChatUIMcp.initMcpUI(elements);
-  assert.equal(modalOpen, false);
-
-  // 1. Abrir modal con click en botón Configurar
-  listeners['btnConfigure_click']();
-  assert.equal(modalOpen, true);
-
-  // 2. Cerrar modal con botón de cabecera
-  listeners['btnClose_click']();
-  assert.equal(modalOpen, false);
-
-  // 3. Abrir de nuevo y cerrar con botón del footer
-  listeners['btnConfigure_click']();
-  assert.equal(modalOpen, true);
-  listeners['btnCloseFooter_click']();
-  assert.equal(modalOpen, false);
-
-  // 4. Cerrar haciendo click fuera en el backdrop
-  listeners['btnConfigure_click']();
-  assert.equal(modalOpen, true);
-  listeners['dialog_click']({ target: mockDialog });
-  assert.equal(modalOpen, false);
+  assert.equal(mockCommandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
 
   uiInstance.destroy();
 });
@@ -304,7 +191,7 @@ test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconect
     ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
     assert.equal(container.style.display, 'block');
     assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-    assert.ok(container.innerHTML.includes('servidor Python local'));
+    assert.ok(container.innerHTML.includes('zerochat.py'));
   } finally {
     ChatState.set('mcp', previousState);
   }

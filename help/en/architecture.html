@@ -41,7 +41,7 @@
     </div>
 
     <div class="card" id="modos-arranque">
-      <h2>2. Launch Modes: zerochat.html (Web / Android) vs. zerochat.py (Local Backend)</h2>
+      <h2>2. Launch Modes: zerochat.html (Web) vs. zerochat.py (Local Backend)</h2>
       <p>
         ZeroChat is designed to deliver two complementary experiences depending on the workflow context: an <strong>autonomous universal web application</strong> (ideal for mobile devices and zero-install daily usage) and a <strong>local workstation host</strong> (for developer workflows requiring direct operating system control).
       </p>
@@ -52,8 +52,8 @@
       </p>
       <ul>
         <li>
-          <strong>Mobile &amp; Android Orientation:</strong>
-          Engineered as an installable Progressive Web App (PWA) on Android and tablet devices through Chrome or modern browsers. Its Service Worker with stale-while-revalidate caching provides instantaneous startup (0 ms network roundtrip), a touch-friendly drawer sidebar with backdrop, an auto-expanding composer for virtual keyboards, and ultra-low battery/memory consumption. No Termux, root access, or terminal tools are needed.
+          <strong>Universal web experience:</strong>
+          Engineered as an installable Progressive Web App (PWA) in modern browsers. Its Service Worker with stale-while-revalidate caching provides instantaneous startup (0 ms network roundtrip), a touch-friendly drawer sidebar with backdrop, and an auto-expanding composer for virtual keyboards. No Python, root access, or terminal tools are needed.
         </li>
         <li>
           <strong>Universal Multi-Model Connectivity:</strong>
@@ -79,7 +79,7 @@
 
       <h3>B. What the Local Backend Adds (<code>zerochat.py</code>)</h3>
       <p>
-        Tailored for desktop workstations (Linux, macOS, Windows) where an agent needs to act as a coding assistant with access to the host operating system:
+        Tailored for desktop workstations (Linux, macOS, Windows) where an agent needs to act as a coding assistant with access to the host operating system. It has also been tested on Android through Termux:
       </p>
       <ul>
         <li>
@@ -106,7 +106,7 @@
           <thead>
             <tr>
               <th>Feature / Capability</th>
-              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA / Android)</th>
+              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA)</th>
               <th style="text-align: center;"><code>zerochat.py</code> (Local Backend)</th>
             </tr>
           </thead>
@@ -139,7 +139,7 @@
             <tr>
               <td>Direct usage on Mobile (Android / iOS) without Python/terminal</td>
               <td style="text-align: center;">✅ Native (PWA)</td>
-              <td style="text-align: center;">⚠️ Requires Python / Desktop PC</td>
+              <td style="text-align: center;">⚠️ Requires Python (Termux or desktop)</td>
             </tr>
             <tr>
               <td>Host file system navigation, reading and atomic editing</td>
