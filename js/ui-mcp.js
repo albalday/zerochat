@@ -56,7 +56,7 @@
   }
 
   function generateTerminalCommand() {
-    return 'pip install zerochat && zerochat';
+    return 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py';
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {

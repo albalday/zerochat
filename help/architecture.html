@@ -33,7 +33,7 @@
         La aplicación web se sirve de forma directa y estática por HTTPS desde GitHub Pages como <code>zerochat.html</code>, cargando sus módulos <code>css/</code> y <code>js/</code> sin proceso de empaquetado. El Service Worker permite reutilizar recursos disponibles sin sustituir la conexión cuando sea necesaria.
       </p>
       <p>
-        Toda la interacción con el sistema local se canaliza a través del ejecutable <code>zerochat</code> instalado desde PyPI o del script <code>zerochat.py</code>. Ambos autentican las sesiones mediante tokens diarios de seguridad.
+        Toda la interacción con el sistema local (ejecución de comandos, lectura y edición de archivos) se canaliza a través de un único ejecutable en Python: <code>zerochat.py</code>, que gestiona su propio entorno virtual en <code>./zerochat</code> y autentica las sesiones mediante tokens diarios de seguridad.
       </p>
       <div class="alert alert-success">
         <strong>Ventaja clave:</strong> Sin compiladores ni herramientas complejas de empaquetado. La aplicación web se sirve estáticamente y el backend local se ejecuta en cualquier equipo con un simple comando de terminal.
@@ -169,7 +169,7 @@
           <strong>Servicio Web Universal (HTTPS):</strong> Servido directamente desde GitHub Pages (<code>https://albalday.github.io/zerochat/zerochat.html</code>). Toda la ejecución de interfaz, renderizado y llamadas a APIs de inferencia ocurre en el navegador con acceso a APIs modernas de persistencia como <code>navigator.storage.persist()</code> y almacenamiento seguro en IndexedDB.
         </li>
         <li>
-          <strong>Backend Local Unificado:</strong> Al ejecutar <code>zerochat</code> tras instalarlo desde PyPI, o <code>python3 zerochat.py</code> tras descargar el script, el servidor local arranca en <code>127.0.0.1:6388</code>, abre automáticamente el navegador y transfiere el token de sesión diario de forma segura en el fragmento de la URL. La aplicación consume ese fragmento una sola vez y conserva la sesión local en una cookie de duración limitada.
+          <strong>Backend Local Unificado (<code>zerochat.py</code>):</strong> Al ejecutar <code>python3 zerochat.py</code>, el servidor local arranca en <code>127.0.0.1:6388</code>, abre automáticamente el navegador apuntando a la aplicación web y transfiere el token de sesión diario de forma segura en el fragmento de la URL. En Termux, detecta el entorno y usa <code>termux-open-url</code> para abrir el navegador Android; en los demás escritorios Linux usa el gestor de aplicaciones predeterminado. El comando de arranque es el mismo en ambos casos. La aplicación consume ese fragmento una sola vez, lo elimina de la barra de direcciones y conserva la sesión local en una cookie de duración limitada; así las recargas y nuevas pestañas no exponen ni vuelven a propagar el token.
         </li>
       </ul>
       <div class="alert alert-info">

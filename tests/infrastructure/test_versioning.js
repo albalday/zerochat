@@ -16,14 +16,13 @@ test('bump-version: los parches web no cambian PyPI y minor actualiza ambos', ()
     fs.copyFileSync(path.join(root, 'scripts/bump-version.mjs'), path.join(fixture, 'scripts/bump-version.mjs'));
 
     const initialPyproject = fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8');
-    const [major, minor, patch] = JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version.split('.').map(Number);
     execFileSync('node', ['scripts/bump-version.mjs', 'patch'], { cwd: fixture });
-    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, `${major}.${minor}.${patch + 1}`);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, '7.3.1');
     assert.equal(fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8'), initialPyproject);
 
     execFileSync('node', ['scripts/bump-version.mjs', 'minor'], { cwd: fixture });
-    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, `${major}.${minor + 1}.0`);
-    assert.match(fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8'), new RegExp(`^version = "${major}\\.${minor + 1}\\.0"$`, 'm'));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, '7.4.0');
+    assert.match(fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8'), /^version = "7\.4\.0"$/m);
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
   }

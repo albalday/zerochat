@@ -279,7 +279,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     assert.equal(mcpUiState.hasConnectBtn, false, 'El panel MCP no debe ofrecer conexión manual');
     assert.equal(mcpUiState.hasSetupDialog, false, 'El subpanel de conexión manual no debe existir');
     assert.ok(mcpUiState.bootstrapVisible, 'Debe explicar cómo arrancar el servidor local cuando no está disponible');
-    assert.equal(mcpUiState.commandText, 'pip install zerochat && zerochat');
+    assert.equal(mcpUiState.commandText, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
     assert.equal(mcpUiState.helpHref, 'help/mcp.html');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');

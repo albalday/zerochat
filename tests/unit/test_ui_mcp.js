@@ -43,10 +43,10 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
   );
 });
 
-test('ChatUIMcp - generateTerminalCommand recomienda la instalación oficial de PyPI', () => {
+test('ChatUIMcp - generateTerminalCommand ofrece el arranque oficial de zerochat.py', () => {
   assert.equal(
     ChatUIMcp.generateTerminalCommand(),
-    'pip install zerochat && zerochat'
+    'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'
   );
 });
 
@@ -86,7 +86,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.bootstrapCard.style.display, 'block');
   assert.equal(elements.reconnectHint.style.display, 'block');
   assert.equal(elements.reconnectHint.textContent, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
-  assert.equal(elements.commandSnippet.textContent, 'pip install zerochat && zerochat');
+  assert.equal(elements.commandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
 
   // 2. Estado conectando
   ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
@@ -181,7 +181,7 @@ test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual'
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'pip install zerochat && zerochat');
+  assert.equal(mockCommandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
 
   uiInstance.destroy();
 });
@@ -198,7 +198,7 @@ test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconect
     ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
     assert.equal(container.style.display, 'block');
     assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-    assert.ok(container.innerHTML.includes('ejecute localmente'));
+    assert.ok(container.innerHTML.includes('zerochat.py'));
   } finally {
     ChatState.set('mcp', previousState);
   }

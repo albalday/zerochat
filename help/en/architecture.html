@@ -33,7 +33,7 @@
         The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files with no build step. Its Service Worker reuses available resources but does not replace a connection when one is needed.
       </p>
       <p>
-        All local system interaction is channeled through the <code>zerochat</code> executable installed from PyPI or the <code>zerochat.py</code> script. Both authenticate sessions using secure daily tokens.
+        All local system interaction (command execution, file reading, and editing) is channeled through a single Python executable: <code>zerochat.py</code>, which manages its own virtual environment in <code>./zerochat</code> and authenticates sessions using secure daily tokens.
       </p>
       <div class="alert alert-success">
         <strong>Key advantage:</strong> No bundlers, compilers, or build pipelines. The web application runs statically and the local backend runs on any system with a single terminal command.
@@ -169,7 +169,7 @@
           <strong>Universal Web Delivery (HTTPS):</strong> Served directly from GitHub Pages (<code>https://albalday.github.io/zerochat/zerochat.html</code>). All interface rendering, agent execution, and inference calls happen in the browser with full access to modern web APIs like <code>navigator.storage.persist()</code> and private local IndexedDB storage.
         </li>
         <li>
-          <strong>Unified Local Backend:</strong> Running <code>zerochat</code> after installing it from PyPI, or <code>python3 zerochat.py</code> after downloading the script, launches the local server on <code>127.0.0.1:6388</code>, opens the browser, and passes the daily session token securely via the URL fragment. The app consumes that fragment only once and retains the local session in a short-lived cookie.
+          <strong>Unified Local Backend (<code>zerochat.py</code>):</strong> Running <code>python3 zerochat.py</code> launches the local server on <code>127.0.0.1:6388</code>, opens the browser pointing to the web app, and passes the daily session token securely via the URL fragment. In Termux, it detects the environment and uses <code>termux-open-url</code> to open the Android browser; on other Linux desktops it uses the default application launcher. The launch command is the same in both cases. The app consumes that fragment only once, removes it from the address bar, and retains the local session in a short-lived cookie, so reloads and new tabs neither expose nor propagate the token again.
         </li>
       </ul>
       <div class="alert alert-info">
