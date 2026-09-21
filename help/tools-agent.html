@@ -33,7 +33,7 @@
         Cuando planteas una tarea compleja, el modelo evalúa qué herramientas necesita, emite una llamada estructurada (Function Calling), ZeroChat ejecuta la herramienta en tu navegador y devuelve el resultado al modelo para que continúe resolviendo el problema hasta completar el objetivo.
       </p>
       <div class="alert alert-info">
-        <strong>Límite de turnos de seguridad (<code>maxAgentTurns</code>):</strong> En la configuración puedes definir el número máximo de turnos continuos que el agente puede encadenar (por defecto entre 5 y 10), impidiendo bucles infinitos y consumo desmedido de tokens.
+        <strong>Límite de turnos de seguridad (<code>maxAgentTurns</code>):</strong> En Ajustes puedes definir el máximo de turnos consecutivos del agente, entre 5 y 35 (15 por defecto), para limitar bucles y consumo de tokens.
       </div>
     </div>
 
@@ -75,13 +75,14 @@
               <td>Motor SVG cliente (<code>charts.js</code>)</td>
             </tr>
             <tr>
-              <td><code>list_documents</code><br><code>search_knowledge_base</code><br><code>read_knowledge_chunk</code></td>
+              <td><code>list_documents</code><br><code>search_knowledge_base</code><br><code>read_knowledge_chunk</code><br><code>read_knowledge_image</code></td>
               <td>Herramientas para inspeccionar, buscar e indexar fragmentos de documentos cargados en la base de conocimiento local (RAG).</td>
               <td>Motor Orama & IndexedDB local</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <p><code>agent_checkpoint</code> permite al agente resumir hallazgos y decidir si continúa investigando o responde.</p>
     </div>
 
     <div class="card">

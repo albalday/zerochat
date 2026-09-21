@@ -44,7 +44,8 @@
       </p>
       <ul>
         <li>Puedes crear diferentes ramas según la temática (por ejemplo: <em>"Documentación API"</em>, <em>"Finanzas 2026"</em>, <em>"Apuntes de Física"</em>).</li>
-        <li>Una rama puede activarse o desactivarse con un simple clic desde el botón <strong>RAG</strong> de la barra inferior. Para crear ramas, cargar o gestionar documentos, abre <strong>RAG</strong> desde el menú general de configuración.</li>
+        <li>Puedes activar varias ramas desde el botón <strong>RAG</strong> de la barra inferior. Para crear ramas, cargar o gestionar documentos, abre <strong>RAG</strong> desde el menú general de configuración.</li>
+        <li>Al combinar ramas de idiomas distintos, ZeroChat muestra un aviso sin cambiar las ramas activas.</li>
         <li>Cuando una rama está activa, el agente o el chat tienen acceso directo a los documentos contenidos en ella.</li>
       </ul>
     </div>
@@ -67,12 +68,9 @@
     <div class="card">
       <h2>4. Búsqueda y Herramientas Agénticas de Consulta</h2>
       <p>
-        El modelo puede interactuar con tus documentos mediante dos estrategias complementarias:
+        El modelo consulta los documentos activos mediante herramientas de RAG:
       </p>
       <ol>
-        <li>
-          <strong>Inyección Contextual Automática:</strong> Antes de responder, ZeroChat busca los fragmentos más pertinentes en la rama activa y los inyecta en el prompt del sistema.
-        </li>
         <li>
           <strong>Consulta Activa por Herramientas (Tool Calling):</strong> El modelo invoca dinámicamente las herramientas del agente:
           <ul>

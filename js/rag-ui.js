@@ -140,6 +140,29 @@
     return setActiveBranchIds(Array.from(activeBranchIds));
   }
 
+  async function warnAboutMixedBranchLanguages(branchIds) {
+    const ids = Array.from(new Set((branchIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+    if (ids.length < 2 || !storage()?.getBranches) return;
+
+    const branches = await storage().getBranches();
+    const languages = Array.from(new Set(branches
+      .filter(branch => ids.includes(branch.id))
+      .map(branch => String(branch.language || 'spanish').trim().toLowerCase())));
+    if (languages.length < 2) return;
+
+    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+    if (!Dialogs?.alert) return;
+    await Dialogs.alert(t('rag_mixed_languages_warning', {
+      languages: languages.map(formatBranchLanguage).join(', ')
+    }), { type: 'info' });
+  }
+
+  async function toggleBranchActiveWithLanguageNotice(branchId) {
+    const activeIds = toggleBranchActive(branchId);
+    await warnAboutMixedBranchLanguages(activeIds);
+    return activeIds;
+  }
+
   function isBranchActive(branchId) {
     return activeBranchIds.has(String(branchId || '').trim());
   }
@@ -203,7 +226,7 @@
       </button>`;
     }).join('');
     list.querySelectorAll('[data-branch-id]').forEach(button => button.addEventListener('click', async () => {
-      toggleBranchActive(button.dataset.branchId);
+      await toggleBranchActiveWithLanguageNotice(button.dataset.branchId);
       await renderActiveTab();
     }));
   }
@@ -768,7 +791,8 @@
     document.getElementById('btn-rag-toggle-master')?.addEventListener('click', async () => { setActiveBranchIds([]); await renderActiveTab(); });
     document.getElementById('btn-rag-activate-all')?.addEventListener('click', async () => {
       const branches = await storage().getBranches();
-      setActiveBranchIds(branches.map(b => b.id));
+      const activeIds = setActiveBranchIds(branches.map(b => b.id));
+      await warnAboutMixedBranchLanguages(activeIds);
       await renderActiveTab();
     });
   }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Model Context Protocol (MCP) · ZeroChat Help</title>
-  <meta name="description" content="Guide for connecting private local MCP server over SSE/HTTP in ZeroChat: software development tools and tool authorization policies.">
+  <meta name="description" content="MCP guide for ZeroChat: the local server, tools, external services, and permissions.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Model Context Protocol (MCP)</h1>
-      <p class="subtitle">Connect ZeroChat with your external tools, databases, or operating system utilities via the open MCP standard.</p>
+      <p class="subtitle">Use tools on your computer and external MCP services from ZeroChat, with the local server and authorization controls built in.</p>
     </header>
 
     <div class="card">
@@ -34,21 +34,21 @@
         The <strong>Model Context Protocol (MCP)</strong> is an open protocol championed by Anthropic to bridge AI models with external tools and databases through a standardized interface.
       </p>
       <p>
-        ZeroChat implements a <strong>full client MCP engine over SSE (Server-Sent Events) and HTTP</strong>. This lets your browser connect to any local or remote MCP server (written in Python, Node.js, Go, etc.) to give models access to local filesystems, SQL databases, internal company APIs, or CLI commands.
+        In ZeroChat, <code>zerochat.py</code> starts a local server on <code>127.0.0.1</code>, opens the app with a session token, and the browser connects automatically. A remote MCP URL is not configured manually. The server provides file and terminal tools and hosts the external MCP services that you enable in the app.
       </p>
     </div>
 
     <div class="card">
       <h2>2. Connection & UI Indicators</h2>
       <p>
-        In the composer bottom toolbar, locate the plug icon button for <strong>MCP</strong>:
+        Open <strong>Settings → MCP</strong> to check the local-server status and discovered tools:
       </p>
       <ul>
-        <li><strong>Neutral border / Disconnected:</strong> No active MCP connection.</li>
-        <li><strong>Green border / Connected:</strong> ZeroChat has connected to the server and discovered its exposed tools.</li>
+        <li><strong>Disconnected:</strong> The local server is not available. Keep <code>zerochat.py</code> running and reload the page if it was restarted.</li>
+        <li><strong>Connected:</strong> ZeroChat has discovered the local tools and can list available external MCP services.</li>
       </ul>
       <p>
-        Click the MCP button to open the setup modal, configure your endpoint (default: <code>http://127.0.0.1:6388/sse</code>), and click <em>"Connect"</em>. To prevent intrusive browser Private Network Access warnings on fresh visits, auto-connection only takes place after MCP has been connected or configured at least once on that computer.
+        There is no manual connection form or button. Run the command below and open the app from the link started by the script. The session token protects requests to the local server; do not share that URL or token.
       </p>
     </div>
 
@@ -74,7 +74,7 @@
       </p>
       <div class="code-wrapper">
         <pre><code># Download and launch the ZeroChat local backend
-curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
+curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
       </div>
     </div>
 
@@ -84,14 +84,14 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o
         Because local tools can perform sensitive operations on your system (such as modifying files or running shell commands), ZeroChat provides granular security controls for each tool:
       </p>
       <p>
-        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered permissions, and reset them when needed. MCP server connection setup remains separate in the <strong>MCP</strong> section.
+        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered decisions, and clear them when needed. In the MCP panel you can also choose <em>Ask</em>, <em>Allow</em>, or <em>Deny</em> for each tool.
       </p>
       <ul>
-        <li><strong>On/Off Switches:</strong> Enable or disable individual tools without restarting the MCP server process.</li>
+        <li><strong>On/Off Switches:</strong> Enable or disable each tool sent to the model without stopping the server.</li>
         <li><strong>Authorization Policy:</strong>
           <ul>
-            <li><em>Automatic:</em> The agent invokes the tool without user interruption.</li>
-            <li><em>Ask confirmation:</em> ZeroChat halts execution and displays a modal prompt asking for explicit approval before running the tool.</li>
+            <li><em>Ask for authorization (recommended):</em> ZeroChat pauses to ask for explicit approval.</li>
+            <li><em>Allow all:</em> Any tool runs without confirmation. Use it only in a trusted environment.</li>
           </ul>
         </li>
       </ul>
@@ -103,17 +103,17 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o
     <div class="card">
       <h2>5. External MCP Services & Individual Activation</h2>
       <p>
-        The local server <code>zerochat.py</code> manages external MCP services configured in the services folder (such as <code>./zerochat/services</code>). No global external host daemon needs to be toggled: the service manager is always running within the local backend.
+        The local <code>zerochat.py</code> server manages external MCP services defined in <code>services/</code>. You do not need to run a global external daemon: start and stop each service from ZeroChat.
       </p>
       <p>
-        In the <strong>Settings → MCP</strong> section, the <em>"Available MCP Servers"</em> section lists all configured services and allows users to start and stop them individually using dedicated action buttons (<em>Start</em> / <em>Stop</em>), as well as configure service-specific options. Once a service is running, its tools are dynamically discovered and registered for agent use.
+        In <strong>Settings → MCP</strong>, <em>"Available MCP Servers"</em> lets you start or stop each service and configure its options. When starting one, ZeroChat installs dependencies when needed, discovers its tools, and adds them to the panel. Node.js-based services require Node.js 18 or later and npm.
       </p>
       <p>
-        The local server provides ready-to-use definitions in individual folders under <code>services/</code> (or <code>./zerochat/services</code>):
+        The local server provides ready-to-use definitions in <code>services/</code>:
       </p>
       <ul>
         <li><code>dummy_mcp</code>: Minimal test service in pure Python without external dependencies.</li>
-        <li><code>playwright</code>: Web automation and navigation with the official Playwright MCP server.</li>
+        <li><code>playwright</code>: Browser automation with the official Playwright MCP server; the <em>Headless</em> option controls whether a browser window is shown.</li>
         <li><code>memory</code>: Knowledge graph and structured persistent memory.</li>
         <li><code>lsp</code>: Language Server Protocol for code navigation and type inspection.</li>
       </ul>

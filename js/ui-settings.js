@@ -572,7 +572,7 @@
                 <span data-i18n="mcp_btn_copy_cmd">Copiar comando</span>
               </button>
             </div>
-            <a href="help/index.html" target="_blank" rel="noopener noreferrer" class="mcp-bootstrap-help" data-i18n="mcp_bootstrap_help">Abrir ayuda general de ZeroChat</a>
+            <a href="help/mcp.html" target="_blank" rel="noopener noreferrer" class="mcp-bootstrap-help" data-i18n="mcp_bootstrap_help">Abrir ayuda de MCP</a>
           </div>
 
           <!-- Tarjeta de Servidores MCP Disponibles -->

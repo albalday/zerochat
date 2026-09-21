@@ -64,6 +64,7 @@
         <li><strong>JSON Completo de Sesión:</strong> Incluye los mensajes de usuario y asistente, metadatos, perfil utilizado, uso de tokens y llamadas a herramientas. Este archivo sirve además como copia de seguridad exacta que puedes importar de vuelta.</li>
         <li><strong>Markdown (.md):</strong> Formato de texto estructurado listo para publicar en GitHub, Obsidian, Notion o tu editor favorito, preservando encabezados, bloques de código, tablas y fórmulas matemáticas.</li>
         <li><strong>Texto Plano (.txt):</strong> Transcripción limpia y ligera de la conversación para lectura rápida.</li>
+        <li><strong>PDF:</strong> Vista preparada para imprimir o guardar como PDF.</li>
       </ul>
     </div>
 
@@ -75,6 +76,7 @@
       <p>
         Al importar, la conversación se valida de forma estricta, se sanitiza para prevenir inyecciones maliciosas y se almacena en tu base de datos IndexedDB local, apareciendo al instante en la lista de chats.
       </p>
+      <p>Solo se importan copias JSON de ZeroChat y la importación no está disponible mientras se genera una respuesta.</p>
       <div class="alert alert-warning">
         <strong>Borrado masivo seguro:</strong> El botón con icono de papelera en el pie de la barra lateral permite eliminar todas las conversaciones de golpe. Antes de proceder, ZeroChat solicitará tu confirmación explícita para evitar pérdidas accidentales.
       </div>
@@ -101,4 +103,3 @@
   </div>
 </body>
 </html>
-

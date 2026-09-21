@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía de integración de MCP en ZeroChat: conexión con servidor local privado SSE/HTTP, herramientas de desarrollo de software y políticas de autorización.">
+  <meta name="description" content="Guía de MCP en ZeroChat: servidor local, herramientas, servicios externos y permisos.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Protocolo MCP (Model Context Protocol)</h1>
-      <p class="subtitle">Conecta ZeroChat con tus herramientas externas, bases de datos o servicios del sistema operativo mediante el estándar abierto MCP.</p>
+      <p class="subtitle">Usa herramientas de tu equipo y servicios MCP externos desde ZeroChat, con el servidor local y controles de autorización integrados.</p>
     </header>
 
     <div class="card">
@@ -34,21 +34,21 @@
         El <strong>Model Context Protocol (MCP)</strong> es un estándar abierto promovido por Anthropic para conectar modelos de inteligencia artificial con fuentes de datos y herramientas del mundo real de manera uniforme.
       </p>
       <p>
-        ZeroChat implementa un <strong>cliente MCP completo sobre SSE (Server-Sent Events) y HTTP</strong>. Esto te permite conectar el navegador con cualquier servidor MCP que ejecutes en tu máquina (por ejemplo, en Python, Node.js o Go) para dar al modelo acceso a bases de datos SQL, sistemas de archivos, APIs internas de tu empresa o utilidades de línea de comandos.
+        En ZeroChat, <code>zerochat.py</code> inicia un servidor local en <code>127.0.0.1</code>, abre la aplicación con un token de sesión y el navegador se conecta automáticamente. No se configura manualmente una URL MCP remota. El servidor ofrece herramientas de archivos y terminal, y alberga los servicios MCP externos que actives desde la aplicación.
       </p>
     </div>
 
     <div class="card">
       <h2>2. Conexión y Estado en la Interfaz</h2>
       <p>
-        En la barra inferior del composer encontrarás el botón con icono de enchufe para <strong>MCP</strong>:
+        Abre <strong>Ajustes → MCP</strong> para consultar el estado del servidor local y las herramientas detectadas:
       </p>
       <ul>
-        <li><strong>Borde neutro / desconectado:</strong> No hay ningún servidor MCP activo.</li>
-        <li><strong>Borde verde / conectado:</strong> ZeroChat ha establecido conexión con el servidor y ha descubierto sus herramientas.</li>
+        <li><strong>Desconectado:</strong> El servidor local no está disponible. Deja <code>zerochat.py</code> ejecutándose y recarga la página si se ha reiniciado.</li>
+        <li><strong>Conectado:</strong> ZeroChat ha descubierto las herramientas locales y puede mostrar los servicios MCP externos disponibles.</li>
       </ul>
       <p>
-        Al hacer clic en el botón MCP se abre el modal de configuración, donde puedes especificar el host y el puerto de tu servidor local (por defecto <code>http://127.0.0.1:6388/sse</code>) y pulsar <em>"Conectar"</em>. Para evitar avisos innecesarios de acceso a red local en el navegador al abrir la app por primera vez, la conexión automática solo se producirá tras haber conectado o configurado MCP al menos una vez en ese equipo.
+        No hay botón ni formulario de conexión manual. Ejecuta el comando siguiente y abre la aplicación desde el enlace que inicia el script. El token de sesión protege las peticiones al servidor local: no compartas esa URL ni el token.
       </p>
     </div>
 
@@ -74,7 +74,7 @@
       </p>
       <div class="code-wrapper">
         <pre><code># Descargar y arrancar el backend local de ZeroChat
-curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
+curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
       </div>
     </div>
 
@@ -84,14 +84,14 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o
         Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un panel de control granular para cada herramienta:
       </p>
       <p>
-        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar los permisos recordados y restablecerlos cuando sea necesario. La configuración de conexión del servidor MCP se mantiene separada en la sección <strong>MCP</strong>.
+        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar las decisiones recordadas y restablecerlas cuando sea necesario. Desde el panel MCP también puedes elegir <em>Preguntar</em>, <em>Permitir</em> o <em>Denegar</em> para cada herramienta.
       </p>
       <ul>
-        <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta por el servidor MCP sin necesidad de reiniciar el servicio.</li>
+        <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta al modelo sin detener el servidor.</li>
         <li><strong>Política de autorización:</strong>
           <ul>
-            <li><em>Automático:</em> El agente puede ejecutar la herramienta de forma transparente.</li>
-            <li><em>Pedir confirmación:</em> ZeroChat pausará la ejecución y solicitará tu aprobación explícita mediante un diálogo modal antes de permitir la invocación.</li>
+            <li><em>Pedir autorización (recomendado):</em> ZeroChat pausa la ejecución para solicitar tu aprobación explícita.</li>
+            <li><em>Todo autorizado:</em> Cualquier herramienta se ejecuta sin confirmaciones. Úsalo solo en un entorno de confianza.</li>
           </ul>
         </li>
       </ul>
@@ -103,17 +103,17 @@ curl -sSL https://raw.githubusercontent.com/albalday/zerochat/dev/zerochat.py -o
     <div class="card">
       <h2>5. Servicios MCP Externos y Activación Individual</h2>
       <p>
-        El servidor local <code>zerochat.py</code> gestiona servicios MCP externos configurados en el directorio de servicios (como <code>./zerochat/services</code>). No es necesario arrancar ningún daemon externo global: el gestor de servicios está siempre activo en el backend local.
+        El servidor local <code>zerochat.py</code> gestiona los servicios MCP externos definidos en <code>services/</code>. No necesitas ejecutar un daemon externo global: cada servicio se inicia y se detiene desde ZeroChat.
       </p>
       <p>
-        En la sección <strong>Ajustes → MCP</strong>, el apartado <em>"Servidores MCP Disponibles"</em> lista los servicios disponibles en el servidor y permite a los usuarios arrancarlos o detenerlos de manera individual con sus botones de acción (<em>Iniciar</em> / <em>Detener</em>), así como activar opciones específicas de cada servicio. Una vez iniciado un servicio, sus herramientas se registran y se hacen disponibles de inmediato para el agente.
+        En <strong>Ajustes → MCP</strong>, <em>"Servidores MCP Disponibles"</em> permite iniciar o detener cada servicio y configurar sus opciones. Al iniciarlo, ZeroChat instala las dependencias necesarias cuando corresponda, descubre sus herramientas y las añade al panel. Los servicios basados en Node.js requieren Node.js 18 o posterior y npm.
       </p>
       <p>
-        El servidor local incluye definiciones listas para usar organizadas en subdirectorios bajo <code>services/</code> (o <code>./zerochat/services</code>):
+        El servidor local incluye definiciones listas para usar en <code>services/</code>:
       </p>
       <ul>
         <li><code>dummy_mcp</code>: Servicio mínimo de prueba en Python puro sin dependencias.</li>
-        <li><code>playwright</code>: Automatización de navegación web con Playwright MCP oficial.</li>
+        <li><code>playwright</code>: Automatización de navegador con Playwright MCP oficial; la opción <em>Headless</em> controla si se muestra la ventana.</li>
         <li><code>memory</code>: Grafo de conocimiento y memoria persistente estructurada.</li>
         <li><code>lsp</code>: Language Server Protocol para navegación de código e inteligencia de tipos.</li>
       </ul>

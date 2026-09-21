@@ -38,6 +38,46 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar su activación', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const branchIds = await page.evaluate(async () => {
+      await window.ChatRagStorage.clearAllData();
+      window.ChatRagUI.setActiveBranchIds([]);
+      const spanishOne = await window.ChatRagStorage.createBranch({ name: 'ES uno', language: 'spanish' });
+      const spanishTwo = await window.ChatRagStorage.createBranch({ name: 'ES dos', language: 'spanish' });
+      const english = await window.ChatRagStorage.createBranch({ name: 'EN', language: 'english' });
+      return { spanishOne: spanishOne.id, spanishTwo: spanishTwo.id, english: english.id };
+    });
+
+    await page.click('#btn-open-rag');
+    await page.waitForFunction(() => document.querySelectorAll('#rag-modal [data-branch-id]').length === 3);
+
+    await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishOne}"]`).click();
+    await page.waitForTimeout(50);
+    assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
+
+    await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishTwo}"]`).click();
+    await page.waitForTimeout(50);
+    assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
+
+    await page.locator(`#rag-modal [data-branch-id="${branchIds.english}"]`).click();
+    await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
+    const warningText = await page.$eval('#notice-message', el => el.textContent);
+    assert.match(warningText, /idiomas distintos/i);
+    assert.match(warningText, /Español/i);
+    assert.match(warningText, /Inglés/i);
+    assert.equal(await page.evaluate(() => window.ChatRagUI.getActiveBranchIds().length), 3);
+    await page.click('#notice-accept');
+    await page.click('#btn-close-rag');
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajustes', async () => {
   const browser = await createTestBrowser();
   try {
@@ -240,7 +280,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     assert.equal(mcpUiState.hasSetupDialog, false, 'El subpanel de conexión manual no debe existir');
     assert.ok(mcpUiState.bootstrapVisible, 'Debe explicar cómo arrancar el servidor local cuando no está disponible');
     assert.equal(mcpUiState.commandText, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
-    assert.equal(mcpUiState.helpHref, 'help/index.html');
+    assert.equal(mcpUiState.helpHref, 'help/mcp.html');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');
 
