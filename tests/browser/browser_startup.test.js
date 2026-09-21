@@ -128,16 +128,17 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
   }
 });
 
-test('Browser help - el comando de descarga de zerochat.py usa la URL oficial y se puede copiar', async () => {
+test('Browser help - recomienda PyPI y conserva el arranque directo de zerochat.py', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto('file://' + path.resolve(__dirname, '../../help/index.html'), { waitUntil: 'load' });
     await page.waitForSelector('.code-wrapper .btn-copy');
 
-    const command = await page.$eval('.code-wrapper pre code', el => el.textContent.trim());
+    const commands = await page.$$eval('.code-wrapper pre code', elements => elements.map(el => el.textContent.trim()));
     const button = await page.$eval('.code-wrapper .btn-copy', el => ({ type: el.type, text: el.textContent.trim() }));
-    assert.equal(command, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
+    assert.equal(commands[0], 'pip install zerochat && zerochat');
+    assert.ok(commands.includes('curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'));
     assert.deepEqual(button, { type: 'button', text: 'Copiar' });
   } finally {
     await browser.close();
