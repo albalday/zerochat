@@ -10,6 +10,7 @@ test('Security - Sanitización de URLs en Markdown.sanitizeUrl', () => {
   assert.equal(Markdown.sanitizeUrl('https://example.com'), 'https://example.com');
   assert.equal(Markdown.sanitizeUrl('http://localhost:1234/api'), 'http://localhost:1234/api');
   assert.equal(Markdown.sanitizeUrl('mailto:user@example.com'), 'mailto:user@example.com');
+  assert.equal(Markdown.sanitizeUrl('help/index.html'), 'help/index.html');
 
   // Bloqueo estricto de esquemas peligrosos
   assert.equal(Markdown.sanitizeUrl('javascript:alert(1)'), '#');
@@ -17,6 +18,7 @@ test('Security - Sanitización de URLs en Markdown.sanitizeUrl', () => {
   assert.equal(Markdown.sanitizeUrl('data:text/html,<script>alert(1)</script>'), '#');
   assert.equal(Markdown.sanitizeUrl('vbscript:msgbox(1)'), '#');
   assert.equal(Markdown.sanitizeUrl('file:///etc/passwd'), '#');
+  assert.equal(Markdown.sanitizeUrl('//example.com'), '#');
 
   // Prevención de inyección de comillas en atributos href
   const injected = Markdown.sanitizeUrl('https://example.com" onclick="alert(1)');

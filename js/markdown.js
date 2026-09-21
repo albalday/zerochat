@@ -57,6 +57,9 @@
     if (/^(?:https?:\/\/|mailto:|tel:)/i.test(trimmed)) {
       return escapeHtml(trimmed);
     }
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^[\\/]{2}/.test(trimmed)) {
+      return escapeHtml(trimmed);
+    }
     return '#';
   }
 

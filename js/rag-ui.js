@@ -891,7 +891,7 @@
         <div class="rag-help-link-card">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="rag_help_link_text">¿Necesitas ayuda con RAG?</span>
-          <a href="http://albalday.github.io/zerochat/help/rag.html" target="_blank" rel="noopener noreferrer" class="rag-help-external-link" data-i18n="rag_help_link_label">Ver guía completa</a>
+          <a href="help/rag.html" target="_blank" rel="noopener noreferrer" class="rag-help-external-link" data-i18n="rag_help_link_label">Ver guía completa</a>
         </div>
         <div class="rag-active-tip-card">
           <span class="rag-active-tip-icon" style="color: var(--accent, #f59e0b); display: inline-flex; align-items: center;">${getIcon('lightbulb', { size: 18 })}</span>

@@ -60,7 +60,7 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
     assert.match(responseEn.accumulatedText, /## Continue with a profile/);
     assert.match(responseEn.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
     assert.match(responseEn.accumulatedText, /## Prepared request \(not sent\)/);
-    assert.match(responseEn.accumulatedText, /http:\/\/albalday\.github\.io\/zerochat\/help\/en\/index\.html/);
+    assert.match(responseEn.accumulatedText, /\]\(help\/en\/index\.html\)/);
 
     I18n.setLanguage('es', false);
     const responseEs = await Api.streamChatCompletion({
@@ -68,7 +68,7 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
     });
     assert.match(responseEs.accumulatedText, /^# Bienvenido a ZeroChat/m);
     assert.match(responseEs.accumulatedText, /## Continúa con un perfil/);
-    assert.match(responseEs.accumulatedText, /http:\/\/albalday\.github\.io\/zerochat\/help\/index\.html/);
+    assert.match(responseEs.accumulatedText, /\]\(help\/index\.html\)/);
   } finally {
     I18n.setLanguage(previousLanguage, false);
   }

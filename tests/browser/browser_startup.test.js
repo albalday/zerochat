@@ -107,7 +107,7 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
       title: el.title
     }));
 
-    assert.equal(stateEs.href, 'http://albalday.github.io/zerochat/help/index.html');
+    assert.equal(stateEs.href, 'file://' + path.resolve(__dirname, '../../help/index.html'));
     assert.equal(stateEs.target, '_blank');
     assert.match(stateEs.rel, /noopener/);
     assert.match(stateEs.text, /Ayuda|Help/);
@@ -121,7 +121,7 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
       title: el.title
     }));
 
-    assert.equal(stateEn.href, 'http://albalday.github.io/zerochat/help/en/index.html');
+    assert.equal(stateEn.href, 'file://' + path.resolve(__dirname, '../../help/en/index.html'));
     assert.match(stateEn.text, /Help & Documentation/);
   } finally {
     await browser.close();

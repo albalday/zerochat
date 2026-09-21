@@ -3,23 +3,13 @@ fichero de uso del programador como recordatorio. no analizar
 puntos fuerts: rag financial, tool agentico,  
 sub agente (mismo-otro)
 
-
 mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico
 
-
-
-boton free tier get apikey opentouter
-
-botones panel derecho cambiar para no abrir nueva pestañapor error
-
-gestion de razonamiento flujo y opciones en el defecto
-
-raw siempre
-
-panel de debug feo
 webllm lista de modelos mejorar para movil
-HTML DE ENVIO DE PERFIL. CAMBIA A PAGFINA DEL SERVIDOR PASANDO PERFIL A AÑADIR
 
 norma de cambio de version rapido ande ta
 
-nivel 3 claude no encuantra
+idiomas rag
+
+maximizar en movil
+
