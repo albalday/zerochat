@@ -34,7 +34,7 @@
         El <strong>Model Context Protocol (MCP)</strong> es un estándar abierto promovido por Anthropic para conectar modelos de inteligencia artificial con fuentes de datos y herramientas del mundo real de manera uniforme.
       </p>
       <p>
-        En ZeroChat, <code>zerochat.py</code> inicia un servidor local en <code>127.0.0.1</code>, abre la aplicación con un token de sesión y el navegador se conecta automáticamente. No se configura manualmente una URL MCP remota. El servidor ofrece herramientas de archivos y terminal, y alberga los servicios MCP externos que actives desde la aplicación.
+        En ZeroChat, el servidor local inicia en <code>127.0.0.1</code> y abre GitHub Pages con un token de sesión. Puedes instalarlo desde PyPI o ejecutar <code>zerochat.py</code> directamente: ambos métodos usan el mismo origen web y no requieren configurar una URL MCP remota.
       </p>
     </div>
 
@@ -44,7 +44,7 @@
         Abre <strong>Ajustes → MCP</strong> para consultar el estado del servidor local y las herramientas detectadas:
       </p>
       <ul>
-        <li><strong>Desconectado:</strong> El servidor local no está disponible. Deja <code>zerochat.py</code> ejecutándose y recarga la página si se ha reiniciado.</li>
+        <li><strong>Desconectado:</strong> El servidor local no está disponible. Deja <code>zerochat</code> o <code>zerochat.py</code> ejecutándose y recarga la página si se ha reiniciado.</li>
         <li><strong>Conectado:</strong> ZeroChat ha descubierto las herramientas locales y puede mostrar los servicios MCP externos disponibles.</li>
       </ul>
       <p>
@@ -53,12 +53,12 @@
     </div>
 
     <div class="card">
-      <h2>3. Servidor Local en Python (zerochat.py)</h2>
+      <h2>3. Servidor Local: PyPI o zerochat.py</h2>
       <p>
-        ZeroChat unifica toda su infraestructura local en un único script ejecutable: <code>zerochat.py</code>.
+        La opción recomendada es instalar el ejecutable oficial desde PyPI. No incluye una copia de la interfaz: abre la misma aplicación de GitHub Pages que el script descargado.
       </p>
       <p>
-        Al ejecutarse, <code>zerochat.py</code> comprueba la versión, crea y gestiona automáticamente un entorno virtual en <code>./zerochat</code>, arranca el servidor local SSE y abre el navegador apuntando a <code>zerochat.html</code> con un token efímero de sesión.
+        Como alternativa, descarga <code>zerochat.py</code> y ejecútalo con Python. Ambas opciones arrancan el servidor SSE, abren GitHub Pages y conservan el token de sesión en el mismo origen web.
       </p>
       <p>
         <strong>Herramientas Locales Esenciales:</strong>
@@ -70,10 +70,13 @@
         <li><strong><code>list_directory</code>:</strong> Exploración estructurada de carpetas y metadatos de archivos.</li>
       </ul>
       <p>
-        <strong>Seguridad por Token:</strong> Todas las peticiones desde <code>zerochat.html</code> requieren el token efímero de sesión generado por <code>zerochat.py</code> en el arranque. Sin este token, el servidor local rechaza cualquier conexión externa.
+        <strong>Seguridad por Token:</strong> Todas las peticiones desde GitHub Pages requieren el token efímero generado al arrancar. Sin este token, el servidor local rechaza cualquier conexión externa.
       </p>
       <div class="code-wrapper">
-        <pre><code># Descargar y arrancar el backend local de ZeroChat
+        <pre><code># Recomendado: instalar desde PyPI
+pip install zerochat &amp;&amp; zerochat
+
+# Alternativa: descargar y ejecutar el script directamente
 curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
       </div>
     </div>

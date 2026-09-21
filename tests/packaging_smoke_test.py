@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica que el wheel instala el comando y contiene la interfaz local."""
+"""Verifica que el wheel instala solo el ejecutable y usa GitHub Pages."""
 
 from __future__ import annotations
 
@@ -31,12 +31,12 @@ def main() -> None:
         python = venv_dir / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
         executable = venv_dir / ("Scripts/zerochat.exe" if sys.platform.startswith("win") else "bin/zerochat")
         run(str(python), "-m", "pip", "install", "--no-deps", str(wheels[0]))
-        version = run(str(executable), "--version").stdout.strip()
+        version = run(str(executable), "--version", cwd=temp_dir).stdout.strip()
         if not version.startswith("ZeroChat "):
             raise SystemExit(f"Salida de versión inesperada: {version!r}")
-        assets = run(str(python), "-c", "import zerochat; print(zerochat.get_static_root())").stdout.strip()
-        if not (Path(assets) / "zerochat.html").is_file():
-            raise SystemExit("El wheel no contiene zerochat.html")
+        static_root = run(str(python), "-c", "import zerochat; print(zerochat.get_static_root())", cwd=temp_dir).stdout.strip()
+        if static_root != "None":
+            raise SystemExit("El wheel no debe contener recursos web")
 
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
@@ -53,14 +53,14 @@ def main() -> None:
         try:
             for _ in range(30):
                 try:
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/zerochat.html", timeout=1) as response:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/zerochat/heartbeat?token=packaging-test-token", timeout=1) as response:
                         if response.status == 200:
                             break
                 except OSError:
                     time.sleep(0.1)
             else:
                 output, errors = process.communicate(timeout=1)
-                raise SystemExit(f"El paquete no sirvió la interfaz local: {output} {errors}")
+                raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
             if (temp_dir / "zerochat").exists():
                 raise SystemExit("El paquete creó un venv en el directorio de trabajo")
             if not (data_dir / "services" / "dummy_mcp" / "service.json").is_file():

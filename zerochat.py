@@ -16,7 +16,6 @@ import atexit
 import datetime
 import hmac
 import importlib.metadata
-import importlib.resources
 import json
 import os
 import platform
@@ -229,18 +228,6 @@ def console_log(message: str, *, flush: bool = True):
     else:
         print(message, flush=flush)
 
-def get_packaged_assets_root() -> Path | None:
-    """Devuelve los recursos incluidos en la distribución PyPI, si existen."""
-    try:
-        root = importlib.resources.files("zerochat_runtime").joinpath("assets")
-        path = Path(str(root))
-        if (path / "zerochat.html").is_file():
-            return path
-    except (ModuleNotFoundError, TypeError):
-        pass
-    return None
-
-
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
@@ -255,12 +242,18 @@ def get_dev_root() -> Path | None:
 
 
 def get_static_root() -> Path | None:
-    """Prioriza el árbol de desarrollo y usa los recursos empaquetados fuera de él."""
-    return get_dev_root() or get_packaged_assets_root()
+    """La interfaz local solo se sirve al ejecutar el repositorio de desarrollo."""
+    return get_dev_root()
 
 
-def is_packaged_runtime() -> bool:
-    return get_dev_root() is None and get_packaged_assets_root() is not None
+def is_installed_runtime() -> bool:
+    """Identifica el ejecutable instalado desde PyPI, sin confundirlo con el repositorio."""
+    if get_dev_root() is not None:
+        return False
+    try:
+        return importlib.metadata.version("zerochat") == BACKEND_PACKAGE_VERSION
+    except importlib.metadata.PackageNotFoundError:
+        return False
 
 
 def get_venv_dir() -> Path:
@@ -323,7 +316,7 @@ def ensure_virtual_environment():
     Comprueba si existe el entorno virtual en ./zerochat. Si no existe, lo crea.
     Si el proceso actual no se está ejecutando bajo dicho entorno, se re-ejecuta.
     """
-    if is_packaged_runtime():
+    if is_installed_runtime():
         return
 
     venv_dir = get_venv_dir()
@@ -364,7 +357,7 @@ def parse_version(ver: str) -> tuple[int, ...]:
 
 def check_version():
     """Comprueba si hay una nueva versión de zerochat.py en el repositorio remoto (solo en modo producción/standalone)."""
-    if get_dev_root() is not None or is_packaged_runtime():
+    if get_dev_root() is not None or is_installed_runtime():
         return
     try:
         req = urllib.request.Request(REMOTE_VERSION_URL, headers={"User-Agent": f"ZeroChat/{VERSION}"})
@@ -805,28 +798,7 @@ class McpServiceManager:
         self.services = self._load_services()
         self.preferences = self._load_preferences()
 
-    def _copy_packaged_service_templates(self):
-        """Inicializa descriptores MCP editables sin copiar dependencias instaladas."""
-        assets_root = get_packaged_assets_root()
-        if not assets_root:
-            return
-        templates_root = assets_root / "services"
-        if not templates_root.is_dir():
-            return
-        for source in templates_root.rglob("*"):
-            if not source.is_file():
-                continue
-            relative = source.relative_to(templates_root)
-            if any(part in {"node_modules", ".playwright-mcp"} or part.startswith(".") for part in relative.parts):
-                continue
-            target = self.services_root / relative
-            if target.exists():
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
-
     def _ensure_default_services(self):
-        self._copy_packaged_service_templates()
         dummy_dir = self.services_root / "dummy_mcp"
         dummy_dir.mkdir(parents=True, exist_ok=True)
         service_json_file = dummy_dir / "service.json"
@@ -1350,7 +1322,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         console_log(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
 
     def serve_static_file(self, rel_path: str) -> bool:
-        """Sirve los recursos web del repositorio o de la distribución instalada."""
+        """Sirve recursos estáticos solo desde el repositorio de desarrollo."""
         static_root = get_static_root()
         if not static_root:
             return False
@@ -1910,7 +1882,7 @@ def main():
     dev_root = get_dev_root()
     static_root = get_static_root()
     is_dev = dev_root is not None
-    is_packaged = is_packaged_runtime()
+    is_installed = is_installed_runtime()
 
     # 3. Comprobar versión remota en segundo plano (solo fuera del entorno de desarrollo local)
     if not is_dev:
@@ -1942,8 +1914,8 @@ def main():
     print(f"  Entorno virtual       : {get_venv_dir()}")
     if is_dev:
         print(f"  Modo de ejecución     : Desarrollo local ({dev_root})")
-    elif is_packaged:
-        print("  Modo de ejecución     : Paquete PyPI (interfaz local)")
+    elif is_installed:
+        print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
         print(f"  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
