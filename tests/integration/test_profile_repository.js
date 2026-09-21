@@ -83,12 +83,12 @@ test('ProfileRepository - no guarda ni importa API keys en texto plano', async (
   assert.doesNotMatch(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-secret/);
 });
 
-test('ProfileRepository - un perfil bloqueado no se modifica ni borra por otras rutas', async () => {
+test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse', async () => {
   const repository = Profiles.createRepository(createStorage());
   const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
   assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /bloqueados/);
-  assert.throws(() => repository.remove('locked'), /bloqueados/);
-  assert.equal((await repository.load('locked')).settings.apiKey, 'sk-locked');
+  assert.equal(repository.remove('locked'), true);
+  assert.equal(await repository.load('locked'), null);
 });
 
 test('ProfileRepository - no reinicializa silenciosamente documentos con API keys antiguas', () => {

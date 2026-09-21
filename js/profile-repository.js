@@ -173,7 +173,6 @@
       const current = initialize();
       const index = current.profiles.findIndex(profile => profile.id === String(id || ''));
       if (index < 0) return false;
-      if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Los cambios de este perfil están bloqueados.');
       current.profiles.splice(index, 1);
       writeDocument(current);
       return true;

@@ -297,6 +297,12 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
     addEventListener: (evt, fn) => add('itemMcp', evt, fn),
     removeEventListener: (evt, fn) => remove('itemMcp', evt, fn)
   };
+  const fakeHelpLink = {
+    dataset: {},
+    getAttribute: () => null,
+    addEventListener: (evt, fn) => add('help', evt, fn),
+    removeEventListener: (evt, fn) => remove('help', evt, fn)
+  };
 
   const elements = {
     chatSidebar: fakeSidebar,
@@ -314,7 +320,7 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
       addEventListener: (evt, fn) => add('closeSettings', evt, fn),
       removeEventListener: (evt, fn) => remove('closeSettings', evt, fn)
     },
-    sidebarSettingsItems: [fakeSettingItemMcp]
+    sidebarSettingsItems: [fakeSettingItemMcp, fakeHelpLink]
   };
 
   let selectedSection = null;
@@ -333,6 +339,7 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   // Pulsar una sección ejecuta el callback correspondiente
   listeners['itemMcp:click']();
   assert.equal(selectedSection, 'tab-mcp');
+  assert.equal(listeners['help:click'], undefined, 'Los enlaces auxiliares no deben activar secciones de configuración');
 
   // Pulsar volver restaura modo chat
   listeners['backToChats:click']();
@@ -346,5 +353,4 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   assert.equal(listeners['backToChats:click'], undefined);
   assert.equal(listeners['itemMcp:click'], undefined);
 });
-
 

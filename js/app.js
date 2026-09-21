@@ -1515,8 +1515,9 @@
     }
     if (elements.sidebarSettingsItems) {
       elements.sidebarSettingsItems.forEach(item => {
+        const sectionId = item.dataset?.section || item.getAttribute('data-section');
+        if (!sectionId) return;
         item.addEventListener('click', () => {
-          const sectionId = item.dataset?.section || item.getAttribute('data-section');
           openSettingsSection(sectionId);
           if (UISidebar.isMobile && UISidebar.isMobile()) {
             closeSidebar();
@@ -1572,7 +1573,8 @@
             closeProfileMenu();
             openProfilesModal(targetId);
           } else if (action === 'delete') {
-            await handleDeleteProfileById(targetId);
+            const deleted = await handleDeleteProfileById(targetId);
+            if (deleted) updateUIFromConfig();
           }
           return;
         }

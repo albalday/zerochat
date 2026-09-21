@@ -47,6 +47,13 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
       assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
 
+      const helpPagePromise = page.context().waitForEvent('page');
+      await page.locator('#sidebar-settings-help').click();
+      const helpPage = await helpPagePromise;
+      await helpPage.waitForLoadState();
+      assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), false, 'Ayuda no debe abrir ningún panel de configuración');
+      await helpPage.close();
+
       await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="en"]').evaluate(button => button.click());
       assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
       assert.deepEqual(await page.locator('#sidebar-settings-help').evaluate(link => ({ label: link.textContent.trim(), href: link.getAttribute('href'), target: link.getAttribute('target') })), {

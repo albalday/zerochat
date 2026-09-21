@@ -393,8 +393,9 @@
 
     if (els.sidebarSettingsItems) {
       els.sidebarSettingsItems.forEach(item => {
+        const sectionId = item.dataset?.section || item.getAttribute('data-section');
+        if (!sectionId) return;
         const onSelect = () => {
-          const sectionId = item.dataset?.section || item.getAttribute('data-section');
           if (typeof callbacks.onSelectSettingsSection === 'function') {
             callbacks.onSelectSettingsSection(sectionId);
           }

@@ -729,7 +729,7 @@
 
   function syncProfileEditor(elements, readOnly, canSave = null) {
     const locked = elements.profilesDialog?.dataset.profileLocked === 'true';
-    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly || locked;
+    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly;
     const saveAllowed = canSave !== null ? Boolean(canSave) : (elements.profilesDialog?.dataset.queryReady === 'true');
     if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || locked || !saveAllowed;
     syncApiKeyLock(elements, readOnly);

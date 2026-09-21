@@ -443,6 +443,15 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
       assert.equal(await page.locator(selector).isDisabled(), true, `${selector} debe quedar bloqueado`);
     }
     assert.equal(await page.locator('#btn-save-profile').isDisabled(), true, 'Guardar debe estar deshabilitado en perfil bloqueado');
+    await page.click('#btn-close-profiles');
+    await page.waitForFunction(() => !document.getElementById('profiles-dialog').open);
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
+    await page.click('.header-profile-item:has([data-profile-id="profile:locked-test"]) [data-profile-action="delete"]');
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await page.waitForFunction(() => window.ChatProfileRepository.get('profile:locked-test') === null);
+    await page.waitForFunction(() => !document.querySelector('#active-profile-list [data-profile-id="profile:locked-test"]'));
   } finally {
     await browser.close();
   }
