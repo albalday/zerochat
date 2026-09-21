@@ -46,7 +46,7 @@ test('ChatUIMcp - buildMcpEndpoint', () => {
 test('ChatUIMcp - generateTerminalCommand ofrece el arranque oficial de zerochat.py', () => {
   assert.equal(
     ChatUIMcp.generateTerminalCommand(),
-    'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -'
+    'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'
   );
 });
 
@@ -82,7 +82,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.bootstrapCard.style.display, 'block');
-  assert.equal(elements.commandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
+  assert.equal(elements.commandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
 
   // 2. Estado conectando
   ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
@@ -174,7 +174,7 @@ test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual'
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
+  assert.equal(mockCommandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
 
   uiInstance.destroy();
 });

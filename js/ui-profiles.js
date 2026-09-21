@@ -370,10 +370,12 @@
       populateProfileSelector(els, nextActiveId);
       applyProfileToForm(els, opts.getRuntimeConfig ? opts.getRuntimeConfig() : (Config?.getActive?.() || {}));
       setProfileQueryState(els, false);
+      // Keep the active-profile control synchronized even when the deleted
+      // profile was not the active one and therefore did not change config.
+      if (typeof opts.updateUIFromConfig === 'function') opts.updateUIFromConfig();
       const UISettings = getUISettings();
       UISettings?.renderProfileMenu?.(els, Profiles?.list?.() || [], nextActiveId);
       showProfileFeedback(els, t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
-      if (typeof opts.updateUIFromConfig === 'function') opts.updateUIFromConfig();
       return true;
     }
     return false;

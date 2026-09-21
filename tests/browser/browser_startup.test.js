@@ -137,7 +137,7 @@ test('Browser help - el comando de descarga de zerochat.py usa la URL oficial y 
 
     const command = await page.$eval('.code-wrapper pre code', el => el.textContent.trim());
     const button = await page.$eval('.code-wrapper .btn-copy', el => ({ type: el.type, text: el.textContent.trim() }));
-    assert.equal(command, 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -');
+    assert.equal(command, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
     assert.deepEqual(button, { type: 'button', text: 'Copiar' });
   } finally {
     await browser.close();

@@ -58,7 +58,7 @@
   }
 
   function generateTerminalCommand() {
-    return 'curl -sL https://albalday.github.io/zerochat/zerochat.py | python3 -';
+    return 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py';
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {

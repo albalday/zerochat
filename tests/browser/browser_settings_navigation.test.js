@@ -35,17 +35,23 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         sections: Array.from(document.querySelectorAll('#sidebar-settings-nav .sidebar-settings-item')).map(item => ({
           id: item.dataset.section,
           icon: Boolean(item.querySelector('svg.ui-icon')),
-          label: Boolean(item.querySelector('.settings-item-label')?.textContent.trim())
+          label: item.querySelector('.settings-item-label')?.textContent.trim(),
+          href: item.getAttribute('href'),
+          target: item.getAttribute('target')
         }))
       }));
       assert.equal(sidebar.mode, true);
       assert.equal(sidebar.languages, 2);
       assert.equal(sidebar.themes, 2);
-      assert.deepEqual(sidebar.sections.map(item => item.id), ['tab-model', 'tab-agent', 'rag-manage', 'tab-mcp', 'tab-permissions', 'tab-inspector']);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['tab-model', 'tab-agent', 'rag-manage', 'tab-mcp', 'tab-permissions', 'tab-inspector', undefined]);
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
+      assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
 
       await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="en"]').evaluate(button => button.click());
       assert.equal(await page.evaluate(() => document.documentElement.lang), 'en');
+      assert.deepEqual(await page.locator('#sidebar-settings-help').evaluate(link => ({ label: link.textContent.trim(), href: link.getAttribute('href'), target: link.getAttribute('target') })), {
+        label: 'Help', href: 'help/en/index.html', target: '_blank'
+      });
       await page.locator('#sidebar-choice-language .btn-lang-toggle[data-lang="es"]').evaluate(button => button.click());
       await page.locator('#sidebar-choice-theme .btn-theme-toggle[data-theme="dark"]').evaluate(button => button.click());
       assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');

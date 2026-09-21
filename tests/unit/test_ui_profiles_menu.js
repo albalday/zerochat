@@ -95,6 +95,7 @@ test('UIProfiles - handleDeleteProfileById rechaza borrar perfil de solo lectura
 test('UIProfiles - handleDeleteProfileById pide confirmación y elimina perfil si se acepta', async () => {
   let confirmPromptMessage = '';
   let removedId = null;
+  let composerRefreshes = 0;
 
   global.ChatDialogs = {
     confirm: async (msg) => {
@@ -125,10 +126,13 @@ test('UIProfiles - handleDeleteProfileById pide confirmación y elimina perfil s
     activeProfileList: { replaceChildren: () => {}, appendChild: () => {}, ownerDocument: { createElement: createMockElement } }
   };
 
-  const result = await UIProfiles.handleDeleteProfileById('prof_1', elements, {});
+  const result = await UIProfiles.handleDeleteProfileById('prof_1', elements, {
+    updateUIFromConfig: () => { composerRefreshes += 1; }
+  });
   assert.equal(result, true, 'Debe devolver true al completar el borrado');
   assert.match(confirmPromptMessage, /Perfil Borrable/, 'Debe pedir confirmación incluyendo el nombre');
   assert.equal(removedId, 'prof_1', 'Debe haber llamado a remove con el id del perfil');
+  assert.equal(composerRefreshes, 1, 'Debe refrescar los controles que muestran el perfil activo');
 });
 
 test('UIProfiles - handleDeleteProfileById no elimina si se cancela la confirmación', async () => {
