@@ -82,7 +82,7 @@ if (fs.existsSync(lockPath)) {
   console.log(`✔ package-lock.json actualizado a ${newVersion}`);
 }
 
-// 3. pyproject.toml: PyPI cambia únicamente si cambia major.minor.
+// 3. Backend distribuible: PyPI y el script curl cambian solo con major.minor.
 const pyprojectPath = path.join(ROOT_DIR, 'pyproject.toml');
 if (backendChanged && fs.existsSync(pyprojectPath)) {
   let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
@@ -91,6 +91,14 @@ if (backendChanged && fs.existsSync(pyprojectPath)) {
   console.log(`✔ pyproject.toml actualizado a ${newVersion} (backend)`);
 } else if (!backendChanged) {
   console.log('✔ pyproject.toml sin cambios (parche exclusivo de interfaz)');
+}
+
+const backendPath = path.join(ROOT_DIR, 'zerochat.py');
+if (backendChanged && fs.existsSync(backendPath)) {
+  let backend = fs.readFileSync(backendPath, 'utf8');
+  backend = backend.replace(/^SOURCE_BACKEND_VERSION\s*=\s*"[^"]+"$/m, `SOURCE_BACKEND_VERSION = "${newVersion}"`);
+  fs.writeFileSync(backendPath, backend, 'utf8');
+  console.log(`✔ zerochat.py actualizado a ${newVersion} (backend)`);
 }
 
 // 4. zerochat.html

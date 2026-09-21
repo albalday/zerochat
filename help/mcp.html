@@ -59,6 +59,7 @@
       </p>
       <p>
         Como alternativa, descarga <code>zerochat.py</code> y ejecútalo con Python. Ambas opciones arrancan el servidor SSE, abren GitHub Pages y conservan el token de sesión en el mismo origen web.
+        También crean <code>./zerochat/</code>: ahí se guardan configuración, token y servicios; los MCP Python usan exclusivamente <code>./zerochat/.venv/</code>, sin instalar paquetes en tu Python global.
       </p>
       <p>
         <strong>Herramientas Locales Esenciales:</strong>
@@ -106,7 +107,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     <div class="card">
       <h2>5. Servicios MCP Externos y Activación Individual</h2>
       <p>
-        El servidor local <code>zerochat.py</code> gestiona los servicios MCP externos definidos en <code>services/</code>. No necesitas ejecutar un daemon externo global: cada servicio se inicia y se detiene desde ZeroChat.
+        El servidor local gestiona los servicios MCP externos en <code>./zerochat/services/</code>. No necesitas ejecutar un daemon externo global: cada servicio se inicia y se detiene desde ZeroChat. Borrar <code>./zerochat/</code> elimina el estado local y todos los MCP instalados.
       </p>
       <p>
         En <strong>Ajustes → MCP</strong>, <em>"Servidores MCP Disponibles"</em> permite iniciar o detener cada servicio y configurar sus opciones. Al iniciarlo, ZeroChat instala las dependencias necesarias cuando corresponda, descubre sus herramientas y las añade al panel. Los servicios basados en Node.js requieren Node.js 18 o posterior y npm.
@@ -120,6 +121,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
         <li><code>memory</code>: Grafo de conocimiento y memoria persistente estructurada.</li>
         <li><code>lsp</code>: Language Server Protocol para navegación de código e inteligencia de tipos.</li>
       </ul>
+      <p>Los parches de interfaz <code>7.4.x</code> se reciben desde GitHub Pages sin actualizar el ejecutable. Solo un cambio de <code>major.minor</code>, por ejemplo de <code>7.4</code> a <code>7.5</code>, requiere actualizar <code>zerochat.py</code> o el paquete PyPI.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">

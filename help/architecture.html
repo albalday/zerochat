@@ -96,7 +96,7 @@
         </li>
         <li>
           <strong>Gestión automatizada de entorno:</strong>
-          Auto-gestión de venv en <code>./zerochat</code>, autenticación por token efímero diario y logging en tiempo real con marcas de tiempo y diagnóstico de errores.
+          Un único directorio <code>./zerochat/</code> contiene el token, configuración y servicios. Sus dependencias Python se aíslan en <code>./zerochat/.venv/</code>, sin modificar el Python global.
         </li>
       </ul>
 
@@ -186,7 +186,19 @@
     </div>
 
     <div class="card">
-      <h2>4. Almacenamiento Local y Privacidad de Datos</h2>
+      <h2>4. Infraestructura local, distribución y actualizaciones</h2>
+      <p>La instalación con <code>pip install zerochat</code> distribuye únicamente el ejecutable Python. La descarga directa distribuye ese mismo ejecutable como <code>zerochat.py</code>. Ninguna incluye HTML, JavaScript o CSS: ambas abren la interfaz publicada en GitHub Pages, por lo que el almacenamiento web y la cookie de sesión comparten un único origen.</p>
+      <p>Desde el directorio donde se inicia ZeroChat, los dos modos crean la misma estructura:</p>
+      <div class="code-wrapper"><pre><code>./zerochat/
+├── .venv/       Entorno aislado para dependencias MCP Python
+├── config/      Token y preferencias de servicios
+└── services/    Servidores MCP y sus dependencias</code></pre></div>
+      <p>El ejecutable de PyPI permanece gestionado por pip y el archivo descargado permanece donde lo guardaste. Borrar <code>./zerochat/</code> elimina el estado local y los MCP, sin tocar ninguno de los dos ejecutables.</p>
+      <p>Las versiones usan <code>mayor.menor.parche</code>. El parche actualiza solo la interfaz de GitHub Pages; <code>7.4.0</code> es compatible con <code>7.4.x</code>. Un salto de <code>7.4</code> a <code>7.5</code> actualiza el backend: ZeroChat avisa y muestra el comando correspondiente, <code>python -m pip install --upgrade zerochat</code> para PyPI o la descarga de <code>zerochat.py</code> para curl.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. Almacenamiento Local y Privacidad de Datos</h2>
       <p>
         La arquitectura de datos de ZeroChat sigue el principio de <strong>soberanía del usuario</strong>. La aplicación nunca envía historiales de conversación, credenciales ni documentos a ningún servidor centralizado de telemetría.
       </p>
@@ -208,7 +220,7 @@
     </div>
 
     <div class="card">
-      <h2>5. El Estado Canónico (ChatState)</h2>
+      <h2>6. El Estado Canónico (ChatState)</h2>
       <p>
         Para evitar fugas de memoria o desincronizaciones entre componentes, ZeroChat utiliza un almacén de estado único y centralizado denominado <code>ChatState</code>.
       </p>
@@ -218,7 +230,7 @@
     </div>
 
     <div class="card">
-      <h2>6. Reglas compartidas de conversación</h2>
+      <h2>7. Reglas compartidas de conversación</h2>
       <p>Las respuestas nuevas y restauradas comparten componentes visuales de bloques y copia. El streaming conserva su cursor durante la generación. Los errores de conexión utilizan una vista común que escapa el mensaje recibido y la URL antes de incorporarlos al HTML.</p>
       <p>La configuración activa se obtiene de <code>ChatConfig</code>. Las interfaces de perfiles y catálogo consultan al proveedor WebLLM para conocer los modelos completados, sin interpretar por separado sus metadatos almacenados.</p>
       <p>El estado, el motor y las vistas reutilizan las reglas de <code>message-turns.js</code> para identificar turnos y reconocer mensajes iniciales de fecha. La eliminación de turnos comparte un algoritmo de saneamiento; <code>ChatState</code> conserva el bloqueo durante la generación y la actualización atómica del historial.</p>

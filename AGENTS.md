@@ -150,6 +150,19 @@ El script `scripts/bump-version.mjs` actualiza automáticamente:
 
 Por tanto, `patch` actualiza solo la interfaz web; `minor` y `major` actualizan también la versión publicable en PyPI. `zerochat.py` informa de `major.minor` y debe seguir siendo compatible con todos los parches de esa serie.
 
+### Distribución, estado local y publicación PyPI
+
+Las dos distribuciones de producción deben ofrecer el mismo comportamiento, excepto por el origen del ejecutable:
+
+- `pip install zerochat` instala exclusivamente el ejecutable `zerochat.py` como comando `zerochat`; el wheel no puede contener HTML, CSS, JavaScript ni recursos de la interfaz.
+- La descarga con `curl` obtiene ese ejecutable como archivo `zerochat.py`.
+- Fuera del repositorio de desarrollo, ambos abren siempre `https://albalday.github.io/zerochat/zerochat.html`. Esto preserva un único origen para cookie, almacenamiento web y token de sesión.
+- Ambos crean desde el directorio de trabajo `./zerochat/`, con `config/`, `services/` y `.venv/`. Las dependencias Python de MCP se instalan y ejecutan únicamente con `./zerochat/.venv/`; nunca en el Python global ni en el entorno que contiene el comando de PyPI. Borrar `./zerochat/` debe eliminar todo el estado y los MCP gestionados.
+- El servidor se ejecuta con el intérprete que lo inició en ambos modos. El comando instalado por PyPI no se reinstala dentro del venv y el script descargado tampoco se reejecuta en él; ambos lanzan los MCP con el Python aislado.
+- La comprobación de actualizaciones compara solo `major.minor`. Los parches web se reciben desde GitHub Pages sin aviso de actualización. Una versión nueva de backend debe informar del comando de actualización apropiado, sin actualizar automáticamente: `sys.executable -m pip install --upgrade zerochat` para PyPI o la descarga explícita para curl.
+
+Para una publicación PyPI, el agente debe completar el ciclo: trabajar y validar en `dev`, ejecutar `npm run bump minor` o `major` para cambios de backend, verificar que el wheel solo contiene el ejecutable con `python tests/packaging_smoke_test.py dist`, promover el commit validado a `master`, crear y publicar la etiqueta `v<versión de pyproject.toml>` y crear el Release de GitHub. `release.yml` valida la etiqueta, ejecuta toda la suite, construye el paquete y publica mediante Trusted Publishing; no se publica manualmente con credenciales.
+
 **Prohibido** modificar manualmente los números de versión en archivos individuales. Toda actualización debe realizarse exclusivamente mediante este script.
 
 Ejemplos:

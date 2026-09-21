@@ -760,6 +760,28 @@ assert "_read_package_version" not in output, f"No debe mostrar texto de funció
 assert zerochat.parse_version("7.0.5") == (7, 0, 5)
 assert zerochat.parse_version("7.0.10") > zerochat.parse_version("7.0.5")
 assert not (zerochat.parse_version("7.0.5") > zerochat.parse_version("7.0.5"))
+
+# 4. Solo major.minor requiere actualizar el ejecutable.
+assert not zerochat.has_new_backend_version("7.4.9", "7.4")
+assert zerochat.has_new_backend_version("7.5.0", "7.4")
+assert zerochat.get_venv_dir() == zerochat.get_data_dir() / ".venv"
+
+# 5. El entorno MCP no cambia el intérprete del servidor.
+import os
+import tempfile
+with tempfile.TemporaryDirectory() as temp_dir:
+    old_data_dir = os.environ.get("ZEROCHAT_DATA_DIR")
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    try:
+        current_python = sys.executable
+        zerochat.ensure_virtual_environment()
+        assert sys.executable == current_python
+        assert zerochat.get_venv_python(zerochat.get_venv_dir()).is_file()
+    finally:
+        if old_data_dir is None:
+            os.environ.pop("ZEROCHAT_DATA_DIR", None)
+        else:
+            os.environ["ZEROCHAT_DATA_DIR"] = old_data_dir
 `;
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });

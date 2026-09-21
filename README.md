@@ -19,13 +19,15 @@ Funciona de forma estática en el navegador (servido por GitHub Pages o directam
   ```bash
   python3 zerochat.py
   ```
-  Inicia el asistente local, crea su entorno virtual de forma desatendida y abre la interfaz web en tu navegador.
+  Inicia el asistente local, crea `./zerochat/.venv` para los MCP y abre la interfaz web en tu navegador.
 - **Instalación con PyPI**:
   ```bash
   pip install zerochat
   zerochat
   ```
-  Es la vía recomendada para instalar el servidor local desde PyPI. La interfaz se carga desde GitHub Pages, igual que al descargar y ejecutar `zerochat.py` directamente.
+  Es la vía recomendada para instalar el servidor local desde PyPI. Igual que con la descarga directa, crea `./zerochat/` para el estado y los MCP; la interfaz se carga desde GitHub Pages.
+
+En ambos modos, `./zerochat/` contiene configuración, token, servicios MCP y sus dependencias Python en `.venv/`. Borrar ese directorio elimina el estado local y los MCP, sin desinstalar el ejecutable de PyPI ni el archivo descargado.
 
 Las publicaciones se realizan desde el repositorio oficial mediante GitHub Actions y PyPI Trusted Publishing.
 

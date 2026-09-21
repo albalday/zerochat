@@ -37,6 +37,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+SOURCE_BACKEND_VERSION = "7.5.0"
+
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
     try:
@@ -53,10 +55,13 @@ def _read_source_version(filename: str) -> str | None:
 
 def _read_backend_version() -> str:
     """Devuelve la versión publicada del backend, sin depender de package.json instalado."""
+    source_version = _read_source_version("pyproject.toml")
+    if source_version:
+        return source_version
     try:
         return importlib.metadata.version("zerochat")
     except importlib.metadata.PackageNotFoundError:
-        return _read_source_version("pyproject.toml") or "7.3.0"
+        return SOURCE_BACKEND_VERSION
 
 
 def _read_ui_version() -> str:
@@ -84,6 +89,7 @@ DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/package.json"
+PYPI_VERSION_URL = "https://pypi.org/pypi/zerochat/json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
@@ -256,26 +262,22 @@ def is_installed_runtime() -> bool:
         return False
 
 
-def get_venv_dir() -> Path:
-    """Devuelve el estado persistente; PyPI nunca crea un venv en el proyecto del usuario."""
-    if get_dev_root() is not None:
-        return (Path.cwd() / "zerochat").resolve()
-
+def get_data_dir() -> Path:
+    """Devuelve el directorio local que concentra el estado y los MCP de ZeroChat."""
     configured = os.environ.get("ZEROCHAT_DATA_DIR", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    if sys.platform.startswith("win"):
-        base = Path(os.environ.get("APPDATA", Path.home()))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return (base / "zerochat").resolve()
+    return (Path.cwd() / "zerochat").resolve()
+
+
+def get_venv_dir() -> Path:
+    """Devuelve el entorno aislado usado exclusivamente por los MCP Python."""
+    return get_data_dir() / ".venv"
 
 
 def get_daily_token() -> str:
     """Devuelve un token de sesión diario persistido en ./zerochat/config/token.json."""
-    config_dir = get_venv_dir() / "config"
+    config_dir = get_data_dir() / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     token_file = config_dir / "token.json"
     today = datetime.date.today().isoformat()
@@ -313,12 +315,10 @@ def get_venv_python(venv_dir: Path) -> Path:
 
 def ensure_virtual_environment():
     """
-    Comprueba si existe el entorno virtual en ./zerochat. Si no existe, lo crea.
-    Si el proceso actual no se está ejecutando bajo dicho entorno, se re-ejecuta.
+    Crea ./zerochat/.venv para dependencias MCP en ambos modos de distribución.
+    El servidor conserva el intérprete con el que fue iniciado; el entorno se usa
+    exclusivamente al lanzar procesos MCP Python.
     """
-    if is_installed_runtime():
-        return
-
     venv_dir = get_venv_dir()
     venv_py = get_venv_python(venv_dir)
 
@@ -332,19 +332,6 @@ def ensure_virtual_environment():
             console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.", flush=True)
             return
 
-    # 2. Comprobar si ya estamos ejecutándonos dentro del venv
-    try:
-        current_py = Path(sys.executable).resolve()
-        target_py = venv_py.resolve()
-        if current_py != target_py and target_py.exists():
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Re-ejecutando bajo {venv_py}...", flush=True)
-            # Re-ejecutar con los mismos argumentos
-            args = [str(target_py), str(Path(__file__).resolve())] + sys.argv[1:]
-            os.execv(str(target_py), args)
-    except Exception as err:
-        console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Error en re-ejecución: {err}. Continuando.", flush=True)
-
-
 def parse_version(ver: str) -> tuple[int, ...]:
     """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
     parts = []
@@ -355,29 +342,43 @@ def parse_version(ver: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _read_remote_version(url: str) -> str | None:
+    """Obtiene una versión publicada desde package.json o la API JSON de PyPI."""
+    req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        content = resp.read(4096).decode("utf-8", errors="ignore")
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            candidate = data.get("version")
+            if not isinstance(candidate, str) and isinstance(data.get("info"), dict):
+                candidate = data["info"].get("version")
+            if isinstance(candidate, str):
+                return candidate.strip()
+    except (json.JSONDecodeError, TypeError):
+        pass
+    match = re.search(r'["\']?version["\']?\s*[:=]\s*["\'](\d+\.\d+\.\d+)["\']', content)
+    return match.group(1) if match else None
+
+
+def has_new_backend_version(remote_version: str, local_version: str = VERSION) -> bool:
+    """Compara solo major.minor: los parches pertenecen a la interfaz web."""
+    return parse_version(compatibility_version(remote_version)) > parse_version(compatibility_version(local_version))
+
+
 def check_version():
-    """Comprueba si hay una nueva versión de zerochat.py en el repositorio remoto (solo en modo producción/standalone)."""
-    if get_dev_root() is not None or is_installed_runtime():
+    """Informa de actualizaciones del backend, sin avisar por parches web."""
+    if get_dev_root() is not None:
         return
     try:
-        req = urllib.request.Request(REMOTE_VERSION_URL, headers={"User-Agent": f"ZeroChat/{VERSION}"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            content = resp.read(2048).decode("utf-8", errors="ignore")
-            remote_ver = None
-            try:
-                data = json.loads(content)
-                if isinstance(data, dict) and "version" in data and isinstance(data["version"], str):
-                    remote_ver = data["version"].strip()
-            except Exception:
-                pass
-            if not remote_ver:
-                match = re.search(r'["\']?version["\']?\s*[:=]\s*["\'](\d+\.\d+\.\d+)["\']', content)
-                if match:
-                    remote_ver = match.group(1)
-            if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver):
-                if parse_version(remote_ver) > parse_version(VERSION):
-                    console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] ¡Nueva versión disponible! (Local: {VERSION}, Remota: {remote_ver})", flush=True)
-                    console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
+        installed = is_installed_runtime()
+        remote_ver = _read_remote_version(PYPI_VERSION_URL if installed else REMOTE_VERSION_URL)
+        if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver) and has_new_backend_version(remote_ver):
+            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Nueva versión del servidor disponible (Local: {VERSION}, Remota: {compatibility_version(remote_ver)})", flush=True)
+            if installed:
+                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade zerochat", flush=True)
+            else:
+                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
@@ -784,11 +785,11 @@ class McpServiceManager:
         else:
             candidates = [
                 Path.cwd() / "services",
-                get_venv_dir() / "services"
+                get_data_dir() / "services"
             ]
             self.services_root = candidates[0] if get_dev_root() is not None and candidates[0].is_dir() else candidates[1]
         self.services_root.mkdir(parents=True, exist_ok=True)
-        self.config_file = get_venv_dir() / "config" / "services.json"
+        self.config_file = get_data_dir() / "config" / "services.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         self.clients: dict[str, StdioMcpClient] = {}
         self.states: dict[str, str] = {}
@@ -1110,7 +1111,7 @@ for raw in sys.stdin:
 
         return {
             "serviceDir": str(service_dir),
-            "pythonExecutable": sys.executable,
+            "pythonExecutable": str(get_venv_python(get_venv_dir())) if get_venv_python(get_venv_dir()).is_file() else sys.executable,
             "nodeExecutable": node
         }
 
@@ -1862,7 +1863,7 @@ def main():
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
-    parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación del venv ./zerochat")
+    parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ./zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
@@ -1874,7 +1875,7 @@ def main():
         print(f"[{time.strftime('%H:%M:%S')}] TEST all local tools ready.")
         return
 
-    # 1. Asegurar entorno virtual ./zerochat solo cuando se ejecuta desde fuentes.
+    # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
     if not args.no_venv:
         ensure_virtual_environment()
 
@@ -1911,7 +1912,8 @@ def main():
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
     print(f"  Directorio de trabajo : {Path.cwd()}")
-    print(f"  Entorno virtual       : {get_venv_dir()}")
+    print(f"  Datos y MCP           : {get_data_dir()}")
+    print(f"  Entorno MCP           : {get_venv_dir()}")
     if is_dev:
         print(f"  Modo de ejecución     : Desarrollo local ({dev_root})")
     elif is_installed:

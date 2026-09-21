@@ -10,7 +10,7 @@ test('bump-version: los parches web no cambian PyPI y minor actualiza ambos', ()
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-version-'));
   try {
     fs.mkdirSync(path.join(fixture, 'scripts'));
-    for (const file of ['package.json', 'package-lock.json', 'pyproject.toml', 'zerochat.html', 'sw.js']) {
+    for (const file of ['package.json', 'package-lock.json', 'pyproject.toml', 'zerochat.py', 'zerochat.html', 'sw.js']) {
       fs.copyFileSync(path.join(root, file), path.join(fixture, file));
     }
     fs.copyFileSync(path.join(root, 'scripts/bump-version.mjs'), path.join(fixture, 'scripts/bump-version.mjs'));
@@ -24,6 +24,7 @@ test('bump-version: los parches web no cambian PyPI y minor actualiza ambos', ()
     execFileSync('node', ['scripts/bump-version.mjs', 'minor'], { cwd: fixture });
     assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, `${major}.${minor + 1}.0`);
     assert.match(fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8'), new RegExp(`^version = "${major}\\.${minor + 1}\\.0"$`, 'm'));
+    assert.match(fs.readFileSync(path.join(fixture, 'zerochat.py'), 'utf8'), new RegExp(`^SOURCE_BACKEND_VERSION = "${major}\\.${minor + 1}\\.0"$`, 'm'));
   } finally {
     fs.rmSync(fixture, { recursive: true, force: true });
   }

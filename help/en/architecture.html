@@ -96,7 +96,7 @@
         </li>
         <li>
           <strong>Automated Environment Management:</strong>
-          Manages its own virtual environment in <code>./zerochat</code>, binds to port 6388 with strict ephemeral daily token authorization, and streams real-time terminal logs with timestamping and error diagnostics.
+          A single <code>./zerochat/</code> directory contains the token, configuration, and services. Python dependencies are isolated in <code>./zerochat/.venv/</code>, without changing global Python.
         </li>
       </ul>
 
@@ -186,7 +186,19 @@
     </div>
 
     <div class="card">
-      <h2>4. Local Storage & Data Privacy</h2>
+      <h2>4. Local infrastructure, distribution, and updates</h2>
+      <p>Installation with <code>pip install zerochat</code> distributes only the Python executable. The direct download distributes that same executable as <code>zerochat.py</code>. Neither includes HTML, JavaScript, or CSS: both open the GitHub Pages interface, so web storage and the session cookie share one origin.</p>
+      <p>From the directory where ZeroChat is started, both modes create the same structure:</p>
+      <div class="code-wrapper"><pre><code>./zerochat/
+├── .venv/       Isolated environment for Python MCP dependencies
+├── config/      Token and service preferences
+└── services/    MCP servers and their dependencies</code></pre></div>
+      <p>The PyPI executable remains managed by pip and the downloaded file remains where you saved it. Deleting <code>./zerochat/</code> removes local state and MCPs without touching either executable.</p>
+      <p>Versions use <code>major.minor.patch</code>. A patch updates only the GitHub Pages interface; <code>7.4.0</code> is compatible with <code>7.4.x</code>. A move from <code>7.4</code> to <code>7.5</code> updates the backend: ZeroChat reports it and displays the appropriate command, <code>python -m pip install --upgrade zerochat</code> for PyPI or the <code>zerochat.py</code> download for curl.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. Local Storage & Data Privacy</h2>
       <p>
         ZeroChat's storage architecture strictly respects <strong>user data sovereignty</strong>. The application never transmits conversation history, credentials, or documents to any telemetry backend.
       </p>
@@ -208,7 +220,7 @@
     </div>
 
     <div class="card">
-      <h2>5. Canonical State (ChatState)</h2>
+      <h2>6. Canonical State (ChatState)</h2>
       <p>
         To prevent memory leaks or state desynchronization across components, ZeroChat uses a single canonical state store: <code>ChatState</code>.
       </p>
@@ -218,7 +230,7 @@
     </div>
 
     <div class="card">
-      <h2>6. Shared conversation rules</h2>
+      <h2>7. Shared conversation rules</h2>
       <p>New and restored responses share visual block and copy components. Streaming retains its cursor during generation. Connection errors use a common view that escapes the received message and URL before inserting them into HTML.</p>
       <p>Active configuration comes from <code>ChatConfig</code>. Profile and catalog interfaces query the WebLLM provider for completed models instead of independently parsing stored metadata.</p>
       <p>State, engine and views reuse <code>message-turns.js</code> rules to identify turns and recognize initial date messages. Turn removal shares a sanitization algorithm; <code>ChatState</code> retains the generation guard and atomic history update.</p>
