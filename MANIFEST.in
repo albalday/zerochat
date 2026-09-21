@@ -1,0 +1,15 @@
+include LICENSE
+include README.md
+include zerochat.html
+include manifest.webmanifest
+include sw.js
+recursive-include js *
+recursive-include css *
+recursive-include help *
+recursive-include services *.json *.py
+prune services/*/node_modules
+prune services/*/.playwright-mcp
+exclude services/*/.installed.json
+exclude services/*/package.json
+exclude services/*/package-lock.json
+exclude services/*/*.jsonl

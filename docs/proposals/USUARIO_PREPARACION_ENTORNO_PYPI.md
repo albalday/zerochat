@@ -37,9 +37,9 @@ No configures PyPI antes de conocer el **nombre de distribución definitivo** qu
 Codex debe decirte al menos:
 
 ```text
-Distribución PyPI: <nombre>
-GitHub owner: <owner>
-Repositorio: <repo>
+Distribución PyPI: zerochat
+GitHub owner: albalday
+Repositorio: zerochat
 Workflow: release.yml
 Environment: pypi
 ```
@@ -117,9 +117,9 @@ En tu cuenta de PyPI busca la sección de Publishing/Trusted Publishers y añade
 Introduce exactamente los datos que Codex haya confirmado. Para el repositorio actual deberían ser, salvo cambio posterior:
 
 ```text
-PyPI project name: <nombre de distribución definido en pyproject.toml>
-Owner: sh1nny0u
-Repository: ZeroChat
+PyPI project name: zerochat
+Owner: albalday
+Repository: zerochat
 Workflow filename: release.yml
 Environment name: pypi
 ```
@@ -142,8 +142,8 @@ Your projects
 Configura:
 
 ```text
-Owner: sh1nny0u
-Repository: ZeroChat
+Owner: albalday
+Repository: zerochat
 Workflow filename: release.yml
 Environment name: pypi
 ```
@@ -183,19 +183,19 @@ La primera vez conviene prestar un poco más de atención porque valida todo el 
 Por ejemplo:
 
 ```text
-Prepara ZeroChat para publicar la versión 0.1.0 siguiendo el ciclo de producción definido en CODEX_CICLO_PRODUCCION_PYPI.md. No publiques la GitHub Release.
+Prepara ZeroChat para publicar la versión 7.3.0 siguiendo el ciclo de producción definido en CODEX_CICLO_PRODUCCION_PYPI.md. No publiques la GitHub Release.
 ```
 
 Codex debe terminar mostrando algo parecido a:
 
 ```text
-versión: 0.1.0
+versión: 7.3.0
 tests: OK
 build: OK
 wheel: OK
 sdist: OK
 smoke test: OK
-tag previsto: v0.1.0
+tag previsto: v7.3.0
 ```
 
 No continúes si hay algún fallo.
@@ -230,7 +230,7 @@ Releases
 Usa el tag correspondiente a la versión, por ejemplo:
 
 ```text
-v0.1.0
+v7.3.0
 ```
 
 El tag debe coincidir exactamente con la versión del `pyproject.toml` precedida por `v`.
@@ -238,8 +238,8 @@ El tag debe coincidir exactamente con la versión del `pyproject.toml` precedida
 Ejemplo:
 
 ```text
-pyproject.toml: 0.1.0
-Git tag:        v0.1.0
+pyproject.toml: 7.3.0
+Git tag:        v7.3.0
 ```
 
 Añade un título sencillo y, si quieres, las notas preparadas por Codex.
@@ -311,7 +311,7 @@ Después de la primera publicación, tu trabajo normal se reduce prácticamente 
 Ejemplo:
 
 ```text
-Prepara la versión 0.2.0 de producción siguiendo CODEX_CICLO_PRODUCCION_PYPI.md. No publiques la release.
+Prepara la versión 7.4.0 de producción siguiendo CODEX_CICLO_PRODUCCION_PYPI.md. No publiques la release.
 ```
 
 Codex debe encargarse de:
@@ -374,7 +374,7 @@ Las versiones publicadas deben considerarse inmutables.
 Corrige el problema y publica una versión superior, por ejemplo:
 
 ```text
-0.2.0  → problema
+7.4.0  → problema
 0.2.1  → corrección
 ```
 

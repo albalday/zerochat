@@ -15,6 +15,8 @@ import argparse
 import atexit
 import datetime
 import hmac
+import importlib.metadata
+import importlib.resources
 import json
 import os
 import platform
@@ -36,19 +38,49 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-def _read_package_version() -> str:
+def _read_source_version(filename: str) -> str | None:
+    """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
+    try:
+        version_file = Path(__file__).resolve().parent / filename
+        if version_file.is_file():
+            content = version_file.read_text(encoding="utf-8")
+            match = re.search(r'version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', content)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _read_backend_version() -> str:
+    """Devuelve la versión publicada del backend, sin depender de package.json instalado."""
+    try:
+        return importlib.metadata.version("zerochat")
+    except importlib.metadata.PackageNotFoundError:
+        return _read_source_version("pyproject.toml") or "7.3.0"
+
+
+def _read_ui_version() -> str:
+    """Devuelve la versión de la interfaz cuando se ejecuta desde el repositorio."""
     try:
         pkg_path = Path(__file__).resolve().parent / "package.json"
         if pkg_path.is_file():
-            import json
             data = json.loads(pkg_path.read_text(encoding="utf-8"))
-            if "version" in data and isinstance(data["version"], str):
+            if isinstance(data.get("version"), str):
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.2.6"
+    return BACKEND_PACKAGE_VERSION
 
-VERSION = _read_package_version()
+
+def compatibility_version(version: str) -> str:
+    """La interfaz y el backend son compatibles si comparten major.minor."""
+    parts = version.split(".")
+    return ".".join(parts[:2]) if len(parts) >= 2 else version
+
+BACKEND_PACKAGE_VERSION = _read_backend_version()
+VERSION = compatibility_version(BACKEND_PACKAGE_VERSION)
+UI_VERSION = _read_ui_version()
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
@@ -197,9 +229,16 @@ def console_log(message: str, *, flush: bool = True):
     else:
         print(message, flush=flush)
 
-def get_venv_dir() -> Path:
-    """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
-    return (Path.cwd() / "zerochat").resolve()
+def get_packaged_assets_root() -> Path | None:
+    """Devuelve los recursos incluidos en la distribución PyPI, si existen."""
+    try:
+        root = importlib.resources.files("zerochat_runtime").joinpath("assets")
+        path = Path(str(root))
+        if (path / "zerochat.html").is_file():
+            return path
+    except (ModuleNotFoundError, TypeError):
+        pass
+    return None
 
 
 def get_dev_root() -> Path | None:
@@ -213,6 +252,32 @@ def get_dev_root() -> Path | None:
         if (candidate / "zerochat.html").is_file() and (candidate / "js").is_dir() and (candidate / "css").is_dir():
             return candidate
     return None
+
+
+def get_static_root() -> Path | None:
+    """Prioriza el árbol de desarrollo y usa los recursos empaquetados fuera de él."""
+    return get_dev_root() or get_packaged_assets_root()
+
+
+def is_packaged_runtime() -> bool:
+    return get_dev_root() is None and get_packaged_assets_root() is not None
+
+
+def get_venv_dir() -> Path:
+    """Devuelve el estado persistente; PyPI nunca crea un venv en el proyecto del usuario."""
+    if get_dev_root() is not None:
+        return (Path.cwd() / "zerochat").resolve()
+
+    configured = os.environ.get("ZEROCHAT_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if sys.platform.startswith("win"):
+        base = Path(os.environ.get("APPDATA", Path.home()))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return (base / "zerochat").resolve()
 
 
 def get_daily_token() -> str:
@@ -258,6 +323,9 @@ def ensure_virtual_environment():
     Comprueba si existe el entorno virtual en ./zerochat. Si no existe, lo crea.
     Si el proceso actual no se está ejecutando bajo dicho entorno, se re-ejecuta.
     """
+    if is_packaged_runtime():
+        return
+
     venv_dir = get_venv_dir()
     venv_py = get_venv_python(venv_dir)
 
@@ -296,7 +364,7 @@ def parse_version(ver: str) -> tuple[int, ...]:
 
 def check_version():
     """Comprueba si hay una nueva versión de zerochat.py en el repositorio remoto (solo en modo producción/standalone)."""
-    if get_dev_root() is not None:
+    if get_dev_root() is not None or is_packaged_runtime():
         return
     try:
         req = urllib.request.Request(REMOTE_VERSION_URL, headers={"User-Agent": f"ZeroChat/{VERSION}"})
@@ -725,7 +793,7 @@ class McpServiceManager:
                 Path.cwd() / "services",
                 get_venv_dir() / "services"
             ]
-            self.services_root = candidates[0] if candidates[0].is_dir() else candidates[1]
+            self.services_root = candidates[0] if get_dev_root() is not None and candidates[0].is_dir() else candidates[1]
         self.services_root.mkdir(parents=True, exist_ok=True)
         self.config_file = get_venv_dir() / "config" / "services.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -737,7 +805,28 @@ class McpServiceManager:
         self.services = self._load_services()
         self.preferences = self._load_preferences()
 
+    def _copy_packaged_service_templates(self):
+        """Inicializa descriptores MCP editables sin copiar dependencias instaladas."""
+        assets_root = get_packaged_assets_root()
+        if not assets_root:
+            return
+        templates_root = assets_root / "services"
+        if not templates_root.is_dir():
+            return
+        for source in templates_root.rglob("*"):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(templates_root)
+            if any(part in {"node_modules", ".playwright-mcp"} or part.startswith(".") for part in relative.parts):
+                continue
+            target = self.services_root / relative
+            if target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
     def _ensure_default_services(self):
+        self._copy_packaged_service_templates()
         dummy_dir = self.services_root / "dummy_mcp"
         dummy_dir.mkdir(parents=True, exist_ok=True)
         service_json_file = dummy_dir / "service.json"
@@ -1260,19 +1349,19 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         err_suffix = f" - ERROR: {format_log_error(error_info)}" if error_info else ""
         console_log(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
 
-    def serve_static_dev_file(self, rel_path: str) -> bool:
-        """Sirve un archivo estático del repositorio si existe y estamos en el directorio de desarrollo."""
-        dev_root = get_dev_root()
-        if not dev_root:
+    def serve_static_file(self, rel_path: str) -> bool:
+        """Sirve los recursos web del repositorio o de la distribución instalada."""
+        static_root = get_static_root()
+        if not static_root:
             return False
 
         clean_rel = rel_path.split("?", 1)[0].lstrip("/")
         if not clean_rel:
             return False
 
-        target_path = (dev_root / clean_rel).resolve()
+        target_path = (static_root / clean_rel).resolve()
         try:
-            rel_parts = target_path.relative_to(dev_root.resolve()).parts
+            rel_parts = target_path.relative_to(static_root.resolve()).parts
         except ValueError:
             return False
 
@@ -1287,7 +1376,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not is_allowed_static:
             return False
 
-        # Protección: bloquear archivos ocultos y entorno virtual ./zerochat
+        # Protección: bloquear archivos ocultos, datos y dependencias locales.
         for part in rel_parts:
             if part.startswith(".") and part != ".":
                 return False
@@ -1390,7 +1479,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
 
         # Servir archivos estáticos del repositorio si estamos en entorno de desarrollo
-        if path_clean and self.serve_static_dev_file(path_clean):
+        if path_clean and self.serve_static_file(path_clean):
             self._log_req("GET", safe_path)
             self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
@@ -1803,6 +1892,7 @@ def main():
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación del venv ./zerochat")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
+    parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
     if args.test:
@@ -1812,13 +1902,15 @@ def main():
         print(f"[{time.strftime('%H:%M:%S')}] TEST all local tools ready.")
         return
 
-    # 1. Asegurar entorno virtual ./zerochat salvo que se indique --no-venv
+    # 1. Asegurar entorno virtual ./zerochat solo cuando se ejecuta desde fuentes.
     if not args.no_venv:
         ensure_virtual_environment()
 
     # 2. Detectar entorno de desarrollo y resolver URL de destino
     dev_root = get_dev_root()
+    static_root = get_static_root()
     is_dev = dev_root is not None
+    is_packaged = is_packaged_runtime()
 
     # 3. Comprobar versión remota en segundo plano (solo fuera del entorno de desarrollo local)
     if not is_dev:
@@ -1835,7 +1927,7 @@ def main():
 
     if args.ui_url:
         ui_url = args.ui_url
-    elif is_dev:
+    elif static_root:
         ui_url = f"http://{ACTIVE_HOST}:{ACTIVE_PORT}/zerochat.html"
     else:
         ui_url = DEFAULT_UI_URL
@@ -1845,11 +1937,13 @@ def main():
     exit_on_close = not args.no_exit_on_close
 
     print("=" * 64)
-    print(f"  ZeroChat Local Server v{VERSION}")
+    print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
     print(f"  Directorio de trabajo : {Path.cwd()}")
     print(f"  Entorno virtual       : {get_venv_dir()}")
     if is_dev:
         print(f"  Modo de ejecución     : Desarrollo local ({dev_root})")
+    elif is_packaged:
+        print("  Modo de ejecución     : Paquete PyPI (interfaz local)")
     else:
         print(f"  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")

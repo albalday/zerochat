@@ -20,6 +20,14 @@ Funciona de forma estática en el navegador (servido por GitHub Pages o directam
   python3 zerochat.py
   ```
   Inicia el asistente local, crea su entorno virtual de forma desatendida y abre la interfaz web en tu navegador.
+- **Instalación con PyPI**:
+  ```bash
+  pipx install zerochat
+  zerochat
+  ```
+  La distribución incluye una copia local de la interfaz. Las versiones `major.minor` indican compatibilidad del backend; los parches corresponden a la interfaz web.
+
+Las publicaciones se realizan desde el repositorio oficial mediante GitHub Actions y PyPI Trusted Publishing.
 
 ## Documentación y Ayuda
 

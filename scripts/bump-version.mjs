@@ -17,7 +17,7 @@ Uso:
   node scripts/bump-version.mjs <nueva_version | patch | minor | major>
 
 Ejemplos:
-  node scripts/bump-version.mjs 7.0.3
+  node scripts/bump-version.mjs 7.3.1
   node scripts/bump-version.mjs patch
   npm run bump patch
 `);
@@ -61,7 +61,11 @@ if (newVersion === currentVersion) {
 
 console.log(`Actualizando versión: ${currentVersion} -> ${newVersion}`);
 
-// 1. package.json
+const [currentMajor, currentMinor] = currentVersion.split('.').map(Number);
+const [nextMajor, nextMinor] = newVersion.split('.').map(Number);
+const backendChanged = currentMajor !== nextMajor || currentMinor !== nextMinor;
+
+// 1. package.json: siempre refleja la versión de la interfaz web.
 pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 console.log(`✔ package.json actualizado a ${newVersion}`);
@@ -78,13 +82,15 @@ if (fs.existsSync(lockPath)) {
   console.log(`✔ package-lock.json actualizado a ${newVersion}`);
 }
 
-// 3. zerochat.py
-const pyPath = path.join(ROOT_DIR, 'zerochat.py');
-if (fs.existsSync(pyPath)) {
-  let pyContent = fs.readFileSync(pyPath, 'utf8');
-  pyContent = pyContent.replace(/return\s+"[0-9]+\.[0-9]+\.[0-9]+[^"]*"/, `return "${newVersion}"`);
-  fs.writeFileSync(pyPath, pyContent, 'utf8');
-  console.log(`✔ zerochat.py actualizado con fallback ${newVersion}`);
+// 3. pyproject.toml: PyPI cambia únicamente si cambia major.minor.
+const pyprojectPath = path.join(ROOT_DIR, 'pyproject.toml');
+if (backendChanged && fs.existsSync(pyprojectPath)) {
+  let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
+  pyproject = pyproject.replace(/^version\s*=\s*"[^"]+"$/m, `version = "${newVersion}"`);
+  fs.writeFileSync(pyprojectPath, pyproject, 'utf8');
+  console.log(`✔ pyproject.toml actualizado a ${newVersion} (backend)`);
+} else if (!backendChanged) {
+  console.log('✔ pyproject.toml sin cambios (parche exclusivo de interfaz)');
 }
 
 // 4. zerochat.html
@@ -106,4 +112,3 @@ if (fs.existsSync(swPath)) {
 }
 
 console.log(`\n¡Sincronización completada con éxito! Versión actual: ${newVersion}`);
-

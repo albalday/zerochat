@@ -100,7 +100,7 @@ Debe contener como mínimo:
 
 No inventes dependencias. Derívalas del código y de la configuración existente.
 
-La versión debe existir en **un único lugar canónico** siempre que sea razonablemente posible. Preferencia: `[project].version` de `pyproject.toml` si el proyecto no dispone ya de una estrategia de versionado centralizada mejor.
+La versión del paquete PyPI reside en `[project].version`. ZeroChat usa además el tercer nivel de `package.json` para parches exclusivos de la interfaz: un backend `7.3` es compatible con interfaces `7.3.x`, y esos parches no se publican en PyPI.
 
 El nombre del comando debe seguir siendo:
 
@@ -415,8 +415,8 @@ Validaciones:
 
 Acción pendiente del propietario:
 Configurar en PyPI el Trusted Publisher correspondiente a:
-owner: sh1nny0u
-repository: ZeroChat
+owner: albalday
+repository: zerochat
 workflow: release.yml
 environment: pypi
 ```

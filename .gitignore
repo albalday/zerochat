@@ -6,6 +6,9 @@ tests/tmp_*
 __pycache__/
 bundle-profiles/*.zcp
 zerochat/
+build/
+dist/
+*.egg-info/
 services/*/.installed.json
 services/*/.*/
 services/*/package.json

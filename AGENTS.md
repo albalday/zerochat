@@ -134,19 +134,23 @@ El flujo de trabajo en el repositorio debe seguir estas pautas:
 
 ### Gestión unificada de versiones
 
-La versión del producto debe mantenerse sincronizada en todos los archivos mediante el script automatizado:
+Las versiones se actualizan exclusivamente mediante el script automatizado:
 
 ```bash
 npm run bump <nueva_version | patch | minor | major>
 ```
 
+El primer y segundo nivel (`major.minor`) identifican la compatibilidad de `zerochat.py` y del paquete PyPI. El tercer nivel identifica cambios de la interfaz web compatibles con ese backend.
+
 El script `scripts/bump-version.mjs` actualiza automáticamente:
 - `package.json` y `package-lock.json`
 - `zerochat.html` (título)
-- `zerochat.py` (función de versión)
 - `sw.js` (nombre de caché)
+- `pyproject.toml` únicamente cuando cambia `major.minor`
 
-**Prohibido** modificar manualmente los números de versión en archivos individuales. Toda actualización de versión debe realizarse exclusivamente mediante este script para garantizar la sincronización y evitar inconsistencias entre componentes.
+Por tanto, `patch` actualiza solo la interfaz web; `minor` y `major` actualizan también la versión publicable en PyPI. `zerochat.py` informa de `major.minor` y debe seguir siendo compatible con todos los parches de esa serie.
+
+**Prohibido** modificar manualmente los números de versión en archivos individuales. Toda actualización debe realizarse exclusivamente mediante este script.
 
 Ejemplos:
 ```bash

@@ -123,7 +123,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(initRes.status, 200);
     const initJson = await initRes.json();
     assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
-    assert.equal(initJson.result?.serverInfo?.version, pkg.version);
+    assert.equal(initJson.result?.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
 
     // 5. Comprobar tools/list
     const toolsRes = await fetch(baseUrl, {
@@ -261,6 +261,17 @@ print("DAILY_TOKEN_OK")
     encoding: 'utf8'
   });
   assert.ok(output.includes('DAILY_TOKEN_OK'));
+});
+
+test('Versionado: el backend usa major.minor y la interfaz conserva el parche', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const output = execFileSync('python3', ['-c', `
+import zerochat
+assert zerochat.VERSION == '${pkg.version.split('.').slice(0, 2).join('.')}'
+assert zerochat.UI_VERSION == '${pkg.version}'
+print('VERSION_POLICY_OK')
+`], { cwd: repoRoot, encoding: 'utf8' });
+  assert.ok(output.includes('VERSION_POLICY_OK'));
 });
 
 test('Detección de entorno de desarrollo y servicio de zerochat.html y estáticos en zerochat.py', async () => {
