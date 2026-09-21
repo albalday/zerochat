@@ -63,6 +63,7 @@
         <li><strong>Full Session JSON:</strong> Contains messages, metadata, tool calls, and profile settings. Functions as a 1:1 backup that can be imported back into ZeroChat.</li>
         <li><strong>Markdown (.md):</strong> Formatted text ready for Obsidian, GitHub, Notion, or personal wikis, preserving headers, code blocks, tables, and math equations.</li>
         <li><strong>Plain Text (.txt):</strong> Lightweight transcript for quick reading and sharing.</li>
+        <li><strong>PDF:</strong> A print-ready view that can be saved as PDF.</li>
       </ul>
     </div>
 
@@ -74,6 +75,7 @@
       <p>
         Imported sessions are validated, sanitized, and stored directly into your browser's IndexedDB database.
       </p>
+      <p>Only ZeroChat JSON backups can be imported, and importing is unavailable while a response is being generated.</p>
       <div class="alert alert-warning">
         <strong>Safe Bulk Deletion:</strong> The trash icon in the sidebar footer lets you delete all stored chats at once. ZeroChat prompts for confirmation before wiping data.
       </div>

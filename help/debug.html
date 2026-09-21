@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Depuración, Logs e Interceptor de Mensajes · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía del panel de depuración y herramientas de diagnóstico en ZeroChat: visor de eventos en tiempo real, streaming Raw SSE e interceptor de peticiones salientes.">
+  <meta name="description" content="Guía del panel de depuración, visor Raw e interceptor de peticiones de ZeroChat.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -38,7 +38,7 @@
         <li><strong>Razonamiento (Thinking):</strong> Filtra exclusivamente los fragmentos de pensamiento interno generados por el modelo.</li>
         <li><strong>Herramientas (Tool):</strong> Muestra las llamadas a funciones emitidas por el agente y los valores devueltos tras la ejecución.</li>
         <li><strong>Red (Network):</strong> Peticiones HTTP, cabeceras, códigos de respuesta de los servidores de inferencia y tiempos de conexión.</li>
-        <li><strong>Raw:</strong> Captura íntegra y sin procesar de los chunks Server-Sent Events (SSE) recibidos directamente del backend.</li>
+        <li><strong>Raw:</strong> Muestra las entradas y salidas sin procesar de la comunicación del proveedor.</li>
       </ul>
     </div>
 
@@ -76,12 +76,12 @@
     </div>
 
     <div class="card">
-      <h2>4. Modo "Log Completo Raw"</h2>
+      <h2>4. Vista Raw</h2>
       <p>
-        Al activar el interruptor <em>"Log completo Raw"</em>, ZeroChat deshabilita la optimización de descarte de eventos superfluos y registra absolutamente cada paquete SSE entrante.
+        La pestaña <em>Raw</em> está disponible directamente en el panel; no requiere activación adicional. Las entradas se limitan para que el panel siga siendo utilizable.
       </p>
       <p>
-        Es la opción perfecta cuando configuras un servidor local nuevo (como vLLM o LM Studio) y necesitas verificar la estructura exacta de los deltas de streaming, los identificadores de llamada a herramientas o las etiquetas no estándar devueltas por el modelo.
+        Úsala para comprobar solicitudes, respuestas de streaming y llamadas a herramientas al diagnosticar un proveedor.
       </p>
     </div>
 

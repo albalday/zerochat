@@ -30,7 +30,7 @@
         ZeroChat is built on a fundamental premise: <strong>maximum simplicity, speed, and control without heavy dependencies</strong>.
       </p>
       <p>
-        The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files transparently with no build or bundle step, accelerated by a PWA Service Worker with stale-while-revalidate caching that ensures instant startup (0 ms network roundtrips) on mobile devices.
+        The web application is served directly and statically over HTTPS from GitHub Pages as <code>zerochat.html</code>, loading modular <code>css/</code> and <code>js/</code> files with no build step. Its Service Worker reuses available resources but does not replace a connection when one is needed.
       </p>
       <p>
         All local system interaction (command execution, file reading, and editing) is channeled through a single Python executable: <code>zerochat.py</code>, which manages its own virtual environment in <code>./zerochat</code> and authenticates sessions using secure daily tokens.
@@ -53,7 +53,7 @@
       <ul>
         <li>
           <strong>Universal web experience:</strong>
-          Engineered as an installable Progressive Web App (PWA) in modern browsers. Its Service Worker with stale-while-revalidate caching provides instantaneous startup (0 ms network roundtrip), a touch-friendly drawer sidebar with backdrop, and an auto-expanding composer for virtual keyboards. No Python, root access, or terminal tools are needed.
+          Engineered as an installable Progressive Web App (PWA) in modern browsers, with a touch-friendly drawer sidebar and auto-expanding composer. No Python, root access, or terminal tools are needed.
         </li>
         <li>
           <strong>Universal Multi-Model Connectivity:</strong>

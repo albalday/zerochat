@@ -44,7 +44,8 @@
       </p>
       <ul>
         <li>Create topic-specific branches (e.g., <em>"API Specs"</em>, <em>"Financial Reports"</em>, <em>"Research Papers"</em>).</li>
-        <li>Switch or toggle branches on and off with a single click from the <strong>RAG</strong> button in the composer toolbar. To create branches, upload, or manage documents, open <strong>RAG</strong> from the general settings menu.</li>
+        <li>Activate multiple branches from the <strong>RAG</strong> button in the composer toolbar. To create branches, upload, or manage documents, open <strong>RAG</strong> from the general settings menu.</li>
+        <li>When combining branches in different languages, ZeroChat shows a notice without changing active branches.</li>
         <li>When a branch is active, the chat engine and agents gain direct retrieval access to its documents.</li>
       </ul>
     </div>
@@ -67,12 +68,9 @@
     <div class="card">
       <h2>4. Retrieval Strategies & Agent Tools</h2>
       <p>
-        ZeroChat supports dual retrieval mechanisms:
+        The model queries active documents through RAG tools:
       </p>
       <ol>
-        <li>
-          <strong>Automatic Context Injection:</strong> Automatically queries the active branch for relevant text snippets and injects them into the system prompt.
-        </li>
         <li>
           <strong>Active Agent Tool Calling:</strong> The model dynamically queries the database using specialized tools:
           <ul>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Debugging, Logs & Message Interceptor · ZeroChat Help</title>
-  <meta name="description" content="Guide for developer diagnostics in ZeroChat: live event logging, Raw SSE streaming inspection, and interactive outgoing message interception.">
+  <meta name="description" content="Guide to ZeroChat's debug panel, Raw view, and request interceptor.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -38,7 +38,7 @@
         <li><strong>Thinking:</strong> Isolates native model reasoning and chain-of-thought blocks.</li>
         <li><strong>Tool:</strong> Tracks function invocations, parameter bindings, and return values.</li>
         <li><strong>Network:</strong> Displays HTTP calls, header payloads, status codes, and connection latency.</li>
-        <li><strong>Raw:</strong> Captures unprocessed Server-Sent Events (SSE) chunks directly from the stream.</li>
+        <li><strong>Raw:</strong> Shows unprocessed provider communication entries and outputs.</li>
       </ul>
     </div>
 
@@ -75,10 +75,11 @@
     </div>
 
     <div class="card">
-      <h2>4. Full Raw Log Mode</h2>
+      <h2>4. Raw view</h2>
       <p>
-        Activating <em>"Full Raw Log"</em> captures every SSE packet without client-side noise filtering. It is especially useful when testing local models (via vLLM, Ollama, or LM Studio) to inspect delta stream tokens and finish reasons.
+        The <em>Raw</em> tab is available directly in the panel; it needs no separate activation. Entries are capped to keep the panel usable.
       </p>
+      <p>Use it to inspect requests, streaming responses, and tool calls while diagnosing a provider.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
