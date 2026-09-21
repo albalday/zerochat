@@ -3,7 +3,7 @@
 ZeroChat - Backend Local Unificado y Gestor de Entorno
 
 Proporciona:
-1. Auto-creación, actualización y ejecución en el entorno virtual local `./zerochat`.
+1. Auto-creación del entorno MCP local `~/zerochat/.venv`.
 2. Servidor local HTTP y Server-Sent Events (SSE) con autenticación estricta por token efímero.
 3. Herramientas locales seguras: read_file, edit_file, list_directory, execute_command.
 4. Apertura automática del navegador apuntando a zerochat.html con token en el fragmento hash.
@@ -37,7 +37,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "7.5.0"
+SOURCE_BACKEND_VERSION = "7.6.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -267,7 +267,7 @@ def get_data_dir() -> Path:
     configured = os.environ.get("ZEROCHAT_DATA_DIR", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return (Path.cwd() / "zerochat").resolve()
+    return (Path.home() / "zerochat").resolve()
 
 
 def get_venv_dir() -> Path:
@@ -276,7 +276,7 @@ def get_venv_dir() -> Path:
 
 
 def get_daily_token() -> str:
-    """Devuelve un token de sesión diario persistido en ./zerochat/config/token.json."""
+    """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
     config_dir = get_data_dir() / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     token_file = config_dir / "token.json"
@@ -315,7 +315,7 @@ def get_venv_python(venv_dir: Path) -> Path:
 
 def ensure_virtual_environment():
     """
-    Crea ./zerochat/.venv para dependencias MCP en ambos modos de distribución.
+    Crea ~/zerochat/.venv para dependencias MCP en ambos modos de distribución.
     El servidor conserva el intérprete con el que fue iniciado; el entorno se usa
     exclusivamente al lanzar procesos MCP Python.
     """
@@ -1863,7 +1863,7 @@ def main():
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
-    parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ./zerochat/.venv")
+    parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()

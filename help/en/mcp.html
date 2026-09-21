@@ -59,7 +59,7 @@
       </p>
       <p>
         Alternatively, download <code>zerochat.py</code> and run it with Python. Both options start the SSE server, open GitHub Pages, and retain the session token on the same web origin.
-        They also create <code>./zerochat/</code>: it stores configuration, token, and services; Python MCPs use only <code>./zerochat/.venv/</code>, without installing packages into your global Python.
+        They also create <code>~/zerochat/</code>: it stores configuration, token, and services; Python MCPs use only <code>~/zerochat/.venv/</code>, without installing packages into your global Python.
       </p>
       <p>
         <strong>Core Local Tools:</strong>
@@ -107,7 +107,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     <div class="card">
       <h2>5. External MCP Services & Individual Activation</h2>
       <p>
-        The local server manages external MCP services in <code>./zerochat/services/</code>. You do not need to run a global external daemon: start and stop each service from ZeroChat. Deleting <code>./zerochat/</code> removes local state and every installed MCP.
+        The local server manages external MCP services in <code>~/zerochat/services/</code>. You do not need to run a global external daemon: start and stop each service from ZeroChat. Deleting <code>~/zerochat/</code> removes local state and every installed MCP.
       </p>
       <p>
         In <strong>Settings → MCP</strong>, <em>"Available MCP Servers"</em> lets you start or stop each service and configure its options. When starting one, ZeroChat installs dependencies when needed, discovers its tools, and adds them to the panel. Node.js-based services require Node.js 18 or later and npm.

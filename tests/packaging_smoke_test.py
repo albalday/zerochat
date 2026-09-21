@@ -41,10 +41,16 @@ def main() -> None:
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
+        home_dir = temp_dir / "home"
+        env = os.environ.copy()
+        if sys.platform.startswith("win"):
+            env["USERPROFILE"] = str(home_dir)
+        else:
+            env["HOME"] = str(home_dir)
         process = subprocess.Popen(
             [str(executable), "--port", str(port), "--token", "packaging-test-token", "--no-browser", "--no-exit-on-close"],
             cwd=temp_dir,
-            env=os.environ.copy(),
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -60,12 +66,12 @@ def main() -> None:
             else:
                 output, errors = process.communicate(timeout=1)
                 raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
-            data_dir = temp_dir / "zerochat"
+            data_dir = home_dir / "zerochat"
             venv_python = data_dir / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
             if not venv_python.is_file():
-                raise SystemExit("El paquete no creó ./zerochat/.venv para los MCP")
+                raise SystemExit("El paquete no creó ~/zerochat/.venv para los MCP")
             if not (data_dir / "services" / "dummy_mcp" / "service.json").is_file():
-                raise SystemExit("El paquete no inicializó los servicios MCP en ./zerochat")
+                raise SystemExit("El paquete no inicializó los servicios MCP en ~/zerochat")
         finally:
             process.terminate()
             try:

@@ -157,7 +157,7 @@ Las dos distribuciones de producción deben ofrecer el mismo comportamiento, exc
 - `pip install zerochat` instala exclusivamente el ejecutable `zerochat.py` como comando `zerochat`; el wheel no puede contener HTML, CSS, JavaScript ni recursos de la interfaz.
 - La descarga con `curl` obtiene ese ejecutable como archivo `zerochat.py`.
 - Fuera del repositorio de desarrollo, ambos abren siempre `https://albalday.github.io/zerochat/zerochat.html`. Esto preserva un único origen para cookie, almacenamiento web y token de sesión.
-- Ambos crean desde el directorio de trabajo `./zerochat/`, con `config/`, `services/` y `.venv/`. Las dependencias Python de MCP se instalan y ejecutan únicamente con `./zerochat/.venv/`; nunca en el Python global ni en el entorno que contiene el comando de PyPI. Borrar `./zerochat/` debe eliminar todo el estado y los MCP gestionados.
+- Ambos crean `~/zerochat/`, con `config/`, `services/` y `.venv/`. Las dependencias Python de MCP se instalan y ejecutan únicamente con `~/zerochat/.venv/`; nunca en el Python global ni en el entorno que contiene el comando de PyPI. Borrar `~/zerochat/` debe eliminar todo el estado y los MCP gestionados.
 - El servidor se ejecuta con el intérprete que lo inició en ambos modos. El comando instalado por PyPI no se reinstala dentro del venv y el script descargado tampoco se reejecuta en él; ambos lanzan los MCP con el Python aislado.
 - La comprobación de actualizaciones compara solo `major.minor`. Los parches web se reciben desde GitHub Pages sin aviso de actualización. Una versión nueva de backend debe informar del comando de actualización apropiado, sin actualizar automáticamente: `sys.executable -m pip install --upgrade zerochat` para PyPI o la descarga explícita para curl.
 

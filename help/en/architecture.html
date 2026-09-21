@@ -96,7 +96,7 @@
         </li>
         <li>
           <strong>Automated Environment Management:</strong>
-          A single <code>./zerochat/</code> directory contains the token, configuration, and services. Python dependencies are isolated in <code>./zerochat/.venv/</code>, without changing global Python.
+          A single <code>~/zerochat/</code> directory contains the token, configuration, and services. Python dependencies are isolated in <code>~/zerochat/.venv/</code>, without changing global Python.
         </li>
       </ul>
 
@@ -188,12 +188,12 @@
     <div class="card">
       <h2>4. Local infrastructure, distribution, and updates</h2>
       <p>Installation with <code>pip install zerochat</code> distributes only the Python executable. The direct download distributes that same executable as <code>zerochat.py</code>. Neither includes HTML, JavaScript, or CSS: both open the GitHub Pages interface, so web storage and the session cookie share one origin.</p>
-      <p>From the directory where ZeroChat is started, both modes create the same structure:</p>
-      <div class="code-wrapper"><pre><code>./zerochat/
+      <p>In the user's home directory, both modes create the same structure:</p>
+      <div class="code-wrapper"><pre><code>~/zerochat/
 ├── .venv/       Isolated environment for Python MCP dependencies
 ├── config/      Token and service preferences
 └── services/    MCP servers and their dependencies</code></pre></div>
-      <p>The PyPI executable remains managed by pip and the downloaded file remains where you saved it. Deleting <code>./zerochat/</code> removes local state and MCPs without touching either executable.</p>
+      <p>The PyPI executable remains managed by pip and the downloaded file remains where you saved it. Deleting <code>~/zerochat/</code> removes local state and MCPs without touching either executable.</p>
       <p>Versions use <code>major.minor.patch</code>. A patch updates only the GitHub Pages interface; <code>7.4.0</code> is compatible with <code>7.4.x</code>. A move from <code>7.4</code> to <code>7.5</code> updates the backend: ZeroChat reports it and displays the appropriate command, <code>python -m pip install --upgrade zerochat</code> for PyPI or the <code>zerochat.py</code> download for curl.</p>
     </div>
 

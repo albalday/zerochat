@@ -96,7 +96,7 @@
         </li>
         <li>
           <strong>Gestión automatizada de entorno:</strong>
-          Un único directorio <code>./zerochat/</code> contiene el token, configuración y servicios. Sus dependencias Python se aíslan en <code>./zerochat/.venv/</code>, sin modificar el Python global.
+          Un único directorio <code>~/zerochat/</code> contiene el token, configuración y servicios. Sus dependencias Python se aíslan en <code>~/zerochat/.venv/</code>, sin modificar el Python global.
         </li>
       </ul>
 
@@ -188,12 +188,12 @@
     <div class="card">
       <h2>4. Infraestructura local, distribución y actualizaciones</h2>
       <p>La instalación con <code>pip install zerochat</code> distribuye únicamente el ejecutable Python. La descarga directa distribuye ese mismo ejecutable como <code>zerochat.py</code>. Ninguna incluye HTML, JavaScript o CSS: ambas abren la interfaz publicada en GitHub Pages, por lo que el almacenamiento web y la cookie de sesión comparten un único origen.</p>
-      <p>Desde el directorio donde se inicia ZeroChat, los dos modos crean la misma estructura:</p>
-      <div class="code-wrapper"><pre><code>./zerochat/
+      <p>En el directorio personal del usuario, los dos modos crean la misma estructura:</p>
+      <div class="code-wrapper"><pre><code>~/zerochat/
 ├── .venv/       Entorno aislado para dependencias MCP Python
 ├── config/      Token y preferencias de servicios
 └── services/    Servidores MCP y sus dependencias</code></pre></div>
-      <p>El ejecutable de PyPI permanece gestionado por pip y el archivo descargado permanece donde lo guardaste. Borrar <code>./zerochat/</code> elimina el estado local y los MCP, sin tocar ninguno de los dos ejecutables.</p>
+      <p>El ejecutable de PyPI permanece gestionado por pip y el archivo descargado permanece donde lo guardaste. Borrar <code>~/zerochat/</code> elimina el estado local y los MCP, sin tocar ninguno de los dos ejecutables.</p>
       <p>Las versiones usan <code>mayor.menor.parche</code>. El parche actualiza solo la interfaz de GitHub Pages; <code>7.4.0</code> es compatible con <code>7.4.x</code>. Un salto de <code>7.4</code> a <code>7.5</code> actualiza el backend: ZeroChat avisa y muestra el comando correspondiente, <code>python -m pip install --upgrade zerochat</code> para PyPI o la descarga de <code>zerochat.py</code> para curl.</p>
     </div>
 

@@ -82,7 +82,7 @@ node --test tests/unit/test_icons.js
 | `python3 zerochat.py` | Detecta automáticamente el entorno de desarrollo y abre en el navegador `http://127.0.0.1:6388/zerochat.html` con token diario, sin requerir scripts bash ni servidores adicionales. |
 | `python3 zerochat.py --test` | Autocomprobación interna rápida de herramientas locales (`list_directory`, `read_file`, `execute_command`). |
 | `python3 zerochat.py --no-browser` | Arranca el servidor local sin abrir navegador (útil para pruebas automatizadas o con `curl`). |
-| `python3 zerochat.py --no-venv` | Omite la comprobación/creación del entorno virtual `./zerochat` para un arranque inmediato. |
+| `python3 zerochat.py --no-venv` | Omite la comprobación/creación del entorno MCP `~/zerochat/.venv` para un arranque inmediato. |
 
 ---
 
