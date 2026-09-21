@@ -256,8 +256,9 @@
         let raw = null;
         if (Storage && typeof Storage.getStorageItem === 'function') {
           raw = Storage.getStorageItem(this.storageKey);
-        } else if (typeof localStorage !== 'undefined') {
-          raw = localStorage.getItem(this.storageKey);
+          if (raw === null && typeof Storage.migrateLegacyStorageItem === 'function') {
+            raw = Storage.migrateLegacyStorageItem(this.storageKey);
+          }
         }
 
         if (raw) {
@@ -312,8 +313,6 @@
         const serialized = JSON.stringify(payload);
         if (Storage && typeof Storage.setStorageItem === 'function') {
           Storage.setStorageItem(this.storageKey, serialized);
-        } else if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(this.storageKey, serialized);
         }
       } catch (err) {
         console.warn('[ToolSecurity] Error al persistir políticas de seguridad:', err?.message || err);

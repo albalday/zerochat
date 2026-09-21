@@ -100,8 +100,8 @@
           error = Storage.getLastClearAllStorageError();
         }
       } else {
-        try { if (typeof localStorage !== 'undefined') localStorage.clear(); } catch (_) {}
-        try { if (typeof sessionStorage !== 'undefined') sessionStorage.clear(); } catch (_) {}
+        success = false;
+        error = 'ChatStorage.clearAllStorage is unavailable.';
       }
     } catch (storageErr) {
       success = false;

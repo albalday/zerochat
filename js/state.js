@@ -64,7 +64,7 @@
         systemPrompt: '',
         systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT,
         temperature: '0.7',
-        reasoningEffort: 'none',
+        reasoningEffort: 'medium',
         reasoningTransport: 'auto',
         maxAgentTurns: 15,
         theme: DEFAULT_THEME,
@@ -139,13 +139,14 @@
 
       // 8. Estado de Integración MCP (mcp-proxy)
       mcp: {
-        status: 'disconnected', // 'disconnected' | 'connecting' | 'connected' | 'error'
+        status: 'disconnected', // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error'
         host: '127.0.0.1',
         port: 6388,
         endpoint: 'http://127.0.0.1:6388/sse',
         serverInfo: null,
         tools: [],
         lastConnected: null,
+        lastVerified: null,
         latencyMs: null,
         error: null
       },

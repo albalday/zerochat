@@ -380,7 +380,7 @@
       apiKey: params.apiKey || '',
       model: params.model || appConfig.model,
       temperature: params.temperature !== undefined ? params.temperature : appConfig.temperature,
-      reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'none',
+      reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'medium',
       reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
       messages: chatHistory,
       signal: params.signal,

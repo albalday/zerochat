@@ -38,8 +38,6 @@
     }
   }
 
-  const escapeHtml = (s) => (getUtils()?.escapeHtml ? getUtils().escapeHtml(s) : (s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')));
-
   function getFiles() {
     const State = getState();
     if (State && typeof State.get === 'function') {
@@ -112,16 +110,32 @@
       const iconSvg = Icons ? Icons.get(iconName, { size: 14 }) : '';
       const closeSvg = Icons ? Icons.get('close', { size: 12 }) : '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>';
       const removeTitle = (I18n && typeof I18n.t === 'function') ? I18n.t('btn_delete') : 'Eliminar';
-      const safeName = escapeHtml(file.name || '');
+      const icon = document.createElement('span');
+      icon.className = 'file-chip-icon';
+      // Los SVG proceden exclusivamente de ChatIcons o de esta plantilla estática.
+      const Utils = getUtils();
+      if (Utils?.setTrustedHtml) Utils.setTrustedHtml(icon, iconSvg);
+      else icon.innerHTML = iconSvg;
 
-      chip.innerHTML = `
-        <span class="file-chip-icon">${iconSvg}</span>
-        <span class="file-chip-name" title="${safeName}">${safeName}</span>
-        <span class="file-chip-size">(${FileParser.formatBytes(file.size)})</span>
-        <button type="button" class="btn-remove-chip file-chip-remove" data-index="${index}" title="${removeTitle}" aria-label="${removeTitle}">${closeSvg}</button>
-      `;
+      const name = document.createElement('span');
+      name.className = 'file-chip-name';
+      name.textContent = String(file.name || '');
+      name.title = String(file.name || '');
 
-      chip.querySelector('.btn-remove-chip').addEventListener('click', () => {
+      const size = document.createElement('span');
+      size.className = 'file-chip-size';
+      size.textContent = `(${FileParser.formatBytes(file.size)})`;
+
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'btn-remove-chip file-chip-remove';
+      removeButton.setAttribute('data-index', String(index));
+      removeButton.title = String(removeTitle);
+      removeButton.setAttribute('aria-label', String(removeTitle));
+      if (Utils?.setTrustedHtml) Utils.setTrustedHtml(removeButton, closeSvg);
+      else removeButton.innerHTML = closeSvg;
+
+      removeButton.addEventListener('click', () => {
         removeFileAt(index);
         renderChips(container, onRemoveCallback);
         if (typeof onRemoveCallback === 'function') {
@@ -129,6 +143,10 @@
         }
       });
 
+      chip.appendChild(icon);
+      chip.appendChild(name);
+      chip.appendChild(size);
+      chip.appendChild(removeButton);
       container.appendChild(chip);
     });
   }

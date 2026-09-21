@@ -183,7 +183,7 @@
 
       // Barra de entrada y formulario
       btn_attach_title: 'Adjuntar archivos (PDF, código, texto, imágenes)',
-      reasoning_btn_title: 'Nivel de esfuerzo de razonamiento (Desactivado por defecto)',
+      reasoning_btn_title: 'Nivel de esfuerzo de razonamiento (Medio por defecto)',
       reasoning_menu_title: 'Nivel de Razonamiento',
       reasoning_intensity_title: 'Intensidad',
       reasoning_intensity_aria: 'Intensidad de razonamiento',
@@ -349,10 +349,12 @@
       mcp_connection_desc: 'Servidor local privado para conectar ZeroChat con herramientas del sistema (archivos, terminal, git y automatización) vía protocolo estandarizado.',
       mcp_status_disconnected: 'Desconectado',
       mcp_status_connecting: 'Conectando...',
+      mcp_status_checking: 'Comprobando conexión...',
       mcp_status_connected: 'Conectado',
       mcp_status_error: 'Error de conexión',
       mcp_bootstrap_title: 'MCP requiere el servidor local',
       mcp_bootstrap_desc: 'Para usar MCP, inicia ZeroChat desde zerochat.py en un terminal. La aplicación se conectará automáticamente cuando el servidor esté disponible.',
+      mcp_reconnect_after_restart: 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.',
       mcp_bootstrap_help: 'Abrir ayuda general de ZeroChat',
       mcp_btn_copy_cmd: 'Copiar comando',
       mcp_cmd_copied: '¡Copiado!',
@@ -819,7 +821,7 @@
 
       // Barra de entrada y formulario
       btn_attach_title: 'Attach files (PDF, code, text, images)',
-      reasoning_btn_title: 'Reasoning effort level (Disabled by default)',
+      reasoning_btn_title: 'Reasoning effort level (Medium by default)',
       reasoning_menu_title: 'Reasoning Level',
       reasoning_intensity_title: 'Intensity',
       reasoning_intensity_aria: 'Reasoning intensity',
@@ -985,10 +987,12 @@
       mcp_connection_desc: 'Private local server to connect ZeroChat with system tools (files, terminal, git, and automation) via standard protocol.',
       mcp_status_disconnected: 'Disconnected',
       mcp_status_connecting: 'Connecting...',
+      mcp_status_checking: 'Checking connection...',
       mcp_status_connected: 'Connected',
       mcp_status_error: 'Connection error',
       mcp_bootstrap_title: 'MCP requires the local server',
       mcp_bootstrap_desc: 'To use MCP, start ZeroChat from zerochat.py in a terminal. The application will connect automatically when the server is available.',
+      mcp_reconnect_after_restart: 'If the server was restarted, reload this page (F5) to connect again.',
       mcp_bootstrap_help: 'Open ZeroChat general help',
       mcp_btn_copy_cmd: 'Copy command',
       mcp_cmd_copied: 'Copied!',

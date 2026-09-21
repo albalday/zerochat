@@ -6,6 +6,60 @@ const fs = require('node:fs');
 const os = require('node:os');
 const pkg = require('../../package.json');
 
+test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import argparse
+import importlib.util
+import os
+import pty
+import sys
+import termios
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('zerochat_console_test', Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.format_uptime(0) == '00:00:00'
+assert module.format_uptime(3661.8) == '01:01:01'
+parser = argparse.ArgumentParser(prog='zerochat.py')
+assert 'usage: zerochat.py' in parser.format_help()
+
+class InteractiveOutput:
+    def __init__(self, output):
+        self.output = output
+    def isatty(self):
+        return True
+    def write(self, value):
+        return self.output.write(value)
+    def flush(self):
+        return self.output.flush()
+
+original_stdin = sys.stdin
+original_stdout = sys.stdout
+saved_fd = os.dup(0)
+master_fd, slave_fd = pty.openpty()
+try:
+    os.dup2(slave_fd, 0)
+    os.close(slave_fd)
+    sys.stdin = os.fdopen(0, 'r', closefd=False)
+    sys.stdout = InteractiveOutput(original_stdout)
+    terminal_before = termios.tcgetattr(0)
+    console = module.ConsoleControl(None, parser)
+    assert console.enabled is True
+    console.start()
+    assert not (termios.tcgetattr(0)[3] & termios.ICANON)
+    console.close()
+    assert termios.tcgetattr(0) == terminal_before
+finally:
+    sys.stdin = original_stdin
+    sys.stdout = original_stdout
+    os.dup2(saved_fd, 0)
+    os.close(saved_fd)
+    os.close(master_fd)
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('Servidor local zerochat.py: token de sesión, herramientas core y aislamiento', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');

@@ -312,7 +312,7 @@
       systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
       systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
       temperature: elements?.settingTemperature ? elements.settingTemperature.value : (appConfig?.temperature || '0.7'),
-      reasoningEffort: appConfig?.reasoningEffort || 'none',
+      reasoningEffort: appConfig?.reasoningEffort || 'medium',
       reasoningTransport: appConfig?.reasoningTransport || 'auto',
       maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 15),
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
@@ -564,6 +564,7 @@
               <strong data-i18n="mcp_bootstrap_title">MCP requiere el servidor local</strong>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_bootstrap_desc">Para usar MCP, inicia ZeroChat desde zerochat.py en un terminal. La aplicación se conectará automáticamente cuando el servidor esté disponible.</p>
+            <p id="mcp-reconnect-hint" class="label-hint mcp-section-hint" data-i18n="mcp_reconnect_after_restart">Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.</p>
             <div class="mcp-cmd-row">
               <pre class="mcp-command-box mcp-cmd-box-flex"><code id="mcp-terminal-command">curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
               <button type="button" id="btn-mcp-copy-cmd" class="btn-secondary btn-copy-mcp-cmd" data-i18n-title="mcp_btn_copy_cmd" title="Copiar comando">

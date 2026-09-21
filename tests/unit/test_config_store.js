@@ -42,6 +42,13 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(getPersisted().activeProfileName, undefined);
 });
 
+test('ChatConfig - usa razonamiento medio por defecto y conserva una elección explícita', () => {
+  const { store } = createFixture();
+  store.initialize();
+  assert.equal(store.updateRuntime({ reasoningEffort: undefined }).reasoningEffort, 'medium');
+  assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
+});
+
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
   const { store } = createFixture();
   store.initialize();

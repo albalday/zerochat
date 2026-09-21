@@ -46,7 +46,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.2.4"
+    return "7.2.5"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
@@ -54,6 +54,148 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/package.json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
+CONSOLE_STATUS_IDLE_SECONDS = 8.0
+CONSOLE_CONTROL = None
+
+
+def format_uptime(seconds: float) -> str:
+    """Devuelve una duración breve y estable para la línea de estado de consola."""
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+class ConsoleControl:
+    """Atajos de consola y línea de estado, solo para terminales interactivos."""
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser):
+        self.server = server
+        self.parser = parser
+        self.started_at = time.monotonic()
+        self.last_activity = self.started_at
+        self.stop_event = threading.Event()
+        self.lock = threading.Lock()
+        self.status_visible = False
+        self.enabled = bool(getattr(sys.stdin, "isatty", lambda: False)() and getattr(sys.stdout, "isatty", lambda: False)())
+        self._threads: list[threading.Thread] = []
+        self._terminal_fd: int | None = None
+        self._terminal_state = None
+        self._closed = False
+
+    def start(self):
+        if not self.enabled:
+            return
+        if os.name != "nt":
+            try:
+                import termios
+                import tty
+                self._terminal_fd = sys.stdin.fileno()
+                self._terminal_state = termios.tcgetattr(self._terminal_fd)
+                tty.setcbreak(self._terminal_fd)
+            except (OSError, ValueError):
+                self._restore_terminal()
+                self.enabled = False
+                return
+        self._threads = [
+            threading.Thread(target=self._status_loop, name="zerochat-console-status", daemon=True),
+            threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True),
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.stop_event.set()
+        for thread in self._threads:
+            if thread is not threading.current_thread():
+                thread.join(timeout=1.0)
+        self._restore_terminal()
+        self.clear_status(final=True)
+
+    def _restore_terminal(self):
+        if self._terminal_fd is None or self._terminal_state is None:
+            return
+        try:
+            import termios
+            termios.tcsetattr(self._terminal_fd, termios.TCSADRAIN, self._terminal_state)
+        except OSError:
+            pass
+        finally:
+            self._terminal_fd = None
+            self._terminal_state = None
+
+    def clear_status(self, *, final: bool = False):
+        if not self.enabled:
+            return
+        with self.lock:
+            if self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            if final:
+                sys.stdout.write("\r\n")
+            sys.stdout.flush()
+
+    def log(self, message: str, *, flush: bool = True):
+        with self.lock:
+            if self.enabled and self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            print(message, flush=flush)
+            self.last_activity = time.monotonic()
+
+    def show_help(self):
+        with self.lock:
+            if self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            print("\nComandos de consola: [h] ayuda · [x] salir ordenadamente\n", flush=True)
+            print(self.parser.format_help().rstrip(), flush=True)
+            self.last_activity = time.monotonic()
+
+    def _render_status(self):
+        if not self.enabled:
+            return
+        uptime = format_uptime(time.monotonic() - self.started_at)
+        with self.lock:
+            if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
+                return
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [x] salir")
+            sys.stdout.flush()
+            self.status_visible = True
+
+    def _status_loop(self):
+        while not self.stop_event.wait(1.0):
+            self._render_status()
+
+    def _handle_key(self, key: str):
+        if key.lower() == "h":
+            self.show_help()
+        elif key.lower() == "x":
+            self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+            stop_zerochat_server(self.server)
+
+    def _keyboard_loop(self):
+        if os.name == "nt":
+            import msvcrt
+            while not self.stop_event.wait(0.05):
+                if msvcrt.kbhit():
+                    self._handle_key(msvcrt.getwch())
+            return
+
+        import select
+        while not self.stop_event.is_set():
+            ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if ready:
+                self._handle_key(sys.stdin.read(1))
+
+
+def console_log(message: str, *, flush: bool = True):
+    if CONSOLE_CONTROL:
+        CONSOLE_CONTROL.log(message, flush=flush)
+    else:
+        print(message, flush=flush)
 
 def get_venv_dir() -> Path:
     """Devuelve la ruta absoluta al directorio del entorno virtual ./zerochat."""
@@ -121,12 +263,12 @@ def ensure_virtual_environment():
 
     # 1. Crear el venv si no existe
     if not venv_py.exists():
-        print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Inicializando entorno virtual en {venv_dir}...", flush=True)
+        console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Inicializando entorno virtual en {venv_dir}...", flush=True)
         try:
             venv.create(venv_dir, with_pip=True, clear=False)
-            print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Entorno virtual preparado con éxito.", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Entorno virtual preparado con éxito.", flush=True)
         except Exception as err:
-            print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.", flush=True)
             return
 
     # 2. Comprobar si ya estamos ejecutándonos dentro del venv
@@ -134,12 +276,12 @@ def ensure_virtual_environment():
         current_py = Path(sys.executable).resolve()
         target_py = venv_py.resolve()
         if current_py != target_py and target_py.exists():
-            print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Re-ejecutando bajo {venv_py}...", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Re-ejecutando bajo {venv_py}...", flush=True)
             # Re-ejecutar con los mismos argumentos
             args = [str(target_py), str(Path(__file__).resolve())] + sys.argv[1:]
             os.execv(str(target_py), args)
     except Exception as err:
-        print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Error en re-ejecución: {err}. Continuando.", flush=True)
+        console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Error en re-ejecución: {err}. Continuando.", flush=True)
 
 
 def parse_version(ver: str) -> tuple[int, ...]:
@@ -173,8 +315,8 @@ def check_version():
                     remote_ver = match.group(1)
             if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver):
                 if parse_version(remote_ver) > parse_version(VERSION):
-                    print(f"[{time.strftime('%H:%M:%S')}] [zerochat] ¡Nueva versión disponible! (Local: {VERSION}, Remota: {remote_ver})", flush=True)
-                    print(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
+                    console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] ¡Nueva versión disponible! (Local: {VERSION}, Remota: {remote_ver})", flush=True)
+                    console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
@@ -1068,14 +1210,14 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
         # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
         if not HEARTBEAT_INITIALIZED:
             if require_initial_connection and (now - start_time > initial_grace_seconds):
-                print(f"[{time.strftime('%H:%M:%S')}] Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...", flush=True)
+                console_log(f"[{time.strftime('%H:%M:%S')}] Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...", flush=True)
                 stop_zerochat_server(server)
                 break
             continue
 
         # 2. Inactividad tras haber recibido latidos
         if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
-            print(f"[{time.strftime('%H:%M:%S')}] Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...", flush=True)
             stop_zerochat_server(server)
             break
 
@@ -1102,7 +1244,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
     def _log_req(self, method: str, detail: str):
         now = time.strftime("%H:%M:%S")
-        print(f"[{now}] --> {method} {detail}", flush=True)
+        console_log(f"[{now}] --> {method} {detail}", flush=True)
 
     def _log_res(self, status: int, detail: str, duration_ms: float, error_info: str = ""):
         now = time.strftime("%H:%M:%S")
@@ -1116,7 +1258,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             500: "500 Internal Server Error",
         }.get(status, str(status))
         err_suffix = f" - ERROR: {format_log_error(error_info)}" if error_info else ""
-        print(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
+        console_log(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
 
     def serve_static_dev_file(self, rel_path: str) -> bool:
         """Sirve un archivo estático del repositorio si existe y estamos en el directorio de desarrollo."""
@@ -1650,7 +1792,7 @@ def open_browser(url: str) -> bool:
 # ==============================================================================
 
 def main():
-    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN
+    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
@@ -1719,22 +1861,25 @@ def main():
         print(f"  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
+    CONSOLE_CONTROL = ConsoleControl(server, parser)
+    CONSOLE_CONTROL.start()
+
     if not args.no_browser:
         termux_detected = is_termux_environment()
         if termux_detected:
-            print(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
-        print(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
+        console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
         try:
             if not open_browser(target_url):
                 raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
         except Exception as e:
-            print(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
-            print("  Traza de diagnóstico:", flush=True)
+            console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+            console_log("  Traza de diagnóstico:", flush=True)
             traceback.print_exc()
             manual_command = get_manual_browser_command(target_url)
             if manual_command:
-                print("  Termux detectado. Prueba este comando exacto:", flush=True)
-                print(f"  {manual_command}", flush=True)
+                console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
+                console_log(f"  {manual_command}", flush=True)
 
     if exit_on_close:
         require_initial = not args.no_browser
@@ -1745,7 +1890,7 @@ def main():
         ).start()
 
     def shutdown(*_):
-        print(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+        console_log(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
         stop_zerochat_server(server)
 
     signal.signal(signal.SIGINT, shutdown)
@@ -1756,6 +1901,9 @@ def main():
     finally:
         stop_zerochat_server(server)
         server.server_close()
+        if CONSOLE_CONTROL:
+            CONSOLE_CONTROL.close()
+            CONSOLE_CONTROL = None
 
 
 if __name__ == "__main__":

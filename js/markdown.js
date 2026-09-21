@@ -37,13 +37,7 @@
   function escapeHtml(str) {
     const Utils = getUtils();
     if (Utils && typeof Utils.escapeHtml === 'function') return Utils.escapeHtml(str);
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return str == null ? '' : String(str);
   }
 
   /**
@@ -52,15 +46,8 @@
    * @returns {string} - URL segura o '#' si es inválida
    */
   function sanitizeUrl(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return '#';
-    const trimmed = rawUrl.trim();
-    if (/^(?:https?:\/\/|mailto:|tel:)/i.test(trimmed)) {
-      return escapeHtml(trimmed);
-    }
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^[\\/]{2}/.test(trimmed)) {
-      return escapeHtml(trimmed);
-    }
-    return '#';
+    const Utils = getUtils();
+    return Utils?.sanitizeUrl ? Utils.sanitizeUrl(rawUrl) : '#';
   }
 
   /**
@@ -69,21 +56,8 @@
    * @returns {string} - URL segura o '' si es inválida
    */
   function sanitizeImageUrl(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return '';
-    const trimmed = rawUrl.trim();
-    if (/^https?:\/\/[^\s"'<>]+/i.test(trimmed)) {
-      return escapeHtml(trimmed);
-    }
-    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\s\.]+/i.test(trimmed)) {
-      return trimmed.replace(/\s+/g, '');
-    }
-    if (/^blob:[^\s"'<>]+/i.test(trimmed)) {
-      return escapeHtml(trimmed);
-    }
-    if (/^rag-image:\/\/[a-zA-Z0-9_\-:]+/i.test(trimmed)) {
-      return escapeHtml(trimmed);
-    }
-    return '';
+    const Utils = getUtils();
+    return Utils?.sanitizeImageUrl ? Utils.sanitizeImageUrl(rawUrl) : '';
   }
 
   function parseInlineMarkdown(text) {

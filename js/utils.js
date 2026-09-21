@@ -30,6 +30,25 @@
       .replace(/'/g, '&#39;');
   }
 
+  /** Normaliza una URL no confiable para usarla en un atributo href. */
+  function sanitizeUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '#';
+    const trimmed = rawUrl.trim();
+    if (/^(?:https?:\/\/|mailto:|tel:)/i.test(trimmed)) return escapeHtml(trimmed);
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^[\\/]{2}/.test(trimmed)) return escapeHtml(trimmed);
+    return '#';
+  }
+
+  /** Normaliza una URL no confiable para usarla como origen de una imagen. */
+  function sanitizeImageUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (/^https?:\/\/[^\s"'<>]+/i.test(trimmed)) return escapeHtml(trimmed);
+    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\s.]+/i.test(trimmed)) return trimmed.replace(/\s+/g, '');
+    if (/^blob:[^\s"'<>]+/i.test(trimmed) || /^rag-image:\/\/[a-zA-Z0-9_\-:]+/i.test(trimmed)) return escapeHtml(trimmed);
+    return '';
+  }
+
   /**
    * Asigna contenido no confiable como texto, sin interpretarlo como HTML.
    * @param {Element|Object|null|undefined} element
@@ -182,6 +201,8 @@
 
   return {
     escapeHtml,
+    sanitizeUrl,
+    sanitizeImageUrl,
     setText,
     clearElement,
     appendTextElement,

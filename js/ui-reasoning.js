@@ -86,7 +86,7 @@
     if (!elements?.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'flex';
     elements.btnReasoning?.setAttribute?.('aria-expanded', 'true');
-    syncReasoningIntensity(elements, appConfig?.reasoningEffort || 'none');
+    syncReasoningIntensity(elements, appConfig?.reasoningEffort || 'medium');
     syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
     const slider = elements.reasoningIntensity;
     if (slider) {

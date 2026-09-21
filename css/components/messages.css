@@ -171,6 +171,10 @@
   .message-stats .stat-sep:not(.stat-sep-2) {
     display: none !important;
   }
+
+  .message-row.assistant .message-content {
+    font-size: 1.0rem;
+  }
 }
 
 /* Acciones del mensaje (Copiar, Borrar, Reusar) */
@@ -196,9 +200,9 @@
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;

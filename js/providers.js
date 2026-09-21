@@ -170,7 +170,7 @@
         model = '',
         messages = [],
         temperature = 0.7,
-        reasoningEffort = 'none',
+        reasoningEffort = 'medium',
         reasoningTransport = 'auto',
         toolsList = [],
         toolChoice = 'auto',
@@ -890,7 +890,7 @@
         model = '',
         messages = [],
         temperature = 0.7,
-        reasoningEffort = 'none',
+        reasoningEffort = 'medium',
         toolsList = [],
         toolChoice = 'auto',
         stream = true

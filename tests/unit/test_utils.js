@@ -8,6 +8,15 @@ test('ChatUtils.escapeHtml escapa caracteres peligrosos', () => {
   assert.strictEqual(ChatUtils.escapeHtml(undefined), '');
 });
 
+test('ChatUtils - centraliza la sanitización de URL y origen de imagen no confiables', () => {
+  assert.equal(ChatUtils.sanitizeUrl('https://example.test/" onclick="alert(1)'), 'https://example.test/&quot; onclick=&quot;alert(1)');
+  assert.equal(ChatUtils.sanitizeUrl('javascript:alert(1)'), '#');
+  assert.equal(ChatUtils.sanitizeUrl('//evil.test/path'), '#');
+  assert.equal(ChatUtils.sanitizeImageUrl('https://example.test/a.png'), 'https://example.test/a.png');
+  assert.equal(ChatUtils.sanitizeImageUrl('data:text/html,<script>alert(1)</script>'), '');
+  assert.equal(ChatUtils.sanitizeImageUrl('javascript:alert(1)'), '');
+});
+
 test('ChatUtils - primitivas de DOM separan texto no confiable de HTML interno', () => {
   const documentMock = {
     createElement: (tagName) => ({ tagName, className: '', textContent: '' })

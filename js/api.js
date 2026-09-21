@@ -317,7 +317,7 @@
       model,
       messages,
       temperature = 0.7,
-      reasoningEffort = 'none',
+      reasoningEffort = 'medium',
       reasoningTransport = 'auto',
       enableTools = false,
       toolChoice = 'auto',

@@ -59,6 +59,7 @@ test('ChatUIMcp - el puerto predeterminado coincide con el servidor Python zeroc
 test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y detalles', () => {
   function createMockElements() {
     const attrs = {};
+    const reconnectAttrs = {};
     return {
       statusBadge: { className: '' },
       statusText: {
@@ -68,6 +69,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
       },
       serverDetails: { style: {}, innerHTML: '', textContent: '', title: '' },
       bootstrapCard: { style: {} },
+      reconnectHint: { style: {}, textContent: '', setAttribute: (k, v) => { reconnectAttrs[k] = v; } },
       commandSnippet: { textContent: '' }
     };
   }
@@ -82,6 +84,8 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
   assert.equal(elements.serverDetails.style.display, 'none');
   assert.equal(elements.bootstrapCard.style.display, 'block');
+  assert.equal(elements.reconnectHint.style.display, 'block');
+  assert.equal(elements.reconnectHint.textContent, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
   assert.equal(elements.commandSnippet.textContent, 'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py');
 
   // 2. Estado conectando
@@ -90,6 +94,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusText.textContent, 'Conectando...');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
   assert.equal(elements.bootstrapCard.style.display, 'block');
+  assert.equal(elements.reconnectHint.style.display, 'none');
 
   // 3. Estado conectado
   ChatUIMcp.renderConnectionStatus(elements, {
@@ -105,6 +110,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.serverDetails.style.display, 'inline-flex');
   assert.equal(elements.bootstrapCard.style.display, 'none');
+  assert.equal(elements.reconnectHint.style.display, 'none');
   assert.ok(elements.serverDetails.title.includes('mcp-proxy v0.4.0'));
   assert.ok(elements.serverDetails.title.includes('15ms'));
   assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
@@ -121,6 +127,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusText.textContent, 'Error de conexión');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_error');
   assert.equal(elements.bootstrapCard.style.display, 'block');
+  assert.equal(elements.reconnectHint.style.display, 'none');
 });
 
 test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {

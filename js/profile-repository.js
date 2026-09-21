@@ -31,7 +31,7 @@
 
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
-    temperature: '0.7', reasoningEffort: 'none', reasoningTransport: 'auto', maxAgentTurns: 15, modelReasoningConfig: null,
+    temperature: '0.7', reasoningEffort: 'medium', reasoningTransport: 'auto', maxAgentTurns: 15, modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
     webllmConfig: {

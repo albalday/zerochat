@@ -282,7 +282,7 @@
         apiKey: activeProfile?.settings?.apiKey || '',
         model: runtimeConfig.model,
         temperature: runtimeConfig.temperature,
-        reasoningEffort: runtimeConfig.reasoningEffort || 'none',
+        reasoningEffort: runtimeConfig.reasoningEffort || 'medium',
         reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
         maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
         chatHistory: getChatHistory(),

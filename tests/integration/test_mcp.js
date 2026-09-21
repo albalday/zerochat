@@ -313,6 +313,53 @@ test('MCP - probeConnection maneja fallo de conexión y URL vacía', async () =>
   }
 });
 
+test('MCP - probeConnection no acepta respuestas HTTP fallidas como conexión activa', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (_url, options = {}) => {
+      if (options.method === 'POST') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'initialize unavailable' } })
+        };
+      }
+      return { ok: false, status: 503, text: async () => 'Service unavailable' };
+    };
+    const result = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+    assert.equal(result.success, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP - una comprobación de salud fallida degrada una conexión previamente activa', async () => {
+  const originalFetch = global.fetch;
+  const previousState = ChatState.get('mcp');
+  const manager = new MCP.McpManager();
+  try {
+    ChatState.set('mcp', {
+      ...previousState,
+      status: 'connected',
+      host: '127.0.0.1',
+      port: 6388,
+      endpoint: 'http://127.0.0.1:6388/sse',
+      tools: [{ id: 'mcp_test_tool' }]
+    });
+    global.fetch = async () => { throw new Error('ECONNREFUSED'); };
+
+    const result = await manager.verifyProxyConnection({ timeoutMs: 500 });
+    const state = ChatState.get('mcp');
+    assert.equal(result.success, false);
+    assert.equal(state.status, 'error');
+    assert.equal(state.tools.length, 0);
+    assert.match(state.error, /conectar|ECONNREFUSED/i);
+  } finally {
+    global.fetch = originalFetch;
+    ChatState.set('mcp', previousState);
+  }
+});
+
 test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async () => {
   const originalFetch = global.fetch;
   const manager = new MCP.McpManager();
@@ -805,5 +852,4 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
     global.fetch = originalFetch;
   }
 });
-
 

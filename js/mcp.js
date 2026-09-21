@@ -65,6 +65,14 @@
     return null;
   }
 
+  function getUtils() {
+    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
+    if (typeof require !== 'undefined') {
+      try { return require('./utils.js'); } catch (_) {}
+    }
+    return null;
+  }
+
   function getState() {
     if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
     if (typeof require !== 'undefined') {
@@ -121,26 +129,6 @@
         };
       }
 
-      // Si initialize no devuelve éxito estricto, probamos un GET simple por si el endpoint SSE está activo
-      const probeHeaders = { 'Accept': 'text/event-stream, application/json, */*' };
-      if (options.token) {
-        probeHeaders['Authorization'] = `Bearer ${options.token}`;
-        probeHeaders['X-ZeroChat-Token'] = options.token;
-      }
-      const probeRes = await fetchWithTimeout(normalizedUrl, {
-        method: 'GET',
-        headers: probeHeaders
-      }, timeoutMs).catch(() => null);
-
-      if (probeRes) {
-        return {
-          success: true,
-          latencyMs,
-          serverInfo: { name: 'mcp-proxy', version: 'active' },
-          capabilities: {}
-        };
-      }
-
       let errMsg = initResult?.error || 'No se pudo establecer sesión con el servidor MCP';
       if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('ECONNREFUSED')) {
         errMsg = 'No se puede conectar al proxy en esa dirección y puerto. Asegúrate de haber arrancado mcp-proxy en tu terminal.';
@@ -170,6 +158,12 @@
         } catch (e) {}
       }
     }
+  }
+
+  function isTransportFailure(error) {
+    if (!error || error?.name === 'AbortError') return false;
+    const message = String(error?.message || error).toLowerCase();
+    return /network|fetch|econnrefused|timeout|conexión mcp cerrada|http 5\d\d|http 404/.test(message);
   }
 
   /**
@@ -621,7 +615,7 @@
     const iconSvg = getMcpIconSvg(14);
 
     const renderCard = (args, contentHtml, badgeHtml, ui, isCollapsed = false) => {
-      const esc = ui?.markdown?.escapeHtml || String;
+      const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
       const t = ui?.t || (k => k);
       const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card') : document.createElement('div');
       card.className = 'tool-card-wrapper mcp-card';
@@ -657,7 +651,7 @@
       },
       updateLiveCard: (cardDiv, args, result = {}, elapsedMs = 0, ui) => {
         if (!cardDiv) return;
-        const esc = ui?.markdown?.escapeHtml || String;
+        const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
         const t = ui?.t || (k => k);
         const isSuccess = result?.success !== false && !result?.error && !result?.isError;
         const badge = cardDiv.querySelector('.tool-card-badge');
@@ -673,7 +667,7 @@
       },
       renderHistoricalCard: (args, message, ui) => {
         if (typeof document === 'undefined') return null;
-        const esc = ui?.markdown?.escapeHtml || String;
+        const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
         const t = ui?.t || (k => k);
         const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'}</span></span>`;
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
@@ -693,6 +687,7 @@
       this.name = options.name || client.name || 'MCP Tool Provider';
       this.serverName = client.name || 'MCP Server';
       this.serverUrl = client.url || '';
+      this.onTransportFailure = typeof options.onTransportFailure === 'function' ? options.onTransportFailure : null;
       this.cachedTools = [];
     }
 
@@ -752,10 +747,17 @@
             description: rt.description || ''
           },
           execute: async (args, context = {}) => {
-            return this.client.callTool(rt.name, args, {
-              signal: context.signal,
-              timeoutMs: options.timeoutMs
-            });
+            try {
+              return await this.client.callTool(rt.name, args, {
+                signal: context.signal,
+                timeoutMs: options.timeoutMs
+              });
+            } catch (error) {
+              if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
+                await this.onTransportFailure?.(error);
+              }
+              throw error;
+            }
           },
           result: {
             toModel: (args, result, outcome) => {
@@ -802,6 +804,7 @@
       this.providers = new Map();
       this.storageKey = 'chat_mcp_servers';
       this.sessionToken = null;
+      this.healthCheckPromise = null;
       this.loadConfig();
     }
 
@@ -825,8 +828,9 @@
         let raw = null;
         if (Storage && Storage.getStorageItem) {
           raw = Storage.getStorageItem(this.storageKey);
-        } else if (typeof localStorage !== 'undefined') {
-          raw = localStorage.getItem(this.storageKey);
+          if (raw === null && typeof Storage.migrateLegacyStorageItem === 'function') {
+            raw = Storage.migrateLegacyStorageItem(this.storageKey);
+          }
         }
 
         if (raw) {
@@ -848,8 +852,6 @@
         const serialized = JSON.stringify(this.servers);
         if (Storage && Storage.setStorageItem) {
           Storage.setStorageItem(this.storageKey, serialized);
-        } else if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(this.storageKey, serialized);
         }
       } catch (e) {}
     }
@@ -939,7 +941,8 @@
       const client = this.getClient(serverId);
       const provider = new McpToolProvider(client, {
         id: `mcp_prov_${serverId}`,
-        name: serverConfig.name
+        name: serverConfig.name,
+        onTransportFailure: error => this.markProxyUnavailable(error, targetRegistry)
       });
 
       try {
@@ -992,6 +995,52 @@
      */
     async probeConnection(url, options = {}) {
       return probeConnection(url, options);
+    }
+
+    async markProxyUnavailable(error, registry = null) {
+      const State = getState();
+      const current = State?.get?.('mcp') || {};
+      const message = error?.message || String(error || 'Conexión MCP no disponible');
+      await this.disconnectProxy(registry);
+      if (State?.set) {
+        State.set('mcp', {
+          status: 'error', host: current.host, port: current.port, endpoint: current.endpoint,
+          serverInfo: null, tools: [], latencyMs: null, error: message,
+          externalServers: [], externalTools: [], lastVerified: Date.now()
+        });
+      }
+      if (typeof window !== 'undefined' && window.ChatApp?.stopServerHeartbeat) {
+        window.ChatApp.stopServerHeartbeat();
+      }
+      return { success: false, error: message };
+    }
+
+    async verifyProxyConnection({ timeoutMs = 1500, registry = null } = {}) {
+      if (this.healthCheckPromise) return this.healthCheckPromise;
+      const State = getState();
+      const current = State?.get?.('mcp') || {};
+      if (current.status !== 'connected') return { success: false, skipped: true };
+      const endpoint = current.endpoint || `http://${current.host || '127.0.0.1'}:${current.port || 6388}/sse`;
+      const run = (async () => {
+        State?.set?.('mcp', { ...current, status: 'checking', error: null });
+        const probe = await probeConnection(endpoint, { timeoutMs, token: this.sessionToken });
+        if (!probe.success) {
+          await this.markProxyUnavailable(new Error(probe.error), registry);
+          return { success: false, probe };
+        }
+        const latest = State?.get?.('mcp') || current;
+        State?.set?.('mcp', {
+          ...latest, status: 'connected', serverInfo: probe.serverInfo || latest.serverInfo,
+          latencyMs: probe.latencyMs, error: null, lastVerified: Date.now()
+        });
+        return { success: true, probe };
+      })();
+      this.healthCheckPromise = run;
+      try {
+        return await run;
+      } finally {
+        this.healthCheckPromise = null;
+      }
     }
 
     /**

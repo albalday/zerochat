@@ -69,12 +69,19 @@ test('ChatAttachments - renderChips escapa caracteres peligrosos y comillas en n
     children: [],
     appendChild: (child) => container.children.push(child)
   };
+  const createElement = () => ({
+    className: '',
+    innerHTML: '',
+    textContent: '',
+    title: '',
+    children: [],
+    attributes: {},
+    appendChild(child) { this.children.push(child); },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    addEventListener: () => {}
+  });
   global.document = {
-    createElement: () => ({
-      className: '',
-      innerHTML: '',
-      querySelector: () => ({ addEventListener: () => {} })
-    })
+    createElement
   };
 
   ChatAttachments.clearFiles();
@@ -82,10 +89,9 @@ test('ChatAttachments - renderChips escapa caracteres peligrosos y comillas en n
   ChatAttachments.renderChips(container);
 
   assert.equal(container.children.length, 1);
-  const chipHtml = container.children[0].innerHTML;
-  assert.ok(chipHtml.includes('&lt;script&gt;'));
-  assert.ok(chipHtml.includes('&#39;'));
-  assert.ok(chipHtml.includes('&quot;'));
-  assert.ok(chipHtml.includes('&amp;'));
-  assert.equal(chipHtml.includes('<script>'), false);
+  const chip = container.children[0];
+  const name = chip.children.find(child => child.className === 'file-chip-name');
+  assert.equal(name.textContent, "archivo<script>'\"&.pdf");
+  assert.equal(name.title, "archivo<script>'\"&.pdf");
+  assert.equal(chip.innerHTML, '', 'El nombre externo no debe interpolarse en HTML');
 });

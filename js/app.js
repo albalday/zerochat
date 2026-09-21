@@ -278,6 +278,7 @@
       mcpStatusBadge: document.getElementById('mcp-status-badge'),
       mcpStatusText: document.getElementById('mcp-status-text'),
       mcpServerDetails: document.getElementById('mcp-server-details'),
+      mcpReconnectHint: document.getElementById('mcp-reconnect-hint'),
       mcpTerminalCommand: document.getElementById('mcp-terminal-command'),
       btnMcpCopyCmd: document.getElementById('btn-mcp-copy-cmd'),
       mcpBootstrapCard: document.getElementById('mcp-bootstrap-card'),
@@ -597,7 +598,7 @@
         elements.modelSelectHelper.value = config.model;
       }
     }
-    updateReasoningUI(config.reasoningEffort || 'none');
+    updateReasoningUI(config.reasoningEffort || 'medium');
     applyTheme(config.theme);
     applyLanguage(config.language || 'es');
 
@@ -972,6 +973,9 @@
         loadCachedModels,
         updateReasoningUI
       }, sectionId);
+    }
+    if (sectionId === 'tab-mcp') {
+      window.ChatUIMcp?.verifyActiveConnection?.().catch(() => {});
     }
   }
 
@@ -2061,6 +2065,7 @@
   const HEARTBEAT_INTERVAL_MS = 10000;
   let heartbeatTimer = null;
   let activeHeartbeatTarget = null;
+  let heartbeatCheckInFlight = false;
 
   function buildHeartbeatUrl(host, port) {
     if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
@@ -2076,17 +2081,27 @@
     return `http://${host}:${port}/zerochat/heartbeat`;
   }
 
-  function sendHeartbeatPing() {
+  async function sendHeartbeatPing() {
     if (!activeHeartbeatTarget || typeof fetch !== 'function') return;
     const endpoint = buildHeartbeatUrl(activeHeartbeatTarget.host, activeHeartbeatTarget.port);
-    fetch(endpoint, {
-      method: 'GET',
-      cache: 'no-store',
-      mode: 'cors',
-      headers: { 'X-ZeroChat-Token': activeHeartbeatTarget.token }
-    }).catch(() => {
-      // Ignorar silenciosamente desconexiones si el servidor ya se ha cerrado
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        cache: 'no-store',
+        mode: 'cors',
+        headers: { 'X-ZeroChat-Token': activeHeartbeatTarget.token }
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
+    } catch (_) {
+      if (heartbeatCheckInFlight) return;
+      heartbeatCheckInFlight = true;
+      try {
+        await window.ChatMCP?.manager?.verifyProxyConnection?.({ timeoutMs: 1500 });
+      } finally {
+        heartbeatCheckInFlight = false;
+      }
+    }
   }
 
   function startServerHeartbeat(host, port, token) {
@@ -2113,6 +2128,7 @@
       clearInterval(heartbeatTimer);
       heartbeatTimer = null;
     }
+    heartbeatCheckInFlight = false;
   }
 
   function getNewTabUrl() {
@@ -2178,6 +2194,7 @@
         statusBadge: elements.mcpStatusBadge,
         statusText: elements.mcpStatusText,
         serverDetails: elements.mcpServerDetails,
+        reconnectHint: elements.mcpReconnectHint,
         commandSnippet: elements.mcpTerminalCommand,
         btnCopyCmd: elements.btnMcpCopyCmd,
         bootstrapCard: elements.mcpBootstrapCard,

@@ -22,9 +22,7 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const t = (key, params) => getI18n()?.t ? getI18n().t(key, params) : key;
-  const escapeHtml = value => getUtils()?.escapeHtml
-    ? getUtils().escapeHtml(value)
-    : (value == null ? '' : String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+  const escapeHtml = value => getUtils()?.escapeHtml ? getUtils().escapeHtml(value) : '';
 
   function clearSafeContent(element) {
     const utils = getUtils();
@@ -368,6 +366,13 @@
     }
 
     if (elements.bootstrapCard) elements.bootstrapCard.style.display = isConn ? 'none' : 'block';
+    if (elements.reconnectHint) {
+      elements.reconnectHint.style.display = status === 'disconnected' ? 'block' : 'none';
+      if (typeof elements.reconnectHint.setAttribute === 'function') {
+        elements.reconnectHint.setAttribute('data-i18n', 'mcp_reconnect_after_restart');
+      }
+      elements.reconnectHint.textContent = translator('mcp_reconnect_after_restart');
+    }
     if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand();
 
     if (elements.toolsContainer) {
@@ -574,6 +579,13 @@
     return { success: false, available: false };
   }
 
+  async function verifyActiveConnection(options = {}) {
+    const MCP = getMCP();
+    return MCP?.manager?.verifyProxyConnection
+      ? MCP.manager.verifyProxyConnection({ timeoutMs: options.timeoutMs || 1500 })
+      : { success: false, skipped: true };
+  }
+
   return {
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -586,6 +598,7 @@
     renderToolsList,
     renderExternalServers,
     initMcpUI,
-    autoConnectIfAvailable
+    autoConnectIfAvailable,
+    verifyActiveConnection
   };
 });

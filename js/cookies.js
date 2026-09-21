@@ -111,6 +111,23 @@
     memoryStorage.delete(key);
   }
 
+  // Compatibilidad para las claves MCP previas a la centralización. Ningún
+  // módulo de dominio debe acceder directamente a estas claves heredadas.
+  function migrateLegacyStorageItem(name) {
+    if (typeof name !== 'string' || !/^[a-z0-9_]+$/i.test(name)) return null;
+    const current = getStorageItem(name);
+    if (current !== null || !hasLocalStorage) return current;
+    try {
+      const legacy = localStorage.getItem(name);
+      if (legacy === null) return null;
+      setStorageItem(name, legacy);
+      localStorage.removeItem(name);
+      return legacy;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function normalizeBackendSession(session) {
     if (!session || typeof session !== 'object' || Array.isArray(session)) return null;
     const token = typeof session.token === 'string' ? session.token : '';
@@ -637,6 +654,7 @@
     setStorageItem,
     getStorageItem,
     deleteStorageItem,
+    migrateLegacyStorageItem,
     // Alias heredados para compatibilidad hacia atrás en consola de depuración (@deprecated)
     setCookie: setStorageItem,
     getCookie: getStorageItem,
