@@ -188,6 +188,14 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
         const buttons = controls.map(id => document.getElementById(id));
         const rects = buttons.map(button => button.getBoundingClientRect());
         const inputStyle = getComputedStyle(input);
+        const assistantRow = document.createElement('div');
+        assistantRow.className = 'message-row assistant';
+        const assistantContent = document.createElement('div');
+        assistantContent.className = 'message-content';
+        assistantRow.append(assistantContent);
+        document.body.append(assistantRow);
+        const assistantFontSize = parseFloat(getComputedStyle(assistantContent).fontSize);
+        assistantRow.remove();
         return {
           placeholder: input.placeholder,
           inputHeight: input.getBoundingClientRect().height,
@@ -195,7 +203,9 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
           hasIcons: buttons.every(button => !!button.querySelector('svg')),
           hasNames: buttons.every(button => !!(button.getAttribute('aria-label') || button.getAttribute('aria-labelledby'))),
           sameRow: rects.every(rect => Math.abs(rect.top - rects[0].top) < 1),
-          withinViewport: rects.every(rect => rect.left >= 0 && rect.right <= innerWidth)
+          withinViewport: rects.every(rect => rect.left >= 0 && rect.right <= innerWidth),
+          touchTargets: rects.every(rect => rect.width >= 44 && rect.height >= 44),
+          assistantFontSize
         };
       }, language);
       assert.equal(metrics.placeholder, language === 'es' ? 'Escribe un mensaje...' : 'Write a message...');
@@ -204,6 +214,8 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
       assert.equal(metrics.hasNames, true);
       assert.equal(metrics.sameRow, true);
       assert.equal(metrics.withinViewport, true);
+      assert.equal(metrics.touchTargets, true);
+      assert.ok(metrics.assistantFontSize >= 17, 'La respuesta del asistente debe usar al menos 17px en móvil');
     }
 
     assert.deepEqual(errors, []);

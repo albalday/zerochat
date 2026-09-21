@@ -71,11 +71,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-md);
   color: var(--primary);
   background: var(--primary-light);
+}
+
+.debug-badge-icon .ui-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .debug-status-indicator {

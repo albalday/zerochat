@@ -124,10 +124,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.sidebar-settings-item .settings-item-icon .ui-icon,
+.sidebar-settings-choice .settings-item-icon .ui-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .sidebar-settings-item:hover .settings-item-icon {
@@ -168,8 +174,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -304,9 +310,9 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
@@ -315,6 +321,13 @@
   font-size: 0.85rem;
   text-decoration: none;
   transition: all 0.15s ease;
+}
+
+.btn-sidebar-icon .ui-icon,
+.btn-sidebar-close .ui-icon,
+.btn-sidebar-footer .ui-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .btn-sidebar-icon:hover,
@@ -480,9 +493,9 @@
 }
 
 .btn-sidebar-footer {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

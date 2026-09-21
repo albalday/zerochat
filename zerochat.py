@@ -46,7 +46,7 @@ def _read_package_version() -> str:
                 return data["version"].strip()
     except Exception:
         pass
-    return "7.2.5"
+    return "7.2.6"
 
 VERSION = _read_package_version()
 DEFAULT_PORT = 6388
