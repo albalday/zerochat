@@ -224,6 +224,41 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
   }
 });
 
+test('Browser UI - el panel de métricas se ancla al borde derecho del composer', async () => {
+  const browser = await createTestBrowser();
+  try {
+    for (const viewport of [{ width: 320, height: 700, isMobile: true }, { width: 1280, height: 800 }]) {
+      const page = await browser.newPage({ viewport, isMobile: Boolean(viewport.isMobile) });
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+      const layout = await page.evaluate(() => {
+        const composer = document.getElementById('chat-form');
+        const badge = document.getElementById('connection-tokens-badge');
+        const popover = document.getElementById('context-hub-popover');
+        badge.style.display = 'inline-flex';
+        popover.style.display = 'flex';
+        const composerRect = composer.getBoundingClientRect();
+        const popoverRect = popover.getBoundingClientRect();
+        return {
+          popoverLeft: popoverRect.left,
+          popoverRight: popoverRect.right,
+          composerLeft: composerRect.left,
+          composerRight: composerRect.right,
+          viewportWidth: innerWidth
+        };
+      });
+
+      assert.ok(layout.popoverLeft >= layout.composerLeft - 1, 'El panel no debe salir por la izquierda del composer');
+      assert.ok(layout.popoverRight <= layout.composerRight + 1, 'El panel no debe salir por la derecha del composer');
+      assert.ok(layout.popoverRight <= layout.viewportWidth, 'El panel no debe salir del viewport');
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test('UI - Indicador de progreso de generación es invisible sin ciclo activo y visible durante el ciclo', async () => {
   const browser = await createTestBrowser();
   try {

@@ -1,13 +1,12 @@
 fichero de uso del programador como recordatorio. no analizar
 
-puntos fuerts: rag financial, tool agentico,  
+planificador
+
 sub agente (mismo-otro)
 
 mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico
 
 webllm lista de modelos mejorar para movil
-
-norma de cambio de version rapido ande ta
 
 maximizar en movil
 

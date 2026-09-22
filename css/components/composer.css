@@ -771,7 +771,6 @@
    Telemetría de Contexto en el Composer (Texto sutil, pequeño y sin remarcar)
    ========================================================================== */
 .input-actions .context-hub-wrapper {
-  position: relative;
   display: inline-flex;
   align-items: center;
 }
