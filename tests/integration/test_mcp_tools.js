@@ -38,12 +38,11 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
               tools: [
                 {
                   name: 'list_directory',
-                  description: 'Recorre un directorio local y devuelve la lista de archivos y subcarpetas.',
+                  description: 'Lista archivos y carpetas de un directorio local, sin recorrer subdirectorios.',
                   inputSchema: {
                     type: 'object',
                     properties: {
-                      path: { type: 'string', description: 'Ruta del directorio' },
-                      max_depth: { type: 'integer', description: 'Profundidad' }
+                      path: { type: 'string', description: 'Ruta del directorio' }
                     }
                   }
                 },
@@ -157,6 +156,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     ChatState.set('mcp', { status: 'disconnected' });
   }
 });
+
 
 test('MCP Tools - Formateo de resultados Markdown especializado para list_directory, read_file y execute_command', () => {
   const client = new MCP.McpClient({ id: 'local_server', name: 'ZeroChat' });
@@ -402,4 +402,3 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
     global.fetch = originalFetch;
   }
 });
-

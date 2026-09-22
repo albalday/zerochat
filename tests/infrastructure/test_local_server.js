@@ -136,11 +136,37 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     });
     assert.equal(toolsRes.status, 200);
     const toolsJson = await toolsRes.json();
-    const toolNames = (toolsJson.result?.tools || []).map(t => t.name);
+    const tools = toolsJson.result?.tools || [];
+    const toolNames = tools.map(t => t.name);
     assert.ok(toolNames.includes('list_directory'));
     assert.ok(toolNames.includes('read_file'));
     assert.ok(toolNames.includes('edit_file'));
     assert.ok(toolNames.includes('execute_command'));
+    const listDirectory = tools.find(t => t.name === 'list_directory');
+    assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
+      'list_directory no debe publicar una profundidad recursiva inexistente');
+
+    // El contrato estricto rechaza parámetros que ya no existen.
+    const obsoleteArgumentRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 41,
+        method: 'tools/call',
+        params: {
+          name: 'list_directory',
+          arguments: { path: '.', max_depth: 2 }
+        }
+      })
+    });
+    assert.equal(obsoleteArgumentRes.status, 200);
+    const obsoleteArgumentJson = await obsoleteArgumentRes.json();
+    assert.equal(obsoleteArgumentJson.result?.isError, true);
+    assert.match(obsoleteArgumentJson.result?.content?.[0]?.text || '', /max_depth/);
 
     // 6. Comprobar ejecución de herramienta read_file
     const callRes = await fetch(baseUrl, {

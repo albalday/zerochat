@@ -235,12 +235,11 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
       {
         id: 'list_directory',
         name: 'list_directory',
-        description: 'Recorre un directorio local',
+        description: 'Lista un directorio local sin recorrer subdirectorios',
         inputSchema: {
           type: 'object',
           properties: {
-            path: { type: 'string' },
-            max_depth: { type: 'integer' }
+            path: { type: 'string' }
           }
         }
       },

@@ -388,8 +388,8 @@ def check_version():
 # Herramientas Locales Core
 # ==============================================================================
 
-def list_directory(path: str = ".", max_depth: int = 1) -> str:
-    """Recorre un directorio local y devuelve la lista de archivos y carpetas."""
+def list_directory(path: str = ".") -> str:
+    """Lista los archivos y carpetas de un directorio, sin recorrer subdirectorios."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -544,12 +544,11 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
 LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "list_directory",
-        "description": "Lista archivos y carpetas en un directorio local.",
+        "description": "Lista archivos y carpetas de un directorio local, sin recorrer subdirectorios.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta relativa o absoluta (por defecto '.')"},
-                "max_depth": {"type": "integer", "description": "Profundidad máxima", "default": 1}
+                "path": {"type": "string", "description": "Ruta relativa o absoluta (por defecto '.')"}
             }
         }
     },
