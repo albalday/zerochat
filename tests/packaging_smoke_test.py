@@ -42,13 +42,14 @@ def main() -> None:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         home_dir = temp_dir / "home"
+        session_token = "packaging-test-token"
         env = os.environ.copy()
         if sys.platform.startswith("win"):
             env["USERPROFILE"] = str(home_dir)
         else:
             env["HOME"] = str(home_dir)
         process = subprocess.Popen(
-            [str(executable), "--port", str(port), "--token", "packaging-test-token", "--no-browser", "--no-exit-on-close"],
+            [str(executable), "--port", str(port), "--token", session_token, "--no-browser", "--no-exit-on-close"],
             cwd=temp_dir,
             env=env,
             stdout=subprocess.PIPE,
@@ -56,15 +57,28 @@ def main() -> None:
             text=True,
         )
         try:
-            for _ in range(30):
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
                 try:
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/zerochat/heartbeat?token=packaging-test-token", timeout=1) as response:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/zerochat/heartbeat",
+                        headers={"X-ZeroChat-Token": session_token},
+                    )
+                    with urllib.request.urlopen(request, timeout=1) as response:
                         if response.status == 200:
                             break
                 except OSError:
+                    if process.poll() is not None:
+                        output, errors = process.communicate()
+                        raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
                     time.sleep(0.1)
             else:
-                output, errors = process.communicate(timeout=1)
+                process.terminate()
+                try:
+                    output, errors = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    output, errors = process.communicate()
                 raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
             data_dir = home_dir / "zerochat"
             venv_python = data_dir / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
