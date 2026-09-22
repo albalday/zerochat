@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Informe de calidad de código e infraestructura · ZeroChat 7.6.0</title>
+  <meta name="description" content="Auditoría independiente de calidad de código, arquitectura e infraestructura de ZeroChat 7.6.0.">
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--soft:#f1f5f9;--line:#dbe3ee;--text:#172033;--muted:#64748b;--blue:#2563eb;--green:#059669;--amber:#d97706;--red:#dc2626;--radius:14px;--shadow:0 5px 18px rgba(15,23,42,.07);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light dark}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#121a2b;--soft:#182238;--line:#29364f;--text:#ecf2ff;--muted:#9aa9c1;--blue:#60a5fa;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--shadow:0 8px 24px rgba(0,0,0,.28)}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);line-height:1.6}main{max-width:1120px;margin:auto;padding:28px 18px 64px}a{color:var(--blue)}header{padding:26px 0 22px;border-bottom:1px solid var(--line);margin-bottom:22px}.eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:var(--blue);font-weight:800}.back{float:right;text-decoration:none;font-size:.9rem}h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.08;margin:.55rem 0}.subtitle{max-width:850px;color:var(--muted);font-size:1.08rem}.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:.88rem;margin-top:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin:18px 0}.card h2{margin:0 0 14px;font-size:1.35rem}.card h3{margin:22px 0 8px;font-size:1.05rem}.lead{font-size:1.13rem}.verdict{border-left:5px solid var(--blue)}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}.metric{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:16px}.metric strong{display:block;font-size:1.65rem;line-height:1.15}.metric span{color:var(--muted);font-size:.84rem}.score{font-size:2.35rem;font-weight:800;color:var(--blue)}.tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:.78rem;font-weight:750;background:var(--soft);border:1px solid var(--line)}.good{color:var(--green)}.warn{color:var(--amber)}.bad{color:var(--red)}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:11px}table{width:100%;border-collapse:collapse;min-width:690px;background:var(--card)}th,td{text-align:left;vertical-align:top;padding:11px 13px;border-bottom:1px solid var(--line)}th{background:var(--soft);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}tr:last-child td{border-bottom:0}.bar{height:8px;background:var(--soft);border-radius:999px;overflow:hidden;min-width:90px;margin-top:7px}.bar i{display:block;height:100%;background:var(--blue)}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:.08rem .32rem;font-size:.88em}.callout{padding:14px 16px;border-radius:10px;background:var(--soft);border-left:4px solid var(--amber);margin:14px 0}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}.compact li{margin:.35rem 0}.priority{font-weight:800}.p0{color:var(--red)}.p1{color:var(--amber)}.p2{color:var(--blue)}footer{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.86rem}@media print{body{background:#fff;color:#111}.card{box-shadow:none;break-inside:avoid}a{color:#111}.back{display:none}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <a class="back" href="index.html">← Volver a la ayuda</a>
+    <div class="eyebrow">Auditoría técnica independiente</div>
+    <h1>Calidad de código e infraestructura</h1>
+    <p class="subtitle">Evaluación reproducible del estado técnico de ZeroChat 7.6.0, basada exclusivamente en el contenido de <code>zerochat-master(5).zip</code>. No se han utilizado versiones anteriores.</p>
+    <div class="meta"><span><strong>Autor:</strong> OpenAI Codex (GPT-5), auditor técnico de software</span><span><strong>Fecha:</strong> 22 de septiembre de 2026</span><span><strong>Alcance:</strong> código, arquitectura, pruebas, seguridad e infraestructura de entrega</span></div>
+  </header>
+
+  <section class="card verdict">
+    <h2>Dictamen ejecutivo</h2>
+    <p class="lead"><strong>ZeroChat se encuentra en un nivel de beta avanzada para uso personal/técnico.</strong> Ya no encaja en la categoría de prototipo improvisado: tiene separación por subsistemas, contratos internos explícitos, estado canónico, pruebas por niveles, CI y publicación PyPI controlada. Su madurez global de ingeniería se valora en <span class="score">3,6/5</span>.</p>
+    <p>La nota no alcanza el nivel 4 porque todavía hay coordinadores muy grandes, una carga global ordenada de 65 scripts, documentación de pruebas desfasada, ausencia de lintado/tipado/cobertura cuantificada y una frontera de seguridad que sigue confiando demasiado en el cliente web para operaciones locales de alto impacto.</p>
+    <div class="callout"><strong>Lectura correcta:</strong> proyecto serio y enseñable a técnicos como trabajo personal avanzado; no debe presentarse todavía como plataforma multiusuario ni como producto endurecido para entornos no confiables.</div>
+  </section>
+
+  <section class="card">
+    <h2>Métricas principales</h2>
+    <div class="metrics">
+      <div class="metric"><strong>42.738</strong><span>líneas físicas de producto e infraestructura, sin tests ni ayuda</span></div>
+      <div class="metric"><strong>18.886</strong><span>líneas físicas de pruebas</span></div>
+      <div class="metric"><strong>64 + 15</strong><span>módulos JavaScript propios + hojas CSS</span></div>
+      <div class="metric"><strong>614</strong><span>casos de prueba declarados en 86 ficheros</span></div>
+      <div class="metric"><strong>551/551</strong><span>casos ejecutados y aprobados fuera de navegador</span></div>
+      <div class="metric"><strong>63</strong><span>casos Playwright no ejecutados por faltar Chromium en el entorno auditor</span></div>
+      <div class="metric"><strong>0</strong><span>vulnerabilidades npm notificadas por <code>npm audit</code></span></div>
+      <div class="metric"><strong>23,9 KB</strong><span>wheel construido; contiene solo <code>zerochat.py</code> y metadatos</span></div>
+    </div>
+    <p style="margin-top:14px;color:var(--muted)">La relación de líneas de test respecto a las líneas de producto es del 44,2 %. Es una señal favorable de inversión en regresión, aunque no equivale a cobertura de sentencias o ramas.</p>
+  </section>
+
+  <section class="card">
+    <h2>Volumen y distribución</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Área</th><th>Ficheros</th><th>Líneas físicas</th><th>No vacías</th><th>Lectura</th></tr></thead>
+      <tbody>
+        <tr><td>JavaScript de aplicación</td><td>64</td><td>31.527</td><td>28.427</td><td>Núcleo dominante; vendor Orama excluido</td></tr>
+        <tr><td>CSS</td><td>15</td><td>7.721</td><td>6.691</td><td>Diseño modular, con tres hojas de componentes mayores de 1.200 líneas</td></tr>
+        <tr><td>Backend local Python</td><td>1</td><td>1.978</td><td>1.762</td><td>Servidor, tools, MCP, bootstrap y ciclo de vida unidos</td></tr>
+        <tr><td>Documento principal HTML</td><td>1</td><td>671</td><td>631</td><td>Estructura semántica y catálogo SVG integrado</td></tr>
+        <tr><td>Service Worker</td><td>1</td><td>164</td><td>153</td><td>PWA y caché stale-while-revalidate</td></tr>
+        <tr><td>Build/versionado</td><td>3</td><td>495</td><td>443</td><td>Vendor, bump de versión y runner de tests</td></tr>
+        <tr><td>Servicios MCP incluidos</td><td>8</td><td>182</td><td>172</td><td>Descriptores de Playwright, memoria, LSP y servidor dummy</td></tr>
+        <tr><td>Pruebas JS/Python</td><td>88</td><td>18.886</td><td>16.593</td><td>86 suites descubribles + helper y smoke test de empaquetado</td></tr>
+        <tr><td>Ayuda HTML/CSS/JS</td><td>30</td><td>4.660</td><td>4.337</td><td>14 páginas ES y 14 EN, más recursos comunes</td></tr>
+      </tbody>
+    </table></div>
+    <p style="color:var(--muted);margin-top:12px">El ZIP contiene 233 ficheros y 2,86 MB sin comprimir (807 KB comprimidos). Las cifras son líneas físicas, no estimaciones SLOC.</p>
+  </section>
+
+  <section class="card">
+    <h2>Puntuación de calidad y madurez</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Dimensión</th><th>Nota</th><th>Evaluación</th><th>Evidencia principal</th></tr></thead>
+      <tbody>
+        <tr><td>Arquitectura y separación</td><td><strong>3,7/5</strong><div class="bar"><i style="width:74%"></i></div></td><td><span class="tag good">Buena</span></td><td>Proveedores, estado, RAG, tools, persistencia y UI separados; contratos UMD comprobables.</td></tr>
+        <tr><td>Mantenibilidad</td><td><strong>3,1/5</strong><div class="bar"><i style="width:62%"></i></div></td><td><span class="tag warn">Media-alta</span></td><td>Buena modularidad periférica, pero <code>app.js</code>, <code>zerochat.py</code> y otros coordinadores concentran demasiadas responsabilidades.</td></tr>
+        <tr><td>Pruebas y regresión</td><td><strong>4,1/5</strong><div class="bar"><i style="width:82%"></i></div></td><td><span class="tag good">Alta</span></td><td>614 casos declarados; 551 verificables pasan. Faltan cobertura cuantificada y ejecución Playwright en esta auditoría.</td></tr>
+        <tr><td>Seguridad aplicada</td><td><strong>3,0/5</strong><div class="bar"><i style="width:60%"></i></div></td><td><span class="tag warn">Adecuada al uso personal</span></td><td>Token, CORS, permisos y sanitización; persisten CSP amplia, tools de sistema deliberadamente potentes y límites de servidor incompletos.</td></tr>
+        <tr><td>CI, versionado y publicación</td><td><strong>4,2/5</strong><div class="bar"><i style="width:84%"></i></div></td><td><span class="tag good">Alta</span></td><td>GitHub Actions, Playwright en CI, PyPI Trusted Publishing, versión sincronizada y smoke test del wheel.</td></tr>
+        <tr><td>Dependencias y portabilidad</td><td><strong>4,2/5</strong><div class="bar"><i style="width:84%"></i></div></td><td><span class="tag good">Alta</span></td><td>Una dependencia runtime npm, backend con biblioteca estándar y wheel mínimo.</td></tr>
+        <tr><td>Documentación técnica</td><td><strong>3,0/5</strong><div class="bar"><i style="width:60%"></i></div></td><td><span class="tag warn">Irregular</span></td><td>Ayuda extensa y reglas claras, pero <code>tests/README.md</code> no coincide con el inventario actual y quedan afirmaciones antiguas.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Fortalezas observadas</h2>
+    <div class="cols">
+      <div><h3>Diseño interno</h3><ul class="compact">
+        <li><code>ChatState</code> impone slices y mutadores de dominio en vez de escrituras arbitrarias.</li>
+        <li><code>BaseProviderAdapter</code> normaliza streaming, razonamiento, tools y capacidades.</li>
+        <li>El contrato de herramientas separa definición, ejecución, serialización y vista.</li>
+        <li>IndexedDB separa mensajes, adjuntos, documentos, chunks e imágenes.</li>
+        <li>La UI está dividida en módulos y CSS por componente.</li>
+      </ul></div>
+      <div><h3>Disciplina de entrega</h3><ul class="compact">
+        <li>Runner propio con niveles unitario, integración, arquitectura, infraestructura y navegador.</li>
+        <li>CI en <code>dev</code> y <code>master</code>, más validación completa antes de publicar.</li>
+        <li>Versionado coherente en npm, PyPI, HTML, backend y caché PWA.</li>
+        <li>Publicación PyPI sin credenciales persistentes mediante Trusted Publishing.</li>
+        <li>El wheel reproduce el objetivo de superficie mínima: solo el lanzador Python.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Deuda técnica y riesgos</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Hallazgo</th><th>Impacto</th><th>Lectura de auditoría</th></tr></thead>
+      <tbody>
+        <tr><td>Coordinadores grandes</td><td class="warn">Medio-alto</td><td><code>app.js</code> 2.558 líneas, <code>file-parser.js</code> 2.088, <code>zerochat.py</code> 1.978, <code>providers.js</code> 1.560, <code>agent-core.js</code> 1.553 e <code>i18n.js</code> 1.485. La localización de cambios es razonable, pero aumenta el coste de revisión.</td></tr>
+        <tr><td>65 scripts cargados globalmente</td><td class="warn">Medio</td><td>El patrón UMD da portabilidad y testabilidad, pero la dependencia implícita del orden de etiquetas sustituye a un grafo de módulos validado por herramientas.</td></tr>
+        <tr><td>Sin lint, formato, tipado ni cobertura</td><td class="warn">Medio</td><td>Los tests reducen riesgo funcional, pero no hay ESLint, TypeScript/JSDoc check, formatter ni umbral de cobertura que detecte huecos estructurales.</td></tr>
+        <tr><td>Documentación de tests desfasada</td><td class="warn">Medio</td><td>Declara 79 suites; el repositorio contiene 86. También cita nombres y módulos antiguos y habla de un bundle que ya no existe.</td></tr>
+        <tr><td>“Un único HTML” no es literal</td><td class="warn">Bajo-medio</td><td><code>zerochat.html</code> depende de 14 hojas CSS y 65 scripts. La distribución es estática y sin build, pero no es un fichero autónomo.</td></tr>
+        <tr><td>Parámetro sin efecto en tool local</td><td class="warn">Medio</td><td><code>list_directory(path, max_depth)</code> declara profundidad y la publica en su esquema, pero la implementación solo ejecuta un <code>os.scandir</code> del primer nivel e ignora <code>max_depth</code>.</td></tr>
+        <tr><td>Frontera local de alto privilegio</td><td class="bad">Alto si el origen se compromete</td><td>El backend puede leer, escribir y ejecutar comandos sobre rutas arbitrarias. El consentimiento se evalúa en el cliente; el servidor autentica sesión y origen, pero no revalida una política de permisos equivalente.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Seguridad e infraestructura local</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Control</th><th>Estado</th><th>Observación</th></tr></thead>
+      <tbody>
+        <tr><td>Escucha local</td><td><span class="tag good">Correcta</span></td><td>Servidor ligado a loopback y orígenes permitidos limitados a GitHub Pages oficial y localhost.</td></tr>
+        <tr><td>Autenticación</td><td><span class="tag good">Implementada</span></td><td>Token diario persistido, comparación constante y limpieza en logs. Es más correcto llamarlo token local rotatorio que “efímero por proceso”.</td></tr>
+        <tr><td>Permisos de tools</td><td><span class="tag warn">Parcial</span></td><td>Políticas ask/allow/deny, restricciones de comando y ruta y pruebas adversarias; la decisión vive principalmente en JavaScript.</td></tr>
+        <tr><td>CSP y contenido</td><td><span class="tag warn">Amplia</span></td><td>Existe CSP, sanitización de Markdown y URLs, pero <code>unsafe-inline</code>, <code>unsafe-eval</code> y <code>connect-src http: https: ws: wss:</code> amplían mucho el impacto potencial de XSS.</td></tr>
+        <tr><td>Credenciales</td><td><span class="tag warn">Ofuscación autenticada</span></td><td>AES-GCM detecta manipulación, pero la clave maestra está en el código. Protege de lectura casual y transporte, no frente a scripts del mismo origen o un atacante con el código.</td></tr>
+        <tr><td>Límites HTTP</td><td><span class="tag bad">Incompletos</span></td><td>Las tools sí limitan líneas, bytes y timeout; el servidor no impone un máximo global a <code>Content-Length</code> antes de leer el cuerpo.</td></tr>
+        <tr><td>Dependencias</td><td><span class="tag good">Muy contenidas</span></td><td>Lockfile presente, versiones de servicios MCP fijadas y auditoría npm sin avisos en la fecha del análisis.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Validaciones realizadas</h2>
+    <ul class="compact">
+      <li><strong>243/243</strong> pruebas unitarias aprobadas.</li>
+      <li><strong>272/272</strong> pruebas de integración aprobadas.</li>
+      <li><strong>20/20</strong> contratos de arquitectura aprobados.</li>
+      <li><strong>16/16</strong> pruebas de infraestructura aprobadas.</li>
+      <li><strong>63</strong> pruebas de navegador inventariadas, no ejecutadas porque el entorno auditor carece del binario Chromium requerido por Playwright. El workflow de CI sí instala Chromium explícitamente.</li>
+      <li>Sintaxis de todos los JS/MJS propios y compilación Python: correctas.</li>
+      <li><code>npm audit</code>: 0 avisos conocidos.</li>
+      <li>Construcción de wheel y <code>packaging_smoke_test.py</code>: correctos.</li>
+    </ul>
+    <div class="callout"><strong>Límite metodológico:</strong> no se realizaron llamadas reales de pago a proveedores, descargas reales de los MCP externos, ejecución WebGPU ni pruebas de carga con corpus grandes. La auditoría evalúa el código y las pruebas incluidas, no certifica disponibilidad de servicios de terceros.</div>
+  </section>
+
+  <section class="card">
+    <h2>Plan de mejora recomendado</h2>
+    <ol class="compact">
+      <li><span class="priority p0">P0 · Corregir la verdad documental:</span> actualizar <code>tests/README.md</code>, eliminar referencias al antiguo bundle y sustituir “un único HTML” por “aplicación web estática sin empaquetado”.</li>
+      <li><span class="priority p0">P0 · Corregir el contrato de listado:</span> implementar de verdad <code>max_depth</code> con límites seguros o retirarlo del esquema y de la interfaz.</li>
+      <li><span class="priority p0">P0 · Endurecer el backend local:</span> máximo de cuerpo HTTP, validación estricta de tipos y tamaño, política de permisos o capacidad firmada comprobable por el servidor para escritura y shell.</li>
+      <li><span class="priority p1">P1 · Hacer verificable la calidad:</span> añadir ESLint, formatter y cobertura con umbrales moderados; no es necesario migrar el proyecto a TypeScript.</li>
+      <li><span class="priority p1">P1 · Reducir hotspots:</span> extraer de <code>app.js</code> la coordinación de perfiles/ajustes y dividir <code>zerochat.py</code> por servidor, tools y gestión MCP sin alterar el ejecutable final de un solo módulo publicado.</li>
+      <li><span class="priority p1">P1 · Reducir la CSP:</span> retirar gradualmente inline/eval del documento principal y documentar la excepción que siga siendo necesaria para el sandbox.</li>
+      <li><span class="priority p2">P2 · Añadir pruebas de aceptación:</span> matriz periódica con un endpoint OpenAI-compatible local, un proveedor remoto optativo, un MCP stdio real, un PDF grande y navegador móvil.</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Conclusión para presentación técnica</h2>
+    <p>ZeroChat puede enseñarse con legitimidad como <strong>un cliente agéntico personal, browser-first y con backend local mínimo</strong>. Lo técnicamente interesante no es solo el número de funciones, sino haber resuelto en una arquitectura ligera problemas reales de estado, streaming, tool calling, RAG, persistencia, MCP, seguridad de UI y publicación.</p>
+    <p>La presentación ganará credibilidad si se explican también sus límites: la suite de navegador debe confirmarse en CI, el backend local requiere confianza en el origen web y no existe el aislamiento, administración ni operación multiusuario de una plataforma empresarial.</p>
+  </section>
+
+  <footer>
+    <strong>Autoría:</strong> informe elaborado por OpenAI Codex (GPT-5) como revisión técnica independiente, a partir exclusivamente de <code>zerochat-master(5).zip</code>. Las puntuaciones son juicio profesional razonado y no una certificación ISO, OWASP ASVS ni SOC 2.
+  </footer>
+</main>
+</body>
+</html>

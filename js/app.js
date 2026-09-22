@@ -2206,11 +2206,20 @@
       function setupProfileImportListener() {
         let importInProgress = false;
 
+        function getImportTransferId() {
+          const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+          const transferId = hashParams.get('transferId');
+          return typeof transferId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(transferId)
+            ? transferId
+            : '';
+        }
+
         // Notificar al opener que estamos listos
         function notifyReady() {
-          if (window.opener && !window.opener.closed) {
+          const transferId = getImportTransferId();
+          if (transferId && window.opener && !window.opener.closed) {
             try {
-              window.opener.postMessage('zerochat_ready', '*');
+              window.opener.postMessage({ type: 'zerochat_import_ready', transferId }, '*');
               console.log('[Import Mode] Notified opener that we are ready');
             } catch (e) {
               console.warn('[Import Mode] Could not notify opener:', e);
@@ -2221,7 +2230,9 @@
         // Procesar importación
         async function handleImportMessage(event) {
           // Validar estructura del mensaje
-          if (!event.data || event.data.type !== 'import_profiles') {
+          const transferId = getImportTransferId();
+          if (!transferId || !event.data || event.data.type !== 'import_profiles' ||
+              event.data.transferId !== transferId || event.source !== window.opener) {
             return;
           }
 
@@ -2286,6 +2297,7 @@
             if (event.source && !event.source.closed) {
               event.source.postMessage({
                 type: 'import_result',
+                transferId,
                 success: true,
                 result: {
                   added: result.added,
@@ -2343,6 +2355,7 @@
             if (event.source && !event.source.closed) {
               event.source.postMessage({
                 type: 'import_result',
+                transferId,
                 success: false,
                 error: error.message
               }, '*');

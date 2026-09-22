@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comparativa de ZeroChat con herramientas similares · 2026</title>
+  <meta name="description" content="Comparación de orientación y funcionalidades entre ZeroChat, Open WebUI, LibreChat, AnythingLLM, Jan y Chatbox.">
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--soft:#f1f5f9;--line:#dbe3ee;--text:#172033;--muted:#64748b;--blue:#2563eb;--green:#059669;--amber:#d97706;--red:#dc2626;--radius:14px;--shadow:0 5px 18px rgba(15,23,42,.07);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light dark}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#121a2b;--soft:#182238;--line:#29364f;--text:#ecf2ff;--muted:#9aa9c1;--blue:#60a5fa;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--shadow:0 8px 24px rgba(0,0,0,.28)}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);line-height:1.6}main{max-width:1280px;margin:auto;padding:28px 18px 64px}a{color:var(--blue)}header{padding:26px 0 22px;border-bottom:1px solid var(--line);margin-bottom:22px}.eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:var(--blue);font-weight:800}.back{float:right;text-decoration:none;font-size:.9rem}h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.08;margin:.55rem 0}.subtitle{max-width:900px;color:var(--muted);font-size:1.08rem}.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:.88rem;margin-top:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin:18px 0}.card h2{margin:0 0 14px;font-size:1.35rem}.card h3{margin:22px 0 8px;font-size:1.05rem}.lead{font-size:1.13rem}.verdict{border-left:5px solid var(--blue)}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:11px}table{width:100%;border-collapse:collapse;min-width:1100px;background:var(--card);font-size:.91rem}th,td{text-align:left;vertical-align:top;padding:10px 11px;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}th{background:var(--soft);font-size:.76rem;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0}th:last-child,td:last-child{border-right:0}tr:last-child td{border-bottom:0}.zc{background:color-mix(in srgb,var(--blue) 7%,var(--card))}.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:.76rem;font-weight:750;background:var(--soft);border:1px solid var(--line)}.yes{color:var(--green)}.partial{color:var(--amber)}.no{color:var(--red)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px}.tool{background:var(--soft);border:1px solid var(--line);border-radius:11px;padding:17px}.tool h3{margin:0 0 5px}.tool .orient{color:var(--blue);font-size:.85rem;font-weight:800}.compact li{margin:.35rem 0}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:.08rem .32rem;font-size:.88em}.callout{padding:14px 16px;border-radius:10px;background:var(--soft);border-left:4px solid var(--amber);margin:14px 0}.sources li{margin:.45rem 0}.sources small{color:var(--muted)}footer{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.86rem}@media print{body{background:#fff;color:#111}.card{box-shadow:none;break-inside:avoid}.back{display:none}table{font-size:.72rem}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <a class="back" href="index.html">← Volver a la ayuda</a>
+    <div class="eyebrow">Análisis competitivo independiente</div>
+    <h1>Comparación con herramientas similares</h1>
+    <p class="subtitle">ZeroChat frente a Open WebUI, LibreChat, AnythingLLM, Jan y Chatbox. La comparación separa amplitud funcional de orientación: no todas intentan resolver el mismo problema.</p>
+    <div class="meta"><span><strong>Autor:</strong> OpenAI Codex (GPT-5), auditor técnico de software</span><span><strong>Fecha de contraste:</strong> 22 de septiembre de 2026</span><span><strong>ZeroChat:</strong> analizado solo desde <code>zerochat-master(5).zip</code></span></div>
+  </header>
+
+  <section class="card verdict">
+    <h2>Conclusión ejecutiva</h2>
+    <p class="lead"><strong>ZeroChat no compite por amplitud empresarial; compite por ligereza, transparencia y control local.</strong> Open WebUI y LibreChat son plataformas servidor multiusuario; AnythingLLM es un producto centrado en documentos; Jan prioriza modelos locales de escritorio; Chatbox prioriza experiencia de usuario y un Work Mode integrado. ZeroChat ocupa un hueco distinto: laboratorio agéntico personal, estático y browser-first, con un host Python mínimo opcional.</p>
+    <p>En funciones absolutas queda por detrás de los proyectos grandes en administración, ecosistema, RAG semántico, formatos, sandbox y colaboración. En coste de despliegue, legibilidad completa del sistema y posibilidad de usar casi todo sin backend central, ZeroChat es excepcionalmente compacto.</p>
+  </section>
+
+  <section class="card">
+    <h2>Orientación de cada producto</h2>
+    <div class="grid">
+      <div class="tool"><div class="orient">LABORATORIO PERSONAL BROWSER-FIRST</div><h3>ZeroChat</h3><p>Cliente estático, datos en el navegador y backend local opcional para shell, ficheros y MCP. Excelente para aprender, experimentar y mantener control explícito.</p></div>
+      <div class="tool"><div class="orient">PLATAFORMA SELF-HOSTED</div><h3>Open WebUI</h3><p>Entorno extensible y multiusuario para desplegar una interfaz común sobre modelos, RAG, herramientas, pipelines, OpenAPI y MCP.</p></div>
+      <div class="tool"><div class="orient">PLATAFORMA MULTIPROVEEDOR Y EQUIPOS</div><h3>LibreChat</h3><p>Alternativa self-hosted a ChatGPT con agentes, MCP, intérprete de código, memoria, artefactos y controles empresariales.</p></div>
+      <div class="tool"><div class="orient">DOCUMENTOS, RAG Y AGENTES SIN CÓDIGO</div><h3>AnythingLLM</h3><p>Aplicación local o servidor orientada a workspaces documentales, RAG y agentes con poca configuración técnica.</p></div>
+      <div class="tool"><div class="orient">ESCRITORIO LOCAL-FIRST</div><h3>Jan</h3><p>Aplicación nativa para ejecutar modelos locales, mezclar proveedores cloud y conectar agentes y MCP desde el escritorio.</p></div>
+      <div class="tool"><div class="orient">CLIENTE DE ESCRITORIO PULIDO</div><h3>Chatbox</h3><p>Cliente multiplataforma con BYOK y Work Mode para código, archivos, skills, MCP y bases de conocimiento; algunas capacidades dependen de plan.</p></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Matriz comparativa</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Capacidad</th><th class="zc">ZeroChat</th><th>Open WebUI</th><th>LibreChat</th><th>AnythingLLM</th><th>Jan</th><th>Chatbox</th></tr></thead>
+      <tbody>
+        <tr><td>Despliegue principal</td><td class="zc">GitHub Pages / estático + Python opcional</td><td>Servidor self-hosted; Docker/Python/Kubernetes</td><td>Servidor self-hosted; Docker/npm/Helm</td><td>Desktop o servidor Docker</td><td>Aplicación desktop + servidor/CLI</td><td>Aplicación desktop; web/móvil con límites</td></tr>
+        <tr><td>Usuario objetivo</td><td class="zc">Usuario técnico individual</td><td>Individuos, equipos y organizaciones</td><td>Usuarios avanzados y equipos</td><td>Individuos y organizaciones centradas en conocimiento</td><td>Usuario local-first y desarrollador</td><td>Usuario final y profesional individual</td></tr>
+        <tr><td>Modelos locales</td><td class="zc"><span class="pill yes">Sí</span> Ollama, LM Studio, WebLLM</td><td><span class="pill yes">Sí</span> especialmente Ollama y APIs compatibles</td><td><span class="pill yes">Sí</span> endpoints custom/Ollama</td><td><span class="pill yes">Sí</span> foco importante</td><td><span class="pill yes">Sí</span> núcleo del producto</td><td><span class="pill yes">Sí</span> proveedores configurables</td></tr>
+        <tr><td>Proveedores cloud</td><td class="zc"><span class="pill yes">Amplios</span> OpenAI, Claude, Gemini, OpenRouter</td><td><span class="pill yes">Amplios</span> vía nativos, OpenAI-compatible y pipes</td><td><span class="pill yes">Muy amplios</span></td><td><span class="pill yes">Amplios</span></td><td><span class="pill yes">Amplios</span></td><td><span class="pill yes">Amplios</span> BYOK y servicio propio</td></tr>
+        <tr><td>Agentes y tools</td><td class="zc"><span class="pill yes">Sí</span> bucle propio y tools declarativas</td><td><span class="pill yes">Sí</span> Python tools, functions y pipelines</td><td><span class="pill yes">Sí</span> agentes no-code, tools y acciones</td><td><span class="pill yes">Sí</span> agentes integrados</td><td><span class="pill yes">Sí</span> Agents/Cowork</td><td><span class="pill yes">Sí</span> Work Mode</td></tr>
+        <tr><td>MCP</td><td class="zc"><span class="pill partial">Local stdio gestionado</span></td><td><span class="pill yes">HTTP nativo</span>; otros transportes vía MCPO</td><td><span class="pill yes">Integración amplia</span> y runtime configurable</td><td><span class="pill partial">Disponible</span>, menos central en el posicionamiento</td><td><span class="pill yes">STDIO, HTTP y SSE</span> con auth remota</td><td><span class="pill yes">HTTP/SSE y stdio</span>; cloud MCP según plan</td></tr>
+        <tr><td>RAG / conocimiento</td><td class="zc"><span class="pill partial">Léxico local</span> Orama, chunks e imágenes</td><td><span class="pill yes">Avanzado</span> embeddings, híbrido, reranking</td><td><span class="pill yes">RAG API</span> y file search</td><td><span class="pill yes">Función central</span></td><td><span class="pill partial">Proyectos/archivos</span>; no es su rasgo principal</td><td><span class="pill yes">Vectorial</span> con embeddings y reranker opcional</td></tr>
+        <tr><td>Procesamiento documental</td><td class="zc">PDF propio, imágenes, texto/código</td><td>Varios motores y bases vectoriales</td><td>Pipeline RAG separado y archivos</td><td>Amplio, orientado a documentos</td><td>Archivos de proyecto y tools</td><td>PDF, DOCX, XLSX, PPTX, EPUB y otros en desktop</td></tr>
+        <tr><td>Código / shell / ficheros</td><td class="zc"><span class="pill yes">Sí</span> JS browser + host local</td><td><span class="pill yes">Sí</span> Open Terminal y tools</td><td><span class="pill yes">Sí</span> Code Interpreter aislado</td><td><span class="pill yes">Sí</span> skills/agente</td><td><span class="pill yes">Sí</span> agentes y MCP</td><td><span class="pill yes">Sí</span> sandbox y directorios autorizados</td></tr>
+        <tr><td>Multiusuario / RBAC</td><td class="zc"><span class="pill no">No</span></td><td><span class="pill yes">Sí</span> auth y administración</td><td><span class="pill yes">Sí</span> SSO, SAML, LDAP, 2FA y ACL</td><td><span class="pill yes">Sí</span> en edición servidor</td><td><span class="pill no">No es el foco desktop</span></td><td><span class="pill no">No es el foco</span></td></tr>
+        <tr><td>Datos sin servidor central propio</td><td class="zc"><span class="pill yes">Sí, por diseño</span></td><td><span class="pill partial">Servidor local propio</span></td><td><span class="pill partial">Servidor local propio</span></td><td><span class="pill yes">Desktop local</span></td><td><span class="pill yes">Desktop local-first</span></td><td><span class="pill yes">Desktop local</span></td></tr>
+        <tr><td>Uso web/móvil sin instalar backend</td><td class="zc"><span class="pill yes">Muy fuerte</span> PWA estática</td><td><span class="pill partial">Sí</span> tras desplegar servidor</td><td><span class="pill partial">Sí</span> tras desplegar servidor</td><td><span class="pill partial">Web vía servidor</span></td><td><span class="pill partial">Jan Web</span>; local completo en desktop</td><td><span class="pill partial">Sí</span>; Work Mode completo es desktop</td></tr>
+        <tr><td>Ecosistema / marketplace</td><td class="zc"><span class="pill no">Pequeño y curado</span></td><td><span class="pill yes">Comunidad y extensiones</span></td><td><span class="pill yes">Ecosistema creciente</span></td><td><span class="pill partial">Integraciones y skills</span></td><td><span class="pill partial">MCP/Connectors</span></td><td><span class="pill yes">Skills y MCP</span></td></tr>
+        <tr><td>Complejidad operativa</td><td class="zc"><strong>Muy baja</strong></td><td>Media-alta</td><td>Alta</td><td>Baja en desktop; media en servidor</td><td>Baja en desktop</td><td>Baja en desktop</td></tr>
+        <tr><td>Transparencia educativa</td><td class="zc"><strong>Muy alta</strong>: sistema completo pequeño</td><td>Media: plataforma grande</td><td>Media-baja: stack amplio</td><td>Media</td><td>Media</td><td>Media-baja: producto terminado</td></tr>
+      </tbody>
+    </table></div>
+    <p style="color:var(--muted);margin-top:12px">“Sí” indica capacidad disponible, no equivalencia de profundidad. Las ediciones, planes y requisitos de despliegue pueden modificar el alcance efectivo.</p>
+  </section>
+
+  <section class="card">
+    <h2>Dónde ZeroChat destaca</h2>
+    <ul class="compact">
+      <li><strong>Arquitectura inusual y coherente:</strong> una PWA estática realiza chat, RAG, almacenamiento, tools y parte de la inferencia sin servidor de aplicación.</li>
+      <li><strong>Backend mínimo y auditable:</strong> el wheel de 23,9 KB contiene un único módulo Python y no arrastra frameworks web.</li>
+      <li><strong>Control del recorrido completo:</strong> payload, streaming, razonamiento, contexto, tool calls, RAG y persistencia son visibles y modificables.</li>
+      <li><strong>Privacidad por ausencia de intermediario:</strong> las peticiones salen del navegador al proveedor elegido; no atraviesan un backend central de ZeroChat.</li>
+      <li><strong>Valor didáctico:</strong> permite estudiar una aplicación agéntica completa sin la complejidad de un monorepo empresarial.</li>
+      <li><strong>Modo Espejo:</strong> facilita demostrar y depurar el conector sin red ni consumo de API.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Dónde queda por detrás</h2>
+    <div class="grid">
+      <div class="tool"><h3>Plataforma</h3><ul class="compact"><li>Sin cuentas, roles, SSO, administración o espacios compartidos.</li><li>Sin sincronización multi-dispositivo ni backend de datos central.</li><li>Sin alta disponibilidad, observabilidad servidor o API pública estable.</li></ul></div>
+      <div class="tool"><h3>RAG y documentos</h3><ul class="compact"><li>Sin embeddings, búsqueda híbrida ni reranking.</li><li>Sin OCR y con formatos de ingesta más estrechos.</li><li>Sin conectores a repositorios empresariales.</li></ul></div>
+      <div class="tool"><h3>Agentes y ecosistema</h3><ul class="compact"><li>MCP externo centrado en stdio local.</li><li>Sin marketplace, OAuth remoto general ni catálogo amplio de skills.</li><li>Sandbox local menos endurecido que los entornos aislados de plataformas grandes.</li></ul></div>
+      <div class="tool"><h3>Producto final</h3><ul class="compact"><li>Sin voz, generación de imágenes o artefactos ricos.</li><li>WebLLM aún experimental.</li><li>Menor validación cruzada de navegadores, sistemas y corpus grandes.</li></ul></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Qué herramienta elegir según el objetivo</h2>
+    <div class="table-wrap"><table style="min-width:760px">
+      <thead><tr><th>Objetivo</th><th>Opción más adecuada</th><th>Por qué</th></tr></thead>
+      <tbody>
+        <tr><td>Enseñar cómo se construye un cliente agéntico completo</td><td class="zc"><strong>ZeroChat</strong></td><td>Arquitectura pequeña, visible y sin infraestructura pesada.</td></tr>
+        <tr><td>Uso personal web con proveedores propios y datos locales</td><td class="zc"><strong>ZeroChat</strong> o Chatbox</td><td>ZeroChat maximiza control/transparencia; Chatbox maximiza acabado y comodidad.</td></tr>
+        <tr><td>Servidor de IA para una organización</td><td>Open WebUI o LibreChat</td><td>Autenticación, administración, ecosistema y operación multiusuario.</td></tr>
+        <tr><td>Asistente empresarial centrado en documentos</td><td>AnythingLLM</td><td>RAG y workspaces son el centro del producto.</td></tr>
+        <tr><td>Ejecutar y gestionar modelos locales desde escritorio</td><td>Jan</td><td>Runtime local y experiencia nativa son su prioridad.</td></tr>
+        <tr><td>Agente desktop pulido con skills, código y knowledge base</td><td>Chatbox</td><td>Work Mode integra las capacidades en un producto final, con posibles límites de plataforma/plan.</td></tr>
+        <tr><td>Personalización profunda mediante Python/OpenAPI/pipelines</td><td>Open WebUI</td><td>Su extensibilidad es una propuesta central.</td></tr>
+        <tr><td>Agentes con autenticación empresarial y muchas funciones</td><td>LibreChat</td><td>Combina agentes, MCP, intérprete, memoria y controles de acceso.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Posicionamiento recomendado de ZeroChat</h2>
+    <div class="callout"><strong>Propuesta breve:</strong> “ZeroChat es un laboratorio agéntico personal y portable: un cliente web estático que conecta directamente con modelos locales o cloud, conserva sus datos en el navegador y, opcionalmente, añade herramientas locales y MCP mediante un único lanzador Python”.</div>
+    <p>Este posicionamiento evita competir frontalmente con plataformas mucho mayores y convierte la simplicidad en rasgo deliberado. La comparación más favorable no es “tiene más funciones”, sino “consigue cubrir el ciclo completo con una superficie operativa y conceptual mucho menor”.</p>
+    <p>Para una audiencia técnica conviene mostrar cuatro números: 64 módulos JS propios, 614 pruebas declaradas, 0 vulnerabilidades npm conocidas en la auditoría y un wheel de 23,9 KB. Después hay que enseñar los límites con la misma claridad.</p>
+  </section>
+
+  <section class="card">
+    <h2>Fuentes oficiales consultadas</h2>
+    <p>La información de competidores es una instantánea del 22 de septiembre de 2026. Se han priorizado sus propias documentaciones; las funciones pueden cambiar.</p>
+    <ul class="sources">
+      <li><a href="https://docs.openwebui.com/features/">Open WebUI · Features</a> — tools Python, pipelines, OpenAPI y MCP. <small>También: <a href="https://docs.openwebui.com/features/chat-conversations/rag/">RAG</a> y <a href="https://docs.openwebui.com/faq/">FAQ MCP</a>.</small></li>
+      <li><a href="https://www.librechat.ai/docs/features">LibreChat · Features</a> — agentes, MCP, intérprete, artefactos, memoria y autenticación. <small>También: <a href="https://www.librechat.ai/docs/features/mcp">MCP</a>.</small></li>
+      <li><a href="https://docs.anythingllm.com/introduction">AnythingLLM · Introduction</a> — orientación local/RAG/agentes y ediciones desktop/servidor. <small>También: <a href="https://docs.anythingllm.com/features/ai-agents">AI Agents</a>.</small></li>
+      <li><a href="https://www.jan.ai/docs/desktop/quickstart">Jan · Desktop Quickstart</a> — modelos locales/cloud, Projects, Assistants y Agents. <small>También: <a href="https://www.jan.ai/docs/desktop/integrations/mcp-servers">MCP Servers</a>.</small></li>
+      <li><a href="https://releases.chatboxai.app/en/guide/work-mode/overview">Chatbox · Work Mode</a> — tools, código, skills, MCP y knowledge bases. <small>También: <a href="https://releases.chatboxai.app/en/guide/work-mode/configuration">Configuration</a>.</small></li>
+    </ul>
+  </section>
+
+  <footer>
+    <strong>Autoría:</strong> informe elaborado por OpenAI Codex (GPT-5) como comparación técnica independiente. ZeroChat se evaluó exclusivamente desde <code>zerochat-master(5).zip</code>; los demás productos se contrastaron con documentación oficial vigente en la fecha indicada.
+  </footer>
+</main>
+</body>
+</html>

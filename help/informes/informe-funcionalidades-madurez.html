@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Informe de funcionalidades y madurez · ZeroChat 7.6.0</title>
+  <meta name="description" content="Inventario auditado de funcionalidades de ZeroChat y evaluación de su madurez.">
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--soft:#f1f5f9;--line:#dbe3ee;--text:#172033;--muted:#64748b;--blue:#2563eb;--green:#059669;--amber:#d97706;--red:#dc2626;--radius:14px;--shadow:0 5px 18px rgba(15,23,42,.07);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light dark}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#121a2b;--soft:#182238;--line:#29364f;--text:#ecf2ff;--muted:#9aa9c1;--blue:#60a5fa;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--shadow:0 8px 24px rgba(0,0,0,.28)}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);line-height:1.6}main{max-width:1120px;margin:auto;padding:28px 18px 64px}a{color:var(--blue)}header{padding:26px 0 22px;border-bottom:1px solid var(--line);margin-bottom:22px}.eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:var(--blue);font-weight:800}.back{float:right;text-decoration:none;font-size:.9rem}h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.08;margin:.55rem 0}.subtitle{max-width:850px;color:var(--muted);font-size:1.08rem}.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:.88rem;margin-top:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin:18px 0}.card h2{margin:0 0 14px;font-size:1.35rem}.card h3{margin:22px 0 8px;font-size:1.05rem}.lead{font-size:1.13rem}.verdict{border-left:5px solid var(--blue)}.score{font-size:2.35rem;font-weight:800;color:var(--blue)}.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:.78rem;font-weight:750;background:var(--soft);border:1px solid var(--line);white-space:nowrap}.m4{color:var(--green)}.m3{color:var(--blue)}.m2{color:var(--amber)}.m1{color:var(--red)}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:11px}table{width:100%;border-collapse:collapse;min-width:760px;background:var(--card)}th,td{text-align:left;vertical-align:top;padding:11px 13px;border-bottom:1px solid var(--line)}th{background:var(--soft);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}tr:last-child td{border-bottom:0}.bar{height:8px;background:var(--soft);border-radius:999px;overflow:hidden;min-width:90px;margin-top:7px}.bar i{display:block;height:100%;background:var(--blue)}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:.08rem .32rem;font-size:.88em}.callout{padding:14px 16px;border-radius:10px;background:var(--soft);border-left:4px solid var(--amber);margin:14px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}.feature{background:var(--soft);border:1px solid var(--line);border-radius:11px;padding:16px}.feature h3{margin:0 0 7px}.compact li{margin:.35rem 0}.yes{color:var(--green);font-weight:800}.partial{color:var(--amber);font-weight:800}.no{color:var(--red);font-weight:800}footer{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.86rem}@media print{body{background:#fff;color:#111}.card{box-shadow:none;break-inside:avoid}.back{display:none}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <a class="back" href="index.html">← Volver a la ayuda</a>
+    <div class="eyebrow">Auditoría funcional independiente</div>
+    <h1>Funcionalidades implementadas y madurez</h1>
+    <p class="subtitle">Inventario contrastado con el código y las pruebas de ZeroChat 7.6.0. Se distingue entre presencia en interfaz, implementación real, prueba automatizada y validación operativa externa.</p>
+    <div class="meta"><span><strong>Autor:</strong> OpenAI Codex (GPT-5), auditor técnico de software</span><span><strong>Fecha:</strong> 22 de septiembre de 2026</span><span><strong>Fuente única:</strong> <code>zerochat-master(5).zip</code></span></div>
+  </header>
+
+  <section class="card verdict">
+    <h2>Resumen ejecutivo</h2>
+    <p class="lead">La amplitud funcional es alta para un proyecto personal: chat multimodelo, agentes, herramientas, MCP, RAG, WebLLM, PWA, perfiles, telemetría, exportación y backend local conviven en un producto coherente. La madurez funcional global se estima en <span class="score">3,7/5</span>.</p>
+    <p>El núcleo de conversación, estado, persistencia y proveedores es lo más maduro. MCP y RAG son funcionales y diferenciadores, pero aún necesitan más pruebas de aceptación con servicios y documentos reales. WebLLM debe seguir etiquetado como experimental. Las funciones multiusuario, administración, sincronización y colaboración no están implementadas porque no forman parte de la orientación actual.</p>
+  </section>
+
+  <section class="card">
+    <h2>Escala utilizada</h2>
+    <div class="grid">
+      <div class="feature"><h3>1 · Experimental</h3><p>Existe una idea o camino técnico, sin garantías de uso estable.</p></div>
+      <div class="feature"><h3>2 · Funcional limitado</h3><p>Opera en casos controlados; cobertura, UX o compatibilidad todavía restringidas.</p></div>
+      <div class="feature"><h3>3 · Beta utilizable</h3><p>Flujo completo y pruebas relevantes; quedan límites conocidos o validación externa.</p></div>
+      <div class="feature"><h3>4 · Maduro personal</h3><p>Uso diario razonable, manejo de errores y regresión consistente.</p></div>
+      <div class="feature"><h3>5 · Producción amplia</h3><p>Operación endurecida, observabilidad, compatibilidad y soporte multiusuario/organizativo.</p></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Matriz de madurez funcional</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Área</th><th>Nota</th><th>Estado</th><th>Evidencia y límites</th></tr></thead>
+      <tbody>
+        <tr><td>Chat, streaming e historial</td><td><strong>4,2/5</strong><div class="bar"><i style="width:84%"></i></div></td><td><span class="pill m4">Maduro personal</span></td><td>Streaming SSE, cancelación, turnos, ramas, copia, borrado y persistencia IndexedDB con pruebas amplias.</td></tr>
+        <tr><td>Proveedores y modelos</td><td><strong>4,0/5</strong><div class="bar"><i style="width:80%"></i></div></td><td><span class="pill m4">Maduro personal</span></td><td>Ocho adaptadores/variantes registradas; payloads, SSE, razonamiento, tools y caché probados con mocks. No se hicieron llamadas reales en esta auditoría.</td></tr>
+        <tr><td>Perfiles y configuración</td><td><strong>3,8/5</strong><div class="bar"><i style="width:76%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Perfiles versionados, bloqueo, importación/exportación y claves cifradas. La clave de cifrado está embebida y ofrece privacidad casual, no secreto fuerte.</td></tr>
+        <tr><td>Agente y tool calling</td><td><strong>3,8/5</strong><div class="bar"><i style="width:76%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Bucle único, registro, ejecutor, checkpoints, límites de turnos y serialización consistente.</td></tr>
+        <tr><td>Herramientas nativas</td><td><strong>3,7/5</strong><div class="bar"><i style="width:74%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Diez módulos: JavaScript, búsqueda/lectura web, PDF, gráficos y cuatro herramientas RAG, más checkpoint.</td></tr>
+        <tr><td>MCP y herramientas locales</td><td><strong>3,5/5</strong><div class="bar"><i style="width:70%"></i></div></td><td><span class="pill m3">Beta utilizable</span></td><td>Host local, descubrimiento, nombres canónicos, permisos y gestor stdio. Falta una matriz real continua con todos los MCP externos.</td></tr>
+        <tr><td>RAG local</td><td><strong>3,6/5</strong><div class="bar"><i style="width:72%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Indexación Orama, ramas, búsqueda por documento/corpus, diversificación, lectura de chunks e imágenes. Es recuperación léxica; no hay embeddings ni reranking.</td></tr>
+        <tr><td>Ingesta PDF y adjuntos</td><td><strong>3,1/5</strong><div class="bar"><i style="width:62%"></i></div></td><td><span class="pill m3">Beta utilizable</span></td><td>Parser PDF propio con texto, CMap, RC4 e imágenes; imágenes y texto/código. Sin OCR y sin parsers nativos DOCX/XLSX/PPTX.</td></tr>
+        <tr><td>Contexto y telemetría</td><td><strong>4,0/5</strong><div class="bar"><i style="width:80%"></i></div></td><td><span class="pill m4">Maduro personal</span></td><td>Presupuesto, estimación, poda segura de tool calls, checkpoints, estadísticas y caché por proveedor.</td></tr>
+        <tr><td>Web search y lectura web</td><td><strong>3,0/5</strong><div class="bar"><i style="width:60%"></i></div></td><td><span class="pill m3">Beta utilizable</span></td><td>Tooling y defensas SSRF presentes; la fiabilidad depende de CORS, gateways y cambios de sitios externos.</td></tr>
+        <tr><td>WebLLM / WebGPU</td><td><strong>2,5/5</strong><div class="bar"><i style="width:50%"></i></div></td><td><span class="pill m2">Experimental controlado</span></td><td>Catálogo, descarga, worker, caché, cancelación y errores tratados. Rendimiento, memoria y compatibilidad dependen del navegador/GPU.</td></tr>
+        <tr><td>UI móvil, temas y PWA</td><td><strong>3,7/5</strong><div class="bar"><i style="width:74%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Responsive, drawer, composer móvil, safe-area, temas, iconos y Service Worker. Suite Playwright existe, pero no pudo ejecutarse aquí.</td></tr>
+        <tr><td>Idiomas y ayuda</td><td><strong>3,6/5</strong><div class="bar"><i style="width:72%"></i></div></td><td><span class="pill m3">Beta alta</span></td><td>Diccionarios ES/EN simétricos y 14 páginas por idioma. Hay desajustes puntuales entre ayuda técnica y código.</td></tr>
+        <tr><td>Diagnóstico, importación y exportación</td><td><strong>4,0/5</strong><div class="bar"><i style="width:80%"></i></div></td><td><span class="pill m4">Maduro personal</span></td><td>Logs filtrables, interceptor de payload, exportación Markdown/JSON/impresión y backups RAG/perfiles.</td></tr>
+        <tr><td>Instalación y distribución</td><td><strong>4,1/5</strong><div class="bar"><i style="width:82%"></i></div></td><td><span class="pill m4">Maduro personal</span></td><td>Web directa, script Python y wheel mínimo; venv y servicios gestionados; release automatizada.</td></tr>
+        <tr><td>Multiusuario, RBAC y colaboración</td><td><strong>1,0/5</strong><div class="bar"><i style="width:20%"></i></div></td><td><span class="pill m1">No orientado</span></td><td>No hay cuentas, roles, administración, sincronización entre dispositivos ni espacios compartidos.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Inventario funcional verificado</h2>
+    <div class="grid">
+      <div class="feature"><h3>Conectividad LLM</h3><ul class="compact"><li>OpenAI y endpoints compatibles (LM Studio, vLLM, LocalAI, etc.).</li><li>Anthropic Claude.</li><li>Google Gemini mediante interfaz propia.</li><li>Ollama.</li><li>OpenRouter.</li><li>Proveedor personalizado.</li><li>WebLLM local.</li><li>Modo Espejo sin red para inspeccionar la petición.</li></ul></div>
+      <div class="feature"><h3>Conversación</h3><ul class="compact"><li>Streaming y cancelación.</li><li>Razonamiento visible y configurable.</li><li>Historial, renombrado, búsqueda y agrupación temporal.</li><li>Ramas de conversación.</li><li>Adjuntos multimodales.</li><li>Exportación Markdown, JSON e impresión.</li><li>Telemetría de tokens, latencia y velocidad.</li></ul></div>
+      <div class="feature"><h3>Agente y tools</h3><ul class="compact"><li>Bucle multi-turno y checkpoint.</li><li>Ejecución JavaScript en Worker con límites.</li><li>Búsqueda y lectura web.</li><li>Descarga/extracción PDF.</li><li>Gráficos SVG.</li><li>Tools RAG con lectura bajo demanda.</li><li>Confirmación y permisos persistentes para MCP.</li></ul></div>
+      <div class="feature"><h3>Backend local</h3><ul class="compact"><li>Listado de directorios.</li><li>Lectura de archivos con límites.</li><li>Edición atómica, append y reemplazo exacto.</li><li>Ejecución shell con timeout.</li><li>Host MCP stdio y nombres aislados por servidor.</li><li>Heartbeat y cierre por inactividad.</li><li>Instalación aislada de dependencias.</li></ul></div>
+      <div class="feature"><h3>RAG local</h3><ul class="compact"><li>Ramas y varias ramas activas.</li><li>Índice Orama reconstruible desde IndexedDB.</li><li>Ámbito auto/documento/corpus.</li><li>Diversificación por documento.</li><li>Chunks adyacentes y referencias tolerantes.</li><li>Imágenes extraídas y envío al modelo bajo demanda.</li><li>Exportación gzip con restauración de imágenes.</li></ul></div>
+      <div class="feature"><h3>Experiencia y operación</h3><ul class="compact"><li>PWA y modo offline de recursos estáticos.</li><li>Temas claro/oscuro y responsive móvil.</li><li>Interfaz ES/EN.</li><li>Panel de depuración e interceptor.</li><li>Borrado integral de datos del origen.</li><li>PyPI, script directo y modo desarrollo.</li><li>Actualización separada de backend y web.</li></ul></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>MCP: alcance real</h2>
+    <p>El backend expone cuatro herramientas locales de propósito general y puede gestionar procesos MCP externos por <code>stdio</code>. El repositorio incorpora cuatro descriptores:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Servicio</th><th>Estado en el repositorio</th><th>Madurez estimada</th></tr></thead>
+      <tbody>
+        <tr><td>Playwright MCP</td><td>Paquete y versión fijados, instalación Chromium y opción headless</td><td><span class="pill m3">Beta</span></td></tr>
+        <tr><td>Memory MCP</td><td>Paquete oficial fijado y archivo JSONL persistente</td><td><span class="pill m3">Beta</span></td></tr>
+        <tr><td>MCP-LSP</td><td>Paquete fijado y arranque Node gestionado</td><td><span class="pill m3">Beta</span></td></tr>
+        <tr><td>Dummy MCP</td><td>Servidor mínimo incluido para probar infraestructura</td><td><span class="pill m4">Prueba controlada</span></td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:12px">No se observa soporte directo para configurar servidores MCP remotos arbitrarios mediante Streamable HTTP/OAuth. ZeroChat usa HTTP/SSE entre navegador y su host local, y <code>stdio</code> entre ese host y los servicios gestionados.</p>
+    <div class="callout"><strong>Defecto funcional concreto:</strong> la tool local <code>list_directory</code> anuncia el parámetro <code>max_depth</code>, pero el backend solo lista el primer nivel y no usa ese valor. Hasta corregirlo, debe describirse como listado simple, no como recorrido recursivo.</div>
+  </section>
+
+  <section class="card">
+    <h2>RAG e ingesta documental: qué hace y qué no</h2>
+    <div class="grid">
+      <div class="feature"><h3><span class="yes">Sí implementado</span></h3><ul class="compact"><li>Extracción PDF propia de texto, mapas CMap e imágenes incrustadas.</li><li>Indexación local y persistencia separada de metadatos, chunks e imágenes.</li><li>Búsqueda léxica tolerante con boost de título y diversificación.</li><li>Recuperación agentic: listar, buscar, leer fragmentos e inspeccionar imágenes.</li><li>Importación/exportación de corpus.</li></ul></div>
+      <div class="feature"><h3><span class="partial">Parcial o dependiente</span></h3><ul class="compact"><li>Los PDF complejos dependen de lo que el parser propio pueda interpretar.</li><li>Las imágenes solo aportan valor si el modelo elegido tiene visión.</li><li>El rendimiento y la cuota dependen de IndexedDB y memoria del navegador.</li><li>La búsqueda multilingüe depende de la rama/tokenizador configurado.</li></ul></div>
+      <div class="feature"><h3><span class="no">No implementado</span></h3><ul class="compact"><li>OCR de páginas escaneadas.</li><li>Embeddings semánticos locales o remotos.</li><li>Re-ranking por cross-encoder.</li><li>Parseo nativo de DOCX, XLSX, PPTX o EPUB.</li><li>Conectores de fuentes empresariales.</li></ul></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Aspectos que no deben sobreprometerse</h2>
+    <ul class="compact">
+      <li><strong>“Un único HTML”:</strong> la aplicación es estática y no necesita empaquetado, pero carga 14 CSS y 65 JS; no es un archivo autónomo.</li>
+      <li><strong>“RAG vectorial”:</strong> el código actual usa búsqueda textual Orama; no se generan embeddings.</li>
+      <li><strong>“Sandbox seguro”:</strong> el Worker JavaScript reduce superficie y bloquea APIs conocidas, pero el propio README reconoce que no es una VM ni aislamiento de sistema operativo.</li>
+      <li><strong>“Claves seguras”:</strong> están cifradas con AES-GCM, pero una clave pública embebida permite recuperación a quien ejecute código en el mismo origen.</li>
+      <li><strong>“Compatibilidad con proveedores”:</strong> los adaptadores y mocks están bien probados, pero cada proveedor puede cambiar APIs, CORS y semántica de tool calling.</li>
+      <li><strong>“Soporte móvil completo”:</strong> la PWA es móvil; las tools locales, procesos MCP y automatización de navegador siguen siendo una experiencia principalmente de escritorio.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Cobertura funcional de pruebas</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nivel</th><th>Casos</th><th>Resultado en auditoría</th><th>Qué protege</th></tr></thead>
+      <tbody>
+        <tr><td>Unitarias</td><td>243</td><td><span class="yes">243 aprobadas</span></td><td>Estado, almacenamiento, UI modular, parsing, sandbox, exportación, herramientas.</td></tr>
+        <tr><td>Integración</td><td>272</td><td><span class="yes">272 aprobadas</span></td><td>Agente, chat, proveedores, MCP, RAG, perfiles, seguridad, WebLLM.</td></tr>
+        <tr><td>Arquitectura</td><td>20</td><td><span class="yes">20 aprobadas</span></td><td>Contratos de tools, caché/contexto y modernización UI.</td></tr>
+        <tr><td>Infraestructura</td><td>16</td><td><span class="yes">16 aprobadas</span></td><td>Servidor local, token, heartbeat, runner, versiones y bump.</td></tr>
+        <tr><td>Navegador</td><td>63</td><td><span class="partial">No ejecutadas</span></td><td>Arranque, mobile, a11y, perfiles, MCP, WebLLM y conversación en Chromium.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Preparación para enseñarlo a técnicos</h2>
+    <p>La demostración más convincente sería un flujo corto y reproducible:</p>
+    <ol class="compact">
+      <li>Abrir el modo Espejo y enseñar el payload generado sin gastar API.</li>
+      <li>Conectar un endpoint OpenAI-compatible local y mostrar streaming, razonamiento y métricas.</li>
+      <li>Importar un PDF, activar una rama RAG y dejar que el agente busque y lea un chunk.</li>
+      <li>Arrancar <code>zerochat.py</code>, mostrar el token eliminado de la URL y listar las tools locales.</li>
+      <li>Ejecutar una tool con confirmación y enseñar su tarjeta/resultado.</li>
+      <li>Cerrar con <code>npm run test:all</code> o con el resultado de CI, no con una promesa verbal de calidad.</li>
+    </ol>
+    <div class="callout"><strong>Mensaje honesto y fuerte:</strong> “Es un laboratorio personal ya utilizable, construido para entender y controlar el recorrido completo entre navegador, LLM, contexto, RAG y herramientas locales; no pretende sustituir una plataforma empresarial”.</div>
+  </section>
+
+  <footer>
+    <strong>Autoría:</strong> informe elaborado por OpenAI Codex (GPT-5) como auditoría funcional independiente, usando exclusivamente <code>zerochat-master(5).zip</code>. Las notas valoran madurez observable, no popularidad ni tamaño de comunidad.
+  </footer>
+</main>
+</body>
+</html>

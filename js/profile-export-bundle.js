@@ -305,7 +305,7 @@
 
       // Bundle cifrado embebido (generado en tiempo de exportación)
       const ENCRYPTED_PAYLOAD = ${JSON.stringify(encryptedPayload)};
-      const TARGET_URL = ${JSON.stringify(zeroChatURL + '#mode=import')};
+      const TARGET_URL = ${JSON.stringify(zeroChatURL)};
       const METADATA = ${JSON.stringify(metadata)};
       const TIMEOUT_MS = 20000; // 20 segundos
 
@@ -317,6 +317,20 @@
       let targetWindow = null;
       let timeoutId = null;
       let messageReceived = false;
+      let activeTransferId = '';
+
+      function createTransferId() {
+        const bytes = new Uint8Array(16);
+        if (window.crypto?.getRandomValues) {
+          window.crypto.getRandomValues(bytes);
+          return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+        return (String(Date.now()) + Math.random().toString(36).slice(2).padEnd(16, '0')).slice(0, 32);
+      }
+
+      function getImportUrl(transferId) {
+        return TARGET_URL + '#mode=import&transferId=' + encodeURIComponent(transferId);
+      }
 
       /**
        * Actualizar el estado visual
@@ -332,7 +346,11 @@
        */
       function handleMessage(event) {
         // Mensaje de "estoy listo" desde zerochat
-        if (event.data === 'zerochat_ready') {
+        if (event.source !== targetWindow || !event.data || event.data.transferId !== activeTransferId) {
+          return;
+        }
+
+        if (event.data.type === 'zerochat_import_ready') {
           console.log('[Export] ZeroChat ready, sending payload...');
 
           if (targetWindow && !targetWindow.closed) {
@@ -340,6 +358,7 @@
             targetWindow.postMessage({
               type: 'import_profiles',
               version: 1,
+              transferId: activeTransferId,
               payload: ENCRYPTED_PAYLOAD,
               metadata: METADATA
             }, '*');
@@ -359,7 +378,7 @@
         }
 
         // Resultado de la importación
-        if (event.data && event.data.type === 'import_result') {
+        if (event.data.type === 'import_result') {
           messageReceived = true;
           clearTimeout(timeoutId);
 
@@ -395,8 +414,13 @@
        * Inicializar el proceso de importación (llamado desde el botón)
        */
       function startImport() {
+        activeTransferId = createTransferId();
+        const importUrl = getImportUrl(activeTransferId);
+        const targetName = 'zerochat_import_' + activeTransferId;
+        if (timeoutId) clearTimeout(timeoutId);
+        messageReceived = false;
         console.log('[Export] Starting import process...');
-        console.log('[Export] Target URL:', TARGET_URL);
+        console.log('[Export] Target URL:', importUrl);
         console.log('[Export] Payload size:', ENCRYPTED_PAYLOAD.length, 'bytes');
 
         // Deshabilitar el botón
@@ -409,7 +433,7 @@
         try {
           // Abrir zerochat.html en nueva pestaña con parámetro mode=import
           // Ejecutado desde user gesture (click) para mejorar compatibilidad
-          targetWindow = window.open(TARGET_URL, 'zerochat_import');
+          targetWindow = window.open(importUrl, targetName);
 
           // Verificar si el popup fue bloqueado
           if (!targetWindow || targetWindow.closed || typeof targetWindow.closed === 'undefined') {
@@ -428,9 +452,6 @@
           }
 
           console.log('[Export] Window opened successfully');
-
-          // Escuchar mensajes desde zerochat
-          window.addEventListener('message', handleMessage);
 
           // Timeout de seguridad
           timeoutId = setTimeout(() => {
@@ -461,6 +482,7 @@
 
       // Conectar el botón al proceso de importación
       importButton.addEventListener('click', startImport);
+      window.addEventListener('message', handleMessage);
 
       // Limpiar al cerrar
       window.addEventListener('beforeunload', () => {
