@@ -626,6 +626,15 @@
 
             <div class="mcp-saved-auths-section">
               <div class="mcp-saved-auths-header">
+                <span class="label-hint" data-i18n="mcp_directory_rules_title">Directorios permitidos</span>
+              </div>
+              <p class="label-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
+              <textarea id="mcp-directory-rules" rows="5" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="width: 100%; resize: vertical;"></textarea>
+              <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
+            </div>
+
+            <div class="mcp-saved-auths-section">
+              <div class="mcp-saved-auths-header">
                 <span class="label-hint" data-i18n="mcp_security_saved_auths_title">Herramientas con Permiso Recordado:</span>
                 <button type="button" id="btn-mcp-clear-auths" class="btn-text-action btn-mcp-clear-auths" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
               </div>

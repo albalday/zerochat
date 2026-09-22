@@ -265,10 +265,24 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     });
     assert.equal(promptCalled, true, 'Debe pedir confirmación para comando fuera del prefijo autorizado');
     assert.equal(resCat.success, false);
+
+    // Una segunda autorización contextual debe acumular, no sustituir, el prefijo anterior.
+    ChatToolCards.promptToolAuthorization = async () => ({
+      decision: 'allow_always',
+      constraints: { command: { allowedPrefixes: ['cat '], allowChaining: false } }
+    });
+    const resCatAllowed = await AgentCore.dispatchToolCall(toolCallCat, {
+      container: { appendChild: () => {} }
+    });
+    assert.equal(resCatAllowed.success, true);
+    assert.deepEqual(
+      ChatToolSecurity.manager.getToolConstraints('mcp_testz5fzsrv_run_cmd').command.allowedPrefixes,
+      ['echo ', 'cat ']
+    );
+    assert.equal((await AgentCore.dispatchToolCall(toolCallEcho2, { container: { appendChild: () => {} } })).success, true);
   } finally {
     ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();
   }
 });
-
 

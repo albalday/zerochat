@@ -53,6 +53,7 @@
   const ConversationService = window.ChatConversationService || {};
   const UIConversation = window.ChatUIConversation || {};
   const GenerationController = window.ChatGenerationController || {};
+  const ToolSecurity = window.ChatToolSecurity || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -829,7 +830,24 @@
     }
   }
 
+  function saveDirectoryRulesFromSettings() {
+    const input = document.getElementById('mcp-directory-rules');
+    const errorMessage = document.getElementById('mcp-directory-rules-error');
+    if (!input || typeof ToolSecurity.manager?.setDirectoryRules !== 'function') return true;
+
+    const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
+    try {
+      ToolSecurity.manager.setDirectoryRules(rules);
+      if (errorMessage) errorMessage.textContent = '';
+      return true;
+    } catch (error) {
+      if (errorMessage) errorMessage.textContent = error?.message || t('mcp_directory_rules_invalid');
+      return false;
+    }
+  }
+
   function saveCurrentSettings(closeModal = true) {
+    if (!saveDirectoryRulesFromSettings()) return false;
     const newConfig = gatherCurrentFormConfig();
     const savedConfig = Config.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
     if (UISettings.setSettingsFormDirty) UISettings.setSettingsFormDirty(elements, false);
@@ -852,6 +870,7 @@
     } else {
       showProfileFeedback(t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }) || 'Configuración actualizada.', 'success');
     }
+    return true;
   }
 
 

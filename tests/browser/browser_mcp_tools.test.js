@@ -294,15 +294,30 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     const permissionsState = await page.evaluate(() => ({
       paneActive: document.getElementById('tab-permissions')?.classList.contains('active'),
       hasAskPolicy: !!document.getElementById('mcp-policy-ask'),
-      hasSavedAuthorizations: !!document.getElementById('mcp-saved-auths-list')
+      hasSavedAuthorizations: !!document.getElementById('mcp-saved-auths-list'),
+      hasDirectoryRulesSaveButton: !!document.getElementById('btn-mcp-save-directory-rules'),
+      modalBodyOverflowY: getComputedStyle(document.querySelector('#settings-form .modal-body')).overflowY,
+      savedAuthorizationsOverflowY: getComputedStyle(document.getElementById('mcp-saved-auths-list')).overflowY,
+      savedAuthorizationsMaxHeight: getComputedStyle(document.getElementById('mcp-saved-auths-list')).maxHeight
     }));
     assert.ok(permissionsState.paneActive, 'El panel tab-permissions debe quedar visible y activo');
     assert.ok(permissionsState.hasAskPolicy, 'La política de permisos debe estar disponible en la nueva pestaña');
     assert.ok(permissionsState.hasSavedAuthorizations, 'Las autorizaciones recordadas deben estar disponibles en la nueva pestaña');
+    assert.equal(permissionsState.hasDirectoryRulesSaveButton, false, 'Las reglas de directorios deben usar el guardado general');
+    assert.equal(permissionsState.modalBodyOverflowY, 'auto', 'El cuerpo del diálogo debe gestionar el desplazamiento de permisos');
+    assert.equal(permissionsState.savedAuthorizationsOverflowY, 'visible', 'La lista de permisos no debe crear un scroll interno');
+    assert.equal(permissionsState.savedAuthorizationsMaxHeight, 'none', 'La lista de permisos debe poder crecer sin límite de altura');
+
+    await page.locator('#mcp-directory-rules').fill('R:./permissions-test/**');
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+    assert.deepEqual(
+      await page.evaluate(() => window.ChatToolSecurity.manager.getDirectoryRules()),
+      ['R:permissions-test/**'],
+      'El guardado general debe persistir las reglas de directorios'
+    );
 
     // Volver a la sección MCP
-    await page.click('#btn-close-settings');
-    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
     await mcpSectionBtn.click();
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
 

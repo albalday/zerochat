@@ -204,7 +204,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
           hasNames: buttons.every(button => !!(button.getAttribute('aria-label') || button.getAttribute('aria-labelledby'))),
           sameRow: rects.every(rect => Math.abs(rect.top - rects[0].top) < 1),
           withinViewport: rects.every(rect => rect.left >= 0 && rect.right <= innerWidth),
-          touchTargets: rects.every(rect => rect.width >= 44 && rect.height >= 44),
+          touchTargets: rects.every(rect => rect.width >= 40 && rect.height >= 40),
           assistantFontSize
         };
       }, language);

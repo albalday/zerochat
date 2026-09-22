@@ -176,19 +176,29 @@
     const parsedArgs = options.args || {};
     const cmdArg = parsedArgs.command || parsedArgs.cmd || parsedArgs.script;
     const pathArg = parsedArgs.path || parsedArgs.filepath || parsedArgs.file;
+    const requestedDirectoryAccess = options.directoryAccess || '';
+    const requestedDirectoryPath = options.directoryPath || '';
+    const isWritePathTool = /(?:^|_)edit_file$/.test(toolName);
+    const isDirectoryTool = /(?:^|_)list_directory$/.test(toolName);
 
     let contextualButtonsHtml = '';
     let baseCmd = '';
     if (typeof cmdArg === 'string' && cmdArg.trim()) {
       baseCmd = cmdArg.trim().split(/\s+/)[0];
-      if (baseCmd) {
+      if (baseCmd && !requestedDirectoryAccess) {
         contextualButtonsHtml = `
           <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${esc(tFn('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
         `;
       }
+      if (requestedDirectoryAccess && requestedDirectoryPath) {
+        contextualButtonsHtml = `
+          <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access: requestedDirectoryAccess }))}</span></button>
+        `;
+      }
     } else if (typeof pathArg === 'string' && pathArg.trim()) {
+      const access = isWritePathTool ? 'W' : 'R';
       contextualButtonsHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn'))}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access }))}</span></button>
       `;
     }
 
@@ -278,14 +288,18 @@
 
       btnAllowPath?.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (requestedDirectoryAccess && requestedDirectoryPath) {
+          handleDecision({ decision: 'allow_once', directoryRule: `${requestedDirectoryAccess}:${requestedDirectoryPath}` });
+          return;
+        }
+        const cleanPath = pathArg.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+        const parent = isDirectoryTool
+          ? cleanPath
+          : (cleanPath.includes('/') ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '.');
+        const access = isWritePathTool ? 'W' : 'R';
         handleDecision({
-          decision: 'allow_always',
-          constraints: {
-            path: {
-              allowedDirectories: ['./'],
-              preventTraversal: true
-            }
-          }
+          decision: 'allow_once',
+          directoryRule: `${access}:${parent || '/'}${parent === '/' ? '' : '/**'}`
         });
       });
 

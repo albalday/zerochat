@@ -30,6 +30,71 @@
     ASK: 'ask'
   });
 
+  const DIRECTORY_RULE_PATTERN = /^(R|W|RW):(.+)$/;
+
+  function normalizeDirectoryPath(value) {
+    if (typeof value !== 'string' || !value.trim() || value.includes('\0')) return '';
+    const isAbsolute = /^[\\/]/.test(value.trim());
+    const parts = [];
+    for (const part of value.trim().replace(/\\/g, '/').split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        if (parts.length) parts.pop();
+        else return '';
+      } else {
+        parts.push(part);
+      }
+    }
+    return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '');
+  }
+
+  function parseDirectoryRule(rawRule) {
+    if (typeof rawRule !== 'string') return null;
+    const match = rawRule.trim().match(DIRECTORY_RULE_PATTERN);
+    if (!match) return null;
+    const path = normalizeDirectoryPath(match[2]);
+    if (!path) return null;
+    return { access: match[1], path, rule: `${match[1]}:${path}` };
+  }
+
+  function matchesDirectoryPattern(path, pattern) {
+    if (pattern.endsWith('/**') && path === pattern.slice(0, -3)) return true;
+    const escaped = pattern.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+      .replace(/\*\*/g, '\u0000')
+      .replace(/\*/g, '[^/]*');
+    return new RegExp(`^${escaped.replace(/\u0000/g, '.*')}$`).test(path);
+  }
+
+  function getIntegratedPathAccess(toolName) {
+    if (toolName === 'zmcp_read_file' || toolName === 'zmcp_list_directory') return 'R';
+    if (toolName === 'zmcp_edit_file') return 'W';
+    return '';
+  }
+
+  const READ_COMMANDS = new Set(['ls', 'du', 'cat', 'head', 'tail', 'stat', 'find', 'grep', 'rg', 'wc', 'file']);
+  const WRITE_COMMANDS = new Set(['rm', 'mv', 'cp', 'mkdir', 'touch', 'rmdir', 'ln', 'install', 'chmod', 'chown', 'truncate', 'dd', 'tee', 'sed']);
+
+  function scanCommandPaths(command) {
+    if (typeof command !== 'string' || !command.trim()) return { ambiguous: true, paths: [] };
+    if (/[;&|`$()<>'"\\\n\r*?\[\]]/.test(command)) return { ambiguous: true, paths: [] };
+    const tokens = command.trim().split(/\s+/);
+    const executable = tokens.shift().split('/').pop();
+    const access = WRITE_COMMANDS.has(executable) ? 'W' : (READ_COMMANDS.has(executable) ? 'R' : '');
+    const paths = [];
+
+    for (const token of tokens) {
+      if (!token || token.startsWith('-')) {
+        if (token === '-delete' || token === '-exec' || token === '-execdir') return { ambiguous: true, paths: [] };
+        continue;
+      }
+      const explicitPath = token === '.' || token === '..' || /^(?:\/|~\/|\.\/|\.\.\/)/.test(token) || (token.includes('/') && !token.includes('://'));
+      if (!access && explicitPath) return { ambiguous: true, paths: [] };
+      if (access && (explicitPath || token)) paths.push(token);
+    }
+
+    return { ambiguous: false, access, paths };
+  }
+
   function resolveDep(name, path) {
     if (typeof window !== 'undefined' && window.ChatUtils?.resolveDep) {
       return window.ChatUtils.resolveDep(name, path);
@@ -243,6 +308,7 @@
       this.storageKey = options.storageKey || STORAGE_KEY;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
       this.tools = new Map();
+      this.directoryRules = [];
       this.listeners = new Set();
       this.load();
     }
@@ -282,6 +348,9 @@
                 }
               });
             }
+            if (Array.isArray(parsed.directoryRules)) {
+              this.directoryRules = parsed.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
+            }
           }
         }
       } catch (err) {
@@ -307,6 +376,7 @@
           version: 1,
           globalMcpPolicy: this.globalMcpPolicy,
           tools: toolsObj,
+          directoryRules: this.directoryRules,
           updatedAt: Date.now()
         };
 
@@ -333,7 +403,8 @@
         State.set('toolSecurity', {
           globalMcpPolicy: this.globalMcpPolicy,
           authorizedCount: this.tools.size,
-          tools: toolsObj
+          tools: toolsObj,
+          directoryRules: this.directoryRules
         });
       }
     }
@@ -375,6 +446,44 @@
       this.globalMcpPolicy = policy;
       this.save();
       return this.globalMcpPolicy;
+    }
+
+    getDirectoryRules() {
+      return [...this.directoryRules];
+    }
+
+    setDirectoryRules(rules) {
+      if (!Array.isArray(rules)) throw new Error('Las reglas de directorio deben ser una lista.');
+      const normalized = rules.map(parseDirectoryRule);
+      if (normalized.some(rule => !rule)) throw new Error('Regla de directorio inválida. Usa R:, W: o RW: seguido de una ruta.');
+      this.directoryRules = [...new Set(normalized.map(rule => rule.rule))];
+      this.save();
+      return this.getDirectoryRules();
+    }
+
+    addDirectoryRule(rule) {
+      return this.setDirectoryRules([...this.directoryRules, rule]);
+    }
+
+    evaluateDirectoryRule(access, path) {
+      const normalizedPath = normalizeDirectoryPath(path);
+      if (!normalizedPath) return { allowed: false, rule: null };
+      const match = this.directoryRules.map(parseDirectoryRule).find(rule =>
+        rule && (rule.access === access || rule.access === 'RW') && matchesDirectoryPattern(normalizedPath, rule.path)
+      );
+      return { allowed: Boolean(match), rule: match?.rule || null, path: normalizedPath };
+    }
+
+    evaluateCommandPathRules(command) {
+      const scan = scanCommandPaths(command);
+      if (scan.ambiguous || !scan.access || scan.paths.length === 0) return { allowed: false, scan };
+      for (const path of scan.paths) {
+        const evaluation = this.evaluateDirectoryRule(scan.access, path);
+        if (!evaluation.allowed) {
+          return { allowed: false, scan, access: scan.access, path: evaluation.path || path };
+        }
+      }
+      return { allowed: true, scan, access: scan.access };
     }
 
     /**
@@ -545,6 +654,87 @@
           serverName: '',
           originalName: toolName
         };
+      }
+
+      // Las herramientas integradas de archivos se rigen siempre por la lista
+      // blanca global, incluso si una política MCP amplia está activada.
+      const pathAccess = getIntegratedPathAccess(toolName);
+      const path = args.path || args.filepath || args.file || args.directory || args.dir || '';
+      if (pathAccess && typeof path === 'string' && path.trim()) {
+        const savedPathRule = this.findToolEntry(toolId, tool)?.entry;
+        if (savedPathRule?.policy === TOOL_POLICIES.DENY) {
+          return {
+            requiresApproval: false,
+            status: TOOL_POLICIES.DENY,
+            reason: 'granular_deny_rule',
+            toolId,
+            serverName,
+            originalName
+          };
+        }
+        const directoryEval = this.evaluateDirectoryRule(pathAccess, path);
+        if (!directoryEval.allowed) {
+          return {
+            requiresApproval: true,
+            status: TOOL_POLICIES.ASK,
+            reason: 'directory_rule_required',
+            toolId,
+            serverName,
+            originalName,
+            details: `La ruta no coincide con una regla ${pathAccess}: ${path}`,
+            directoryAccess: pathAccess,
+            directoryPath: directoryEval.path || path
+          };
+        }
+        return {
+          requiresApproval: false,
+          status: TOOL_POLICIES.ALLOW,
+          reason: 'directory_rule_allow',
+          toolId,
+          serverName,
+          originalName,
+          directoryRule: directoryEval.rule
+        };
+      }
+
+      if (toolName === 'zmcp_execute_command' && typeof args.command === 'string' && args.command.trim()) {
+        const savedCommandRule = this.findToolEntry(toolId, tool)?.entry;
+        if (savedCommandRule?.policy === TOOL_POLICIES.DENY) {
+          return {
+            requiresApproval: false,
+            status: TOOL_POLICIES.DENY,
+            reason: 'granular_deny_rule',
+            toolId,
+            serverName,
+            originalName
+          };
+        }
+        const commandPathEval = this.evaluateCommandPathRules(args.command);
+        if (commandPathEval.allowed) {
+          return {
+            requiresApproval: false,
+            status: TOOL_POLICIES.ALLOW,
+            reason: 'command_directory_rules_allow',
+            toolId,
+            serverName,
+            originalName
+          };
+        }
+        if (commandPathEval.scan.paths.length > 0 || commandPathEval.scan.ambiguous) {
+          return {
+            requiresApproval: true,
+            status: TOOL_POLICIES.ASK,
+            reason: commandPathEval.scan.ambiguous ? 'command_path_ambiguous' : 'command_directory_rule_required',
+            toolId,
+            serverName,
+            originalName,
+            details: commandPathEval.scan.ambiguous
+              ? 'El comando contiene una construcción de shell que no se puede analizar con seguridad.'
+              : `La ruta no coincide con una regla ${commandPathEval.access}: ${commandPathEval.path}`,
+            directoryAccess: commandPathEval.access || '',
+            directoryPath: commandPathEval.path || ''
+          };
+        }
       }
 
       // 2. Herramientas MCP con modo global 'allow_all'

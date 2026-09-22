@@ -37,6 +37,40 @@ test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', 
   assert.equal(evalMcp.originalName, 'execute_command');
 });
 
+test('ChatToolSecurity - Lista global R/W controla las herramientas integradas de archivos', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_rules' });
+  manager.setDirectoryRules(['R:./project/**', 'W:./project/src/**']);
+
+  const readTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
+  const editTool = { id: 'zmcp_edit_file', name: 'zmcp_edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
+
+  assert.equal(manager.evaluateAuthorization(readTool, { path: './project/README.md' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(readTool, { path: './project' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(editTool, { path: './project/src/app.js' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(editTool, { path: './project/README.md' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(readTool, { path: '../secret.txt' }).status, 'ask');
+  assert.throws(() => manager.setDirectoryRules(['X:./project/**']), /Regla de directorio inválida/);
+});
+
+test('ChatToolSecurity - La lista de directorios prevalece sobre allow_all para herramientas integradas', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_over_global' });
+  manager.setGlobalMcpPolicy('allow_all');
+  const tool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
+  assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'ask');
+});
+
+test('ChatToolSecurity - execute_command aplica R/W a rutas simples y pide confirmación ante dudas', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
+  manager.setGlobalMcpPolicy('allow_all');
+  manager.setDirectoryRules(['R:./workspace/**', 'W:./workspace/**']);
+  const tool = { id: 'zmcp_execute_command', name: 'zmcp_execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
+
+  assert.equal(manager.evaluateAuthorization(tool, { command: 'du -sh ./workspace' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ../outside.log' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log; cat /etc/passwd' }).status, 'ask');
+});
+
 test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas MCP', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_allow_all' });
   manager.setGlobalMcpPolicy('allow_all');
@@ -118,12 +152,14 @@ test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     manager1.setGlobalMcpPolicy('allow_all');
     manager1.setToolPolicy('zmcp_saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
+    manager1.setDirectoryRules(['RW:./workspace/**']);
 
     // Segunda instancia leyendo la misma clave
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
     assert.equal(manager2.getToolPolicy('zmcp_saved_tool'), 'allow');
     assert.equal(manager2.listAuthorizedTools().length, 1);
+    assert.deepEqual(manager2.getDirectoryRules(), ['RW:workspace/**']);
   } finally {
     if (previousLocalStorage === undefined) delete global.localStorage;
     else global.localStorage = previousLocalStorage;
@@ -247,24 +283,24 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
     }
   });
 
-  // 1. Invocación subsecuente usando el ID canónico con pipes -> debe ser allow directo
+  // 1. La sintaxis de shell ambigua vuelve a pedir confirmación aunque exista un prefijo recordado.
   const evalPiped = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh * | sort -hr' });
-  assert.equal(evalPiped.status, 'allow');
-  assert.equal(evalPiped.requiresApproval, false);
+  assert.equal(evalPiped.status, 'ask');
+  assert.equal(evalPiped.requiresApproval, true);
 
-  // 2. Invocación subsecuente con redirección de stderr (2>&1) -> debe ser allow directo
+  // 2. Las redirecciones también requieren confirmación puntual.
   const evalRedirect = manager.evaluateAuthorization(canonicalTool, { command: 'du -h --max-depth=1 2>&1' });
-  assert.equal(evalRedirect.status, 'allow');
-  assert.equal(evalRedirect.requiresApproval, false);
+  assert.equal(evalRedirect.status, 'ask');
+  assert.equal(evalRedirect.requiresApproval, true);
 
   // Los nombres antiguos no heredan permisos del nombre canónico.
   assert.equal(manager.getToolPolicy('execute_command'), null);
   assert.equal(manager.evaluateAuthorization('mcp_execute_command', {}).requiresApproval, true);
 
-  // 5. Invocación con ruta absoluta del ejecutable (/usr/bin/du) -> debe ser allow directo
+  // 5. Una ruta de trabajo sin regla R exige confirmación aunque el ejecutable esté permitido.
   const evalAbsPath = manager.evaluateAuthorization(canonicalTool, { command: '/usr/bin/du -sh .' });
-  assert.equal(evalAbsPath.status, 'allow');
-  assert.equal(evalAbsPath.requiresApproval, false);
+  assert.equal(evalAbsPath.status, 'ask');
+  assert.equal(evalAbsPath.requiresApproval, true);
 
   // 6. Intento de inyección maliciosa secuencial con ';' -> debe exigir aprobación (ask)
   const evalSeqAttack = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh . ; rm -rf /' });
@@ -280,4 +316,3 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   assert.equal(manager.getToolPolicy('execute_command'), null);
   assert.equal(manager.getToolPolicy('zmcp_execute_command'), 'allow');
 });
-

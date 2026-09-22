@@ -99,6 +99,12 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
           </ul>
         </li>
       </ul>
+      <p>
+        The <strong>Allowed directories</strong> list centralizes access for local file tools. Add one rule per line with <code>R:</code> for reading, <code>W:</code> for modification, or <code>RW:</code> for both; for example, <code>R:./project/**</code> or <code>W:./project/src/**</code>. Use <code>*</code> for one segment and <code>**</code> to include subdirectories. Paths that do not match a rule require authorization.
+      </p>
+      <p>
+        For <code>execute_command</code>, ZeroChat examines only simple commands and their explicit paths. A read path needs <code>R:</code> and a modifying path needs <code>W:</code>. Pipes, redirections, expansions, wildcards, and other ambiguous shell constructs always require one-time authorization.
+      </p>
       <div class="alert alert-warning">
         <strong>Local network security:</strong> Make sure your MCP server binds strictly to the loopback interface <code>127.0.0.1</code> and not <code>0.0.0.0</code> when working on untrusted public networks.
       </div>

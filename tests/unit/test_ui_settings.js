@@ -13,6 +13,8 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propia sección s
   assert.equal(settingsHtml.includes('class="modal-footer"'), false, 'No debe existir la botonera inferior modal-footer en settings-dialog');
   assert.match(settingsHtml, /id="tab-permissions" class="settings-section-pane"/);
   assert.match(settingsHtml, /id="mcp-policy-ask"/);
+  assert.match(settingsHtml, /id="mcp-directory-rules"/);
+  assert.equal(settingsHtml.includes('id="btn-mcp-save-directory-rules"'), false, 'Las reglas de directorios se guardan con el formulario general');
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
   assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
   assert.match(settingsHtml, /id="settings-section-title"/);

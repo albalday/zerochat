@@ -145,14 +145,14 @@
   justify-content: center;
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
-  width: 44px;
-  min-width: 44px;
+  width: 36px;
+  min-width: 36px;
   padding: 0;
   border-radius: 9px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
-  height: 44px;
+  height: 36px;
   user-select: none;
 }
 
@@ -199,9 +199,9 @@
 
 /* Botón de icono circular compacto (ej. adjuntar) */
 .btn-composer-icon-btn {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -247,8 +247,8 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
-  height: 44px;
-  width: 44px;
+  height: 36px;
+  width: 36px;
   justify-content: center;
 }
 
@@ -684,9 +684,9 @@
 /* Botones Circulares de Acción del Composer */
 .btn-send,
 .btn-stop-stream {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   border-radius: var(--radius-full);
   display: inline-flex;
   align-items: center;
@@ -698,6 +698,18 @@
 .btn-stop-stream .ui-icon {
   width: 20px;
   height: 20px;
+}
+
+@media (max-width: 640px) {
+  .btn-composer-chip,
+  .btn-composer-icon-btn,
+  .btn-reasoning,
+  .btn-send,
+  .btn-stop-stream {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
 }
 
 /* Botón Circular de Envío */

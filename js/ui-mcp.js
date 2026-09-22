@@ -469,11 +469,15 @@
     const radioAsk = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
     const radioAllowAll = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
     const btnClearAuths = elements.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
+    const directoryRulesInput = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules') : null;
 
     function syncSecurityControls() {
       const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
       if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
       if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
+      if (directoryRulesInput && Security?.manager?.getDirectoryRules) {
+        directoryRulesInput.value = Security.manager.getDirectoryRules().join('\n');
+      }
       renderSavedAuthorizations(elements, t);
     }
 

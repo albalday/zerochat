@@ -974,8 +974,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  max-height: 140px;
-  overflow-y: auto;
 }
 
 .mcp-auth-item {

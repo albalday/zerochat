@@ -595,6 +595,8 @@
         args,
         serverName: authEval.serverName,
         toolName: tool.name,
+        directoryAccess: authEval.directoryAccess,
+        directoryPath: authEval.directoryPath,
         signal: context.signal
       });
       const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
@@ -608,11 +610,35 @@
         return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
       }
 
+      if (typeof decision === 'object' && decision !== null && decision.directoryRule) {
+        try {
+          ToolSecurity?.manager?.addDirectoryRule?.(decision.directoryRule);
+        } catch (error) {
+          return { allowed: false, error: error?.message || t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
+        }
+      }
+
       if (decisionType === 'allow_always') {
+        const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
+        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(authEval.toolId || tool.name) || null;
+        const constraints = requestedConstraints?.command && existingConstraints?.command
+          ? {
+            ...existingConstraints,
+            ...requestedConstraints,
+            command: {
+              ...existingConstraints.command,
+              ...requestedConstraints.command,
+              allowedPrefixes: [...new Set([
+                ...(Array.isArray(existingConstraints.command.allowedPrefixes) ? existingConstraints.command.allowedPrefixes : []),
+                ...(Array.isArray(requestedConstraints.command.allowedPrefixes) ? requestedConstraints.command.allowedPrefixes : [])
+              ])]
+            }
+          }
+          : requestedConstraints;
         ToolSecurity.manager.setToolPolicy(authEval.toolId || tool.name, 'allow', {
           serverName: authEval.serverName,
           originalName: authEval.originalName,
-          constraints: (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null
+          constraints
         });
       }
 
