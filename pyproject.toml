@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zerochat"
-version = "7.6.0"
+version = "7.7.0"
 description = "Private local web client for AI models, tools and MCP services"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Alberto Balday" }]
+authors = [{ name = "Alberto Alday" }]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Web Environment",
