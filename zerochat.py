@@ -606,6 +606,54 @@ LOCAL_TOOL_HANDLERS = {
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
 
+MAX_HTTP_BODY_BYTES = 1024 * 1024
+MAX_RPC_METHOD_LENGTH = 128
+MAX_TOOL_NAME_LENGTH = 128
+MAX_PATH_LENGTH = 4096
+MAX_COMMAND_LENGTH = 16384
+
+
+def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
+    """Valida tipos y límites de las herramientas locales antes de ejecutarlas."""
+    schemas = {
+        "list_directory": {"path": (str, MAX_PATH_LENGTH)},
+        "read_file": {
+            "path": (str, MAX_PATH_LENGTH), "start_line": (int, None),
+            "max_lines": (int, None), "max_bytes": (int, None)
+        },
+        "edit_file": {
+            "path": (str, MAX_PATH_LENGTH), "content": (str, MAX_HTTP_BODY_BYTES),
+            "mode": (str, 32), "target_content": (str, MAX_HTTP_BODY_BYTES)
+        },
+        "execute_command": {
+            "command": (str, MAX_COMMAND_LENGTH), "cwd": (str, MAX_PATH_LENGTH),
+            "timeout_seconds": (int, None)
+        }
+    }
+    schema = schemas.get(tool_name)
+    if schema is None:
+        return None
+
+    for name, value in arguments.items():
+        expected = schema.get(name)
+        if expected is None:
+            return f"Argumento no permitido: {name}"
+        expected_type, max_length = expected
+        if isinstance(value, bool) or not isinstance(value, expected_type):
+            return f"Tipo inválido para '{name}'"
+        if max_length is not None and len(value) > max_length:
+            return f"'{name}' excede el tamaño máximo permitido"
+
+    required = {
+        "read_file": ("path",),
+        "edit_file": ("path", "content"),
+        "execute_command": ("command",)
+    }
+    for name in required.get(tool_name, ()):
+        if name not in arguments:
+            return f"Falta el argumento obligatorio: {name}"
+    return None
+
 def sanitize_log_path(raw_path: str) -> str:
     """Oculta tokens de sesión o parámetros sensibles en la query string para logs seguros."""
     if not raw_path or "?" not in raw_path:
@@ -625,10 +673,10 @@ def format_log_error(msg: str, max_len: int = 160) -> str:
     return cleaned
 
 
-def is_allowed_origin(origin: str | None) -> bool:
+def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
     """Verifica si el origen CORS está autorizado."""
     if origin is None or origin == "null":
-        return True
+        return not require_origin
     origin_lower = origin.lower()
     if origin_lower == "https://albalday.github.io" or origin_lower.startswith("https://albalday.github.io/"):
         return True
@@ -1378,7 +1426,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
     def send_cors_headers(self):
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin):
+        if not is_allowed_origin(origin, require_origin=True):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -1386,19 +1434,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
-        """Comprueba el token efímero de sesión en cabeceras o query string."""
+        """Comprueba el token de sesión exclusivamente en cabeceras HTTP."""
         auth_header = self.headers.get("Authorization", "")
         token_candidate = None
         if auth_header.startswith("Bearer "):
             token_candidate = auth_header[7:].strip()
         elif "X-ZeroChat-Token" in self.headers:
             token_candidate = self.headers.get("X-ZeroChat-Token", "").strip()
-        elif "?" in self.path:
-            query = self.path.split("?", 1)[1]
-            for part in query.split("&"):
-                if part.startswith("token="):
-                    token_candidate = part.split("=", 1)[1].strip()
-                    break
 
         if not token_candidate:
             return False
@@ -1415,7 +1457,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not is_heartbeat:
             self._log_req("OPTIONS", safe_path)
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin):
+        if not is_allowed_origin(origin, require_origin=True):
             self.send_response(403)
             self.end_headers()
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
@@ -1533,8 +1575,25 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(401, safe_path, (time.monotonic() - t0) * 1000, "Token de sesión ausente o inválido")
             return
 
-        content_len = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
+        raw_content_len = self.headers.get("Content-Length")
+        try:
+            content_len = int(raw_content_len)
+        except (TypeError, ValueError):
+            self._log_req("POST", safe_path)
+            self._send_json_response(400, {"error": "Invalid Content-Length"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Content-Length inválido")
+            return
+        if content_len < 0:
+            self._log_req("POST", safe_path)
+            self._send_json_response(400, {"error": "Invalid Content-Length"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Content-Length negativo")
+            return
+        if content_len > MAX_HTTP_BODY_BYTES:
+            self._log_req("POST", safe_path)
+            self._send_json_response(413, {"error": "Request body too large"})
+            self._log_res(413, safe_path, (time.monotonic() - t0) * 1000, "Cuerpo HTTP excede el límite")
+            return
+        post_data = self.rfile.read(content_len)
 
         try:
             req = json.loads(post_data.decode("utf-8"))
@@ -1553,10 +1612,49 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, f"Error parseando JSON: {err}")
             return
 
-        req_path = self.path.split("?", 1)[0].rstrip("/")
+        if not isinstance(req, dict):
+            self._send_json_response(400, {"error": "Request must be a JSON object"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "La solicitud JSON no es un objeto")
+            return
+
         req_id = req.get("id")
         method = req.get("method")
         params = req.get("params", {})
+        if req.get("jsonrpc") != "2.0":
+            self._send_json_response(400, {"error": "Invalid JSON-RPC version"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Versión JSON-RPC inválida")
+            return
+        if req_id is not None and (isinstance(req_id, bool) or not isinstance(req_id, (str, int, float))):
+            self._send_json_response(400, {"error": "Invalid JSON-RPC id"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "id JSON-RPC inválido")
+            return
+        if not isinstance(method, str) or not method or len(method) > MAX_RPC_METHOD_LENGTH:
+            self._send_json_response(400, {"error": "Invalid JSON-RPC method"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Método JSON-RPC inválido")
+            return
+        if not isinstance(params, dict):
+            self._send_json_response(400, {"error": "Invalid JSON-RPC params"})
+            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "params JSON-RPC inválidos")
+            return
+
+        if method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > MAX_TOOL_NAME_LENGTH:
+                self._send_json_response(400, {"error": "Invalid tool name"})
+                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Nombre de herramienta inválido")
+                return
+            if not isinstance(tool_args, dict):
+                self._send_json_response(400, {"error": "Invalid tool arguments"})
+                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Argumentos de herramienta inválidos")
+                return
+            tool_args_error = validate_local_tool_arguments(tool_name, tool_args)
+            if tool_args_error:
+                self._send_json_response(400, {"error": tool_args_error})
+                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, tool_args_error)
+                return
+
+        req_path = self.path.split("?", 1)[0].rstrip("/")
 
         # Determinar etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
         tool_name = params.get("name", "") if isinstance(params, dict) else ""

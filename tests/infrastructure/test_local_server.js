@@ -80,7 +80,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     // 1. Esperar arranque
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
         if (probeRes.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -95,7 +95,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
     const unauthPost = await fetch(baseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     });
     assert.equal(unauthPost.status, 401, 'Petición POST sin token debe ser rechazada con 401');
@@ -105,17 +105,45 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
         'Authorization': 'Bearer wrong-token'
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })
     });
     assert.equal(invalidPost.status, 401, 'Petición con token erróneo debe ser 401');
 
+    // El token en la URL ya no autoriza peticiones.
+    const queryTokenGet = await fetch(`${baseUrl}/?token=${testToken}`);
+    assert.equal(queryTokenGet.status, 401, 'El token en query string debe ser rechazado');
+
+    const invalidShapeRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify([])
+    });
+    assert.equal(invalidShapeRes.status, 400, 'Una petición JSON que no sea un objeto debe rechazarse');
+
+    const oversizedRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: 'x'.repeat(1024 * 1024 + 1)
+    });
+    assert.equal(oversizedRes.status, 413, 'Un cuerpo superior al límite debe rechazarse');
+
     // 4. Comprobar autorización con cabecera Authorization: Bearer <token>
     const initRes = await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
         'Authorization': `Bearer ${testToken}`
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize', params: {} })
@@ -130,6 +158,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
         'X-ZeroChat-Token': testToken
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} })
@@ -151,6 +180,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
         'Authorization': `Bearer ${testToken}`
       },
       body: JSON.stringify({
@@ -163,16 +193,16 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
         }
       })
     });
-    assert.equal(obsoleteArgumentRes.status, 200);
+    assert.equal(obsoleteArgumentRes.status, 400);
     const obsoleteArgumentJson = await obsoleteArgumentRes.json();
-    assert.equal(obsoleteArgumentJson.result?.isError, true);
-    assert.match(obsoleteArgumentJson.result?.content?.[0]?.text || '', /max_depth/);
+    assert.match(obsoleteArgumentJson.error || '', /max_depth/);
 
     // 6. Comprobar ejecución de herramienta read_file
     const callRes = await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
         'Authorization': `Bearer ${testToken}`
       },
       body: JSON.stringify({
@@ -192,9 +222,9 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(parsedContent.success, true);
     assert.match(parsedContent.content, new RegExp(`"version": "${pkg.version}"`));
 
-    // 7. Comprobar flujo SSE con token en query param
-    const sseRes = await fetch(`${baseUrl}/sse?token=${testToken}`, {
-      headers: { 'Accept': 'text/event-stream' }
+    // 7. Comprobar flujo SSE con token en cabecera
+    const sseRes = await fetch(`${baseUrl}/sse`, {
+      headers: { 'Accept': 'text/event-stream', 'X-ZeroChat-Token': testToken }
     });
     assert.equal(sseRes.status, 200);
     assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
@@ -202,7 +232,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     // 8. Comprobar servicios MCP externos arrancables individualmente
     const statusRes = await fetch(baseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'zerochat/external/status', params: {} })
     });
     assert.equal(statusRes.status, 200);
@@ -219,7 +249,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     // Iniciar individualmente dummy_mcp
     const startRes = await fetch(baseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'dummy_mcp' } })
     });
     assert.equal(startRes.status, 200);
@@ -231,7 +261,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     // tools/list en /mcp/external
     const extToolsRes = await fetch(`${baseUrl}/mcp/external`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} })
     });
     assert.equal(extToolsRes.status, 200);
@@ -242,7 +272,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     // tools/call ejecutando dummy_mcp echo
     const extCallRes = await fetch(`${baseUrl}/mcp/external`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 9,
@@ -319,7 +349,7 @@ test('Detección de entorno de desarrollo y servicio de zerochat.html y estátic
     // 1. Esperar arranque
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const probe = await fetch(`${baseUrl}/?token=${testToken}`);
+        const probe = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
         if (probe.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -499,8 +529,8 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     // 1. Petición GET sin token (401 Unauthorized)
     await fetch(`${baseUrl}/`);
 
-    // 2. Petición GET con token en query (debe enmascararse token=***)
-    await fetch(`${baseUrl}/?token=${testToken}`);
+    // 2. Petición GET autenticada por cabecera
+    await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
 
     // 3. Petición POST con initialize
     await fetch(baseUrl, {
@@ -573,7 +603,6 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     assert.match(serverOutput, /\[\d{2}:\d{2}:\d{2}\]\s+<--\s+401 Unauthorized/, 'Debe registrarse error 401');
 
     // Validar que el token NUNCA se filtre en texto plano en stdout de las peticiones
-    assert.match(serverOutput, /GET\s+\/\?token=\*\*\*/, 'El token en URL debe aparecer enmascarado como token=***');
     const logsWithoutBanner = serverOutput.split('=' .repeat(30)).pop() || '';
     assert.ok(!logsWithoutBanner.includes(testToken), 'El token de sesión no debe fugarse en los logs de peticiones');
 
@@ -582,7 +611,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     assert.ok(!serverOutput.includes('confidential_key_abc_999'), 'Las claves en argumentos no deben imprimirse');
 
     // Validar que el tag de la herramienta y el error se registran
-    assert.match(serverOutput, /\[tools\/call:\s*read_file\]/, 'Debe registrarse el tag de la herramienta read_file');
+    assert.match(serverOutput, /Argumento no permitido: secret_payload/, 'Debe registrarse el rechazo del argumento no permitido');
     assert.match(serverOutput, /ERROR:/, 'Debe registrarse la etiqueta ERROR en fallos de herramientas');
     assert.match(serverOutput, /<--\s+400 Bad Request/, 'Debe registrarse error 400 en JSON malformado');
     assert.match(serverOutput, /\[-32601\]\s*Herramienta local 'herramienta_fantasma' no encontrada/, 'Debe registrarse error descriptivo de herramienta no encontrada');
@@ -613,7 +642,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     // 1. Esperar arranque
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
         if (probeRes.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -626,23 +655,23 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     const unauthHb = await fetch(`${baseUrl}/zerochat/heartbeat`);
     assert.equal(unauthHb.status, 401, 'Heartbeat sin token debe ser 401');
 
-    const invalidHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=token-invalido-xyz`);
+    const invalidHb = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': 'token-invalido-xyz' } });
     assert.equal(invalidHb.status, 401, 'Heartbeat con token inválido debe ser 401');
 
     // 3. Aceptación de /zerochat/heartbeat con token válido (200 {"ok": true})
-    const authHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
+    const authHb = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(authHb.status, 200, 'Heartbeat con token válido debe ser 200');
     const hbData = await authHb.json();
     assert.equal(hbData.ok, true, 'Heartbeat debe responder {"ok": true}');
 
     // 4. Latido sucesivo antes de que expire el timeout (a los 100ms) mantiene vivo el servidor
     await new Promise(resolve => setTimeout(resolve, 100));
-    const keepAliveHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
+    const keepAliveHb = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(keepAliveHb.status, 200, 'Heartbeat periódico debe mantener vivo el servidor');
 
     // 5. Intento con token inválido a los 50ms no debe renovar el watchdog
     await new Promise(resolve => setTimeout(resolve, 50));
-    const badTokenHb = await fetch(`${baseUrl}/zerochat/heartbeat?token=fake-token`);
+    const badTokenHb = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': 'fake-token' } });
     assert.equal(badTokenHb.status, 401, 'Token inválido debe seguir siendo rechazado');
 
     // 6. Esperar a que el watchdog detecte la inactividad (>0.2s desde el último válido) y apague el servidor automáticamente
@@ -681,21 +710,21 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   try {
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
         if (probeRes.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Enviar un heartbeat
-    const hbRes = await fetch(`${baseUrl}/zerochat/heartbeat?token=${testToken}`);
+    const hbRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(hbRes.status, 200);
 
     // Esperar 400ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.2)
     await new Promise(resolve => setTimeout(resolve, 400));
 
     // El servidor debe seguir activo porque --no-exit-on-close desactivó el watchdog
-    const checkRes = await fetch(`${baseUrl}/?token=${testToken}`);
+    const checkRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(checkRes.status, 200, 'El servidor debe seguir respondiendo con --no-exit-on-close');
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/, 'El banner debe indicar auto-cierre desactivado');
   } finally {
@@ -724,7 +753,7 @@ test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) in
     // 1. Esperar arranque
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const probeRes = await fetch(`${baseUrl}/?token=${testToken}`);
+        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
         if (probeRes.ok) break;
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
