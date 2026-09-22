@@ -9,18 +9,8 @@ webllm lista de modelos mejorar para movil
 
 norma de cambio de version rapido ande ta
 
-idiomas rag
-
 maximizar en movil
 
-seguridad de autoejecucion zerochat.py  >>> pip?
-
-comado curl no va en termux. probar mensaje
-
-penel mcp sin conexion raro
-
 Añadir mcps stdio y http
-
-Linea de comandos en .py
 
 Seguridad por defecto de playwrigth mas cebtrada
