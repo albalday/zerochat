@@ -60,6 +60,24 @@ finally:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) {
+  const start = Date.now();
+  let serverError = '';
+  if (serverProc && serverProc.stderr) {
+    serverProc.stderr.on('data', chunk => { serverError += chunk.toString(); });
+  }
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const probeRes = await fetch(`${baseUrl}/`, {
+        headers: testToken ? { 'X-ZeroChat-Token': testToken } : {}
+      });
+      if (probeRes.ok) return;
+    } catch (_) {}
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl} tras ${maxWaitMs}ms. Error: ${serverError}`);
+}
+
 test('Servidor local zerochat.py: token de sesión, herramientas core y aislamiento', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
@@ -78,16 +96,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
   try {
     // 1. Esperar arranque
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-        if (probeRes.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (attempt === 29) {
-        assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl}. Error: ${serverError}`);
-      }
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // 2. Comprobar rechazo sin token (HTTP 401)
     const unauthGet = await fetch(`${baseUrl}/`);
@@ -347,13 +356,7 @@ test('Detección de entorno de desarrollo y servicio de zerochat.html y estátic
 
   try {
     // 1. Esperar arranque
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probe = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-        if (probe.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // 2. Verificar detección en stdout del banner
     assert.match(serverOutput, /Modo de ejecución\s*:\s*Desarrollo local/);
@@ -518,13 +521,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
 
   try {
     // Esperar arranque comprobando probe con token
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probe = await fetch(`${baseUrl}/?token=${testToken}`);
-        if (probe.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // 1. Petición GET sin token (401 Unauthorized)
     await fetch(`${baseUrl}/`);
@@ -640,16 +637,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
 
   try {
     // 1. Esperar arranque
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-        if (probeRes.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (attempt === 29) {
-        assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl}`);
-      }
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // 2. Rechazo de /zerochat/heartbeat sin token o con token inválido (401)
     const unauthHb = await fetch(`${baseUrl}/zerochat/heartbeat`);
@@ -708,13 +696,7 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
 
   try {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-        if (probeRes.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // Enviar un heartbeat
     const hbRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
@@ -751,13 +733,7 @@ test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) in
 
   try {
     // 1. Esperar arranque
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const probeRes = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
-        if (probeRes.ok) break;
-      } catch (_) {}
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForServer(baseUrl, testToken, serverProc);
 
     // 2. Enviar petición RPC a /mcp/external con token (tools/list)
     const rpcRes = await fetch(`${baseUrl}/mcp/external`, {
