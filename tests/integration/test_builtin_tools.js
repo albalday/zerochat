@@ -271,3 +271,58 @@ test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML c
   assert.ok(swCard.innerHTML.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
   assert.equal(swCard.innerHTML.includes('<script>'), false);
 });
+
+test('Builtin Tools - update_plan valida tareas, sincroniza con ChatState y formatea markdown', async () => {
+  const UpdatePlanTool = BUILTIN_BY_ID.get('update_plan');
+  assert.ok(UpdatePlanTool, 'update_plan debe estar disponible en builtin tools');
+  const tool = UpdatePlanTool.createTool(AgentCore.Tool);
+
+  const mockState = {
+    plan: null,
+    setAgentPlan(plan) {
+      this.plan = plan;
+    }
+  };
+
+  const tasks = [
+    { title: 'Revisar propuesta técnica', status: 'completed' },
+    { title: 'Ejecutar fase 3', status: 'in_progress' },
+    { title: 'Verificar tests', status: 'pending' }
+  ];
+
+  const execRes = await tool.execute({ tasks }, { services: { state: mockState } });
+  assert.equal(execRes.success, true);
+  assert.equal(execRes.count, 3);
+  assert.equal(execRes.completed, 1);
+  assert.deepEqual(mockState.plan, [
+    { title: 'Revisar propuesta técnica', status: 'completed' },
+    { title: 'Ejecutar fase 3', status: 'in_progress' },
+    { title: 'Verificar tests', status: 'pending' }
+  ]);
+
+  const md = tool.formatDispatchMarkdown({ tasks }, execRes);
+  assert.ok(md.includes('[1/3 completadas]'));
+  assert.ok(md.includes('[x] Revisar propuesta técnica'));
+
+  // Rechazo de tareas inválidas
+  const invalidRes = await tool.execute({ tasks: 'not-an-array' });
+  assert.equal(invalidRes.success, false);
+});
+
+test('Builtin Tools - finish_task requiere summary y señala detención limpia al bucle agéntico', async () => {
+  const FinishTaskTool = BUILTIN_BY_ID.get('finish_task');
+  assert.ok(FinishTaskTool, 'finish_task debe estar disponible en builtin tools');
+  const tool = FinishTaskTool.createTool(AgentCore.Tool);
+
+  const invalidRes = await tool.execute({ summary: '' });
+  assert.equal(invalidRes.success, false);
+
+  const validRes = await tool.execute({ summary: 'Fase 3 completada con éxito.' });
+  assert.equal(validRes.success, true);
+  assert.equal(validRes.finishTask, true);
+  assert.equal(validRes.summary, 'Fase 3 completada con éxito.');
+
+  const md = tool.formatDispatchMarkdown({ summary: 'Fase 3' }, validRes);
+  assert.ok(md.includes('finish_task'));
+  assert.ok(md.includes('Fase 3 completada con éxito.'));
+});

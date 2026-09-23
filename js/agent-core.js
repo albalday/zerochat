@@ -309,6 +309,10 @@
       // 9. Punto de control agéntico multipropósito
       tools.push(createBuiltinTool('agent_checkpoint', 'ChatBuiltinAgentCheckpointTool', './tools/builtin/agent-checkpoint.tool.js'));
 
+      // 10-11. Control agéntico de plan y finalización formal de tareas
+      tools.push(createBuiltinTool('update_plan', 'ChatBuiltinUpdatePlanTool', './tools/builtin/update-plan.tool.js'));
+      tools.push(createBuiltinTool('finish_task', 'ChatBuiltinFinishTaskTool', './tools/builtin/finish-task.tool.js'));
+
       return tools;
     }
   }
@@ -1391,6 +1395,12 @@
               toolMsg: executedToolMessages[0],
               toolMsgs: executedToolMessages
             });
+          }
+
+          const hasFinishSignal = stepExecResults.some(r => r?.result?.finishTask === true || r?.toolName === 'finish_task');
+          if (hasFinishSignal) {
+            status = 'completed';
+            break;
           }
 
           stepIndex++;

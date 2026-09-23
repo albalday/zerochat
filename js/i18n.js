@@ -337,6 +337,13 @@
       tool_agent_checkpoint_findings: 'Hallazgos clave:',
       tool_agent_checkpoint_missing: 'Información faltante:',
       tool_agent_checkpoint_next: 'Siguiente hipótesis / paso:',
+      tool_update_plan_title: 'Plan de trabajo del agente',
+      tool_update_plan_loading: 'Actualizando plan de tareas...',
+      tool_update_plan_updated: 'Plan actualizado',
+      tool_finish_task_title: 'Finalización de tarea',
+      tool_finish_task_loading: 'Cerrando tarea...',
+      tool_finish_task_completed: 'Tarea finalizada con éxito',
+      tool_finish_task_summary: 'Resumen de ejecución:',
 
       // Modal de Configuración
       modal_title: 'Configuración del Chat',
@@ -980,6 +987,13 @@
       tool_agent_checkpoint_findings: 'Key findings:',
       tool_agent_checkpoint_missing: 'Missing info:',
       tool_agent_checkpoint_next: 'Next hypothesis / step:',
+      tool_update_plan_title: 'Agent Work Plan',
+      tool_update_plan_loading: 'Updating task plan...',
+      tool_update_plan_updated: 'Plan updated',
+      tool_finish_task_title: 'Task Completion',
+      tool_finish_task_loading: 'Finishing task...',
+      tool_finish_task_completed: 'Task successfully completed',
+      tool_finish_task_summary: 'Execution summary:',
 
       // Modal de Configuración
       modal_title: 'Chat Settings',

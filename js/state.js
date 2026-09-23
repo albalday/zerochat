@@ -554,6 +554,16 @@
       return { ok: true, state: getState() };
     }
 
+    function setAgentPlan(plan) {
+      if (!Array.isArray(plan)) {
+        throw new Error('[ChatState] setAgentPlan: plan debe ser un array de tareas.');
+      }
+      setState({
+        agent: Object.assign({}, state.agent, { plan: clone(plan) })
+      });
+      return { ok: true, state: getState() };
+    }
+
     function enqueueNotice(notice) {
       if (!notice || typeof notice.message !== 'string' || typeof notice.title !== 'string' ||
           !['info', 'success', 'error'].includes(notice.type) ||
@@ -668,6 +678,7 @@
       clearGenerationStatus,
       enqueueNotice,
       dismissNotice,
+      setAgentPlan,
       CANONICAL_SLICES
     };
   }
@@ -699,6 +710,7 @@
     setGenerationStatus: defaultStore.setGenerationStatus,
     clearGenerationStatus: defaultStore.clearGenerationStatus,
     enqueueNotice: defaultStore.enqueueNotice,
-    dismissNotice: defaultStore.dismissNotice
+    dismissNotice: defaultStore.dismissNotice,
+    setAgentPlan: defaultStore.setAgentPlan
   };
 }));

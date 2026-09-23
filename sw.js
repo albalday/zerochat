@@ -62,6 +62,8 @@ const PRECACHE_ASSETS = [
   './js/tools/builtin/read-knowledge-chunk.tool.js',
   './js/tools/builtin/read-knowledge-image.tool.js',
   './js/tools/builtin/agent-checkpoint.tool.js',
+  './js/tools/builtin/update-plan.tool.js',
+  './js/tools/builtin/finish-task.tool.js',
   './js/tool-security.js',
   './js/agent-core.js',
   './js/mcp.js',
