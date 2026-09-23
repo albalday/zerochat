@@ -470,6 +470,313 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
+def get_diagnostics(path: str | None = None) -> str:
+    """Obtiene errores de sintaxis y diagnósticos para un archivo o para el workspace."""
+    try:
+        if path is not None and str(path).strip():
+            target = Path(str(path).strip()).expanduser().resolve()
+        else:
+            target = Path.cwd().resolve()
+
+        if not target.exists():
+            return json.dumps({
+                "success": False,
+                "error": f"La ruta '{path}' no existe."
+            }, ensure_ascii=False)
+
+        diagnostics: list[dict] = []
+        files_checked = 0
+
+        def check_single_file(fpath: Path) -> list[dict]:
+            ext = fpath.suffix.lower()
+            file_diags: list[dict] = []
+            try:
+                rel_display = str(fpath.relative_to(Path.cwd()))
+            except ValueError:
+                rel_display = str(fpath)
+
+            if ext == ".py":
+                try:
+                    content = fpath.read_text(encoding="utf-8", errors="replace")
+                    compile(content, str(fpath), "exec")
+                except (SyntaxError, IndentationError) as e:
+                    file_diags.append({
+                        "file": rel_display,
+                        "line": e.lineno or 1,
+                        "column": e.offset or 1,
+                        "severity": "error",
+                        "message": f"SyntaxError: {e.msg}"
+                    })
+            elif ext in (".js", ".mjs", ".cjs"):
+                node_bin = shutil.which("node")
+                if node_bin:
+                    try:
+                        res = subprocess.run([node_bin, "--check", str(fpath)], capture_output=True, text=True, timeout=10)
+                        if res.returncode != 0:
+                            stderr = res.stderr or ""
+                            line_match = re.search(r':(\d+)\n([^\n]+)\n(\s*)\^', stderr)
+                            line = int(line_match.group(1)) if line_match else 1
+                            col = len(line_match.group(3)) + 1 if line_match else 1
+                            msg_match = re.search(r'(SyntaxError:[^\n]+)', stderr)
+                            msg = msg_match.group(1) if msg_match else (stderr.strip().splitlines()[-1] if stderr.strip() else "Syntax error")
+                            file_diags.append({
+                                "file": rel_display,
+                                "line": line,
+                                "column": col,
+                                "severity": "error",
+                                "message": msg
+                            })
+                    except Exception:
+                        pass
+            elif ext == ".json":
+                try:
+                    content = fpath.read_text(encoding="utf-8", errors="replace")
+                    json.loads(content)
+                except json.JSONDecodeError as e:
+                    file_diags.append({
+                        "file": rel_display,
+                        "line": e.lineno,
+                        "column": e.colno,
+                        "severity": "error",
+                        "message": f"JSONDecodeError: {e.msg}"
+                    })
+            return file_diags
+
+        if target.is_file():
+            files_checked = 1
+            diagnostics.extend(check_single_file(target))
+        else:
+            ignore_dirs = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__", ".gemini", ".cache"}
+            max_scan = 200
+            for root, dirs, files in os.walk(target):
+                dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+                for fname in sorted(files):
+                    fp = Path(root) / fname
+                    if fp.suffix.lower() in (".py", ".js", ".mjs", ".cjs", ".json"):
+                        files_checked += 1
+                        diagnostics.extend(check_single_file(fp))
+                        if files_checked >= max_scan:
+                            break
+                if files_checked >= max_scan:
+                    break
+
+        error_count = sum(1 for d in diagnostics if d.get("severity") == "error")
+        warning_count = sum(1 for d in diagnostics if d.get("severity") == "warning")
+        msg = f"Se encontraron {len(diagnostics)} problema(s)." if diagnostics else "No se encontraron errores de diagnóstico."
+
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "files_checked": files_checked,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "diagnostics": diagnostics,
+            "message": msg
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+class PersistentBrowserSession:
+    """Gestiona una sesión persistente de navegador headless (Playwright) para browser_action."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        atexit.register(self.close)
+
+    def _ensure_running(self) -> subprocess.Popen:
+        if self._process is not None and self._process.poll() is None:
+            return self._process
+
+        node = shutil.which("node")
+        if not node:
+            raise RuntimeError("Node.js no está instalado o no se encuentra en el PATH del sistema.")
+
+        runner_js = """
+const readline = require('readline');
+let playwright;
+try {
+  playwright = require('playwright');
+} catch (e1) {
+  try {
+    const path = require('path');
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    playwright = require(path.join(home, 'zerochat', 'services', 'playwright', 'node_modules', 'playwright'));
+  } catch (e2) {
+    console.log(JSON.stringify({
+      success: false,
+      error: "Playwright no está disponible. Instálalo con 'npm install playwright' o habilita el servicio MCP Playwright."
+    }));
+    process.exit(1);
+  }
+}
+
+(async () => {
+  let browser, context, page;
+  try {
+    browser = await playwright.chromium.launch({ headless: true });
+    context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    page = await context.newPage();
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: 'Error al iniciar Chromium: ' + err.message }));
+    process.exit(1);
+  }
+
+  console.log(JSON.stringify({ ready: true }));
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let req;
+    try {
+      req = JSON.parse(line);
+    } catch (e) {
+      console.log(JSON.stringify({ success: false, error: 'JSON de comando no válido' }));
+      continue;
+    }
+
+    try {
+      const act = req.action;
+      if (act === 'navigate') {
+        if (!req.url) throw new Error("El parámetro 'url' es obligatorio para la acción 'navigate'");
+        await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'navigate',
+          url: page.url(),
+          title: await page.title()
+        }));
+      } else if (act === 'screenshot') {
+        if (req.url && req.url !== page.url()) {
+          await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+        const buf = await page.screenshot({ fullPage: false });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'screenshot',
+          image_base64: buf.toString('base64'),
+          mime_type: 'image/png',
+          url: page.url(),
+          title: await page.title()
+        }));
+      } else if (act === 'click') {
+        if (!req.selector) throw new Error("El parámetro 'selector' es obligatorio para la acción 'click'");
+        await page.click(req.selector, { timeout: 15000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'click',
+          selector: req.selector,
+          url: page.url()
+        }));
+      } else if (act === 'fill') {
+        if (!req.selector) throw new Error("El parámetro 'selector' es obligatorio para la acción 'fill'");
+        await page.fill(req.selector, req.value || '', { timeout: 15000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'fill',
+          selector: req.selector,
+          value: req.value || '',
+          url: page.url()
+        }));
+      } else if (act === 'close') {
+        await browser.close();
+        console.log(JSON.stringify({ success: true, action: 'close' }));
+        process.exit(0);
+      } else {
+        console.log(JSON.stringify({ success: false, error: 'Acción no soportada: ' + act }));
+      }
+    } catch (err) {
+      console.log(JSON.stringify({ success: false, error: err.message, action: req.action }));
+    }
+  }
+})();
+"""
+        proc = subprocess.Popen(
+            [node, "-e", runner_js],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            bufsize=1
+        )
+        self._process = proc
+        first_line = proc.stdout.readline()
+        if not first_line:
+            err = proc.stderr.read()
+            self._process = None
+            raise RuntimeError(f"Fallo al inicializar el navegador headless: {err or 'proceso terminado inesperadamente'}")
+        data = json.loads(first_line)
+        if not data.get("ready"):
+            self._process = None
+            raise RuntimeError(data.get("error", "Error desconocido iniciando el navegador"))
+
+        return proc
+
+    def execute(self, command: dict) -> dict:
+        with self._lock:
+            try:
+                proc = self._ensure_running()
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+            req_json = json.dumps(command, ensure_ascii=False) + "\n"
+            try:
+                proc.stdin.write(req_json)
+                proc.stdin.flush()
+                resp_line = proc.stdout.readline()
+                if not resp_line:
+                    self.close()
+                    return {"success": False, "error": "El proceso del navegador se cerró inesperadamente."}
+                return json.loads(resp_line)
+            except Exception as e:
+                self.close()
+                return {"success": False, "error": f"Error ejecutando acción de navegador: {e}"}
+
+    def close(self):
+        with self._lock:
+            if self._process is not None:
+                try:
+                    if self._process.poll() is None:
+                        try:
+                            self._process.stdin.write(json.dumps({"action": "close"}) + "\n")
+                            self._process.stdin.flush()
+                            self._process.wait(timeout=2)
+                        except Exception:
+                            self._process.kill()
+                except Exception:
+                    pass
+                self._process = None
+
+
+_BROWSER_SESSION = PersistentBrowserSession()
+
+
+def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
+    """Controla un navegador headless para pruebas e inspección de UI."""
+    try:
+        act = (action or "").strip().lower()
+        if act not in ("navigate", "screenshot", "click", "fill"):
+            return json.dumps({
+                "success": False,
+                "error": f"Acción de navegador no válida: '{action}'. Acciones válidas: navigate, screenshot, click, fill."
+            }, ensure_ascii=False)
+
+        cmd = {"action": act}
+        if url:
+            cmd["url"] = str(url).strip()
+        if selector:
+            cmd["selector"] = str(selector).strip()
+        if value is not None:
+            cmd["value"] = str(value)
+
+        result = _BROWSER_SESSION.execute(cmd)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
 LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "list_directory",
@@ -562,6 +869,34 @@ LOCAL_TOOLS_DEFINITIONS = [
             },
             "required": ["command"]
         }
+    },
+    {
+        "name": "get_diagnostics",
+        "description": "Obtiene diagnósticos de sintaxis y errores de código para un archivo o para todo el espacio de trabajo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Ruta del archivo o directorio a analizar (por defecto '.')"}
+            }
+        }
+    },
+    {
+        "name": "browser_action",
+        "description": "Controla un navegador headless (Playwright) para navegación web, pruebas de interfaz e inspección visual con capturas de pantalla.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["navigate", "screenshot", "click", "fill"],
+                    "description": "Acción a realizar en el navegador"
+                },
+                "url": {"type": "string", "description": "URL de destino para navigate o screenshot"},
+                "selector": {"type": "string", "description": "Selector CSS para acciones click o fill"},
+                "value": {"type": "string", "description": "Texto a introducir para la acción fill"}
+            },
+            "required": ["action"]
+        }
     }
 ]
 
@@ -572,6 +907,8 @@ LOCAL_TOOL_HANDLERS = {
     "edit_file": edit_file,
     "bash": bash,
     "search_files": search_files,
-    "execute_command": execute_command
+    "execute_command": execute_command,
+    "get_diagnostics": get_diagnostics,
+    "browser_action": browser_action
 }
 

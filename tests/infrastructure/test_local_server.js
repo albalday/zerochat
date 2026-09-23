@@ -189,6 +189,8 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('bash'));
     assert.ok(toolNames.includes('search_files'));
     assert.ok(toolNames.includes('execute_command'));
+    assert.ok(toolNames.includes('get_diagnostics'));
+    assert.ok(toolNames.includes('browser_action'));
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
@@ -457,6 +459,66 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(parsedSearch.success, true);
     assert.ok(parsedSearch.total_matches > 0);
     assert.ok(parsedSearch.matches.some(m => m.relative_path.includes('dd-tools.py') || m.relative_path.includes('zerochat.py')));
+
+    // 6.7. Comprobar get_diagnostics en archivo específico
+    const diagRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 61,
+        method: 'tools/call',
+        params: {
+          name: 'get_diagnostics',
+          arguments: { path: 'package.json' }
+        }
+      })
+    });
+    assert.equal(diagRes.status, 200);
+    const diagJson = await diagRes.json();
+    const parsedDiag = JSON.parse(diagJson.result?.content?.[0]?.text);
+    assert.equal(parsedDiag.success, true);
+    assert.equal(parsedDiag.error_count, 0);
+
+    // 6.8. Comprobar browser_action (navigate y screenshot)
+    const navRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 62,
+        method: 'tools/call',
+        params: {
+          name: 'browser_action',
+          arguments: { action: 'navigate', url: 'about:blank' }
+        }
+      })
+    });
+    assert.equal(navRes.status, 200);
+    const navJson = await navRes.json();
+    const parsedNav = JSON.parse(navJson.result?.content?.[0]?.text);
+    assert.equal(parsedNav.success, true);
+    assert.equal(parsedNav.action, 'navigate');
+
+    const screenshotRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 63,
+        method: 'tools/call',
+        params: {
+          name: 'browser_action',
+          arguments: { action: 'screenshot' }
+        }
+      })
+    });
+    assert.equal(screenshotRes.status, 200);
+    const screenshotJson = await screenshotRes.json();
+    const parsedScreenshot = JSON.parse(screenshotJson.result?.content?.[0]?.text);
+    assert.equal(parsedScreenshot.success, true);
+    assert.equal(parsedScreenshot.action, 'screenshot');
+    assert.ok(typeof parsedScreenshot.image_base64 === 'string' && parsedScreenshot.image_base64.length > 50);
 
     // 7. Comprobar flujo SSE con token en cabecera
     const sseRes = await fetch(`${baseUrl}/sse`, {

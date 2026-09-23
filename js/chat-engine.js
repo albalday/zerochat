@@ -205,7 +205,7 @@
           content: toolContent
         });
 
-        // La imagen recuperada por RAG se entrega como evidencia visual en el
+        // La imagen recuperada por RAG o por browser_action se entrega como evidencia visual en el
         // siguiente turno de inferencia, sin convertirla en un mensaje visible
         // ni en texto/base64 dentro del resultado de la herramienta.
         const image = Array.isArray(m.images) ? m.images.find(item => item?.dataUrl) : null;
@@ -216,6 +216,14 @@
             role: 'user',
             content: [
               { type: 'text', text: `Visual evidence retrieved by read_knowledge_image${provenance ? `: ${provenance}` : '.'}` },
+              { type: 'image_url', image_url: { url: image.dataUrl } }
+            ]
+          });
+        } else if ((toolName === 'browser_action' || toolName.endsWith('browser_action')) && image) {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: `Screenshot captured by ${toolName}${image.url ? ` (${image.url})` : ''}:` },
               { type: 'image_url', image_url: { url: image.dataUrl } }
             ]
           });

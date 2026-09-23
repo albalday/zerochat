@@ -48,6 +48,15 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "command": (str, MAX_COMMAND_LENGTH),
             "cwd": (str, MAX_PATH_LENGTH),
             "timeout_seconds": (int, None)
+        },
+        "get_diagnostics": {
+            "path": (str, MAX_PATH_LENGTH)
+        },
+        "browser_action": {
+            "action": (str, 32),
+            "url": (str, 4096),
+            "selector": (str, 1024),
+            "value": (str, MAX_HTTP_BODY_BYTES)
         }
     }
     schema = schemas.get(tool_name)
@@ -74,7 +83,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "edit_file": ("path",),
         "bash": ("command",),
         "search_files": ("query",),
-        "execute_command": ("command",)
+        "execute_command": ("command",),
+        "browser_action": ("action",)
     }
     for name in required.get(tool_name, ()):
         if name not in arguments:
@@ -85,6 +95,10 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         has_legacy = "content" in arguments
         if not has_surgical and not has_legacy:
             return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
+
+    if tool_name == "browser_action":
+        if arguments.get("action") not in ("navigate", "screenshot", "click", "fill"):
+            return f"Acción de navegador no permitida: {arguments.get('action')}"
 
     return None
 

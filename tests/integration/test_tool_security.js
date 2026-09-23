@@ -45,11 +45,14 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
   const editTool = { id: 'zmcp_edit_file', name: 'zmcp_edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
   const writeTool = { id: 'zmcp_write_file', name: 'zmcp_write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
   const searchTool = { id: 'zmcp_search_files', name: 'zmcp_search_files', category: 'mcp', metadata: { originalName: 'search_files' } };
+  const diagTool = { id: 'zmcp_get_diagnostics', name: 'zmcp_get_diagnostics', category: 'mcp', metadata: { originalName: 'get_diagnostics' } };
 
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project/README.md' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(searchTool, { path: './project' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(searchTool, { path: '../secret' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(diagTool, { path: './project/README.md' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(diagTool, { path: '../secret.py' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/src/app.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(writeTool, { path: './project/src/new.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/README.md' }).status, 'ask');

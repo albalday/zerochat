@@ -1316,10 +1316,23 @@
                 : execResult.tool.serializeResultForModel(execResult.args, execResult.result, execResult.outcome);
               const serializedText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
 
-              // Las imágenes RAG se preservan como metadatos del mensaje de herramienta.
+              // Las imágenes RAG y capturas de browser_action se preservan como metadatos del mensaje de herramienta.
               // ChatEngine las transforma en evidencia multimodal en la siguiente petición.
               const ragDataUrl = execResult.result?.dataUrl;
               const ragMimeType = execResult.result?.mimeType;
+              let imgBase64 = execResult.result?.image_base64 || execResult.result?.imageData;
+              let imgMime = execResult.result?.mime_type || execResult.result?.mimeType || 'image/png';
+
+              if (!imgBase64 && typeof execResult.result === 'string') {
+                try {
+                  const parsed = JSON.parse(execResult.result);
+                  if (parsed && parsed.image_base64) {
+                    imgBase64 = parsed.image_base64;
+                    imgMime = parsed.mime_type || imgMime;
+                  }
+                } catch (e) {}
+              }
+
               if (ragDataUrl && ragMimeType) {
                 toolResponseContent = serializedText;
                 toolImages = [{
@@ -1327,6 +1340,25 @@
                   imageRef: execResult.result.imageRef,
                   documentTitle: execResult.result.documentTitle,
                   page: execResult.result.page
+                }];
+              } else if (imgBase64) {
+                const dataUrl = imgBase64.startsWith('data:') ? imgBase64 : `data:${imgMime};base64,${imgBase64}`;
+                let textForModel = serializedText;
+                try {
+                  let parsedObj = typeof execResult.result === 'object' && execResult.result !== null
+                    ? { ...execResult.result }
+                    : JSON.parse(serializedText);
+                  if (parsedObj && parsedObj.image_base64) {
+                    parsedObj.image_base64 = `[Base64 image (${imgMime}), length: ${imgBase64.length} chars - injected as visual evidence]`;
+                    textForModel = JSON.stringify(parsedObj, null, 2);
+                  }
+                } catch (e) {}
+                toolResponseContent = textForModel;
+                toolImages = [{
+                  dataUrl,
+                  mimeType: imgMime,
+                  action: execResult.result?.action || 'screenshot',
+                  url: execResult.result?.url
                 }];
               } else {
                 toolResponseContent = serializedText;
