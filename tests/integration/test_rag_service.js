@@ -112,7 +112,7 @@ test('RagService - impide leer chunks de una rama distinta', async () => {
   const search = await RagService.searchKnowledgeBase(branch.id, { query: 'Kubernetes', tolerance: 0 });
   const read = await RagService.readKnowledgeChunk(foreign.id, { chunkId: search.matches[0].chunkId });
   assert.equal(read.success, false);
-  assert.match(read.error, /ramas activas/);
+  assert.match(read.error, /active branches|ramas activas/);
 });
 
 test('RagService - recupera una imagen solo desde una rama activa', async () => {
@@ -131,7 +131,7 @@ test('RagService - recupera una imagen solo desde una rama activa', async () => 
   const foreign = await RagStorage.createBranch('Ajena');
   const rejected = await RagService.readKnowledgeImage(foreign.id, { imageRef: result.imageRef });
   assert.equal(rejected.success, false);
-  assert.match(rejected.error, /ramas activas/);
+  assert.match(rejected.error, /active branches|ramas activas/);
 });
 
 test('RagService - valida referencias e imágenes inexistentes', async () => {
@@ -142,7 +142,7 @@ test('RagService - valida referencias e imágenes inexistentes', async () => {
 
   const missing = await RagService.readKnowledgeImage(branch.id, { imageRef: `rag-image://${document.id}:img_404` });
   assert.equal(missing.success, false);
-  assert.match(missing.error, /No existe/);
+  assert.match(missing.error, /No usable image exists|No existe/);
 });
 
 test('RagService - soporta múltiples ramas activas simultáneamente', async () => {

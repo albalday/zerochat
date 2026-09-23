@@ -96,7 +96,7 @@
         if (!summary) {
           return {
             success: false,
-            error: 'summary es obligatorio para finalizar la tarea formalmente.'
+            error: 'summary is required to complete the task.'
           };
         }
 

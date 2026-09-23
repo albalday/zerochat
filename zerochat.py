@@ -392,13 +392,13 @@ def check_version():
 # ==============================================================================
 
 def list_directory(path: str = ".", recursive: bool = False) -> str:
-    """Lista los archivos y carpetas de un directorio local, con soporte recursivo acotado."""
+    """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"La ruta '{path}' no existe."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"La ruta '{path}' no es un directorio."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
 
         max_depth = 3 if recursive else 1
         entries = []
@@ -447,13 +447,13 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
 
 
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000) -> str:
-    """Lee el contenido de texto de un archivo local en streaming con rangos y límites seguros."""
+    """Read text content from a local file in streaming mode with safe ranges and bounds."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"El archivo '{path}' no existe."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"File '{path}' does not exist."}, ensure_ascii=False)
         if not target.is_file():
-            return json.dumps({"success": False, "error": f"La ruta '{path}' no es un archivo regular."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
@@ -522,7 +522,7 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
 
 
 def write_file(path: str, content: str) -> str:
-    """Crea o sobrescribe un archivo completo de forma atómica."""
+    """Create or overwrite a file completely and atomically."""
     try:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -541,16 +541,16 @@ def write_file(path: str, content: str) -> str:
 
 
 def edit_file(path: str, old_str: str = None, new_str: str = None, content: str = None, mode: str = "surgical", target_content: str = None) -> str:
-    """Modifica un archivo existente de forma quirúrgica o atómica."""
+    """Modify an existing file surgically or atomically."""
     try:
         target = Path(path).expanduser().resolve()
 
-        # Modo quirúrgico preferido (old_str -> new_str)
+        # Preferred surgical mode (old_str -> new_str)
         if old_str is not None and new_str is not None:
             if not target.exists():
-                return json.dumps({"success": False, "error": f"El archivo '{path}' no existe. Usa read_file para verificar las rutas existentes."}, ensure_ascii=False)
+                return json.dumps({"success": False, "error": f"File '{path}' does not exist. Use read_file to verify existing paths."}, ensure_ascii=False)
             if not target.is_file():
-                return json.dumps({"success": False, "error": f"La ruta '{path}' no es un archivo regular."}, ensure_ascii=False)
+                return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 file_text = f.read()
@@ -559,12 +559,12 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             if occurrences == 0:
                 return json.dumps({
                     "success": False,
-                    "error": f"No se encontró el texto especificado en '{path}'. Comprueba el contenido exacto del archivo con read_file."
+                    "error": f"Target text was not found in '{path}'. Check exact file content with read_file."
                 }, ensure_ascii=False)
             if occurrences > 1:
                 return json.dumps({
                     "success": False,
-                    "error": f"Se encontraron {occurrences} coincidencias para el fragmento en '{path}'. Proporciona mayor contexto circundante en old_str para que la sustitución sea unívoca."
+                    "error": f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match."
                 }, ensure_ascii=False)
 
             updated_text = file_text.replace(old_str, new_str, 1)
@@ -580,9 +580,9 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
                 "replacements": 1
             }, ensure_ascii=False, indent=2)
 
-        # Modos legados (write, append, replace_chunk)
+        # Legacy modes (write, append, replace_chunk)
         if content is None:
-            return json.dumps({"success": False, "error": "Debes proporcionar old_str y new_str para edición quirúrgica, o content para modos compatibles."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": "Must provide old_str and new_str for surgical edit, or content for compatible modes."}, ensure_ascii=False)
 
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == "append":
@@ -591,15 +591,15 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             bytes_written = len(content.encode("utf-8"))
         elif mode == "replace_chunk":
             if not target.exists():
-                return json.dumps({"success": False, "error": f"El archivo '{path}' no existe para replace_chunk."}, ensure_ascii=False)
+                return json.dumps({"success": False, "error": f"File '{path}' does not exist for replace_chunk."}, ensure_ascii=False)
             if not target_content:
-                return json.dumps({"success": False, "error": "target_content es obligatorio en modo replace_chunk."}, ensure_ascii=False)
+                return json.dumps({"success": False, "error": "target_content is required in replace_chunk mode."}, ensure_ascii=False)
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 existing = f.read()
 
             if target_content not in existing:
-                return json.dumps({"success": False, "error": "target_content no fue encontrado en el archivo."}, ensure_ascii=False)
+                return json.dumps({"success": False, "error": "target_content was not found in the file."}, ensure_ascii=False)
 
             new_text = existing.replace(target_content, content, 1)
             temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
@@ -625,7 +625,7 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
-    """Salidas >8.000 caracteres se truncan a primeras 50 líneas + aviso + últimas 30 líneas."""
+    """Outputs >8,000 characters are truncated to first 50 lines + warning + last 30 lines."""
     if len(text) <= max_chars:
         return text, False
     lines = text.splitlines(keepends=True)
@@ -633,19 +633,19 @@ def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int =
         half = max_chars // 2
         return (
             text[:half]
-            + f"\n\n[... Salida truncada por longitud ({len(text)} caracteres en total) ...]\n\n"
+            + f"\n\n[... Output truncated due to length ({len(text)} total characters) ...]\n\n"
             + text[-half:],
             True
         )
     omitted = len(lines) - head_lines - tail_lines
     head = "".join(lines[:head_lines])
     tail = "".join(lines[-tail_lines:])
-    warning = f"\n\n[... Salida truncada: se omitieron {omitted} líneas ({len(text)} caracteres en total) ...]\n\n"
+    warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
     return head + warning + tail, True
 
 
 class PersistentBashSession:
-    """Mantiene el directorio de trabajo (cwd) y variables de entorno entre llamadas sucesivas."""
+    """Maintains working directory (cwd) and environment variables across successive calls."""
     def __init__(self):
         self._dir = tempfile.mkdtemp(prefix="zerochat_bash_")
         self._cwd_file = Path(self._dir) / "cwd"
@@ -707,7 +707,7 @@ class PersistentBashSession:
                     proc.communicate()
                     return json.dumps({
                         "success": False,
-                        "error": f"Comando excedió el tiempo límite de {timeout_seconds} segundos (terminado con SIGKILL).",
+                        "error": f"Command timed out after {timeout_seconds} seconds (terminated with SIGKILL).",
                         "cwd": self._cwd
                     }, ensure_ascii=False)
 
@@ -745,12 +745,12 @@ BASH_SESSION = PersistentBashSession()
 
 
 def bash(command: str, timeout_seconds: int = 30) -> str:
-    """Ejecuta un comando en la shell bash interactiva persistente."""
+    """Execute a command in an interactive persistent bash shell session."""
     return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
 
 
 def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> str:
-    """Ejecuta un comando en la shell del sistema y devuelve stdout y stderr."""
+    """Execute a command in the system shell and capture stdout and stderr."""
     if cwd == "." or cwd == BASH_SESSION._cwd:
         return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
     try:
@@ -779,19 +779,19 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
             "truncated": was_out_trunc or was_err_trunc
         }, ensure_ascii=False, indent=2)
     except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": f"Comando excedió el tiempo límite de {timeout_seconds} segundos."}, ensure_ascii=False)
+        return json.dumps({"success": False, "error": f"Command timed out after {timeout_seconds} seconds."}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
-    """Búsqueda recursiva por texto plano o expresión regular en archivos del proyecto."""
+    """Recursively search for plain text or regular expressions across project files."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"La ruta '{path}' no existe."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"La ruta '{path}' no es un directorio."}, ensure_ascii=False)
+            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
 
         try:
             regex = re.compile(query, re.MULTILINE)
@@ -860,7 +860,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
 
 
 def get_diagnostics(path: str | None = None) -> str:
-    """Obtiene errores de sintaxis y diagnósticos para un archivo o para el workspace."""
+    """Retrieve syntax diagnostics and code errors for a file or the entire workspace."""
     try:
         if path is not None and str(path).strip():
             target = Path(str(path).strip()).expanduser().resolve()
@@ -870,7 +870,7 @@ def get_diagnostics(path: str | None = None) -> str:
         if not target.exists():
             return json.dumps({
                 "success": False,
-                "error": f"La ruta '{path}' no existe."
+                "error": f"Path '{path}' does not exist."
             }, ensure_ascii=False)
 
         diagnostics: list[dict] = []
@@ -951,7 +951,7 @@ def get_diagnostics(path: str | None = None) -> str:
 
         error_count = sum(1 for d in diagnostics if d.get("severity") == "error")
         warning_count = sum(1 for d in diagnostics if d.get("severity") == "warning")
-        msg = f"Se encontraron {len(diagnostics)} problema(s)." if diagnostics else "No se encontraron errores de diagnóstico."
+        msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 
         return json.dumps({
             "success": True,
@@ -967,7 +967,7 @@ def get_diagnostics(path: str | None = None) -> str:
 
 
 class PersistentBrowserSession:
-    """Gestiona una sesión persistente de navegador headless (Playwright) para browser_action."""
+    """Manages a persistent headless browser session (Playwright) for browser_action."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -980,7 +980,7 @@ class PersistentBrowserSession:
 
         node = shutil.which("node")
         if not node:
-            raise RuntimeError("Node.js no está instalado o no se encuentra en el PATH del sistema.")
+            raise RuntimeError("Node.js is not installed or not found in system PATH.")
 
         runner_js = """
 const readline = require('readline');
@@ -995,7 +995,7 @@ try {
   } catch (e2) {
     console.log(JSON.stringify({
       success: false,
-      error: "Playwright no está disponible. Instálalo con 'npm install playwright' o habilita el servicio MCP Playwright."
+      error: "Playwright is not available. Install it with 'npm install playwright' or enable the Playwright MCP service."
     }));
     process.exit(1);
   }
@@ -1005,10 +1005,10 @@ try {
   let browser, context, page;
   try {
     const candidates = [
-      {},                      // 1. Chromium empaquetado de Playwright
-      { channel: 'chrome' },   // 2. Google Chrome del sistema
-      { channel: 'msedge' },   // 3. Microsoft Edge del sistema (Windows 10/11)
-      { channel: 'chromium' }  // 4. Chromium del sistema (/usr/bin/chromium)
+      {},                      // 1. Playwright bundled Chromium
+      { channel: 'chrome' },   // 2. System Google Chrome
+      { channel: 'msedge' },   // 3. System Microsoft Edge (Windows 10/11)
+      { channel: 'chromium' }  // 4. System Chromium (/usr/bin/chromium)
     ];
     let lastErr = null;
     for (const cand of candidates) {
@@ -1020,12 +1020,12 @@ try {
       }
     }
     if (!browser) {
-      throw lastErr || new Error('No se encontró ningún navegador basado en Chromium (Playwright, Chrome, Edge o Chromium).');
+      throw lastErr || new Error('No Chromium-based browser found (Playwright, Chrome, Edge, or Chromium).');
     }
     context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     page = await context.newPage();
   } catch (err) {
-    console.log(JSON.stringify({ success: false, error: 'Error al iniciar navegador: ' + err.message }));
+    console.log(JSON.stringify({ success: false, error: 'Failed to start browser: ' + err.message }));
     process.exit(1);
   }
 
@@ -1038,14 +1038,14 @@ try {
     try {
       req = JSON.parse(line);
     } catch (e) {
-      console.log(JSON.stringify({ success: false, error: 'JSON de comando no válido' }));
+      console.log(JSON.stringify({ success: false, error: 'Invalid command JSON' }));
       continue;
     }
 
     try {
       const act = req.action;
       if (act === 'navigate') {
-        if (!req.url) throw new Error("El parámetro 'url' es obligatorio para la acción 'navigate'");
+        if (!req.url) throw new Error("Parameter 'url' is required for action 'navigate'");
         await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         console.log(JSON.stringify({
           success: true,
@@ -1067,7 +1067,7 @@ try {
           title: await page.title()
         }));
       } else if (act === 'click') {
-        if (!req.selector) throw new Error("El parámetro 'selector' es obligatorio para la acción 'click'");
+        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'click'");
         await page.click(req.selector, { timeout: 15000 });
         console.log(JSON.stringify({
           success: true,
@@ -1076,7 +1076,7 @@ try {
           url: page.url()
         }));
       } else if (act === 'fill') {
-        if (!req.selector) throw new Error("El parámetro 'selector' es obligatorio para la acción 'fill'");
+        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'fill'");
         await page.fill(req.selector, req.value || '', { timeout: 15000 });
         console.log(JSON.stringify({
           success: true,
@@ -1090,7 +1090,7 @@ try {
         console.log(JSON.stringify({ success: true, action: 'close' }));
         process.exit(0);
       } else {
-        console.log(JSON.stringify({ success: false, error: 'Acción no soportada: ' + act }));
+        console.log(JSON.stringify({ success: false, error: 'Unsupported action: ' + act }));
       }
     } catch (err) {
       console.log(JSON.stringify({ success: false, error: err.message, action: req.action }));
@@ -1112,11 +1112,11 @@ try {
         if not first_line:
             err = proc.stderr.read()
             self._process = None
-            raise RuntimeError(f"Fallo al inicializar el navegador headless: {err or 'proceso terminado inesperadamente'}")
+            raise RuntimeError(f"Failed to initialize headless browser: {err or 'process terminated unexpectedly'}")
         data = json.loads(first_line)
         if not data.get("ready"):
             self._process = None
-            raise RuntimeError(data.get("error", "Error desconocido iniciando el navegador"))
+            raise RuntimeError(data.get("error", "Unknown error starting browser"))
 
         return proc
 
@@ -1134,11 +1134,11 @@ try {
                 resp_line = proc.stdout.readline()
                 if not resp_line:
                     self.close()
-                    return {"success": False, "error": "El proceso del navegador se cerró inesperadamente."}
+                    return {"success": False, "error": "Browser process closed unexpectedly."}
                 return json.loads(resp_line)
             except Exception as e:
                 self.close()
-                return {"success": False, "error": f"Error ejecutando acción de navegador: {e}"}
+                return {"success": False, "error": f"Error executing browser action: {e}"}
 
     def close(self):
         with self._lock:
@@ -1160,13 +1160,13 @@ _BROWSER_SESSION = PersistentBrowserSession()
 
 
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
-    """Controla un navegador headless para pruebas e inspección de UI."""
+    """Control a headless browser for UI testing and visual inspection."""
     try:
         act = (action or "").strip().lower()
         if act not in ("navigate", "screenshot", "click", "fill"):
             return json.dumps({
                 "success": False,
-                "error": f"Acción de navegador no válida: '{action}'. Acciones válidas: navigate, screenshot, click, fill."
+                "error": f"Invalid browser action: '{action}'. Valid actions: navigate, screenshot, click, fill."
             }, ensure_ascii=False)
 
         cmd = {"action": act}
@@ -1186,120 +1186,120 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
 LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "list_directory",
-        "description": "Lista archivos y carpetas de un directorio local, con soporte recursivo acotado.",
+        "description": "List files and directories in a local directory with safe bounded recursive traversal.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta relativa o absoluta (por defecto '.')"},
-                "recursive": {"type": "boolean", "description": "Si es true, recorre subdirectorios hasta profundidad 3", "default": False}
+                "path": {"type": "string", "description": "Relative or absolute directory path (defaults to '.')"},
+                "recursive": {"type": "boolean", "description": "If true, traverses subdirectories up to depth 3", "default": False}
             }
         }
     },
     {
         "name": "read_file",
-        "description": "Lee el contenido de texto de un archivo local con rangos y límites seguros.",
+        "description": "Read text content from a local file with safe ranges and bounds.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta del archivo"},
-                "start_line": {"type": "integer", "description": "Línea inicial (1-indexed)", "default": 1},
-                "end_line": {"type": "integer", "description": "Línea final inclusiva"},
-                "max_lines": {"type": "integer", "description": "Número máximo de líneas a leer si no se especifica end_line", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Límite máximo de bytes", "default": 100000}
+                "path": {"type": "string", "description": "Path to the file to read"},
+                "start_line": {"type": "integer", "description": "Starting line number (1-indexed)", "default": 1},
+                "end_line": {"type": "integer", "description": "Ending line number (inclusive)"},
+                "max_lines": {"type": "integer", "description": "Maximum number of lines to read when end_line is omitted", "default": 500},
+                "max_bytes": {"type": "integer", "description": "Maximum byte budget", "default": 100000}
             },
             "required": ["path"]
         }
     },
     {
         "name": "write_file",
-        "description": "Crea o sobrescribe un archivo completo de forma atómica.",
+        "description": "Create or overwrite a file completely and atomically.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta del archivo a escribir"},
-                "content": {"type": "string", "description": "Contenido completo del archivo"}
+                "path": {"type": "string", "description": "Path to the file to write"},
+                "content": {"type": "string", "description": "Full content of the file"}
             },
             "required": ["path", "content"]
         }
     },
     {
         "name": "edit_file",
-        "description": "Edita un archivo existente reemplazando quirúrgicamente old_str por new_str (debe coincidir exactamente 1 vez).",
+        "description": "Edit an existing file surgically by replacing old_str with new_str (must match exactly once).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta del archivo a editar"},
-                "old_str": {"type": "string", "description": "Fragmento exacto a sustituir (debe ser único en el archivo)"},
-                "new_str": {"type": "string", "description": "Nuevo fragmento de reemplazo"},
-                "content": {"type": "string", "description": "Contenido a escribir en modo compatible"},
+                "path": {"type": "string", "description": "Path to the file to edit"},
+                "old_str": {"type": "string", "description": "Exact snippet to replace (must appear exactly once in the file)"},
+                "new_str": {"type": "string", "description": "Replacement snippet"},
+                "content": {"type": "string", "description": "Content to write in legacy/compatible mode"},
                 "mode": {"type": "string", "enum": ["surgical", "write", "append", "replace_chunk"], "default": "surgical"},
-                "target_content": {"type": "string", "description": "Texto exacto en modo replace_chunk"}
+                "target_content": {"type": "string", "description": "Exact target content in replace_chunk mode"}
             },
             "required": ["path"]
         }
     },
     {
         "name": "bash",
-        "description": "Ejecuta un comando en la shell interactiva con estado persistente (mantiene cwd y variables de entorno entre llamadas).",
+        "description": "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Comando de shell a ejecutar (ej: npm test, git diff)"},
-                "timeout_seconds": {"type": "integer", "description": "Tiempo límite en segundos (por defecto 30)", "default": 30}
+                "command": {"type": "string", "description": "Shell command to execute (e.g. npm test, git status)"},
+                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 30)", "default": 30}
             },
             "required": ["command"]
         }
     },
     {
         "name": "search_files",
-        "description": "Búsqueda recursiva por texto plano o expresión regular en archivos del proyecto.",
+        "description": "Recursively search for plain text or regular expressions across project files.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Cadena o expresión regular a buscar"},
-                "path": {"type": "string", "description": "Carpeta base de búsqueda (por defecto '.')", "default": "."},
-                "file_pattern": {"type": "string", "description": "Filtro glob opcional (ej: *.js, *.py)"}
+                "query": {"type": "string", "description": "Plain text string or regular expression to search for"},
+                "path": {"type": "string", "description": "Base search directory (defaults to '.')", "default": "."},
+                "file_pattern": {"type": "string", "description": "Optional glob filter (e.g. *.js, *.py)"}
             },
             "required": ["query"]
         }
     },
     {
         "name": "execute_command",
-        "description": "Ejecuta un comando en la shell del sistema y captura la salida.",
+        "description": "Execute a shell command and capture stdout/stderr.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Comando a ejecutar"},
-                "cwd": {"type": "string", "description": "Directorio de trabajo (por defecto '.')"},
-                "timeout_seconds": {"type": "integer", "description": "Tiempo límite en segundos", "default": 60}
+                "command": {"type": "string", "description": "Command to execute"},
+                "cwd": {"type": "string", "description": "Working directory (defaults to '.')"},
+                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 60)", "default": 60}
             },
             "required": ["command"]
         }
     },
     {
         "name": "get_diagnostics",
-        "description": "Obtiene diagnósticos de sintaxis y errores de código para un archivo o para todo el espacio de trabajo.",
+        "description": "Retrieve syntax diagnostics and code errors for a file or the entire workspace.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Ruta del archivo o directorio a analizar (por defecto '.')"}
+                "path": {"type": "string", "description": "Path to the file or directory to inspect (defaults to '.')"}
             }
         }
     },
     {
         "name": "browser_action",
-        "description": "Controla un navegador headless (Playwright) para navegación web, pruebas de interfaz e inspección visual con capturas de pantalla.",
+        "description": "Control a headless browser (Playwright) for web navigation, UI testing, and visual inspection via screenshots.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
                     "enum": ["navigate", "screenshot", "click", "fill"],
-                    "description": "Acción a realizar en el navegador"
+                    "description": "Action to perform in the browser"
                 },
-                "url": {"type": "string", "description": "URL de destino para navigate o screenshot"},
-                "selector": {"type": "string", "description": "Selector CSS para acciones click o fill"},
-                "value": {"type": "string", "description": "Texto a introducir para la acción fill"}
+                "url": {"type": "string", "description": "Target URL for navigate or screenshot"},
+                "selector": {"type": "string", "description": "CSS selector for click or fill actions"},
+                "value": {"type": "string", "description": "Text value to type for fill action"}
             },
             "required": ["action"]
         }

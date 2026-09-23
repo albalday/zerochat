@@ -382,7 +382,7 @@
       }
     }
 
-    if (!requestedIds.length) return { success: false, error: 'chunkId o chunkIds es obligatorio.' };
+    if (!requestedIds.length) return { success: false, error: 'chunkId or chunkIds is required.' };
     const MAX_CHUNKS_PER_CALL = 5;
     const uniqueIds = Array.from(new Set(requestedIds)).slice(0, MAX_CHUNKS_PER_CALL);
 
@@ -427,8 +427,8 @@
         return {
           success: false,
           error: uniqueIds.length === 1
-            ? `No existe el fragmento ${uniqueIds[0]} en las ramas activas.`
-            : `Ninguno de los fragmentos solicitados (${uniqueIds.join(', ')}) existe en las ramas activas.`
+            ? `Chunk ${uniqueIds[0]} does not exist in active branches.`
+            : `None of the requested chunks (${uniqueIds.join(', ')}) exist in active branches.`
         };
       }
 
@@ -490,16 +490,16 @@
     const args = parseArguments(rawArgs);
     const imageRef = String(args.imageRef || '').trim();
     const reference = parseImageReference(imageRef);
-    if (!reference) return { success: false, error: 'imageRef debe ser una referencia rag-image://docId:imgId válida.' };
+    if (!reference) return { success: false, error: 'imageRef must be a valid rag-image://docId:imgId reference.' };
 
     try {
       const branches = await resolveBranches(branchIds);
       const document = await RagStorage.getDocumentById(reference.documentId);
       if (!document || !branches.some(branch => branch.id === document.branchId)) {
-        return { success: false, error: `La imagen solicitada no pertenece a las ramas activas.` };
+        return { success: false, error: `The requested image does not belong to active branches.` };
       }
       const image = await RagStorage.getDocumentImage(reference.documentId, reference.imageId);
-      if (!image?.dataUrl) return { success: false, error: `No existe una imagen utilizable para ${imageRef}.` };
+      if (!image?.dataUrl) return { success: false, error: `No usable image exists for ${imageRef}.` };
 
       const fileParser = getFileParser();
       const dataUrl = image.isCmyk && fileParser?.convertCmykDataUrlToRgb

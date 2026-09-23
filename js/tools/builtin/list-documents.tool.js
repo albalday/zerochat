@@ -93,7 +93,7 @@
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args = {}, context = {}) => {
         const RagService = getRagService(context);
-        if (!RagService?.listDocuments) return { success: false, error: 'Servicio de RAG no disponible.' };
+        if (!RagService?.listDocuments) return { success: false, error: 'RAG service not available.' };
         return RagService.listDocuments(getBranchIds(context), args);
       },
       result: {

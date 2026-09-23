@@ -360,7 +360,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(edit0Res.status, 200);
     const edit0Json = await edit0Res.json();
     assert.equal(edit0Json.result?.isError, true);
-    assert.match(edit0Json.result?.content?.[0]?.text || '', /No se encontró el texto/);
+    assert.match(edit0Json.result?.content?.[0]?.text || '', /Target text was not found|No se encontró el texto/);
 
     try { fs.unlinkSync(testFilePath); } catch (_) {}
 
@@ -435,7 +435,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const parsedBashTrunc = JSON.parse(bashTruncJson.result?.content?.[0]?.text);
     assert.equal(parsedBashTrunc.success, true);
     assert.equal(parsedBashTrunc.truncated, true);
-    assert.match(parsedBashTrunc.stdout, /Salida truncada/);
+    assert.match(parsedBashTrunc.stdout, /Output truncated|Salida truncada/);
     assert.match(parsedBashTrunc.stdout, /line 000/);
     assert.match(parsedBashTrunc.stdout, /line 119/);
 

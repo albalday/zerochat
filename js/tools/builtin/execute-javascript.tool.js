@@ -38,7 +38,7 @@
   function toModel(_args, result, outcome) {
     return result?.success
       ? (result.result || (result.logs && result.logs.length > 0 ? result.logs.join('\n') : 'undefined'))
-      : `Error: ${result?.error || outcome?.error || 'Error de ejecución'}`;
+      : `Error: ${result?.error || outcome?.error || 'Execution error'}`;
   }
 
   function toMarkdown(args, result, outcome) {
@@ -178,7 +178,7 @@
       execute: async (args, context = {}) => {
         const Sandbox = context.services?.sandbox;
         if (!Sandbox || !Sandbox.execute) {
-          return { success: false, error: 'Módulo de ejecución de JavaScript no disponible.' };
+          return { success: false, error: 'JavaScript execution module not available.' };
         }
         const timeoutMs = typeof context.timeoutMs === 'number'
           ? context.timeoutMs

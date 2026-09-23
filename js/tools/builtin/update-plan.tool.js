@@ -139,7 +139,7 @@
         if (!args || !Array.isArray(args.tasks)) {
           return {
             success: false,
-            error: 'tasks debe ser un array con objetos { title: string, status: string }'
+            error: 'tasks must be an array of objects { title: string, status: string }'
           };
         }
 

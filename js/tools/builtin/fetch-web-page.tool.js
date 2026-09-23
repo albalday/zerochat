@@ -91,7 +91,7 @@
       promptGuide: () => '- `fetch_web_page(url="...")`: Downloads and extracts clean text content from public web pages or HTML articles.',
       execute: async (args, context = {}) => {
         const WebBrowser = context.services?.webBrowser;
-        if (!WebBrowser || !WebBrowser.fetchPage) return { success: false, error: 'Módulo WebBrowser no disponible.' };
+        if (!WebBrowser || !WebBrowser.fetchPage) return { success: false, error: 'WebBrowser module not available.' };
         return WebBrowser.fetchPage(getUrl(args), context.options || {});
       },
       result: {

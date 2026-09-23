@@ -90,7 +90,7 @@
       promptGuide: () => '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.',
       execute: async (args, context = {}) => {
         const WebBrowser = context.services?.webBrowser;
-        if (!WebBrowser || !WebBrowser.downloadPdf) return { success: false, error: 'Módulo WebBrowser no disponible.' };
+        if (!WebBrowser || !WebBrowser.downloadPdf) return { success: false, error: 'WebBrowser module not available.' };
         return WebBrowser.downloadPdf(getUrl(args), context.options || {});
       },
       result: {

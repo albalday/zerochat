@@ -570,8 +570,8 @@
       if (Array.isArray(contentList)) {
         textOutput = contentList.map(item => {
           if (item.type === 'text') return item.text || '';
-          if (item.type === 'image') return `[Imagen embebida: ${item.mimeType || 'image/png'}]`;
-          if (item.type === 'resource') return `[Recurso: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
+          if (item.type === 'image') return `[Embedded image: ${item.mimeType || 'image/png'}]`;
+          if (item.type === 'resource') return `[Resource: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
           return JSON.stringify(item);
         }).join('\n\n').trim();
       } else if (typeof result === 'string') {
@@ -581,7 +581,7 @@
       }
 
       if (textOutput.length > MAX_OUTPUT_LENGTH) {
-        textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... Contenido MCP truncado por límite de tamaño ...]';
+        textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... MCP content truncated due to size limit ...]';
       }
 
       return {
@@ -766,7 +766,7 @@
                 if (typeof result.rawResult === 'string') return result.rawResult;
                 return JSON.stringify(result.rawResult);
               }
-              return outcome?.error || result?.error || 'Sin salida';
+              return outcome?.error || result?.error || 'No output';
             },
             toMarkdown: (args, result, outcome) => {
               return formatMcpMarkdown(toolName, args, result, outcome, this.serverName);

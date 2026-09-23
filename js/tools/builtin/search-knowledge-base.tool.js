@@ -103,7 +103,7 @@
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {
         const RagService = getRagService(context);
-        if (!RagService?.searchKnowledgeBase) return { success: false, error: 'Servicio de RAG no disponible.' };
+        if (!RagService?.searchKnowledgeBase) return { success: false, error: 'RAG service not available.' };
         return RagService.searchKnowledgeBase(getBranchIds(context), args);
       },
       result: {

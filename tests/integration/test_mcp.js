@@ -230,7 +230,7 @@ test('MCP - Timeout, Cancelación con AbortSignal y Truncado de Salida', async (
     const hugeRes = await client.callTool('large_dump', {});
     assert.equal(hugeRes.success, true);
     assert.ok(hugeRes.content.length <= 60100);
-    assert.ok(hugeRes.content.includes('[... Contenido MCP truncado por límite de tamaño ...]'));
+    assert.ok(hugeRes.content.includes('[... MCP content truncated due to size limit ...]') || hugeRes.content.includes('[... Contenido MCP truncado por límite de tamaño ...]'));
   } finally {
     global.fetch = originalFetch;
   }

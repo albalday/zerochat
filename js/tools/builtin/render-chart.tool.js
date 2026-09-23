@@ -68,12 +68,12 @@
       promptGuide: () => '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Generates and displays native interactive SVG charts (bar, line, pie, doughnut).',
       execute: async (args, context = {}) => {
         const Charts = context.services?.charts;
-        if (!Charts || (!Charts.renderChartCard && !Charts.renderBarChart)) return { success: false, error: 'Módulo Charts no disponible.' };
+        if (!Charts || (!Charts.renderChartCard && !Charts.renderBarChart)) return { success: false, error: 'Charts module not available.' };
         const svgHtml = Charts.renderChartCard ? Charts.renderChartCard(args) : Charts.renderBarChart(args.labels, args.datasets);
-        return { success: true, svg: svgHtml, chartData: args, title: args.title || 'Gráfico' };
+        return { success: true, svg: svgHtml, chartData: args, title: args.title || 'Chart' };
       },
       result: {
-        toModel: (args, _result, outcome) => JSON.stringify({ success: outcome?.ok !== false, type: args.type || 'bar', title: args.title || 'Gráfico' }),
+        toModel: (args, _result, outcome) => JSON.stringify({ success: outcome?.ok !== false, type: args.type || 'bar', title: args.title || 'Chart' }),
         toMarkdown: (args) => `> **render_chart** (${args.type || 'bar'})\n> Título: "${args.title || 'Gráfico'}"\n\n`
       },
       displayMode: 'expanded',

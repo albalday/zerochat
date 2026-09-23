@@ -101,7 +101,7 @@
       promptGuide: () => '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet using DuckDuckGo.',
       execute: async (args, context = {}) => {
         const WebSearch = context.services?.webSearch;
-        if (!WebSearch || !WebSearch.search) return { success: false, error: 'Módulo WebSearch no disponible.' };
+        if (!WebSearch || !WebSearch.search) return { success: false, error: 'WebSearch module not available.' };
         return WebSearch.search(getQuery(args), context.language || context.lang || 'es');
       },
       result: {

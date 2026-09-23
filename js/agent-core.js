@@ -819,10 +819,10 @@
       try {
         const serialized = resolvedTool
           ? resolvedTool.serializeResultForModel(parsedArgs, execRes.result, execRes.outcome)
-          : (execRes.error || 'Error de ejecución de herramienta.');
+          : (execRes.error || 'Tool execution error.');
         resultText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
       } catch (err) {
-        resultText = `Error al serializar el resultado de ${rawFuncName}: ${err.message || String(err)}`;
+        resultText = `Error serializing result of ${rawFuncName}: ${err.message || String(err)}`;
       }
 
       // 6. Logging posterior
@@ -1367,7 +1367,7 @@
             } else {
               toolResponseContent = JSON.stringify({
                 success: false,
-                error: execResult.error || 'Error desconocido ejecutando la herramienta.'
+                error: execResult.error || 'Unknown error executing tool.'
               });
               if (callbacks.onToolError) {
                 callbacks.onToolError(call, execResult.error, stepIndex);
