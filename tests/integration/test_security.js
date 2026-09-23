@@ -82,4 +82,7 @@ test('Security - Presencia de Content Security Policy (CSP) en zerochat.html', (
   assert.ok(html.includes("worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net"), 'La CSP debe permitir el worker aislado y su módulo WebLLM');
   assert.ok(html.includes("object-src 'none'"), 'CSP debe bloquear objetos embebidos');
   assert.ok(html.includes("base-uri 'self'"), 'CSP debe restringir base-uri');
+  assert.ok(html.includes("frame-src 'self' blob:"), 'CSP debe restringir frame-src a self y blob');
+  assert.ok(html.includes("manifest-src 'self'"), 'CSP debe restringir manifest-src');
+  assert.ok(html.includes("media-src 'self' data: blob:"), 'CSP debe restringir media-src');
 });
