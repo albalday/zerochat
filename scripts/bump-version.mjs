@@ -93,6 +93,14 @@ if (backendChanged && fs.existsSync(pyprojectPath)) {
   console.log('✔ pyproject.toml sin cambios (parche exclusivo de interfaz)');
 }
 
+const headerPath = path.join(ROOT_DIR, 'py', 'aa-header.py');
+if (backendChanged && fs.existsSync(headerPath)) {
+  let header = fs.readFileSync(headerPath, 'utf8');
+  header = header.replace(/^SOURCE_BACKEND_VERSION\s*=\s*"[^"]+"$/m, `SOURCE_BACKEND_VERSION = "${newVersion}"`);
+  fs.writeFileSync(headerPath, header, 'utf8');
+  console.log(`✔ py/aa-header.py actualizado a ${newVersion} (backend)`);
+}
+
 const backendPath = path.join(ROOT_DIR, 'zerochat.py');
 if (backendChanged && fs.existsSync(backendPath)) {
   let backend = fs.readFileSync(backendPath, 'utf8');

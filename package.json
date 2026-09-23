@@ -5,7 +5,8 @@
   "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local",
   "scripts": {
     "build:vendor": "node scripts/build-orama.mjs",
-    "build": "npm run build:vendor",
+    "build:backend": "cat $(ls py/*.py | sort) > zerochat.py && chmod +x zerochat.py",
+    "build": "npm run build:vendor && npm run build:backend",
     "bump": "node scripts/bump-version.mjs",
     "test": "node scripts/test-runner.mjs",
     "test:all": "node scripts/test-runner.mjs --all",

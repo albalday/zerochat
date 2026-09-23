@@ -189,7 +189,7 @@ export function resolveChangedFiles() {
       continue;
     }
 
-    if (f === 'zerochat.py') {
+    if (f === 'zerochat.py' || f.startsWith('py/')) {
       levelsToRun.add('infrastructure');
     }
     if (f.startsWith('css/') || f === 'zerochat.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || f === 'js/icons.js' || f === 'sw.js') {

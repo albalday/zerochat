@@ -817,3 +817,18 @@ with tempfile.TemporaryDirectory() as temp_dir:
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
+
+test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ mediante sort | cat', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const pyDir = path.join(repoRoot, 'py');
+  assert.ok(fs.existsSync(pyDir), 'El directorio py/ debe existir');
+
+  const files = fs.readdirSync(pyDir).filter(f => f.endsWith('.py')).sort();
+  assert.ok(files.length > 1, 'Debe haber múltiples módulos divididos en py/');
+  assert.equal(files[files.length - 1], 'zz-main.py', 'El último módulo ordenado alfabéticamente debe ser zz-main.py');
+
+  const concatenated = files.map(f => fs.readFileSync(path.join(pyDir, f), 'utf8')).join('');
+  const currentZerochat = fs.readFileSync(path.join(repoRoot, 'zerochat.py'), 'utf8');
+
+  assert.equal(currentZerochat, concatenated, 'zerochat.py debe coincidir exactamente con la concatenación ordenada de py/*.py (ejecuta npm run build:backend)');
+});

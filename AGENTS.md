@@ -9,13 +9,20 @@ Se aplican tanto al desarrollo humano como a los agentes de generación de códi
 El código fuente se mantiene en:
 
 - `zerochat.html` (interfaz web universal servida por GitHub Pages)
-- `zerochat.py` (backend local unificado y gestor de entorno venv)
+- `py/` (módulos funcionales del backend local que ensamblan `zerochat.py`)
+- `zerochat.py` (backend local unificado y gestor de entorno venv, reconstruido desde `py/`)
 - `js/`
 - `css/`
 - `tests/`
 - `scripts/`
 
-No existe proceso de empaquetado (bundle). La aplicación web se sirve de forma directa
+El backend de Python reside modularizado en `py/` por funcionalidad y se reconstruye
+en el ejecutable unificado `zerochat.py` al final de cada cambio mediante
+`npm run build:backend` (equivalente a `cat $(ls py/*.py | sort) > zerochat.py`).
+El módulo que contiene `main()` se denomina obligatoriamente `zz-main.py` para que la
+ordenación alfabética lo sitúe siempre el último.
+
+No existe proceso de empaquetado (bundle) para la web. La aplicación web se sirve de forma directa
 y estática por HTTPS desde GitHub Pages cargando sus módulos `css/` y `js/`.
 
 Los cambios deben ser pequeños, coherentes con la arquitectura existente y limitarse
