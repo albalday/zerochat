@@ -46,6 +46,145 @@ test('Service Worker - gestiona eventos install, activate y fetch con Stale-Whil
   // Comprobar exclusión de endpoints dinámicos
   assert.match(swContent, /\/api/, 'Debe excluir endpoints de API');
   assert.match(swContent, /\/mcp/, 'Debe excluir endpoints de MCP');
+  assert.match(swContent, /\/zerochat\/heartbeat/, 'Debe excluir el endpoint de heartbeat');
+  assert.match(swContent, /\/zerochat\/external/, 'Debe excluir el endpoint de servidores externos');
+});
+
+test('Service Worker - todos los scripts y hojas de estilo de zerochat.html están en PRECACHE_ASSETS', () => {
+  const rootDir = path.resolve(__dirname, '../..');
+  const htmlContent = fs.readFileSync(path.join(rootDir, 'zerochat.html'), 'utf8');
+  const swContent = fs.readFileSync(path.join(rootDir, 'sw.js'), 'utf8');
+
+  const match = swContent.match(/const\s+PRECACHE_ASSETS\s*=\s*\[([\s\S]*?)\];/);
+  assert.ok(match, 'Debe encontrarse el array PRECACHE_ASSETS');
+
+  const precached = new Set(
+    match[1]
+      .split(',')
+      .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
+      .filter(Boolean)
+  );
+
+  const scriptMatches = [...htmlContent.matchAll(/<script\s+[^>]*src="([^"]+)"/g)].map(m => './' + m[1]);
+  for (const script of scriptMatches) {
+    assert.ok(precached.has(script), `El script de zerochat.html debe estar en PRECACHE_ASSETS: ${script}`);
+  }
+
+  const cssMatches = [...htmlContent.matchAll(/<link\s+[^>]*href="([^"]+\.css)"/g)].map(m => './' + m[1]);
+  for (const css of cssMatches) {
+    assert.ok(precached.has(css), `La hoja de estilos de zerochat.html debe estar en PRECACHE_ASSETS: ${css}`);
+  }
+});
+
+test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHub Pages y excluye endpoints de API', () => {
+  const vm = require('node:vm');
+  const swPath = path.resolve(__dirname, '../../sw.js');
+  const swCode = fs.readFileSync(swPath, 'utf8');
+
+  function initWorker(origin) {
+    const listeners = {};
+    const context = {
+      self: {
+        location: { origin },
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        skipWaiting: () => {},
+        clients: { claim: () => {} }
+      },
+      URL,
+      caches: {
+        open: () => Promise.resolve({
+          match: () => Promise.resolve(null)
+        })
+      },
+      fetch: () => Promise.resolve({ status: 200, type: 'basic', clone: () => ({}) })
+    };
+    vm.createContext(context);
+    vm.runInContext(swCode, context);
+    return listeners;
+  }
+
+  function simulateFetch(listeners, url, method = 'GET') {
+    let responded = false;
+    const event = {
+      request: { url, method },
+      respondWith: (promise) => {
+        responded = true;
+      }
+    };
+    listeners.fetch(event);
+    return responded;
+  }
+
+  // 1. Escenario GitHub Pages: origin = https://albalday.github.io, subdirectorio /zerochat/
+  const ghWorker = initWorker('https://albalday.github.io');
+  assert.equal(
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/zerochat.html'),
+    true,
+    'Debe interceptar zerochat.html en subdirectorio de producción'
+  );
+  assert.equal(
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/js/app.js'),
+    true,
+    'Debe interceptar js/app.js en subdirectorio de producción'
+  );
+  assert.equal(
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/css/styles.css'),
+    true,
+    'Debe interceptar CSS en subdirectorio de producción'
+  );
+  assert.equal(
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/heartbeat'),
+    false,
+    'Debe excluir heartbeat'
+  );
+  assert.equal(
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/external/servers'),
+    false,
+    'Debe excluir llamadas a servidores externos'
+  );
+  assert.equal(
+    simulateFetch(ghWorker, 'https://api.openai.com/v1/chat/completions'),
+    false,
+    'Debe omitir llamadas cross-origin'
+  );
+
+  // 2. Escenario Servidor Local: origin = http://127.0.0.1:8000
+  const localWorker = initWorker('http://127.0.0.1:8000');
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat.html'),
+    true,
+    'Debe interceptar zerochat.html en el servidor local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/js/app.js'),
+    true,
+    'Debe interceptar js/app.js en el servidor local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat/heartbeat'),
+    false,
+    'Debe excluir /zerochat/heartbeat local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/mcp/external'),
+    false,
+    'Debe excluir /mcp local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/api/tools'),
+    false,
+    'Debe excluir /api local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/sse'),
+    false,
+    'Debe excluir /sse local'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat.html', 'POST'),
+    false,
+    'Debe ignorar peticiones POST'
+  );
 });
 
 test('PWA Manifest - manifest.webmanifest es válido y define propiedades obligatorias', () => {

@@ -29,6 +29,7 @@ const PRECACHE_ASSETS = [
   './js/utils.js',
   './js/storage-db.js',
   './js/message-turns.js',
+  './js/defaults.js',
   './js/state.js',
   './js/cookies.js',
   './js/ragStorage.js',
@@ -69,6 +70,7 @@ const PRECACHE_ASSETS = [
   './js/attachments.js',
   './js/export.js',
   './js/profile-backup.js',
+  './js/profile-export-bundle.js',
   './js/profile-repository.js',
   './js/config-store.js',
   './js/context-manager.js',
@@ -133,10 +135,11 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Ignorar endpoints de API, túneles o llamadas dinámicas
+  // Ignorar endpoints de API, túneles o llamadas dinámicas del backend local
   if (url.pathname.startsWith('/api') ||
       url.pathname.startsWith('/mcp') ||
-      url.pathname.startsWith('/zerochat') ||
+      url.pathname.startsWith('/zerochat/heartbeat') ||
+      url.pathname.startsWith('/zerochat/external') ||
       url.pathname.startsWith('/sse') ||
       url.pathname.startsWith('/v1') ||
       url.pathname.startsWith('/ws')) {
