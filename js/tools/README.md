@@ -31,9 +31,10 @@ Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRe
 - **Control de salidas y recursos**: Truncado automático de salidas que superen `MAX_OUTPUT_LENGTH` (30.000 caracteres) y limitación estricta de registros de consola (`MAX_LOG_ENTRIES = 200`).
 - **Supervisión y activación**: Diseñada para asistir al modelo con la visibilidad del usuario. Se puede habilitar o inhabilitar en cualquier momento desde los ajustes de herramientas.
 
-## Nombres MCP
+## Nombres de herramientas
 
-El contrato público es `zmcp_<herramienta>` para herramientas locales y
+El contrato público es `<herramienta>` (nombre canónico directo) para herramientas locales
+del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `execute_command`) y
 `mcp_<servicio>_<herramienta>` para servicios externos, tanto directos como
 agregados por el host. Ejemplo: `mcp_browser_service_browser_navigate`.
 El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijos.

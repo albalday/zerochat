@@ -25,8 +25,8 @@ test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', 
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_mcp_default' });
 
   const evalMcp = manager.evaluateAuthorization({
-    id: 'zmcp_execute_command',
-    name: 'zmcp_execute_command',
+    id: 'execute_command',
+    name: 'execute_command',
     category: 'mcp',
     metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
   }, { command: 'ls -la' });
@@ -41,11 +41,11 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_rules' });
   manager.setDirectoryRules(['R:./project/**', 'W:./project/src/**']);
 
-  const readTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
-  const editTool = { id: 'zmcp_edit_file', name: 'zmcp_edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
-  const writeTool = { id: 'zmcp_write_file', name: 'zmcp_write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
-  const searchTool = { id: 'zmcp_search_files', name: 'zmcp_search_files', category: 'mcp', metadata: { originalName: 'search_files' } };
-  const diagTool = { id: 'zmcp_get_diagnostics', name: 'zmcp_get_diagnostics', category: 'mcp', metadata: { originalName: 'get_diagnostics' } };
+  const readTool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
+  const editTool = { id: 'edit_file', name: 'edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
+  const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
+  const searchTool = { id: 'search_files', name: 'search_files', category: 'mcp', metadata: { originalName: 'search_files' } };
+  const diagTool = { id: 'get_diagnostics', name: 'get_diagnostics', category: 'mcp', metadata: { originalName: 'get_diagnostics' } };
 
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project/README.md' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project' }).status, 'allow');
@@ -64,7 +64,7 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
 test('ChatToolSecurity - La lista de directorios prevalece sobre allow_all para herramientas integradas', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_over_global' });
   manager.setGlobalMcpPolicy('allow_all');
-  const tool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
+  const tool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
   assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'ask');
 });
 
@@ -72,8 +72,8 @@ test('ChatToolSecurity - execute_command y bash aplican R/W a rutas simples y pi
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
   manager.setGlobalMcpPolicy('allow_all');
   manager.setDirectoryRules(['R:./workspace/**', 'W:./workspace/**']);
-  const tool = { id: 'zmcp_execute_command', name: 'zmcp_execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
-  const bashTool = { id: 'zmcp_bash', name: 'zmcp_bash', category: 'mcp', metadata: { originalName: 'bash' } };
+  const tool = { id: 'execute_command', name: 'execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
 
   assert.equal(manager.evaluateAuthorization(tool, { command: 'du -sh ./workspace' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(bashTool, { command: 'du -sh ./workspace' }).status, 'allow');
@@ -91,8 +91,8 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
   assert.equal(manager.getGlobalMcpPolicy(), 'allow_all');
 
   const evalMcp = manager.evaluateAuthorization({
-    id: 'zmcp_read_file',
-    name: 'zmcp_read_file',
+    id: 'read_file',
+    name: 'read_file',
     category: 'mcp'
   });
 
@@ -107,8 +107,8 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
 test('ChatToolSecurity - Autorización granular de grano fino por herramienta', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_granular' });
 
-  const toolA = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' };
-  const toolB = { id: 'zmcp_execute_command', name: 'zmcp_execute_command', category: 'mcp' };
+  const toolA = { id: 'read_file', name: 'read_file', category: 'mcp' };
+  const toolB = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
 
   // 1. Ambas requieren confirmación inicialmente
   assert.equal(manager.evaluateAuthorization(toolA).requiresApproval, true);
@@ -138,15 +138,15 @@ test('ChatToolSecurity - Autorización granular de grano fino por herramienta', 
 test('ChatToolSecurity - Revocación y reseteo de permisos guardados', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_revoke' });
 
-  manager.setToolPolicy('zmcp_tool1', 'allow');
-  manager.setToolPolicy('zmcp_tool2', 'allow');
+  manager.setToolPolicy('tool1', 'allow');
+  manager.setToolPolicy('tool2', 'allow');
   assert.equal(manager.listAuthorizedTools().length, 2);
 
   // Revocar una
-  const revoked = manager.revokeToolPolicy('zmcp_tool1');
+  const revoked = manager.revokeToolPolicy('tool1');
   assert.equal(revoked, true);
   assert.equal(manager.listAuthorizedTools().length, 1);
-  assert.equal(manager.getToolPolicy('zmcp_tool1'), null);
+  assert.equal(manager.getToolPolicy('tool1'), null);
 
   // Restablecer todas
   manager.clearAllAuthorizations();
@@ -165,13 +165,13 @@ test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
   try {
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     manager1.setGlobalMcpPolicy('allow_all');
-    manager1.setToolPolicy('zmcp_saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
+    manager1.setToolPolicy('saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
     manager1.setDirectoryRules(['RW:./workspace/**']);
 
     // Segunda instancia leyendo la misma clave
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
     assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
-    assert.equal(manager2.getToolPolicy('zmcp_saved_tool'), 'allow');
+    assert.equal(manager2.getToolPolicy('saved_tool'), 'allow');
     assert.equal(manager2.listAuthorizedTools().length, 1);
     assert.deepEqual(manager2.getDirectoryRules(), ['RW:workspace/**']);
   } finally {
@@ -277,8 +277,8 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
 
   const canonicalTool = {
-    id: 'zmcp_execute_command',
-    name: 'zmcp_execute_command',
+    id: 'execute_command',
+    name: 'execute_command',
     category: 'mcp',
     aliases: [],
     metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
@@ -307,9 +307,9 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   assert.equal(evalRedirect.status, 'ask');
   assert.equal(evalRedirect.requiresApproval, true);
 
-  // Los nombres antiguos no heredan permisos del nombre canónico.
-  assert.equal(manager.getToolPolicy('execute_command'), null);
-  assert.equal(manager.evaluateAuthorization('mcp_execute_command', {}).requiresApproval, true);
+  // Los nombres no autorizados no heredan permisos del nombre canónico.
+  assert.equal(manager.getToolPolicy('other_command'), null);
+  assert.equal(manager.evaluateAuthorization('mcp_external_cmd', {}).requiresApproval, true);
 
   // 5. Una ruta de trabajo sin regla R exige confirmación aunque el ejecutable esté permitido.
   const evalAbsPath = manager.evaluateAuthorization(canonicalTool, { command: '/usr/bin/du -sh .' });
@@ -327,8 +327,8 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   assert.equal(evalAndAttack.requiresApproval, true);
 
   // 8. Solo el nombre canónico recupera la política.
-  assert.equal(manager.getToolPolicy('execute_command'), null);
-  assert.equal(manager.getToolPolicy('zmcp_execute_command'), 'allow');
+  assert.equal(manager.getToolPolicy('other_command'), null);
+  assert.equal(manager.getToolPolicy('execute_command'), 'allow');
 });
 
 test('ChatToolSecurity - Permisos recordados en herramientas integradas de archivo sobreviven recarga', () => {
@@ -342,7 +342,7 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
 
   try {
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
-    const readFileTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' };
+    const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
 
     // 1. Sin permisos ni reglas de directorio, pide autorización
     const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
@@ -350,14 +350,14 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
     assert.equal(evalBefore.status, 'ask');
 
     // 2. El usuario autoriza permanentemente la herramienta (allow)
-    manager1.setToolPolicy('zmcp_read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
+    manager1.setToolPolicy('read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
     const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
     assert.equal(evalAfterAllow.requiresApproval, false);
     assert.equal(evalAfterAllow.status, 'allow');
 
     // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
-    assert.equal(manager2.getToolPolicy('zmcp_read_file'), 'allow');
+    assert.equal(manager2.getToolPolicy('read_file'), 'allow');
     const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
     assert.equal(evalReloaded.requiresApproval, false);
     assert.equal(evalReloaded.status, 'allow');

@@ -40,7 +40,7 @@
       return Array.from(value, ch => /^[a-y0-9]$/.test(ch) || (tool && ch === '_')
         ? ch : `z${ch.codePointAt(0).toString(16)}z`).join('');
     };
-    const name = serverId === null ? `zmcp_${encode(originalName, true)}`
+    const name = serverId === null ? encode(originalName, true)
       : `mcp_${encode(serverId)}_${encode(originalName, true)}`;
     if (name.length > 64) throw new Error('MCP public name exceeds 64 characters');
     return name;
@@ -715,10 +715,15 @@
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
+        const descPrefix = external ? `[MCP: ${this.serverName}] ` : '';
+        const toolDesc = rt.description
+          ? `${descPrefix}${rt.description}`
+          : (external ? `[MCP: ${this.serverName}] Herramienta ${toolName}` : toolName);
+
         const tool = new AgentCore.Tool({
           id: namespacedName,
           name: namespacedName,
-          description: rt.description ? `[MCP: ${this.serverName}] ${rt.description}` : `[MCP: ${this.serverName}] Herramienta ${toolName}`,
+          description: toolDesc,
           parameters: rt.inputSchema || { type: 'object', properties: {} },
           aliases: [],
           category: 'mcp',

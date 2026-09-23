@@ -65,9 +65,14 @@
     return new RegExp(`^${escaped.replace(/\u0000/g, '.*')}$`).test(path);
   }
 
+  const LOCAL_MANAGED_TOOLS = new Set([
+    'read_file', 'list_directory', 'search_files', 'get_diagnostics',
+    'edit_file', 'write_file', 'execute_command', 'bash'
+  ]);
+
   function getIntegratedPathAccess(toolName) {
-    if (toolName === 'zmcp_read_file' || toolName === 'zmcp_list_directory' || toolName === 'zmcp_search_files' || toolName === 'zmcp_get_diagnostics') return 'R';
-    if (toolName === 'zmcp_edit_file' || toolName === 'zmcp_write_file') return 'W';
+    if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'get_diagnostics') return 'R';
+    if (toolName === 'edit_file' || toolName === 'write_file') return 'W';
     return '';
   }
 
@@ -516,7 +521,7 @@
 
     /**
      * Establece la política de grano fino para una herramienta individual.
-     * @param {string} toolId - Identificador único de la herramienta (ej: 'zmcp_read_file').
+     * @param {string} toolId - Identificador único de la herramienta (ej: 'read_file').
      * @param {'allow'|'deny'|'ask'} policy - Decisión de autorización.
      * @param {object} [meta={}] - Metadatos auxiliares (serverName, originalName, etc.).
      */
@@ -638,8 +643,8 @@
       }
 
       const toolId = (tool && (tool.id || tool.name)) || toolName;
-      const category = tool?.category || (/^(?:zmcp|mcp)_/.test(toolName) ? 'mcp' : 'other');
-      const isMcp = category === 'mcp' || /^(?:zmcp|mcp)_/.test(toolName);
+      const category = tool?.category || (/^mcp_/.test(toolName) || LOCAL_MANAGED_TOOLS.has(toolName) ? 'mcp' : 'other');
+      const isMcp = category === 'mcp' || /^mcp_/.test(toolName) || LOCAL_MANAGED_TOOLS.has(toolName);
 
       const serverName = tool?.metadata?.mcpServerName || '';
       const originalName = tool?.metadata?.originalName || toolName;
@@ -734,7 +739,7 @@
         };
       }
 
-      if ((toolName === 'zmcp_execute_command' || toolName === 'zmcp_bash') && typeof args.command === 'string' && args.command.trim()) {
+      if ((toolName === 'execute_command' || toolName === 'bash') && typeof args.command === 'string' && args.command.trim()) {
         const savedCommandRule = this.findToolEntry(toolId, tool)?.entry;
         if (savedCommandRule?.policy === TOOL_POLICIES.DENY) {
           return {

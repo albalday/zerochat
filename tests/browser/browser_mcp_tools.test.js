@@ -436,7 +436,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
 
     // 4. Establecer un permiso 'allow' en una herramienta integrada de archivos
     await page.evaluate(() => {
-      window.ChatToolSecurity.manager.setToolPolicy('zmcp_read_file', 'allow', {
+      window.ChatToolSecurity.manager.setToolPolicy('read_file', 'allow', {
         serverName: 'mcp-proxy',
         originalName: 'read_file'
       });
@@ -449,8 +449,8 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
     // 6. Verificar que las reglas de directorios y la política granular sobrevivieron
     const securityState = await page.evaluate(() => ({
       directoryRules: window.ChatToolSecurity.manager.getDirectoryRules(),
-      readFilePolicy: window.ChatToolSecurity.manager.getToolPolicy('zmcp_read_file'),
-      readFileEval: window.ChatToolSecurity.manager.evaluateAuthorization({ id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' }, { path: 'some/file.txt' })
+      readFilePolicy: window.ChatToolSecurity.manager.getToolPolicy('read_file'),
+      readFileEval: window.ChatToolSecurity.manager.evaluateAuthorization({ id: 'read_file', name: 'read_file', category: 'mcp' }, { path: 'some/file.txt' })
     }));
     assert.deepEqual(securityState.directoryRules, ['RW:my-project/**'], 'Las reglas de directorios deben sobrevivir al F5');
     assert.equal(securityState.readFilePolicy, 'allow', 'La política granular debe sobrevivir al F5');

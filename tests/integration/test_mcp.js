@@ -745,7 +745,7 @@ else:
     assert.equal(restored.evaluateAuthorization(tools[0], {}).status, 'allow');
     assert.equal(restored.evaluateAuthorization(tools[2], {}).requiresApproval, true);
     assert.equal(restored.getToolPolicy('browser_navigate'), null);
-    assert.equal(restored.evaluateAuthorization('zmcp_read_file', {}).requiresApproval, true);
+    assert.equal(restored.evaluateAuthorization('read_file', {}).requiresApproval, true);
   } finally {
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
@@ -768,7 +768,7 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
   }
   const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
     listTools: async () => [{ name: 'read_file' }] });
-  assert.equal((await provider.discoverTools())[0].name, 'zmcp_read_file');
+  assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
 
 test('MCP - syncExternalServers y connectProxy sincronizan y registran herramientas externas activas', async () => {
