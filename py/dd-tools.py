@@ -615,11 +615,28 @@ try {
 (async () => {
   let browser, context, page;
   try {
-    browser = await playwright.chromium.launch({ headless: true });
+    const candidates = [
+      {},                      // 1. Chromium empaquetado de Playwright
+      { channel: 'chrome' },   // 2. Google Chrome del sistema
+      { channel: 'msedge' },   // 3. Microsoft Edge del sistema (Windows 10/11)
+      { channel: 'chromium' }  // 4. Chromium del sistema (/usr/bin/chromium)
+    ];
+    let lastErr = null;
+    for (const cand of candidates) {
+      try {
+        browser = await playwright.chromium.launch({ ...cand, headless: true });
+        if (browser) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!browser) {
+      throw lastErr || new Error('No se encontró ningún navegador basado en Chromium (Playwright, Chrome, Edge o Chromium).');
+    }
     context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     page = await context.newPage();
   } catch (err) {
-    console.log(JSON.stringify({ success: false, error: 'Error al iniciar Chromium: ' + err.message }));
+    console.log(JSON.stringify({ success: false, error: 'Error al iniciar navegador: ' + err.message }));
     process.exit(1);
   }
 
