@@ -392,4 +392,85 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
     await browser.close();
   }
 });
+
+test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (F5)', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    await page.goto(filePath, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // 1. Abrir Ajustes -> Permisos y configurar una regla de directorio
+    await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-permissions"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    await page.locator('#mcp-directory-rules').fill('RW:./my-project/**');
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
+    // Verificar que se guardó en ToolSecurity
+    assert.deepEqual(
+      await page.evaluate(() => window.ChatToolSecurity.manager.getDirectoryRules()),
+      ['RW:my-project/**']
+    );
+
+    // 2. Abrir Ajustes -> Modelo y guardar sin tocar Permisos (no debe borrar las reglas)
+    await page.click('[data-section="tab-model"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
+    assert.deepEqual(
+      await page.evaluate(() => window.ChatToolSecurity.manager.getDirectoryRules()),
+      ['RW:my-project/**'],
+      'Guardar desde otra pestaña no debe borrar las reglas de directorios'
+    );
+
+    // 3. Abrir Ajustes -> Agente y desactivar execute_javascript
+    await page.click('[data-section="tab-agent"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    await page.locator('.switch:has([data-tool-id="execute_javascript"])').click();
+    await page.click('#btn-save-settings');
+    await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
+
+    // 4. Establecer un permiso 'allow' en una herramienta integrada de archivos
+    await page.evaluate(() => {
+      window.ChatToolSecurity.manager.setToolPolicy('zmcp_read_file', 'allow', {
+        serverName: 'mcp-proxy',
+        originalName: 'read_file'
+      });
+    });
+
+    // 5. Recarga de página (F5)
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    // 6. Verificar que las reglas de directorios y la política granular sobrevivieron
+    const securityState = await page.evaluate(() => ({
+      directoryRules: window.ChatToolSecurity.manager.getDirectoryRules(),
+      readFilePolicy: window.ChatToolSecurity.manager.getToolPolicy('zmcp_read_file'),
+      readFileEval: window.ChatToolSecurity.manager.evaluateAuthorization({ id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' }, { path: 'some/file.txt' })
+    }));
+    assert.deepEqual(securityState.directoryRules, ['RW:my-project/**'], 'Las reglas de directorios deben sobrevivir al F5');
+    assert.equal(securityState.readFilePolicy, 'allow', 'La política granular debe sobrevivir al F5');
+    assert.equal(securityState.readFileEval.status, 'allow', 'La evaluación tras F5 debe autorizar sin pedir confirmación');
+    assert.equal(securityState.readFileEval.requiresApproval, false);
+
+    // 7. Verificar que el estado del checkbox del agente sobrevivió
+    const enabledToolsAfterF5 = await page.evaluate(() => window.ChatConfig.getActive().enabledTools);
+    assert.equal(enabledToolsAfterF5['execute_javascript'], false, 'El estado de la herramienta del agente debe sobrevivir al F5');
+
+    // 8. Reabrir Ajustes -> Permisos y verificar que el textarea contiene la regla
+    await page.click('#btn-open-settings');
+    await page.click('[data-section="tab-permissions"]');
+    await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
+    const textareaVal = await page.$eval('#mcp-directory-rules', el => el.value);
+    assert.match(textareaVal, /RW:my-project\/\*\*/, 'El textarea de directorios debe mostrar la regla guardada tras F5');
+    await page.click('#btn-close-settings');
+  } finally {
+    await browser.close();
+  }
 });
+});
+

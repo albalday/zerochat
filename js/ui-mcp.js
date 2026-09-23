@@ -460,73 +460,104 @@
     });
   }
 
+  function renderCurrentToolsList(elements = {}, translator = t) {
+    const container = elements?.toolsContainer || (typeof document !== 'undefined' ? document.getElementById('mcp-tools-container') : null);
+    if (!container) return;
+    const currentCfg = getConfig()?.get?.() || {};
+    const State = getState();
+    const isConn = State?.get ? State.get('mcp')?.status === 'connected' : false;
+    const st = State?.get?.('mcp') || {};
+    const allTools = isConn ? (st.tools || []) : [];
+    renderToolsList(container, allTools, currentCfg.enabledTools || {}, translator);
+  }
+
+  function syncSecurityControls(elements = {}, translator = t) {
+    const Security = getSecurity();
+    const radioAsk = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
+    const radioAllowAll = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
+    const btnClearAuths = elements?.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
+    const directoryRulesInput = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules') : null;
+    const directoryRulesError = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules-error') : null;
+
+    const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
+    if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
+    if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
+    if (directoryRulesInput && Security?.manager?.getDirectoryRules) {
+      const activeRules = Security.manager.getDirectoryRules().join('\n');
+      if (typeof document === 'undefined' || document.activeElement !== directoryRulesInput) {
+        directoryRulesInput.value = activeRules;
+      }
+    }
+
+    if (radioAsk && !radioAsk.dataset?.mcpBound) {
+      radioAsk.dataset.mcpBound = 'true';
+      radioAsk.addEventListener('change', () => {
+        if (radioAsk.checked && Security?.manager?.setGlobalMcpPolicy) {
+          Security.manager.setGlobalMcpPolicy('ask');
+          renderCurrentToolsList(elements, translator);
+        }
+      });
+    }
+
+    if (radioAllowAll && !radioAllowAll.dataset?.mcpBound) {
+      radioAllowAll.dataset.mcpBound = 'true';
+      radioAllowAll.addEventListener('change', () => {
+        if (radioAllowAll.checked && Security?.manager?.setGlobalMcpPolicy) {
+          Security.manager.setGlobalMcpPolicy('allow_all');
+          renderCurrentToolsList(elements, translator);
+        }
+      });
+    }
+
+    if (btnClearAuths && !btnClearAuths.dataset?.mcpBound) {
+      btnClearAuths.dataset.mcpBound = 'true';
+      btnClearAuths.addEventListener('click', () => {
+        if (Security?.manager?.clearAllAuthorizations) {
+          Security.manager.clearAllAuthorizations();
+          renderSavedAuthorizations(elements, translator);
+          renderCurrentToolsList(elements, translator);
+        }
+      });
+    }
+
+    if (directoryRulesInput && !directoryRulesInput.dataset?.mcpBound) {
+      directoryRulesInput.dataset.mcpBound = 'true';
+      const handleRulesChange = () => {
+        if (typeof Security?.manager?.setDirectoryRules !== 'function') return;
+        const rules = directoryRulesInput.value.split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+        try {
+          Security.manager.setDirectoryRules(rules);
+          if (directoryRulesError) directoryRulesError.textContent = '';
+        } catch (err) {
+          if (directoryRulesError) directoryRulesError.textContent = err?.message || translator('mcp_directory_rules_invalid');
+        }
+      };
+      directoryRulesInput.addEventListener('change', handleRulesChange);
+      directoryRulesInput.addEventListener('input', handleRulesChange);
+    }
+
+    renderSavedAuthorizations(elements, translator);
+  }
+
   function initMcpUI(elements, options = {}) {
     if (!elements) return null;
     const State = getState();
     const Security = getSecurity();
 
-    // Controles de Seguridad MCP
-    const radioAsk = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
-    const radioAllowAll = elements.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
-    const btnClearAuths = elements.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
-    const directoryRulesInput = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules') : null;
-
-    function syncSecurityControls() {
-      const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
-      if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
-      if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
-      if (directoryRulesInput && Security?.manager?.getDirectoryRules) {
-        directoryRulesInput.value = Security.manager.getDirectoryRules().join('\n');
-      }
-      renderSavedAuthorizations(elements, t);
-    }
-
-    function renderCurrentToolsList() {
-      if (elements.toolsContainer) {
-        const currentCfg = getConfig()?.get?.() || {};
-        const st = State?.get?.('mcp') || {};
-        const allTools = st.tools || [];
-        renderToolsList(elements.toolsContainer, allTools, currentCfg.enabledTools || {}, t);
-      }
-    }
-
-    radioAsk?.addEventListener?.('change', () => {
-      if (radioAsk.checked && Security?.manager?.setGlobalMcpPolicy) {
-        Security.manager.setGlobalMcpPolicy('ask');
-        renderCurrentToolsList();
-      }
-    });
-
-    radioAllowAll?.addEventListener?.('change', () => {
-      if (radioAllowAll.checked && Security?.manager?.setGlobalMcpPolicy) {
-        Security.manager.setGlobalMcpPolicy('allow_all');
-        renderCurrentToolsList();
-      }
-    });
-
-    btnClearAuths?.addEventListener?.('click', () => {
-      if (Security?.manager?.clearAllAuthorizations) {
-        Security.manager.clearAllAuthorizations();
-        renderSavedAuthorizations(elements, t);
-        renderCurrentToolsList();
-      }
-    });
-
     const unsubscribeSecurity = Security?.manager?.subscribe ? Security.manager.subscribe(() => {
-      syncSecurityControls();
-      renderCurrentToolsList();
+      syncSecurityControls(elements, t);
+      renderCurrentToolsList(elements, t);
     }) : null;
 
     elements.btnCopyCmd?.addEventListener?.('click', () => {
       copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd, t);
     });
 
-
     const unsubscribe = State?.subscribe?.('mcp', (newState) => {
       renderConnectionStatus(elements, newState, t);
     });
     renderConnectionStatus(elements, State?.get?.('mcp'), t);
-    syncSecurityControls();
+    syncSecurityControls(elements, t);
 
     async function syncExternalServers() {
       if (!elements.serversList) return;
@@ -600,7 +631,9 @@
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,
+    renderCurrentToolsList,
     renderExternalServers,
+    syncSecurityControls,
     initMcpUI,
     autoConnectIfAvailable,
     verifyActiveConnection

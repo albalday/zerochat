@@ -316,3 +316,40 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   assert.equal(manager.getToolPolicy('execute_command'), null);
   assert.equal(manager.getToolPolicy('zmcp_execute_command'), 'allow');
 });
+
+test('ChatToolSecurity - Permisos recordados en herramientas integradas de archivo sobreviven recarga', () => {
+  const mockStorage = {};
+  const previousLocalStorage = global.localStorage;
+  global.localStorage = {
+    getItem: (k) => mockStorage[k] || null,
+    setItem: (k, v) => { mockStorage[k] = String(v); },
+    removeItem: (k) => { delete mockStorage[k]; }
+  };
+
+  try {
+    const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+    const readFileTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp' };
+
+    // 1. Sin permisos ni reglas de directorio, pide autorización
+    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    assert.equal(evalBefore.requiresApproval, true);
+    assert.equal(evalBefore.status, 'ask');
+
+    // 2. El usuario autoriza permanentemente la herramienta (allow)
+    manager1.setToolPolicy('zmcp_read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
+    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    assert.equal(evalAfterAllow.requiresApproval, false);
+    assert.equal(evalAfterAllow.status, 'allow');
+
+    // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
+    const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+    assert.equal(manager2.getToolPolicy('zmcp_read_file'), 'allow');
+    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    assert.equal(evalReloaded.requiresApproval, false);
+    assert.equal(evalReloaded.status, 'allow');
+  } finally {
+    if (previousLocalStorage === undefined) delete global.localStorage;
+    else global.localStorage = previousLocalStorage;
+  }
+});
+

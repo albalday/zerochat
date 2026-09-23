@@ -656,8 +656,8 @@
         };
       }
 
-      // Las herramientas integradas de archivos se rigen siempre por la lista
-      // blanca global, incluso si una política MCP amplia está activada.
+      // Las herramientas integradas de archivos se rigen por regla granular si existe,
+      // o por la lista blanca de directorios.
       const pathAccess = getIntegratedPathAccess(toolName);
       const path = args.path || args.filepath || args.file || args.directory || args.dir || '';
       if (pathAccess && typeof path === 'string' && path.trim()) {
@@ -670,6 +670,43 @@
             toolId,
             serverName,
             originalName
+          };
+        }
+        if (savedPathRule?.policy === TOOL_POLICIES.ALLOW) {
+          if (savedPathRule.constraints) {
+            const constraintEval = evaluateConstraints(savedPathRule.constraints, args);
+            if (constraintEval.status === TOOL_POLICIES.DENY) {
+              return {
+                requiresApproval: false,
+                status: TOOL_POLICIES.DENY,
+                reason: constraintEval.reason || 'constraint_violation_denied',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            }
+            if (constraintEval.status === TOOL_POLICIES.ASK) {
+              return {
+                requiresApproval: true,
+                status: TOOL_POLICIES.ASK,
+                reason: constraintEval.reason || 'constraint_outside_scope',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            }
+          }
+          savedPathRule.lastUsedAt = Date.now();
+          return {
+            requiresApproval: false,
+            status: TOOL_POLICIES.ALLOW,
+            reason: 'granular_allow_rule',
+            toolId,
+            serverName,
+            originalName,
+            constraints: savedPathRule.constraints || null
           };
         }
         const directoryEval = this.evaluateDirectoryRule(pathAccess, path);

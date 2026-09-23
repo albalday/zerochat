@@ -27,6 +27,8 @@
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -145,6 +147,18 @@
         </label>
       `;
       container.appendChild(card);
+    });
+
+    container.querySelectorAll('.agent-tool-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const tid = cb.getAttribute('data-tool-id');
+        if (!tid) return;
+        const Config = getConfig();
+        if (Config) {
+          const curr = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
+          (Config.updateRuntime || Config.update)?.call(Config, { enabledTools: { ...curr, [tid]: cb.checked } });
+        }
+      });
     });
   }
 
@@ -319,6 +333,7 @@
       theme: appConfig?.theme || DEFAULT_THEME,
       language: appConfig?.language || 'es',
       enabledTools: {
+        ...(appConfig?.enabledTools || {}),
         ...gatherEnabledToolsFromUI(elements?.agentToolsContainer),
         ...gatherEnabledToolsFromUI(elements?.mcpToolsContainer)
       },
@@ -399,6 +414,14 @@
       if (elements.mcpPortInput) {
         elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
       }
+    }
+
+    const UIMcp = getUIMcp();
+    if (UIMcp && typeof UIMcp.syncSecurityControls === 'function') {
+      UIMcp.syncSecurityControls(elements);
+    }
+    if (UIMcp && typeof UIMcp.renderCurrentToolsList === 'function' && elements.mcpToolsContainer) {
+      UIMcp.renderCurrentToolsList(elements);
     }
 
     const targetId = normalizeSectionId(sectionId);
