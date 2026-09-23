@@ -184,6 +184,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const toolNames = tools.map(t => t.name);
     assert.ok(toolNames.includes('list_directory'));
     assert.ok(toolNames.includes('read_file'));
+    assert.ok(toolNames.includes('write_file'));
     assert.ok(toolNames.includes('edit_file'));
     assert.ok(toolNames.includes('execute_command'));
     const listDirectory = tools.find(t => t.name === 'list_directory');
@@ -236,6 +237,128 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const parsedContent = JSON.parse(callJson.result?.content?.[0]?.text);
     assert.equal(parsedContent.success, true);
     assert.match(parsedContent.content, new RegExp(`"version": "${pkg.version}"`));
+
+    // 6.1. Comprobar read_file con rangos start_line y end_line
+    const rangeRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: {
+          name: 'read_file',
+          arguments: { path: 'package.json', start_line: 1, end_line: 3 }
+        }
+      })
+    });
+    assert.equal(rangeRes.status, 200);
+    const rangeJson = await rangeRes.json();
+    const parsedRange = JSON.parse(rangeJson.result?.content?.[0]?.text);
+    assert.equal(parsedRange.success, true);
+    assert.equal(parsedRange.lines_returned, 3);
+    assert.equal(parsedRange.start_line, 1);
+    assert.equal(parsedRange.end_line, 3);
+
+    // 6.2. Comprobar list_directory recursivo acotado
+    const listRecRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 52,
+        method: 'tools/call',
+        params: {
+          name: 'list_directory',
+          arguments: { path: 'tests/helpers', recursive: true }
+        }
+      })
+    });
+    assert.equal(listRecRes.status, 200);
+    const listRecJson = await listRecRes.json();
+    const parsedListRec = JSON.parse(listRecJson.result?.content?.[0]?.text);
+    assert.equal(parsedListRec.success, true);
+    assert.equal(parsedListRec.recursive, true);
+
+    // 6.3. Comprobar write_file y edit_file quirúrgico (old_str -> new_str)
+    const testFilePath = path.join(os.tmpdir(), `zerochat_test_p1_${Date.now()}.txt`);
+    const writeRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 53,
+        method: 'tools/call',
+        params: {
+          name: 'write_file',
+          arguments: { path: testFilePath, content: 'primera linea\nsegunda linea objetivo\ntercera linea\n' }
+        }
+      })
+    });
+    assert.equal(writeRes.status, 200);
+    const writeJson = await writeRes.json();
+    const parsedWrite = JSON.parse(writeJson.result?.content?.[0]?.text);
+    assert.equal(parsedWrite.success, true);
+
+    const editSurgicalRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 54,
+        method: 'tools/call',
+        params: {
+          name: 'edit_file',
+          arguments: { path: testFilePath, old_str: 'segunda linea objetivo', new_str: 'segunda linea modificada' }
+        }
+      })
+    });
+    assert.equal(editSurgicalRes.status, 200);
+    const editSurgicalJson = await editSurgicalRes.json();
+    const parsedEditSurgical = JSON.parse(editSurgicalJson.result?.content?.[0]?.text);
+    assert.equal(parsedEditSurgical.success, true);
+    assert.equal(parsedEditSurgical.replacements, 1);
+
+    // Error con 0 coincidencias
+    const edit0Res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'Authorization': `Bearer ${testToken}`
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 55,
+        method: 'tools/call',
+        params: {
+          name: 'edit_file',
+          arguments: { path: testFilePath, old_str: 'linea inexistente', new_str: 'foo' }
+        }
+      })
+    });
+    assert.equal(edit0Res.status, 200);
+    const edit0Json = await edit0Res.json();
+    assert.equal(edit0Json.result?.isError, true);
+    assert.match(edit0Json.result?.content?.[0]?.text || '', /No se encontró el texto/);
+
+    try { fs.unlinkSync(testFilePath); } catch (_) {}
 
     // 7. Comprobar flujo SSE con token en cabecera
     const sseRes = await fetch(`${baseUrl}/sse`, {

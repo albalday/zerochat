@@ -67,7 +67,7 @@
 
   function getIntegratedPathAccess(toolName) {
     if (toolName === 'zmcp_read_file' || toolName === 'zmcp_list_directory') return 'R';
-    if (toolName === 'zmcp_edit_file') return 'W';
+    if (toolName === 'zmcp_edit_file' || toolName === 'zmcp_write_file') return 'W';
     return '';
   }
 

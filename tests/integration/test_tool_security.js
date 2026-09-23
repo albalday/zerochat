@@ -43,11 +43,14 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
 
   const readTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
   const editTool = { id: 'zmcp_edit_file', name: 'zmcp_edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
+  const writeTool = { id: 'zmcp_write_file', name: 'zmcp_write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
 
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project/README.md' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/src/app.js' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: './project/src/new.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/README.md' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: './project/README.md' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(readTool, { path: '../secret.txt' }).status, 'ask');
   assert.throws(() => manager.setDirectoryRules(['X:./project/**']), /Regla de directorio inválida/);
 });

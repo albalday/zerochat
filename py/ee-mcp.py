@@ -12,17 +12,32 @@ MAX_COMMAND_LENGTH = 16384
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales antes de ejecutarlas."""
     schemas = {
-        "list_directory": {"path": (str, MAX_PATH_LENGTH)},
+        "list_directory": {
+            "path": (str, MAX_PATH_LENGTH),
+            "recursive": (bool, None)
+        },
         "read_file": {
-            "path": (str, MAX_PATH_LENGTH), "start_line": (int, None),
-            "max_lines": (int, None), "max_bytes": (int, None)
+            "path": (str, MAX_PATH_LENGTH),
+            "start_line": (int, None),
+            "end_line": (int, None),
+            "max_lines": (int, None),
+            "max_bytes": (int, None)
+        },
+        "write_file": {
+            "path": (str, MAX_PATH_LENGTH),
+            "content": (str, MAX_HTTP_BODY_BYTES)
         },
         "edit_file": {
-            "path": (str, MAX_PATH_LENGTH), "content": (str, MAX_HTTP_BODY_BYTES),
-            "mode": (str, 32), "target_content": (str, MAX_HTTP_BODY_BYTES)
+            "path": (str, MAX_PATH_LENGTH),
+            "old_str": (str, MAX_HTTP_BODY_BYTES),
+            "new_str": (str, MAX_HTTP_BODY_BYTES),
+            "content": (str, MAX_HTTP_BODY_BYTES),
+            "mode": (str, 32),
+            "target_content": (str, MAX_HTTP_BODY_BYTES)
         },
         "execute_command": {
-            "command": (str, MAX_COMMAND_LENGTH), "cwd": (str, MAX_PATH_LENGTH),
+            "command": (str, MAX_COMMAND_LENGTH),
+            "cwd": (str, MAX_PATH_LENGTH),
             "timeout_seconds": (int, None)
         }
     }
@@ -35,19 +50,31 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         if expected is None:
             return f"Argumento no permitido: {name}"
         expected_type, max_length = expected
-        if isinstance(value, bool) or not isinstance(value, expected_type):
-            return f"Tipo inválido para '{name}'"
+        if expected_type is bool:
+            if not isinstance(value, bool):
+                return f"Tipo inválido para '{name}'"
+        else:
+            if isinstance(value, bool) or not isinstance(value, expected_type):
+                return f"Tipo inválido para '{name}'"
         if max_length is not None and len(value) > max_length:
             return f"'{name}' excede el tamaño máximo permitido"
 
     required = {
         "read_file": ("path",),
-        "edit_file": ("path", "content"),
+        "write_file": ("path", "content"),
+        "edit_file": ("path",),
         "execute_command": ("command",)
     }
     for name in required.get(tool_name, ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
+
+    if tool_name == "edit_file":
+        has_surgical = "old_str" in arguments and "new_str" in arguments
+        has_legacy = "content" in arguments
+        if not has_surgical and not has_legacy:
+            return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
+
     return None
 
 def sanitize_log_path(raw_path: str) -> str:
