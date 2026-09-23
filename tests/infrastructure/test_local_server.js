@@ -136,16 +136,22 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     });
     assert.equal(invalidShapeRes.status, 400, 'Una petición JSON que no sea un objeto debe rechazarse');
 
-    const oversizedRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://albalday.github.io',
-        'Authorization': `Bearer ${testToken}`
-      },
-      body: 'x'.repeat(1024 * 1024 + 1)
-    });
-    assert.equal(oversizedRes.status, 413, 'Un cuerpo superior al límite debe rechazarse');
+    try {
+      const oversizedRes = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://albalday.github.io',
+          'Authorization': `Bearer ${testToken}`
+        },
+        body: 'x'.repeat(1024 * 1024 + 1)
+      });
+      assert.equal(oversizedRes.status, 413, 'Un cuerpo superior al límite debe rechazarse');
+    } catch (err) {
+      if (err?.cause?.code !== 'EPIPE' && err?.cause?.code !== 'ECONNRESET') {
+        throw err;
+      }
+    }
 
     // 4. Comprobar autorización con cabecera Authorization: Bearer <token>
     const initRes = await fetch(baseUrl, {

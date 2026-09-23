@@ -311,6 +311,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         if content_len > MAX_HTTP_BODY_BYTES:
             self._log_req("POST", safe_path)
+            if content_len <= MAX_HTTP_BODY_BYTES * 2:
+                try:
+                    self.rfile.read(content_len)
+                except Exception:
+                    pass
+            self.close_connection = True
             self._send_json_response(413, {"error": "Request body too large"})
             self._log_res(413, safe_path, (time.monotonic() - t0) * 1000, "Cuerpo HTTP excede el límite")
             return
