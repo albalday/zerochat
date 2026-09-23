@@ -44,9 +44,12 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
   const readTool = { id: 'zmcp_read_file', name: 'zmcp_read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
   const editTool = { id: 'zmcp_edit_file', name: 'zmcp_edit_file', category: 'mcp', metadata: { originalName: 'edit_file' } };
   const writeTool = { id: 'zmcp_write_file', name: 'zmcp_write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
+  const searchTool = { id: 'zmcp_search_files', name: 'zmcp_search_files', category: 'mcp', metadata: { originalName: 'search_files' } };
 
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project/README.md' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readTool, { path: './project' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(searchTool, { path: './project' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(searchTool, { path: '../secret' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/src/app.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(writeTool, { path: './project/src/new.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/README.md' }).status, 'ask');
@@ -62,16 +65,21 @@ test('ChatToolSecurity - La lista de directorios prevalece sobre allow_all para 
   assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'ask');
 });
 
-test('ChatToolSecurity - execute_command aplica R/W a rutas simples y pide confirmación ante dudas', () => {
+test('ChatToolSecurity - execute_command y bash aplican R/W a rutas simples y piden confirmación ante dudas', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
   manager.setGlobalMcpPolicy('allow_all');
   manager.setDirectoryRules(['R:./workspace/**', 'W:./workspace/**']);
   const tool = { id: 'zmcp_execute_command', name: 'zmcp_execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
+  const bashTool = { id: 'zmcp_bash', name: 'zmcp_bash', category: 'mcp', metadata: { originalName: 'bash' } };
 
   assert.equal(manager.evaluateAuthorization(tool, { command: 'du -sh ./workspace' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'du -sh ./workspace' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ./workspace/tmp.log' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ../outside.log' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ../outside.log' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log; cat /etc/passwd' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ./workspace/tmp.log; cat /etc/passwd' }).status, 'ask');
 });
 
 test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas MCP', () => {

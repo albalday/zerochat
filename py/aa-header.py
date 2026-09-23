@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import datetime
+import fnmatch
 import hmac
 import importlib.metadata
 import json
@@ -27,6 +28,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback

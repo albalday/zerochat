@@ -35,6 +35,15 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "mode": (str, 32),
             "target_content": (str, MAX_HTTP_BODY_BYTES)
         },
+        "bash": {
+            "command": (str, MAX_COMMAND_LENGTH),
+            "timeout_seconds": (int, None)
+        },
+        "search_files": {
+            "query": (str, 4096),
+            "path": (str, MAX_PATH_LENGTH),
+            "file_pattern": (str, 256)
+        },
         "execute_command": {
             "command": (str, MAX_COMMAND_LENGTH),
             "cwd": (str, MAX_PATH_LENGTH),
@@ -63,6 +72,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "read_file": ("path",),
         "write_file": ("path", "content"),
         "edit_file": ("path",),
+        "bash": ("command",),
+        "search_files": ("query",),
         "execute_command": ("command",)
     }
     for name in required.get(tool_name, ()):

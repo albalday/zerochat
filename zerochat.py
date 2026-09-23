@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import datetime
+import fnmatch
 import hmac
 import importlib.metadata
 import json
@@ -27,6 +28,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -621,8 +623,135 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
+def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
+    """Salidas >8.000 caracteres se truncan a primeras 50 líneas + aviso + últimas 30 líneas."""
+    if len(text) <= max_chars:
+        return text, False
+    lines = text.splitlines(keepends=True)
+    if len(lines) <= head_lines + tail_lines:
+        half = max_chars // 2
+        return (
+            text[:half]
+            + f"\n\n[... Salida truncada por longitud ({len(text)} caracteres en total) ...]\n\n"
+            + text[-half:],
+            True
+        )
+    omitted = len(lines) - head_lines - tail_lines
+    head = "".join(lines[:head_lines])
+    tail = "".join(lines[-tail_lines:])
+    warning = f"\n\n[... Salida truncada: se omitieron {omitted} líneas ({len(text)} caracteres en total) ...]\n\n"
+    return head + warning + tail, True
+
+
+class PersistentBashSession:
+    """Mantiene el directorio de trabajo (cwd) y variables de entorno entre llamadas sucesivas."""
+    def __init__(self):
+        self._dir = tempfile.mkdtemp(prefix="zerochat_bash_")
+        self._cwd_file = Path(self._dir) / "cwd"
+        self._env_file = Path(self._dir) / "env.sh"
+        self._cwd = str(Path.cwd().resolve())
+        self._lock = threading.Lock()
+        atexit.register(self.cleanup)
+
+    def cleanup(self):
+        try:
+            shutil.rmtree(self._dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    def run(self, command: str, timeout_seconds: int = 30) -> str:
+        with self._lock:
+            safe_timeout = max(1, min(int(timeout_seconds), 300))
+            runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
+
+            script_content = (
+                "if [ -f " + shlex.quote(str(self._env_file)) + " ]; then\n"
+                "  . " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true\n"
+                "fi\n"
+                "cd " + shlex.quote(self._cwd) + " 2>/dev/null || true\n"
+                "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
+                + command + "\n"
+            )
+
+            try:
+                with open(runner_script, "w", encoding="utf-8") as f:
+                    f.write(script_content)
+                runner_script.chmod(0o700)
+
+                proc = subprocess.Popen(
+                    ["bash", str(runner_script)],
+                    cwd=self._cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    start_new_session=True if hasattr(os, "setsid") else False
+                )
+
+                try:
+                    stdout, stderr = proc.communicate(timeout=safe_timeout)
+                    returncode = proc.returncode
+                except subprocess.TimeoutExpired:
+                    try:
+                        if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        else:
+                            proc.kill()
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    proc.communicate()
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Comando excedió el tiempo límite de {timeout_seconds} segundos (terminado con SIGKILL).",
+                        "cwd": self._cwd
+                    }, ensure_ascii=False)
+
+                if self._cwd_file.is_file():
+                    try:
+                        saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
+                        if saved_cwd and Path(saved_cwd).is_dir():
+                            self._cwd = saved_cwd
+                    except Exception:
+                        pass
+
+                truncated_out, was_out_trunc = truncate_terminal_output(stdout)
+                truncated_err, was_err_trunc = truncate_terminal_output(stderr)
+
+                return json.dumps({
+                    "success": returncode == 0,
+                    "returncode": returncode,
+                    "stdout": truncated_out,
+                    "stderr": truncated_err,
+                    "cwd": self._cwd,
+                    "truncated": was_out_trunc or was_err_trunc
+                }, ensure_ascii=False, indent=2)
+
+            except Exception as e:
+                return json.dumps({"success": False, "error": str(e), "cwd": self._cwd}, ensure_ascii=False)
+            finally:
+                try:
+                    if runner_script.is_file():
+                        runner_script.unlink()
+                except Exception:
+                    pass
+
+
+BASH_SESSION = PersistentBashSession()
+
+
+def bash(command: str, timeout_seconds: int = 30) -> str:
+    """Ejecuta un comando en la shell bash interactiva persistente."""
+    return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
+
+
 def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> str:
     """Ejecuta un comando en la shell del sistema y devuelve stdout y stderr."""
+    if cwd == "." or cwd == BASH_SESSION._cwd:
+        return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
     try:
         target_cwd = Path(cwd).expanduser().resolve()
         if not target_cwd.exists() or not target_cwd.is_dir():
@@ -638,15 +767,93 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
             encoding="utf-8",
             errors="replace"
         )
+        trunc_out, was_out_trunc = truncate_terminal_output(proc.stdout)
+        trunc_err, was_err_trunc = truncate_terminal_output(proc.stderr)
         return json.dumps({
             "success": proc.returncode == 0,
             "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "cwd": str(target_cwd)
+            "stdout": trunc_out,
+            "stderr": trunc_err,
+            "cwd": str(target_cwd),
+            "truncated": was_out_trunc or was_err_trunc
         }, ensure_ascii=False, indent=2)
     except subprocess.TimeoutExpired:
         return json.dumps({"success": False, "error": f"Comando excedió el tiempo límite de {timeout_seconds} segundos."}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
+    """Búsqueda recursiva por texto plano o expresión regular en archivos del proyecto."""
+    try:
+        target = Path(path).expanduser().resolve()
+        if not target.exists():
+            return json.dumps({"success": False, "error": f"La ruta '{path}' no existe."}, ensure_ascii=False)
+        if not target.is_dir():
+            return json.dumps({"success": False, "error": f"La ruta '{path}' no es un directorio."}, ensure_ascii=False)
+
+        try:
+            regex = re.compile(query, re.MULTILINE)
+        except re.error:
+            regex = re.compile(re.escape(query), re.MULTILINE)
+
+        ignored_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".cache"}
+        matches = []
+        files_searched = 0
+        max_file_size = 2 * 1024 * 1024
+        truncated = False
+
+        for root, dirs, files in os.walk(target):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+
+            for fname in sorted(files):
+                if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
+                    continue
+
+                fpath = Path(root) / fname
+                try:
+                    stat = fpath.stat()
+                    if stat.st_size > max_file_size:
+                        continue
+                except OSError:
+                    continue
+
+                files_searched += 1
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        for line_idx, line in enumerate(f, 1):
+                            if regex.search(line):
+                                try:
+                                    rel_path = str(fpath.relative_to(target))
+                                except ValueError:
+                                    rel_path = str(fpath)
+                                matches.append({
+                                    "file": str(fpath),
+                                    "relative_path": rel_path,
+                                    "line_number": line_idx,
+                                    "content": line.rstrip("\r\n")[:300]
+                                })
+                                if len(matches) >= max_results:
+                                    truncated = True
+                                    break
+                except (PermissionError, OSError):
+                    continue
+
+                if truncated:
+                    break
+            if truncated:
+                break
+
+        return json.dumps({
+            "success": True,
+            "path": str(target),
+            "query": query,
+            "file_pattern": file_pattern,
+            "files_searched": files_searched,
+            "total_matches": len(matches),
+            "truncated": truncated,
+            "matches": matches
+        }, ensure_ascii=False, indent=2)
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
@@ -707,6 +914,31 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     },
     {
+        "name": "bash",
+        "description": "Ejecuta un comando en la shell interactiva con estado persistente (mantiene cwd y variables de entorno entre llamadas).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Comando de shell a ejecutar (ej: npm test, git diff)"},
+                "timeout_seconds": {"type": "integer", "description": "Tiempo límite en segundos (por defecto 30)", "default": 30}
+            },
+            "required": ["command"]
+        }
+    },
+    {
+        "name": "search_files",
+        "description": "Búsqueda recursiva por texto plano o expresión regular en archivos del proyecto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Cadena o expresión regular a buscar"},
+                "path": {"type": "string", "description": "Carpeta base de búsqueda (por defecto '.')", "default": "."},
+                "file_pattern": {"type": "string", "description": "Filtro glob opcional (ej: *.js, *.py)"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
         "name": "execute_command",
         "description": "Ejecuta un comando en la shell del sistema y captura la salida.",
         "inputSchema": {
@@ -726,6 +958,8 @@ LOCAL_TOOL_HANDLERS = {
     "read_file": read_file,
     "write_file": write_file,
     "edit_file": edit_file,
+    "bash": bash,
+    "search_files": search_files,
     "execute_command": execute_command
 }
 
@@ -766,6 +1000,15 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "mode": (str, 32),
             "target_content": (str, MAX_HTTP_BODY_BYTES)
         },
+        "bash": {
+            "command": (str, MAX_COMMAND_LENGTH),
+            "timeout_seconds": (int, None)
+        },
+        "search_files": {
+            "query": (str, 4096),
+            "path": (str, MAX_PATH_LENGTH),
+            "file_pattern": (str, 256)
+        },
         "execute_command": {
             "command": (str, MAX_COMMAND_LENGTH),
             "cwd": (str, MAX_PATH_LENGTH),
@@ -794,6 +1037,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "read_file": ("path",),
         "write_file": ("path", "content"),
         "edit_file": ("path",),
+        "bash": ("command",),
+        "search_files": ("query",),
         "execute_command": ("command",)
     }
     for name in required.get(tool_name, ()):

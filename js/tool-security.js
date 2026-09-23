@@ -66,7 +66,7 @@
   }
 
   function getIntegratedPathAccess(toolName) {
-    if (toolName === 'zmcp_read_file' || toolName === 'zmcp_list_directory') return 'R';
+    if (toolName === 'zmcp_read_file' || toolName === 'zmcp_list_directory' || toolName === 'zmcp_search_files') return 'R';
     if (toolName === 'zmcp_edit_file' || toolName === 'zmcp_write_file') return 'W';
     return '';
   }
@@ -734,7 +734,7 @@
         };
       }
 
-      if (toolName === 'zmcp_execute_command' && typeof args.command === 'string' && args.command.trim()) {
+      if ((toolName === 'zmcp_execute_command' || toolName === 'zmcp_bash') && typeof args.command === 'string' && args.command.trim()) {
         const savedCommandRule = this.findToolEntry(toolId, tool)?.entry;
         if (savedCommandRule?.policy === TOOL_POLICIES.DENY) {
           return {

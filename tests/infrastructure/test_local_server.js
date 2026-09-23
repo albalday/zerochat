@@ -186,6 +186,8 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('read_file'));
     assert.ok(toolNames.includes('write_file'));
     assert.ok(toolNames.includes('edit_file'));
+    assert.ok(toolNames.includes('bash'));
+    assert.ok(toolNames.includes('search_files'));
     assert.ok(toolNames.includes('execute_command'));
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
@@ -359,6 +361,102 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.match(edit0Json.result?.content?.[0]?.text || '', /No se encontró el texto/);
 
     try { fs.unlinkSync(testFilePath); } catch (_) {}
+
+    // 6.4. Comprobar herramienta bash con sesión persistente (variables de entorno y cwd)
+    const bashEnv1Res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 56,
+        method: 'tools/call',
+        params: {
+          name: 'bash',
+          arguments: { command: 'export ZEROCHAT_PERSIST_VAR="antigravity_persistent_value" && cd tests/helpers' }
+        }
+      })
+    });
+    assert.equal(bashEnv1Res.status, 200);
+    const bashEnv1Json = await bashEnv1Res.json();
+    const parsedBash1 = JSON.parse(bashEnv1Json.result?.content?.[0]?.text);
+    assert.equal(parsedBash1.success, true);
+    assert.match(parsedBash1.cwd, /tests\/helpers$/);
+
+    const bashEnv2Res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 57,
+        method: 'tools/call',
+        params: {
+          name: 'bash',
+          arguments: { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' }
+        }
+      })
+    });
+    assert.equal(bashEnv2Res.status, 200);
+    const bashEnv2Json = await bashEnv2Res.json();
+    const parsedBash2 = JSON.parse(bashEnv2Json.result?.content?.[0]?.text);
+    assert.equal(parsedBash2.success, true);
+    assert.match(parsedBash2.stdout, /CHECK_VAR=antigravity_persistent_value/);
+    assert.match(parsedBash2.stdout, /tests\/helpers/);
+
+    // Restaurar cwd del bash
+    await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 58,
+        method: 'tools/call',
+        params: { name: 'bash', arguments: { command: `cd ${JSON.stringify(repoRoot)}` } }
+      })
+    });
+
+    // 6.5. Comprobar truncado defensivo de bash (>8.000 caracteres)
+    const bashTruncRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 59,
+        method: 'tools/call',
+        params: {
+          name: 'bash',
+          arguments: { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' }
+        }
+      })
+    });
+    assert.equal(bashTruncRes.status, 200);
+    const bashTruncJson = await bashTruncRes.json();
+    const parsedBashTrunc = JSON.parse(bashTruncJson.result?.content?.[0]?.text);
+    assert.equal(parsedBashTrunc.success, true);
+    assert.equal(parsedBashTrunc.truncated, true);
+    assert.match(parsedBashTrunc.stdout, /Salida truncada/);
+    assert.match(parsedBashTrunc.stdout, /line 000/);
+    assert.match(parsedBashTrunc.stdout, /line 119/);
+
+    // 6.6. Comprobar search_files con regex y filtro glob
+    const searchRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 60,
+        method: 'tools/call',
+        params: {
+          name: 'search_files',
+          arguments: { query: 'PersistentBashSession', path: '.', file_pattern: '*.py' }
+        }
+      })
+    });
+    assert.equal(searchRes.status, 200);
+    const searchJson = await searchRes.json();
+    const parsedSearch = JSON.parse(searchJson.result?.content?.[0]?.text);
+    assert.equal(parsedSearch.success, true);
+    assert.ok(parsedSearch.total_matches > 0);
+    assert.ok(parsedSearch.matches.some(m => m.relative_path.includes('dd-tools.py') || m.relative_path.includes('zerochat.py')));
 
     // 7. Comprobar flujo SSE con token en cabecera
     const sseRes = await fetch(`${baseUrl}/sse`, {
