@@ -24,10 +24,12 @@ Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRe
 
 `execute_javascript` (`js/tools/builtin/execute-javascript.tool.js` y `js/sandbox.js`) es una herramienta diseñada para asistir al modelo en cálculos numéricos, operaciones algorítmicas complejas y procesamiento de datos en tiempo real.
 
-- **Mecanismo de ejecución**: Se ejecuta en un Web Worker efímero en un hilo separado del navegador (con fallback controlado en entornos sin soporte de Worker), evitando congelar el hilo principal de la interfaz ante bucles o algoritmos pesados.
-- **Control de tiempo y recursos**: Aplica un límite estricto de tiempo (`timeoutMs`, por defecto 2500ms) que termina forzosamente el Worker (`worker.terminate()`) si se sobrepasa, además de truncar salidas excesivas y limitar las llamadas a consola.
-- **Filtro de seguridad en el Worker**: Dentro del entorno del Worker se neutralizan APIs de red y spawning (`fetch`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `Worker`) para prevenir llamadas externas no intencionadas durante cálculos.
-- **Vigilancia del usuario técnico**: Esta herramienta **no** es un sandbox sellado a nivel de sistema operativo ni una máquina virtual impermeable. Está concebida como una utilidad para agilizar cálculos del modelo con la visibilidad, conocimiento y supervisión activa de un usuario técnico. El usuario puede habilitar o inhabilitar la herramienta en cualquier momento desde la configuración.
+- **Aislamiento en 3 capas (Defensa en profundidad)**:
+  1. **`<iframe>` con `sandbox="allow-scripts"` (origen opaco `null`)**: Al no incluir `allow-same-origin`, el navegador bloquea completamente el acceso a `localStorage`, `sessionStorage`, `IndexedDB`, cookies y al DOM de la ventana principal (`window.parent` lanza `SecurityError`).
+  2. **Content Security Policy (CSP) restrictivo**: El iframe inyecta su propia política `<meta http-equiv="Content-Security-Policy">` con `default-src 'none'`, `script-src 'unsafe-inline' 'unsafe-eval' blob:;` y `connect-src 'none'`. Esto imposibilita la exfiltración de datos mediante llamadas de red (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, WebRTC).
+  3. **Web Worker desacoplado y Watchdog de timeout**: La computación se delega a un Worker interno sobre un hilo independiente para no congelar la interfaz de usuario ante algoritmos pesados o bucles. Un temporizador watchdog en el host (`timeoutMs`, por defecto 2500ms) elimina forzosamente el iframe (`iframe.remove()`) si se sobrepasa el límite de tiempo.
+- **Control de salidas y recursos**: Truncado automático de salidas que superen `MAX_OUTPUT_LENGTH` (30.000 caracteres) y limitación estricta de registros de consola (`MAX_LOG_ENTRIES = 200`).
+- **Supervisión y activación**: Diseñada para asistir al modelo con la visibilidad del usuario. Se puede habilitar o inhabilitar en cualquier momento desde los ajustes de herramientas.
 
 ## Nombres MCP
 

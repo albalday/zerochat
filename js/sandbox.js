@@ -108,14 +108,22 @@
       const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
 
       const trimmed = (code || '').trim();
+      const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed) ||
+                          trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');
       let wrappedBody;
-      if (!trimmed.includes('return') && !trimmed.includes(';') && !trimmed.includes('\\n')) {
+      if (!isStatement) {
         wrappedBody = '"use strict"; return (' + trimmed + ');';
       } else {
         wrappedBody = '"use strict";\\n' + trimmed;
       }
 
-      const runner = new Function(...paramNames, wrappedBody);
+      const isAsync = /\\bawait\\b/.test(trimmed);
+      let runner;
+      if (isAsync) {
+        runner = new Function(...paramNames, '"use strict"; return (async function() {\\n' + wrappedBody + '\\n})();');
+      } else {
+        runner = new Function(...paramNames, wrappedBody);
+      }
 
       // 3. Desactivar invocación de Function.prototype.constructor durante la ejecución
       // para neutralizar vectores de escape vía prototipos como ({}).constructor.constructor('return this')()
@@ -340,14 +348,22 @@
         const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
 
         const trimmedCode = (code || '').trim();
+        const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\b/.test(trimmedCode) ||
+                            trimmedCode.includes(';') || trimmedCode.includes('\n') || trimmedCode.includes('return');
         let wrappedBody;
-        if (!trimmedCode.includes('return') && !trimmedCode.includes(';') && !trimmedCode.includes('\n')) {
+        if (!isStatement) {
           wrappedBody = `"use strict"; return (${trimmedCode});`;
         } else {
           wrappedBody = `"use strict";\n${trimmedCode}`;
         }
 
-        const runner = new Function(...paramNames, wrappedBody);
+        const isAsync = /\bawait\b/.test(trimmedCode);
+        let runner;
+        if (isAsync) {
+          runner = new Function(...paramNames, `"use strict"; return (async function() {\n${wrappedBody}\n})();`);
+        } else {
+          runner = new Function(...paramNames, wrappedBody);
+        }
         const rawResult = runner.apply(null, paramValues);
 
         Promise.resolve(rawResult).then(function(resolvedResult) {
@@ -398,8 +414,225 @@
   }
 
   /**
+   * Ejecuta código JavaScript en un iframe con sandbox (origen opaco "null"),
+   * Content Security Policy (connect-src 'none') y Web Worker interno.
+   * Proporciona defensa en profundidad:
+   * 1. Origen "null" que bloquea acceso a localStorage, IndexedDB, cookies y window.parent.
+   * 2. CSP connect-src 'none' que bloquea fetch, XHR, WebSockets y exfiltración de red.
+   * 3. Hilo independiente no bloqueante con timeout watchdog que destruye el iframe si se excede el tiempo.
+   */
+  function executeWithIframe(code, timeoutMs) {
+    return new Promise((resolve) => {
+      const doc = typeof document !== 'undefined' ? document : null;
+      if (!doc || typeof doc.createElement !== 'function') {
+        return resolve(executeWithFallback(code, timeoutMs));
+      }
+
+      const container = doc.body || doc.documentElement;
+      if (!container) {
+        return resolve(executeWithFallback(code, timeoutMs));
+      }
+
+      const id = 'exec_' + Math.random().toString(36).slice(2) + '_' + Date.now();
+      const startTime = performance.now();
+      let isResolved = false;
+      let iframe = doc.createElement('iframe');
+      iframe.sandbox = 'allow-scripts';
+      iframe.style.display = 'none';
+      iframe.setAttribute('aria-hidden', 'true');
+
+      const IFRAME_DOC = `<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; connect-src 'none'; style-src 'none'; img-src 'none'; object-src 'none';">
+</head>
+<body>
+  <script>
+    (function() {
+      let activeWorker = null;
+      let workerUrl = null;
+
+      function executeDirectly(payload) {
+        const notifyParent = function(msg) { window.parent.postMessage(msg, '*'); };
+        const id = payload.id;
+        const code = payload.code;
+        const maxOutputLength = payload.maxOutputLength || ${MAX_OUTPUT_LENGTH};
+        const maxLogEntries = payload.maxLogEntries || ${MAX_LOG_ENTRIES};
+        const logs = [];
+
+        function formatValue(v) {
+          if (v === null) return 'null';
+          if (v === undefined) return 'undefined';
+          if (typeof v === 'bigint') return v.toString();
+          if (typeof v === 'object') {
+            try {
+              return JSON.stringify(v, function(k, val) {
+                return typeof val === 'bigint' ? val.toString() : val;
+              }, 2);
+            } catch(e) {
+              return String(v);
+            }
+          }
+          return String(v);
+        }
+
+        function addLog(prefix, args) {
+          if (logs.length >= maxLogEntries) return;
+          let text = args.map(formatValue).join(' ');
+          if (prefix) text = '[' + prefix + '] ' + text;
+          if (text.length > maxOutputLength) {
+            text = text.substring(0, maxOutputLength) + '... [Salida truncada]';
+          }
+          logs.push(text);
+        }
+
+        const customConsole = {
+          log: function(...args) { addLog('', args); },
+          info: function(...args) { addLog('INFO', args); },
+          warn: function(...args) { addLog('WARN', args); },
+          error: function(...args) { addLog('ERROR', args); }
+        };
+
+        try {
+          const trimmed = (code || '').trim();
+          const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed) ||
+                              trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');
+          let wrapped;
+          if (!isStatement) {
+            wrapped = '"use strict"; return (' + trimmed + ');';
+          } else {
+            wrapped = '"use strict";\\n' + trimmed;
+          }
+
+          const isAsync = /\\bawait\\b/.test(trimmed);
+          let runner;
+          if (isAsync) {
+            runner = new Function('console', '"use strict"; return (async function() {\\n' + wrapped + '\\n})();');
+          } else {
+            runner = new Function('console', wrapped);
+          }
+
+          const rawResult = runner(customConsole);
+          Promise.resolve(rawResult).then(function(res) {
+            let formatted = res !== undefined ? formatValue(res) : (logs.length > 0 ? logs.join('\\n') : 'undefined');
+            if (formatted && formatted.length > maxOutputLength) {
+              formatted = formatted.substring(0, maxOutputLength) + '... [Salida truncada por límite de tamaño]';
+            }
+            notifyParent({ id: id, success: true, result: formatted, logs: logs });
+          }).catch(function(err) {
+            notifyParent({ id: id, success: false, result: '', logs: logs, error: (err && err.message) || String(err) });
+          });
+        } catch(err) {
+          notifyParent({ id: id, success: false, result: '', logs: logs, error: (err && err.message) || String(err) });
+        }
+      }
+
+      window.addEventListener('message', function(e) {
+        if (!e.data || !e.data.id) return;
+        const payload = e.data;
+        const canUseWorker = typeof Worker !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+        if (canUseWorker) {
+          try {
+            const blob = new Blob([${JSON.stringify(WORKER_CODE)}], { type: 'application/javascript' });
+            workerUrl = URL.createObjectURL(blob);
+            activeWorker = new Worker(workerUrl);
+
+            activeWorker.onmessage = function(wEvt) {
+              window.parent.postMessage(wEvt.data, '*');
+              if (activeWorker) { try { activeWorker.terminate(); } catch(_) {} activeWorker = null; }
+              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch(_) {} workerUrl = null; }
+            };
+
+            activeWorker.onerror = function(wErr) {
+              window.parent.postMessage({
+                id: payload.id,
+                success: false,
+                result: '',
+                logs: [],
+                error: (wErr && wErr.message) || String(wErr)
+              }, '*');
+              if (activeWorker) { try { activeWorker.terminate(); } catch(_) {} activeWorker = null; }
+              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch(_) {} workerUrl = null; }
+            };
+
+            activeWorker.postMessage(payload);
+            return;
+          } catch(err) {
+            // Fallback directo en el iframe si Worker es bloqueado en origen null
+          }
+        }
+        executeDirectly(payload);
+      });
+
+      window.parent.postMessage({ type: 'sandbox_ready' }, '*');
+    })();
+  <` + `/script>
+</body>
+</html>`;
+
+      iframe.srcdoc = IFRAME_DOC;
+
+      function cleanup() {
+        if (onMessage) {
+          window.removeEventListener('message', onMessage);
+          onMessage = null;
+        }
+        if (iframe) {
+          try { iframe.remove(); } catch (_) {}
+          iframe = null;
+        }
+      }
+
+      const timer = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          const elapsed = (performance.now() - startTime).toFixed(2);
+          resolve({
+            success: false,
+            result: '',
+            logs: [],
+            executionTimeMs: parseFloat(elapsed),
+            error: `Tiempo de ejecución excedido (Timeout de ${timeoutMs}ms). El entorno aislado fue terminado forzosamente.`
+          });
+        }
+      }, timeoutMs);
+
+      let onMessage = function(e) {
+        if (!iframe || e.source !== iframe.contentWindow) return;
+        if (e.data && e.data.type === 'sandbox_ready') {
+          iframe.contentWindow.postMessage({
+            id: id,
+            code: code,
+            maxOutputLength: MAX_OUTPUT_LENGTH,
+            maxLogEntries: MAX_LOG_ENTRIES
+          }, '*');
+        } else if (e.data && e.data.id === id) {
+          if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timer);
+            cleanup();
+            const elapsed = (performance.now() - startTime).toFixed(2);
+            resolve({
+              success: Boolean(e.data.success),
+              result: e.data.result || '',
+              logs: e.data.logs || [],
+              executionTimeMs: parseFloat(elapsed),
+              error: e.data.error
+            });
+          }
+        }
+      };
+
+      window.addEventListener('message', onMessage);
+      container.appendChild(iframe);
+    });
+  }
+
+  /**
    * Ejecuta código JavaScript de forma aislada.
-   * Utiliza Web Worker cuando está disponible; en caso contrario, recurre al fallback controlado.
+   * En entorno de navegador con DOM disponible, utiliza un iframe con sandbox (origen "null") y CSP restrictivo.
+   * En otros entornos (Node.js o sin DOM), recurre a Web Worker o fallback controlado.
    * 
    * @param {string} code - Código JS a ejecutar
    * @param {number} timeoutMs - Límite de tiempo máximo en ms
@@ -426,6 +659,11 @@
       };
     }
 
+    const hasDom = typeof document !== 'undefined' && typeof document.createElement === 'function';
+    if (hasDom) {
+      return executeWithIframe(code, effectiveTimeout);
+    }
+
     const isWorkerSupported = typeof Worker !== 'undefined' &&
                               typeof Blob !== 'undefined' &&
                               typeof URL !== 'undefined' &&
@@ -440,6 +678,7 @@
 
   return {
     execute,
+    executeWithIframe,
     executeWithWorker,
     executeWithFallback,
     MAX_OUTPUT_LENGTH,

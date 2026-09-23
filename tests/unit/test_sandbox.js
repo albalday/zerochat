@@ -368,5 +368,92 @@ test('Sandbox - Neutralización de APIs de red y Worker en prototipo de Worker',
   }
 });
 
+test('Sandbox - executeWithIframe configura sandbox="allow-scripts" y CSP restrictivo', async () => {
+  assert.equal(typeof Sandbox.executeWithIframe, 'function');
+
+  let appendedIframe = null;
+  let removed = false;
+
+  const mockWindow = {
+    addEventListener: (event, handler) => {
+      mockWindow._handler = handler;
+    },
+    removeEventListener: () => {
+      mockWindow._handler = null;
+    }
+  };
+
+  const mockIframe = {
+    sandbox: '',
+    style: {},
+    setAttribute: () => {},
+    srcdoc: '',
+    remove: () => {
+      removed = true;
+    },
+    contentWindow: {
+      postMessage: () => {}
+    }
+  };
+
+  const mockDoc = {
+    body: {
+      appendChild: (el) => {
+        appendedIframe = el;
+      }
+    },
+    createElement: (tag) => {
+      if (tag === 'iframe') return mockIframe;
+      return {};
+    }
+  };
+
+  global.document = mockDoc;
+  global.window = mockWindow;
+
+  try {
+    const execPromise = Sandbox.executeWithIframe('return 42;', 100);
+
+    // Verificar que el iframe se configuró correctamente
+    assert.equal(appendedIframe.sandbox, 'allow-scripts');
+    assert.ok(appendedIframe.srcdoc.includes("Content-Security-Policy"));
+    assert.ok(appendedIframe.srcdoc.includes("connect-src 'none'"));
+    assert.ok(appendedIframe.srcdoc.includes("default-src 'none'"));
+
+    // Simular handshake y respuesta desde el iframe
+    if (mockWindow._handler) {
+      mockIframe.contentWindow.postMessage = (data) => {
+        if (data && data.id) {
+          if (mockWindow._handler) {
+            mockWindow._handler({
+              source: mockIframe.contentWindow,
+              data: {
+                id: data.id,
+                success: true,
+                result: '42',
+                logs: ['Log iframe']
+              }
+            });
+          }
+        }
+      };
+
+      mockWindow._handler({
+        source: mockIframe.contentWindow,
+        data: { type: 'sandbox_ready' }
+      });
+    }
+
+    const res = await execPromise;
+    assert.equal(res.success, true);
+    assert.equal(res.result, '42');
+    assert.equal(removed, true, 'El iframe debe removerse del DOM al terminar');
+  } finally {
+    delete global.document;
+    delete global.window;
+  }
+});
+
+
 
 
