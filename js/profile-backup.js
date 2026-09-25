@@ -16,6 +16,8 @@
   const VERSION = 1;
   const MAX_FILE_BYTES = 1024 * 1024;
   const MASTER_KEY = 'ZeroChat profile transfer key v1';
+  const KEY_CACHE = 'zerochat_crypto_session_v1';
+  const KEY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
   function cryptoOrThrow() {
     if (!cryptoApi?.subtle || typeof cryptoApi.getRandomValues !== 'function') {
@@ -40,11 +42,57 @@
     return Uint8Array.from(binary, char => char.charCodeAt(0));
   }
 
-  async function getKey() {
+  async function getKey(keyMaterial = null) {
     const c = cryptoOrThrow();
-    const material = new TextEncoder().encode(MASTER_KEY);
-    const digest = await c.subtle.digest('SHA-256', material);
+    let digest;
+    if (keyMaterial) {
+      digest = decodeBase64(keyMaterial);
+      if (digest.length !== 32) throw new Error('La clave de cifrado temporal no es válida.');
+    } else {
+      const material = new TextEncoder().encode(MASTER_KEY);
+      digest = new Uint8Array(await c.subtle.digest('SHA-256', material));
+    }
     return c.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  }
+
+  function getStorage() {
+    try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch (_) { return null; }
+  }
+
+  function getCachedKeyMaterial() {
+    const storage = getStorage();
+    if (!storage) return null;
+    try {
+      const value = JSON.parse(storage.getItem(KEY_CACHE) || 'null');
+      if (!value || value.version !== 1 || typeof value.keyHash !== 'string' || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now()) {
+        storage.removeItem(KEY_CACHE);
+        return null;
+      }
+      const bytes = decodeBase64(value.keyHash);
+      return bytes.length === 32 ? value.keyHash : null;
+    } catch (_) {
+      try { storage.removeItem(KEY_CACHE); } catch (_) {}
+      return null;
+    }
+  }
+
+  function cacheKeyMaterial(keyHash, ttlMs = KEY_CACHE_TTL_MS) {
+    const storage = getStorage();
+    const bytes = decodeBase64(keyHash);
+    if (!storage || bytes.length !== 32 || !Number.isFinite(ttlMs) || ttlMs < 1) return false;
+    try {
+      storage.setItem(KEY_CACHE, JSON.stringify({ version: 1, keyHash, expiresAt: Date.now() + ttlMs }));
+      return true;
+    } catch (_) { return false; }
+  }
+
+  function clearCachedKeyMaterial() {
+    try { getStorage()?.removeItem(KEY_CACHE); } catch (_) {}
+  }
+
+  async function keyMaterialFromPassword(password) {
+    if (typeof password !== 'string' || !password) throw new Error('La contraseña de cifrado no es válida.');
+    return encodeBase64(new Uint8Array(await cryptoOrThrow().subtle.digest('SHA-256', new TextEncoder().encode(password))));
   }
 
   function validateProfiles(profiles) {
@@ -62,20 +110,20 @@
     return profiles;
   }
 
-  async function encryptProfiles(profiles) {
+  async function encryptProfiles(profiles, keyMaterial = getCachedKeyMaterial()) {
     validateProfiles(profiles);
     const c = cryptoOrThrow();
     const plaintext = new TextEncoder().encode(JSON.stringify({ format: FORMAT, version: VERSION, profiles }));
     if (plaintext.byteLength > MAX_FILE_BYTES) throw new Error('La copia de perfiles supera el tamaño permitido.');
     const iv = c.getRandomValues(new Uint8Array(12));
-    const ciphertext = await c.subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(), plaintext);
+    const ciphertext = await c.subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(keyMaterial), plaintext);
     return JSON.stringify({ format: FORMAT, version: VERSION, algorithm: 'AES-GCM', iv: encodeBase64(iv), ciphertext: encodeBase64(new Uint8Array(ciphertext)) });
   }
 
-  async function encryptApiKey(value) {
+  async function encryptApiKey(value, keyMaterial = getCachedKeyMaterial()) {
     const c = cryptoOrThrow();
     const iv = c.getRandomValues(new Uint8Array(12));
-    const ciphertext = await c.subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(), new TextEncoder().encode(String(value || '')));
+    const ciphertext = await c.subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(keyMaterial), new TextEncoder().encode(String(value || '')));
     return { format: 'zerochat-profile-secret', version: VERSION, algorithm: 'AES-GCM', iv: encodeBase64(iv), ciphertext: encodeBase64(new Uint8Array(ciphertext)) };
   }
 
@@ -90,13 +138,24 @@
     return { iv, ciphertext };
   }
 
-  async function decryptApiKey(secret) {
+  async function decryptApiKey(secret, keyMaterial = getCachedKeyMaterial()) {
     const { iv, ciphertext } = validateApiKeySecret(secret);
-    const plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(), ciphertext);
-    return new TextDecoder().decode(plaintext);
+    const c = cryptoOrThrow();
+    try {
+      const plaintext = await c.subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(), ciphertext);
+      return new TextDecoder().decode(plaintext);
+    } catch (defaultError) {
+      if (!keyMaterial) throw Object.assign(new Error('Se necesita la contraseña de cifrado para abrir esta API key.'), { code: 'PASSWORD_REQUIRED' });
+      try {
+        const plaintext = await c.subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(keyMaterial), ciphertext);
+        return new TextDecoder().decode(plaintext);
+      } catch (_) {
+        throw Object.assign(new Error('La contraseña de cifrado no es correcta o la API key está dañada.'), { code: 'PASSWORD_REQUIRED' });
+      }
+    }
   }
 
-  async function decryptProfiles(serialized) {
+  async function decryptProfiles(serialized, keyMaterial = getCachedKeyMaterial()) {
     if (typeof serialized !== 'string' || serialized.length > MAX_FILE_BYTES * 2) throw new Error('El archivo de perfiles supera el tamaño permitido.');
     let envelope;
     try { envelope = JSON.parse(serialized); } catch (_) { throw new Error('El archivo de perfiles no es JSON válido.'); }
@@ -104,15 +163,22 @@
       throw new Error('El formato de copia de perfiles no es compatible.');
     }
     try {
-      const plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv: decodeBase64(envelope.iv) }, await getKey(), decodeBase64(envelope.ciphertext));
+      let plaintext;
+      try {
+        plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv: decodeBase64(envelope.iv) }, await getKey(), decodeBase64(envelope.ciphertext));
+      } catch (_) {
+        if (!keyMaterial) throw Object.assign(new Error('Se necesita la contraseña de cifrado para abrir esta copia.'), { code: 'PASSWORD_REQUIRED' });
+        plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv: decodeBase64(envelope.iv) }, await getKey(keyMaterial), decodeBase64(envelope.ciphertext));
+      }
       const document = JSON.parse(new TextDecoder().decode(plaintext));
       if (!document || document.format !== FORMAT || document.version !== VERSION) throw new Error('invalid');
       return validateProfiles(document.profiles);
     } catch (error) {
+      if (error?.code === 'PASSWORD_REQUIRED') throw error;
       if (error?.message?.startsWith('La copia')) throw error;
       throw new Error('No se pudo descifrar o validar la copia de perfiles.');
     }
   }
 
-  return { FORMAT, VERSION, MAX_FILE_BYTES, encryptProfiles, decryptProfiles, encryptApiKey, decryptApiKey, validateApiKeySecret };
+  return { FORMAT, VERSION, MAX_FILE_BYTES, KEY_CACHE_TTL_MS, encryptProfiles, decryptProfiles, encryptApiKey, decryptApiKey, validateApiKeySecret, keyMaterialFromPassword, getCachedKeyMaterial, cacheKeyMaterial, clearCachedKeyMaterial };
 }));

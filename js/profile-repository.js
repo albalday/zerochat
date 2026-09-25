@@ -125,13 +125,13 @@
       return list().find(profile => profile.id === cleanId) || null;
     }
 
-    async function load(id) {
+    async function load(id, keyMaterial = null) {
       const profile = get(id);
       if (!profile) return null;
       const secret = profile.settings.apiKey;
       if (secret) {
         if (!Backup?.decryptApiKey) throw new Error('El descifrado de API keys no está disponible.');
-        profile.settings.apiKey = await Backup.decryptApiKey(secret);
+        profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
       } else {
         profile.settings.apiKey = '';
       }
@@ -166,6 +166,32 @@
       if (!Backup?.encryptApiKey) throw new Error('El cifrado de API keys no está disponible.');
       const apiKey = await Backup.encryptApiKey(record.settings.apiKey);
       return save({ ...record, settings: { ...record.settings, apiKey } });
+    }
+
+    async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
+      const current = initialize();
+      const rewritten = [];
+      for (const profile of current.profiles) {
+        if (profile.id === READONLY_PROFILE_ID || !profile.settings.apiKey) {
+          rewritten.push(profile);
+          continue;
+        }
+        const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
+        const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
+        rewritten.push({ ...profile, updatedAt: Date.now(), version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
+      }
+      writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: rewritten });
+      return rewritten.length;
+    }
+
+    async function verifyApiKeyMaterial(keyMaterial) {
+      const current = initialize();
+      for (const profile of current.profiles) {
+        if (profile.id !== READONLY_PROFILE_ID && profile.settings.apiKey) {
+          await Backup.decryptApiKey(profile.settings.apiKey, keyMaterial);
+        }
+      }
+      return true;
     }
 
     function remove(id) {
@@ -205,7 +231,7 @@
       return { added, replaced, total: imported.length };
     }
 
-    return { initialize, list, get, load, findByName, save, saveEditable, remove, mergeImported };
+    return { initialize, list, get, load, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported };
   }
 
   const defaultRepository = createRepository();

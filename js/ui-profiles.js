@@ -111,7 +111,7 @@
       UISettings.applyProfileToForm(els, profileData);
       syncProfileSaveState(els, opts);
       try {
-        const profile = id ? await Profiles?.load?.(id) : null;
+        let profile = id ? await Profiles?.load?.(id) : null;
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (!keyInput || currentSelectedId !== id) return;
         const apiKey = profile?.settings?.apiKey || '';
@@ -122,6 +122,25 @@
         }
         syncProfileSaveState(els, opts);
       } catch (error) {
+        if (error?.code === 'PASSWORD_REQUIRED' && id) {
+          const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
+          if (password !== null) {
+            try {
+              const Backup = getProfileBackup();
+              const keyMaterial = await Backup.keyMaterialFromPassword(password);
+              const profile = await Profiles.load(id, keyMaterial);
+              Backup.cacheKeyMaterial(keyMaterial);
+              if (keyInput && (els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id) === id) {
+                keyInput.value = profile?.settings?.apiKey || '';
+                keyInput._loadedApiKey = keyInput.value;
+                syncProfileSaveState(els, opts);
+              }
+              return;
+            } catch (unlockError) {
+              error = unlockError;
+            }
+          }
+        }
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (currentSelectedId !== id) return;
         if (!isProfileFormDirty(els)) {
@@ -447,7 +466,10 @@
         return;
       }
 
-      const encrypted = await ProfileBackup.encryptProfiles(profiles);
+      const keyMaterial = await resolveCurrentKeyForRecipher(Profiles, ProfileBackup);
+      if (keyMaterial === undefined) return;
+      if (keyMaterial) ProfileBackup.cacheKeyMaterial(keyMaterial);
+      const encrypted = await ProfileBackup.encryptProfiles(profiles, keyMaterial);
       const date = new Date().toISOString().slice(0, 10);
 
       // Generar HTML bundle con postMessage
@@ -464,6 +486,76 @@
       showProfileFeedback(els, t('msg_profiles_exported_html') || 'Perfiles exportados. Abre el archivo HTML descargado para importarlos.', 'success');
     } catch (error) {
       showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+    }
+  }
+
+  async function requestEncryptionPassword(message) {
+    return await getDialogs()?.prompt(message, '', {
+      inputType: 'password',
+      title: t('crypto_password_title'),
+      acceptText: t('notice_accept'),
+      cancelText: t('notice_cancel')
+    });
+  }
+
+  async function resolveCurrentKeyForRecipher(Profiles, Backup) {
+    const cached = Backup.getCachedKeyMaterial?.() || null;
+    try {
+      await Profiles.verifyApiKeyMaterial(cached);
+      return cached;
+    } catch (error) {
+      if (error?.code !== 'PASSWORD_REQUIRED') throw error;
+    }
+    const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
+    if (password === null) return undefined;
+    const keyMaterial = await Backup.keyMaterialFromPassword(password);
+    await Profiles.verifyApiKeyMaterial(keyMaterial);
+    return keyMaterial;
+  }
+
+  async function handleEncryptionPassword() {
+    const Profiles = getProfiles();
+    const Backup = getProfileBackup();
+    const Dialogs = getDialogs();
+    if (!Profiles?.recipherApiKeys || !Profiles?.verifyApiKeyMaterial || !Backup?.keyMaterialFromPassword || !Dialogs) return;
+    const nextPassword = await requestEncryptionPassword(t('crypto_new_password_prompt'));
+    if (nextPassword === null) return;
+    if (!nextPassword) {
+      await Dialogs.alert(t('crypto_password_empty'), { type: 'error' });
+      return;
+    }
+    const confirmation = await requestEncryptionPassword(t('crypto_confirm_password_prompt'));
+    if (confirmation === null) return;
+    if (nextPassword !== confirmation) {
+      await Dialogs.alert(t('crypto_password_mismatch'), { type: 'error' });
+      return;
+    }
+    try {
+      const current = await resolveCurrentKeyForRecipher(Profiles, Backup);
+      if (current === undefined) return;
+      const next = await Backup.keyMaterialFromPassword(nextPassword);
+      await Profiles.recipherApiKeys(current, next);
+      Backup.cacheKeyMaterial(next);
+      await Dialogs.alert(t('crypto_password_saved'), { type: 'success' });
+    } catch (error) {
+      await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
+    }
+  }
+
+  async function handleUseDefaultEncryptionKey() {
+    const Profiles = getProfiles();
+    const Backup = getProfileBackup();
+    const Dialogs = getDialogs();
+    if (!Profiles?.recipherApiKeys || !Profiles?.verifyApiKeyMaterial || !Backup || !Dialogs) return;
+    if (!await Dialogs.confirm(t('crypto_default_confirm'), { type: 'warning' })) return;
+    try {
+      const current = await resolveCurrentKeyForRecipher(Profiles, Backup);
+      if (current === undefined) return;
+      await Profiles.recipherApiKeys(current, null);
+      Backup.clearCachedKeyMaterial?.();
+      await Dialogs.alert(t('crypto_default_saved'), { type: 'success' });
+    } catch (error) {
+      await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
     }
   }
 
@@ -992,6 +1084,8 @@
     handleNewProfile,
     handleMenuNewProfile,
     handleExportProfiles,
+    handleEncryptionPassword,
+    handleUseDefaultEncryptionKey,
     openProfileMenu,
     closeProfileMenu,
     setProfileMenuOpen,

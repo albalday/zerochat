@@ -23,3 +23,7 @@ nuevo navegador en linea de comandos
 analizar nuvos codigo de paneles. 
 ver codigo comun, viejo y
 ver si normalziar barra de botones
+
+playwright de instalacion minima para tools minimo
+
+pedir analisis de tamaños automatizado

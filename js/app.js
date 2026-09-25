@@ -806,6 +806,14 @@
   }
 
   function openSettingsSection(sectionId = 'model') {
+    if (sectionId === 'encryption-password') {
+      UIProfiles.handleEncryptionPassword?.();
+      return;
+    }
+    if (sectionId === 'encryption-default') {
+      UIProfiles.handleUseDefaultEncryptionKey?.();
+      return;
+    }
     if (sectionId === 'rag' || sectionId === 'rag-manage') {
       if (window.ChatRagUI && typeof window.ChatRagUI.openManageModal === 'function') {
         window.ChatRagUI.openManageModal();
@@ -1789,7 +1797,19 @@
               throw new Error('Profile decryption not available');
             }
 
-            const imported = await ProfileBackup.decryptProfiles(payload);
+            let imported;
+            try {
+              imported = await ProfileBackup.decryptProfiles(payload);
+            } catch (error) {
+              if (error?.code !== 'PASSWORD_REQUIRED') throw error;
+              const password = await window.ChatDialogs.prompt(window.ChatI18n.t('crypto_current_password_prompt'), '', {
+                inputType: 'password', title: window.ChatI18n.t('crypto_password_title')
+              });
+              if (password === null) throw new Error('Import cancelled by user');
+              const keyMaterial = await ProfileBackup.keyMaterialFromPassword(password);
+              imported = await ProfileBackup.decryptProfiles(payload, keyMaterial);
+              ProfileBackup.cacheKeyMaterial(keyMaterial);
+            }
             console.log('[Import Mode] Decrypted', imported.length, 'profiles');
 
             if (!Array.isArray(imported) || imported.length === 0) {

@@ -43,7 +43,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(sidebar.mode, true);
       assert.equal(sidebar.languages, 2);
       assert.equal(sidebar.themes, 2);
-      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'inspector', undefined]);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'encryption-password', 'encryption-default', 'inspector', undefined]);
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
       assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
 

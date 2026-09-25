@@ -52,6 +52,7 @@
       }
       cancel.hidden = notice.mode === 'alert';
       input.hidden = notice.mode !== 'prompt';
+      input.type = notice.inputType === 'password' ? 'password' : 'text';
       input.value = notice.mode === 'prompt' ? notice.value : '';
       if (checkboxContainer) {
         checkboxContainer.hidden = !notice.checkbox;
@@ -97,7 +98,8 @@
         acceptText: options.acceptText,
         cancelText: options.cancelText,
         checkbox: options.checkbox,
-        checkboxDefault: options.checkboxDefault
+        checkboxDefault: options.checkboxDefault,
+        inputType: options.inputType
       });
       return new Promise(resolve => {
         const unsubscribe = store.subscribe(s => (s.ui.notices || []).some(item => item.id === id), present => {

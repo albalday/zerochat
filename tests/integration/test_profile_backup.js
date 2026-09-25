@@ -21,7 +21,7 @@ test('ProfileBackup - cifra y recupera las definiciones sin exponerlas en el arc
 test('ProfileBackup - rechaza una copia manipulada', async () => {
   const envelope = JSON.parse(await Backup.encryptProfiles(profiles));
   envelope.ciphertext = `${envelope.ciphertext.slice(0, -4)}AAAA`;
-  await assert.rejects(Backup.decryptProfiles(JSON.stringify(envelope)), /descifrar|validar/i);
+  await assert.rejects(Backup.decryptProfiles(JSON.stringify(envelope)), error => error.code === 'PASSWORD_REQUIRED');
 });
 
 test('ProfileBackup - valida la estructura antes de cifrar', async () => {
@@ -36,4 +36,29 @@ test('ProfileBackup - cifra cada API key y detecta manipulación', async () => {
   await assert.rejects(Backup.decryptApiKey({ ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' }));
   const exported = await Backup.encryptProfiles([{ ...profiles[0], settings: { ...profiles[0].settings, apiKey: secret } }]);
   assert.deepEqual((await Backup.decryptProfiles(exported))[0].settings.apiKey, secret);
+});
+
+test('ProfileBackup - usa temporalmente el hash de contraseña y conserva el formato existente', async () => {
+  const originalStorage = global.localStorage;
+  const values = new Map();
+  global.localStorage = {
+    getItem: key => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key)
+  };
+  try {
+    const keyMaterial = await Backup.keyMaterialFromPassword('correct horse battery staple');
+    const secret = await Backup.encryptApiKey('sk-custom', keyMaterial);
+    const encryptedProfiles = await Backup.encryptProfiles(profiles, keyMaterial);
+    await assert.rejects(Backup.decryptApiKey(secret, null), error => error.code === 'PASSWORD_REQUIRED');
+    await assert.rejects(Backup.decryptProfiles(encryptedProfiles, null), error => error.code === 'PASSWORD_REQUIRED');
+    Backup.cacheKeyMaterial(keyMaterial);
+    assert.equal(await Backup.decryptApiKey(secret), 'sk-custom');
+    assert.deepEqual(await Backup.decryptProfiles(encryptedProfiles), profiles);
+    Backup.clearCachedKeyMaterial();
+    assert.equal(Backup.getCachedKeyMaterial(), null);
+  } finally {
+    if (originalStorage === undefined) delete global.localStorage;
+    else global.localStorage = originalStorage;
+  }
 });
