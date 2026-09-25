@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zerochat"
-version = "7.10.0"
+version = "7.11.0"
 description = "Private local web client for AI models, tools and MCP services"
 readme = "README.md"
 requires-python = ">=3.10"
