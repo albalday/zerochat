@@ -44,10 +44,31 @@ try:
     sys.stdin = os.fdopen(0, 'r', closefd=False)
     sys.stdout = InteractiveOutput(original_stdout)
     terminal_before = termios.tcgetattr(0)
-    console = module.ConsoleControl(None, parser)
+    console = module.ConsoleControl(None, parser, target_url="http://127.0.0.1:6388/zerochat.html#token=abc")
     assert console.enabled is True
     console.start()
     assert not (termios.tcgetattr(0)[3] & termios.ICANON)
+
+    import io
+    captured = io.StringIO()
+    orig_write = sys.stdout.write
+    sys.stdout.write = captured.write
+    try:
+        console.status_visible = False
+        console.last_activity = 0
+        console._render_status()
+        status_line = captured.getvalue()
+        assert "[h] ayuda · [n] Navegador · [x] salir" in status_line, f"Línea de estado incorrecta: {status_line}"
+    finally:
+        sys.stdout.write = orig_write
+
+    launched = []
+    module.launch_browser = lambda url: launched.append(url)
+    console._handle_key("n")
+    assert launched == ["http://127.0.0.1:6388/zerochat.html#token=abc"]
+    console._handle_key("N")
+    assert len(launched) == 2
+
     console.close()
     assert termios.tcgetattr(0) == terminal_before
 finally:

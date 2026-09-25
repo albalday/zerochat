@@ -9,9 +9,10 @@ def format_uptime(seconds: float) -> str:
 
 class ConsoleControl:
     """Atajos de consola y línea de estado, solo para terminales interactivos."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser):
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
         self.server = server
         self.parser = parser
+        self.target_url = target_url
         self.started_at = time.monotonic()
         self.last_activity = self.started_at
         self.stop_event = threading.Event()
@@ -91,7 +92,7 @@ class ConsoleControl:
             if self.status_visible:
                 sys.stdout.write("\r\033[2K")
                 self.status_visible = False
-            print("\nComandos de consola: [h] ayuda · [x] salir ordenadamente\n", flush=True)
+            print("\nComandos de consola: [h] ayuda · [n] Navegador · [x] salir ordenadamente\n", flush=True)
             print(self.parser.format_help().rstrip(), flush=True)
             self.last_activity = time.monotonic()
 
@@ -102,7 +103,7 @@ class ConsoleControl:
         with self.lock:
             if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
                 return
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [x] salir")
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [n] Navegador · [x] salir")
             sys.stdout.flush()
             self.status_visible = True
 
@@ -113,6 +114,9 @@ class ConsoleControl:
     def _handle_key(self, key: str):
         if key.lower() == "h":
             self.show_help()
+        elif key.lower() == "n":
+            if self.target_url:
+                launch_browser(self.target_url)
         elif key.lower() == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)

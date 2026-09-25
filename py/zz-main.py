@@ -78,25 +78,11 @@ def main():
         print(f"  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
-    CONSOLE_CONTROL = ConsoleControl(server, parser)
+    CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
     CONSOLE_CONTROL.start()
 
     if not args.no_browser:
-        termux_detected = is_termux_environment()
-        if termux_detected:
-            console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
-        console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
-        try:
-            if not open_browser(target_url):
-                raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
-        except Exception as e:
-            console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
-            console_log("  Traza de diagnóstico:", flush=True)
-            traceback.print_exc()
-            manual_command = get_manual_browser_command(target_url)
-            if manual_command:
-                console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
-                console_log(f"  {manual_command}", flush=True)
+        launch_browser(target_url)
 
     if exit_on_close:
         require_initial = not args.no_browser

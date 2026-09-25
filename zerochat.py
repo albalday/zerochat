@@ -108,9 +108,10 @@ def format_uptime(seconds: float) -> str:
 
 class ConsoleControl:
     """Atajos de consola y línea de estado, solo para terminales interactivos."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser):
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
         self.server = server
         self.parser = parser
+        self.target_url = target_url
         self.started_at = time.monotonic()
         self.last_activity = self.started_at
         self.stop_event = threading.Event()
@@ -190,7 +191,7 @@ class ConsoleControl:
             if self.status_visible:
                 sys.stdout.write("\r\033[2K")
                 self.status_visible = False
-            print("\nComandos de consola: [h] ayuda · [x] salir ordenadamente\n", flush=True)
+            print("\nComandos de consola: [h] ayuda · [n] Navegador · [x] salir ordenadamente\n", flush=True)
             print(self.parser.format_help().rstrip(), flush=True)
             self.last_activity = time.monotonic()
 
@@ -201,7 +202,7 @@ class ConsoleControl:
         with self.lock:
             if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
                 return
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [x] salir")
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [n] Navegador · [x] salir")
             sys.stdout.flush()
             self.status_visible = True
 
@@ -212,6 +213,9 @@ class ConsoleControl:
     def _handle_key(self, key: str):
         if key.lower() == "h":
             self.show_help()
+        elif key.lower() == "n":
+            if self.target_url:
+                launch_browser(self.target_url)
         elif key.lower() == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)
@@ -2720,6 +2724,28 @@ def open_browser(url: str) -> bool:
     )
 
 
+def launch_browser(url: str) -> bool:
+    """Abre el navegador en la URL de la sesión y muestra información o diagnóstico en consola."""
+    termux_detected = is_termux_environment()
+    if termux_detected:
+        console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
+    console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
+    try:
+        if not open_browser(url):
+            raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
+        return True
+    except Exception as e:
+        console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+        console_log("  Traza de diagnóstico:", flush=True)
+        traceback.print_exc()
+        manual_command = get_manual_browser_command(url)
+        if manual_command:
+            console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
+            console_log(f"  {manual_command}", flush=True)
+        return False
+
+
+
 # ==============================================================================
 # Punto de Entrada Principal (CLI)
 # ==============================================================================
@@ -2800,25 +2826,11 @@ def main():
         print(f"  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
-    CONSOLE_CONTROL = ConsoleControl(server, parser)
+    CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
     CONSOLE_CONTROL.start()
 
     if not args.no_browser:
-        termux_detected = is_termux_environment()
-        if termux_detected:
-            console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
-        console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
-        try:
-            if not open_browser(target_url):
-                raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
-        except Exception as e:
-            console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
-            console_log("  Traza de diagnóstico:", flush=True)
-            traceback.print_exc()
-            manual_command = get_manual_browser_command(target_url)
-            if manual_command:
-                console_log("  Termux detectado. Prueba este comando exacto:", flush=True)
-                console_log(f"  {manual_command}", flush=True)
+        launch_browser(target_url)
 
     if exit_on_close:
         require_initial = not args.no_browser

@@ -14,8 +14,12 @@ Añadir mcps stdio y http
 
 Seguridad por defecto de playwrigth mas cebtrada
 
-refactor settings save y quiatr antiguo codigo de pestaas
-
 mensaje de actualziar pip mas frecuente o salir
 
 password general en py o html?
+
+nuevo navegador en linea de comandos
+
+analizar nuvos codigo de paneles. 
+ver codigo comun, viejo y
+ver si normalziar barra de botones
