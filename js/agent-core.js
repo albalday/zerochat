@@ -625,6 +625,23 @@
       if (decisionType === 'allow_always') {
         const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
         const existingConstraints = ToolSecurity.manager.getToolConstraints?.(authEval.toolId || tool.name) || null;
+        let mergedPrefixes = undefined;
+        if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
+          const rawList = [
+            ...(Array.isArray(existingConstraints?.command?.allowedPrefixes) ? existingConstraints.command.allowedPrefixes : []),
+            ...(Array.isArray(requestedConstraints?.command?.allowedPrefixes) ? requestedConstraints.command.allowedPrefixes : [])
+          ];
+          const seen = new Set();
+          mergedPrefixes = [];
+          for (const p of rawList) {
+            if (typeof p !== 'string') continue;
+            const clean = p.trim();
+            if (!clean || seen.has(clean)) continue;
+            seen.add(clean);
+            mergedPrefixes.push(p);
+          }
+        }
+
         const constraints = requestedConstraints?.command && existingConstraints?.command
           ? {
             ...existingConstraints,
@@ -632,10 +649,7 @@
             command: {
               ...existingConstraints.command,
               ...requestedConstraints.command,
-              allowedPrefixes: [...new Set([
-                ...(Array.isArray(existingConstraints.command.allowedPrefixes) ? existingConstraints.command.allowedPrefixes : []),
-                ...(Array.isArray(requestedConstraints.command.allowedPrefixes) ? requestedConstraints.command.allowedPrefixes : [])
-              ])]
+              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {})
             }
           }
           : requestedConstraints;

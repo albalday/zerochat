@@ -367,3 +367,152 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
   }
 });
 
+test('ChatToolSecurity - F1: Una regla de directorio no omite restricciones de prefijo en comandos', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_f1_prefix_bypass' });
+  manager.setDirectoryRules(['R:/tmp/zc-audit/**', 'W:/tmp/zc-audit/**']);
+
+  const cmdTool = {
+    id: 'execute_command',
+    name: 'execute_command',
+    category: 'mcp'
+  };
+
+  // Autorizar exclusivamente prefijo 'ls'
+  manager.setToolPolicy(cmdTool.id, 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['ls'],
+        allowChaining: false
+      }
+    }
+  });
+
+  // 1. Comando 'cat' dentro de la ruta permitida por regla de directorio DEBE requerir aprobación (F1)
+  const evalCat = manager.evaluateAuthorization(cmdTool, { command: 'cat /tmp/zc-audit/demo.txt' });
+  assert.equal(evalCat.requiresApproval, true, 'cat no debe permitirse solo por coincidencia de directorio');
+  assert.equal(evalCat.status, 'ask');
+  assert.equal(evalCat.reason, 'command_outside_allowed_prefixes');
+
+  // 2. Comando 'ls' dentro de la ruta permitida se autoriza correctamente
+  const evalLs = manager.evaluateAuthorization(cmdTool, { command: 'ls /tmp/zc-audit/demo.txt' });
+  assert.equal(evalLs.requiresApproval, false);
+  assert.equal(evalLs.status, 'allow');
+});
+
+test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas de directorio', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_list_dir_norm' });
+  const listTool = {
+    id: 'list_directory',
+    name: 'list_directory',
+    category: 'mcp'
+  };
+
+  // 1. Sin reglas ni autorización, pide aprobación
+  const evalNoRules = manager.evaluateAuthorization(listTool, {});
+  assert.equal(evalNoRules.requiresApproval, true);
+  assert.equal(evalNoRules.status, 'ask');
+  assert.equal(evalNoRules.directoryAccess, 'R');
+  assert.equal(evalNoRules.directoryPath, '.');
+
+  // 2. Con regla para la carpeta '.', se autoriza sin pedir confirmación
+  manager.setDirectoryRules(['R:.']);
+  const evalWithRule = manager.evaluateAuthorization(listTool, {});
+  assert.equal(evalWithRule.requiresApproval, false);
+  assert.equal(evalWithRule.status, 'allow');
+});
+
+test('ChatToolSecurity - Sesión acotada por token y purga de sesiones antiguas', () => {
+  const mockStorage = {
+    'chat_tool_security': JSON.stringify({ legacy: true }),
+    'zc_sec_old_token_1': JSON.stringify({ old: 1 }),
+    'zc_sec_old_token_2': JSON.stringify({ old: 2 })
+  };
+
+  const previousLocalStorage = global.localStorage;
+  global.localStorage = {
+    getItem: (k) => mockStorage[k] || null,
+    setItem: (k, v) => { mockStorage[k] = String(v); },
+    removeItem: (k) => { delete mockStorage[k]; },
+    get length() { return Object.keys(mockStorage).length; },
+    key: (i) => Object.keys(mockStorage)[i] || null
+  };
+
+  try {
+    // Al inicializar con token nuevo 'token_active_123', debe purgar las anteriores
+    const manager = new ChatToolSecurity.ToolSecurityManager({ sessionToken: 'token_active_123' });
+    assert.equal(manager.storageKey, 'zc_sec_token_active_123');
+
+    // Comprobar que se purgaron las viejas y la legacy
+    assert.equal(mockStorage['chat_tool_security'], undefined);
+    assert.equal(mockStorage['zc_sec_old_token_1'], undefined);
+    assert.equal(mockStorage['zc_sec_old_token_2'], undefined);
+
+    // Guardar una regla en la sesión activa
+    manager.setToolPolicy('read_file', 'allow');
+    assert.ok(mockStorage['zc_sec_token_active_123']);
+
+    // Si cambia el token de sesión a 'token_new_456', purga 'token_active_123'
+    manager.setSessionToken('token_new_456');
+    assert.equal(mockStorage['zc_sec_token_active_123'], undefined);
+    assert.equal(manager.getToolPolicy('read_file'), null, 'Sesión nueva arranca limpia');
+  } finally {
+    if (previousLocalStorage === undefined) delete global.localStorage;
+    else global.localStorage = previousLocalStorage;
+  }
+});
+
+test('ChatToolSecurity - Sincronización automática de comandos entre execute_command y bash', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_sync_cmd' });
+  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+
+  // 1. Autorizar python3 en execute_command
+  manager.setToolPolicy('execute_command', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['python3'],
+        allowChaining: false,
+        allowPipes: true
+      }
+    }
+  });
+
+  // Ambos deben quedar autorizados con el mismo prefijo
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 script.py' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'python3 script.py' }).status, 'allow');
+
+  // Comandos fuera del prefijo deben seguir pidiendo confirmación
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'curl https://evil.com' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'curl https://evil.com' }).status, 'ask');
+
+  // Revocar execute_command revoca ambas
+  manager.revokeToolPolicy('execute_command');
+  assert.equal(manager.getToolPolicy('execute_command'), null);
+  assert.equal(manager.getToolPolicy('bash'), null);
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 script.py' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'python3 script.py' }).status, 'ask');
+});
+
+test('ChatToolSecurity - Comandos autorizados soportan rutas relativas y argumentos entrecomillados', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_paths_quotes' });
+  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+
+  manager.setToolPolicy('execute_command', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['python3'],
+        allowChaining: false,
+        allowPipes: true
+      }
+    }
+  });
+
+  // Rutas relativas como ./script.py o comillas en argumentos no deben forzar 'ask'
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 ./take_screenshot.py' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 "take_screenshot.py"' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: "python3 'take_screenshot.py'" }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 scripts/take_screenshot.py' }).status, 'allow');
+});
+
+
+

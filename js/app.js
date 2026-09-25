@@ -2510,6 +2510,9 @@
       if (effectiveToken && window.ChatMCP?.manager?.setSessionToken) {
         window.ChatMCP.manager.setSessionToken(effectiveToken);
       }
+      if (effectiveToken && ToolSecurity?.manager?.setSessionToken) {
+        ToolSecurity.manager.setSessionToken(effectiveToken);
+      }
 
       const currentCfg = getRuntimeConfig();
       const targetPort = backendSession?.port || (currentCfg?.mcpPort || 6388);

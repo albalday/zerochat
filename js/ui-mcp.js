@@ -419,7 +419,12 @@
       if (item.constraints) {
         const parts = [];
         if (item.constraints.command?.allowedPrefixes) {
-          parts.push(item.constraints.command.allowedPrefixes.join(', '));
+          const uniquePrefixes = Array.from(new Set(
+            item.constraints.command.allowedPrefixes.map(p => typeof p === 'string' ? p.trim() : '').filter(Boolean)
+          ));
+          if (uniquePrefixes.length > 0) {
+            parts.push(uniquePrefixes.map(p => `${p} *`).join(', '));
+          }
         }
         if (item.constraints.path?.allowedDirectories) {
           parts.push(item.constraints.path.allowedDirectories.join(', '));

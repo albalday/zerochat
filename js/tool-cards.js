@@ -272,13 +272,12 @@
 
       btnAllowCmd?.addEventListener('click', (e) => {
         e.stopPropagation();
-        const baseNameOnly = baseCmd.includes('/') ? baseCmd.split('/').pop() : baseCmd;
-        const prefixes = Array.from(new Set([baseCmd + ' ', baseCmd, baseNameOnly + ' ', baseNameOnly]));
+        const baseNameOnly = (baseCmd.includes('/') ? baseCmd.split('/').pop() : baseCmd).trim();
         handleDecision({
           decision: 'allow_always',
           constraints: {
             command: {
-              allowedPrefixes: prefixes,
+              allowedPrefixes: [baseNameOnly],
               allowChaining: false,
               allowPipes: true
             }
@@ -289,16 +288,16 @@
       btnAllowPath?.addEventListener('click', (e) => {
         e.stopPropagation();
         if (requestedDirectoryAccess && requestedDirectoryPath) {
-          handleDecision({ decision: 'allow_once', directoryRule: `${requestedDirectoryAccess}:${requestedDirectoryPath}` });
+          handleDecision({ decision: 'allow_always', directoryRule: `${requestedDirectoryAccess}:${requestedDirectoryPath}` });
           return;
         }
-        const cleanPath = pathArg.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+        const cleanPath = (pathArg || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
         const parent = isDirectoryTool
           ? cleanPath
           : (cleanPath.includes('/') ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '.');
         const access = isWritePathTool ? 'W' : 'R';
         handleDecision({
-          decision: 'allow_once',
+          decision: 'allow_always',
           directoryRule: `${access}:${parent || '/'}${parent === '/' ? '' : '/**'}`
         });
       });

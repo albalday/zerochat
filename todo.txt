@@ -13,3 +13,7 @@ maximizar en movil
 Añadir mcps stdio y http
 
 Seguridad por defecto de playwrigth mas cebtrada
+
+refactor settings save y quiatr antiguo codigo de pestaas
+
+mensaje de actualziar pip mas frecuente o salir

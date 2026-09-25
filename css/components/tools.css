@@ -1022,12 +1022,12 @@
 .mcp-auth-constraint-tag {
   font-size: 0.65rem;
   font-family: var(--font-mono, monospace);
-  padding: 0.1rem 0.35rem;
+  padding: 0.1rem 0.4rem;
   background: var(--bg-surface);
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  max-width: 160px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

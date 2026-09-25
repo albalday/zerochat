@@ -17,6 +17,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const STORAGE_KEY_PREFIX = 'zc_sec_';
+  const LEGACY_STORAGE_KEY = 'chat_tool_security';
   const STORAGE_KEY = 'chat_tool_security';
 
   const GLOBAL_POLICIES = Object.freeze({
@@ -45,7 +47,7 @@
         parts.push(part);
       }
     }
-    return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '');
+    return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '.');
   }
 
   function parseDirectoryRule(rawRule) {
@@ -113,6 +115,43 @@
 
   function getStorage() {
     return resolveDep('ChatStorage', './cookies.js');
+  }
+
+  function getBackendSessionToken() {
+    try {
+      const Storage = getStorage();
+      if (Storage && typeof Storage.getBackendSession === 'function') {
+        const session = Storage.getBackendSession();
+        return session?.token || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function purgeOldSessions(activeToken) {
+    try {
+      const ls = (typeof window !== 'undefined' && window.localStorage)
+        ? window.localStorage
+        : (typeof localStorage !== 'undefined' ? localStorage : null);
+      if (ls && typeof ls.removeItem === 'function' && typeof ls.key === 'function') {
+        const keysToRemove = [];
+        const activeKey = activeToken ? `${STORAGE_KEY_PREFIX}${activeToken}` : null;
+        for (let i = 0; i < ls.length; i++) {
+          const k = ls.key(i);
+          if (!k) continue;
+          if (k === LEGACY_STORAGE_KEY) {
+            keysToRemove.push(k);
+          } else if (k.startsWith(STORAGE_KEY_PREFIX)) {
+            if (activeKey && k !== activeKey) {
+              keysToRemove.push(k);
+            }
+          }
+        }
+        for (const k of keysToRemove) {
+          ls.removeItem(k);
+        }
+      }
+    } catch (_) {}
   }
 
   function getState() {
@@ -310,12 +349,46 @@
    */
   class ToolSecurityManager {
     constructor(options = {}) {
-      this.storageKey = options.storageKey || STORAGE_KEY;
+      this.explicitStorageKey = options.storageKey || null;
+      this.sessionToken = options.sessionToken || null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
       this.tools = new Map();
       this.directoryRules = [];
       this.listeners = new Set();
+      this.initStorageKey();
       this.load();
+    }
+
+    initStorageKey() {
+      if (this.explicitStorageKey) {
+        this.storageKey = this.explicitStorageKey;
+        return;
+      }
+      const token = this.sessionToken || getBackendSessionToken();
+      if (token) {
+        this.sessionToken = token;
+        this.storageKey = `${STORAGE_KEY_PREFIX}${token}`;
+        purgeOldSessions(token);
+      } else {
+        this.storageKey = `${STORAGE_KEY_PREFIX}standalone`;
+        purgeOldSessions(null);
+      }
+    }
+
+    setSessionToken(token) {
+      if (!token || typeof token !== 'string') return;
+      if (this.explicitStorageKey) return;
+      if (this.sessionToken === token && this.storageKey === `${STORAGE_KEY_PREFIX}${token}`) {
+        return;
+      }
+      this.sessionToken = token;
+      this.storageKey = `${STORAGE_KEY_PREFIX}${token}`;
+      purgeOldSessions(token);
+      this.tools.clear();
+      this.directoryRules = [];
+      this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
+      this.load();
+      this.notifyListeners();
     }
 
     /**
@@ -325,11 +398,13 @@
       try {
         const Storage = getStorage();
         let raw = null;
-        if (Storage && typeof Storage.getStorageItem === 'function') {
+        if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.getItem === 'function') {
+          try {
+            raw = localStorage.getItem(this.storageKey);
+          } catch (_) {}
+        }
+        if (!raw && Storage && typeof Storage.getStorageItem === 'function') {
           raw = Storage.getStorageItem(this.storageKey);
-          if (raw === null && typeof Storage.migrateLegacyStorageItem === 'function') {
-            raw = Storage.migrateLegacyStorageItem(this.storageKey);
-          }
         }
 
         if (raw) {
@@ -359,7 +434,6 @@
           }
         }
       } catch (err) {
-        // En caso de corrupción, mantener estado seguro por defecto
         this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
         this.tools.clear();
       }
@@ -378,7 +452,8 @@
         });
 
         const payload = {
-          version: 1,
+          version: 2,
+          sessionToken: this.sessionToken || '',
           globalMcpPolicy: this.globalMcpPolicy,
           tools: toolsObj,
           directoryRules: this.directoryRules,
@@ -386,6 +461,11 @@
         };
 
         const serialized = JSON.stringify(payload);
+        if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.setItem === 'function') {
+          try {
+            localStorage.setItem(this.storageKey, serialized);
+          } catch (_) {}
+        }
         if (Storage && typeof Storage.setStorageItem === 'function') {
           Storage.setStorageItem(this.storageKey, serialized);
         }
@@ -627,7 +707,7 @@
      * @param {object} [options={}] - Opciones de contexto.
      * @returns {{ requiresApproval: boolean, status: 'allow'|'deny'|'ask', reason: string, toolId: string, serverName: string, originalName: string, details?: string }}
      */
-    evaluateAuthorization(toolOrName, args = {}, options = {}) {
+    evaluateAuthorization(toolOrName, rawArgs = {}, options = {}) {
       let tool = null;
       let toolName = '';
 
@@ -661,11 +741,17 @@
         };
       }
 
-      // Las herramientas integradas de archivos se rigen por regla granular si existe,
-      // o por la lista blanca de directorios.
-      const pathAccess = getIntegratedPathAccess(toolName);
-      const path = args.path || args.filepath || args.file || args.directory || args.dir || '';
-      if (pathAccess && typeof path === 'string' && path.trim()) {
+      // Normalización previa de argumentos
+      const args = { ...rawArgs };
+      if ((toolName === 'list_directory' || originalName === 'list_directory') && !args.path && !args.directory && !args.dir) {
+        args.path = '.';
+      }
+
+      // 2. Herramientas integradas de archivos
+      const pathAccess = getIntegratedPathAccess(toolName) || getIntegratedPathAccess(originalName);
+      const rawPath = args.path || args.filepath || args.file || args.directory || args.dir || '';
+      if (pathAccess && typeof rawPath === 'string' && rawPath.trim()) {
+        const path = rawPath.trim();
         const savedPathRule = this.findToolEntry(toolId, tool)?.entry;
         if (savedPathRule?.policy === TOOL_POLICIES.DENY) {
           return {
@@ -739,7 +825,9 @@
         };
       }
 
-      if ((toolName === 'execute_command' || toolName === 'bash') && typeof args.command === 'string' && args.command.trim()) {
+      // 3. Comandos de consola (execute_command, bash)
+      if ((toolName === 'execute_command' || toolName === 'bash' || originalName === 'execute_command' || originalName === 'bash')
+          && typeof args.command === 'string' && args.command.trim()) {
         const savedCommandRule = this.findToolEntry(toolId, tool)?.entry;
         if (savedCommandRule?.policy === TOOL_POLICIES.DENY) {
           return {
@@ -751,35 +839,104 @@
             originalName
           };
         }
-        const commandPathEval = this.evaluateCommandPathRules(args.command);
-        if (commandPathEval.allowed) {
+
+        let commandAllowed = false;
+        let commandDenial = null;
+        let commandReason = 'mcp_default_ask';
+
+        if (this.globalMcpPolicy === GLOBAL_POLICIES.ALLOW_ALL) {
+          commandAllowed = true;
+          commandReason = 'mcp_global_allow_all';
+        } else if (savedCommandRule?.policy === TOOL_POLICIES.ALLOW) {
+          if (savedCommandRule.constraints) {
+            const constraintEval = evaluateConstraints(savedCommandRule.constraints, args);
+            if (constraintEval.status === TOOL_POLICIES.DENY) {
+              return {
+                requiresApproval: false,
+                status: TOOL_POLICIES.DENY,
+                reason: constraintEval.reason || 'constraint_violation_denied',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            }
+            if (constraintEval.status === TOOL_POLICIES.ASK) {
+              commandDenial = {
+                requiresApproval: true,
+                status: TOOL_POLICIES.ASK,
+                reason: constraintEval.reason || 'constraint_outside_scope',
+                toolId,
+                serverName,
+                originalName,
+                details: constraintEval.details
+              };
+            } else {
+              commandAllowed = true;
+              commandReason = 'granular_allow_rule';
+            }
+          } else {
+            commandAllowed = true;
+            commandReason = 'granular_allow_rule';
+          }
+        }
+
+        if (!commandAllowed) {
+          if (commandDenial) return commandDenial;
           return {
-            requiresApproval: false,
-            status: TOOL_POLICIES.ALLOW,
-            reason: 'command_directory_rules_allow',
+            requiresApproval: true,
+            status: TOOL_POLICIES.ASK,
+            reason: savedCommandRule?.policy === TOOL_POLICIES.ASK ? 'granular_ask_rule' : 'mcp_default_ask',
             toolId,
             serverName,
             originalName
           };
         }
-        if (commandPathEval.scan.paths.length > 0 || commandPathEval.scan.ambiguous) {
+
+        // Si el ejecutable/prefijo está permitido, verificar que las rutas respetan las reglas de directorio
+        const commandPathEval = this.evaluateCommandPathRules(args.command);
+        if (commandPathEval.scan.ambiguous) {
           return {
             requiresApproval: true,
             status: TOOL_POLICIES.ASK,
-            reason: commandPathEval.scan.ambiguous ? 'command_path_ambiguous' : 'command_directory_rule_required',
+            reason: 'command_path_ambiguous',
             toolId,
             serverName,
             originalName,
-            details: commandPathEval.scan.ambiguous
-              ? 'El comando contiene una construcción de shell que no se puede analizar con seguridad.'
-              : `La ruta no coincide con una regla ${commandPathEval.access}: ${commandPathEval.path}`,
+            details: 'El comando contiene una construcción de shell que no se puede analizar con seguridad.'
+          };
+        }
+
+        if (commandPathEval.scan.paths.length > 0 && !commandPathEval.allowed) {
+          return {
+            requiresApproval: true,
+            status: TOOL_POLICIES.ASK,
+            reason: 'command_directory_rule_required',
+            toolId,
+            serverName,
+            originalName,
+            details: `La ruta no coincide con una regla ${commandPathEval.access}: ${commandPathEval.path}`,
             directoryAccess: commandPathEval.access || '',
             directoryPath: commandPathEval.path || ''
           };
         }
+
+        if (savedCommandRule) {
+          savedCommandRule.lastUsedAt = Date.now();
+        }
+
+        return {
+          requiresApproval: false,
+          status: TOOL_POLICIES.ALLOW,
+          reason: commandReason,
+          toolId,
+          serverName,
+          originalName,
+          constraints: savedCommandRule?.constraints || null
+        };
       }
 
-      // 2. Herramientas MCP con modo global 'allow_all'
+      // 4. Herramientas MCP con modo global 'allow_all'
       if (this.globalMcpPolicy === GLOBAL_POLICIES.ALLOW_ALL) {
         return {
           requiresApproval: false,
@@ -791,14 +948,13 @@
         };
       }
 
-      // 3. Herramientas MCP con regla granular específica guardada (resolución robusta)
+      // 5. Herramientas MCP con regla granular específica guardada (resolución robusta)
       const foundEntry = this.findToolEntry(toolId, tool);
       if (foundEntry) {
         const rule = foundEntry.entry;
         const resolvedToolId = foundEntry.toolId;
 
         if (rule.policy === TOOL_POLICIES.ALLOW) {
-          // Evaluar restricciones granulares si existen
           if (rule.constraints) {
             const constraintEval = evaluateConstraints(rule.constraints, args);
             if (constraintEval.status === TOOL_POLICIES.DENY) {
@@ -825,7 +981,6 @@
             }
           }
 
-          // Registrar último uso
           rule.lastUsedAt = Date.now();
           return {
             requiresApproval: false,
@@ -847,7 +1002,6 @@
             originalName
           };
         }
-        // Si explícitamente se configuró como 'ask'
         return {
           requiresApproval: true,
           status: TOOL_POLICIES.ASK,
@@ -858,7 +1012,7 @@
         };
       }
 
-      // 4. Por defecto en MCP: solicitar autorización interactiva
+      // 6. Por defecto en MCP: solicitar autorización interactiva
       return {
         requiresApproval: true,
         status: TOOL_POLICIES.ASK,
