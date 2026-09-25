@@ -78,13 +78,33 @@
     return '';
   }
 
+  const COMMAND_TOOLS = new Set(['execute_command', 'bash']);
   const READ_COMMANDS = new Set(['ls', 'du', 'cat', 'head', 'tail', 'stat', 'find', 'grep', 'rg', 'wc', 'file']);
   const WRITE_COMMANDS = new Set(['rm', 'mv', 'cp', 'mkdir', 'touch', 'rmdir', 'ln', 'install', 'chmod', 'chown', 'truncate', 'dd', 'tee', 'sed']);
 
+  function hasBalancedQuotes(str) {
+    let single = 0;
+    let double = 0;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === "'" && double % 2 === 0) single++;
+      else if (str[i] === '"' && single % 2 === 0) double++;
+    }
+    return single % 2 === 0 && double % 2 === 0;
+  }
+
   function scanCommandPaths(command) {
     if (typeof command !== 'string' || !command.trim()) return { ambiguous: true, paths: [] };
-    if (/[;&|`$()<>'"\\\n\r*?\[\]]/.test(command)) return { ambiguous: true, paths: [] };
-    const tokens = command.trim().split(/\s+/);
+    if (!hasBalancedQuotes(command)) return { ambiguous: true, paths: [] };
+    if (/[;&|`$()<>\n\r*?\[\]\\]/.test(command)) return { ambiguous: true, paths: [] };
+
+    const tokens = [];
+    const re = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+    let match;
+    while ((match = re.exec(command)) !== null) {
+      tokens.push(match[1] !== undefined ? match[1] : (match[2] !== undefined ? match[2] : match[0]));
+    }
+    if (tokens.length === 0) return { ambiguous: true, paths: [] };
+
     const executable = tokens.shift().split('/').pop();
     const access = WRITE_COMMANDS.has(executable) ? 'W' : (READ_COMMANDS.has(executable) ? 'R' : '');
     const paths = [];
@@ -94,8 +114,14 @@
         if (token === '-delete' || token === '-exec' || token === '-execdir') return { ambiguous: true, paths: [] };
         continue;
       }
-      const explicitPath = token === '.' || token === '..' || /^(?:\/|~\/|\.\/|\.\.\/)/.test(token) || (token.includes('/') && !token.includes('://'));
-      if (!access && explicitPath) return { ambiguous: true, paths: [] };
+      const isTraversalOrAbsolute = /^(?:\/|~\/|\.\.\/)/.test(token);
+      const isRelative = token === '.' || token.startsWith('./') || (token.includes('/') && !token.includes('://'));
+      const explicitPath = isTraversalOrAbsolute || isRelative;
+
+      if (!access) {
+        if (isTraversalOrAbsolute) return { ambiguous: true, paths: [] };
+        continue;
+      }
       if (access && (explicitPath || token)) paths.push(token);
     }
 
@@ -581,8 +607,17 @@
       if (!toolIdOrName && !tool) return null;
 
       const id = tool ? (tool.id || tool.name) : toolIdOrName;
-      if (typeof id === 'string' && this.tools.has(id)) {
-        return { toolId: id, entry: this.tools.get(id) };
+      if (typeof id === 'string') {
+        if (this.tools.has(id)) {
+          return { toolId: id, entry: this.tools.get(id) };
+        }
+        if (COMMAND_TOOLS.has(id)) {
+          for (const sibling of COMMAND_TOOLS) {
+            if (this.tools.has(sibling)) {
+              return { toolId: sibling, entry: this.tools.get(sibling) };
+            }
+          }
+        }
       }
 
       return null;
@@ -615,14 +650,27 @@
       const targetId = found ? found.toolId : toolId;
       const existing = found ? found.entry : (this.tools.get(targetId) || {});
 
-      this.tools.set(targetId, {
+      const entry = {
         policy: cleanPolicy,
         grantedAt: existing.grantedAt || Date.now(),
         lastUsedAt: Date.now(),
         serverName: meta.serverName || existing.serverName || '',
         originalName: meta.originalName || existing.originalName || toolId,
         constraints: meta.constraints !== undefined ? meta.constraints : (existing.constraints || null)
-      });
+      };
+
+      this.tools.set(targetId, entry);
+
+      if (COMMAND_TOOLS.has(targetId)) {
+        for (const sibling of COMMAND_TOOLS) {
+          if (sibling !== targetId) {
+            this.tools.set(sibling, {
+              ...entry,
+              originalName: sibling
+            });
+          }
+        }
+      }
 
       this.save();
     }
@@ -667,9 +715,18 @@
      */
     revokeToolPolicy(toolId) {
       if (!toolId) return false;
+      let deleted = false;
       const found = this.findToolEntry(toolId);
       if (found) {
-        this.tools.delete(found.toolId);
+        deleted = this.tools.delete(found.toolId) || deleted;
+      }
+      deleted = this.tools.delete(toolId) || deleted;
+      if (COMMAND_TOOLS.has(toolId) || (found && COMMAND_TOOLS.has(found.toolId))) {
+        for (const sibling of COMMAND_TOOLS) {
+          deleted = this.tools.delete(sibling) || deleted;
+        }
+      }
+      if (deleted) {
         this.save();
         return true;
       }

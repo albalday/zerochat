@@ -695,6 +695,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     await page.click('#btn-close-rag-manage');
     await page.click('#btn-open-rag');
     await page.waitForSelector('#rag-modal[open]');
+    await page.waitForSelector('.rag-branch-select-card .rag-branch-metrics');
     const activeBranchMetricsText = await page.$eval('.rag-branch-select-card .rag-branch-metrics', el => el.textContent.trim());
     assert.ok(activeBranchMetricsText.includes('Esta rama cargó'), 'El resumen de cada rama en la pestaña Activar debe decir "Esta rama cargó"');
     assert.ok(activeBranchMetricsText.includes('documentos de'), 'El resumen de cada rama en la pestaña Activar debe usar "documentos de"');

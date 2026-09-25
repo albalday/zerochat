@@ -459,6 +459,24 @@
     return elements?.settingsDialog?.dataset?.settingsDirty === 'true';
   }
 
+  function saveDirectoryRulesFromSettings(elements) {
+    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const input = doc ? doc.getElementById('mcp-directory-rules') : null;
+    const errorMessage = doc ? doc.getElementById('mcp-directory-rules-error') : null;
+    const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
+    if (!input || typeof ToolSecurity?.manager?.setDirectoryRules !== 'function') return true;
+
+    const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
+    try {
+      ToolSecurity.manager.setDirectoryRules(rules);
+      if (errorMessage) errorMessage.textContent = '';
+      return true;
+    } catch (error) {
+      if (errorMessage) errorMessage.textContent = error?.message || t('mcp_directory_rules_invalid');
+      return false;
+    }
+  }
+
   async function closeSettingsModal(elements, force = false) {
     if (!force && isSettingsFormDirty(elements)) {
       const Dialogs = getDialogs();
@@ -471,7 +489,162 @@
       elements.settingsDialog.close();
     }
     setSettingsFormDirty(elements, false);
+    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
+    if (Sidebar && typeof Sidebar.setSidebarMode === 'function') {
+      Sidebar.setSidebarMode(elements, 'chat');
+    }
     return true;
+  }
+
+  async function closeSettingsPanelOnly(elements, force = false) {
+    const closed = await closeSettingsModal(elements, force);
+    if (!closed) return false;
+    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
+    if (Sidebar && typeof Sidebar.setSidebarMode === 'function') {
+      Sidebar.setSidebarMode(elements, 'settings');
+    }
+    if (Sidebar && typeof Sidebar.isMobile === 'function' && Sidebar.isMobile() && typeof Sidebar.openSidebar === 'function') {
+      Sidebar.openSidebar(elements);
+    }
+    return true;
+  }
+
+  async function saveCurrentSettings(elements, appConfig, callbacks = {}, closeModal = true) {
+    if (!saveDirectoryRulesFromSettings(elements)) return false;
+    const newConfig = gatherCurrentFormConfig(elements, appConfig);
+    const Config = getConfig();
+    const savedConfig = Config?.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
+    setSettingsFormDirty(elements, false);
+    if (typeof callbacks.loadCachedModels === 'function') {
+      callbacks.loadCachedModels();
+    }
+    if (typeof callbacks.onConfigSaved === 'function') {
+      callbacks.onConfigSaved(savedConfig);
+    }
+    if (typeof callbacks.populateProfileSelector === 'function') {
+      callbacks.populateProfileSelector(savedConfig.activeProfile?.id || '');
+    }
+
+    if (closeModal) {
+      await closeSettingsPanelOnly(elements, true);
+    } else {
+      showProfileFeedback(elements, t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }) || 'Configuración actualizada.', 'success');
+    }
+    return true;
+  }
+
+  let activeCleanupFns = [];
+  let cachedElements = null;
+  let cachedCallbacks = {};
+
+  function mount({ elements, getRuntimeConfig, callbacks = {} } = {}) {
+    dispose();
+    cachedElements = elements || {};
+    cachedCallbacks = callbacks || {};
+    const els = cachedElements;
+
+    if (els.btnCloseSettings) {
+      const onClick = () => closeSettingsPanelOnly(els);
+      els.btnCloseSettings.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnCloseSettings.removeEventListener('click', onClick));
+    }
+
+    if (els.settingsForm) {
+      const onSubmit = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        const currentCfg = typeof getRuntimeConfig === 'function' ? getRuntimeConfig() : {};
+        saveCurrentSettings(els, currentCfg, cachedCallbacks, true);
+      };
+      els.settingsForm.addEventListener('submit', onSubmit);
+      activeCleanupFns.push(() => els.settingsForm.removeEventListener('submit', onSubmit));
+    }
+
+    if (els.settingsDialog) {
+      const markModified = () => setSettingsFormDirty(els, true);
+      els.settingsDialog.addEventListener('input', markModified);
+      els.settingsDialog.addEventListener('change', markModified);
+      const onClick = (event) => {
+        if (event.target.closest?.('#btn-mcp-clear-auths')) markModified();
+        if (event.target === els.settingsDialog) {
+          closeSettingsPanelOnly(els);
+        }
+      };
+      const onCancel = (e) => {
+        if (!isSettingsFormDirty(els)) return;
+        e.preventDefault();
+        closeSettingsPanelOnly(els);
+      };
+      els.settingsDialog.addEventListener('click', onClick);
+      els.settingsDialog.addEventListener('cancel', onCancel);
+      activeCleanupFns.push(() => {
+        els.settingsDialog.removeEventListener('input', markModified);
+        els.settingsDialog.removeEventListener('change', markModified);
+        els.settingsDialog.removeEventListener('click', onClick);
+        els.settingsDialog.removeEventListener('cancel', onCancel);
+      });
+    }
+
+    if (els.btnClearAllData) {
+      const onClick = () => handleClearAllData();
+      els.btnClearAllData.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnClearAllData.removeEventListener('click', onClick));
+    }
+
+    if (els.settingTemperature && els.temperatureVal) {
+      const onInput = (e) => {
+        els.temperatureVal.textContent = e.target.value;
+      };
+      els.settingTemperature.addEventListener('input', onInput);
+      activeCleanupFns.push(() => els.settingTemperature.removeEventListener('input', onInput));
+    }
+
+    if (els.settingMaxAgentTurns && els.maxAgentTurnsVal) {
+      const onInput = (e) => {
+        els.maxAgentTurnsVal.textContent = e.target.value;
+      };
+      els.settingMaxAgentTurns.addEventListener('input', onInput);
+      activeCleanupFns.push(() => els.settingMaxAgentTurns.removeEventListener('input', onInput));
+    }
+
+    if (els.btnToggleKey && els.settingApiKey) {
+      const onClick = () => {
+        const isPass = els.settingApiKey.type === 'password';
+        els.settingApiKey.type = isPass ? 'text' : 'password';
+        const ChatIcons = resolveDep('ChatIcons', './icons.js');
+        const iconName = isPass ? 'eye-off' : 'eye';
+        if (ChatIcons && typeof ChatIcons.getIcon === 'function') {
+          els.btnToggleKey.innerHTML = ChatIcons.getIcon(iconName, 15);
+        }
+      };
+      els.btnToggleKey.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnToggleKey.removeEventListener('click', onClick));
+    }
+
+    if (els.btnWebllmParams && els.webllmParamsPanel) {
+      const onClick = () => {
+        const isHidden = els.webllmParamsPanel.hidden;
+        els.webllmParamsPanel.hidden = !isHidden;
+        els.btnWebllmParams.classList.toggle('active', isHidden);
+      };
+      els.btnWebllmParams.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnWebllmParams.removeEventListener('click', onClick));
+    }
+
+    return {
+      saveCurrentSettings: (closeModal = true) => {
+        const currentCfg = typeof getRuntimeConfig === 'function' ? getRuntimeConfig() : {};
+        return saveCurrentSettings(els, currentCfg, cachedCallbacks, closeModal);
+      },
+      closeSettingsPanelOnly: (force = false) => closeSettingsPanelOnly(els, force),
+      closeSettingsModal: (force = false) => closeSettingsModal(els, force)
+    };
+  }
+
+  function dispose() {
+    activeCleanupFns.forEach(fn => { try { fn(); } catch (_) {} });
+    activeCleanupFns = [];
+    cachedElements = null;
+    cachedCallbacks = {};
   }
 
   async function handleClearAllData() {
@@ -836,13 +1009,18 @@
     syncApiKeyLock,
     gatherCurrentFormConfig,
     showProfileFeedback,
+    saveDirectoryRulesFromSettings,
+    saveCurrentSettings,
     openSettingsSection,
     closeSettingsModal,
+    closeSettingsPanelOnly,
     setSettingsFormDirty,
     isSettingsFormDirty,
     handleClearAllData,
     ensureDialogMarkup,
     getSettingsDialogHTML,
-    getProfilesDialogHTML
+    getProfilesDialogHTML,
+    mount,
+    dispose
   };
 });

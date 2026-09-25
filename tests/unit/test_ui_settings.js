@@ -260,3 +260,143 @@ test('UISettings - applyProfileToForm mapea webllmConfig a selects asignando def
   assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
   assert.equal(elements.webllmParamsPanel.hidden, true);
 });
+
+test('UISettings - saveDirectoryRulesFromSettings valida y aplica reglas al ToolSecurityManager', () => {
+  const originalToolSecurity = global.ChatToolSecurity;
+  let receivedRules = null;
+  global.ChatToolSecurity = {
+    manager: {
+      setDirectoryRules: (rules) => {
+        receivedRules = rules;
+      }
+    }
+  };
+
+  try {
+    const input = { value: 'R:/home/user\nW:/tmp\n\n' };
+    const errorEl = { textContent: 'previous error' };
+    const elements = {
+      settingsDialog: {
+        ownerDocument: {
+          getElementById: (id) => id === 'mcp-directory-rules' ? input : (id === 'mcp-directory-rules-error' ? errorEl : null)
+        }
+      }
+    };
+
+    const result = UISettings.saveDirectoryRulesFromSettings(elements);
+    assert.equal(result, true);
+    assert.deepEqual(receivedRules, ['R:/home/user', 'W:/tmp']);
+    assert.equal(errorEl.textContent, '');
+
+    // Error case
+    global.ChatToolSecurity.manager.setDirectoryRules = () => {
+      throw new Error('Regla inválida');
+    };
+    const failResult = UISettings.saveDirectoryRulesFromSettings(elements);
+    assert.equal(failResult, false);
+    assert.equal(errorEl.textContent, 'Regla inválida');
+  } finally {
+    if (originalToolSecurity === undefined) delete global.ChatToolSecurity;
+    else global.ChatToolSecurity = originalToolSecurity;
+  }
+});
+
+test('UISettings - closeSettingsPanelOnly cierra el modal y conmuta la barra lateral a settings', async () => {
+  const originalSidebar = global.ChatUISidebar;
+  let sidebarMode = null;
+  global.ChatUISidebar = {
+    setSidebarMode: (els, mode) => { sidebarMode = mode; },
+    isMobile: () => false
+  };
+
+  const dialog = { close: () => { dialog.closed = true; } };
+  const elements = { settingsDialog: dialog };
+
+  try {
+    const closed = await UISettings.closeSettingsPanelOnly(elements, true);
+    assert.equal(closed, true);
+    assert.equal(dialog.closed, true);
+    assert.equal(sidebarMode, 'settings');
+  } finally {
+    if (originalSidebar === undefined) delete global.ChatUISidebar;
+    else global.ChatUISidebar = originalSidebar;
+  }
+});
+
+test('UISettings - saveCurrentSettings orquesta guardado de reglas, recolección de configuración y callbacks', async () => {
+  const originalConfig = global.ChatConfig;
+  const originalSidebar = global.ChatUISidebar;
+  let updatedConfig = null;
+  let loadedModelsCalled = false;
+  let savedCallbackConfig = null;
+  let profileSelectorTarget = null;
+  let sidebarMode = null;
+
+  global.ChatConfig = {
+    updateRuntime: (cfg) => {
+      updatedConfig = cfg;
+      return { ...cfg, activeProfile: { id: 'prof_1', name: 'Profile 1' } };
+    }
+  };
+  global.ChatUISidebar = {
+    setSidebarMode: (els, mode) => { sidebarMode = mode; },
+    isMobile: () => false
+  };
+
+  const dialog = { dataset: {}, close: () => { dialog.closed = true; } };
+  const elements = {
+    settingsDialog: dialog,
+    settingModel: { value: 'gpt-4o' }
+  };
+
+  try {
+    UISettings.setSettingsFormDirty(elements, true);
+    const success = await UISettings.saveCurrentSettings(elements, {}, {
+      loadCachedModels: () => { loadedModelsCalled = true; },
+      onConfigSaved: (cfg) => { savedCallbackConfig = cfg; },
+      populateProfileSelector: (id) => { profileSelectorTarget = id; }
+    }, true);
+
+    assert.equal(success, true);
+    assert.ok(updatedConfig);
+    assert.equal(updatedConfig.model, 'gpt-4o');
+    assert.equal(UISettings.isSettingsFormDirty(elements), false);
+    assert.equal(loadedModelsCalled, true);
+    assert.equal(savedCallbackConfig?.activeProfile?.id, 'prof_1');
+    assert.equal(profileSelectorTarget, 'prof_1');
+    assert.equal(dialog.closed, true);
+    assert.equal(sidebarMode, 'settings');
+  } finally {
+    if (originalConfig === undefined) delete global.ChatConfig;
+    else global.ChatConfig = originalConfig;
+    if (originalSidebar === undefined) delete global.ChatUISidebar;
+    else global.ChatUISidebar = originalSidebar;
+  }
+});
+
+test('UISettings - mount enlaza eventos del formulario y dispose los desvincula', () => {
+  let submitted = false;
+  const listeners = {};
+  const form = {
+    addEventListener: (evt, fn) => { listeners[evt] = fn; },
+    removeEventListener: (evt) => { delete listeners[evt]; }
+  };
+  const elements = {
+    settingsForm: form,
+    settingsDialog: { addEventListener: () => {}, removeEventListener: () => {} }
+  };
+
+  const controller = UISettings.mount({
+    elements,
+    getRuntimeConfig: () => ({}),
+    callbacks: {}
+  });
+
+  assert.ok(typeof listeners.submit === 'function');
+  assert.ok(typeof controller.saveCurrentSettings === 'function');
+  assert.ok(typeof controller.closeSettingsPanelOnly === 'function');
+  assert.ok(typeof controller.closeSettingsModal === 'function');
+
+  UISettings.dispose();
+  assert.equal(listeners.submit, undefined);
+});

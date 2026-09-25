@@ -612,6 +612,12 @@
 
     if (els.profilesDialog) {
       const onCancel = (e) => {
+        if (!isProfileQueryReady(els) && !isProfileFormDirty(els)) {
+          setProfileQueryState(els, false, cachedOptions);
+          setProfileDirty(els, false);
+          resetProfileFormToSelected(els, cachedOptions);
+          return;
+        }
         e.preventDefault();
         closeProfilesModal(els, false, cachedOptions);
       };
@@ -638,26 +644,55 @@
           applyProfileToForm(els, profile.settings, profile.id, cachedOptions);
           if (els.settingProfileName) els.settingProfileName.value = profile.name;
           if (els.settingProfileDescription) els.settingProfileDescription.value = profile.description || '';
+          setSelectedProfileAsDefault(profile, cachedOptions);
         }
-        setProfileQueryState(els, false);
+        setProfileQueryState(els, false, cachedOptions);
+        setProfileDirty(els, false);
+        if (typeof cachedOptions?.loadCachedModels === 'function') {
+          cachedOptions.loadCachedModels();
+        }
+        syncProfileSaveState(els, cachedOptions);
       };
       els.profileSelectHelper.addEventListener('change', onChange);
       activeCleanupFns.push(() => els.profileSelectHelper.removeEventListener('change', onChange));
     }
 
     if (els.settingProfileName) {
-      const onChange = () => syncProfileSaveState(els, cachedOptions);
+      const onChange = () => {
+        const typedName = els.settingProfileName.value.trim();
+        if (typedName) {
+          const Profiles = getProfiles();
+          const profile = Profiles?.findByName ? Profiles.findByName(typedName) : null;
+          if (profile) {
+            if (els.profileSelectHelper) {
+              els.profileSelectHelper.value = profile.id;
+            }
+            applyProfileToForm(els, profile.settings, profile.id, cachedOptions);
+            if (els.settingProfileDescription) {
+              els.settingProfileDescription.value = profile.description || '';
+            }
+            setSelectedProfileAsDefault(profile, cachedOptions);
+            setProfileQueryState(els, false, cachedOptions);
+            setProfileDirty(els, false);
+            if (typeof cachedOptions?.loadCachedModels === 'function') {
+              cachedOptions.loadCachedModels();
+            }
+          }
+        }
+        syncProfileSaveState(els, cachedOptions);
+      };
+      const onInput = () => syncProfileSaveState(els, cachedOptions);
       els.settingProfileName.addEventListener('change', onChange);
-      els.settingProfileName.addEventListener('input', onChange);
+      els.settingProfileName.addEventListener('input', onInput);
       activeCleanupFns.push(() => {
         els.settingProfileName.removeEventListener('change', onChange);
-        els.settingProfileName.removeEventListener('input', onChange);
+        els.settingProfileName.removeEventListener('input', onInput);
       });
     }
 
     if (els.settingApiType) {
       const onChange = () => {
-        setProfileQueryState(els, false);
+        setProfileQueryState(els, false, cachedOptions);
         const UISettings = getUISettings();
         const Providers = getProviders();
         const val = els.settingApiType.value;
@@ -672,37 +707,96 @@
         if (typeof cachedOptions?.loadCachedModels === 'function') {
           cachedOptions.loadCachedModels();
         }
+        setProfileDirty(els, true);
         syncProfileSaveState(els, cachedOptions);
       };
       els.settingApiType.addEventListener('change', onChange);
       activeCleanupFns.push(() => els.settingApiType.removeEventListener('change', onChange));
     }
 
+    [els.settingApiUrl, els.settingApiKey].forEach(input => {
+      if (input) {
+        const onInput = () => setProfileQueryState(els, false, cachedOptions);
+        input.addEventListener('input', onInput);
+        activeCleanupFns.push(() => input.removeEventListener('input', onInput));
+      }
+    });
+
     if (els.modelSelectHelper) {
       const onChange = () => {
         if (els.settingModel) {
           els.settingModel.value = els.modelSelectHelper.value;
-          syncProfileSaveState(els, cachedOptions);
         }
+        setProfileDirty(els, true);
+        syncProfileSaveState(els, cachedOptions);
       };
       els.modelSelectHelper.addEventListener('change', onChange);
       activeCleanupFns.push(() => els.modelSelectHelper.removeEventListener('change', onChange));
     }
 
     if (els.settingModel) {
-      const onInput = () => syncProfileSaveState(els, cachedOptions);
-      els.settingModel.addEventListener('input', onInput);
-      activeCleanupFns.push(() => els.settingModel.removeEventListener('input', onInput));
+      const onSyncModel = () => {
+        const val = els.settingModel.value.trim();
+        if (els.modelSelectHelper) {
+          els.modelSelectHelper.value = val;
+        }
+        setProfileDirty(els, true);
+        syncProfileSaveState(els, cachedOptions);
+      };
+      els.settingModel.addEventListener('input', onSyncModel);
+      els.settingModel.addEventListener('change', onSyncModel);
+      activeCleanupFns.push(() => {
+        els.settingModel.removeEventListener('input', onSyncModel);
+        els.settingModel.removeEventListener('change', onSyncModel);
+      });
     }
 
     if (els.btnSaveProfile) {
-      const onClick = () => handleSaveProfile(els, cachedOptions);
+      const onClick = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        handleSaveProfile(els, cachedOptions)
+          .then(saved => {
+            if (saved) closeProfilesModal(els, true, cachedOptions);
+          })
+          .catch(error => {
+            const UISettings = getUISettings();
+            if (UISettings && typeof UISettings.showProfileFeedback === 'function') {
+              UISettings.showProfileFeedback(els, error?.message || String(error), 'error');
+            }
+          });
+      };
       els.btnSaveProfile.addEventListener('click', onClick);
       activeCleanupFns.push(() => els.btnSaveProfile.removeEventListener('click', onClick));
     }
 
+    if (els.btnManageProfiles) {
+      const onClick = () => openProfilesModal(els, cachedOptions);
+      els.btnManageProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnManageProfiles.removeEventListener('click', onClick));
+    }
+
+    if (els.btnHeaderManageProfiles) {
+      const onClick = () => openProfilesModal(els, cachedOptions);
+      els.btnHeaderManageProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnHeaderManageProfiles.removeEventListener('click', onClick));
+    }
+
+    if (els.profilesImportInput) {
+      const onChange = (e) => handleImportProfiles(e, els, cachedOptions);
+      els.profilesImportInput.addEventListener('change', onChange);
+      activeCleanupFns.push(() => els.profilesImportInput.removeEventListener('change', onChange));
+    }
+    if (els.btnImportProfiles && els.profilesImportInput) {
+      const onClick = () => els.profilesImportInput.click();
+      els.btnImportProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnImportProfiles.removeEventListener('click', onClick));
+    }
+
     if (els.btnDeleteProfile) {
-      const onClick = () => handleDeleteProfile(els, cachedOptions);
+      const onClick = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        handleDeleteProfile(els, cachedOptions);
+      };
       els.btnDeleteProfile.addEventListener('click', onClick);
       activeCleanupFns.push(() => els.btnDeleteProfile.removeEventListener('click', onClick));
     }
@@ -763,10 +857,96 @@
       activeCleanupFns.push(() => els.btnMenuExportProfiles.removeEventListener('click', onClick));
     }
 
+    if (els.btnMenuImportProfiles && els.profilesImportInput) {
+      const onClick = () => els.profilesImportInput.click();
+      els.btnMenuImportProfiles.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.btnMenuImportProfiles.removeEventListener('click', onClick));
+    }
+
     if (els.btnMenuCloseProfiles) {
-      const onClick = () => closeProfileMenu(els);
+      const onClick = () => {
+        closeProfileMenu(els);
+        els.activeProfileTrigger?.focus();
+      };
       els.btnMenuCloseProfiles.addEventListener('click', onClick);
       activeCleanupFns.push(() => els.btnMenuCloseProfiles.removeEventListener('click', onClick));
+    }
+
+    if (els.activeProfileList) {
+      const onClick = async (event) => {
+        const actionBtn = event.target.closest('[data-profile-action]');
+        if (actionBtn && els.activeProfileList.contains(actionBtn)) {
+          event.stopPropagation();
+          const action = actionBtn.dataset.profileAction;
+          const targetId = actionBtn.dataset.targetId;
+          if (action === 'edit') {
+            closeProfileMenu(els);
+            openProfilesModal(els, cachedOptions, targetId);
+          } else if (action === 'delete') {
+            const deleted = await handleDeleteProfileById(targetId, els, cachedOptions);
+            if (deleted && typeof cachedOptions?.updateUIFromConfig === 'function') {
+              cachedOptions.updateUIFromConfig();
+            }
+          }
+          return;
+        }
+
+        const option = event.target.closest('[data-profile-id]');
+        if (!option || !els.activeProfileList.contains(option)) return;
+        const Profiles = getProfiles();
+        if (!Profiles?.get || !Profiles.get(option.dataset.profileId)) return;
+        activateConnectionProfile(option.dataset.profileId, cachedOptions);
+        if (typeof cachedOptions?.updateUIFromConfig === 'function') {
+          cachedOptions.updateUIFromConfig();
+        }
+        closeProfileMenu(els);
+        els.activeProfileTrigger?.focus();
+      };
+      els.activeProfileList.addEventListener('click', onClick);
+      activeCleanupFns.push(() => els.activeProfileList.removeEventListener('click', onClick));
+    }
+
+    if (els.activeProfileMenu) {
+      const onKeydown = (event) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        if (els.activeProfilePopover && els.activeProfilePopover.hidden) {
+          openProfileMenu(els, cachedOptions);
+        }
+        const buttons = [...(els.activeProfileList ? els.activeProfileList.querySelectorAll('button') : []), els.btnEditProfiles].filter(Boolean);
+        const index = buttons.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      };
+      const onFocusout = (event) => {
+        if (!els.activeProfileMenu.contains(event.relatedTarget)) closeProfileMenu(els);
+      };
+      els.activeProfileMenu.addEventListener('keydown', onKeydown);
+      els.activeProfileMenu.addEventListener('focusout', onFocusout);
+      activeCleanupFns.push(() => {
+        els.activeProfileMenu.removeEventListener('keydown', onKeydown);
+        els.activeProfileMenu.removeEventListener('focusout', onFocusout);
+      });
+    }
+
+    if (typeof document !== 'undefined') {
+      const onDocClick = (event) => {
+        if (els.activeProfileMenu && !els.activeProfileMenu.contains(event.target)) {
+          closeProfileMenu(els);
+        }
+      };
+      const onDocKeydown = (event) => {
+        if (event.key !== 'Escape' || els.activeProfileTrigger?.getAttribute('aria-expanded') !== 'true') return;
+        closeProfileMenu(els);
+        els.activeProfileTrigger?.focus();
+      };
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onDocKeydown);
+      activeCleanupFns.push(() => {
+        document.removeEventListener('click', onDocClick);
+        document.removeEventListener('keydown', onDocKeydown);
+      });
     }
 
     return {
