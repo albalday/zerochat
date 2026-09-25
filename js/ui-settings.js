@@ -359,28 +359,18 @@
   }
 
   const SECTION_TITLES = {
-    'tab-model': 'tab_model',
-    'tab-agent': 'tab_agent',
-    'tab-mcp': 'tab_mcp',
-    'tab-permissions': 'tab_permissions',
-    'tab-inspector': 'tab_inspector',
-    'model': 'tab_model',
-    'agent': 'tab_agent',
-    'mcp': 'tab_mcp',
-    'permissions': 'tab_permissions',
-    'inspector': 'tab_inspector'
+    model: 'settings_model',
+    agent: 'settings_agent',
+    mcp: 'settings_mcp',
+    permissions: 'settings_permissions',
+    inspector: 'settings_inspector'
   };
 
   function normalizeSectionId(sectionId) {
-    if (!sectionId) return 'tab-model';
-    if (SECTION_TITLES[sectionId]) {
-      return sectionId.startsWith('tab-') ? sectionId : 'tab-' + sectionId;
-    }
-    const candidate = sectionId.startsWith('tab-') ? sectionId : 'tab-' + sectionId;
-    return SECTION_TITLES[candidate] ? candidate : 'tab-model';
+    return SECTION_TITLES[sectionId] ? sectionId : 'model';
   }
 
-  function openSettingsSection(elements, appConfig, callbacks = {}, sectionId = 'tab-model') {
+  function openSettingsSection(elements, appConfig, callbacks = {}, sectionId = 'model') {
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
     const preservePendingChanges = elements.settingsDialog.open && isSettingsFormDirty(elements);
@@ -433,7 +423,7 @@
 
     if (settingsSections && settingsSections.length > 0) {
       settingsSections.forEach(section => section.classList.remove('active'));
-      const targetPane = doc ? doc.getElementById(targetId) : null;
+      const targetPane = doc ? (doc.getElementById(`settings-${targetId}`) || doc.getElementById(targetId)) : null;
       if (targetPane) {
         targetPane.classList.add('active');
       } else if (settingsSections[0]) {
@@ -443,7 +433,7 @@
 
     const titleEl = elements.settingsSectionTitle || (doc ? doc.getElementById('settings-section-title') : null);
     if (titleEl) {
-      const titleKey = SECTION_TITLES[targetId] || 'tab_connection';
+      const titleKey = SECTION_TITLES[targetId] || 'settings_model';
       titleEl.setAttribute('data-i18n', titleKey);
       titleEl.textContent = t(titleKey);
     }
@@ -494,7 +484,7 @@
   function getSettingsDialogHTML() {
     return `<div class="modal-header settings-section-header">
       <div class="modal-title">
-        <h3 id="settings-section-title" data-i18n="tab_model">Modelo</h3>
+        <h3 id="settings-section-title" data-i18n="settings_model">Modelo</h3>
       </div>
       <div class="settings-header-actions">
         <button type="submit" form="settings-form" id="btn-save-settings" class="btn-primary btn-save-header" data-i18n-title="btn_save" title="Guardar configuración" aria-label="Guardar">
@@ -510,7 +500,7 @@
     <form id="settings-form" class="settings-form-wrapper">
       <div class="modal-body">
         <!-- Sección: Modelo y Prompt -->
-        <div id="tab-model" class="settings-section-pane active">
+        <div id="settings-model" class="settings-section-pane active">
           <div class="form-field">
             <label for="setting-system-data-prompt">
               <strong data-i18n="field_system_data_prompt">Perfil del sistema · datos ZeroChat</strong>
@@ -536,7 +526,7 @@
         </div>
 
         <!-- Sección: Modo Agente y Herramientas -->
-        <div id="tab-agent" class="settings-section-pane">
+        <div id="settings-agent" class="settings-section-pane">
           <div class="settings-section-intro">
             <p data-i18n="agent_intro">Configura las herramientas agénticas que se transmiten al modelo.</p>
           </div>
@@ -559,7 +549,7 @@
         </div>
 
         <!-- Sección: Servidor Local (MCP) -->
-        <div id="tab-mcp" class="settings-section-pane">
+        <div id="settings-mcp" class="settings-section-pane">
           <!-- Estado del servidor local -->
           <div class="mcp-status-card">
             <div class="mcp-status-header">
@@ -618,7 +608,7 @@
         </div>
 
         <!-- Sección: Permisos de ejecución MCP -->
-        <div id="tab-permissions" class="settings-section-pane">
+        <div id="settings-permissions" class="settings-section-pane">
           <div class="mcp-security-card">
             <div class="mcp-security-header">
               <span class="mcp-security-icon">
@@ -667,14 +657,14 @@
         </div>
 
         <!-- Sección: Inspector de Proveedor -->
-        <div id="tab-inspector" class="settings-section-pane">
+        <div id="settings-inspector" class="settings-section-pane">
           <div class="inspector-intro-card">
             <div class="inspector-intro-header">
               <span class="inspector-intro-icon">
                 <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
               </span>
               <div>
-                <strong data-i18n="tab_inspector">Inspector de Proveedor</strong>
+                <strong data-i18n="settings_inspector">Inspector de Proveedor</strong>
                 <p class="label-hint" style="margin-top: 0.2rem;" data-i18n="inspector_desc">
                   Analiza el endpoint configurado para determinar con precisión qué capacidades soporta, distinguiendo entre capacidades declaradas, inferidas y comprobadas mediante pruebas activas seguras.
                 </p>

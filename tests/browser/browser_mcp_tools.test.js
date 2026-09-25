@@ -86,7 +86,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-agent"]');
+    await page.click('[data-section="agent"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.$eval('#setting-max-agent-turns', (input) => {
       input.value = String(Number(input.value) + 1);
@@ -104,7 +104,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-    await page.click('[data-section="tab-permissions"]');
+    await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.locator('.mcp-policy-option:has(#mcp-policy-allow-all)').click();
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
@@ -131,13 +131,13 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
 
     // 1. Abrir diálogo de Configuración.
     await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-model"]');
+    await page.click('[data-section="model"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
 
     const contextCachePlacement = await page.evaluate(() => ({
-      automaticNotice: !!document.querySelector('#tab-model [data-i18n="model_cache_title"]'),
+      automaticNotice: !!document.querySelector('#settings-model [data-i18n="model_cache_title"]'),
       legacyToggle: !!document.getElementById('setting-enable-context-cache'),
-      agentCacheText: document.querySelector('#tab-agent')?.textContent.includes('Caché de Contexto') || false
+      agentCacheText: document.querySelector('#settings-agent')?.textContent.includes('Caché de Contexto') || false
     }));
     assert.ok(contextCachePlacement.automaticNotice, 'La caché automática debe explicarse en la pestaña Modelo');
     assert.equal(contextCachePlacement.legacyToggle, false, 'La caché no debe exponerse como un interruptor de Agente');
@@ -239,15 +239,15 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
       await page.click('#btn-open-settings');
     }
     const sectionOrder = await page.$$eval('#sidebar-settings-nav .sidebar-settings-item', els => els.map(e => e.getAttribute('data-section')));
-    const agentIndex = sectionOrder.indexOf('tab-agent');
+    const agentIndex = sectionOrder.indexOf('agent');
     const ragIndex = sectionOrder.indexOf('rag-manage');
-    const mcpIndex = sectionOrder.indexOf('tab-mcp');
-    const permissionsIndex = sectionOrder.indexOf('tab-permissions');
+    const mcpIndex = sectionOrder.indexOf('mcp');
+    const permissionsIndex = sectionOrder.indexOf('permissions');
     assert.ok(agentIndex >= 0 && ragIndex === agentIndex + 1, 'La sección RAG debe estar posicionada inmediatamente después de Agente');
     assert.ok(mcpIndex === ragIndex + 1, 'La sección MCP debe estar posicionada inmediatamente después de RAG');
     assert.ok(permissionsIndex === mcpIndex + 1, 'La sección Permisos debe estar inmediatamente después de MCP');
 
-    const mcpSectionBtn = await page.$('#sidebar-settings-nav button[data-section="tab-mcp"]');
+    const mcpSectionBtn = await page.$('#sidebar-settings-nav button[data-section="mcp"]');
     assert.ok(mcpSectionBtn, 'Debe existir la sección MCP en la navegación de configuración');
     await mcpSectionBtn.click();
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
@@ -255,7 +255,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     assert.ok(isMcpActive, 'La sección MCP debe quedar activa al hacer click');
 
     const mcpUiState = await page.evaluate(() => {
-      const pane = document.getElementById('tab-mcp');
+      const pane = document.getElementById('settings-mcp');
       const badge = document.getElementById('mcp-status-badge');
       const btnConnect = document.getElementById('btn-mcp-connect');
       const bootstrap = document.getElementById('mcp-bootstrap-card');
@@ -274,7 +274,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
       };
     });
 
-    assert.ok(mcpUiState.paneActive, 'El panel tab-mcp debe estar visible y activo');
+    assert.ok(mcpUiState.paneActive, 'El panel settings-mcp debe estar visible y activo');
     assert.ok(mcpUiState.badgeText.includes('Desconectado') || mcpUiState.badgeText.includes('Conectado'), 'El estado debe ser Desconectado o Conectado según disponibilidad');
     assert.equal(mcpUiState.hasConnectBtn, false, 'El panel MCP no debe ofrecer conexión manual');
     assert.equal(mcpUiState.hasSetupDialog, false, 'El subpanel de conexión manual no debe existir');
@@ -287,12 +287,12 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
 
-    const permissionsSectionBtn = await page.$('#sidebar-settings-nav button[data-section="tab-permissions"]');
+    const permissionsSectionBtn = await page.$('#sidebar-settings-nav button[data-section="permissions"]');
     assert.ok(permissionsSectionBtn, 'Debe existir la sección Permisos en la navegación de configuración');
     await permissionsSectionBtn.click();
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const permissionsState = await page.evaluate(() => ({
-      paneActive: document.getElementById('tab-permissions')?.classList.contains('active'),
+      paneActive: document.getElementById('settings-permissions')?.classList.contains('active'),
       hasAskPolicy: !!document.getElementById('mcp-policy-ask'),
       hasSavedAuthorizations: !!document.getElementById('mcp-saved-auths-list'),
       hasDirectoryRulesSaveButton: !!document.getElementById('btn-mcp-save-directory-rules'),
@@ -403,7 +403,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
 
     // 1. Abrir Ajustes -> Permisos y configurar una regla de directorio
     await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-permissions"]');
+    await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.locator('#mcp-directory-rules').fill('RW:./my-project/**');
     await page.click('#btn-save-settings');
@@ -416,7 +416,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
     );
 
     // 2. Abrir Ajustes -> Modelo y guardar sin tocar Permisos (no debe borrar las reglas)
-    await page.click('[data-section="tab-model"]');
+    await page.click('[data-section="model"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.click('#btn-save-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
@@ -428,7 +428,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
     );
 
     // 3. Abrir Ajustes -> Agente y desactivar execute_javascript
-    await page.click('[data-section="tab-agent"]');
+    await page.click('[data-section="agent"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     await page.locator('.switch:has([data-tool-id="execute_javascript"])').click();
     await page.click('#btn-save-settings');
@@ -463,7 +463,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
 
     // 8. Reabrir Ajustes -> Permisos y verificar que el textarea contiene la regla
     await page.click('#btn-open-settings');
-    await page.click('[data-section="tab-permissions"]');
+    await page.click('[data-section="permissions"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     const textareaVal = await page.$eval('#mcp-directory-rules', el => el.value);
     assert.match(textareaVal, /RW:my-project\/\*\*/, 'El textarea de directorios debe mostrar la regla guardada tras F5');

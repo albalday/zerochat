@@ -979,9 +979,11 @@
     }
   }
 
-  function openSettingsSection(sectionId = 'tab-model') {
-    if (sectionId === 'rag-manage') {
-      if (window.ChatRagUI && typeof window.ChatRagUI.openRagModal === 'function') {
+  function openSettingsSection(sectionId = 'model') {
+    if (sectionId === 'rag' || sectionId === 'rag-manage') {
+      if (window.ChatRagUI && typeof window.ChatRagUI.openManageModal === 'function') {
+        window.ChatRagUI.openManageModal();
+      } else if (window.ChatRagUI && typeof window.ChatRagUI.openRagModal === 'function') {
         window.ChatRagUI.openRagModal('manage');
       }
       return;
@@ -993,7 +995,7 @@
         updateReasoningUI
       }, sectionId);
     }
-    if (sectionId === 'tab-mcp') {
+    if (sectionId === 'mcp') {
       window.ChatUIMcp?.verifyActiveConnection?.().catch(() => {});
     }
   }

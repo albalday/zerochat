@@ -11,7 +11,7 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propia sección s
   assert.equal(settingsHtml.includes('id="btn-reset-settings"'), false, 'No debe existir el botón de restaurar dentro de settings-dialog');
   assert.equal(settingsHtml.includes('id="btn-cancel-settings"'), false, 'No debe existir el botón de cancelar dentro de settings-dialog');
   assert.equal(settingsHtml.includes('class="modal-footer"'), false, 'No debe existir la botonera inferior modal-footer en settings-dialog');
-  assert.match(settingsHtml, /id="tab-permissions" class="settings-section-pane"/);
+  assert.match(settingsHtml, /id="settings-permissions" class="settings-section-pane"/);
   assert.match(settingsHtml, /id="mcp-policy-ask"/);
   assert.match(settingsHtml, /id="mcp-directory-rules"/);
   assert.equal(settingsHtml.includes('id="btn-mcp-save-directory-rules"'), false, 'Las reglas de directorios se guardan con el formulario general');
@@ -53,8 +53,8 @@ test('UISettings - exige API key para proveedores remotos y enlaza las guías gr
 
 test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
   const panes = [
-    { id: 'tab-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
-    { id: 'tab-mcp', classList: { add: () => { panes[1].active = true; }, remove: () => { panes[1].active = false; } }, active: false }
+    { id: 'settings-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
+    { id: 'settings-mcp', classList: { add: () => { panes[1].active = true; }, remove: () => { panes[1].active = false; } }, active: false }
   ];
   const titleEl = { textContent: '', setAttribute: (k, v) => { titleEl[k] = v; } };
   const fakeDoc = {
@@ -73,7 +73,7 @@ test('UISettings - openSettingsSection activa la sección indicada y actualiza e
   UISettings.openSettingsSection(elements, {}, {}, 'mcp');
   assert.equal(panes[0].active, false);
   assert.equal(panes[1].active, true);
-  assert.equal(titleEl['data-i18n'], 'tab_mcp');
+  assert.equal(titleEl['data-i18n'], 'settings_mcp');
   assert.equal(fakeDialog.isOpen, true);
 });
 

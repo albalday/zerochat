@@ -43,7 +43,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(sidebar.mode, true);
       assert.equal(sidebar.languages, 2);
       assert.equal(sidebar.themes, 2);
-      assert.deepEqual(sidebar.sections.map(item => item.id), ['tab-model', 'tab-agent', 'rag-manage', 'tab-mcp', 'tab-permissions', 'tab-inspector', undefined]);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'inspector', undefined]);
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
       assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
 
@@ -67,7 +67,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.locator('#btn-sidebar-back-to-chats').evaluate(button => button.click());
       await page.waitForFunction(() => !document.getElementById('sidebar-view-chat').hidden);
       await page.locator('#btn-open-settings').evaluate(button => button.click());
-      await page.locator('#sidebar-settings-nav [data-section="tab-agent"]').evaluate(item => item.click());
+      await page.locator('#sidebar-settings-nav [data-section="agent"]').evaluate(item => item.click());
       await page.waitForFunction(() => document.getElementById('settings-dialog').open);
 
       const panel = await page.evaluate(() => {
@@ -84,8 +84,8 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         };
       });
       assert.deepEqual(panel, {
-        activePane: 'tab-agent', oldTabs: 0, header: true, close: true, save: true,
-        activeSidebarSection: 'tab-agent', modalFooter: false, clearInDialog: false
+        activePane: 'settings-agent', oldTabs: 0, header: true, close: true, save: true,
+        activeSidebarSection: 'agent', modalFooter: false, clearInDialog: false
       });
 
       await page.locator('#btn-close-settings').evaluate(button => button.click());
@@ -96,7 +96,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.locator('#notice-cancel').evaluate(button => button.click());
       await page.waitForFunction(() => !document.getElementById('notice-dialog').open);
 
-      await page.locator('#sidebar-settings-nav [data-section="tab-model"]').evaluate(item => item.click());
+      await page.locator('#sidebar-settings-nav [data-section="model"]').evaluate(item => item.click());
       await page.waitForFunction(() => document.getElementById('settings-dialog').open);
       await page.fill('#setting-system-data-prompt', 'Instrucción de prueba persistencia');
       await page.locator('#btn-save-settings').evaluate(button => button.click());
@@ -125,7 +125,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.locator('#btn-toggle-sidebar').evaluate(button => button.click());
       await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
       await page.locator('#btn-open-settings').evaluate(button => button.click());
-      await page.locator('#sidebar-settings-nav [data-section="tab-model"]').evaluate(item => item.click());
+      await page.locator('#sidebar-settings-nav [data-section="model"]').evaluate(item => item.click());
       await page.waitForFunction(() => document.getElementById('settings-dialog').open);
       await page.evaluate(() => Promise.all(
         document.getElementById('settings-dialog').getAnimations().map(animation => animation.finished.catch(() => {}))

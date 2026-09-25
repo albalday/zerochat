@@ -292,8 +292,8 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
 
   const fakeSettingItemMcp = {
-    dataset: { section: 'tab-mcp' },
-    getAttribute: (name) => name === 'data-section' ? 'tab-mcp' : null,
+    dataset: { section: 'mcp' },
+    getAttribute: (name) => name === 'data-section' ? 'mcp' : null,
     addEventListener: (evt, fn) => add('itemMcp', evt, fn),
     removeEventListener: (evt, fn) => remove('itemMcp', evt, fn)
   };
@@ -338,7 +338,7 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
 
   // Pulsar una sección ejecuta el callback correspondiente
   listeners['itemMcp:click']();
-  assert.equal(selectedSection, 'tab-mcp');
+  assert.equal(selectedSection, 'mcp');
   assert.equal(listeners['help:click'], undefined, 'Los enlaces auxiliares no deben activar secciones de configuración');
 
   // Pulsar volver restaura modo chat

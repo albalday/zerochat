@@ -157,6 +157,8 @@ El script `scripts/bump-version.mjs` actualiza automáticamente:
 
 Por tanto, `patch` actualiza solo la interfaz web; `minor` y `major` actualizan también la versión publicable en PyPI. `zerochat.py` informa de `major.minor` y debe seguir siendo compatible con todos los parches de esa serie.
 
+**Ciclo en `dev` vs. Releases**: Durante el trabajo iterativo en la rama `dev`, no es necesario ni conveniente incrementar la versión en cada commit o cambio de código (sea de frontend o backend). Se pueden realizar múltiples ciclos de desarrollo, pruebas y correcciones manteniendo la misma versión. El comando `npm run bump` se ejecuta únicamente cuando el bloque de cambios se considera maduro y se prepara la versión para su promoción a `master` o publicación en PyPI.
+
 ### Distribución, estado local y publicación PyPI
 
 Las dos distribuciones de producción deben ofrecer el mismo comportamiento, excepto por el origen del ejecutable:
@@ -186,8 +188,8 @@ Todo cambio destinado a `master` debe prepararse primero en `dev`.
 
 La promoción a `master` queda prohibida si:
 
-- la versión del producto no se ha incrementado previamente en `dev`;
-- la versión de `dev` y `master` coinciden o no hay un avance claro de versión;
+- no se ha ejecutado el incremento de versión (`npm run bump`) como paso de consolidación previo en `dev`;
+- la versión de `dev` a promocionar coincide con la ya existente en `master` o no hay un avance claro de versión;
 - no se ejecuta la validación automática definida por el proyecto;
 - cualquier comprobación crítica falla.
 
@@ -218,7 +220,7 @@ Un cambio está terminado cuando:
 - mantiene español e inglés cuando afecta a la interfaz;
 - actualiza y mantiene automáticamente la documentación de `/help` en formato bilingüe (español e inglés) ante cualquier actualización o cambio de funcionalidades;
 - no deja errores de consola en los tests de navegador;
-- actualiza el bundle distribuible;
+- recompila el backend (`npm run build:backend`) si se modificó el directorio `py/`, manteniendo sincronizado `zerochat.py` sin necesidad de alterar versiones;
 - deja la documentación coherente con el comportamiento real.
 
 ## 9. Política de documentación y colocación (colocation)

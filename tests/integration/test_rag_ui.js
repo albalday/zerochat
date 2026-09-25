@@ -6,8 +6,8 @@ const RagUI = require('../../js/rag-ui.js');
 test('RagUI - exporta la superficie mínima', () => {
   assert.equal(typeof RagUI.initRagUI, 'function');
   assert.equal(typeof RagUI.updateToolbarStatus, 'function');
-  assert.equal(typeof RagUI.renderActiveTab, 'function');
-  assert.equal(typeof RagUI.renderManageTab, 'function');
+  assert.equal(typeof RagUI.renderActivationDialog, 'function');
+  assert.equal(typeof RagUI.renderManageDialog, 'function');
   assert.equal(typeof RagUI.getActiveBranchId, 'function');
   assert.equal(typeof RagUI.setActiveBranchId, 'function');
   assert.equal(typeof RagUI.getActiveBranchIds, 'function');
@@ -17,12 +17,14 @@ test('RagUI - exporta la superficie mínima', () => {
   assert.equal(typeof RagUI.exportBranch, 'function');
   assert.equal(typeof RagUI.importBranchFile, 'function');
   assert.equal(typeof RagUI.ingestionResultMarkup, 'function');
+  assert.equal(typeof RagUI.openActivationModal, 'function');
+  assert.equal(typeof RagUI.openManageModal, 'function');
   assert.equal(typeof RagUI.openRagModal, 'function');
 });
 
 test('RagUI - genera diálogos separados para activar y gestionar documentos', () => {
-  const activationHtml = RagUI.getRagModalHTML('activate');
-  const manageHtml = RagUI.getRagModalHTML('manage');
+  const activationHtml = RagUI.getRagActivationModalHTML();
+  const manageHtml = RagUI.getRagManageModalHTML();
 
   assert.match(activationHtml, /btn-rag-activate-all/);
   assert.match(activationHtml, /<h3 data-i18n="rag_modal_title_activate">RAG<\/h3>/);
