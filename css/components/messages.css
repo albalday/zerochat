@@ -139,9 +139,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.725rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
-  padding: 0.2rem 0.55rem;
+  padding: 0.25rem 0.6rem;
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -157,6 +157,8 @@
 }
 
 .stat-item .ui-icon {
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
   opacity: 0.85;
 }
@@ -174,6 +176,22 @@
 
   .message-row.assistant .message-content {
     font-size: 1.0625rem;
+  }
+
+  .message-row.user .message-content {
+    font-size: 1.05rem;
+  }
+
+  .message-content h1 {
+    font-size: 1.45rem;
+  }
+
+  .message-content h2 {
+    font-size: 1.25rem;
+  }
+
+  .message-content h3 {
+    font-size: 1.1rem;
   }
 }
 

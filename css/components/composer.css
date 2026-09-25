@@ -633,6 +633,7 @@
 
 @media (max-width: 640px) {
   .chat-textarea {
+    font-size: 1rem; /* Evita auto-zoom forzado en iOS Safari (>= 16px) */
     max-height: 30dvh; /* Evita colapso en pantallas pequeñas */
   }
 }
@@ -706,9 +707,9 @@
   .btn-reasoning,
   .btn-send,
   .btn-stop-stream {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 }
 
@@ -778,9 +779,9 @@
 .composer-telemetry-btn {
   background: transparent;
   border: none;
-  padding: 0.2rem 0.35rem;
+  padding: 0.25rem 0.4rem;
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   font-family: inherit;
   font-variant-numeric: tabular-nums;
@@ -796,6 +797,14 @@
   outline: none;
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .composer-telemetry-btn {
+    min-height: 32px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
+  }
 }
 
 .composer-telemetry-btn:hover {
@@ -1040,19 +1049,39 @@
   display: inline-flex;
   align-items: center;
   width: 100%;
-  height: 30px;
+  height: 32px;
   min-width: 0;
   box-sizing: border-box;
-  padding: 0 0.55rem;
+  padding: 0 0.65rem;
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   background-color: var(--bg-hover);
   color: var(--text-secondary);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.header-profile-trigger .profile-icon .ui-icon,
+.header-profile-trigger .profile-chevron .ui-icon {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 640px) {
+  .header-profile-trigger {
+    height: 36px;
+    padding: 0 0.7rem;
+    font-size: 0.8125rem;
+  }
+
+  .header-profile-trigger .profile-icon .ui-icon,
+  .header-profile-trigger .profile-chevron .ui-icon {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 .header-profile-trigger:hover,
