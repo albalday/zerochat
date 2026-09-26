@@ -59,6 +59,21 @@ try:
         console._render_status()
         status_line = captured.getvalue()
         assert "[h] ayuda · [n] Navegador · [x] salir" in status_line, f"Línea de estado incorrecta: {status_line}"
+
+        module.add_notice("Hay una actualización disponible.")
+        captured.seek(0)
+        captured.truncate(0)
+        console.status_visible = False
+        console.last_activity = 0
+        console._render_status()
+        assert "[i] información" in captured.getvalue(), "Debe mostrar información cuando hay avisos"
+
+        captured.seek(0)
+        captured.truncate(0)
+        console._handle_key("i")
+        assert "Información:" in captured.getvalue()
+        assert "Hay una actualización disponible." in captured.getvalue()
+        assert module.get_notices() == ("Hay una actualización disponible.",), "Consultar avisos no debe eliminarlos"
     finally:
         sys.stdout.write = orig_write
 
@@ -1107,7 +1122,29 @@ assert not zerochat.has_new_backend_version("7.4.9", "7.4")
 assert zerochat.has_new_backend_version("7.5.0", "7.4")
 assert zerochat.get_venv_dir() == zerochat.get_data_dir() / ".venv"
 
-# 5. El entorno MCP no cambia el intérprete del servidor.
+# 5. Los avisos son transitorios, validan su contenido y no se eliminan al mostrarlos.
+zerochat.reset_notices()
+assert zerochat.get_notices() == ()
+zerochat.add_notice("Aviso de prueba")
+assert zerochat.get_notices() == ("Aviso de prueba",)
+try:
+    zerochat.add_notice("  ")
+    raise AssertionError("Los avisos vacíos deben rechazarse")
+except ValueError:
+    pass
+
+# La comprobación de versión publica el aviso sin escribirlo directamente en consola.
+from unittest.mock import patch
+newer_version = f"{int(zerochat.VERSION.split('.')[0]) + 1}.0.0"
+with patch.object(zerochat, "get_dev_root", return_value=None), \
+     patch.object(zerochat, "is_installed_runtime", return_value=True), \
+     patch.object(zerochat, "_read_remote_version", return_value=newer_version):
+    zerochat.check_version()
+assert len(zerochat.get_notices()) == 2
+assert "Nueva versión del servidor disponible" in zerochat.get_notices()[-1]
+assert "-m pip install --upgrade" in zerochat.get_notices()[-1]
+
+# 6. El entorno MCP no cambia el intérprete del servidor.
 import os
 import tempfile
 with tempfile.TemporaryDirectory() as temp_dir:

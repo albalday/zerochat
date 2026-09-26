@@ -96,7 +96,8 @@ PYPI_VERSION_URL = "https://pypi.org/pypi/zerochat/json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
-
+NOTICES: list[str] = []
+NOTICES_LOCK = threading.Lock()
 
 def format_uptime(seconds: float) -> str:
     """Devuelve una duración breve y estable para la línea de estado de consola."""
@@ -191,8 +192,25 @@ class ConsoleControl:
             if self.status_visible:
                 sys.stdout.write("\r\033[2K")
                 self.status_visible = False
-            print("\nComandos de consola: [h] ayuda · [n] Navegador · [x] salir ordenadamente\n", flush=True)
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"\nComandos de consola: {commands} · [x] salir ordenadamente\n", flush=True)
             print(self.parser.format_help().rstrip(), flush=True)
+            self.last_activity = time.monotonic()
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        with self.lock:
+            if self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            print("\nInformación:", flush=True)
+            for notice in notices:
+                print(f"- {notice}", flush=True)
+            print(flush=True)
             self.last_activity = time.monotonic()
 
     def _render_status(self):
@@ -202,7 +220,10 @@ class ConsoleControl:
         with self.lock:
             if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
                 return
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [n] Navegador · [x] salir")
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · {commands} · [x] salir")
             sys.stdout.flush()
             self.status_visible = True
 
@@ -216,6 +237,8 @@ class ConsoleControl:
         elif key.lower() == "n":
             if self.target_url:
                 launch_browser(self.target_url)
+        elif key.lower() == "i":
+            self.show_notices()
         elif key.lower() == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)
@@ -280,6 +303,26 @@ def get_data_dir() -> Path:
 def get_venv_dir() -> Path:
     """Devuelve el entorno aislado usado exclusivamente por los MCP Python."""
     return get_data_dir() / ".venv"
+
+
+def reset_notices():
+    """Reinicia los avisos transitorios de la ejecución actual."""
+    with NOTICES_LOCK:
+        NOTICES.clear()
+
+
+def add_notice(message: str):
+    """Añade un aviso para la consola interactiva de la ejecución actual."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("El aviso debe ser texto no vacío")
+    with NOTICES_LOCK:
+        NOTICES.append(message.strip())
+
+
+def get_notices() -> tuple[str, ...]:
+    """Devuelve una instantánea inmutable de los avisos actuales."""
+    with NOTICES_LOCK:
+        return tuple(NOTICES)
 
 
 def get_daily_token() -> str:
@@ -381,15 +424,15 @@ def check_version():
         installed = is_installed_runtime()
         remote_ver = _read_remote_version(PYPI_VERSION_URL if installed else REMOTE_VERSION_URL)
         if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver) and has_new_backend_version(remote_ver):
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Nueva versión del servidor disponible (Local: {VERSION}, Remota: {compatibility_version(remote_ver)})", flush=True)
+            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_ver)})."
             if installed:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat", flush=True)
+                notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
             else:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
+                notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
+            add_notice(notice)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
-
 
 # ==============================================================================
 # Herramientas Locales Core
@@ -2764,6 +2807,9 @@ def main():
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
+
+    # Los avisos no persisten entre ejecuciones del servidor.
+    reset_notices()
 
     if args.test:
         print(f"[{time.strftime('%H:%M:%S')}] TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
