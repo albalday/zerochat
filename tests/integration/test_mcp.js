@@ -853,3 +853,87 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
   }
 });
 
+
+test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentado', async () => {
+  const originalFetch = global.fetch;
+  const originalEventSource = global.EventSource;
+  let client;
+  let signal;
+  let stream;
+  try {
+    global.EventSource = class { constructor() { assert.fail('Authenticated SSE must use fetch'); } };
+    global.fetch = async (url, options) => {
+      assert.equal(url, 'http://localhost:6388/sse');
+      assert.equal(options.headers.Authorization, 'Bearer test-session');
+      assert.equal(options.headers['X-ZeroChat-Token'], 'test-session');
+      assert.equal(options.headers.Accept, 'text/event-stream');
+      assert.equal(options.redirect, 'error');
+      signal = options.signal;
+      return { ok: true, body: new ReadableStream({ start(controller) { stream = controller; } }) };
+    };
+    client = new MCP.McpClient({ url: 'http://localhost:6388/sse', token: 'test-session' });
+    const connected = client.connectSseStream({ timeoutMs: 500 });
+    await Promise.resolve();
+    stream.enqueue(new TextEncoder().encode('event: endpoint\r\ndata: /\r'));
+    stream.enqueue(new TextEncoder().encode('\n\r\n'));
+    assert.equal(await connected, 'http://localhost:6388/');
+    assert.equal(client.isSseActive, true);
+    const response = new Promise(resolve => client.pendingRequests.set(42, { resolve }));
+    stream.enqueue(new TextEncoder().encode('data: {"id":42,"result":{"ok":true}}\r\n\r\n'));
+    assert.deepEqual(await response, { ok: true });
+    client.disconnect();
+    assert.equal(signal.aborted, true);
+    assert.equal(client.isSseActive, false);
+  } finally {
+    client?.disconnect();
+    global.fetch = originalFetch;
+    global.EventSource = originalEventSource;
+  }
+});
+
+test('MCP - SSE aborta la apertura por timeout o desconexión', async () => {
+  const originalFetch = global.fetch;
+  try {
+    for (const disconnect of [false, true]) {
+      let signal;
+      global.fetch = async (url, options) => {
+        signal = options.signal;
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+      };
+      const client = new MCP.McpClient({ url: 'http://localhost:6388/sse', token: 'test-session' });
+      try {
+        const pending = client.connectSseStream({ timeoutMs: 10 });
+        if (disconnect) client.disconnect();
+        assert.equal(await pending, client.url);
+        assert.equal(signal.aborted, true);
+        assert.equal(client.isSseActive, false);
+      } finally { client.disconnect(); }
+    }
+  } finally { global.fetch = originalFetch; }
+});
+
+test('MCP - SSE rechaza endpoints externos, eventos excesivos y errores HTTP', async () => {
+  const originalFetch = global.fetch;
+  try {
+    for (const data of [null, 'event: endpoint\ndata: https://untrusted.example/\n\n', 'x'.repeat(60001)]) {
+      let signal;
+      global.fetch = async (url, options) => {
+        signal = options.signal;
+        return data === null ? { ok: false, status: 401 } : {
+          ok: true,
+          body: new ReadableStream({ start(controller) {
+            controller.enqueue(new TextEncoder().encode(data));
+          } })
+        };
+      };
+      const client = new MCP.McpClient({ url: 'http://localhost:6388/sse', headers: { Authorization: 'Bearer test-session' } });
+      try {
+        assert.equal(await client.connectSseStream({ timeoutMs: 500 }), client.url);
+        assert.equal(signal.aborted, true);
+        assert.equal(client.isSseActive, false);
+      } finally { client.disconnect(); }
+    }
+  } finally { global.fetch = originalFetch; }
+});

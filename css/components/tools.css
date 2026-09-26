@@ -937,11 +937,12 @@
 .mcp-policy-options {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
   background: var(--bg-hover);
-  padding: 0.75rem;
+  padding: 0.6rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
+  margin-top: 0.75rem;
 }
 
 .mcp-policy-option {
@@ -950,10 +951,17 @@
   gap: 0.65rem;
   cursor: pointer;
   user-select: none;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.mcp-policy-option:hover {
+  background: var(--bg-surface);
 }
 
 .mcp-policy-option input[type="radio"] {
-  margin-top: 0.2rem;
+  margin-top: 0.15rem;
   cursor: pointer;
 }
 

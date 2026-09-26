@@ -615,9 +615,7 @@
         'allow_once',
         'allow_session',
         'allow_always',
-        'allow_tool_always',
-        'allow_server_always',
-        'allow_server_session'
+        'allow_server_always'
       ]);
 
       if (!allowedDecisions.has(decisionType)) {
@@ -640,16 +638,15 @@
           serverName: authEval.serverName,
           originalName: authEval.originalName
         });
-      } else if (decisionType === 'allow_server_always' || decisionType === 'allow_server_session') {
+      } else if (decisionType === 'allow_server_always') {
         const targetServerId = decision?.serverId || authEval.serverId;
         if (targetServerId) {
-          const scope = decisionType === 'allow_server_session' ? 'session' : 'permanent';
           ToolSecurity?.manager?.setServerPolicy?.(targetServerId, 'allow', {
-            scope,
+            scope: 'permanent',
             serverName: authEval.serverName
           });
         }
-      } else if (decisionType === 'allow_always' || decisionType === 'allow_tool_always') {
+      } else if (decisionType === 'allow_always') {
         const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
         const existingConstraints = ToolSecurity.manager.getToolConstraints?.(targetToolId) || null;
         let mergedPrefixes = undefined;

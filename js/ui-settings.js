@@ -781,16 +781,17 @@
 
         <!-- Sección: Permisos de ejecución MCP -->
         <div id="settings-permissions" class="settings-section-pane">
-          <div class="mcp-security-card">
-            <div class="mcp-security-header">
-              <span class="mcp-security-icon">
-                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-              </span>
-              <div>
+          <!-- Tarjeta 1: Política Global de Ejecución -->
+          <div class="mcp-status-card">
+            <div class="mcp-status-header">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
+                </span>
                 <strong data-i18n="mcp_security_section_title">Seguridad y Autorización de Ejecución</strong>
-                <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
               </div>
             </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
 
             <div class="mcp-policy-options">
               <label class="mcp-policy-option">
@@ -801,30 +802,50 @@
                 </div>
               </label>
               <label class="mcp-policy-option">
+                <input type="radio" name="mcp-global-policy" value="workspace_trust" id="mcp-policy-workspace-trust">
+                <div class="mcp-policy-text">
+                  <strong data-i18n="mcp_security_policy_workspace_trust">Confiar en el espacio de trabajo (Workspace Trust)</strong>
+                  <p class="label-hint" data-i18n="mcp_security_policy_workspace_trust_hint">Confía automáticamente en operaciones y archivos dentro del directorio del proyecto (CWD). Pregunta para accesos externos o comandos globales.</p>
+                </div>
+              </label>
+              <label class="mcp-policy-option">
                 <input type="radio" name="mcp-global-policy" value="allow_all" id="mcp-policy-allow-all">
                 <div class="mcp-policy-text">
-                  <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo sin restricciones)</strong>
+                  <strong data-i18n="mcp_security_policy_allow_all">Todo autorizado (Modo desatendido)</strong>
                   <p class="label-hint" data-i18n="mcp_security_policy_allow_all_hint">Ejecuta inmediatamente cualquier herramienta MCP sin pausas de confirmación.</p>
                 </div>
               </label>
             </div>
+          </div>
 
-            <div class="mcp-saved-auths-section">
-              <div class="mcp-saved-auths-header">
-                <span class="label-hint" data-i18n="mcp_directory_rules_title">Directorios permitidos</span>
+          <!-- Tarjeta 2: Directorios Permitidos -->
+          <div class="mcp-status-card" style="margin-top: 1rem;">
+            <div class="mcp-status-header">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                </span>
+                <strong data-i18n="mcp_directory_rules_title">Directorios permitidos</strong>
               </div>
-              <p class="label-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
-              <textarea id="mcp-directory-rules" rows="5" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="width: 100%; resize: vertical;"></textarea>
-              <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
             </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
+            <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="width: 100%; resize: vertical; margin-top: 0.5rem;"></textarea>
+            <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
+          </div>
 
-            <div class="mcp-saved-auths-section">
-              <div class="mcp-saved-auths-header">
-                <span class="label-hint" data-i18n="mcp_security_saved_auths_title">Herramientas con Permiso Recordado:</span>
-                <button type="button" id="btn-mcp-clear-auths" class="btn-text-action btn-mcp-clear-auths" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
+          <!-- Tarjeta 3: Herramientas y Servidores Autorizados -->
+          <div class="mcp-status-card" style="margin-top: 1rem;">
+            <div class="mcp-status-header">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+                <strong data-i18n="mcp_security_saved_auths_title">Herramientas y Servidores Autorizados</strong>
               </div>
-              <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
+              <button type="button" id="btn-mcp-clear-auths" class="btn-text-action btn-mcp-clear-auths" data-i18n="mcp_security_btn_clear_all">Restablecer todas</button>
             </div>
+            <p class="label-hint mcp-section-hint" data-i18n="mcp_security_saved_auths_desc">Decisiones recordadas en esta sesión o de forma permanente, y servidores MCP de confianza.</p>
+            <div id="mcp-saved-auths-list" class="mcp-saved-auths-list" style="margin-top: 0.5rem;"></div>
           </div>
         </div>
 

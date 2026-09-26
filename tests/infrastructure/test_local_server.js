@@ -145,6 +145,27 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     });
     assert.equal(unauthPost.status, 401, 'Petición POST sin token debe ser rechazada con 401');
 
+    const favicon = await fetch(`${baseUrl}/favicon.ico`);
+    assert.equal(favicon.status, 204);
+    assert.equal(await favicon.text(), '');
+    const forbiddenFavicon = await fetch(`${baseUrl}/favicon.ico`, {
+      headers: { Origin: 'https://untrusted.example' }
+    });
+    assert.equal(forbiddenFavicon.status, 403);
+
+    const querySse = await fetch(`${baseUrl}/sse?token=${testToken}`);
+    assert.equal(querySse.status, 401);
+    const { McpClient } = require('../../js/mcp.js');
+    const client = new McpClient({ url: `${baseUrl}/sse`, token: testToken });
+    try {
+      assert.equal(await client.connectSseStream({ timeoutMs: 2000 }), `${baseUrl}/`);
+      assert.equal(client.isSseActive, true);
+      const tools = await client.request('tools/list');
+      assert.ok(Array.isArray(tools.tools));
+    } finally {
+      client.disconnect();
+    }
+
     // 3. Comprobar rechazo con token inválido
     const invalidPost = await fetch(baseUrl, {
       method: 'POST',

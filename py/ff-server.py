@@ -219,6 +219,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
 
+        # Browsers request this optional public resource without API credentials.
+        if path_clean == "/favicon.ico":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if not is_heartbeat:
             self._log_req("GET", safe_path)
 

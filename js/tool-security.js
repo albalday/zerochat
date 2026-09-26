@@ -606,11 +606,6 @@
       return found ? found.entry.policy : null;
     }
 
-    getToolEntry(toolId) {
-      const found = this.findToolEntry(toolId);
-      return found ? found.entry : null;
-    }
-
     getToolConstraints(toolId) {
       const found = this.findToolEntry(toolId);
       return found ? (found.entry.constraints || null) : null;
@@ -800,7 +795,7 @@
      * 6. Reglas de Directorio / Workspace Trust -> allow si está dentro del ámbito
      * 7. Por defecto -> ask (solicitar confirmación)
      */
-    evaluateAuthorization(toolOrName, rawArgs = {}, options = {}) {
+    evaluateAuthorization(toolOrName, rawArgs = {}) {
       let tool = null;
       let toolName = '';
 
@@ -1007,14 +1002,33 @@
 
       if ((toolName === 'execute_command' || toolName === 'bash' || originalName === 'execute_command' || originalName === 'bash')
           && this.globalMcpPolicy === GLOBAL_POLICIES.WORKSPACE_TRUST) {
+        const cmdVal = String(args.command || args.cmd || args.script || '').trim();
+        const isGlobalOrExternal =
+          /(?:^|\s)(?:sudo|su|mkfs|reboot|shutdown|systemctl)\b/.test(cmdVal) ||
+          /(?:^|\s)(?:\/etc\/|\/var\/|\/usr\/|\/root\/|\/boot\/)/.test(cmdVal) ||
+          /\.\.\//.test(cmdVal);
+
+        if (!isGlobalOrExternal) {
+          return {
+            requiresApproval: false,
+            status: TOOL_POLICIES.ALLOW,
+            reason: 'workspace_trust_command',
+            toolId,
+            serverName,
+            serverId,
+            originalName
+          };
+        }
+
         return {
-          requiresApproval: false,
-          status: TOOL_POLICIES.ALLOW,
-          reason: 'workspace_trust_command',
+          requiresApproval: true,
+          status: TOOL_POLICIES.ASK,
+          reason: 'workspace_trust_external_or_global_command',
           toolId,
           serverName,
           serverId,
-          originalName
+          originalName,
+          details: 'El comando accede a recursos globales o rutas fuera del espacio de trabajo.'
         };
       }
 

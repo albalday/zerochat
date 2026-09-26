@@ -592,14 +592,19 @@ test('ChatToolSecurity - Política workspace_trust autoriza comandos y archivos 
   const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
   const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
 
-  // Comandos y lecturas locales están permitidas
+  // Comandos y lecturas locales del workspace están permitidas
   assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls -la' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git status --short' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'npm test' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readFileTool, { path: 'src/index.js' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(readFileTool, { path: './package.json' }).status, 'allow');
 
-  // Intentos de directory traversal fuera del workspace piden confirmación
+  // Intentos de acceso fuera del workspace o comandos globales piden confirmación
   assert.equal(manager.evaluateAuthorization(readFileTool, { path: '../../etc/shadow' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(readFileTool, { path: '/etc/passwd' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'sudo rm -rf /' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cat /etc/shadow' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls ../../' }).status, 'ask');
 });
 
 test('ChatToolSecurity - Permitir prefijo cd * autoriza comandos encadenados y navegación sin re-preguntar', () => {

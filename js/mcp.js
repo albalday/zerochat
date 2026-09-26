@@ -199,7 +199,8 @@
       }
       if (this.sseReader) {
         try {
-          this.sseReader.cancel();
+          const cancellation = this.sseReader.cancel();
+          if (cancellation?.catch) cancellation.catch(() => {});
         } catch (e) {}
         this.sseReader = null;
       }
@@ -260,101 +261,96 @@
           }
         };
 
-        const timer = setTimeout(() => finish(this.url), timeoutMs);
+        let source;
+        const timer = setTimeout(() => {
+          source?.close();
+          if (this.sseSource === source) this.isSseActive = false;
+          finish(this.url);
+        }, timeoutMs);
+        const fallback = () => {
+          clearTimeout(timer);
+          if (source && this.sseSource !== source) return;
+          this.isSseActive = false;
+          finish(this.url);
+        };
 
         try {
-          let sseUrl = this.url;
-          if (this.token) {
-            const joiner = sseUrl.includes('?') ? '&' : '?';
-            sseUrl = `${sseUrl}${joiner}token=${encodeURIComponent(this.token)}`;
-          }
-
-          if (typeof EventSource !== 'undefined') {
-            const es = new EventSource(sseUrl);
+          // EventSource cannot send authentication or custom HTTP headers.
+          if (typeof EventSource !== 'undefined' && !this.token && Object.keys(this.headers).length === 0) {
+            const es = new EventSource(this.url);
+            source = es;
             this.sseSource = es;
             this.isSseActive = true;
 
             es.addEventListener('endpoint', (evt) => {
               clearTimeout(timer);
-              const postPath = (evt.data || '').trim();
-              const fullUrl = new URL(postPath, this.url).toString();
-              this.postUrl = fullUrl;
+              const fullUrl = new URL((evt.data || '').trim(), this.url).toString();
               finish(fullUrl);
             });
-
-            es.addEventListener('message', (evt) => {
-              this._handleJsonRpcMessage(evt.data);
-            });
-
+            es.addEventListener('message', (evt) => this._handleJsonRpcMessage(evt.data));
             es.onerror = () => {
-              clearTimeout(timer);
-              this.isSseActive = false;
-              this.postUrl = null;
-              finish(this.url);
+              es.close();
+              fallback();
             };
           } else {
-            // Node.js fallback mediante fetch stream
+            const controller = new AbortController();
+            source = { close: () => {
+              controller.abort();
+              clearTimeout(timer);
+              finish(this.url);
+            } };
+            this.sseSource = source;
             fetch(this.url, {
-              headers: { 'Accept': 'text/event-stream' }
-            }).then(res => {
-              if (!res.ok || !res.body) {
-                clearTimeout(timer);
-                this.isSseActive = false;
-                this.postUrl = null;
-                return finish(this.url);
+              headers: { ...this.buildHeaders(), 'Accept': 'text/event-stream' },
+              signal: controller.signal,
+              redirect: 'error'
+            }).then(async res => {
+              if (controller.signal.aborted || this.sseSource !== source) return;
+              if (!res.ok || !res.body?.getReader) {
+                source.close();
+                fallback();
+                return;
               }
-              const reader = res.body.getReader ? res.body.getReader() : null;
-              if (!reader) {
-                clearTimeout(timer);
-                this.isSseActive = false;
-                this.postUrl = null;
-                return finish(this.url);
-              }
-              this.isSseActive = true;
+              const reader = res.body.getReader();
               this.sseReader = reader;
+              this.isSseActive = true;
               const decoder = new TextDecoder();
               let buffer = '';
-
-              const pump = () => {
-                reader.read().then(({ done, value }) => {
-                  if (done) {
-                    this.isSseActive = false;
-                    return;
-                  }
-                  buffer += decoder.decode(value, { stream: true });
-                  const chunks = buffer.split('\n\n');
-                  buffer = chunks.pop() || '';
-
-                  for (const chunk of chunks) {
-                    const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
-                    if (endpointMatch) {
-                      clearTimeout(timer);
-                      const postPath = endpointMatch[1].trim();
-                      const fullUrl = new URL(postPath, this.url).toString();
-                      this.postUrl = fullUrl;
-                      finish(fullUrl);
+              while (!controller.signal.aborted && this.sseSource === source) {
+                const { done, value } = await reader.read();
+                if (controller.signal.aborted || this.sseSource !== source) return;
+                if (done) {
+                  fallback();
+                  return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const chunks = buffer.split(/\r?\n\r?\n/);
+                buffer = chunks.pop() || '';
+                for (const chunk of chunks) {
+                  if (chunk.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
+                  const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
+                  if (endpointMatch) {
+                    const fullUrl = new URL(endpointMatch[1].trim(), this.url);
+                    if (fullUrl.origin !== new URL(this.url).origin) {
+                      throw new Error('MCP SSE endpoint must have the same origin');
                     }
-                    const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
-                    if (msgMatch && !endpointMatch) {
-                      this._handleJsonRpcMessage(msgMatch[1]);
-                    }
+                    clearTimeout(timer);
+                    finish(fullUrl.toString());
                   }
-                  pump();
-                }).catch(() => {
-                  this.isSseActive = false;
-                });
-              };
-              pump();
+                  const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
+                  if (msgMatch && !endpointMatch) this._handleJsonRpcMessage(msgMatch[1]);
+                }
+                if (buffer.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
+              }
             }).catch(() => {
-              clearTimeout(timer);
-              this.isSseActive = false;
-              finish(this.url);
+              if (this.sseSource !== source) return;
+              source.close();
+              fallback();
             });
           }
         } catch (e) {
-          clearTimeout(timer);
-          this.isSseActive = false;
-          finish(this.url);
+          source?.close();
+          fallback();
         }
       });
     }
