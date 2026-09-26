@@ -598,6 +598,7 @@
       const decision = await context.requestToolAuthorization(toolCall, {
         args,
         serverName: authEval.serverName,
+        serverId: authEval.serverId,
         toolName: tool.name,
         directoryAccess: authEval.directoryAccess,
         directoryPath: authEval.directoryPath,
@@ -610,7 +611,16 @@
         return { allowed: false, error: t('tool_security_policy_blocked', 'Tool blocked by security policy.') };
       }
 
-      if (decisionType !== 'allow_once' && decisionType !== 'allow_always') {
+      const allowedDecisions = new Set([
+        'allow_once',
+        'allow_session',
+        'allow_always',
+        'allow_tool_always',
+        'allow_server_always',
+        'allow_server_session'
+      ]);
+
+      if (!allowedDecisions.has(decisionType)) {
         return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
       }
 
@@ -622,9 +632,26 @@
         }
       }
 
-      if (decisionType === 'allow_always') {
+      const targetToolId = authEval.toolId || tool.name;
+
+      if (decisionType === 'allow_session') {
+        ToolSecurity?.manager?.setToolPolicy?.(targetToolId, 'allow', {
+          scope: 'session',
+          serverName: authEval.serverName,
+          originalName: authEval.originalName
+        });
+      } else if (decisionType === 'allow_server_always' || decisionType === 'allow_server_session') {
+        const targetServerId = decision?.serverId || authEval.serverId;
+        if (targetServerId) {
+          const scope = decisionType === 'allow_server_session' ? 'session' : 'permanent';
+          ToolSecurity?.manager?.setServerPolicy?.(targetServerId, 'allow', {
+            scope,
+            serverName: authEval.serverName
+          });
+        }
+      } else if (decisionType === 'allow_always' || decisionType === 'allow_tool_always') {
         const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
-        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(authEval.toolId || tool.name) || null;
+        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(targetToolId) || null;
         let mergedPrefixes = undefined;
         if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
           const rawList = [
@@ -642,6 +669,10 @@
           }
         }
 
+        const shouldAllowChaining = requestedConstraints?.command?.allowChaining === true ||
+          existingConstraints?.command?.allowChaining === true ||
+          (mergedPrefixes && mergedPrefixes.some(p => String(p).replace(/\*+$/, '').trim() === 'cd'));
+
         const constraints = requestedConstraints?.command && existingConstraints?.command
           ? {
             ...existingConstraints,
@@ -649,11 +680,23 @@
             command: {
               ...existingConstraints.command,
               ...requestedConstraints.command,
-              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {})
+              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {}),
+              allowChaining: shouldAllowChaining || (requestedConstraints.command.allowChaining !== false && existingConstraints.command.allowChaining !== false),
+              allowPipes: (requestedConstraints.command.allowPipes !== false && existingConstraints.command.allowPipes !== false)
             }
           }
-          : requestedConstraints;
-        ToolSecurity.manager.setToolPolicy(authEval.toolId || tool.name, 'allow', {
+          : (requestedConstraints?.command
+            ? {
+              ...requestedConstraints,
+              command: {
+                ...requestedConstraints.command,
+                allowChaining: shouldAllowChaining || requestedConstraints.command.allowChaining !== false
+              }
+            }
+            : requestedConstraints);
+
+        ToolSecurity.manager.setToolPolicy(targetToolId, 'allow', {
+          scope: 'permanent',
           serverName: authEval.serverName,
           originalName: authEval.originalName,
           constraints

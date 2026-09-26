@@ -14,6 +14,8 @@
   const ERROR_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
   const CHEVRON_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
   const SHIELD_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
+  const CLOCK_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+  const SERVER_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
   const DEFAULT_TOOL_ICON = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 
   function createCardWrapper(ui, extraClass = '') {
@@ -145,6 +147,7 @@
     const esc = getMarkdown().escapeHtml;
     const toolName = toolCall?.function?.name || options.toolName || 'tool';
     const serverName = options.serverName || '';
+    const serverId = options.serverId || '';
     const signal = options.signal;
 
     // Asegurar que la tarjeta esté expandida para que el usuario visualice la petición
@@ -202,6 +205,14 @@
       `;
     }
 
+    let serverButtonHtml = '';
+    if (serverId) {
+      const sLabel = serverName || serverId;
+      serverButtonHtml = `
+        <button type="button" class="btn-auth-action btn-auth-allow-server" title="${esc(tFn('tool_auth_allow_server_title', { server: sLabel }) || `Confiar permanentemente en todas las herramientas del servidor ${sLabel}`)}">${SERVER_SVG} <span>${esc(tFn('tool_auth_allow_server_btn', { server: sLabel }) || `Confiar en ${sLabel}`)}</span></button>
+      `;
+    }
+
     const serverTag = serverName ? `<span class="mcp-card-server-tag">${esc(serverName)}</span>` : '';
     authPromptEl.innerHTML = `
       <div class="tool-auth-header">
@@ -213,9 +224,11 @@
         <p class="tool-auth-desc">${tFn('tool_auth_desc') || 'Esta herramienta MCP requiere tu confirmación antes de interactuar con el sistema:'}</p>
       </div>
       <div class="tool-auth-actions">
-        <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir una vez')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir solo esta llamada')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-session" title="${esc(tFn('tool_auth_allow_session') || 'Permitir durante toda la sesión activa de chat')}">${CLOCK_SVG} <span>${tFn('tool_auth_allow_session') || 'En esta sesión'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre esta herramienta')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre'}</span></button>
+        ${serverButtonHtml}
         ${contextualButtonsHtml}
-        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre este tool')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir todo'}</span></button>
         <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
       </div>
     `;
@@ -249,7 +262,7 @@
             resEl.innerHTML = `<div class="tool-auth-denied-notice">${esc(tFn('tool_auth_denied_msg') || 'Ejecución denegada por el usuario.')}</div>`;
           }
         } else {
-          // 'allow_once' o 'allow_always': restaurar badge a ejecutando
+          // Permitido: restaurar badge a ejecutando
           if (badge) {
             badge.className = 'tool-card-badge status-loading';
             badge.innerHTML = `${SPINNER_SVG} <span>${tFn('tool_badge_executing') || 'Ejecutando...'}</span>`;
@@ -260,14 +273,34 @@
       };
 
       const btnAllowOnce = authPromptEl.querySelector('.btn-auth-allow-once');
+      const btnAllowSession = authPromptEl.querySelector('.btn-auth-allow-session');
+      const btnAllowAlways = authPromptEl.querySelector('.btn-auth-allow-always');
+      const btnAllowServer = authPromptEl.querySelector('.btn-auth-allow-server');
       const btnAllowCmd = authPromptEl.querySelector('.btn-auth-allow-cmd');
       const btnAllowPath = authPromptEl.querySelector('.btn-auth-allow-path');
-      const btnAllowAlways = authPromptEl.querySelector('.btn-auth-allow-always');
       const btnDeny = authPromptEl.querySelector('.btn-auth-deny');
 
       btnAllowOnce?.addEventListener('click', (e) => {
         e.stopPropagation();
         handleDecision('allow_once');
+      });
+
+      btnAllowSession?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision('allow_session');
+      });
+
+      btnAllowAlways?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision('allow_always');
+      });
+
+      btnAllowServer?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleDecision({
+          decision: 'allow_server_always',
+          serverId
+        });
       });
 
       btnAllowCmd?.addEventListener('click', (e) => {
@@ -278,7 +311,7 @@
           constraints: {
             command: {
               allowedPrefixes: [baseNameOnly],
-              allowChaining: false,
+              allowChaining: true,
               allowPipes: true
             }
           }
@@ -300,11 +333,6 @@
           decision: 'allow_always',
           directoryRule: `${access}:${parent || '/'}${parent === '/' ? '' : '/**'}`
         });
-      });
-
-      btnAllowAlways?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleDecision('allow_always');
       });
 
       btnDeny?.addEventListener('click', (e) => {

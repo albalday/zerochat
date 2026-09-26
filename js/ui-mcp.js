@@ -128,9 +128,14 @@
       const hasConstraints = !!(toolConstraints && (toolConstraints.command || toolConstraints.path));
       const effectivePolicy = toolRule || 'ask';
 
+      const serverId = tool.metadata?.mcpServerId || '';
+      const serverPolicy = serverId && Security?.manager?.getServerPolicy ? Security.manager.getServerPolicy(serverId) : null;
+
       let authTagHtml = '';
       if (globalPolicy === 'allow_all') {
         authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_policy_allow_all'))}">${escapeHtml(translator('mcp_security_badge_allowed'))} (Global)</span>`;
+      } else if (serverPolicy === 'allow' && effectivePolicy === 'ask') {
+        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_trusted_server'))}">${escapeHtml(translator('mcp_security_badge_allowed'))} (${escapeHtml(translator('mcp_security_badge_server'))})</span>`;
       } else {
         const selectTitle = escapeHtml(translator('mcp_security_select_title'));
         const optAsk = escapeHtml(translator('mcp_security_badge_ask'));
@@ -243,6 +248,8 @@
       return;
     }
     const language = getI18n()?.getLanguage?.() || 'es';
+    const Security = getSecurity();
+    const Icons = getIcons();
     container.innerHTML = servers.map(server => {
       const isRunning = server.status === 'running';
       const isStarting = server.status === 'starting';
@@ -276,6 +283,11 @@
         }).join('') + `</div>`;
       }
 
+      const isServerTrusted = Security?.manager?.getServerPolicy ? Security.manager.getServerPolicy(server.id) === 'allow' : false;
+      const trustBtnText = isServerTrusted ? translator('mcp_security_trusted_server') : translator('mcp_security_trust_server');
+      const trustBtnClass = isServerTrusted ? 'btn-mcp-server-trust active' : 'btn-mcp-server-trust';
+      const shieldIcon = Icons?.get ? Icons.get('shield', { size: 12 }) : '';
+
       return `
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
           <div class="mcp-server-info">
@@ -289,12 +301,36 @@
             ${optionsHtml}
           </div>
           <div class="mcp-server-actions">
+            <button type="button" class="${trustBtnClass}" data-server-id="${escapeHtml(server.id)}" title="${escapeHtml(trustBtnText)}">
+              ${shieldIcon} <span>${escapeHtml(trustBtnText)}</span>
+            </button>
             <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled' : ''}>
               ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : translator('mcp_btn_start_server'))}
             </button>
           </div>
         </div>`;
     }).join('');
+
+    container.querySelectorAll?.('.btn-mcp-server-trust').forEach(btn => {
+      btn.addEventListener?.('click', () => {
+        const sid = btn.getAttribute?.('data-server-id');
+        if (!sid || !Security?.manager) return;
+        const currentPolicy = Security.manager.getServerPolicy(sid);
+        if (currentPolicy === 'allow') {
+          Security.manager.revokeServerPolicy(sid);
+        } else {
+          Security.manager.setServerPolicy(sid, 'allow', { serverName: sid });
+        }
+        renderExternalServers(container, servers, translator);
+        const savedListEl = typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null;
+        if (savedListEl && typeof renderSavedAuthorizations === 'function') {
+          renderSavedAuthorizations({
+            savedAuthsList: savedListEl,
+            btnClearAuths: document.getElementById('btn-mcp-clear-auths')
+          }, translator);
+        }
+      });
+    });
 
     container.querySelectorAll?.('.mcp-server-option-checkbox').forEach(cb => {
       cb.addEventListener?.('change', async () => {
@@ -409,9 +445,10 @@
     if (!container) return;
 
     const Security = getSecurity();
-    const authorized = Security?.manager?.listAuthorizedTools ? Security.manager.listAuthorizedTools() : [];
+    const authorizedTools = Security?.manager?.listAuthorizedTools ? Security.manager.listAuthorizedTools() : [];
+    const authorizedServers = Security?.manager?.listAuthorizedServers ? Security.manager.listAuthorizedServers() : [];
 
-    if (!authorized || authorized.length === 0) {
+    if (authorizedTools.length === 0 && authorizedServers.length === 0) {
       container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(translator('mcp_security_no_saved_auths'))}</div>`;
       if (btnClear) btnClear.style.display = 'none';
       return;
@@ -421,14 +458,38 @@
 
     const Icons = getIcons();
     const trashIcon = Icons?.get ? Icons.get('trash', { size: 12 }) : '';
+    const serverIcon = Icons?.get ? Icons.get('server', { size: 12 }) : '';
+    const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
 
-    container.innerHTML = authorized.map(item => {
+    const serverItems = authorizedServers.map(item => {
+      const serverId = escapeHtml(item.serverId);
+      const sName = escapeHtml(item.serverName || item.serverId);
+      const isAllowed = item.policy === 'allow';
+      const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
+      const badgeText = `${escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'))} (${escapeHtml(translator('mcp_security_badge_server') || 'Servidor')})`;
+      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session') || 'Sesión')}</span>` : '';
+
+      return `
+        <div class="mcp-auth-item" data-server-id="${serverId}">
+          <div class="mcp-auth-item-info">
+            <span class="mcp-auth-server-icon">${serverIcon}</span>
+            <strong class="mcp-auth-item-name">${sName}</strong>
+            <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
+            ${scopeBadge}
+          </div>
+          <button type="button" class="btn-revoke-server-auth" data-server-id="${serverId}" title="${revokeLabel}">
+            ${trashIcon} <span>${revokeLabel}</span>
+          </button>
+        </div>`;
+    }).join('');
+
+    const toolItems = authorizedTools.map(item => {
       const toolId = escapeHtml(item.toolId);
       const origName = escapeHtml(item.originalName || item.toolId);
       const isAllowed = item.policy === 'allow';
       const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
       let badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
-      const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
+      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session') || 'Sesión')}</span>` : '';
 
       let constraintTag = '';
       if (item.constraints) {
@@ -455,6 +516,7 @@
           <div class="mcp-auth-item-info">
             <strong class="mcp-auth-item-name">${origName}</strong>
             <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
+            ${scopeBadge}
             ${constraintTag}
           </div>
           <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}">
@@ -463,12 +525,34 @@
         </div>`;
     }).join('');
 
+    container.innerHTML = serverItems + toolItems;
+
     container.querySelectorAll('.btn-revoke-auth').forEach(btn => {
       btn.addEventListener('click', () => {
         const tid = btn.getAttribute('data-tool-id');
         if (tid && Security?.manager?.revokeToolPolicy) {
           Security.manager.revokeToolPolicy(tid);
           renderSavedAuthorizations(elements, translator);
+          if (elements?.toolsContainer) {
+            const currentConfig = getConfig()?.get?.() || {};
+            const state = getState()?.get?.('mcp') || {};
+            const allTools = state.tools || [];
+            renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
+          }
+        }
+      });
+    });
+
+    container.querySelectorAll('.btn-revoke-server-auth').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sid = btn.getAttribute('data-server-id');
+        if (sid && Security?.manager?.revokeServerPolicy) {
+          Security.manager.revokeServerPolicy(sid);
+          renderSavedAuthorizations(elements, translator);
+          if (elements?.serversList) {
+            const state = getState()?.get?.('mcp') || {};
+            renderExternalServers(elements.serversList, state.externalServers || [], translator);
+          }
           if (elements?.toolsContainer) {
             const currentConfig = getConfig()?.get?.() || {};
             const state = getState()?.get?.('mcp') || {};
@@ -494,6 +578,7 @@
   function syncSecurityControls(elements = {}, translator = t) {
     const Security = getSecurity();
     const radioAsk = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
+    const radioWorkspaceTrust = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-workspace-trust') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-workspace-trust') : null);
     const radioAllowAll = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
     const btnClearAuths = elements?.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
     const directoryRulesInput = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules') : null;
@@ -501,6 +586,7 @@
 
     const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
     if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
+    if (radioWorkspaceTrust) radioWorkspaceTrust.checked = (currentGlobalPolicy === 'workspace_trust');
     if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
     if (directoryRulesInput && Security?.manager?.getDirectoryRules) {
       const activeRules = Security.manager.getDirectoryRules().join('\n');
@@ -514,6 +600,16 @@
       radioAsk.addEventListener('change', () => {
         if (radioAsk.checked && Security?.manager?.setGlobalMcpPolicy) {
           Security.manager.setGlobalMcpPolicy('ask');
+          renderCurrentToolsList(elements, translator);
+        }
+      });
+    }
+
+    if (radioWorkspaceTrust && !radioWorkspaceTrust.dataset?.mcpBound) {
+      radioWorkspaceTrust.dataset.mcpBound = 'true';
+      radioWorkspaceTrust.addEventListener('change', () => {
+        if (radioWorkspaceTrust.checked && Security?.manager?.setGlobalMcpPolicy) {
+          Security.manager.setGlobalMcpPolicy('workspace_trust');
           renderCurrentToolsList(elements, translator);
         }
       });
