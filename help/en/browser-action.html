@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser automation · ZeroChat Help</title>
+  <meta name="description" content="Installing browser_action's minimum requirements in ZeroChat.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">ZeroChat Docs</a>
+        <div class="header-actions"><a href="../browser-action.html" class="top-nav-link">Español</a><a href="mcp.html" class="top-nav-link">← MCP</a></div>
+      </div>
+      <h1>Browser automation</h1>
+      <p class="subtitle">Minimum requirements for <code>browser_action</code>.</p>
+    </header>
+
+    <div class="card">
+      <p><code>browser_action</code> controls a headless Chromium browser to navigate, capture screenshots, click elements, and fill forms. It can only be enabled when Node.js, Playwright, and a compatible Chromium browser are available.</p>
+    </div>
+
+    <div class="card">
+      <h2>Recommended installation</h2>
+      <ol>
+        <li>Install Node.js 18 or later, including <code>npm</code>.</li>
+        <li>In ZeroChat, open <strong>Settings → MCP</strong> and start <strong>Playwright MCP</strong>. ZeroChat downloads Playwright and Chromium into <code>~/zerochat/services/playwright/</code>.</li>
+        <li>Reconnect the local server or reload ZeroChat. You can then enable <code>browser_action</code>.</li>
+      </ol>
+      <p>You may alternatively use a Node.js-accessible Playwright installation with Google Chrome, Microsoft Edge, or Chromium. This tool does not need Python packages.</p>
+    </div>
+
+    <div class="alert alert-warning">
+      <strong>Privacy and security:</strong> the tool can visit URLs and perform web actions requested by the model. Keep the permission policy set to “Ask” and review sensitive accounts or forms before automation.
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="mcp.html" class="nav-button prev"><span class="nav-direction">← Previous</span><span class="nav-title">Model Context Protocol</span></a>
+      <a href="index.html" class="nav-button index"><span class="nav-direction">Index</span><span class="nav-title">Browse all topics</span></a>
+    </nav>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

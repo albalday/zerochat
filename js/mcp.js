@@ -728,6 +728,7 @@
           aliases: [],
           category: 'mcp',
           isAvailable: () => {
+            if (rt.availability?.available === false) return false;
             if (this.client.id === 'mcp_proxy') {
               const State = getState();
               return State ? State.get('mcp')?.status === 'connected' : false;
@@ -738,7 +739,7 @@
             titleFallback: toolName,
             descFallback: rt.description || '',
             icon: 'plug',
-            defaultEnabled: true,
+            defaultEnabled: rt.availability?.available !== false,
             showInSettings: true
           },
           metadata: {
@@ -749,7 +750,8 @@
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
-            description: rt.description || ''
+            description: rt.description || '',
+            available: rt.availability?.available !== false
           },
           execute: async (args, context = {}) => {
             try {
@@ -970,7 +972,8 @@
             inputSchema: t.parameters,
             category: t.category,
             titleFallback: t.settings?.titleFallback || t.name,
-            descFallback: t.settings?.descFallback || t.metadata?.description || t.description || ''
+            descFallback: t.settings?.descFallback || t.metadata?.description || t.description || '',
+            available: t.metadata?.available !== false
           }))
         };
       } catch (err) {

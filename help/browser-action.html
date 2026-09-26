@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automatización del navegador · Ayuda de ZeroChat</title>
+  <meta name="description" content="Instalación de los requisitos mínimos para browser_action en ZeroChat.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">ZeroChat Docs</a>
+        <div class="header-actions"><a href="en/browser-action.html" class="top-nav-link">English</a><a href="mcp.html" class="top-nav-link">← MCP</a></div>
+      </div>
+      <h1>Automatización del navegador</h1>
+      <p class="subtitle">Requisitos mínimos de <code>browser_action</code>.</p>
+    </header>
+
+    <div class="card">
+      <p><code>browser_action</code> controla un navegador Chromium en segundo plano para navegar, hacer capturas, pulsar elementos y rellenar formularios. Solo se puede activar cuando están disponibles Node.js, Playwright y un navegador Chromium compatible.</p>
+    </div>
+
+    <div class="card">
+      <h2>Instalación recomendada</h2>
+      <ol>
+        <li>Instala Node.js 18 o posterior, que incluye <code>npm</code>.</li>
+        <li>En ZeroChat, abre <strong>Ajustes → MCP</strong> y arranca <strong>Playwright MCP</strong>. ZeroChat descarga Playwright y Chromium en <code>~/zerochat/services/playwright/</code>.</li>
+        <li>Vuelve a conectar el servidor local o recarga ZeroChat. Ya podrás activar <code>browser_action</code>.</li>
+      </ol>
+      <p>También puedes usar una instalación de Playwright disponible para Node.js junto con Google Chrome, Microsoft Edge o Chromium. No instales paquetes Python para esta herramienta.</p>
+    </div>
+
+    <div class="alert alert-warning">
+      <strong>Privacidad y seguridad:</strong> la herramienta puede visitar URLs y ejecutar acciones web indicadas por el modelo. Mantén la política de permisos en “Preguntar” y no automatices cuentas o formularios sensibles sin revisarlos.
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="mcp.html" class="nav-button prev"><span class="nav-direction">← Anterior</span><span class="nav-title">Protocolo MCP</span></a>
+      <a href="index.html" class="nav-button index"><span class="nav-direction">Índice</span><span class="nav-title">Ver todos los temas</span></a>
+    </nav>
+  </div>
+  <script src="help.js"></script>
+</body>
+</html>

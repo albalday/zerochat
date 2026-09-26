@@ -258,6 +258,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "server": "ZeroChat Local Server",
             "version": VERSION,
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -454,7 +455,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     }
                 }
             elif method == "tools/list":
-                result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
+                browser_availability = browser_action_availability()
+                tools = []
+                for definition in LOCAL_TOOLS_DEFINITIONS:
+                    item = dict(definition)
+                    if item.get("name") == "browser_action":
+                        item["availability"] = browser_availability
+                    tools.append(item)
+                result = {"tools": tools}
+            elif method == "tools/availability":
+                requested_name = params.get("name", "") if isinstance(params, dict) else ""
+                if requested_name != "browser_action":
+                    error = {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}
+                else:
+                    result = browser_action_availability()
             elif method == "tools/call":
                 tool_name = params.get("name", "") if isinstance(params, dict) else ""
                 tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
@@ -544,4 +558,3 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
-

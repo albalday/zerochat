@@ -1206,6 +1206,38 @@ try {
 _BROWSER_SESSION = PersistentBrowserSession()
 
 
+def browser_action_availability() -> dict:
+    """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
+    if not shutil.which("node"):
+        return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
+    playwright_locations = (
+        Path.cwd() / "node_modules" / "playwright",
+        get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+    )
+    if not any(location.is_dir() for location in playwright_locations):
+        return {"available": False, "error": "Playwright is not available."}
+    browser_commands = (
+        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+        "msedge", "msedge.exe", "chrome", "chrome.exe"
+    )
+    if sys.platform == "darwin":
+        playwright_cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform.startswith("win"):
+        playwright_cache = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ms-playwright"
+    else:
+        playwright_cache = Path.home() / ".cache" / "ms-playwright"
+    try:
+        has_playwright_browser = playwright_cache.is_dir() and any(
+            child.is_dir() and child.name.startswith("chromium")
+            for child in playwright_cache.iterdir()
+        )
+    except OSError:
+        has_playwright_browser = False
+    if has_playwright_browser or any(shutil.which(command) for command in browser_commands):
+        return {"available": True}
+    return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
     """Control a headless browser for UI testing and visual inspection."""
     try:
@@ -1364,7 +1396,6 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
-
 # ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
@@ -2352,6 +2383,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "server": "ZeroChat Local Server",
             "version": VERSION,
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -2548,7 +2580,20 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     }
                 }
             elif method == "tools/list":
-                result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
+                browser_availability = browser_action_availability()
+                tools = []
+                for definition in LOCAL_TOOLS_DEFINITIONS:
+                    item = dict(definition)
+                    if item.get("name") == "browser_action":
+                        item["availability"] = browser_availability
+                    tools.append(item)
+                result = {"tools": tools}
+            elif method == "tools/availability":
+                requested_name = params.get("name", "") if isinstance(params, dict) else ""
+                if requested_name != "browser_action":
+                    error = {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}
+                else:
+                    result = browser_action_availability()
             elif method == "tools/call":
                 tool_name = params.get("name", "") if isinstance(params, dict) else ""
                 tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
@@ -2638,7 +2683,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
-
 def is_termux_environment() -> bool:
     """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
     termux_prefix = "/data/data/com.termux/files/usr"
@@ -2821,6 +2865,14 @@ def main():
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
     if not args.no_venv:
         ensure_virtual_environment()
+
+    browser_availability = browser_action_availability()
+    if not browser_availability.get("available"):
+        add_notice(
+            "browser_action no está disponible y permanecerá desactivada. "
+            "Instala Node.js, Playwright y Chromium: "
+            "https://albalday.github.io/zerochat/help/browser-action.html"
+        )
 
     # 2. Detectar entorno de desarrollo y resolver URL de destino
     dev_root = get_dev_root()

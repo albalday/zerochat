@@ -31,6 +31,14 @@ def main():
     if not args.no_venv:
         ensure_virtual_environment()
 
+    browser_availability = browser_action_availability()
+    if not browser_availability.get("available"):
+        add_notice(
+            "browser_action no está disponible y permanecerá desactivada. "
+            "Instala Node.js, Playwright y Chromium: "
+            "https://albalday.github.io/zerochat/help/browser-action.html"
+        )
+
     # 2. Detectar entorno de desarrollo y resolver URL de destino
     dev_root = get_dev_root()
     static_root = get_static_root()

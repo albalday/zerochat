@@ -114,6 +114,12 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     </div>
 
     <div class="card">
+      <h2>Browser automation</h2>
+      <p>The local <code>browser_action</code> tool needs Node.js, Playwright, and Chromium. ZeroChat checks these requirements before enabling it and keeps it disabled when any of them is missing.</p>
+      <p><a href="browser-action.html">Install browser_action's minimum requirements →</a></p>
+    </div>
+
+    <div class="card">
       <h2>5. External MCP Services & Individual Activation</h2>
       <p>
         The local server manages external MCP services in <code>~/zerochat/services/</code>. You do not need to run a global external daemon: start and stop each service from ZeroChat. Deleting <code>~/zerochat/</code> removes local state and every installed MCP.

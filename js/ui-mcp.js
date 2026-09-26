@@ -21,6 +21,7 @@
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const t = (key, params) => getI18n()?.t ? getI18n().t(key, params) : key;
   const escapeHtml = value => getUtils()?.escapeHtml ? getUtils().escapeHtml(value) : '';
 
@@ -109,7 +110,8 @@
 
     const items = tools.map(tool => {
       const id = tool.id || tool.name;
-      const isChecked = currentEnabledTools[id] !== undefined ? currentEnabledTools[id] !== false : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : true);
+      const isAvailable = tool.available !== false;
+      const isChecked = isAvailable && (currentEnabledTools[id] !== undefined ? currentEnabledTools[id] !== false : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : true));
       const desc = escapeHtml(tool.descFallback || tool.description || '');
 
       let paramsHint = '';
@@ -209,10 +211,23 @@
     });
 
     container.querySelectorAll?.('.mcp-tool-checkbox').forEach(cb => {
-      cb.addEventListener?.('change', () => {
+      cb.addEventListener?.('change', async () => {
         const tid = cb.getAttribute?.('data-tool-id');
         if (!tid) return;
         const Config = getConfig();
+        if (tid === 'browser_action' && cb.checked) {
+          const MCP = getMCP();
+          const client = MCP?.manager?.clients?.get?.('mcp_proxy');
+          let availability = { available: false };
+          try {
+            availability = await client?.request?.('tools/availability', { name: 'browser_action' }) || availability;
+          } catch (error) {}
+          if (!availability.available) {
+            cb.checked = false;
+            await getDialogs()?.alert?.(t('browser_action_requirements_notice'), { type: 'info' });
+            return;
+          }
+        }
         if (Config) {
           const curr = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
           (Config.updateRuntime || Config.update)?.call(Config, { enabledTools: { ...curr, [tid]: cb.checked } });

@@ -227,9 +227,25 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('execute_command'));
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
+    const browserAction = tools.find(t => t.name === 'browser_action');
+    assert.equal(typeof browserAction?.availability?.available, 'boolean',
+      'browser_action debe publicar su disponibilidad antes de poder activarse');
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
+
+    const availabilityRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'X-ZeroChat-Token': testToken
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 41, method: 'tools/availability', params: { name: 'browser_action' } })
+    });
+    assert.equal(availabilityRes.status, 200);
+    const availabilityJson = await availabilityRes.json();
+    assert.equal(typeof availabilityJson.result?.available, 'boolean');
 
     // El contrato estricto rechaza parámetros que ya no existen.
     const obsoleteArgumentRes = await fetch(baseUrl, {
@@ -727,6 +743,12 @@ import os
 import subprocess
 from unittest.mock import patch, MagicMock
 import zerochat
+
+# La comprobación de browser_action solo inspecciona requisitos: no inicia Chromium.
+with patch('subprocess.Popen') as mock_popen:
+    availability = zerochat.browser_action_availability()
+    assert isinstance(availability.get('available'), bool)
+    mock_popen.assert_not_called()
 
 # 1. En Termux se prioriza termux-open-url incluso si xdg-open está disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/data/data/com.termux/files/usr/bin/' + cmd if cmd in ('termux-open-url', 'xdg-open') else None), patch.dict(os.environ, {'TERMUX_VERSION': '0.118'}, clear=True):
