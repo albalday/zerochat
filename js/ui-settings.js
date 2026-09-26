@@ -362,8 +362,7 @@
     model: 'settings_model',
     agent: 'settings_agent',
     mcp: 'settings_mcp',
-    permissions: 'settings_permissions',
-    inspector: 'settings_inspector'
+    permissions: 'settings_permissions'
   };
 
   function normalizeSectionId(sectionId) {
@@ -829,32 +828,6 @@
           </div>
         </div>
 
-        <!-- Sección: Inspector de Proveedor -->
-        <div id="settings-inspector" class="settings-section-pane">
-          <div class="inspector-intro-card">
-            <div class="inspector-intro-header">
-              <span class="inspector-intro-icon">
-                <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
-              </span>
-              <div>
-                <strong data-i18n="settings_inspector">Inspector de Proveedor</strong>
-                <p class="label-hint" style="margin-top: 0.2rem;" data-i18n="inspector_desc">
-                  Analiza el endpoint configurado para determinar con precisión qué capacidades soporta, distinguiendo entre capacidades declaradas, inferidas y comprobadas mediante pruebas activas seguras.
-                </p>
-              </div>
-            </div>
-            <button type="button" id="btn-run-inspector" class="btn-primary btn-inspector-run" data-i18n-title="btn_run_inspector" title="Ejecutar Diagnóstico de Capacidades" style="margin-top: 0.85rem; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 40px; padding: 0.6rem;">
-              <span class="inspector-btn-icon">
-                <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg>
-              </span>
-              <span class="inspector-btn-text" data-i18n="btn_diagnose_short">Diagnóstico</span>
-            </button>
-          </div>
-
-          <div id="inspector-results" class="inspector-results-container" style="display: none; margin-top: 1rem;">
-            <!-- Renderizado dinámico de informe de capacidades -->
-          </div>
-        </div>
       </div>
     </form>`;
   }
@@ -894,6 +867,17 @@
 
       const actions = doc.createElement('div');
       actions.className = 'header-profile-item-actions';
+
+      const inspectBtn = doc.createElement('button');
+      inspectBtn.type = 'button';
+      inspectBtn.className = 'btn-profile-item-action btn-profile-item-inspect';
+      inspectBtn.dataset.profileAction = 'inspect';
+      inspectBtn.dataset.targetId = profile.id;
+      const inspectTitle = t('btn_inspect_profile_title') || 'Inspeccionar este perfil';
+      inspectBtn.title = inspectTitle;
+      inspectBtn.setAttribute('aria-label', `${inspectTitle}: ${profile.name}`);
+      inspectBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>';
+      actions.appendChild(inspectBtn);
 
       const editBtn = doc.createElement('button');
       editBtn.type = 'button';

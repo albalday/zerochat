@@ -225,6 +225,7 @@
     const exportSvg = Icons && typeof Icons.get === 'function' ? Icons.get('download', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
     const editSvg = Icons && typeof Icons.get === 'function' ? Icons.get('edit', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
     const trashSvg = Icons && typeof Icons.get === 'function' ? Icons.get('trash', { size: 13 }) : '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+    const moreSvg = Icons && typeof Icons.get === 'function' ? Icons.get('more-vertical', { size: 18 }) : '<svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>';
 
     let currentCategory = null;
     matching.forEach(s => {
@@ -254,24 +255,55 @@
           <span class="sidebar-chat-title" title="${safeTitle}">${safeTitle}</span>
           <span class="sidebar-chat-time">${timeStr}</span>
         </div>
-        <div class="sidebar-chat-actions">
-          <button type="button" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}">${exportSvg}</button>
-          <button type="button" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}">${editSvg}</button>
-          <button type="button" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}">${trashSvg}</button>
+        <div class="sidebar-chat-menu">
+          <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('sidebar_chat_options_title') || 'Más opciones de conversación')}" aria-label="${escapeHtml(t('sidebar_chat_options_title') || 'Más opciones de conversación')}">${moreSvg}</button>
+          <div class="sidebar-chat-actions" role="menu" hidden>
+            <button type="button" role="menuitem" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}">${exportSvg}<span>${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}</span></button>
+            <button type="button" role="menuitem" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}">${editSvg}<span>${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}</span></button>
+            <button type="button" role="menuitem" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}">${trashSvg}<span>${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}</span></button>
+          </div>
         </div>
       `;
 
       item.addEventListener('click', (e) => {
-        if (e.target && e.target.closest && e.target.closest('.sidebar-chat-actions')) return;
+        if (e.target && e.target.closest && e.target.closest('.sidebar-chat-menu')) return;
         if (typeof callbacks.onSwitchSession === 'function') {
           callbacks.onSwitchSession(s.id);
         }
       });
 
+      const chatMenu = item.querySelector('.sidebar-chat-menu');
+      const btnMenu = item.querySelector('.btn-chat-menu');
+      const actionsMenu = item.querySelector('.sidebar-chat-actions');
+      const closeActionsMenu = () => {
+        if (actionsMenu) actionsMenu.hidden = true;
+        if (btnMenu) btnMenu.setAttribute('aria-expanded', 'false');
+      };
+      if (btnMenu && actionsMenu) {
+        btnMenu.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          const willOpen = actionsMenu.hidden;
+          elements.sidebarChatsList.querySelectorAll('.sidebar-chat-actions:not([hidden])').forEach(menu => {
+            menu.hidden = true;
+            menu.closest('.sidebar-chat-menu')?.querySelector('.btn-chat-menu')?.setAttribute('aria-expanded', 'false');
+          });
+          actionsMenu.hidden = !willOpen;
+          btnMenu.setAttribute('aria-expanded', String(willOpen));
+        });
+        chatMenu.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && !actionsMenu.hidden) {
+            e.preventDefault();
+            closeActionsMenu();
+            btnMenu.focus();
+          }
+        });
+      }
+
       const btnExport = item.querySelector('.btn-export');
       if (btnExport) {
         btnExport.addEventListener('click', (e) => {
           if (e && e.stopPropagation) e.stopPropagation();
+          closeActionsMenu();
           if (typeof callbacks.onExportSession === 'function') {
             callbacks.onExportSession(s.id, e);
           }
@@ -282,6 +314,7 @@
       if (btnRename) {
         btnRename.addEventListener('click', (e) => {
           if (e && e.stopPropagation) e.stopPropagation();
+          closeActionsMenu();
           if (typeof callbacks.onRenameSession === 'function') {
             callbacks.onRenameSession(s.id, e);
           }
@@ -292,6 +325,7 @@
       if (btnDelete) {
         btnDelete.addEventListener('click', (e) => {
           if (e && e.stopPropagation) e.stopPropagation();
+          closeActionsMenu();
           if (typeof callbacks.onDeleteSession === 'function') {
             callbacks.onDeleteSession(s.id, e);
           }

@@ -668,10 +668,12 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
   const originalStream = ChatAPI.streamChatCompletion;
 
   let callCount = 0;
+  let synthesisPrompt = '';
   ChatAPI.streamChatCompletion = async (params) => {
     callCount++;
     if (params.enableTools === false) {
       // Simular fallo de red o rechazo de servidor en la síntesis final
+      synthesisPrompt = params.messages.at(-1)?.content || '';
       throw new Error('HTTP 500: Server synthesis failed');
     }
     const tc = [{
@@ -706,7 +708,10 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
 
   assert.equal(res.success, true);
   assert.ok(callCount >= 15, 'Debe haber ejecutado al menos 15 llamadas');
-  assert.ok(res.finalAssistantText.includes('Summary of Consulted Information'), 'Debe generar el resumen de fallback en inglés');
+  assert.match(synthesisPrompt, /Prefer a brief, clear answer/, 'La síntesis debe priorizar una respuesta concisa');
+  assert.match(synthesisPrompt, /Do not enumerate tool calls or results/, 'La síntesis no debe pedir un listado de herramientas');
+  assert.equal(res.finalAssistantText, 'I could not produce a final answer after processing the available information. Please try again.');
+  assert.doesNotMatch(res.finalAssistantText, /let v =|Summary of Consulted Information/, 'El fallback no debe exponer resultados crudos de herramientas');
   assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
 
   ChatAPI.streamChatCompletion = originalStream;

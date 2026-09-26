@@ -566,7 +566,7 @@
 
     function enqueueNotice(notice) {
       if (!notice || typeof notice.message !== 'string' || typeof notice.title !== 'string' ||
-          !['info', 'success', 'error'].includes(notice.type) ||
+          !['info', 'success', 'error', 'warning'].includes(notice.type) ||
           (notice.mode !== undefined && !['alert', 'confirm', 'prompt'].includes(notice.mode))) throw new TypeError('Invalid notice');
       notice = { ...notice, mode: notice.mode || 'alert', message: notice.message.slice(0, 10000), title: notice.title.slice(0, 200) };
       const queue = state.ui.notices || [];

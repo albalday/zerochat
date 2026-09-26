@@ -42,6 +42,7 @@
   const GenerationStatus = window.ChatUIGenerationStatus || {};
   const UIInspector = window.ChatUIInspector || {};
   const UISidebar = window.ChatUISidebar || {};
+  const PwaInstall = window.ChatPwaInstall || {};
   const UISettings = window.ChatUISettings || {};
   const Config = window.ChatConfig;
   const Profiles = window.ChatProfileRepository || {};
@@ -115,6 +116,7 @@
       btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
       btnCloseSidebar: document.getElementById('btn-close-sidebar'),
       btnSidebarNewTab: document.getElementById('btn-sidebar-new-tab'),
+      btnInstallPwa: document.getElementById('btn-install-pwa'),
       btnSidebarNewChat: document.getElementById('btn-sidebar-new-chat'),
       sidebarSearchInput: document.getElementById('sidebar-search-input'),
       sidebarChatsList: document.getElementById('sidebar-chats-list'),
@@ -126,7 +128,12 @@
       btnSidebarBackToChats: document.getElementById('btn-sidebar-back-to-chats'),
       btnCloseSidebarSettings: document.getElementById('btn-close-sidebar-settings'),
       sidebarSettingsNav: document.getElementById('sidebar-settings-nav'),
+      sidebarEncryptionNav: document.getElementById('sidebar-encryption-nav'),
+      sidebarSettingsFooter: document.getElementById('sidebar-settings-footer'),
       sidebarSettingsItems: document.querySelectorAll('.sidebar-settings-item'),
+      btnEncryptionBack: document.getElementById('btn-encryption-back'),
+      btnEncryptionPassword: document.getElementById('btn-encryption-password'),
+      btnEncryptionDefault: document.getElementById('btn-encryption-default'),
 
       // Modal de exportación
       exportModal: document.getElementById('export-modal'),
@@ -141,6 +148,9 @@
       activeProfileName: document.getElementById('active-profile-name'),
       activeProfilePopover: document.getElementById('active-profile-popover'),
       activeProfileList: document.getElementById('active-profile-list'),
+      inspectorDialog: document.getElementById('inspector-dialog'),
+      inspectorProfileName: document.getElementById('inspector-profile-name'),
+      btnCloseInspector: document.getElementById('btn-close-inspector'),
       btnMenuNewProfile: document.getElementById('btn-menu-new-profile'),
       btnMenuExportProfiles: document.getElementById('btn-menu-export-profiles'),
       btnMenuImportProfiles: document.getElementById('btn-menu-import-profiles'),
@@ -271,7 +281,6 @@
       maxAgentTurnsVal: document.getElementById('max-agent-turns-val'),
       themeButtons: document.querySelectorAll('.btn-theme-toggle'),
       langButtons: document.querySelectorAll('.btn-lang-toggle'),
-      btnRunInspector: document.getElementById('btn-run-inspector'),
       inspectorResults: document.getElementById('inspector-results'),
       agentToolsContainer: document.getElementById('agent-tools-container'),
       mcpToolsContainer: document.getElementById('mcp-tools-container'),
@@ -427,10 +436,21 @@
   // Provider Inspector (Diagnóstico de Capacidades)
   // ==========================================================================
 
-  async function handleRunInspector() {
+  async function handleRunInspector(profile = null) {
     if (UIInspector.handleRunInspector) {
-      await UIInspector.handleRunInspector(elements, appConfig);
+      await UIInspector.handleRunInspector(elements, appConfig, profile);
     }
+  }
+
+  async function inspectProfile(profile) {
+    if (!profile || !elements.inspectorDialog || !elements.inspectorResults) return;
+    if (elements.inspectorProfileName) elements.inspectorProfileName.textContent = profile.name || '';
+    elements.inspectorResults.style.display = 'block';
+    elements.inspectorResults.innerHTML = '';
+    if (!elements.inspectorDialog.open && typeof elements.inspectorDialog.showModal === 'function') {
+      elements.inspectorDialog.showModal();
+    }
+    await handleRunInspector(profile);
   }
 
   // ==========================================================================
@@ -801,17 +821,14 @@
       resetTelemetryDisplay,
       updateUIFromConfig,
       updateReasoningUI,
+      inspectProfile,
       closeSettingsModal: () => UISettings.closeSettingsModal?.(elements)
     };
   }
 
   function openSettingsSection(sectionId = 'model') {
-    if (sectionId === 'encryption-password') {
-      UIProfiles.handleEncryptionPassword?.();
-      return;
-    }
-    if (sectionId === 'encryption-default') {
-      UIProfiles.handleUseDefaultEncryptionKey?.();
+    if (sectionId === 'encryption') {
+      openEncryptionMenu();
       return;
     }
     if (sectionId === 'rag' || sectionId === 'rag-manage') {
@@ -832,6 +849,19 @@
     if (sectionId === 'mcp') {
       window.ChatUIMcp?.verifyActiveConnection?.().catch(() => {});
     }
+  }
+
+  function openEncryptionMenu() {
+    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = true;
+    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = false;
+    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = true;
+    UISidebar.setActiveSettingsSection?.(elements, '');
+  }
+
+  function closeEncryptionMenu() {
+    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = true;
+    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = false;
+    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = false;
   }
 
   // ==========================================================================
@@ -1296,6 +1326,7 @@
 
     if (elements.btnOpenSettings) {
       elements.btnOpenSettings.addEventListener('click', () => {
+        closeEncryptionMenu();
         if (UISidebar.setSidebarMode) {
           UISidebar.setSidebarMode(elements, 'settings');
         }
@@ -1303,6 +1334,7 @@
     }
     if (elements.btnSidebarBackToChats) {
       elements.btnSidebarBackToChats.addEventListener('click', () => {
+        closeEncryptionMenu();
         if (UISidebar.setSidebarMode) {
           UISidebar.setSidebarMode(elements, 'chat');
         }
@@ -1311,13 +1343,22 @@
     if (elements.btnCloseSidebarSettings) {
       elements.btnCloseSidebarSettings.addEventListener('click', closeSidebar);
     }
+    if (elements.btnEncryptionBack) {
+      elements.btnEncryptionBack.addEventListener('click', closeEncryptionMenu);
+    }
+    if (elements.btnEncryptionPassword) {
+      elements.btnEncryptionPassword.addEventListener('click', () => UIProfiles.handleEncryptionPassword?.());
+    }
+    if (elements.btnEncryptionDefault) {
+      elements.btnEncryptionDefault.addEventListener('click', () => UIProfiles.handleUseDefaultEncryptionKey?.());
+    }
     if (elements.sidebarSettingsItems) {
       elements.sidebarSettingsItems.forEach(item => {
         const sectionId = item.dataset?.section || item.getAttribute('data-section');
         if (!sectionId) return;
         item.addEventListener('click', () => {
           openSettingsSection(sectionId);
-          if (UISidebar.isMobile && UISidebar.isMobile()) {
+          if (sectionId !== 'encryption' && UISidebar.isMobile && UISidebar.isMobile()) {
             closeSidebar();
           }
         });
@@ -1344,6 +1385,9 @@
     if (elements.btnSidebarNewTab) {
       elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
       elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
+    }
+    if (elements.btnInstallPwa) {
+      PwaInstall.setup?.(elements.btnInstallPwa);
     }
     if (elements.sidebarSearchInput) {
       elements.sidebarSearchInput.addEventListener('input', () => {
@@ -1509,6 +1553,7 @@
         resetTelemetryDisplay,
         updateUIFromConfig,
         updateReasoningUI,
+        inspectProfile,
         closeSettingsModal: () => UISettings.closeSettingsModal?.(elements)
       });
     }
@@ -1520,11 +1565,8 @@
       });
     }
 
-    if (elements.btnRunInspector) {
-      elements.btnRunInspector.addEventListener('click', (e) => {
-        e.preventDefault();
-        handleRunInspector();
-      });
+    if (elements.btnCloseInspector) {
+      elements.btnCloseInspector.addEventListener('click', () => elements.inspectorDialog?.close?.());
     }
 
     if (elements.themeButtons && elements.themeButtons.length > 0) {

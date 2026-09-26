@@ -53,7 +53,8 @@ test('UISidebar - renderSidebarChats renderiza items y marca la sesión activa',
           setAttribute: (k, v) => { el.attributes[k] = v; },
           getAttribute: (k) => el.attributes[k],
           querySelector: (sel) => ({
-            addEventListener: (evt, handler) => { el['_' + sel] = handler; }
+            addEventListener: (evt, handler) => { el['_' + sel] = handler; },
+            setAttribute: () => {}
           }),
           addEventListener: (evt, handler) => { el._click = handler; }
         };
@@ -143,7 +144,8 @@ test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por cha
           setAttribute: (k, v) => { el.attributes[k] = v; },
           getAttribute: (k) => el.attributes[k],
           querySelector: (sel) => ({
-            addEventListener: (evt, handler) => { el['_' + sel] = handler; }
+            addEventListener: (evt, handler) => { el['_' + sel] = handler; },
+            setAttribute: () => {}
           }),
           addEventListener: (evt, handler) => { el._click = handler; }
         };
@@ -353,4 +355,3 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   assert.equal(listeners['backToChats:click'], undefined);
   assert.equal(listeners['itemMcp:click'], undefined);
 });
-

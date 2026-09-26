@@ -88,6 +88,10 @@
   min-height: 0;
 }
 
+.sidebar-settings-nav[hidden] {
+  display: none;
+}
+
 .sidebar-settings-item {
   display: flex;
   align-items: center;
@@ -445,25 +449,69 @@
   color: var(--text-muted);
 }
 
-.sidebar-chat-actions {
-  display: none;
-  align-items: center;
-  gap: 0.2rem;
-  opacity: 0.8;
+.sidebar-chat-menu {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: 0.35rem;
 }
 
-.sidebar-chat-item:hover .sidebar-chat-actions,
-.sidebar-chat-item:focus-within .sidebar-chat-actions {
+.btn-chat-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-chat-menu:hover,
+.btn-chat-menu:focus-visible,
+.btn-chat-menu[aria-expanded="true"] {
+  border-color: var(--border-color);
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+  outline: none;
+}
+
+.sidebar-chat-actions {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 0.2rem);
+  right: 0;
   display: flex;
+  flex-direction: column;
+  min-width: 10.5rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.sidebar-chat-actions[hidden] {
+  display: none;
 }
 
 .btn-chat-action {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 36px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid transparent;
   background: transparent;
-  border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0.2rem 0.35rem;
-  font-size: 0.75rem;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
   border-radius: var(--radius-sm);
   transition: all 0.15s ease;
 }
@@ -480,6 +528,17 @@
 
 [data-theme="dark"] .btn-chat-action.btn-delete:hover {
   background-color: rgba(239, 68, 68, 0.2);
+}
+
+@media (max-width: 768px) {
+  .btn-chat-menu {
+    width: 44px;
+    height: 44px;
+  }
+
+  .sidebar-chat-item {
+    padding-right: 0.45rem;
+  }
 }
 
 /* Pie de Barra Lateral (sin enmarcado) */

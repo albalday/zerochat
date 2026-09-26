@@ -255,6 +255,34 @@ test('Browser UI - zerochat.html optimiza carga con defer, CSS paralelos y PWA m
   assert.match(swContent, /caches\.open/, 'sw.js debe gestionar la Cache API');
 });
 
+test('Browser PWA - la instalación solo se solicita desde el botón explícito de la barra lateral', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    const eventState = await page.evaluate(() => {
+      window.pwaInstallPrompted = false;
+      const event = new Event('beforeinstallprompt', { cancelable: true });
+      event.prompt = async () => { window.pwaInstallPrompted = true; };
+      event.userChoice = Promise.resolve({ outcome: 'accepted' });
+      window.dispatchEvent(event);
+      return {
+        prevented: event.defaultPrevented,
+        visible: !document.getElementById('btn-install-pwa').hidden,
+        prompted: window.pwaInstallPrompted
+      };
+    });
+    assert.deepEqual(eventState, { prevented: true, visible: true, prompted: false });
+
+    await page.click('#btn-install-pwa');
+    assert.equal(await page.evaluate(() => window.pwaInstallPrompted), true);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - el fragmento inicial persiste la sesión del backend en cookie y limpia la URL', async () => {
   const server = await startStaticServer();
   const browser = await createTestBrowser();

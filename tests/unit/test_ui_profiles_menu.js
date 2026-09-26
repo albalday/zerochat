@@ -29,7 +29,7 @@ function createMockElement(tagName) {
   };
 }
 
-test('UISettings.renderProfileMenu - renderiza lista con acciones de editar y borrar', () => {
+test('UISettings.renderProfileMenu - renderiza lista con acciones de inspeccionar, editar y borrar', () => {
   const mockChildren = [];
   const mockDoc = {
     createElement: (tag) => createMockElement(tag)
@@ -61,6 +61,9 @@ test('UISettings.renderProfileMenu - renderiza lista con acciones de editar y bo
   assert.equal(mirrorOption.getAttribute('aria-checked'), 'true');
 
   const mirrorActions = mirrorItem.children[1];
+  const mirrorInspect = mirrorActions.querySelector('[data-profile-action="inspect"]');
+  assert.ok(mirrorInspect, 'El perfil Espejo debe tener botón de inspección');
+  assert.equal(mirrorInspect.dataset.targetId, 'profile:mirror');
   const mirrorEdit = mirrorActions.querySelector('[data-profile-action="edit"]');
   assert.ok(mirrorEdit, 'El perfil Espejo debe tener botón de edición');
   assert.equal(mirrorEdit.dataset.targetId, 'profile:mirror');
@@ -75,8 +78,13 @@ test('UISettings.renderProfileMenu - renderiza lista con acciones de editar y bo
   assert.doesNotMatch(customItem.className, /active/);
 
   const customActions = customItem.children[1];
-  const customEdit = customActions.children[0];
-  const customDelete = customActions.children[1];
+  const customInspect = customActions.children[0];
+  const customEdit = customActions.children[1];
+  const customDelete = customActions.children[2];
+
+  assert.ok(customInspect, 'El perfil editable debe tener botón de inspección');
+  assert.equal(customInspect.dataset.profileAction, 'inspect');
+  assert.equal(customInspect.dataset.targetId, 'profile:custom1');
 
   assert.ok(customEdit, 'El perfil editable debe tener botón de edición');
   assert.equal(customEdit.dataset.profileAction, 'edit');
@@ -152,6 +160,41 @@ test('UIProfiles - handleDeleteProfileById no elimina si se cancela la confirmac
   const result = await UIProfiles.handleDeleteProfileById('prof_2', {}, {});
   assert.equal(result, false, 'Debe devolver false si la confirmación se cancela');
   assert.equal(removed, false, 'No debe llamar a remove al cancelar');
+});
+
+test('UIProfiles - usar clave predeterminada informa si no hay API keys', async () => {
+  const previousDialogs = global.ChatDialogs;
+  const previousProfiles = global.ChatProfileRepository;
+  const previousBackup = global.ChatProfileBackup;
+  const previousI18n = global.ChatI18n;
+  const alerts = [];
+  try {
+    global.ChatI18n = { t: key => key };
+    global.ChatDialogs = {
+      confirm: async () => true,
+      alert: async message => { alerts.push(message); }
+    };
+    global.ChatProfileRepository = {
+      verifyApiKeyMaterial: async () => true,
+      recipherApiKeys: async () => 0
+    };
+    global.ChatProfileBackup = {
+      getCachedKeyMaterial: () => null,
+      clearCachedKeyMaterial: () => {}
+    };
+
+    await UIProfiles.handleUseDefaultEncryptionKey();
+    assert.deepEqual(alerts, ['crypto_default_no_api_keys']);
+  } finally {
+    if (previousDialogs === undefined) delete global.ChatDialogs;
+    else global.ChatDialogs = previousDialogs;
+    if (previousProfiles === undefined) delete global.ChatProfileRepository;
+    else global.ChatProfileRepository = previousProfiles;
+    if (previousBackup === undefined) delete global.ChatProfileBackup;
+    else global.ChatProfileBackup = previousBackup;
+    if (previousI18n === undefined) delete global.ChatI18n;
+    else global.ChatI18n = previousI18n;
+  }
 });
 
 test('UIProfiles - handleMenuNewProfile no pide nombre y abre editor con campos vacíos', async () => {

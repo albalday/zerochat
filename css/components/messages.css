@@ -169,17 +169,21 @@
 }
 
 @media (max-width: 640px) {
-  .message-stats .stat-item:not(.stat-item-speed):not(.stat-item-total),
-  .message-stats .stat-sep:not(.stat-sep-2) {
+  .message-footer-row {
+    flex-wrap: nowrap;
+  }
+
+  .message-stats .stat-item:not(.stat-item-speed),
+  .message-stats .stat-sep {
     display: none !important;
   }
 
   .message-row.assistant .message-content {
-    font-size: 1.0625rem;
+    font-size: 1.125rem;
   }
 
   .message-row.user .message-content {
-    font-size: 1.05rem;
+    font-size: 1.1125rem;
   }
 
   .message-content h1 {

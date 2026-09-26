@@ -123,3 +123,12 @@ test('ProfileRepository - carga sin error perfiles heredados con apiKey vacía o
   assert.equal((await repository.load('profile:mirror')).settings.apiKey, '');
   assert.equal((await repository.load('profile:legacy-null')).settings.apiKey, '');
 });
+
+test('ProfileRepository - informa cuántas API keys ha recifrado', async () => {
+  const repository = Profiles.createRepository(createStorage());
+  assert.equal(await repository.recipherApiKeys(null, null), 0);
+
+  await repository.saveEditable({ id: 'safe', name: 'Safe', settings: { apiKey: 'sk-secret' } });
+  assert.equal(await repository.recipherApiKeys(null, null), 1);
+  assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
+});

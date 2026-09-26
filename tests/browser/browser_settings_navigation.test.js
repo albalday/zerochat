@@ -43,9 +43,17 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(sidebar.mode, true);
       assert.equal(sidebar.languages, 2);
       assert.equal(sidebar.themes, 2);
-      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'encryption-password', 'encryption-default', 'inspector', undefined]);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'encryption', undefined]);
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
       assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
+
+      await page.locator('#sidebar-settings-nav [data-section="encryption"]').evaluate(item => item.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-encryption-nav').hidden);
+      assert.deepEqual(await page.$$eval('#sidebar-encryption-nav .sidebar-settings-item', items => items.map(item => item.textContent.trim())), ['Volver', 'Nueva contraseña', 'Usar predeterminada']);
+      assert.equal(await page.locator('#btn-encryption-back use').getAttribute('href'), '#icon-arrow-left');
+      assert.equal(await page.locator('#sidebar-settings-nav').isHidden(), true);
+      await page.locator('#btn-encryption-back').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-settings-nav').hidden);
 
       const helpPagePromise = page.context().waitForEvent('page');
       await page.locator('#sidebar-settings-help').click();

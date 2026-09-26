@@ -111,6 +111,45 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
   }
 });
 
+test('Browser UI - el menú contextual de un chat es táctil y no activa la conversación', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 800 }, isMobile: true });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.click('#btn-toggle-sidebar');
+    await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
+    await page.evaluate(() => {
+      const list = document.getElementById('sidebar-chats-list');
+      window.menuTest = { switched: 0, renamed: 0 };
+      ChatUISidebar.renderSidebarChats({ sidebarChatsList: list }, [
+        { id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() }
+      ], 'chat-options', {
+        onSwitchSession: () => { window.menuTest.switched += 1; },
+        onRenameSession: () => { window.menuTest.renamed += 1; }
+      });
+    });
+    const trigger = page.locator('.btn-chat-menu');
+    assert.equal(await trigger.isVisible(), true);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await trigger.evaluate(button => button.getBoundingClientRect().width), 44);
+    await trigger.click();
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('.sidebar-chat-actions').isVisible(), true);
+    await page.locator('.btn-rename').click();
+    const actionResult = await page.evaluate(() => ({
+      switched: window.menuTest.switched,
+      renamed: window.menuTest.renamed,
+      menuOpen: document.querySelector('.sidebar-chat-actions')?.hidden === false
+    }));
+    assert.equal(actionResult.switched, 0);
+    assert.equal(actionResult.renamed, 1);
+    assert.equal(actionResult.menuOpen, false);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - el drawer lateral comienza cerrado en móvil y se abre desde la cabecera', async () => {
   const browser = await createTestBrowser();
   try {

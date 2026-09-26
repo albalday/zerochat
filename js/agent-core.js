@@ -1470,9 +1470,12 @@
           if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
           try {
             const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');
-            const synthPrompt = hasRagTool
-              ? 'Based on the information obtained by the previous tools, answer my initial query directly. If the requested information or data was not found in the consulted documents, clearly state that no data was found to answer the question, rather than summarizing everything or dumping consulted chunks.'
-              : 'Please provide a complete, structured, and detailed final summary answering my query based on all the information obtained from the tools.';
+            const synthPrompt = [
+              'Answer the user\'s original request directly, using only the relevant tool results.',
+              'Prefer a brief, clear answer. Mention the process only when it materially helps the user; if so, keep it to one short sentence.',
+              'Do not enumerate tool calls or results, reproduce raw tool output, or add a process summary when it does not help answer the request.',
+              hasRagTool ? 'If the requested information was not found in the consulted documents, state that clearly.' : ''
+            ].filter(Boolean).join(' ');
 
             let synthMessages = workingMessages;
             if (typeof prepareMessages === 'function') {
@@ -1523,18 +1526,7 @@
           }
 
           if (!finalAccumulatedText || finalAccumulatedText.trim() === '') {
-            const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');
-            if (hasRagTool) {
-              finalAccumulatedText = 'No data was found in the consulted documents to answer the question.';
-            } else {
-              const toolContents = workingMessages
-                .filter(m => m.role === 'tool' && m.content)
-                .map(m => m.content)
-                .filter(Boolean);
-              if (toolContents.length > 0) {
-                finalAccumulatedText = '### Summary of Consulted Information\n\n' + toolContents.join('\n\n---\n\n');
-              }
-            }
+            finalAccumulatedText = 'I could not produce a final answer after processing the available information. Please try again.';
           }
           if (appendFinalMessage && finalAccumulatedText) {
             workingMessages.push({

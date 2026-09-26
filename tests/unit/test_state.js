@@ -366,3 +366,14 @@ test('ChatState - Mutador de plan agéntico: setAgentPlan', () => {
   plan.push({ title: 'Paso 3', status: 'pending' });
   assert.equal(store.get('agent').plan.length, 2);
 });
+
+test('ChatState - admite avisos de confirmación', () => {
+  const store = ChatState.createStore();
+  store.enqueueNotice({
+    message: 'Esta acción requiere confirmación.',
+    title: 'Aviso',
+    type: 'warning',
+    mode: 'confirm'
+  });
+  assert.equal(store.get('ui').notices[0].type, 'warning');
+});

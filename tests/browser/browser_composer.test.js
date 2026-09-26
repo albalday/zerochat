@@ -275,6 +275,69 @@ test('Browser UI - el panel de métricas se ancla al borde derecho del composer'
   }
 });
 
+test('Browser UI - en móvil los pies de respuesta y confirmación permanecen en una fila', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 320, height: 700 }, isMobile: true });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+    const responseLayout = await page.evaluate(() => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-wrapper assistant';
+      const footer = document.createElement('div');
+      footer.className = 'message-footer-row';
+      const stats = document.createElement('div');
+      stats.className = 'message-stats';
+      stats.innerHTML = '<span class="stat-item stat-item-speed">Speed</span><span class="stat-sep">•</span><span class="stat-item stat-item-total">Total</span>';
+      const actions = document.createElement('div');
+      actions.className = 'message-actions';
+      actions.innerHTML = '<button class="btn-msg-action"></button><button class="btn-msg-action"></button><button class="btn-msg-action"></button>';
+      footer.append(stats, actions);
+      wrapper.append(footer);
+      document.getElementById('messages-list').append(wrapper);
+      const statsRect = stats.getBoundingClientRect();
+      const actionsRect = actions.getBoundingClientRect();
+      const result = {
+        sameRow: Math.abs((statsRect.top + statsRect.height / 2) - (actionsRect.top + actionsRect.height / 2)) < 1,
+        totalHidden: getComputedStyle(stats.querySelector('.stat-item-total')).display === 'none'
+      };
+      wrapper.remove();
+      return result;
+    });
+    assert.equal(responseLayout.sameRow, true);
+    assert.equal(responseLayout.totalHidden, true);
+
+    await page.evaluate(() => { window.mobileConfirm = ChatDialogs.confirm('Delete?'); });
+    const confirmationLayout = await page.evaluate(() => {
+      const cancel = document.getElementById('notice-cancel').getBoundingClientRect();
+      const accept = document.getElementById('notice-accept').getBoundingClientRect();
+      return Math.abs((cancel.top + cancel.height / 2) - (accept.top + accept.height / 2)) < 1;
+    });
+    assert.equal(confirmationLayout, true);
+    await page.locator('#notice-cancel').click();
+
+    const typographyAndHeader = await page.evaluate(() => {
+      const sidebar = document.getElementById('btn-toggle-sidebar');
+      sidebar.style.display = 'inline-flex';
+      const debug = document.getElementById('btn-toggle-debug');
+      const profile = document.getElementById('active-profile-trigger');
+      return {
+        textarea: parseFloat(getComputedStyle(document.getElementById('user-input')).fontSize),
+        profile: parseFloat(getComputedStyle(profile).fontSize),
+        sidebarLeft: sidebar.getBoundingClientRect().left,
+        debugRight: debug.getBoundingClientRect().right
+      };
+    });
+    assert.ok(typographyAndHeader.textarea >= 17);
+    assert.ok(typographyAndHeader.profile >= 14);
+    assert.equal(typographyAndHeader.sidebarLeft, 0);
+    assert.equal(typographyAndHeader.debugRight, 320);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('UI - Indicador de progreso de generación es invisible sin ciclo activo y visible durante el ciclo', async () => {
   const browser = await createTestBrowser();
   try {

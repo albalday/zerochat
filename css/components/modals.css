@@ -1253,6 +1253,12 @@ input.form-input:focus-visible,
    Modales en Dispositivos Móviles (Ancho Completo de Pantalla)
    ========================================================================== */
 @media (max-width: 768px) {
+  .notice-dialog .modal-footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
   .settings-modal {
     position: fixed;
     inset: 0;

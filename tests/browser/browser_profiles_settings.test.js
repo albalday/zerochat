@@ -538,7 +538,7 @@ test('Browser UI - nuevo perfil permite query inmediato con el conector por defe
   }
 });
 
-test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de editar y borrar con confirmacion', async () => {
+test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de inspeccionar, editar y borrar', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -563,7 +563,7 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de e
     await page.click('#btn-menu-close-profiles');
     await page.waitForFunction(() => document.getElementById('active-profile-popover').hidden);
 
-    // 3. Reabrir y verificar acciones por fila (Editar y Borrar)
+    // 3. Reabrir y verificar acciones por fila (Inspeccionar, Editar y Borrar)
     await page.click('#active-profile-trigger');
     await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
 
@@ -574,11 +574,32 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de e
     const mirrorEdit = await page.locator('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]').count();
     assert.equal(mirrorEdit, 1, 'El perfil Espejo debe tener boton de editar');
 
+    const mirrorInspect = await page.locator('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="inspect"]').count();
+    assert.equal(mirrorInspect, 1, 'El perfil Espejo debe tener boton de inspección');
+
     // Perfil editable (profile:local) tiene ambos botones
     const localDelete = await page.locator('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="delete"]').count();
     assert.equal(localDelete, 1, 'El perfil local debe tener boton de borrar');
 
+    await page.evaluate(() => {
+      window.ChatAPI.inspectProvider = async (config) => ({
+        success: true,
+        provider: { id: config.apiType, label: config.apiType },
+        endpoint: { normalized: config.apiUrl },
+        model: { selected: config.model, totalDiscovered: 0 },
+        inspectionTimeMs: 1,
+        capabilities: {}
+      });
+    });
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="inspect"]');
+    await page.waitForFunction(() => document.getElementById('inspector-dialog').open);
+    assert.match(await page.locator('#inspector-profile-name').textContent(), /Local chat/);
+    await page.click('#btn-close-inspector');
+    await page.waitForFunction(() => !document.getElementById('inspector-dialog').open);
+
     // 4. Probar que Editar abre el mantenedor con ese perfil
+    await page.click('#active-profile-trigger');
+    await page.waitForFunction(() => !document.getElementById('active-profile-popover').hidden);
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
     assert.equal(await page.inputValue('#setting-profile-name'), 'Local chat');

@@ -619,7 +619,7 @@
   box-shadow: none !important;
   background: transparent;
   font-family: inherit;
-  font-size: 0.975rem;
+  font-size: 1.0375rem;
   color: var(--text-main);
   resize: none;
   /* field-sizing: content — CSS nativo auto-height sin JS (Baseline 2024) */
@@ -633,7 +633,7 @@
 
 @media (max-width: 640px) {
   .chat-textarea {
-    font-size: 1rem; /* Evita auto-zoom forzado en iOS Safari (>= 16px) */
+    font-size: 1.0625rem; /* Evita auto-zoom forzado en iOS Safari (>= 16px) */
     max-height: 30dvh; /* Evita colapso en pantallas pequeñas */
   }
 }
@@ -1058,7 +1058,7 @@
   background-color: var(--bg-hover);
   color: var(--text-secondary);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
@@ -1074,7 +1074,7 @@
   .header-profile-trigger {
     height: 36px;
     padding: 0 0.7rem;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
   }
 
   .header-profile-trigger .profile-icon .ui-icon,

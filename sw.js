@@ -4,7 +4,7 @@
  * y actualización en segundo plano (Stale-While-Revalidate).
  */
 
-const CACHE_NAME = 'zerochat-v7.11.0';
+const CACHE_NAME = 'zerochat-v7.11.1';
 
 const PRECACHE_ASSETS = [
   './',
@@ -80,6 +80,7 @@ const PRECACHE_ASSETS = [
   './js/ui-reasoning.js',
   './js/ui-inspector.js',
   './js/ui-sidebar.js',
+  './js/pwa-install.js',
   './js/ui-settings.js',
   './js/ui-telemetry.js',
   './js/ui-mcp.js',
@@ -166,4 +167,3 @@ self.addEventListener('fetch', event => {
     })
   );
 });
-

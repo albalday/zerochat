@@ -160,6 +160,37 @@ test('UIInspector - handleQueryServer utiliza endpoint por defecto si apiUrl est
   }
 });
 
+test('UIInspector - inspecciona la conexión proporcionada sin usar los campos del editor', async () => {
+  const originalInspect = API.inspectProvider;
+  let receivedConfig = null;
+  API.inspectProvider = async (config) => {
+    receivedConfig = config;
+    return {
+      success: true,
+      provider: 'openai',
+      endpoint: { normalized: config.apiUrl },
+      models: { totalDiscovered: 0 },
+      capabilities: {},
+      inspectionTimeMs: 1
+    };
+  };
+  const elements = {
+    settingApiUrl: { value: 'http://editor.invalid/v1' },
+    inspectorResults: { style: {}, innerHTML: '' }
+  };
+
+  try {
+    await UIInspector.handleRunInspector(elements, {}, {
+      settings: { apiUrl: 'https://profile.example/v1', apiType: 'openai', apiKey: 'profile-key', model: 'profile-model' }
+    });
+    assert.deepEqual(receivedConfig, {
+      apiUrl: 'https://profile.example/v1', apiType: 'openai', apiKey: 'profile-key', model: 'profile-model'
+    });
+  } finally {
+    API.inspectProvider = originalInspect;
+  }
+});
+
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
   const datalistOptions = [];
   const selectOptions = [];
@@ -344,4 +375,3 @@ test('UIInspector - renderInspectorReport escapa caracteres del modelo sin doble
   assert.ok(fakeResultsContainer.innerHTML.includes('Model &amp; Special &lt;Name&gt;'));
   assert.equal(fakeResultsContainer.innerHTML.includes('&amp;amp;'), false, 'No debe haber doble escape HTML');
 });
-

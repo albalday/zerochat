@@ -408,6 +408,34 @@
     return null;
   }
 
+  async function handleInspectProfile(profileId, elements, options = {}) {
+    const els = elements || cachedElements || {};
+    const opts = options || cachedOptions || {};
+    const Profiles = getProfiles();
+    if (!profileId || !Profiles?.load || typeof opts.inspectProfile !== 'function') return false;
+    try {
+      let profile;
+      try {
+        profile = await Profiles.load(profileId);
+      } catch (error) {
+        if (error?.code !== 'PASSWORD_REQUIRED') throw error;
+        const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
+        if (password === null) return false;
+        const Backup = getProfileBackup();
+        const keyMaterial = await Backup.keyMaterialFromPassword(password);
+        profile = await Profiles.load(profileId, keyMaterial);
+        Backup.cacheKeyMaterial(keyMaterial);
+      }
+      if (!profile) return false;
+      closeProfileMenu(els);
+      await opts.inspectProfile(profile);
+      return true;
+    } catch (error) {
+      showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+      return false;
+    }
+  }
+
   async function requestNewProfileName(message) {
     const Dialogs = getDialogs();
     const Profiles = getProfiles();
@@ -551,9 +579,9 @@
     try {
       const current = await resolveCurrentKeyForRecipher(Profiles, Backup);
       if (current === undefined) return;
-      await Profiles.recipherApiKeys(current, null);
+      const reciphered = await Profiles.recipherApiKeys(current, null);
       Backup.clearCachedKeyMaterial?.();
-      await Dialogs.alert(t('crypto_default_saved'), { type: 'success' });
+      await Dialogs.alert(t(reciphered ? 'crypto_default_saved' : 'crypto_default_no_api_keys'), { type: 'success' });
     } catch (error) {
       await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
     }
@@ -695,10 +723,10 @@
     return true;
   }
 
-  function mount({ elements, getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText } = {}) {
+  function mount({ elements, getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText, inspectProfile } = {}) {
     dispose();
     cachedElements = elements || {};
-    cachedOptions = { getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText };
+    cachedOptions = { getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText, inspectProfile };
 
     const els = cachedElements;
 
@@ -974,6 +1002,8 @@
           if (action === 'edit') {
             closeProfileMenu(els);
             openProfilesModal(els, cachedOptions, targetId);
+          } else if (action === 'inspect') {
+            await handleInspectProfile(targetId, els, cachedOptions);
           } else if (action === 'delete') {
             const deleted = await handleDeleteProfileById(targetId, els, cachedOptions);
             if (deleted && typeof cachedOptions?.updateUIFromConfig === 'function') {
@@ -1083,6 +1113,7 @@
     handleDeleteProfileById,
     handleNewProfile,
     handleMenuNewProfile,
+    handleInspectProfile,
     handleExportProfiles,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,

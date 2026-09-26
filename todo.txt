@@ -4,11 +4,7 @@ planificador
 
 sub agente (mismo-otro)
 
-mensaje sistem de ser breve y conciso sin miedo a lenguaje tecnico
-
 webllm lista de modelos mejorar para movil
-
-maximizar en movil
 
 Añadir mcps stdio y http
 
@@ -16,14 +12,14 @@ Seguridad por defecto de playwrigth mas cebtrada
 
 mensaje de actualziar pip mas frecuente o salir
 
-password general en py o html?
-
-nuevo navegador en linea de comandos
-
 analizar nuvos codigo de paneles. 
 ver codigo comun, viejo y
 ver si normalziar barra de botones
 
 playwright de instalacion minima para tools minimo
 
-pedir analisis de tamaños automatizado
+Probar sutomatico safari
+
+Espacio entre pregunta y respuesta
+
+Python en de zeroxhat cuando python es env

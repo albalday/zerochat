@@ -171,6 +171,7 @@
     async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
       const current = initialize();
       const rewritten = [];
+      let reciphered = 0;
       for (const profile of current.profiles) {
         if (profile.id === READONLY_PROFILE_ID || !profile.settings.apiKey) {
           rewritten.push(profile);
@@ -179,9 +180,10 @@
         const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
         const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
         rewritten.push({ ...profile, updatedAt: Date.now(), version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
+        reciphered += 1;
       }
       writeDocument({ schemaVersion: SCHEMA_VERSION, profiles: rewritten });
-      return rewritten.length;
+      return reciphered;
     }
 
     async function verifyApiKeyMaterial(keyMaterial) {

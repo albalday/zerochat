@@ -716,13 +716,14 @@
     `;
   }
 
-  async function handleRunInspector(elements, appConfig) {
-    if (!elements || !elements.btnRunInspector || !elements.inspectorResults) return;
+  async function handleRunInspector(elements, appConfig, connection = null) {
+    if (!elements || !elements.inspectorResults) return;
 
-    const apiUrl = elements.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || '');
-    const apiType = elements.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai');
-    const apiKey = (elements.settingApiKey?.value || '').trim();
-    const model = elements.settingModel ? elements.settingModel.value.trim() : (appConfig?.model || '');
+    const source = connection?.settings || connection || null;
+    const apiUrl = String(source?.apiUrl ?? (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '')).trim();
+    const apiType = source?.apiType ?? (elements.settingApiType ? elements.settingApiType.value : appConfig?.apiType || 'openai');
+    const apiKey = String(source?.apiKey ?? (elements.settingApiKey?.value || '')).trim();
+    const model = String(source?.model ?? (elements.settingModel ? elements.settingModel.value : appConfig?.model || '')).trim();
 
     if (!apiUrl) {
       if (elements.inspectorResults) {
@@ -736,8 +737,8 @@
       return;
     }
 
-    elements.btnRunInspector.disabled = true;
-    const btnText = elements.btnRunInspector.querySelector('.inspector-btn-text');
+    if (elements.btnRunInspector) elements.btnRunInspector.disabled = true;
+    const btnText = elements.btnRunInspector?.querySelector('.inspector-btn-text');
     const originalText = btnText ? btnText.textContent : '';
     if (btnText) btnText.textContent = t('btn_running_inspector');
 
@@ -772,7 +773,7 @@
         </div>
       `;
     } finally {
-      elements.btnRunInspector.disabled = false;
+      if (elements.btnRunInspector) elements.btnRunInspector.disabled = false;
       if (btnText) btnText.textContent = originalText;
     }
   }
