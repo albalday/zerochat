@@ -325,7 +325,6 @@
         const isOpen = btnMore.getAttribute('aria-expanded') === 'true';
         btnMore.setAttribute('aria-expanded', String(!isOpen));
         if (moreMenu) moreMenu.hidden = isOpen;
-        btnMore.closest('.tool-auth-more')?.classList.toggle('is-open', !isOpen);
         if (!isOpen) keepAuthorizationVisible(cardEl, moreMenu);
       });
       moreMenu?.addEventListener('click', (e) => e.stopPropagation());
