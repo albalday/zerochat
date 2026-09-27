@@ -995,30 +995,6 @@
   font-weight: 500;
 }
 
-/* Tarjeta de Seguridad en el modal de MCP */
-.mcp-security-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 1rem;
-  margin-bottom: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.mcp-security-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-}
-
-.mcp-security-icon {
-  color: var(--primary);
-  display: inline-flex;
-  margin-top: 0.1rem;
-}
-
 .mcp-policy-options {
   display: flex;
   flex-direction: column;
@@ -1059,33 +1035,6 @@
 .mcp-policy-text .label-hint {
   font-size: 0.75rem;
   margin-top: 0.1rem;
-}
-
-.mcp-saved-auths-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.mcp-saved-auths-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.btn-text-action {
-  background: none;
-  border: none;
-  color: var(--primary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--radius-sm);
-}
-
-.btn-text-action:hover {
-  text-decoration: underline;
 }
 
 .mcp-saved-auths-list {
