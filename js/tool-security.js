@@ -213,6 +213,17 @@
     return { allowed: true };
   }
 
+  function matchesCommandPrefix(command, prefix) {
+    const cleanPrefix = String(prefix).replace(/\*+$/, '').trim();
+    return command === cleanPrefix ||
+      (cleanPrefix.endsWith('/') && command.startsWith(cleanPrefix)) ||
+      command.startsWith(cleanPrefix + ' ') ||
+      command.startsWith(cleanPrefix + '\t') ||
+      command.startsWith('/usr/bin/' + cleanPrefix + ' ') ||
+      command.startsWith('/bin/' + cleanPrefix + ' ') ||
+      command.startsWith('/usr/local/bin/' + cleanPrefix + ' ');
+  }
+
   function evaluateCommandConstraint(cmdVal, commandConstraints) {
     if (!cmdVal || typeof cmdVal !== 'string') return { allowed: true };
     if (!commandConstraints || typeof commandConstraints !== 'object') return { allowed: true };
@@ -257,18 +268,7 @@
     if (Array.isArray(commandConstraints.allowedPrefixes) && commandConstraints.allowedPrefixes.length > 0) {
       let matched = false;
       for (const prefix of commandConstraints.allowedPrefixes) {
-        const cleanPrefix = String(prefix).replace(/\*+$/, '').trim();
-        if (
-          trimmed === cleanPrefix ||
-          ((cleanPrefix.endsWith('/') || cleanPrefix.endsWith(' ')) && trimmed.startsWith(cleanPrefix)) ||
-          trimmed.startsWith(cleanPrefix + ' ') ||
-          trimmed.startsWith(cleanPrefix + '\t') ||
-          trimmed.startsWith(cleanPrefix + ' &&') ||
-          trimmed.startsWith(cleanPrefix + ' ;') ||
-          trimmed.startsWith('/usr/bin/' + cleanPrefix + ' ') ||
-          trimmed.startsWith('/bin/' + cleanPrefix + ' ') ||
-          trimmed.startsWith('/usr/local/bin/' + cleanPrefix + ' ')
-        ) {
+        if (matchesCommandPrefix(trimmed, prefix)) {
           matched = true;
           break;
         }
@@ -281,16 +281,7 @@
         if (cdChainedMatch && cdChainedMatch[1]) {
           const subCmd = cdChainedMatch[1].trim();
           for (const prefix of commandConstraints.allowedPrefixes) {
-            const cleanPrefix = String(prefix).replace(/\*+$/, '').trim();
-            if (
-              subCmd === cleanPrefix ||
-              ((cleanPrefix.endsWith('/') || cleanPrefix.endsWith(' ')) && subCmd.startsWith(cleanPrefix)) ||
-              subCmd.startsWith(cleanPrefix + ' ') ||
-              subCmd.startsWith(cleanPrefix + '\t') ||
-              subCmd.startsWith('/usr/bin/' + cleanPrefix + ' ') ||
-              subCmd.startsWith('/bin/' + cleanPrefix + ' ') ||
-              subCmd.startsWith('/usr/local/bin/' + cleanPrefix + ' ')
-            ) {
+            if (matchesCommandPrefix(subCmd, prefix)) {
               matched = true;
               break;
             }
