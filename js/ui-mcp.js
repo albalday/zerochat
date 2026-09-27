@@ -597,35 +597,20 @@
       }
     }
 
-    if (radioAsk && !radioAsk.dataset?.mcpBound) {
-      radioAsk.dataset.mcpBound = 'true';
-      radioAsk.addEventListener('change', () => {
-        if (radioAsk.checked && Security?.manager?.setGlobalMcpPolicy) {
-          Security.manager.setGlobalMcpPolicy('ask');
+    [
+      [radioAsk, 'ask'],
+      [radioWorkspaceTrust, 'workspace_trust'],
+      [radioAllowAll, 'allow_all']
+    ].forEach(([radio, policy]) => {
+      if (!radio || radio.dataset?.mcpBound) return;
+      radio.dataset.mcpBound = 'true';
+      radio.addEventListener('change', () => {
+        if (radio.checked && Security?.manager?.setGlobalMcpPolicy) {
+          Security.manager.setGlobalMcpPolicy(policy);
           renderCurrentToolsList(elements, translator);
         }
       });
-    }
-
-    if (radioWorkspaceTrust && !radioWorkspaceTrust.dataset?.mcpBound) {
-      radioWorkspaceTrust.dataset.mcpBound = 'true';
-      radioWorkspaceTrust.addEventListener('change', () => {
-        if (radioWorkspaceTrust.checked && Security?.manager?.setGlobalMcpPolicy) {
-          Security.manager.setGlobalMcpPolicy('workspace_trust');
-          renderCurrentToolsList(elements, translator);
-        }
-      });
-    }
-
-    if (radioAllowAll && !radioAllowAll.dataset?.mcpBound) {
-      radioAllowAll.dataset.mcpBound = 'true';
-      radioAllowAll.addEventListener('change', () => {
-        if (radioAllowAll.checked && Security?.manager?.setGlobalMcpPolicy) {
-          Security.manager.setGlobalMcpPolicy('allow_all');
-          renderCurrentToolsList(elements, translator);
-        }
-      });
-    }
+    });
 
     if (btnClearAuths && !btnClearAuths.dataset?.mcpBound) {
       btnClearAuths.dataset.mcpBound = 'true';
