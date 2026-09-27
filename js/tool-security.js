@@ -363,10 +363,6 @@
       this.directoryRules = [];
       this.listeners = new Set();
       this.load();
-      if (!this.directoryRules.length) {
-        this.directoryRules = [this.getDefaultDirectoryRule()];
-        this.syncWithState();
-      }
     }
 
     setSessionToken(token) {
@@ -454,9 +450,6 @@
             }
             if (Array.isArray(parsed.directoryRules)) {
               this.directoryRules = parsed.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
-            }
-            if (!this.directoryRules.length) {
-              this.directoryRules = [this.getDefaultDirectoryRule()];
             }
           }
         }
