@@ -527,7 +527,7 @@
 
         State.set('toolSecurity', {
           globalMcpPolicy: this.globalMcpPolicy,
-          authorizedCount: this.listAuthorizedTools().length + this.listAuthorizedServers().length,
+          authorizedCount: this.tools.size + this.servers.size,
           tools: toolsObj,
           servers: serversObj,
           directoryRules: this.directoryRules
