@@ -732,13 +732,17 @@
   position: relative;
 }
 
-.btn-auth-more {
+.btn-auth-more,
+.btn-auth-allow-session,
+.btn-auth-allow-always {
   background: var(--bg-hover);
   color: var(--text-main);
   border-color: var(--border-color);
 }
 
 .btn-auth-more:hover,
+.btn-auth-allow-session:hover,
+.btn-auth-allow-always:hover,
 .btn-auth-more[aria-expanded="true"] {
   background: var(--border-color);
   color: var(--primary);
@@ -770,28 +774,6 @@
 .tool-auth-more-menu .btn-auth-action {
   width: 100%;
   justify-content: flex-start;
-}
-
-.btn-auth-allow-session {
-  background: var(--bg-hover);
-  color: var(--text-main);
-  border-color: var(--border-color);
-}
-
-.btn-auth-allow-session:hover {
-  background: var(--border-color);
-  color: var(--primary);
-}
-
-.btn-auth-allow-always {
-  background: var(--bg-hover);
-  color: var(--text-main);
-  border-color: var(--border-color);
-}
-
-.btn-auth-allow-always:hover {
-  background: var(--border-color);
-  color: var(--primary);
 }
 
 .btn-auth-allow-server {
