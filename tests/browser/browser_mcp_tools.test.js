@@ -38,6 +38,46 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una sola fila', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const layout = await page.evaluate(() => {
+      const security = window.ChatToolSecurity.manager;
+      security.clearAllAuthorizations();
+      security.setToolPolicy('mcp_compact_layout_test', 'allow', { originalName: 'compact layout test' });
+
+      const container = document.createElement('div');
+      container.className = 'mcp-saved-auths-list';
+      container.style.width = '600px';
+      document.body.appendChild(container);
+      window.ChatUIMcp.renderSavedAuthorizations({ savedAuthsList: container }, key => window.ChatI18n.t(key));
+
+      const button = container.querySelector('.btn-revoke-auth');
+      const info = container.querySelector('.mcp-auth-item-info');
+      const buttonRect = button.getBoundingClientRect();
+      const infoRect = info.getBoundingClientRect();
+      const result = {
+        buttonDisplay: getComputedStyle(button).display,
+        itemDisplay: getComputedStyle(container.querySelector('.mcp-auth-item')).display,
+        isSingleRow: Math.abs((buttonRect.top + buttonRect.height / 2) - (infoRect.top + infoRect.height / 2)) < 1,
+        iconBeforeInfo: buttonRect.left < infoRect.left,
+        buttonColor: getComputedStyle(button).color
+      };
+      security.clearAllAuthorizations();
+      container.remove();
+      return result;
+    });
+    assert.equal(layout.itemDisplay, 'flex');
+    assert.equal(layout.buttonDisplay, 'grid');
+    assert.equal(layout.isSingleRow, true);
+    assert.equal(layout.iconBeforeInfo, true);
+    assert.notEqual(layout.buttonColor, 'rgb(255, 255, 255)');
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar su activación', async () => {
   const browser = await createTestBrowser();
   try {
@@ -473,4 +513,3 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
   }
 });
 });
-

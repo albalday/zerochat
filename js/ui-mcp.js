@@ -471,15 +471,15 @@
 
       return `
         <div class="mcp-auth-item" data-server-id="${serverId}">
+          <button type="button" class="btn-revoke-server-auth" data-server-id="${serverId}" title="${revokeLabel}" aria-label="${revokeLabel}">
+            ${trashIcon}
+          </button>
           <div class="mcp-auth-item-info">
             <span class="mcp-auth-server-icon">${serverIcon}</span>
             <strong class="mcp-auth-item-name">${sName}</strong>
             <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
             ${scopeBadge}
           </div>
-          <button type="button" class="btn-revoke-server-auth" data-server-id="${serverId}" title="${revokeLabel}">
-            ${trashIcon} <span>${revokeLabel}</span>
-          </button>
         </div>`;
     }).join('');
 
@@ -513,15 +513,15 @@
 
       return `
         <div class="mcp-auth-item" data-tool-id="${toolId}">
+          <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}" aria-label="${revokeLabel}">
+            ${trashIcon}
+          </button>
           <div class="mcp-auth-item-info">
             <strong class="mcp-auth-item-name">${origName}</strong>
             <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
             ${scopeBadge}
             ${constraintTag}
           </div>
-          <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}">
-            ${trashIcon} <span>${revokeLabel}</span>
-          </button>
         </div>`;
     }).join('');
 
@@ -751,6 +751,7 @@
     renderToolsList,
     renderCurrentToolsList,
     renderExternalServers,
+    renderSavedAuthorizations,
     syncSecurityControls,
     initMcpUI,
     autoConnectIfAvailable,

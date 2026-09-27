@@ -16,6 +16,8 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propia sección s
   assert.match(settingsHtml, /id="mcp-directory-rules"/);
   assert.equal(settingsHtml.includes('id="btn-mcp-save-directory-rules"'), false, 'Las reglas de directorios se guardan con el formulario general');
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
+  assert.match(settingsHtml, /id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths"/);
+  assert.match(settingsHtml, /id="btn-mcp-clear-auths"[\s\S]*?<svg class="ui-icon"/);
   assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
   assert.match(settingsHtml, /id="settings-section-title"/);
   assert.match(settingsHtml, /id="btn-save-settings"[^>]*class="btn-primary btn-save-header"/);
@@ -441,4 +443,3 @@ test('UISettings - saveCurrentSettings persiste la política global MCP seleccio
     else global.ChatConfig = originalConfig;
   }
 });
-
