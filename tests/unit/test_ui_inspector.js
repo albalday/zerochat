@@ -308,7 +308,7 @@ test('UIInspector - handleRunInspector consulta primero, captura contexto y razo
     // Verificamos resultados abreviados del modelo
     assert.ok(elements.inspectorResults.innerHTML.includes('inspector-model-section'), 'Debe incluir la sección abreviada del modelo');
     assert.ok(elements.inspectorResults.innerHTML.includes('qwen2.5-coder-32b'), 'Debe mostrar el nombre del modelo');
-    assert.ok(elements.inspectorResults.innerHTML.includes('32.768 tokens'), 'Debe mostrar el tamaño de contexto capturado');
+    assert.ok(elements.inspectorResults.innerHTML.includes(`${(32768).toLocaleString()} tokens`), 'Debe mostrar el tamaño de contexto capturado');
     // Verificamos el resumen general del endpoint posterior
     assert.ok(elements.inspectorResults.innerHTML.includes('inspector-endpoint-section'), 'Debe incluir la sección del endpoint');
     assert.ok(elements.inspectorResults.innerHTML.includes('inspector-cap-grid'), 'Debe incluir la cuadrícula de capacidades');
