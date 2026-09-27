@@ -148,7 +148,11 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     assert.equal(expanded.expanded, 'true');
     assert.equal(expanded.menuHidden, false);
     assert.equal(expanded.menuPosition, 'static');
-    assert.deepEqual(Object.values(expanded).slice(3), [true, true, true, true, true]);
+    assert.equal(expanded.hasSession, true);
+    assert.equal(expanded.hasPermanent, true);
+    assert.equal(expanded.hasCommandScope, true);
+    assert.equal(expanded.hasServerTrust, true);
+    assert.equal(expanded.panelVisible, true);
 
     await page.click('.tool-auth-more-menu .btn-auth-allow-session');
     const decision = await page.evaluate(async () => {
