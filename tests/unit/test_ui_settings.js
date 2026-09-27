@@ -400,3 +400,45 @@ test('UISettings - mount enlaza eventos del formulario y dispose los desvincula'
   UISettings.dispose();
   assert.equal(listeners.submit, undefined);
 });
+
+test('UISettings - saveCurrentSettings persiste la política global MCP seleccionada', async () => {
+  const originalToolSecurity = global.ChatToolSecurity;
+  const originalConfig = global.ChatConfig;
+  let savedPolicy = null;
+
+  global.ChatToolSecurity = {
+    manager: {
+      setGlobalMcpPolicy: (policy) => { savedPolicy = policy; },
+      setDirectoryRules: () => []
+    }
+  };
+  global.ChatConfig = {
+    updateRuntime: (cfg) => cfg
+  };
+
+  const dialog = {
+    dataset: {},
+    close: () => {},
+    querySelector: (selector) => {
+      if (selector === 'input[name="mcp-global-policy"]:checked') {
+        return { value: 'ask' };
+      }
+      return null;
+    }
+  };
+  const elements = {
+    settingsDialog: dialog
+  };
+
+  try {
+    const success = await UISettings.saveCurrentSettings(elements, {}, {}, true);
+    assert.equal(success, true);
+    assert.equal(savedPolicy, 'ask');
+  } finally {
+    if (originalToolSecurity === undefined) delete global.ChatToolSecurity;
+    else global.ChatToolSecurity = originalToolSecurity;
+    if (originalConfig === undefined) delete global.ChatConfig;
+    else global.ChatConfig = originalConfig;
+  }
+});
+

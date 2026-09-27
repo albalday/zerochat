@@ -2384,11 +2384,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
             return
 
-        # Status general
         res_data = json.dumps({
             "status": "active",
             "server": "ZeroChat Local Server",
             "version": VERSION,
+            "cwd": str(Path.cwd().resolve()),
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
             "browser_action": browser_action_availability(),
             "os": DETECTED_OS
@@ -2580,7 +2580,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {
                         "name": "ZeroChat Local Server",
-                        "version": VERSION
+                        "version": VERSION,
+                        "cwd": str(Path.cwd().resolve())
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}

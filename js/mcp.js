@@ -81,6 +81,14 @@
     return null;
   }
 
+  function getSecurity() {
+    if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
+    if (typeof require !== 'undefined') {
+      try { return require('./tool-security.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Realiza una petición fetch con timeout controlado mediante AbortController.
    */
@@ -1084,6 +1092,12 @@
       }
 
       this.addServer({ id: 'mcp_proxy', name: probe.serverInfo?.name || 'mcp-proxy', url: targetEndpoint, enabled: true });
+      if (probe.serverInfo?.cwd) {
+        const Security = getSecurity();
+        if (Security?.manager?.setStartupDirectory) {
+          Security.manager.setStartupDirectory(probe.serverInfo.cwd);
+        }
+      }
       const registerResult = await this.connectAndRegisterServer('mcp_proxy', registry);
 
       if (State?.set) {

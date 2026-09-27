@@ -113,7 +113,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
         </li>
       </ul>
       <p>
-        La lista <strong>Directorios permitidos</strong> centraliza el acceso de las herramientas locales de archivos. Añade una regla por línea con <code>R:</code> para lectura, <code>W:</code> para modificación o <code>RW:</code> para ambos; por ejemplo, <code>R:./proyecto/**</code> o <code>W:./proyecto/src/**</code>. Usa <code>*</code> para un segmento y <code>**</code> para incluir subdirectorios.
+        La lista <strong>Directorios permitidos</strong> centraliza el acceso de las herramientas locales de archivos. Si la lista está vacía, ZeroChat inyecta por defecto una regla <code>R:</code> para su directorio de arranque. Añade una regla por línea con <code>R:</code> para lectura, <code>W:</code> para modificación o <code>RW:</code> para ambos; por ejemplo, <code>R:./proyecto/**</code> o <code>W:./proyecto/src/**</code>. Usa <code>*</code> para un segmento y <code>**</code> para incluir subdirectorios.
       </p>
       <p>
         Para <code>execute_command</code> y <code>bash</code>, los permisos se sincronizan automáticamente. Las órdenes autorizadas respetan prefijos y admiten tuberías (pipes) y redirecciones sin volver a pedir confirmación innecesariamente, mientras que el encadenamiento arbitrario (<code>;</code> o <code>&&</code>) o los patrones de riesgo se bloquean o solicitan confirmación puntual.

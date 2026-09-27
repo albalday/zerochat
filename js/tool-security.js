@@ -72,6 +72,11 @@
 
   function matchesDirectoryPattern(path, pattern) {
     if (pattern.endsWith('/**') && path === pattern.slice(0, -3)) return true;
+    if (!pattern.includes('*')) {
+      if (path === pattern) return true;
+      const prefix = pattern.endsWith('/') ? pattern : `${pattern}/`;
+      if (path.startsWith(prefix)) return true;
+    }
     const escaped = pattern.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
       .replace(/\*\*/g, '\u0000')
       .replace(/\*/g, '[^/]*');
@@ -349,11 +354,19 @@
       this.storageKey = this.explicitStorageKey || STORAGE_KEY;
       this.sessionToken = options.sessionToken || null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
+      this.startupDirectory = normalizeDirectoryPath(
+        options.startupDirectory ||
+        (typeof process !== 'undefined' && process?.cwd && typeof process.cwd === 'function' ? process.cwd() : '.')
+      );
       this.tools = new Map();
       this.servers = new Map();
       this.directoryRules = [];
       this.listeners = new Set();
       this.load();
+      if (!this.directoryRules.length) {
+        this.directoryRules = [this.getDefaultDirectoryRule()];
+        this.syncWithState();
+      }
     }
 
     setSessionToken(token) {
@@ -442,10 +455,16 @@
             if (Array.isArray(parsed.directoryRules)) {
               this.directoryRules = parsed.directoryRules.map(parseDirectoryRule).filter(Boolean).map(item => item.rule);
             }
+            if (!this.directoryRules.length) {
+              this.directoryRules = [this.getDefaultDirectoryRule()];
+            }
           }
         }
       } catch (err) {
         console.warn('[ToolSecurity] Error al cargar políticas guardadas:', err?.message || err);
+      }
+      if (!this.directoryRules.length) {
+        this.directoryRules = [this.getDefaultDirectoryRule()];
       }
       this.syncWithState();
     }
@@ -455,6 +474,9 @@
      */
     save() {
       try {
+        if (!this.directoryRules.length) {
+          this.directoryRules = [this.getDefaultDirectoryRule()];
+        }
         const Storage = getStorage();
         const permanentTools = {};
         this.tools.forEach((val, key) => {
@@ -556,7 +578,34 @@
       return this.globalMcpPolicy;
     }
 
+    getStartupDirectory() {
+      return this.startupDirectory || '.';
+    }
+
+    getDefaultDirectoryRule() {
+      const dir = normalizeDirectoryPath(this.getStartupDirectory());
+      return dir ? `R:${dir}` : 'R:.';
+    }
+
+    setStartupDirectory(dir) {
+      const norm = normalizeDirectoryPath(dir);
+      if (!norm || norm === this.startupDirectory) return;
+      const oldDefault = this.getDefaultDirectoryRule();
+      this.startupDirectory = norm;
+      const newDefault = this.getDefaultDirectoryRule();
+
+      if (!this.directoryRules.length || (this.directoryRules.length === 1 && this.directoryRules[0] === oldDefault)) {
+        this.directoryRules = [newDefault];
+        this.save();
+      } else {
+        this.syncWithState();
+      }
+    }
+
     getDirectoryRules() {
+      if (!this.directoryRules.length) {
+        this.directoryRules = [this.getDefaultDirectoryRule()];
+      }
       return [...this.directoryRules];
     }
 
@@ -564,7 +613,11 @@
       if (!Array.isArray(rules)) throw new Error('Las reglas de directorio deben ser una lista.');
       const normalized = rules.map(parseDirectoryRule);
       if (normalized.some(rule => !rule)) throw new Error('Regla de directorio inválida. Usa R:, W: o RW: seguido de una ruta.');
-      this.directoryRules = [...new Set(normalized.map(rule => rule.rule))];
+      let uniqueRules = [...new Set(normalized.map(rule => rule.rule))];
+      if (uniqueRules.length === 0) {
+        uniqueRules = [this.getDefaultDirectoryRule()];
+      }
+      this.directoryRules = uniqueRules;
       this.save();
       return this.getDirectoryRules();
     }
@@ -576,9 +629,17 @@
     evaluateDirectoryRule(access, path) {
       const normalizedPath = normalizeDirectoryPath(path);
       if (!normalizedPath) return { allowed: false, rule: null };
-      const match = this.directoryRules.map(parseDirectoryRule).find(rule =>
-        rule && (rule.access === access || rule.access === 'RW') && matchesDirectoryPattern(normalizedPath, rule.path)
-      );
+      const startupDir = this.getStartupDirectory();
+      let resolvedAbsolute = null;
+      if (!normalizedPath.startsWith('/') && startupDir && startupDir.startsWith('/')) {
+        resolvedAbsolute = normalizeDirectoryPath(normalizedPath === '.' ? startupDir : `${startupDir}/${normalizedPath}`);
+      }
+      const match = this.directoryRules.map(parseDirectoryRule).find(rule => {
+        if (!rule || (rule.access !== access && rule.access !== 'RW')) return false;
+        if (matchesDirectoryPattern(normalizedPath, rule.path)) return true;
+        if (resolvedAbsolute && matchesDirectoryPattern(resolvedAbsolute, rule.path)) return true;
+        return false;
+      });
       return { allowed: Boolean(match), rule: match?.rule || null, path: normalizedPath };
     }
 

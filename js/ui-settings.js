@@ -460,19 +460,34 @@
 
   function saveDirectoryRulesFromSettings(elements) {
     const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    const input = doc ? doc.getElementById('mcp-directory-rules') : null;
-    const errorMessage = doc ? doc.getElementById('mcp-directory-rules-error') : null;
+    const root = elements?.settingsDialog || doc;
+    const input = root ? (root.querySelector ? root.querySelector('#mcp-directory-rules') : doc?.getElementById('mcp-directory-rules')) : null;
+    const errorMessage = root ? (root.querySelector ? root.querySelector('#mcp-directory-rules-error') : doc?.getElementById('mcp-directory-rules-error')) : null;
     const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
     if (!input || typeof ToolSecurity?.manager?.setDirectoryRules !== 'function') return true;
 
     const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
     try {
-      ToolSecurity.manager.setDirectoryRules(rules);
+      const savedRules = ToolSecurity.manager.setDirectoryRules(rules);
+      if (Array.isArray(savedRules)) {
+        input.value = savedRules.join('\n');
+      }
       if (errorMessage) errorMessage.textContent = '';
       return true;
     } catch (error) {
       if (errorMessage) errorMessage.textContent = error?.message || t('mcp_directory_rules_invalid');
       return false;
+    }
+  }
+
+  function saveMcpGlobalPolicyFromSettings(elements) {
+    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const root = elements?.settingsDialog || doc;
+    const checked = root?.querySelector ? root.querySelector('input[name="mcp-global-policy"]:checked') : null;
+    if (!checked || !checked.value) return;
+    const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
+    if (ToolSecurity?.manager?.setGlobalMcpPolicy) {
+      ToolSecurity.manager.setGlobalMcpPolicy(checked.value);
     }
   }
 
@@ -510,6 +525,7 @@
 
   async function saveCurrentSettings(elements, appConfig, callbacks = {}, closeModal = true) {
     if (!saveDirectoryRulesFromSettings(elements)) return false;
+    saveMcpGlobalPolicyFromSettings(elements);
     const newConfig = gatherCurrentFormConfig(elements, appConfig);
     const Config = getConfig();
     const savedConfig = Config?.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;

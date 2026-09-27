@@ -577,12 +577,14 @@
 
   function syncSecurityControls(elements = {}, translator = t) {
     const Security = getSecurity();
-    const radioAsk = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-ask') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-ask') : null);
-    const radioWorkspaceTrust = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-workspace-trust') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-workspace-trust') : null);
-    const radioAllowAll = elements?.mcpSetupDialog?.querySelector?.('#mcp-policy-allow-all') || (typeof document !== 'undefined' ? document.getElementById('mcp-policy-allow-all') : null);
-    const btnClearAuths = elements?.mcpSetupDialog?.querySelector?.('#btn-mcp-clear-auths') || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
-    const directoryRulesInput = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules') : null;
-    const directoryRulesError = typeof document !== 'undefined' ? document.getElementById('mcp-directory-rules-error') : null;
+    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const root = elements?.settingsDialog || elements?.mcpSetupDialog || doc;
+    const radioAsk = root?.querySelector?.('#mcp-policy-ask') || doc?.getElementById?.('mcp-policy-ask');
+    const radioWorkspaceTrust = root?.querySelector?.('#mcp-policy-workspace-trust') || doc?.getElementById?.('mcp-policy-workspace-trust');
+    const radioAllowAll = root?.querySelector?.('#mcp-policy-allow-all') || doc?.getElementById?.('mcp-policy-allow-all');
+    const btnClearAuths = root?.querySelector?.('#btn-mcp-clear-auths') || doc?.getElementById?.('btn-mcp-clear-auths');
+    const directoryRulesInput = root?.querySelector?.('#mcp-directory-rules') || doc?.getElementById?.('mcp-directory-rules');
+    const directoryRulesError = root?.querySelector?.('#mcp-directory-rules-error') || doc?.getElementById?.('mcp-directory-rules-error');
 
     const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
     if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');

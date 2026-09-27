@@ -373,21 +373,21 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
     const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
 
-    // 1. Sin permisos ni reglas de directorio, pide autorización
-    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    // 1. Sin permisos específicos ni coincidencia de directorio externo, pide autorización
+    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalBefore.requiresApproval, true);
     assert.equal(evalBefore.status, 'ask');
 
     // 2. El usuario autoriza permanentemente la herramienta (allow)
     manager1.setToolPolicy('read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
-    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalAfterAllow.requiresApproval, false);
     assert.equal(evalAfterAllow.status, 'allow');
 
     // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
     assert.equal(manager2.getToolPolicy('read_file'), 'allow');
-    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalReloaded.requiresApproval, false);
     assert.equal(evalReloaded.status, 'allow');
   } finally {
@@ -436,7 +436,8 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
     category: 'mcp'
   };
 
-  // 1. Sin reglas ni autorización, pide aprobación
+  // 1. Si la regla no cubre la carpeta actual '.', pide aprobación
+  manager.setDirectoryRules(['R:/tmp/custom-isolated-dir/**']);
   const evalNoRules = manager.evaluateAuthorization(listTool, {});
   assert.equal(evalNoRules.requiresApproval, true);
   assert.equal(evalNoRules.status, 'ask');
@@ -673,4 +674,61 @@ test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundar
   assert.equal(evalChainedRm.status, 'ask');
   assert.equal(evalChainedRm.requiresApproval, true);
 });
+
+test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restricciones estrictas en modo ask', () => {
+  const customStartupDir = '/home/user/myproject';
+  const manager = new ChatToolSecurity.ToolSecurityManager({
+    storageKey: 'test_sec_default_startup_dir',
+    startupDirectory: customStartupDir
+  });
+
+  // 1. Por defecto, si no hay definición, se inyecta R:<startup_directory>
+  assert.equal(manager.getGlobalMcpPolicy(), 'ask');
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${customStartupDir}`]);
+
+  const readTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
+  const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp' };
+  const editTool = { id: 'edit_file', name: 'edit_file', category: 'mcp' };
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+
+  // 2. Lectura dentro del directorio de arranque: permitida directamente
+  const evalReadInternal = manager.evaluateAuthorization(readTool, { path: `${customStartupDir}/src/app.py` });
+  assert.equal(evalReadInternal.status, 'allow');
+  assert.equal(evalReadInternal.requiresApproval, false);
+
+  // 3. Lectura con ruta relativa respecto al directorio de arranque: permitida directamente
+  const evalReadRel = manager.evaluateAuthorization(readTool, { path: 'src/app.py' });
+  assert.equal(evalReadRel.status, 'allow');
+  assert.equal(evalReadRel.requiresApproval, false);
+
+  // 4. Modificación o creación (escritura) en el directorio de arranque: requiere autorización (solo R: por defecto)
+  const evalWriteInternal = manager.evaluateAuthorization(writeTool, { path: `${customStartupDir}/src/app.py`, content: 'x' });
+  assert.equal(evalWriteInternal.status, 'ask');
+  assert.equal(evalWriteInternal.requiresApproval, true);
+
+  const evalEditRel = manager.evaluateAuthorization(editTool, { path: 'src/app.py' });
+  assert.equal(evalEditRel.status, 'ask');
+  assert.equal(evalEditRel.requiresApproval, true);
+
+  // 5. Lectura fuera del directorio de arranque: requiere autorización
+  const evalReadExternal = manager.evaluateAuthorization(readTool, { path: '/etc/passwd' });
+  assert.equal(evalReadExternal.status, 'ask');
+  assert.equal(evalReadExternal.requiresApproval, true);
+
+  // 6. Ejecución de comandos en modo ask: requiere autorización
+  const evalBash = manager.evaluateAuthorization(bashTool, { command: 'ls -la' });
+  assert.equal(evalBash.status, 'ask');
+  assert.equal(evalBash.requiresApproval, true);
+
+  // 7. Si se vacían las reglas explícitamente, se restaura por defecto R:<startup_directory>
+  manager.setDirectoryRules([]);
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${customStartupDir}`]);
+
+  // 8. Actualizar el directorio de arranque migra la regla por defecto
+  const updatedDir = '/home/user/otherproject';
+  manager.setStartupDirectory(updatedDir);
+  assert.equal(manager.getStartupDirectory(), updatedDir);
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${updatedDir}`]);
+});
+
 

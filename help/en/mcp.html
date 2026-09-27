@@ -113,7 +113,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
         </li>
       </ul>
       <p>
-        The <strong>Allowed directories</strong> list centralizes access for local file tools. Add one rule per line with <code>R:</code> for reading, <code>W:</code> for modification, or <code>RW:</code> for both; for example, <code>R:./project/**</code> or <code>W:./project/src/**</code>. Use <code>*</code> for one segment and <code>**</code> to include subdirectories.
+        The <strong>Allowed directories</strong> list centralizes access for local file tools. If the list is empty, ZeroChat automatically defaults to an <code>R:</code> rule for its startup directory. Add one rule per line with <code>R:</code> for reading, <code>W:</code> for modification, or <code>RW:</code> for both; for example, <code>R:./project/**</code> or <code>W:./project/src/**</code>. Use <code>*</code> for one segment and <code>**</code> to include subdirectories.
       </p>
       <p>
         For <code>execute_command</code> and <code>bash</code>, permissions are automatically synchronized. Authorized commands respect prefix constraints and support pipes and redirects without unnecessary re-prompting, while unauthorized chaining (<code>;</code> or <code>&&</code>) or dangerous patterns are blocked or prompt for approval.
