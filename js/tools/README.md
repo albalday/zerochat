@@ -20,6 +20,8 @@ Las herramientas de conocimiento local usan cuatro operaciones canónicas: `list
 
 Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRegistry`, evalúa la política de `ChatToolSecurity` y solo después invoca `tool.execute`. Las herramientas MCP que requieren confirmación se bloquean si no existe una interfaz que pueda recoger una decisión explícita del usuario.
 
+Las llamadas `tools/call` al host local incorporan además un sello efímero emitido por el backend durante `initialize`. Tras una autorización positiva, el cliente firma los bytes exactos del JSON-RPC con HMAC-SHA256 sobre `zerochat-tool-auth-v1`, identificador de arranque, método, ruta, caducidad Unix en milisegundos, nonce aleatorio de 128 bits y el SHA-256 hexadecimal del cuerpo UTF-8. El host consume el nonce de forma atómica y rechaza sellos ausentes, alterados, caducados o repetidos. Las credenciales viven solo en memoria y no se reenvían a MCP remotos. El sello vincula el flujo normal de autorización con la petición, pero un frontend comprometido que pueda leer la clave aún puede crear sellos.
+
 ## Herramienta de ejecución de código (`execute_javascript`)
 
 `execute_javascript` (`js/tools/builtin/execute-javascript.tool.js` y `js/sandbox.js`) es una herramienta diseñada para asistir al modelo en cálculos numéricos, operaciones algorítmicas complejas y procesamiento de datos en tiempo real.

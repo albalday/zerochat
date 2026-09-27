@@ -318,6 +318,10 @@
   box-shadow: var(--shadow-sm);
 }
 
+.tool-execution-card.tool-card-auth-active {
+  overflow: visible;
+}
+
 .tool-card-header,
 .web-card-header,
 .search-card-header,

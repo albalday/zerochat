@@ -255,29 +255,37 @@ test('Browser UI - zerochat.html optimiza carga con defer, CSS paralelos y PWA m
   assert.match(swContent, /caches\.open/, 'sw.js debe gestionar la Cache API');
 });
 
-test('Browser PWA - la instalación solo se solicita desde el botón explícito de la barra lateral', async () => {
+test('Browser PWA - no ofrece instalación al abrir directamente ni desde la ayuda', async () => {
   const browser = await createTestBrowser();
   try {
-    const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    for (const helpPath of [null, 'help/index.html', 'help/en/index.html']) {
+      const page = await browser.newPage();
+      const pageErrors = [];
+      page.on('pageerror', err => pageErrors.push(err.message));
+      if (helpPath) {
+        await page.goto('file://' + path.resolve(__dirname, '../../', helpPath), { waitUntil: 'load' });
+        await page.click('#btn-open-app');
+      } else {
+        await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      }
+      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
-    const eventState = await page.evaluate(() => {
-      window.pwaInstallPrompted = false;
-      const event = new Event('beforeinstallprompt', { cancelable: true });
-      event.prompt = async () => { window.pwaInstallPrompted = true; };
-      event.userChoice = Promise.resolve({ outcome: 'accepted' });
-      window.dispatchEvent(event);
-      return {
-        prevented: event.defaultPrevented,
-        visible: !document.getElementById('btn-install-pwa').hidden,
-        prompted: window.pwaInstallPrompted
-      };
-    });
-    assert.deepEqual(eventState, { prevented: true, visible: true, prompted: false });
-
-    await page.click('#btn-install-pwa');
-    assert.equal(await page.evaluate(() => window.pwaInstallPrompted), true);
+      const eventState = await page.evaluate(() => {
+        let prompted = false;
+        const event = new Event('beforeinstallprompt', { cancelable: true });
+        event.prompt = async () => { prompted = true; };
+        window.dispatchEvent(event);
+        return {
+          prevented: event.defaultPrevented,
+          hasButton: Boolean(document.getElementById('btn-install-pwa')),
+          hasManifest: Boolean(document.querySelector('link[rel="manifest"]')),
+          prompted
+        };
+      });
+      assert.deepEqual(eventState, { prevented: true, hasButton: false, hasManifest: true, prompted: false });
+      assert.deepEqual(pageErrors, []);
+      await page.close();
+    }
   } finally {
     await browser.close();
   }

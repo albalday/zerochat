@@ -42,7 +42,6 @@
   const GenerationStatus = window.ChatUIGenerationStatus || {};
   const UIInspector = window.ChatUIInspector || {};
   const UISidebar = window.ChatUISidebar || {};
-  const PwaInstall = window.ChatPwaInstall || {};
   const UISettings = window.ChatUISettings || {};
   const Config = window.ChatConfig;
   const Profiles = window.ChatProfileRepository || {};
@@ -116,7 +115,6 @@
       btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
       btnCloseSidebar: document.getElementById('btn-close-sidebar'),
       btnSidebarNewTab: document.getElementById('btn-sidebar-new-tab'),
-      btnInstallPwa: document.getElementById('btn-install-pwa'),
       btnSidebarNewChat: document.getElementById('btn-sidebar-new-chat'),
       sidebarSearchInput: document.getElementById('sidebar-search-input'),
       sidebarChatsList: document.getElementById('sidebar-chats-list'),
@@ -1385,9 +1383,6 @@
     if (elements.btnSidebarNewTab) {
       elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
       elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
-    }
-    if (elements.btnInstallPwa) {
-      PwaInstall.setup?.(elements.btnInstallPwa);
     }
     if (elements.sidebarSearchInput) {
       elements.sidebarSearchInput.addEventListener('input', () => {

@@ -72,6 +72,10 @@
       </ul>
       <p>
         <strong>Session Token Security:</strong> All requests from GitHub Pages require the ephemeral token generated at startup. Without this valid token, the local server rejects any incoming connection.
+        MCP requests, including the SSE channel, send the token in HTTP headers, never in the endpoint URL. The automatic favicon request requires no token and returns an empty response when no icon is available.
+      </p>
+      <p>
+        In an interactive terminal, the status line shows <code>[i] information</code> only when the current run has notices, such as an available update. Press <code>i</code> to see them; they remain available until the server stops.
       </p>
       <div class="code-wrapper">
         <pre><code># Recommended: install from PyPI
@@ -85,29 +89,44 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     <div class="card">
       <h2>4. Tool Permissions & Authorization Policies</h2>
       <p>
-        Because local tools can perform sensitive operations on your system (such as modifying files or running shell commands), ZeroChat provides granular security controls for each tool:
+        Because local tools can perform sensitive operations on your system (such as modifying files or running shell commands), ZeroChat provides a hierarchical, deterministic security system:
       </p>
       <p>
-        Open <strong>Settings → Permissions</strong> to choose the global policy, review remembered decisions, and clear them when needed. In the MCP panel you can also choose <em>Ask</em>, <em>Allow</em>, or <em>Deny</em> for each tool.
+        Open <strong>Settings → Permissions</strong> to choose the global policy, manage trusted MCP servers, review remembered decisions, and clear them when needed. In the MCP panel you can also choose <em>Ask</em>, <em>Allow</em>, or <em>Deny</em> for each tool or server.
       </p>
       <ul>
         <li><strong>On/Off Switches:</strong> Enable or disable each tool sent to the model without stopping the server.</li>
-        <li><strong>Authorization Policy:</strong>
+        <li><strong>Global Execution Policy:</strong>
           <ul>
-            <li><em>Ask for authorization (recommended):</em> ZeroChat pauses to ask for explicit approval.</li>
-            <li><em>Allow all:</em> Any tool runs without confirmation. Use it only in a trusted environment.</li>
+            <li><em>Ask for authorization (recommended):</em> ZeroChat pauses to ask for explicit approval according to configured rules.</li>
+            <li><em>Trust workspace (Workspace Trust):</em> Automatically trusts operations and files within the project working directory (CWD). Prompts for external access or global commands.</li>
+            <li><em>Allow all:</em> Any tool runs automatically without confirmation. Use it only in a fully trusted development environment.</li>
+          </ul>
+        </li>
+        <li><strong>Authorization Scopes:</strong> When a confirmation prompt appears in the chat, you can choose:
+          <ul>
+            <li><em>Allow once:</em> Grants permission for the single current call.</li>
+            <li><em>In this session:</em> Active as long as the backend server is running; cleanly cleared upon restart without losing permanent permissions.</li>
+            <li><em>Allow always:</em> Permanent rule persisted in secure local storage.</li>
+            <li><em>Trust MCP server:</em> Authorizes the entire server toolset (e.g. Playwright or Memory) so you don't have to approve each tool individually.</li>
           </ul>
         </li>
       </ul>
       <p>
-        The <strong>Allowed directories</strong> list centralizes access for local file tools. Add one rule per line with <code>R:</code> for reading, <code>W:</code> for modification, or <code>RW:</code> for both; for example, <code>R:./project/**</code> or <code>W:./project/src/**</code>. Use <code>*</code> for one segment and <code>**</code> to include subdirectories. Paths that do not match a rule require authorization.
+        The <strong>Allowed directories</strong> list centralizes access for local file tools. If the list is empty, ZeroChat automatically defaults to an <code>R:</code> rule for its startup directory. Add one rule per line with <code>R:</code> for reading, <code>W:</code> for modification, or <code>RW:</code> for both; for example, <code>R:./project/**</code> or <code>W:./project/src/**</code>. Use <code>*</code> for one segment and <code>**</code> to include subdirectories.
       </p>
       <p>
-        For <code>execute_command</code>, ZeroChat examines only simple commands and their explicit paths. A read path needs <code>R:</code> and a modifying path needs <code>W:</code>. Pipes, redirections, expansions, wildcards, and other ambiguous shell constructs always require one-time authorization.
+        For <code>execute_command</code> and <code>bash</code>, permissions are automatically synchronized. Authorized commands respect prefix constraints and support pipes and redirects without unnecessary re-prompting, while unauthorized chaining (<code>;</code> or <code>&&</code>) or dangerous patterns are blocked or prompt for approval.
       </p>
       <div class="alert alert-warning">
         <strong>Local network security:</strong> Make sure your MCP server binds strictly to the loopback interface <code>127.0.0.1</code> and not <code>0.0.0.0</code> when working on untrusted public networks.
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Browser automation</h2>
+      <p>The local <code>browser_action</code> tool needs Node.js, Playwright, and Chromium. ZeroChat checks these requirements before enabling it and keeps it disabled when any of them is missing.</p>
+      <p><a href="browser-action.html">Install browser_action's minimum requirements →</a></p>
     </div>
 
     <div class="card">

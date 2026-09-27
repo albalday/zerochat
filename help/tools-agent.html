@@ -83,6 +83,9 @@
         </table>
       </div>
       <p><code>agent_checkpoint</code> permite al agente resumir hallazgos y decidir si continúa investigando o responde.</p>
+
+      <h3>Autorización del host local</h3>
+      <p>Las llamadas a herramientas del servidor local se autorizan en la interfaz y llevan un sello efímero de un solo uso. El servidor comprueba que el contenido, destino y vigencia no han cambiado y rechaza repeticiones. El sello se conserva solo en memoria y se renueva al reiniciar el servidor; no sustituye la revisión de permisos ante un navegador comprometido.</p>
     </div>
 
     <div class="card">

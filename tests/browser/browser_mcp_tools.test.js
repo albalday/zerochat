@@ -38,6 +38,173 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una sola fila', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const layout = await page.evaluate(() => {
+      const security = window.ChatToolSecurity.manager;
+      security.clearAllAuthorizations();
+      security.setToolPolicy('mcp_compact_layout_test', 'allow', { originalName: 'compact layout test' });
+
+      const container = document.createElement('div');
+      container.className = 'mcp-saved-auths-list';
+      container.style.width = '600px';
+      document.body.appendChild(container);
+      window.ChatUIMcp.renderSavedAuthorizations({ savedAuthsList: container }, key => window.ChatI18n.t(key));
+
+      const button = container.querySelector('.btn-revoke-auth');
+      const info = container.querySelector('.mcp-auth-item-info');
+      const buttonRect = button.getBoundingClientRect();
+      const infoRect = info.getBoundingClientRect();
+      const result = {
+        buttonDisplay: getComputedStyle(button).display,
+        itemDisplay: getComputedStyle(container.querySelector('.mcp-auth-item')).display,
+        isSingleRow: Math.abs((buttonRect.top + buttonRect.height / 2) - (infoRect.top + infoRect.height / 2)) < 1,
+        iconBeforeInfo: buttonRect.left < infoRect.left,
+        buttonColor: getComputedStyle(button).color
+      };
+      security.clearAllAuthorizations();
+      container.remove();
+      return result;
+    });
+    assert.equal(layout.itemDisplay, 'flex');
+    assert.equal(layout.buttonDisplay, 'grid');
+    assert.equal(layout.isSingleRow, true);
+    assert.equal(layout.iconBeforeInfo, true);
+    assert.notEqual(layout.buttonColor, 'rgb(255, 255, 255)');
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas y se adapta a móvil', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.evaluate(() => {
+      const messagesList = document.getElementById('messages-list');
+      messagesList.replaceChildren(Object.assign(document.createElement('div'), { style: 'height: 1200px; flex: 0 0 1200px;' }));
+      const card = document.createElement('div');
+      card.innerHTML = '<div class="tool-execution-card"><span class="tool-card-badge"></span><div class="tool-card-collapsible-body"><div style="height: 110px;"></div></div></div>';
+      messagesList.appendChild(card);
+      window.__permissionCard = card;
+      window.__permissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'bash' } }, {
+        serverId: 'zerochat-local',
+        serverName: 'ZeroChat Local Server',
+        args: { command: 'git status' }
+      });
+    });
+    await page.waitForFunction(() => document.getElementById('messages-list').scrollTop > 0);
+    await page.waitForFunction(() => {
+      const card = window.__permissionCard.querySelector('.tool-execution-card');
+      const list = document.getElementById('messages-list');
+      return card.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1;
+    });
+
+    const initial = await page.evaluate(() => {
+      const prompt = window.__permissionCard.querySelector('.tool-card-auth-prompt');
+      const actions = prompt.querySelector('.tool-auth-actions');
+      const menu = prompt.querySelector('.tool-auth-more-menu');
+      const listRect = document.getElementById('messages-list').getBoundingClientRect();
+      return {
+        directActions: Array.from(actions.children).map(el => el.className),
+        menuHidden: menu.hidden,
+        layout: getComputedStyle(actions).display,
+        serverTagCount: prompt.querySelectorAll('.mcp-card-server-tag').length,
+        cardOverflow: getComputedStyle(window.__permissionCard.querySelector('.tool-execution-card')).overflow,
+        panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= listRect.bottom + 1
+      };
+    });
+    assert.deepEqual(initial.directActions, ['btn-auth-action btn-auth-allow-once', 'tool-auth-more', 'btn-auth-action btn-auth-deny']);
+    assert.equal(initial.menuHidden, true);
+    assert.equal(initial.layout, 'grid');
+    assert.equal(initial.serverTagCount, 0);
+    assert.equal(initial.cardOverflow, 'visible');
+    assert.equal(initial.panelVisible, true);
+
+    await page.click('.btn-auth-more');
+    await page.waitForFunction(() => {
+      const card = window.__permissionCard.querySelector('.tool-execution-card');
+      const list = document.getElementById('messages-list');
+      return card.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1;
+    });
+    const expanded = await page.evaluate(() => {
+      const prompt = window.__permissionCard.querySelector('.tool-card-auth-prompt');
+      const menu = prompt.querySelector('.tool-auth-more-menu');
+      return {
+        expanded: prompt.querySelector('.btn-auth-more').getAttribute('aria-expanded'),
+        menuHidden: menu.hidden,
+        menuPosition: getComputedStyle(menu).position,
+        hasSession: !!menu.querySelector('.btn-auth-allow-session'),
+        hasPermanent: !!menu.querySelector('.btn-auth-allow-always'),
+        hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
+        hasServerTrust: !!menu.querySelector('.btn-auth-allow-server'),
+        panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= document.getElementById('messages-list').getBoundingClientRect().bottom + 1
+      };
+    });
+    assert.equal(expanded.expanded, 'true');
+    assert.equal(expanded.menuHidden, false);
+    assert.equal(expanded.menuPosition, 'static');
+    assert.equal(expanded.hasSession, true);
+    assert.equal(expanded.hasPermanent, true);
+    assert.equal(expanded.hasCommandScope, true);
+    assert.equal(expanded.hasServerTrust, true);
+    assert.equal(expanded.panelVisible, true);
+
+    await page.click('.tool-auth-more-menu .btn-auth-allow-session');
+    const decision = await page.evaluate(async () => {
+      const result = await window.__permissionDecision;
+      window.__permissionCard.remove();
+      return result;
+    });
+    assert.equal(decision, 'allow_session');
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - el menú de permisos de escritorio no queda bajo el composer', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.evaluate(() => {
+      const messagesList = document.getElementById('messages-list');
+      messagesList.replaceChildren(Object.assign(document.createElement('div'), { style: 'height: 1200px; flex: 0 0 1200px;' }));
+      const card = document.createElement('div');
+      card.innerHTML = '<div class="tool-execution-card"><span class="tool-card-badge"></span><div class="tool-card-collapsible-body"><div style="height: 80px;"></div></div></div>';
+      messagesList.appendChild(card);
+      window.__desktopPermissionCard = card;
+      window.__desktopPermissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'bash' } }, {
+        args: { command: 'git status' }
+      });
+    });
+    await page.click('.btn-auth-more');
+    await page.waitForFunction(() => {
+      const menu = window.__desktopPermissionCard.querySelector('.tool-auth-more-menu');
+      const list = document.getElementById('messages-list');
+      return menu.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1;
+    });
+    const layout = await page.evaluate(() => {
+      const card = window.__desktopPermissionCard.querySelector('.tool-execution-card');
+      const menu = window.__desktopPermissionCard.querySelector('.tool-auth-more-menu');
+      return {
+        cardOverflow: getComputedStyle(card).overflow,
+        menuPosition: getComputedStyle(menu).position
+      };
+    });
+    assert.equal(layout.cardOverflow, 'visible');
+    assert.equal(layout.menuPosition, 'absolute');
+    await page.click('.btn-auth-deny');
+    await page.evaluate(async () => {
+      await window.__desktopPermissionDecision;
+      window.__desktopPermissionCard.remove();
+    });
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar su activación', async () => {
   const browser = await createTestBrowser();
   try {
@@ -473,4 +640,3 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
   }
 });
 });
-

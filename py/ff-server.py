@@ -151,7 +151,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
@@ -169,6 +169,42 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if is_valid:
             mark_browser_active()
         return is_valid
+
+    def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
+        """Validate and atomically consume an authorization for one tool call."""
+        session_id = self.headers.get("X-ZeroChat-Tool-Session", "")
+        expires_raw = self.headers.get("X-ZeroChat-Tool-Expires", "")
+        nonce = self.headers.get("X-ZeroChat-Tool-Nonce", "")
+        signature = self.headers.get("X-ZeroChat-Tool-Signature", "")
+        if (not isinstance(session_id, str) or len(session_id) > 128 or
+                not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22,128}", nonce) or
+                not isinstance(signature, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43,128}", signature)):
+            return "Missing or invalid tool authorization"
+        try:
+            expires_at = int(expires_raw)
+        except (TypeError, ValueError):
+            return "Missing or invalid tool authorization"
+        now_ms = int(time.time() * 1000)
+        if session_id != TOOL_AUTH_SESSION_ID or expires_at < now_ms or expires_at > now_ms + TOOL_AUTH_TTL_MS:
+            return "Expired or invalid tool authorization"
+        body_hash = hashlib.sha256(body).hexdigest()
+        signature_base = json.dumps(
+            [TOOL_AUTH_VERSION, session_id, "POST", request_path or "/", expires_at, nonce, body_hash],
+            separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+        expected = base64.urlsafe_b64encode(hmac.new(TOOL_AUTH_KEY, signature_base, hashlib.sha256).digest()).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(signature, expected):
+            return "Invalid tool authorization signature"
+        with TOOL_AUTH_NONCES_LOCK:
+            for value, expiry in list(TOOL_AUTH_NONCES.items()):
+                if expiry < now_ms:
+                    del TOOL_AUTH_NONCES[value]
+            if nonce in TOOL_AUTH_NONCES:
+                return "Tool authorization was already used"
+            if len(TOOL_AUTH_NONCES) >= TOOL_AUTH_MAX_NONCES:
+                return "Tool authorization cache is full"
+            TOOL_AUTH_NONCES[nonce] = expires_at
+        return None
 
     def do_OPTIONS(self):
         t0 = time.monotonic()
@@ -219,6 +255,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
 
+        # Browsers request this optional public resource without API credentials.
+        if path_clean == "/favicon.ico":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if not is_heartbeat:
             self._log_req("GET", safe_path)
 
@@ -252,12 +295,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
             return
 
-        # Status general
         res_data = json.dumps({
             "status": "active",
             "server": "ZeroChat Local Server",
             "version": VERSION,
+            "cwd": str(Path.cwd().resolve()),
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -380,6 +424,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 self._send_json_response(400, {"error": tool_args_error})
                 self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, tool_args_error)
                 return
+            auth_error = self.verify_tool_authorization(post_data, self.path.split("?", 1)[0].rstrip("/") or "/")
+            if auth_error:
+                self._send_json_response(403, {"error": auth_error})
+                self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, auth_error)
+                return
 
         req_path = self.path.split("?", 1)[0].rstrip("/")
 
@@ -418,6 +467,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}
+                    },
+                    "toolAuthorization": {
+                        "version": TOOL_AUTH_VERSION,
+                        "sessionId": TOOL_AUTH_SESSION_ID,
+                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
+                        "ttlMs": TOOL_AUTH_TTL_MS
                     }
                 }
             elif method == "tools/list":
@@ -447,14 +502,34 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {
                         "name": "ZeroChat Local Server",
-                        "version": VERSION
+                        "version": VERSION,
+                        "cwd": str(Path.cwd().resolve())
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}
+                    },
+                    "toolAuthorization": {
+                        "version": TOOL_AUTH_VERSION,
+                        "sessionId": TOOL_AUTH_SESSION_ID,
+                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
+                        "ttlMs": TOOL_AUTH_TTL_MS
                     }
                 }
             elif method == "tools/list":
-                result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
+                browser_availability = browser_action_availability()
+                tools = []
+                for definition in LOCAL_TOOLS_DEFINITIONS:
+                    item = dict(definition)
+                    if item.get("name") == "browser_action":
+                        item["availability"] = browser_availability
+                    tools.append(item)
+                result = {"tools": tools}
+            elif method == "tools/availability":
+                requested_name = params.get("name", "") if isinstance(params, dict) else ""
+                if requested_name != "browser_action":
+                    error = {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}
+                else:
+                    result = browser_action_availability()
             elif method == "tools/call":
                 tool_name = params.get("name", "") if isinstance(params, dict) else ""
                 tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
@@ -544,4 +619,3 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
-

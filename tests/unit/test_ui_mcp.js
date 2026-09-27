@@ -419,6 +419,29 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
   ChatToolSecurity.manager.clearAllAuthorizations();
 });
 
+test('ChatUIMcp - las revocaciones guardadas son botones de icono con tooltip accesible', () => {
+  const ChatToolSecurity = require('../../js/tool-security.js');
+  ChatToolSecurity.manager.clearAllAuthorizations();
+  ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', {
+    originalName: 'compact revoke test'
+  });
+
+  try {
+    const container = {
+      innerHTML: '',
+      querySelectorAll: () => []
+    };
+    ChatUIMcp.renderSavedAuthorizations({ savedAuthsList: container }, (key) => ChatI18n.t(key));
+
+    assert.match(container.innerHTML, /class="btn-revoke-auth"[^>]*title="Revocar"[^>]*aria-label="Revocar"/);
+    assert.match(container.innerHTML, /ui-icon/);
+    assert.doesNotMatch(container.innerHTML, /<span>Revocar<\/span>/);
+    assert.match(container.innerHTML, /mcp-auth-item[^>]*>\s*<button[^>]*btn-revoke-auth[\s\S]*?<div class="mcp-auth-item-info">/);
+  } finally {
+    ChatToolSecurity.manager.clearAllAuthorizations();
+  }
+});
+
 test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTranslations', () => {
   const originalLang = ChatI18n.getLanguage ? ChatI18n.getLanguage() : 'es';
   ChatI18n.setLanguage('es', false);

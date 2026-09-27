@@ -92,8 +92,25 @@ class ConsoleControl:
             if self.status_visible:
                 sys.stdout.write("\r\033[2K")
                 self.status_visible = False
-            print("\nComandos de consola: [h] ayuda · [n] Navegador · [x] salir ordenadamente\n", flush=True)
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"\nComandos de consola: {commands} · [x] salir ordenadamente\n", flush=True)
             print(self.parser.format_help().rstrip(), flush=True)
+            self.last_activity = time.monotonic()
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        with self.lock:
+            if self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            print("\nInformación:", flush=True)
+            for notice in notices:
+                print(f"- {notice}", flush=True)
+            print(flush=True)
             self.last_activity = time.monotonic()
 
     def _render_status(self):
@@ -103,7 +120,10 @@ class ConsoleControl:
         with self.lock:
             if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
                 return
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [n] Navegador · [x] salir")
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · {commands} · [x] salir")
             sys.stdout.flush()
             self.status_visible = True
 
@@ -117,6 +137,8 @@ class ConsoleControl:
         elif key.lower() == "n":
             if self.target_url:
                 launch_browser(self.target_url)
+        elif key.lower() == "i":
+            self.show_notices()
         elif key.lower() == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)

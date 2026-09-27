@@ -83,6 +83,9 @@
         </table>
       </div>
       <p><code>agent_checkpoint</code> lets the agent summarize findings and decide whether to continue researching or respond.</p>
+
+      <h3>Local host authorization</h3>
+      <p>Local-server tool calls are authorized in the interface and carry a single-use ephemeral seal. The server verifies that their content, destination, and validity period have not changed and rejects replays. The seal stays only in memory and is renewed when the server restarts; it does not replace permission review when a browser is compromised.</p>
     </div>
 
     <div class="card">

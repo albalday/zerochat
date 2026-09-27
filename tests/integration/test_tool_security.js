@@ -61,17 +61,30 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
   assert.throws(() => manager.setDirectoryRules(['X:./project/**']), /Regla de directorio inválida/);
 });
 
-test('ChatToolSecurity - La lista de directorios prevalece sobre allow_all para herramientas integradas', () => {
+test('ChatToolSecurity - La lista de directorios restringe herramientas de archivos en ausencia de allow_all', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_directory_over_global' });
-  manager.setGlobalMcpPolicy('allow_all');
+  manager.setDirectoryRules(['R:./allowed/**']);
   const tool = { id: 'read_file', name: 'read_file', category: 'mcp', metadata: { originalName: 'read_file' } };
+  assert.equal(manager.evaluateAuthorization(tool, { path: './allowed/data.txt' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'ask');
+
+  // En modo allow_all explícito, no se bloquea por reglas de directorio
+  manager.setGlobalMcpPolicy('allow_all');
+  assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'allow');
 });
 
-test('ChatToolSecurity - execute_command y bash aplican R/W a rutas simples y piden confirmación ante dudas', () => {
+test('ChatToolSecurity - execute_command y bash aplican constraints y bloquean encadenamiento no autorizado', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
-  manager.setGlobalMcpPolicy('allow_all');
-  manager.setDirectoryRules(['R:./workspace/**', 'W:./workspace/**']);
+  manager.setToolPolicy('execute_command', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['du -sh ./workspace', 'rm ./workspace/'],
+        allowChaining: false,
+        allowPipes: true,
+        deniedPatterns: ['/etc/passwd']
+      }
+    }
+  });
   const tool = { id: 'execute_command', name: 'execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
   const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
 
@@ -297,24 +310,40 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
     }
   });
 
-  // 1. La sintaxis de shell ambigua vuelve a pedir confirmación aunque exista un prefijo recordado.
+  // 1. Con allowPipes: true, los pipes no vuelven a pedir confirmación innecesaria
   const evalPiped = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh * | sort -hr' });
-  assert.equal(evalPiped.status, 'ask');
-  assert.equal(evalPiped.requiresApproval, true);
+  assert.equal(evalPiped.status, 'allow');
+  assert.equal(evalPiped.requiresApproval, false);
 
-  // 2. Las redirecciones también requieren confirmación puntual.
-  const evalRedirect = manager.evaluateAuthorization(canonicalTool, { command: 'du -h --max-depth=1 2>&1' });
-  assert.equal(evalRedirect.status, 'ask');
-  assert.equal(evalRedirect.requiresApproval, true);
+  // 2. Si allowPipes es false, los pipes sí requieren confirmación
+  manager.setToolConstraints(canonicalTool.id, {
+    command: {
+      allowedPrefixes: ['du ', 'du'],
+      allowChaining: false,
+      allowPipes: false
+    }
+  });
+  const evalPipedBlocked = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh * | sort -hr' });
+  assert.equal(evalPipedBlocked.status, 'ask');
+  assert.equal(evalPipedBlocked.requiresApproval, true);
+
+  // Restaurar allowPipes: true
+  manager.setToolConstraints(canonicalTool.id, {
+    command: {
+      allowedPrefixes: ['du ', 'du'],
+      allowChaining: false,
+      allowPipes: true
+    }
+  });
 
   // Los nombres no autorizados no heredan permisos del nombre canónico.
   assert.equal(manager.getToolPolicy('other_command'), null);
   assert.equal(manager.evaluateAuthorization('mcp_external_cmd', {}).requiresApproval, true);
 
-  // 5. Una ruta de trabajo sin regla R exige confirmación aunque el ejecutable esté permitido.
-  const evalAbsPath = manager.evaluateAuthorization(canonicalTool, { command: '/usr/bin/du -sh .' });
-  assert.equal(evalAbsPath.status, 'ask');
-  assert.equal(evalAbsPath.requiresApproval, true);
+  // 5. Un comando completamente fuera de los prefijos autorizados exige confirmación
+  const evalUnrelatedCmd = manager.evaluateAuthorization(canonicalTool, { command: 'curl -s https://evil.com' });
+  assert.equal(evalUnrelatedCmd.status, 'ask');
+  assert.equal(evalUnrelatedCmd.requiresApproval, true);
 
   // 6. Intento de inyección maliciosa secuencial con ';' -> debe exigir aprobación (ask)
   const evalSeqAttack = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh . ; rm -rf /' });
@@ -344,21 +373,21 @@ test('ChatToolSecurity - Permisos recordados en herramientas integradas de archi
     const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
     const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
 
-    // 1. Sin permisos ni reglas de directorio, pide autorización
-    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    // 1. Sin permisos específicos ni coincidencia de directorio externo, pide autorización
+    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalBefore.requiresApproval, true);
     assert.equal(evalBefore.status, 'ask');
 
     // 2. El usuario autoriza permanentemente la herramienta (allow)
     manager1.setToolPolicy('read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
-    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalAfterAllow.requiresApproval, false);
     assert.equal(evalAfterAllow.status, 'allow');
 
     // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
     const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
     assert.equal(manager2.getToolPolicy('read_file'), 'allow');
-    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: 'src/main.js' });
+    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
     assert.equal(evalReloaded.requiresApproval, false);
     assert.equal(evalReloaded.status, 'allow');
   } finally {
@@ -407,7 +436,8 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
     category: 'mcp'
   };
 
-  // 1. Sin reglas ni autorización, pide aprobación
+  // 1. Si la regla no cubre la carpeta actual '.', pide aprobación
+  manager.setDirectoryRules(['R:/tmp/custom-isolated-dir/**']);
   const evalNoRules = manager.evaluateAuthorization(listTool, {});
   assert.equal(evalNoRules.requiresApproval, true);
   assert.equal(evalNoRules.status, 'ask');
@@ -421,13 +451,8 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
   assert.equal(evalWithRule.status, 'allow');
 });
 
-test('ChatToolSecurity - Sesión acotada por token y purga de sesiones antiguas', () => {
-  const mockStorage = {
-    'chat_tool_security': JSON.stringify({ legacy: true }),
-    'zc_sec_old_token_1': JSON.stringify({ old: 1 }),
-    'zc_sec_old_token_2': JSON.stringify({ old: 2 })
-  };
-
+test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaciones permanentes', () => {
+  const mockStorage = {};
   const previousLocalStorage = global.localStorage;
   global.localStorage = {
     getItem: (k) => mockStorage[k] || null,
@@ -438,23 +463,38 @@ test('ChatToolSecurity - Sesión acotada por token y purga de sesiones antiguas'
   };
 
   try {
-    // Al inicializar con token nuevo 'token_active_123', debe purgar las anteriores
-    const manager = new ChatToolSecurity.ToolSecurityManager({ sessionToken: 'token_active_123' });
-    assert.equal(manager.storageKey, 'zc_sec_token_active_123');
+    const manager = new ChatToolSecurity.ToolSecurityManager({
+      storageKey: 'test_sec_v3_session_test',
+      sessionToken: 'token_active_123'
+    });
 
-    // Comprobar que se purgaron las viejas y la legacy
-    assert.equal(mockStorage['chat_tool_security'], undefined);
-    assert.equal(mockStorage['zc_sec_old_token_1'], undefined);
-    assert.equal(mockStorage['zc_sec_old_token_2'], undefined);
+    // 1. Guardar una regla permanente y otra de sesión
+    manager.setToolPolicy('perm_tool', 'allow', { scope: 'permanent' });
+    manager.setToolPolicy('session_tool', 'allow', { scope: 'session' });
+    manager.setServerPolicy('server_session', 'allow', { scope: 'session' });
+    manager.setServerPolicy('server_perm', 'allow', { scope: 'permanent' });
 
-    // Guardar una regla en la sesión activa
-    manager.setToolPolicy('read_file', 'allow');
-    assert.ok(mockStorage['zc_sec_token_active_123']);
+    assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
+    assert.equal(manager.getToolPolicy('session_tool'), 'allow');
+    assert.equal(manager.getServerPolicy('server_session'), 'allow');
+    assert.equal(manager.getServerPolicy('server_perm'), 'allow');
 
-    // Si cambia el token de sesión a 'token_new_456', purga 'token_active_123'
+    // 2. Si cambia el token de sesión, expiran las de sesión pero se preservan las permanentes
     manager.setSessionToken('token_new_456');
-    assert.equal(mockStorage['zc_sec_token_active_123'], undefined);
-    assert.equal(manager.getToolPolicy('read_file'), null, 'Sesión nueva arranca limpia');
+
+    assert.equal(manager.getToolPolicy('session_tool'), null, 'La autorización de sesión expira');
+    assert.equal(manager.getServerPolicy('server_session'), null, 'El servidor de sesión expira');
+    assert.equal(manager.getToolPolicy('perm_tool'), 'allow', 'La autorización permanente se conserva');
+    assert.equal(manager.getServerPolicy('server_perm'), 'allow', 'El servidor permanente se conserva');
+
+    // 3. Crear una nueva instancia con el mismo storageKey: carga las permanentes del almacenamiento
+    const manager2 = new ChatToolSecurity.ToolSecurityManager({
+      storageKey: 'test_sec_v3_session_test',
+      sessionToken: 'token_fresh_789'
+    });
+    assert.equal(manager2.getToolPolicy('perm_tool'), 'allow');
+    assert.equal(manager2.getServerPolicy('server_perm'), 'allow');
+    assert.equal(manager2.getToolPolicy('session_tool'), null);
   } finally {
     if (previousLocalStorage === undefined) delete global.localStorage;
     else global.localStorage = previousLocalStorage;
@@ -514,5 +554,181 @@ test('ChatToolSecurity - Comandos autorizados soportan rutas relativas y argumen
   assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 scripts/take_screenshot.py' }).status, 'allow');
 });
 
+test('ChatToolSecurity - Política a nivel de servidor MCP autoriza todas sus herramientas', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_server_policy' });
+  const tool1 = { id: 'mcp_playwright_navigate', name: 'navigate', metadata: { mcpServerId: 'playwright', mcpServerName: 'Playwright' } };
+  const tool2 = { id: 'mcp_playwright_click', name: 'click', metadata: { mcpServerId: 'playwright', mcpServerName: 'Playwright' } };
+  const otherTool = { id: 'mcp_github_issue', name: 'issue', metadata: { mcpServerId: 'github', mcpServerName: 'GitHub' } };
+
+  // Inicialmente piden confirmación
+  assert.equal(manager.evaluateAuthorization(tool1, {}).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(tool2, {}).status, 'ask');
+
+  // Autorizar el servidor completo
+  manager.setServerPolicy('playwright', 'allow', { serverName: 'Playwright' });
+  assert.equal(manager.getServerPolicy('playwright'), 'allow');
+
+  // Todas las herramientas del servidor quedan autorizadas sin preguntar
+  assert.equal(manager.evaluateAuthorization(tool1, {}).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(tool2, {}).status, 'allow');
+
+  // Herramientas de otro servidor siguen pidiendo confirmación
+  assert.equal(manager.evaluateAuthorization(otherTool, {}).status, 'ask');
+
+  // Lista de servidores autorizados
+  const servers = manager.listAuthorizedServers();
+  assert.equal(servers.length, 1);
+  assert.equal(servers[0].serverId, 'playwright');
+
+  // Revocar el servidor
+  manager.revokeServerPolicy('playwright');
+  assert.equal(manager.getServerPolicy('playwright'), null);
+  assert.equal(manager.evaluateAuthorization(tool1, {}).status, 'ask');
+});
+
+test('ChatToolSecurity - Política workspace_trust autoriza comandos y archivos locales pero bloquea traversal', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_workspace_trust' });
+  manager.setGlobalMcpPolicy('workspace_trust');
+
+  const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
+  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+
+  // Comandos y lecturas locales del workspace están permitidas
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls -la' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git status --short' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'npm test' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(readFileTool, { path: 'src/index.js' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(readFileTool, { path: './package.json' }).status, 'allow');
+
+  // Intentos de acceso fuera del workspace o comandos globales piden confirmación
+  assert.equal(manager.evaluateAuthorization(readFileTool, { path: '../../etc/shadow' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(readFileTool, { path: '/etc/passwd' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'sudo rm -rf /' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cat /etc/shadow' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls ../../' }).status, 'ask');
+});
+
+test('ChatToolSecurity - Permitir prefijo cd * autoriza comandos encadenados y navegación sin re-preguntar', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cd_chaining' });
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+
+  // 1. Simular la autorización que genera el botón "Permitir siempre cd *"
+  manager.setToolPolicy('bash', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['cd'],
+        allowChaining: true,
+        allowPipes: true
+      }
+    }
+  });
+
+  // Comando complejo encadenado con && y bucle for / pipes
+  const complexCmd = "cd /home/alberto/vs/zerochat && for c in 4907cc8 fcc2c85 f4a30a8; do echo \"=== $c ===\"; git show --stat $c | head -5; done";
+  const evalComplex = manager.evaluateAuthorization(bashTool, { command: complexCmd });
+  assert.equal(evalComplex.status, 'allow', 'Debe permitir el comando encadenado que empieza con cd');
+  assert.equal(evalComplex.requiresApproval, false);
+
+  // Comando con git status encadenado tras cd
+  const evalGitChained = manager.evaluateAuthorization(bashTool, { command: 'cd /home/alberto/vs/zerochat && git status --short && git diff' });
+  assert.equal(evalGitChained.status, 'allow');
+  assert.equal(evalGitChained.requiresApproval, false);
+
+  // 2. Resiliencia: si un registro previo guardó allowChaining: false pero tiene prefijo cd, cd debe permitir encadenamiento
+  manager.setToolPolicy('bash', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['cd'],
+        allowChaining: false, // Forzar false para probar la corrección automática
+        allowPipes: true
+      }
+    }
+  });
+  const evalAfterFalse = manager.evaluateAuthorization(bashTool, { command: complexCmd });
+  assert.equal(evalAfterFalse.status, 'allow', 'Prefijo cd no debe ser bloqueado por allowChaining: false');
+  assert.equal(evalAfterFalse.requiresApproval, false);
+});
+
+test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundario si está en allowedPrefixes', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cd_subcmd' });
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+
+  // El usuario autoriza permanentemente "git"
+  manager.setToolPolicy('bash', 'allow', {
+    constraints: {
+      command: {
+        allowedPrefixes: ['git'],
+        allowChaining: true,
+        allowPipes: true
+      }
+    }
+  });
+
+  // Si el agente ejecuta "cd /repo && git status", debe permitirse porque el comando ejecutado tras cd es "git"
+  const evalChainedGit = manager.evaluateAuthorization(bashTool, { command: 'cd /home/alberto/vs/zerochat && git status --short' });
+  assert.equal(evalChainedGit.status, 'allow');
+  assert.equal(evalChainedGit.requiresApproval, false);
+
+  // Pero si el comando tras cd es otro no autorizado (e.g. rm), debe pedir confirmación
+  const evalChainedRm = manager.evaluateAuthorization(bashTool, { command: 'cd /home/alberto/vs/zerochat && rm -rf target' });
+  assert.equal(evalChainedRm.status, 'ask');
+  assert.equal(evalChainedRm.requiresApproval, true);
+});
+
+test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restricciones estrictas en modo ask', () => {
+  const customStartupDir = '/home/user/myproject';
+  const manager = new ChatToolSecurity.ToolSecurityManager({
+    storageKey: 'test_sec_default_startup_dir',
+    startupDirectory: customStartupDir
+  });
+
+  // 1. Por defecto, si no hay definición, se inyecta R:<startup_directory>
+  assert.equal(manager.getGlobalMcpPolicy(), 'ask');
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${customStartupDir}`]);
+
+  const readTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
+  const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp' };
+  const editTool = { id: 'edit_file', name: 'edit_file', category: 'mcp' };
+  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+
+  // 2. Lectura dentro del directorio de arranque: permitida directamente
+  const evalReadInternal = manager.evaluateAuthorization(readTool, { path: `${customStartupDir}/src/app.py` });
+  assert.equal(evalReadInternal.status, 'allow');
+  assert.equal(evalReadInternal.requiresApproval, false);
+
+  // 3. Lectura con ruta relativa respecto al directorio de arranque: permitida directamente
+  const evalReadRel = manager.evaluateAuthorization(readTool, { path: 'src/app.py' });
+  assert.equal(evalReadRel.status, 'allow');
+  assert.equal(evalReadRel.requiresApproval, false);
+
+  // 4. Modificación o creación (escritura) en el directorio de arranque: requiere autorización (solo R: por defecto)
+  const evalWriteInternal = manager.evaluateAuthorization(writeTool, { path: `${customStartupDir}/src/app.py`, content: 'x' });
+  assert.equal(evalWriteInternal.status, 'ask');
+  assert.equal(evalWriteInternal.requiresApproval, true);
+
+  const evalEditRel = manager.evaluateAuthorization(editTool, { path: 'src/app.py' });
+  assert.equal(evalEditRel.status, 'ask');
+  assert.equal(evalEditRel.requiresApproval, true);
+
+  // 5. Lectura fuera del directorio de arranque: requiere autorización
+  const evalReadExternal = manager.evaluateAuthorization(readTool, { path: '/etc/passwd' });
+  assert.equal(evalReadExternal.status, 'ask');
+  assert.equal(evalReadExternal.requiresApproval, true);
+
+  // 6. Ejecución de comandos en modo ask: requiere autorización
+  const evalBash = manager.evaluateAuthorization(bashTool, { command: 'ls -la' });
+  assert.equal(evalBash.status, 'ask');
+  assert.equal(evalBash.requiresApproval, true);
+
+  // 7. Si se vacían las reglas explícitamente, se restaura por defecto R:<startup_directory>
+  manager.setDirectoryRules([]);
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${customStartupDir}`]);
+
+  // 8. Actualizar el directorio de arranque migra la regla por defecto
+  const updatedDir = '/home/user/otherproject';
+  manager.setStartupDirectory(updatedDir);
+  assert.equal(manager.getStartupDirectory(), updatedDir);
+  assert.deepEqual(manager.getDirectoryRules(), [`R:${updatedDir}`]);
+});
 
 

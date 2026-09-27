@@ -46,7 +46,7 @@
         <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Two Ways to Launch: Standalone Web vs. Local Backend</h3>
         <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
           <li>
-            <strong><code>zerochat.html</code> (Direct Web / PWA):</strong> Opens directly in any desktop or mobile browser (specifically optimized for Android as an installable PWA). By default it uses dark mode and, on mobile, keeps the conversation panel closed to prioritize the chat; both can be changed from the interface controls. Delivers commercial or local inference (WebLLM/WebGPU), in-browser RAG knowledge bases (Orama), Agent mode with a secure JS sandbox, and private IndexedDB storage without requiring Python, a terminal, or installation. To install it as an app, use the download button in the sidebar header; ZeroChat does not show automatic installation prompts.
+            <strong><code>zerochat.html</code> (Direct Web / PWA):</strong> Opens directly in any desktop or mobile browser (specifically optimized for Android as an installable PWA). By default it uses dark mode and, on mobile, keeps the conversation panel closed to prioritize the chat; both can be changed from the interface controls. Delivers commercial or local inference (WebLLM/WebGPU), in-browser RAG knowledge bases (Orama), Agent mode with a secure JS sandbox, and private IndexedDB storage without requiring Python, a terminal, or installation. PWA installation is available through the browser’s own options when supported. ZeroChat does not offer installation buttons or prompts, including when opened from this help page.
           </li>
           <li>
             <strong><code>zerochat.py</code> (Local with Python backend):</strong> Background local server (port 6388 with a secure ephemeral token). Extends the web app with host operating system control: reading and editing local project files, executing terminal commands, and connecting external MCP servers (Playwright, LSP, memory).
@@ -143,6 +143,16 @@
           <div class="feature-title">MCP Protocol</div>
           <div class="feature-desc">Local server with file and terminal tools, external MCP services, and permission controls.</div>
           <div class="feature-link">View detailed guide →</div>
+        </a>
+
+        <!-- Browser automation -->
+        <a href="browser-action.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><circle cx="8" cy="8" r="1"/></svg>
+          </div>
+          <div class="feature-title">Browser automation</div>
+          <div class="feature-desc">Install browser_action's requirements to browse and take screenshots with Playwright.</div>
+          <div class="feature-link">View installation guide →</div>
         </a>
 
         <!-- 7. Debugging & Logs -->

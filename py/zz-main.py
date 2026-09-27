@@ -4,6 +4,7 @@
 
 def main():
     global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
@@ -17,6 +18,9 @@ def main():
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
+    # Los avisos no persisten entre ejecuciones del servidor.
+    reset_notices()
+
     if args.test:
         print(f"[{time.strftime('%H:%M:%S')}] TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
         print(f"[{time.strftime('%H:%M:%S')}] TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}")
@@ -27,6 +31,14 @@ def main():
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
     if not args.no_venv:
         ensure_virtual_environment()
+
+    browser_availability = browser_action_availability()
+    if not browser_availability.get("available"):
+        add_notice(
+            "browser_action no está disponible y permanecerá desactivada. "
+            "Instala Node.js, Playwright y Chromium: "
+            "https://albalday.github.io/zerochat/help/browser-action.html"
+        )
 
     # 2. Detectar entorno de desarrollo y resolver URL de destino
     dev_root = get_dev_root()
@@ -44,6 +56,11 @@ def main():
         SESSION_TOKEN = args.token
     else:
         SESSION_TOKEN = get_daily_token()
+    # A restart deliberately invalidates every browser-side signing credential.
+    TOOL_AUTH_KEY = secrets.token_bytes(32)
+    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+    with TOOL_AUTH_NONCES_LOCK:
+        TOOL_AUTH_NONCES = {}
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
 

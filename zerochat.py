@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import ast
 import atexit
+import base64
 import datetime
 import fnmatch
+import hashlib
 import hmac
 import importlib.metadata
 import json
@@ -40,7 +42,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "7.11.0"
+SOURCE_BACKEND_VERSION = "7.12.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -96,7 +98,8 @@ PYPI_VERSION_URL = "https://pypi.org/pypi/zerochat/json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
-
+NOTICES: list[str] = []
+NOTICES_LOCK = threading.Lock()
 
 def format_uptime(seconds: float) -> str:
     """Devuelve una duración breve y estable para la línea de estado de consola."""
@@ -191,8 +194,25 @@ class ConsoleControl:
             if self.status_visible:
                 sys.stdout.write("\r\033[2K")
                 self.status_visible = False
-            print("\nComandos de consola: [h] ayuda · [n] Navegador · [x] salir ordenadamente\n", flush=True)
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"\nComandos de consola: {commands} · [x] salir ordenadamente\n", flush=True)
             print(self.parser.format_help().rstrip(), flush=True)
+            self.last_activity = time.monotonic()
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        with self.lock:
+            if self.status_visible:
+                sys.stdout.write("\r\033[2K")
+                self.status_visible = False
+            print("\nInformación:", flush=True)
+            for notice in notices:
+                print(f"- {notice}", flush=True)
+            print(flush=True)
             self.last_activity = time.monotonic()
 
     def _render_status(self):
@@ -202,7 +222,10 @@ class ConsoleControl:
         with self.lock:
             if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
                 return
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · [h] ayuda · [n] Navegador · [x] salir")
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · {commands} · [x] salir")
             sys.stdout.flush()
             self.status_visible = True
 
@@ -216,6 +239,8 @@ class ConsoleControl:
         elif key.lower() == "n":
             if self.target_url:
                 launch_browser(self.target_url)
+        elif key.lower() == "i":
+            self.show_notices()
         elif key.lower() == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)
@@ -282,6 +307,26 @@ def get_venv_dir() -> Path:
     return get_data_dir() / ".venv"
 
 
+def reset_notices():
+    """Reinicia los avisos transitorios de la ejecución actual."""
+    with NOTICES_LOCK:
+        NOTICES.clear()
+
+
+def add_notice(message: str):
+    """Añade un aviso para la consola interactiva de la ejecución actual."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("El aviso debe ser texto no vacío")
+    with NOTICES_LOCK:
+        NOTICES.append(message.strip())
+
+
+def get_notices() -> tuple[str, ...]:
+    """Devuelve una instantánea inmutable de los avisos actuales."""
+    with NOTICES_LOCK:
+        return tuple(NOTICES)
+
+
 def get_daily_token() -> str:
     """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
     config_dir = get_data_dir() / "config"
@@ -309,6 +354,16 @@ def get_daily_token() -> str:
 SESSION_TOKEN = get_daily_token()
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
+
+# Kept only for this Python process: binds an approved browser tool call to
+# the exact JSON-RPC bytes sent to the local host.
+TOOL_AUTH_VERSION = "zerochat-tool-auth-v1"
+TOOL_AUTH_TTL_MS = 30_000
+TOOL_AUTH_MAX_NONCES = 10_000
+TOOL_AUTH_KEY = secrets.token_bytes(32)
+TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+TOOL_AUTH_NONCES: dict[str, int] = {}
+TOOL_AUTH_NONCES_LOCK = threading.Lock()
 
 DETECTED_OS = "windows" if sys.platform.startswith("win") else ("android" if "ANDROID_ROOT" in os.environ else "linux")
 
@@ -381,16 +436,15 @@ def check_version():
         installed = is_installed_runtime()
         remote_ver = _read_remote_version(PYPI_VERSION_URL if installed else REMOTE_VERSION_URL)
         if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver) and has_new_backend_version(remote_ver):
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Nueva versión del servidor disponible (Local: {VERSION}, Remota: {compatibility_version(remote_ver)})", flush=True)
+            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_ver)})."
             if installed:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat", flush=True)
+                notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
             else:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
+                notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
+            add_notice(notice)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
-
-
 # ==============================================================================
 # Herramientas Locales Core
 # ==============================================================================
@@ -1163,6 +1217,38 @@ try {
 _BROWSER_SESSION = PersistentBrowserSession()
 
 
+def browser_action_availability() -> dict:
+    """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
+    if not shutil.which("node"):
+        return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
+    playwright_locations = (
+        Path.cwd() / "node_modules" / "playwright",
+        get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+    )
+    if not any(location.is_dir() for location in playwright_locations):
+        return {"available": False, "error": "Playwright is not available."}
+    browser_commands = (
+        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+        "msedge", "msedge.exe", "chrome", "chrome.exe"
+    )
+    if sys.platform == "darwin":
+        playwright_cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform.startswith("win"):
+        playwright_cache = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ms-playwright"
+    else:
+        playwright_cache = Path.home() / ".cache" / "ms-playwright"
+    try:
+        has_playwright_browser = playwright_cache.is_dir() and any(
+            child.is_dir() and child.name.startswith("chromium")
+            for child in playwright_cache.iterdir()
+        )
+    except OSError:
+        has_playwright_browser = False
+    if has_playwright_browser or any(shutil.which(command) for command in browser_commands):
+        return {"available": True}
+    return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
     """Control a headless browser for UI testing and visual inspection."""
     try:
@@ -1321,7 +1407,6 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
-
 # ==============================================================================
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
@@ -2202,7 +2287,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return
         self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Tool-Session, X-ZeroChat-Tool-Expires, X-ZeroChat-Tool-Nonce, X-ZeroChat-Tool-Signature")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def verify_token(self) -> bool:
@@ -2220,6 +2305,42 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if is_valid:
             mark_browser_active()
         return is_valid
+
+    def verify_tool_authorization(self, body: bytes, request_path: str) -> str | None:
+        """Validate and atomically consume an authorization for one tool call."""
+        session_id = self.headers.get("X-ZeroChat-Tool-Session", "")
+        expires_raw = self.headers.get("X-ZeroChat-Tool-Expires", "")
+        nonce = self.headers.get("X-ZeroChat-Tool-Nonce", "")
+        signature = self.headers.get("X-ZeroChat-Tool-Signature", "")
+        if (not isinstance(session_id, str) or len(session_id) > 128 or
+                not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22,128}", nonce) or
+                not isinstance(signature, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43,128}", signature)):
+            return "Missing or invalid tool authorization"
+        try:
+            expires_at = int(expires_raw)
+        except (TypeError, ValueError):
+            return "Missing or invalid tool authorization"
+        now_ms = int(time.time() * 1000)
+        if session_id != TOOL_AUTH_SESSION_ID or expires_at < now_ms or expires_at > now_ms + TOOL_AUTH_TTL_MS:
+            return "Expired or invalid tool authorization"
+        body_hash = hashlib.sha256(body).hexdigest()
+        signature_base = json.dumps(
+            [TOOL_AUTH_VERSION, session_id, "POST", request_path or "/", expires_at, nonce, body_hash],
+            separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+        expected = base64.urlsafe_b64encode(hmac.new(TOOL_AUTH_KEY, signature_base, hashlib.sha256).digest()).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(signature, expected):
+            return "Invalid tool authorization signature"
+        with TOOL_AUTH_NONCES_LOCK:
+            for value, expiry in list(TOOL_AUTH_NONCES.items()):
+                if expiry < now_ms:
+                    del TOOL_AUTH_NONCES[value]
+            if nonce in TOOL_AUTH_NONCES:
+                return "Tool authorization was already used"
+            if len(TOOL_AUTH_NONCES) >= TOOL_AUTH_MAX_NONCES:
+                return "Tool authorization cache is full"
+            TOOL_AUTH_NONCES[nonce] = expires_at
+        return None
 
     def do_OPTIONS(self):
         t0 = time.monotonic()
@@ -2270,6 +2391,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
             return
 
+        # Browsers request this optional public resource without API credentials.
+        if path_clean == "/favicon.ico":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if not is_heartbeat:
             self._log_req("GET", safe_path)
 
@@ -2303,12 +2431,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
             return
 
-        # Status general
         res_data = json.dumps({
             "status": "active",
             "server": "ZeroChat Local Server",
             "version": VERSION,
+            "cwd": str(Path.cwd().resolve()),
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
+            "browser_action": browser_action_availability(),
             "os": DETECTED_OS
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -2431,6 +2560,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 self._send_json_response(400, {"error": tool_args_error})
                 self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, tool_args_error)
                 return
+            auth_error = self.verify_tool_authorization(post_data, self.path.split("?", 1)[0].rstrip("/") or "/")
+            if auth_error:
+                self._send_json_response(403, {"error": auth_error})
+                self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, auth_error)
+                return
 
         req_path = self.path.split("?", 1)[0].rstrip("/")
 
@@ -2469,6 +2603,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}
+                    },
+                    "toolAuthorization": {
+                        "version": TOOL_AUTH_VERSION,
+                        "sessionId": TOOL_AUTH_SESSION_ID,
+                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
+                        "ttlMs": TOOL_AUTH_TTL_MS
                     }
                 }
             elif method == "tools/list":
@@ -2498,14 +2638,34 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {
                         "name": "ZeroChat Local Server",
-                        "version": VERSION
+                        "version": VERSION,
+                        "cwd": str(Path.cwd().resolve())
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}
+                    },
+                    "toolAuthorization": {
+                        "version": TOOL_AUTH_VERSION,
+                        "sessionId": TOOL_AUTH_SESSION_ID,
+                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
+                        "ttlMs": TOOL_AUTH_TTL_MS
                     }
                 }
             elif method == "tools/list":
-                result = {"tools": list(LOCAL_TOOLS_DEFINITIONS)}
+                browser_availability = browser_action_availability()
+                tools = []
+                for definition in LOCAL_TOOLS_DEFINITIONS:
+                    item = dict(definition)
+                    if item.get("name") == "browser_action":
+                        item["availability"] = browser_availability
+                    tools.append(item)
+                result = {"tools": tools}
+            elif method == "tools/availability":
+                requested_name = params.get("name", "") if isinstance(params, dict) else ""
+                if requested_name != "browser_action":
+                    error = {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}
+                else:
+                    result = browser_action_availability()
             elif method == "tools/call":
                 tool_name = params.get("name", "") if isinstance(params, dict) else ""
                 tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
@@ -2595,7 +2755,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
         pass
-
 def is_termux_environment() -> bool:
     """Devuelve si el proceso se ejecuta dentro de la instalación de Termux."""
     termux_prefix = "/data/data/com.termux/files/usr"
@@ -2752,6 +2911,7 @@ def launch_browser(url: str) -> bool:
 
 def main():
     global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL
+    global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
@@ -2765,6 +2925,9 @@ def main():
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     args = parser.parse_args()
 
+    # Los avisos no persisten entre ejecuciones del servidor.
+    reset_notices()
+
     if args.test:
         print(f"[{time.strftime('%H:%M:%S')}] TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
         print(f"[{time.strftime('%H:%M:%S')}] TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}")
@@ -2775,6 +2938,14 @@ def main():
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
     if not args.no_venv:
         ensure_virtual_environment()
+
+    browser_availability = browser_action_availability()
+    if not browser_availability.get("available"):
+        add_notice(
+            "browser_action no está disponible y permanecerá desactivada. "
+            "Instala Node.js, Playwright y Chromium: "
+            "https://albalday.github.io/zerochat/help/browser-action.html"
+        )
 
     # 2. Detectar entorno de desarrollo y resolver URL de destino
     dev_root = get_dev_root()
@@ -2792,6 +2963,11 @@ def main():
         SESSION_TOKEN = args.token
     else:
         SESSION_TOKEN = get_daily_token()
+    # A restart deliberately invalidates every browser-side signing credential.
+    TOOL_AUTH_KEY = secrets.token_bytes(32)
+    TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+    with TOOL_AUTH_NONCES_LOCK:
+        TOOL_AUTH_NONCES = {}
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
 

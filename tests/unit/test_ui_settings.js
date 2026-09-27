@@ -16,6 +16,8 @@ test('UISettings - sitúa los permisos de ejecución MCP en su propia sección s
   assert.match(settingsHtml, /id="mcp-directory-rules"/);
   assert.equal(settingsHtml.includes('id="btn-mcp-save-directory-rules"'), false, 'Las reglas de directorios se guardan con el formulario general');
   assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
+  assert.match(settingsHtml, /id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths"/);
+  assert.match(settingsHtml, /id="btn-mcp-clear-auths"[\s\S]*?<svg class="ui-icon"/);
   assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
   assert.match(settingsHtml, /id="settings-section-title"/);
   assert.match(settingsHtml, /id="btn-save-settings"[^>]*class="btn-primary btn-save-header"/);
@@ -399,4 +401,45 @@ test('UISettings - mount enlaza eventos del formulario y dispose los desvincula'
 
   UISettings.dispose();
   assert.equal(listeners.submit, undefined);
+});
+
+test('UISettings - saveCurrentSettings persiste la política global MCP seleccionada', async () => {
+  const originalToolSecurity = global.ChatToolSecurity;
+  const originalConfig = global.ChatConfig;
+  let savedPolicy = null;
+
+  global.ChatToolSecurity = {
+    manager: {
+      setGlobalMcpPolicy: (policy) => { savedPolicy = policy; },
+      setDirectoryRules: () => []
+    }
+  };
+  global.ChatConfig = {
+    updateRuntime: (cfg) => cfg
+  };
+
+  const dialog = {
+    dataset: {},
+    close: () => {},
+    querySelector: (selector) => {
+      if (selector === 'input[name="mcp-global-policy"]:checked') {
+        return { value: 'ask' };
+      }
+      return null;
+    }
+  };
+  const elements = {
+    settingsDialog: dialog
+  };
+
+  try {
+    const success = await UISettings.saveCurrentSettings(elements, {}, {}, true);
+    assert.equal(success, true);
+    assert.equal(savedPolicy, 'ask');
+  } finally {
+    if (originalToolSecurity === undefined) delete global.ChatToolSecurity;
+    else global.ChatToolSecurity = originalToolSecurity;
+    if (originalConfig === undefined) delete global.ChatConfig;
+    else global.ChatConfig = originalConfig;
+  }
 });

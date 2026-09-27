@@ -770,6 +770,38 @@ try {
 _BROWSER_SESSION = PersistentBrowserSession()
 
 
+def browser_action_availability() -> dict:
+    """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
+    if not shutil.which("node"):
+        return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
+    playwright_locations = (
+        Path.cwd() / "node_modules" / "playwright",
+        get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+    )
+    if not any(location.is_dir() for location in playwright_locations):
+        return {"available": False, "error": "Playwright is not available."}
+    browser_commands = (
+        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+        "msedge", "msedge.exe", "chrome", "chrome.exe"
+    )
+    if sys.platform == "darwin":
+        playwright_cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform.startswith("win"):
+        playwright_cache = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ms-playwright"
+    else:
+        playwright_cache = Path.home() / ".cache" / "ms-playwright"
+    try:
+        has_playwright_browser = playwright_cache.is_dir() and any(
+            child.is_dir() and child.name.startswith("chromium")
+            for child in playwright_cache.iterdir()
+        )
+    except OSError:
+        has_playwright_browser = False
+    if has_playwright_browser or any(shutil.which(command) for command in browser_commands):
+        return {"available": True}
+    return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
     """Control a headless browser for UI testing and visual inspection."""
     try:
@@ -928,4 +960,3 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
-

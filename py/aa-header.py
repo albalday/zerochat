@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import ast
 import atexit
+import base64
 import datetime
 import fnmatch
+import hashlib
 import hmac
 import importlib.metadata
 import json
@@ -40,7 +42,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "7.11.0"
+SOURCE_BACKEND_VERSION = "7.12.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -96,4 +98,5 @@ PYPI_VERSION_URL = "https://pypi.org/pypi/zerochat/json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
-
+NOTICES: list[str] = []
+NOTICES_LOCK = threading.Lock()

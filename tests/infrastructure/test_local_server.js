@@ -4,6 +4,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const pkg = require('../../package.json');
 
 test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
@@ -59,6 +60,21 @@ try:
         console._render_status()
         status_line = captured.getvalue()
         assert "[h] ayuda · [n] Navegador · [x] salir" in status_line, f"Línea de estado incorrecta: {status_line}"
+
+        module.add_notice("Hay una actualización disponible.")
+        captured.seek(0)
+        captured.truncate(0)
+        console.status_visible = False
+        console.last_activity = 0
+        console._render_status()
+        assert "[i] información" in captured.getvalue(), "Debe mostrar información cuando hay avisos"
+
+        captured.seek(0)
+        captured.truncate(0)
+        console._handle_key("i")
+        assert "Información:" in captured.getvalue()
+        assert "Hay una actualización disponible." in captured.getvalue()
+        assert module.get_notices() == ("Hay una actualización disponible.",), "Consultar avisos no debe eliminarlos"
     finally:
         sys.stdout.write = orig_write
 
@@ -105,6 +121,28 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   const port = 6400 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'test-token-secret-12345';
+  const nativeFetch = global.fetch;
+  let toolAuthorization = null;
+  const signedFetch = async (url, options = {}) => {
+    const body = typeof options.body === 'string' ? options.body : '';
+    let request;
+    try { request = JSON.parse(body); } catch (_) {}
+    if (toolAuthorization && request?.method === 'tools/call' && String(url).startsWith(baseUrl)) {
+      const expiresAt = Date.now() + toolAuthorization.ttlMs;
+      const nonce = crypto.randomBytes(16).toString('base64url');
+      const pathName = new URL(url).pathname.replace(/\/$/, '') || '/';
+      const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+      const signatureBase = JSON.stringify(['zerochat-tool-auth-v1', toolAuthorization.sessionId, 'POST', pathName, expiresAt, nonce, bodyHash]);
+      const signature = crypto.createHmac('sha256', Buffer.from(toolAuthorization.key, 'base64url')).update(signatureBase).digest('base64url');
+      options = { ...options, headers: { ...(options.headers || {}),
+        'X-ZeroChat-Tool-Session': toolAuthorization.sessionId,
+        'X-ZeroChat-Tool-Expires': String(expiresAt),
+        'X-ZeroChat-Tool-Nonce': nonce,
+        'X-ZeroChat-Tool-Signature': signature } };
+    }
+    return nativeFetch(url, options);
+  };
+  global.fetch = signedFetch;
 
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
@@ -129,6 +167,27 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     });
     assert.equal(unauthPost.status, 401, 'Petición POST sin token debe ser rechazada con 401');
+
+    const favicon = await fetch(`${baseUrl}/favicon.ico`);
+    assert.equal(favicon.status, 204);
+    assert.equal(await favicon.text(), '');
+    const forbiddenFavicon = await fetch(`${baseUrl}/favicon.ico`, {
+      headers: { Origin: 'https://untrusted.example' }
+    });
+    assert.equal(forbiddenFavicon.status, 403);
+
+    const querySse = await fetch(`${baseUrl}/sse?token=${testToken}`);
+    assert.equal(querySse.status, 401);
+    const { McpClient } = require('../../js/mcp.js');
+    const client = new McpClient({ url: `${baseUrl}/sse`, token: testToken });
+    try {
+      assert.equal(await client.connectSseStream({ timeoutMs: 2000 }), `${baseUrl}/`);
+      assert.equal(client.isSseActive, true);
+      const tools = await client.request('tools/list');
+      assert.ok(Array.isArray(tools.tools));
+    } finally {
+      client.disconnect();
+    }
 
     // 3. Comprobar rechazo con token inválido
     const invalidPost = await fetch(baseUrl, {
@@ -188,6 +247,24 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const initJson = await initRes.json();
     assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
     assert.equal(initJson.result?.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
+    toolAuthorization = initJson.result?.toolAuthorization;
+    assert.equal(toolAuthorization?.version, 'zerochat-tool-auth-v1');
+    const unsignedToolRes = await nativeFetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'list_directory', arguments: { path: '.' } } })
+    });
+    assert.equal(unsignedToolRes.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
+    const { McpClient: SignedMcpClient } = require('../../js/mcp.js');
+    global.fetch = nativeFetch;
+    const signedClient = new SignedMcpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
+    try {
+      assert.equal((await signedClient.initialize()).success, true);
+      assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
+    } finally {
+      signedClient.disconnect();
+      global.fetch = signedFetch;
+    }
 
     // 5. Comprobar tools/list
     const toolsRes = await fetch(baseUrl, {
@@ -212,9 +289,25 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('execute_command'));
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
+    const browserAction = tools.find(t => t.name === 'browser_action');
+    assert.equal(typeof browserAction?.availability?.available, 'boolean',
+      'browser_action debe publicar su disponibilidad antes de poder activarse');
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
+
+    const availabilityRes = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://albalday.github.io',
+        'X-ZeroChat-Token': testToken
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 41, method: 'tools/availability', params: { name: 'browser_action' } })
+    });
+    assert.equal(availabilityRes.status, 200);
+    const availabilityJson = await availabilityRes.json();
+    assert.equal(typeof availabilityJson.result?.available, 'boolean');
 
     // El contrato estricto rechaza parámetros que ya no existen.
     const obsoleteArgumentRes = await fetch(baseUrl, {
@@ -617,6 +710,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(stoppedDummy?.toolCount, 0);
 
   } finally {
+    global.fetch = nativeFetch;
     serverProc.kill('SIGTERM');
   }
 });
@@ -712,6 +806,12 @@ import os
 import subprocess
 from unittest.mock import patch, MagicMock
 import zerochat
+
+# La comprobación de browser_action solo inspecciona requisitos: no inicia Chromium.
+with patch('subprocess.Popen') as mock_popen:
+    availability = zerochat.browser_action_availability()
+    assert isinstance(availability.get('available'), bool)
+    mock_popen.assert_not_called()
 
 # 1. En Termux se prioriza termux-open-url incluso si xdg-open está disponible
 with patch('subprocess.Popen') as mock_popen, patch('shutil.which', side_effect=lambda cmd: '/data/data/com.termux/files/usr/bin/' + cmd if cmd in ('termux-open-url', 'xdg-open') else None), patch.dict(os.environ, {'TERMUX_VERSION': '0.118'}, clear=True):
@@ -840,7 +940,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
 
     // 3. Petición POST con initialize
-    await fetch(baseUrl, {
+    const loggingInitRes = await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -848,6 +948,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} })
     });
+    const loggingAuth = (await loggingInitRes.json()).result?.toolAuthorization;
 
     // 4. Petición POST con tools/call fallida (archivo no existente) con argumento sensible
     await fetch(baseUrl, {
@@ -881,21 +982,26 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     });
 
     // 6. Petición POST con herramienta no existente (-32601)
+    const unknownBody = JSON.stringify({
+      jsonrpc: '2.0', id: 12, method: 'tools/call',
+      params: { name: 'herramienta_fantasma', arguments: { secret_api_key: 'confidential_key_abc_999' } }
+    });
+    const unknownExpires = Date.now() + loggingAuth.ttlMs;
+    const unknownNonce = crypto.randomBytes(16).toString('base64url');
+    const unknownHash = crypto.createHash('sha256').update(unknownBody).digest('hex');
+    const unknownBase = JSON.stringify(['zerochat-tool-auth-v1', loggingAuth.sessionId, 'POST', '/', unknownExpires, unknownNonce, unknownHash]);
+    const unknownSignature = crypto.createHmac('sha256', Buffer.from(loggingAuth.key, 'base64url')).update(unknownBase).digest('base64url');
     await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
+        'Authorization': `Bearer ${testToken}`,
+        'X-ZeroChat-Tool-Session': loggingAuth.sessionId,
+        'X-ZeroChat-Tool-Expires': String(unknownExpires),
+        'X-ZeroChat-Tool-Nonce': unknownNonce,
+        'X-ZeroChat-Tool-Signature': unknownSignature
       },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 12,
-        method: 'tools/call',
-        params: {
-          name: 'herramienta_fantasma',
-          arguments: { secret_api_key: 'confidential_key_abc_999' }
-        }
-      })
+      body: unknownBody
     });
 
     // Dar margen para vaciar buffers de stdout
@@ -1107,7 +1213,29 @@ assert not zerochat.has_new_backend_version("7.4.9", "7.4")
 assert zerochat.has_new_backend_version("7.5.0", "7.4")
 assert zerochat.get_venv_dir() == zerochat.get_data_dir() / ".venv"
 
-# 5. El entorno MCP no cambia el intérprete del servidor.
+# 5. Los avisos son transitorios, validan su contenido y no se eliminan al mostrarlos.
+zerochat.reset_notices()
+assert zerochat.get_notices() == ()
+zerochat.add_notice("Aviso de prueba")
+assert zerochat.get_notices() == ("Aviso de prueba",)
+try:
+    zerochat.add_notice("  ")
+    raise AssertionError("Los avisos vacíos deben rechazarse")
+except ValueError:
+    pass
+
+# La comprobación de versión publica el aviso sin escribirlo directamente en consola.
+from unittest.mock import patch
+newer_version = f"{int(zerochat.VERSION.split('.')[0]) + 1}.0.0"
+with patch.object(zerochat, "get_dev_root", return_value=None), \
+     patch.object(zerochat, "is_installed_runtime", return_value=True), \
+     patch.object(zerochat, "_read_remote_version", return_value=newer_version):
+    zerochat.check_version()
+assert len(zerochat.get_notices()) == 2
+assert "Nueva versión del servidor disponible" in zerochat.get_notices()[-1]
+assert "-m pip install --upgrade" in zerochat.get_notices()[-1]
+
+# 6. El entorno MCP no cambia el intérprete del servidor.
 import os
 import tempfile
 with tempfile.TemporaryDirectory() as temp_dir:

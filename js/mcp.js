@@ -81,6 +81,14 @@
     return null;
   }
 
+  function getSecurity() {
+    if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
+    if (typeof require !== 'undefined') {
+      try { return require('./tool-security.js'); } catch (e) {}
+    }
+    return null;
+  }
+
   /**
    * Realiza una petición fetch con timeout controlado mediante AbortController.
    */
@@ -166,6 +174,32 @@
     return /network|fetch|econnrefused|timeout|conexión mcp cerrada|http 5\d\d|http 404/.test(message);
   }
 
+  const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
+
+  function base64Url(bytes) {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  }
+
+  function base64UrlBytes(value) {
+    const padded = String(value).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(value).length + 3) % 4);
+    const binary = atob(padded);
+    return Uint8Array.from(binary, char => char.charCodeAt(0));
+  }
+
+  function hex(bytes) {
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function webCrypto() {
+    if (globalThis.crypto?.subtle) return globalThis.crypto;
+    if (typeof require !== 'undefined') {
+      try { return require('crypto').webcrypto; } catch (_) {}
+    }
+    return null;
+  }
+
   /**
    * Cliente de Protocolo MCP (Model Context Protocol) basado en JSON-RPC 2.0 sobre HTTP.
    */
@@ -185,6 +219,7 @@
       this.requestId = 1;
       this.serverCapabilities = null;
       this.serverInfo = null;
+      this.toolAuthorization = null;
     }
 
     /**
@@ -199,7 +234,8 @@
       }
       if (this.sseReader) {
         try {
-          this.sseReader.cancel();
+          const cancellation = this.sseReader.cancel();
+          if (cancellation?.catch) cancellation.catch(() => {});
         } catch (e) {}
         this.sseReader = null;
       }
@@ -236,6 +272,38 @@
       return headers;
     }
 
+    async buildToolAuthorizationHeaders(targetUrl, body) {
+      const credentials = this.toolAuthorization;
+      const cryptoApi = webCrypto();
+      if (!credentials || !cryptoApi?.subtle) throw new Error('Local tool authorization is unavailable. Reconnect to ZeroChat.');
+      const expiresAt = Date.now() + credentials.ttlMs;
+      const nonceBytes = new Uint8Array(16);
+      cryptoApi.getRandomValues(nonceBytes);
+      const nonce = base64Url(nonceBytes);
+      const encodedBody = new TextEncoder().encode(body);
+      const bodyHash = hex(new Uint8Array(await cryptoApi.subtle.digest('SHA-256', encodedBody)));
+      const path = new URL(targetUrl).pathname.replace(/\/$/, '') || '/';
+      const signatureBase = JSON.stringify([TOOL_AUTH_VERSION, credentials.sessionId, 'POST', path, expiresAt, nonce, bodyHash]);
+      const key = await cryptoApi.subtle.importKey('raw', base64UrlBytes(credentials.key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const signature = base64Url(new Uint8Array(await cryptoApi.subtle.sign('HMAC', key, new TextEncoder().encode(signatureBase))));
+      return {
+        'X-ZeroChat-Tool-Session': credentials.sessionId,
+        'X-ZeroChat-Tool-Expires': String(expiresAt),
+        'X-ZeroChat-Tool-Nonce': nonce,
+        'X-ZeroChat-Tool-Signature': signature
+      };
+    }
+
+    async buildRequestHeaders(targetUrl, body, options) {
+      const headers = this.buildHeaders();
+      if (options.toolAuthorization) {
+        if (this.id === 'mcp_proxy' || this.id === 'mcp_external') {
+          Object.assign(headers, await this.buildToolAuthorizationHeaders(targetUrl, body));
+        }
+      }
+      return headers;
+    }
+
     /**
      * Inicia o reutiliza la conexión SSE persistente para recibir el endpoint y respuestas asíncronas.
      */
@@ -260,101 +328,96 @@
           }
         };
 
-        const timer = setTimeout(() => finish(this.url), timeoutMs);
+        let source;
+        const timer = setTimeout(() => {
+          source?.close();
+          if (this.sseSource === source) this.isSseActive = false;
+          finish(this.url);
+        }, timeoutMs);
+        const fallback = () => {
+          clearTimeout(timer);
+          if (source && this.sseSource !== source) return;
+          this.isSseActive = false;
+          finish(this.url);
+        };
 
         try {
-          let sseUrl = this.url;
-          if (this.token) {
-            const joiner = sseUrl.includes('?') ? '&' : '?';
-            sseUrl = `${sseUrl}${joiner}token=${encodeURIComponent(this.token)}`;
-          }
-
-          if (typeof EventSource !== 'undefined') {
-            const es = new EventSource(sseUrl);
+          // EventSource cannot send authentication or custom HTTP headers.
+          if (typeof EventSource !== 'undefined' && !this.token && Object.keys(this.headers).length === 0) {
+            const es = new EventSource(this.url);
+            source = es;
             this.sseSource = es;
             this.isSseActive = true;
 
             es.addEventListener('endpoint', (evt) => {
               clearTimeout(timer);
-              const postPath = (evt.data || '').trim();
-              const fullUrl = new URL(postPath, this.url).toString();
-              this.postUrl = fullUrl;
+              const fullUrl = new URL((evt.data || '').trim(), this.url).toString();
               finish(fullUrl);
             });
-
-            es.addEventListener('message', (evt) => {
-              this._handleJsonRpcMessage(evt.data);
-            });
-
+            es.addEventListener('message', (evt) => this._handleJsonRpcMessage(evt.data));
             es.onerror = () => {
-              clearTimeout(timer);
-              this.isSseActive = false;
-              this.postUrl = null;
-              finish(this.url);
+              es.close();
+              fallback();
             };
           } else {
-            // Node.js fallback mediante fetch stream
+            const controller = new AbortController();
+            source = { close: () => {
+              controller.abort();
+              clearTimeout(timer);
+              finish(this.url);
+            } };
+            this.sseSource = source;
             fetch(this.url, {
-              headers: { 'Accept': 'text/event-stream' }
-            }).then(res => {
-              if (!res.ok || !res.body) {
-                clearTimeout(timer);
-                this.isSseActive = false;
-                this.postUrl = null;
-                return finish(this.url);
+              headers: { ...this.buildHeaders(), 'Accept': 'text/event-stream' },
+              signal: controller.signal,
+              redirect: 'error'
+            }).then(async res => {
+              if (controller.signal.aborted || this.sseSource !== source) return;
+              if (!res.ok || !res.body?.getReader) {
+                source.close();
+                fallback();
+                return;
               }
-              const reader = res.body.getReader ? res.body.getReader() : null;
-              if (!reader) {
-                clearTimeout(timer);
-                this.isSseActive = false;
-                this.postUrl = null;
-                return finish(this.url);
-              }
-              this.isSseActive = true;
+              const reader = res.body.getReader();
               this.sseReader = reader;
+              this.isSseActive = true;
               const decoder = new TextDecoder();
               let buffer = '';
-
-              const pump = () => {
-                reader.read().then(({ done, value }) => {
-                  if (done) {
-                    this.isSseActive = false;
-                    return;
-                  }
-                  buffer += decoder.decode(value, { stream: true });
-                  const chunks = buffer.split('\n\n');
-                  buffer = chunks.pop() || '';
-
-                  for (const chunk of chunks) {
-                    const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
-                    if (endpointMatch) {
-                      clearTimeout(timer);
-                      const postPath = endpointMatch[1].trim();
-                      const fullUrl = new URL(postPath, this.url).toString();
-                      this.postUrl = fullUrl;
-                      finish(fullUrl);
+              while (!controller.signal.aborted && this.sseSource === source) {
+                const { done, value } = await reader.read();
+                if (controller.signal.aborted || this.sseSource !== source) return;
+                if (done) {
+                  fallback();
+                  return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const chunks = buffer.split(/\r?\n\r?\n/);
+                buffer = chunks.pop() || '';
+                for (const chunk of chunks) {
+                  if (chunk.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
+                  const endpointMatch = chunk.match(/event:\s*endpoint\s*\n\s*data:\s*([^\r\n]+)/);
+                  if (endpointMatch) {
+                    const fullUrl = new URL(endpointMatch[1].trim(), this.url);
+                    if (fullUrl.origin !== new URL(this.url).origin) {
+                      throw new Error('MCP SSE endpoint must have the same origin');
                     }
-                    const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
-                    if (msgMatch && !endpointMatch) {
-                      this._handleJsonRpcMessage(msgMatch[1]);
-                    }
+                    clearTimeout(timer);
+                    finish(fullUrl.toString());
                   }
-                  pump();
-                }).catch(() => {
-                  this.isSseActive = false;
-                });
-              };
-              pump();
+                  const msgMatch = chunk.match(/(?:event:\s*message\s*\n\s*)?data:\s*([^\r\n]+)/);
+                  if (msgMatch && !endpointMatch) this._handleJsonRpcMessage(msgMatch[1]);
+                }
+                if (buffer.length > MAX_OUTPUT_LENGTH) throw new Error('MCP SSE event too large');
+              }
             }).catch(() => {
-              clearTimeout(timer);
-              this.isSseActive = false;
-              finish(this.url);
+              if (this.sseSource !== source) return;
+              source.close();
+              fallback();
             });
           }
         } catch (e) {
-          clearTimeout(timer);
-          this.isSseActive = false;
-          finish(this.url);
+          source?.close();
+          fallback();
         }
       });
     }
@@ -412,17 +475,18 @@
       };
 
       const timeoutMs = options.timeoutMs || this.timeoutMs;
+      const body = JSON.stringify(payload);
       let res;
       try {
         res = await fetchWithTimeout(targetUrl, {
           method: 'POST',
-          headers: this.buildHeaders(),
-          body: JSON.stringify(payload),
+          headers: await this.buildRequestHeaders(targetUrl, body, options),
+          body,
           signal: options.signal
         }, timeoutMs);
       } catch (fetchErr) {
         // En caso de fallo de red en endpoint SSE, reconectar y reintentar una única vez
-        if (!options._isRetry && (isSseEndpoint || this.postUrl)) {
+        if (!options.toolAuthorization && !options._isRetry && (isSseEndpoint || this.postUrl)) {
           this.disconnect();
           return this.request(method, params, { ...options, _isRetry: true, forceReconnect: true });
         }
@@ -443,8 +507,8 @@
         if (resolved && resolved !== targetUrl) {
           res = await fetchWithTimeout(resolved, {
             method: 'POST',
-            headers: this.buildHeaders(),
-            body: JSON.stringify(payload),
+            headers: await this.buildRequestHeaders(resolved, body, options),
+            body,
             signal: options.signal
           }, timeoutMs);
         }
@@ -496,6 +560,11 @@
 
         this.serverCapabilities = result?.capabilities || {};
         this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
+        const auth = result?.toolAuthorization;
+        if ((this.id === 'mcp_proxy' || this.id === 'mcp_external') && auth?.version === TOOL_AUTH_VERSION &&
+            typeof auth.sessionId === 'string' && typeof auth.key === 'string' && Number.isInteger(auth.ttlMs) && auth.ttlMs > 0 && auth.ttlMs <= 30_000) {
+          this.toolAuthorization = { sessionId: auth.sessionId, key: auth.key, ttlMs: auth.ttlMs };
+        }
 
         // Enviar notificación de inicialización completada si el servidor lo soporta
         try {
@@ -728,6 +797,7 @@
           aliases: [],
           category: 'mcp',
           isAvailable: () => {
+            if (rt.availability?.available === false) return false;
             if (this.client.id === 'mcp_proxy') {
               const State = getState();
               return State ? State.get('mcp')?.status === 'connected' : false;
@@ -738,7 +808,7 @@
             titleFallback: toolName,
             descFallback: rt.description || '',
             icon: 'plug',
-            defaultEnabled: true,
+            defaultEnabled: rt.availability?.available !== false,
             showInSettings: true
           },
           metadata: {
@@ -749,13 +819,15 @@
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
-            description: rt.description || ''
+            description: rt.description || '',
+            available: rt.availability?.available !== false
           },
           execute: async (args, context = {}) => {
             try {
               return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
-                timeoutMs: options.timeoutMs
+                timeoutMs: options.timeoutMs,
+                toolAuthorization: context.toolAuthorization === true
               });
             } catch (error) {
               if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
@@ -970,7 +1042,8 @@
             inputSchema: t.parameters,
             category: t.category,
             titleFallback: t.settings?.titleFallback || t.name,
-            descFallback: t.settings?.descFallback || t.metadata?.description || t.description || ''
+            descFallback: t.settings?.descFallback || t.metadata?.description || t.description || '',
+            available: t.metadata?.available !== false
           }))
         };
       } catch (err) {
@@ -1085,6 +1158,12 @@
       }
 
       this.addServer({ id: 'mcp_proxy', name: probe.serverInfo?.name || 'mcp-proxy', url: targetEndpoint, enabled: true });
+      if (probe.serverInfo?.cwd) {
+        const Security = getSecurity();
+        if (Security?.manager?.setStartupDirectory) {
+          Security.manager.setStartupDirectory(probe.serverInfo.cwd);
+        }
+      }
       const registerResult = await this.connectAndRegisterServer('mcp_proxy', registry);
 
       if (State?.set) {

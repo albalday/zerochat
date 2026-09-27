@@ -40,6 +40,26 @@ def get_venv_dir() -> Path:
     return get_data_dir() / ".venv"
 
 
+def reset_notices():
+    """Reinicia los avisos transitorios de la ejecución actual."""
+    with NOTICES_LOCK:
+        NOTICES.clear()
+
+
+def add_notice(message: str):
+    """Añade un aviso para la consola interactiva de la ejecución actual."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("El aviso debe ser texto no vacío")
+    with NOTICES_LOCK:
+        NOTICES.append(message.strip())
+
+
+def get_notices() -> tuple[str, ...]:
+    """Devuelve una instantánea inmutable de los avisos actuales."""
+    with NOTICES_LOCK:
+        return tuple(NOTICES)
+
+
 def get_daily_token() -> str:
     """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
     config_dir = get_data_dir() / "config"
@@ -67,6 +87,16 @@ def get_daily_token() -> str:
 SESSION_TOKEN = get_daily_token()
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
+
+# Kept only for this Python process: binds an approved browser tool call to
+# the exact JSON-RPC bytes sent to the local host.
+TOOL_AUTH_VERSION = "zerochat-tool-auth-v1"
+TOOL_AUTH_TTL_MS = 30_000
+TOOL_AUTH_MAX_NONCES = 10_000
+TOOL_AUTH_KEY = secrets.token_bytes(32)
+TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
+TOOL_AUTH_NONCES: dict[str, int] = {}
+TOOL_AUTH_NONCES_LOCK = threading.Lock()
 
 DETECTED_OS = "windows" if sys.platform.startswith("win") else ("android" if "ANDROID_ROOT" in os.environ else "linux")
 
@@ -139,13 +169,12 @@ def check_version():
         installed = is_installed_runtime()
         remote_ver = _read_remote_version(PYPI_VERSION_URL if installed else REMOTE_VERSION_URL)
         if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver) and has_new_backend_version(remote_ver):
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Nueva versión del servidor disponible (Local: {VERSION}, Remota: {compatibility_version(remote_ver)})", flush=True)
+            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_ver)})."
             if installed:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat", flush=True)
+                notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
             else:
-                console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py", flush=True)
+                notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
+            add_notice(notice)
     except Exception:
         # Modo offline o timeout ignorado de forma segura
         pass
-
-

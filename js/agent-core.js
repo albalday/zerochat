@@ -581,7 +581,9 @@
       const t = (key, fallback) => (I18n?.t ? I18n.t(key) : fallback);
       const authEval = ToolSecurity?.manager?.evaluateAuthorization
         ? ToolSecurity.manager.evaluateAuthorization(tool, args, context)
-        : { status: 'allow', requiresApproval: false };
+        : (tool.category === 'mcp'
+          ? { status: 'deny', requiresApproval: true }
+          : { status: 'allow', requiresApproval: false });
 
       if (authEval.status === 'deny') {
         return { allowed: false, error: t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.') };
@@ -598,6 +600,7 @@
       const decision = await context.requestToolAuthorization(toolCall, {
         args,
         serverName: authEval.serverName,
+        serverId: authEval.serverId,
         toolName: tool.name,
         directoryAccess: authEval.directoryAccess,
         directoryPath: authEval.directoryPath,
@@ -610,7 +613,14 @@
         return { allowed: false, error: t('tool_security_policy_blocked', 'Tool blocked by security policy.') };
       }
 
-      if (decisionType !== 'allow_once' && decisionType !== 'allow_always') {
+      const allowedDecisions = new Set([
+        'allow_once',
+        'allow_session',
+        'allow_always',
+        'allow_server_always'
+      ]);
+
+      if (!allowedDecisions.has(decisionType)) {
         return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
       }
 
@@ -622,9 +632,25 @@
         }
       }
 
-      if (decisionType === 'allow_always') {
+      const targetToolId = authEval.toolId || tool.name;
+
+      if (decisionType === 'allow_session') {
+        ToolSecurity?.manager?.setToolPolicy?.(targetToolId, 'allow', {
+          scope: 'session',
+          serverName: authEval.serverName,
+          originalName: authEval.originalName
+        });
+      } else if (decisionType === 'allow_server_always') {
+        const targetServerId = decision?.serverId || authEval.serverId;
+        if (targetServerId) {
+          ToolSecurity?.manager?.setServerPolicy?.(targetServerId, 'allow', {
+            scope: 'permanent',
+            serverName: authEval.serverName
+          });
+        }
+      } else if (decisionType === 'allow_always') {
         const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
-        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(authEval.toolId || tool.name) || null;
+        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(targetToolId) || null;
         let mergedPrefixes = undefined;
         if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
           const rawList = [
@@ -642,6 +668,10 @@
           }
         }
 
+        const shouldAllowChaining = requestedConstraints?.command?.allowChaining === true ||
+          existingConstraints?.command?.allowChaining === true ||
+          (mergedPrefixes && mergedPrefixes.some(p => String(p).replace(/\*+$/, '').trim() === 'cd'));
+
         const constraints = requestedConstraints?.command && existingConstraints?.command
           ? {
             ...existingConstraints,
@@ -649,11 +679,23 @@
             command: {
               ...existingConstraints.command,
               ...requestedConstraints.command,
-              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {})
+              ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {}),
+              allowChaining: shouldAllowChaining || (requestedConstraints.command.allowChaining !== false && existingConstraints.command.allowChaining !== false),
+              allowPipes: (requestedConstraints.command.allowPipes !== false && existingConstraints.command.allowPipes !== false)
             }
           }
-          : requestedConstraints;
-        ToolSecurity.manager.setToolPolicy(authEval.toolId || tool.name, 'allow', {
+          : (requestedConstraints?.command
+            ? {
+              ...requestedConstraints,
+              command: {
+                ...requestedConstraints.command,
+                allowChaining: shouldAllowChaining || requestedConstraints.command.allowChaining !== false
+              }
+            }
+            : requestedConstraints);
+
+        ToolSecurity.manager.setToolPolicy(targetToolId, 'allow', {
+          scope: 'permanent',
           serverName: authEval.serverName,
           originalName: authEval.originalName,
           constraints
@@ -669,7 +711,8 @@
     async executeToolCall(toolCall, context = {}) {
       const rawName = toolCall?.function?.name || '';
       const tool = this.registry.getTool(rawName);
-      const parsedArgs = this.parseArguments(toolCall?.function?.arguments);
+      // Work from a stable value: the authorization dialog may await user input.
+      const parsedArgs = JSON.parse(JSON.stringify(this.parseArguments(toolCall?.function?.arguments)));
 
       if (!tool) {
         const error = `Herramienta '${rawName}' no encontrada en el registro.`;
@@ -717,8 +760,8 @@
 
         const ToolRuntime = getToolRuntime();
         const executionContext = ToolRuntime?.createToolExecutionContext
-          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context })
-          : { displayMode, ...context };
+          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context, toolAuthorization: true })
+          : { displayMode, ...context, toolAuthorization: true };
         const execResult = await tool.execute(parsedArgs, executionContext);
         const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const elapsed = parseFloat((endTime - startTime).toFixed(2));

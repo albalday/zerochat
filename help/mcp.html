@@ -72,6 +72,10 @@
       </ul>
       <p>
         <strong>Seguridad por Token:</strong> Todas las peticiones desde GitHub Pages requieren el token efímero generado al arrancar. Sin este token, el servidor local rechaza cualquier conexión externa.
+        Las peticiones MCP, incluido el canal SSE, envían el token en cabeceras HTTP, nunca en la URL del endpoint. La solicitud automática del favicon no requiere token y devuelve una respuesta vacía si no hay icono disponible.
+      </p>
+      <p>
+        En una terminal interactiva, la línea de estado muestra <code>[i] información</code> solo cuando hay avisos de la ejecución, como una actualización disponible. Pulsa <code>i</code> para verlos; se conservan hasta que se detiene el servidor.
       </p>
       <div class="code-wrapper">
         <pre><code># Recomendado: instalar desde PyPI
@@ -83,31 +87,46 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     </div>
 
     <div class="card">
-      <h2>4. Control de Permisos y Autorización por Herramienta</h2>
+      <h2>4. Control de Permisos y Niveles de Autorización</h2>
       <p>
-        Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un panel de control granular para cada herramienta:
+        Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un sistema de seguridad jerárquico y determinista:
       </p>
       <p>
-        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, revisar las decisiones recordadas y restablecerlas cuando sea necesario. Desde el panel MCP también puedes elegir <em>Preguntar</em>, <em>Permitir</em> o <em>Denegar</em> para cada herramienta.
+        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, gestionar los servidores confiables, revisar las decisiones recordadas y restablecerlas cuando sea necesario. Desde el panel MCP también puedes elegir <em>Preguntar</em>, <em>Permitir</em> o <em>Denegar</em> para cada herramienta o servidor.
       </p>
       <ul>
         <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta al modelo sin detener el servidor.</li>
-        <li><strong>Política de autorización:</strong>
+        <li><strong>Política global de ejecución:</strong>
           <ul>
-            <li><em>Pedir autorización (recomendado):</em> ZeroChat pausa la ejecución para solicitar tu aprobación explícita.</li>
-            <li><em>Todo autorizado:</em> Cualquier herramienta se ejecuta sin confirmaciones. Úsalo solo en un entorno de confianza.</li>
+            <li><em>Pedir autorización (recomendado):</em> ZeroChat pausa la ejecución para solicitar tu aprobación explícita según las reglas configuradas.</li>
+            <li><em>Confiar en el espacio de trabajo (Workspace Trust):</em> Confía automáticamente en las operaciones y archivos dentro del directorio de trabajo del proyecto (CWD). Pregunta para accesos externos o comandos globales.</li>
+            <li><em>Todo autorizado:</em> Cualquier herramienta se ejecuta automáticamente sin confirmaciones. Úsalo solo en un entorno de desarrollo de total confianza.</li>
+          </ul>
+        </li>
+        <li><strong>Ámbitos de autorización (Scopes):</strong> Al presentarse una solicitud de confirmación en el chat, puedes elegir entre:
+          <ul>
+            <li><em>Permitir una vez:</em> Concede permiso puntual solo para la llamada actual.</li>
+            <li><em>En esta sesión:</em> Válido mientras el backend siga activo; se limpia ordenadamente al reiniciar el servidor sin borrar tus permisos permanentes.</li>
+            <li><em>Permitir siempre:</em> Regla permanente persistida en almacenamiento local seguro.</li>
+            <li><em>Confiar en el servidor MCP:</em> Autoriza el conjunto completo de herramientas del servidor (por ejemplo, Playwright o Memory) para no tener que autorizarlas una a una.</li>
           </ul>
         </li>
       </ul>
       <p>
-        La lista <strong>Directorios permitidos</strong> centraliza el acceso de las herramientas locales de archivos. Añade una regla por línea con <code>R:</code> para lectura, <code>W:</code> para modificación o <code>RW:</code> para ambos; por ejemplo, <code>R:./proyecto/**</code> o <code>W:./proyecto/src/**</code>. Usa <code>*</code> para un segmento y <code>**</code> para incluir subdirectorios. Las rutas que no coincidan con una regla solicitan autorización.
+        La lista <strong>Directorios permitidos</strong> centraliza el acceso de las herramientas locales de archivos. Si la lista está vacía, ZeroChat inyecta por defecto una regla <code>R:</code> para su directorio de arranque. Añade una regla por línea con <code>R:</code> para lectura, <code>W:</code> para modificación o <code>RW:</code> para ambos; por ejemplo, <code>R:./proyecto/**</code> o <code>W:./proyecto/src/**</code>. Usa <code>*</code> para un segmento y <code>**</code> para incluir subdirectorios.
       </p>
       <p>
-        Para <code>execute_command</code>, ZeroChat examina únicamente comandos simples y las rutas explícitas que contienen. Una ruta de lectura necesita <code>R:</code> y una de modificación <code>W:</code>. Pipes, redirecciones, expansiones, comodines y otras construcciones de shell ambiguas siempre solicitan autorización puntual.
+        Para <code>execute_command</code> y <code>bash</code>, los permisos se sincronizan automáticamente. Las órdenes autorizadas respetan prefijos y admiten tuberías (pipes) y redirecciones sin volver a pedir confirmación innecesariamente, mientras que el encadenamiento arbitrario (<code>;</code> o <code>&&</code>) o los patrones de riesgo se bloquean o solicitan confirmación puntual.
       </p>
       <div class="alert alert-warning">
         <strong>Seguridad en red local:</strong> Asegúrate de que tu servidor MCP escuche únicamente en la interfaz local <code>127.0.0.1</code> y no en <code>0.0.0.0</code> si estás conectado a una red pública no confiable.
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Automatización del navegador</h2>
+      <p>La herramienta local <code>browser_action</code> necesita Node.js, Playwright y Chromium. ZeroChat comprueba estos requisitos antes de activarla y la mantiene desactivada si falta alguno.</p>
+      <p><a href="browser-action.html">Instalar los requisitos mínimos de browser_action →</a></p>
     </div>
 
     <div class="card">
