@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conversations, History & Branching · ZeroChat Help</title>
-  <meta name="description" content="Guide for organizing conversations in ZeroChat: chronological sidebar, instant search, turn branching, and secure session export/import.">
+  <title>Conversations, History & Branching · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Local history, branches and conversation backups.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,72 +13,41 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../conversations.html" class="top-nav-link">Español 🌐</a>
+          <a href="../conversations.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Conversations, History & Branching</h1>
-      <p class="subtitle">Manage chat sessions, explore alternative answers with branching, and safely back up your conversations.</p>
+      <p class="subtitle">Local history, branches and conversation backups.</p>
     </header>
 
     <div class="card">
-      <h2>1. The Conversations Sidebar</h2>
-      <p>
-        The left-hand sidebar (accessible on mobile via the top-left menu button) houses your complete chat archive.
-      </p>
-      <ul>
-        <li><strong>New Chat:</strong> Instantly creates a clean chat session preserving your active profile.</li>
-        <li><strong>Chronological Grouping:</strong> Chats are organized into clear time buckets: <em>Today</em>, <em>Yesterday</em>, <em>Previous 7 Days</em>, <em>This Month</em>, and <em>Older</em>.</li>
-        <li><strong>Real-time Search:</strong> Filter your chat history instantly by title.</li>
-        <li><strong>Quick Session Actions:</strong> Hover over any session to export or delete it individually.</li>
-      </ul>
+      <h2>1. Sidebar and history</h2>
+      <p>The sidebar lets you create, search by title, open, export and delete conversations. On mobile, open it from the top menu. History is grouped by date.</p>
+      <p>A new conversation keeps the selected profile. Messages are stored in the current browser and web origin; they do not automatically sync between devices or between GitHub Pages and localhost.</p>
     </div>
 
     <div class="card">
-      <h2>2. Turn Branching</h2>
-      <p>
-        <strong>Branching</strong> lets you explore alternative lines of thought without losing previous context.
-      </p>
-      <h3>How it works:</h3>
-      <ol>
-        <li>Click the branch icon button beneath any assistant response.</li>
-        <li>ZeroChat creates a <strong>new independent chat</strong> containing the conversation history up to that point.</li>
-        <li>Subsequent messages from the original conversation are omitted in the new branch, allowing you to ask a different follow-up or test an alternative model.</li>
-        <li>The original conversation remains completely intact and accessible from the sidebar.</li>
-      </ol>
-      <div class="alert alert-info">
-        <strong>Typical use case:</strong> When an assistant offers two approaches to a problem, branch at that turn to explore "Option A" in one chat and "Option B" in another.
-      </div>
+      <h2>2. Conversation branches</h2>
+      <p>The branch button on a response creates another conversation containing history up to that point. The original retains its later messages. You can continue both from the sidebar and try different questions or profiles.</p>
+      <p>Branching copies earlier context: it does not by itself shorten an oversized conversation. RAG branches are document collections and are managed separately.</p>
     </div>
 
     <div class="card">
-      <h2>3. Exporting Conversations</h2>
-      <p>
-        Export your chat sessions into standard formats:
-      </p>
-      <ul>
-        <li><strong>Full Session JSON:</strong> Contains messages, metadata, tool calls, and profile settings. Functions as a 1:1 backup that can be imported back into ZeroChat.</li>
-        <li><strong>Markdown (.md):</strong> Formatted text ready for Obsidian, GitHub, Notion, or personal wikis, preserving headers, code blocks, tables, and math equations.</li>
-        <li><strong>Plain Text (.txt):</strong> Lightweight transcript for quick reading and sharing.</li>
-        <li><strong>PDF:</strong> A print-ready view that can be saved as PDF.</li>
-      </ul>
+      <h2>3. Exporting conversations</h2>
+      <ul><li><strong>JSON:</strong> an importable conversation copy, with messages and associated data included by the exporter.</li>
+      <li><strong>Markdown:</strong> text to read or edit outside ZeroChat.</li>
+      <li><strong>Print / PDF:</strong> opens a print view; the browser can save it as PDF.</li></ul>
+      <p>A conversation export is not a full application backup: profiles have their own export, and RAG collections and downloaded models are not included. Review a file before sharing: it may contain messages, attachments and tool results.</p>
     </div>
 
     <div class="card">
-      <h2>4. Session Import & Safe Purge</h2>
-      <p>
-        Click <strong>"Import chat"</strong> in the sidebar footer to load any exported ZeroChat <code>.json</code> file.
-      </p>
-      <p>
-        Imported sessions are validated, sanitized, and stored directly into your browser's IndexedDB database.
-      </p>
-      <p>Only ZeroChat JSON backups can be imported, and importing is unavailable while a response is being generated.</p>
-      <div class="alert alert-warning">
-        <strong>Safe Bulk Deletion:</strong> The trash icon in the sidebar footer lets you delete all stored chats at once. ZeroChat prompts for confirmation before wiping data.
-      </div>
+      <h2>4. Importing and keeping backups</h2>
+      <p>Use <strong>Import conversation</strong> in the sidebar and select JSON exported by ZeroChat. The application validates its structure; it does not import PDF or Markdown as chat history. Import is blocked during generation.</p>
+      <p>Export conversations you want to keep before clearing browser data. Deleting a session or the entire history requires confirmation and has no recovery bin. Deleting <code>~/zerochat/</code> affects the local server, not browser chat history.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -97,7 +66,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
 </body>

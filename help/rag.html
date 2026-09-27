@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Base de Conocimiento Local (RAG) · Ayuda de ZeroChat</title>
-  <meta name="description" content="Manual de RAG (Generación Aumentada por Recuperación) en ZeroChat: ramas de conocimiento, indexación de documentos con Orama, búsqueda híbrida e imágenes.">
+  <title>Base de Conocimiento Local (RAG) · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Carga, búsqueda y límites de los documentos consultados por el modelo.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,98 +13,61 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/rag.html" class="top-nav-link">English 🌐</a>
+          <a href="en/rag.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Base de Conocimiento Local (RAG)</h1>
-      <p class="subtitle">Consulta tus propios documentos de forma privada sin subirlos a la nube gracias al motor RAG integrado en el navegador.</p>
+      <p class="subtitle">Carga, búsqueda y límites de los documentos consultados por el modelo.</p>
     </header>
 
     <div class="card">
-      <h2>1. ¿Qué es RAG y por qué en ZeroChat es diferente?</h2>
-      <p>
-        <strong>RAG</strong> (<em>Retrieval-Augmented Generation</em> o Generación Aumentada por Recuperación) es una técnica que permite al modelo de lenguaje responder preguntas basándose en tus propios manuales, libros, notas o documentación técnica.
-      </p>
-      <p>
-        En la inmensa mayoría de herramientas comerciales, tus documentos se suben a servidores externos para ser vectorizados. En ZeroChat, <strong>todo el proceso de ingesta, particionado (chunking) e indexación se realiza localmente en tu ordenador</strong> dentro del navegador utilizando el motor de búsqueda <strong>Orama</strong> y almacenamiento persistente en <strong>IndexedDB</strong>.
-      </p>
-      <div class="alert alert-success">
-        <strong>Confidencialidad absoluta:</strong> Tus contratos, código propietario o datos médicos jamás abandonan tu equipo. Solo los fragmentos relevantes seleccionados para responder a tu pregunta se envían al modelo de lenguaje que elijas.
-      </div>
+      <h2>1. Qué hace RAG</h2>
+      <p>RAG permite consultar documentos mediante búsquedas y aportar los fragmentos encontrados al modelo. ZeroChat extrae y divide el contenido en el navegador, lo guarda en IndexedDB y construye índices de texto con Orama. La búsqueda es léxica: no genera embeddings ni usa un índice vectorial.</p>
+      <p>La carga e indexación no necesitan un servicio de IA. Al responder, los fragmentos e imágenes recuperados se incorporan a la conversación y se envían al proveedor elegido. Usar almacenamiento local no hace privada una consulta a un proveedor remoto.</p>
     </div>
 
     <div class="card">
-      <h2>2. Ramas de Conocimiento (Knowledge Branches)</h2>
-      <p>
-        Para mantener tus proyectos organizados, ZeroChat estructura el conocimiento en <strong>Ramas</strong> independientes:
-      </p>
-      <ul>
-        <li>Puedes crear diferentes ramas según la temática (por ejemplo: <em>"Documentación API"</em>, <em>"Finanzas 2026"</em>, <em>"Apuntes de Física"</em>).</li>
-        <li>Puedes activar varias ramas desde el botón <strong>RAG</strong> de la barra inferior. Para crear ramas, cargar o gestionar documentos, abre <strong>RAG</strong> desde el menú general de configuración.</li>
-        <li>Al combinar ramas de idiomas distintos, ZeroChat muestra un aviso sin cambiar las ramas activas.</li>
-        <li>Cuando una rama está activa, el agente o el chat tienen acceso directo a los documentos contenidos en ella.</li>
-      </ul>
+      <h2>2. Ramas de conocimiento</h2>
+      <p>Una rama agrupa documentos de un tema o proyecto. Son colecciones documentales, distintas de las ramas de conversación.</p>
+      <ol><li>Abre <strong>Configuración → RAG</strong> para crear una rama, elegir su idioma y gestionar sus documentos.</li>
+      <li>Carga los archivos y espera a que termine su procesamiento.</li>
+      <li>Activa las ramas que quieres consultar desde el botón <strong>RAG</strong> del cuadro de entrada.</li></ol>
+      <p>Puedes activar varias. Si sus idiomas difieren, aparece un aviso; las selecciones se mantienen. Solo las ramas activas están disponibles para las herramientas de consulta.</p>
     </div>
 
     <div class="card">
-      <h2>3. Ingestión y Procesamiento de Documentos</h2>
-      <p>
-        Dentro del panel de gestión RAG, accesible desde el menú general de configuración, puedes arrastrar archivos o pulsar sobre el área de carga:
-      </p>
-      <ul>
-        <li><strong>PDFs y Libros:</strong> Se analiza cada página, se extrae el texto continuo y se identifican las posibles imágenes o esquemas relevantes.</li>
-        <li><strong>Markdown y Texto Plano:</strong> Se respetan los títulos (<code>#</code>, <code>##</code>, <code>###</code>) para realizar divisiones semánticas naturales.</li>
-        <li><strong>Archivos de Código Fuente:</strong> Se agrupan respetando funciones y clases para que el contexto técnico no se rompa al dividirse en fragmentos.</li>
-        <li><strong>Chunking Inteligente:</strong> El motor divide los textos en fragmentos de tamaño óptimo con solapamiento (overlap) para asegurar que ninguna idea clave quede cortada a la mitad.</li>
-        <li><strong>Gestión de Duplicados:</strong> Si intentas cargar un archivo con el mismo nombre y ruta que uno ya existente en la rama, el sistema te preguntará si deseas <em>Reemplazar</em> el documento existente o <em>Ignorar</em> la nueva copia. Puedes marcar la casilla para aplicar tu decisión al resto de duplicados de la carga.</li>
-        <li><strong>Cancelación Cooperativa:</strong> Durante la ingesta de múltiples archivos o documentos extensos, dispones de un botón <em>Detener</em> para interrumpir de inmediato el procesamiento sin corromper el índice ni los datos ya procesados.</li>
-      </ul>
+      <h2>3. Carga y procesamiento de documentos</h2>
+      <p>Arrastra archivos al panel RAG o selecciónalos desde su área de carga. El texto se divide en fragmentos para poder buscar y leer partes del documento.</p>
+      <ul><li><strong>PDF:</strong> extrae texto e imágenes cuando el formato lo permite. No incluye OCR general para documentos escaneados; tablas, columnas y figuras pueden perder información.</li>
+      <li><strong>Texto, Markdown y código:</strong> se procesan como contenido textual. La división no garantiza conservar una función, una tabla o una idea completa en un solo fragmento.</li>
+      <li><strong>Duplicados:</strong> si coincide el nombre y la ruta de un documento de la rama, puedes reemplazarlo o ignorarlo y aplicar la decisión a los demás duplicados de esa carga.</li>
+      <li><strong>Detener:</strong> solicita cancelar el procesamiento. Revisa qué documentos han terminado antes de volver a cargar los pendientes.</li></ul>
     </div>
 
     <div class="card">
-      <h2>4. Búsqueda y Herramientas Agénticas de Consulta</h2>
-      <p>
-        El modelo consulta los documentos activos mediante herramientas de RAG:
-      </p>
-      <ol>
-        <li>
-          <strong>Consulta Activa por Herramientas (Tool Calling):</strong> El modelo invoca dinámicamente las herramientas del agente:
-          <ul>
-            <li><code>list_documents</code>: Conoce los documentos disponibles en la rama.</li>
-            <li><code>search_knowledge_base</code>: Realiza búsquedas específicas con términos clave.</li>
-            <li><code>read_knowledge_chunk</code>: Lee un fragmento concreto en profundidad.</li>
-            <li><code>read_knowledge_image</code>: Si un PDF contenía diagramas o figuras, el modelo puede solicitar ver la imagen para analizarla visualmente.</li>
-          </ul>
-        </li>
-      </ol>
+      <h2>4. Búsqueda y herramientas de consulta</h2>
+      <p>El modelo necesita admitir llamadas a herramientas y tener disponibles las herramientas RAG. Activar una rama no equivale a enviar todos sus documentos ni garantiza que el modelo los consulte.</p>
+      <ul><li><code>list_documents</code>: lista los documentos disponibles.</li>
+      <li><code>search_knowledge_base</code>: busca palabras en un documento concreto o en las ramas activas.</li>
+      <li><code>read_knowledge_chunk</code>: recupera fragmentos identificados por la búsqueda.</li>
+      <li><code>read_knowledge_image</code>: recupera una imagen extraída; interpretarla requiere un modelo con visión.</li></ul>
+      <p>Indica el documento o tema y pide que se señalen las fuentes. Si faltan resultados, prueba términos presentes en el texto; una búsqueda léxica puede no encontrar sinónimos o traducciones.</p>
     </div>
 
     <div class="card">
-      <h2>5. Configuración y Recomendaciones</h2>
-
-      <h3>IndexedDB + Orama</h3>
-      <p>
-        Los archivos, metadatos y fragmentos se guardan en IndexedDB. Orama construye en memoria un índice de búsqueda local para la rama activa.
-      </p>
-
-      <h3>Sin permisos ni costes de ingesta</h3>
-      <p>
-        Seleccionar un archivo solo permite leer esa carga. No se solicitan permisos sobre carpetas y no se llama a ningún LLM para resumir o indexar.
-      </p>
-
-      <h3>Configurar el modelo para responder sobre documentos</h3>
-      <p>
-        Para preguntas factuales sobre documentos, usa una temperatura baja (0 a 0,2): reduce variaciones y hace más probable que el modelo se atenga a los fragmentos recuperados. Una temperatura de 0,7 o superior conviene para redacción creativa, no para extraer cifras o hechos. El modelo también debe admitir llamadas a herramientas; si no las admite, no podrá consultar esta base documental.
-      </p>
-
-      <h3>Punto de control agéntico para modelos de poco contexto</h3>
-      <p>
-        Los modelos compactos o con ventana de contexto reducida se saturan con facilidad al acumular múltiples fragmentos de documentos. Activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento: permite que el modelo consolide sus hallazgos intermedios y registre el siguiente paso para continuar investigando con coherencia. Especialmente recomendado con modelos de menos de 14B parámetros o ventanas de contexto inferiores a 32k tokens.
-      </p>
+      <h2>5. Configuración y límites</h2>
+      <h3>Almacenamiento</h3>
+      <p>Documentos y fragmentos se conservan en IndexedDB; los índices Orama se construyen en memoria. El volumen utilizable depende de la memoria y de la cuota del navegador. Borrar los datos del sitio elimina la base documental.</p>
+      <h3>Acceso a archivos</h3>
+      <p>Seleccionar archivos permite leer esa carga, no da acceso general al disco. Conserva los originales: exportar una conversación no respalda las ramas RAG.</p>
+      <h3>Calidad de las respuestas</h3>
+      <p>Una temperatura baja puede reducir variaciones, pero no garantiza fidelidad. Contrasta cifras y citas con el documento original, especialmente si el PDF tiene tablas o escaneos.</p>
+      <h3>Puntos de control</h3>
+      <p><code>agent_checkpoint</code>, activable desde Razonamiento, permite resumir hallazgos y registrar el siguiente paso. No amplía el contexto del modelo ni asegura que el resumen conserve todos los detalles.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -123,7 +86,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>

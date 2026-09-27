@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WebLLM & WebGPU Setup Guide · ZeroChat Help</title>
-  <meta name="description" content="Technical guide for running local AI models directly in the browser using WebLLM and WebGPU in ZeroChat.">
+  <title>WebLLM & WebGPU Setup Guide · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Preparing a browser model and understanding WebGPU limitations.">
   <link rel="stylesheet" href="../help.css">
   <style>
     .browser-grid {
@@ -49,58 +49,27 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../webllm.html" class="top-nav-link">Español 🌐</a>
+          <a href="../webllm.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>WebLLM & WebGPU Configuration</h1>
-      <p class="subtitle">Step-by-step setup guide for running AI models directly on your hardware GPU inside the browser.</p>
+      <p class="subtitle">Preparing a browser model and understanding WebGPU limitations.</p>
     </header>
 
     <div class="card">
-      <h2>What is WebLLM and what are its advantages?</h2>
-      <p>
-        <strong>WebLLM</strong> is a cutting-edge engine that executes Large Language Models entirely inside the web browser utilizing your graphics card (GPU) through the standardized <strong>WebGPU</strong> API.
-      </p>
-      <ul>
-        <li><strong>Complete privacy:</strong> Prompts and responses never leave your device; there is zero telemetry or intermediary servers.</li>
-        <li><strong>Zero cost or subscription:</strong> Requires no paid API keys or cloud server infrastructure.</li>
-        <li><strong>Offline functionality:</strong> Once a model is downloaded into your browser's persistent Cache Storage, it runs even without internet access.</li>
-      </ul>
+      <h2>What WebLLM does</h2>
+      <p>WebLLM runs a model inside the browser using WebGPU. Inference needs no remote API, but initial preparation downloads the runtime and weights. Web or MCP tools may still communicate with external services.</p>
+      <p>Offline operation depends on all application and model resources being available in cache. Opening the page once does not guarantee it. See the <a href="https://webllm.mlc.ai/docs/user/basic_usage.html" target="_blank" rel="noopener noreferrer">WebLLM guide</a>.</p>
     </div>
 
     <div class="card">
-      <h2>Hardware Requirements & VRAM Guidelines</h2>
-      <p>WebGPU performance depends on available GPU video memory (VRAM):</p>
-      <table class="spec-table">
-        <thead>
-          <tr>
-            <th>Model Parameter Size</th>
-            <th>Recommended VRAM</th>
-            <th>Sample Models in Catalog</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>0.5B – 1.5B (Lightweight)</strong></td>
-            <td>1.5 GB – 2.5 GB</td>
-            <td>Qwen2.5-0.5B, SmolLM2-1.7B, Qwen2.5-1.5B</td>
-          </tr>
-          <tr>
-            <td><strong>3B – 4B (Balanced)</strong></td>
-            <td>3 GB – 4.5 GB</td>
-            <td>Llama-3.2-3B, Phi-3.5-mini</td>
-          </tr>
-          <tr>
-            <td><strong>7B – 8B (High Quality)</strong></td>
-            <td>6 GB – 8 GB</td>
-            <td>Llama-3.1-8B-Instruct, Mistral-7B-Instruct</td>
-          </tr>
-        </tbody>
-      </table>
+      <h2>Hardware requirements</h2>
+      <p>You need a browser with working WebGPU, a compatible graphics adapter and enough memory. The catalogue shows a memory estimate for each model; context and prompt processing add to usage.</p>
+      <p>Start with a small model and a moderate window. WebGPU availability does not guarantee that a particular model fits on the GPU or works with its drivers.</p>
     </div>
 
     <h2>Browser Configuration &amp; WebGPU Setup</h2>
@@ -108,227 +77,53 @@
 
       <!-- Google Chrome / Edge / Brave -->
       <div class="card">
-        <h3>Google Chrome, Edge and Chromium</h3>
-        <p>Chromium-based browsers provide top-tier performance and reliability with WebGPU.</p>
-
-        <ol>
-          <li>
-            <strong>Enable hardware acceleration:</strong>
-            <p>Go to Settings &gt; System and ensure <em>"Use hardware acceleration when available"</em> is enabled.</p>
-            <div class="code-box">
-              <code>chrome://settings/system</code>
-              <button class="btn-copy" onclick="copyText('chrome://settings/system', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>Enable unsafe WebGPU (Recommended for maximum compatibility):</strong>
-            <p>Paste into your address bar, set the flag to <strong>Enabled</strong>, and relaunch your browser:</p>
-            <div class="code-box">
-              <code>chrome://flags/#enable-unsafe-webgpu</code>
-              <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>WebGPU Interoperability on Linux (Recommended for Linux and Wayland):</strong>
-            <p>On Linux (especially when running Wayland or dedicated NVIDIA/AMD GPUs), enable this setting to connect WebGPU compute directly to the browser window without overloading the CPU:</p>
-            <div class="code-box">
-              <code>chrome://flags/#force-enable-webgpu-interop</code>
-              <button class="btn-copy" onclick="copyText('chrome://flags/#force-enable-webgpu-interop', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>Check GPU diagnostics:</strong>
-            <p>Open the internal graphics status page and verify that <em>WebGPU</em> is listed as <em>"Hardware accelerated"</em>:</p>
-            <div class="code-box">
-              <code>chrome://gpu</code>
-              <button class="btn-copy" onclick="copyText('chrome://gpu', this)">Copy</button>
-            </div>
-          </li>
-        </ol>
-      </div>
+      <h3>Chrome, Edge and Chromium</h3>
+      <p>Use an up-to-date version, review graphics acceleration in browser settings and check WebGPU status on its diagnostic page, for example <code>chrome://gpu</code>.</p>
+      <p>Experimental flags are not a routine setup requirement. Forcing options that bypass driver checks can introduce failures and does not solve missing memory or device support.</p>
+    </div>
 
       <!-- Mozilla Firefox -->
       <div class="card">
-        <h3>Mozilla Firefox</h3>
-        <p>WebGPU is in active rollout in Firefox and requires enabling specific preferences:</p>
-
-        <ol>
-          <li>
-            <strong>Open the advanced preferences editor:</strong>
-            <p>Type into the address bar and click <em>"Accept the Risk and Continue"</em>:</p>
-            <div class="code-box">
-              <code>about:config</code>
-              <button class="btn-copy" onclick="copyText('about:config', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>Enable the WebGPU API:</strong>
-            <p>Search for this preference and toggle its value to <strong>true</strong>:</p>
-            <div class="code-box">
-              <code>dom.webgpu.enabled</code>
-              <button class="btn-copy" onclick="copyText('dom.webgpu.enabled', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>Ignore driver blocklist (Recommended on Linux/Windows):</strong>
-            <p>Allows Firefox to use WebGPU even if your driver is not yet on the official whitelist:</p>
-            <div class="code-box">
-              <code>gfx.webgpu.ignore-status</code>
-              <button class="btn-copy" onclick="copyText('gfx.webgpu.ignore-status', this)">Copy</button>
-            </div>
-          </li>
-
-          <li>
-            <strong>Check Firefox GPU status:</strong>
-            <p>Review the <em>Graphics &gt; WebGPU</em> section to confirm hardware adapter detection:</p>
-            <div class="code-box">
-              <code>about:support</code>
-              <button class="btn-copy" onclick="copyText('about:support', this)">Copy</button>
-            </div>
-          </li>
-        </ol>
-      </div>
+      <h3>Firefox</h3>
+      <p>Availability depends on the version, operating system, GPU and drivers. Review <code>about:support</code> and check whether ZeroChat detects WebGPU.</p>
+      <p>Changing advanced preferences or ignoring driver blocks is not a general requirement. If usable WebGPU is unavailable, use a compatible environment or an inference server profile.</p>
+    </div>
 
     </div>
 
     <div class="card">
-      <h2>How to Use WebLLM in ZeroChat</h2>
-      <ol>
-        <li>In ZeroChat, open the <strong>Profile Management</strong> dialog.</li>
-        <li>Select the <strong>WebLLM (local WebGPU)</strong> interface type.</li>
-        <li>
-          <strong>If you already have downloaded models:</strong>
-          They appear automatically at the top of the model dropdown. Pick any downloaded model and save the profile immediately without needing to click <em>Query</em>.
-        </li>
-        <li>
-          <strong>To download a new model:</strong>
-          Click the <strong>Query</strong> button. Browse the available catalog with required VRAM metrics, click the download icon next to your desired model, and wait for shader compilation to finish.
-        </li>
-        <li>
-          Once download completes, the model will be tagged as <em>"Cached"</em> and stored permanently in your browser.
-        </li>
-      </ol>
+      <h2>Using WebLLM in ZeroChat</h2>
+      <ol><li>Create or edit a profile and select <strong>WebLLM</strong>.</li>
+      <li>Press <strong>Query</strong> to open the catalogue. Completed models appear first.</li>
+      <li>Download a model and wait for preparation to finish. An incomplete download does not count as available.</li>
+      <li>Select the model and save the profile. If already downloaded, you do not need to repeat Query to save it.</li></ol>
+      <p>Initial preparation can take time and occupy several gigabytes. Cache belongs to the browser and origin used; another browser may need a new download.</p>
     </div>
 
     <div class="card">
-      <h2>Advanced WebGPU Execution Parameters</h2>
-      <p>
-        When configuring a profile with the <strong>WebLLM</strong> provider, next to the model selector you will find a gear icon button that reveals the advanced performance panel. These dropdown selectors allow you to fine-tune VRAM usage and inference speed according to your GPU capabilities:
-      </p>
-      <ul>
-        <li>
-          <strong>Context window (<code>context_window_size</code>):</strong> Dropdown selector for the maximum token capacity in the KV Cache (e.g., 2048, 4096, 8192, 16384, 32768). By default, browser builds often limit this to 2048 or 4096 to prevent out-of-memory errors on integrated or mobile GPUs. If your GPU has ample VRAM, increasing this retains longer conversations and large documents without truncation.
-        </li>
-        <li>
-          <strong>Prefill chunk size (<code>prefill_chunk_size</code>):</strong> Dropdown selector for the number of tokens processed concurrently by the GPU during prompt evaluation (512, 1024, 2048, 4096). Higher values take full advantage of dedicated GPUs, reducing time to first token (TTFT).
-        </li>
-      </ul>
-      <p>
-        The first choice in each dropdown is <em>"Model default"</em> (<code>default</code>), instructing ZeroChat to preserve the model's standard default configuration. These settings are stored as part of the connection profile.
-      </p>
+      <h2>Performance parameters</h2>
+      <p>The WebLLM profile gear control lets you adjust <code>context_window_size</code> and <code>prefill_chunk_size</code> (the prompt processing block size).</p>
+      <p><strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
     </div>
 
     <div class="card">
-      <h2>How to Revert Changes and Restore Default Configuration</h2>
-      <p>
-        If you wish to undo the technical changes made to your browser or ZeroChat and return to factory defaults, follow the instructions below:
-      </p>
-
-      <h3>1. Google Chrome, Microsoft Edge, and Chromium</h3>
-      <ul>
-        <li>
-          <strong>Restore the specific WebGPU flag:</strong>
-          <p>Navigate back to the flag URL and select <strong>Default</strong> from the dropdown menu:</p>
-          <div class="code-box">
-            <code>chrome://flags/#enable-unsafe-webgpu</code>
-            <button class="btn-copy" onclick="copyText('chrome://flags/#enable-unsafe-webgpu', this)">Copy</button>
-          </div>
-          <p>Click the <strong>Relaunch</strong> button that appears at the bottom of the screen to restart the browser with default settings.</p>
-        </li>
-        <li>
-          <strong>Reset all experimental flags:</strong>
-          <p>If you adjusted multiple parameters and want to return everything to out-of-the-box defaults, open the main flags page and click the <strong>"Reset all"</strong> button in the upper-right corner:</p>
-          <div class="code-box">
-            <code>chrome://flags</code>
-            <button class="btn-copy" onclick="copyText('chrome://flags', this)">Copy</button>
-          </div>
-        </li>
-        <li>
-          <strong>Hardware Acceleration:</strong>
-          <p>In <code>chrome://settings/system</code>, you can toggle <em>"Use hardware acceleration when available"</em> according to your standard preference.</p>
-        </li>
-      </ul>
-
-      <h3>2. Mozilla Firefox</h3>
-      <ul>
-        <li>
-          <strong>Open advanced configuration:</strong>
-          <p>Type into your address bar and accept the warning:</p>
-          <div class="code-box">
-            <code>about:config</code>
-            <button class="btn-copy" onclick="copyText('about:config', this)">Copy</button>
-          </div>
-        </li>
-        <li>
-          <strong>Reset modified preferences:</strong>
-          <p>Search for each modified preference (they will be displayed in <strong>bold</strong>, indicating a custom non-default value):</p>
-          <ul>
-            <li><code>dom.webgpu.enabled</code> (factory default: <strong>false</strong>)</li>
-            <li><code>gfx.webgpu.ignore-status</code> (factory default: <strong>false</strong> or non-existent)</li>
-          </ul>
-          <p>Click the <strong>Reset</strong> button (the curved back-arrow icon at the right edge of the row) or double-click the row so it returns to <code>false</code> and is no longer bold.</p>
-        </li>
-        <li>
-          <strong>Restart the browser:</strong>
-          <p>Close and restart Firefox so that graphics and GPU subsystems reinitialize under default parameters.</p>
-        </li>
-      </ul>
-
-      <h3>3. Freeing Disk Space (Deleting Downloaded Models from Cache)</h3>
-      <p>
-        Local WebLLM models are stored in the browser's persistent storage (<em>Cache Storage</em> / <em>IndexedDB</em>) and can take up several gigabytes. If you want to delete them to reclaim disk space:
-      </p>
-      <ul>
-        <li>
-          <strong>In Google Chrome, Edge, and Chromium:</strong>
-          <ol>
-            <li>Click the tune/padlock site settings icon to the left of the address bar while visiting ZeroChat.</li>
-            <li>Select <em>"Site settings"</em> and click <strong>"Clear data"</strong>.</li>
-            <li>Alternatively, press <kbd>F12</kbd> &gt; <strong>Application</strong> tab &gt; <strong>Storage</strong> section &gt; click <strong>"Clear site data"</strong>.</li>
-          </ol>
-        </li>
-        <li>
-          <strong>In Mozilla Firefox:</strong>
-          <ol>
-            <li>Open Settings &gt; <em>Privacy &amp; Security</em> section &gt; <em>Cookies and Site Data</em>.</li>
-            <li>Click <strong>"Manage Data..."</strong>, search for the ZeroChat domain, and click <strong>"Remove Selected"</strong>.</li>
-            <li>Alternatively, press <kbd>F12</kbd> &gt; <strong>Storage</strong> tab &gt; <strong>Cache Storage</strong>, right-click any <code>webllm/model</code> entries, and click <strong>Delete</strong>.</li>
-          </ol>
-        </li>
-      </ul>
+      <h2>Resetting settings and freeing space</h2>
+      <h3>1. Chrome, Edge and Chromium</h3>
+      <p>If you changed a flag, reset that option to <strong>Default</strong> and restart. Avoid resetting all browser options when you changed only one.</p>
+      <h3>2. Firefox</h3>
+      <p>If you changed a WebGPU preference, use its reset control in <code>about:config</code>. Defaults depend on the version: do not replace them with a fixed value from an old guide.</p>
+      <h3>3. Downloaded models</h3>
+      <p>Use the catalogue delete action to remove a model. To reset all storage, <strong>Settings → Clear all</strong> deletes data for the current origin, including conversations, profiles, RAG, attachments and models. Export what you want to keep and close other tabs before confirming.</p>
+      <p>This does not delete files downloaded to disk, HttpOnly cookies or the browser's internal HTTP cache. Data for different origins is separate.</p>
     </div>
 
     <div class="card">
-      <h2>Troubleshooting Common Issues &amp; Compatibility</h2>
-      <p>ZeroChat executes WebLLM through an in-memory self-contained classic Web Worker, ensuring full compatibility in both Google Chrome and Mozilla Firefox in a purely static web setup (without requiring local build steps or special browser flags). The JavaScript runtime is persistently cached in <em>Cache Storage</em> and automatically refreshed every 7 days when an active internet connection is available (with seamless offline fallback when disconnected).</p>
-      <p>Settings → Clear all data deletes storage for the current origin, including RAG, attachments, downloaded models, IndexedDB, Cache Storage and browser-private files. Close other tabs before confirming. Deletion is irreversible and affects applications sharing the origin. Repeat it for each HTTP or HTTPS origin you used. It does not delete files downloaded to your computer, HttpOnly cookies or the browser's internal HTTP cache.</p>
-      <p>If preparation fails, the model row displays the error detail received from WebLLM. Copy the complete message to diagnose hardware resource access and GPU WebGPU acceleration.</p>
-      <ul>
-        <li>
-          <strong>"WebGPU is not available in this browser":</strong> Ensure you are running the latest browser version with WebGPU flags enabled as described above.
-        </li>
-        <li>
-          <strong>Out of Memory (OOM) Errors:</strong> If the tab crashes or reloads during shader compilation, select a lighter model (0.5B – 1.5B) or close other GPU-intensive tabs.
-        </li>
-        <li>
-          <strong>Private Browsing / Incognito Mode:</strong> Incognito mode may wipe browser cache on exit. Use a regular browsing window to keep downloaded models permanently cached.
-        </li>
-      </ul>
+      <h2>Common problems</h2>
+      <ul><li><strong>WebGPU unavailable:</strong> check browser, secure context (HTTPS or localhost), drivers and graphics acceleration.</li>
+      <li><strong>Out of memory:</strong> close other GPU workloads, reduce context or choose a smaller model.</li>
+      <li><strong>Download or preparation error:</strong> read the complete error in the model row, check network and space, and retry.</li>
+      <li><strong>Missing cache:</strong> private browsing, site cleanup or browser quotas may remove resources. Cache is not guaranteed permanent storage.</li></ul>
+      <p>Compatibility must be checked on the actual device. A model may support chat without supporting vision, tools or another provider's reasoning settings.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -347,7 +142,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
   <script src="../help.js"></script>

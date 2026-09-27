@@ -3,33 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Automatización del navegador · Ayuda de ZeroChat</title>
-  <meta name="description" content="Instalación de los requisitos mínimos para browser_action en ZeroChat.">
+  <title>Automatización del navegador · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Preparar y utilizar browser_action con el servidor local.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
   <div class="container">
     <header>
       <div class="header-top">
-        <a href="index.html" class="logo-badge">ZeroChat Docs</a>
+        <a href="index.html" class="logo-badge">ZeroChat 8.x Docs</a>
         <div class="header-actions"><a href="en/browser-action.html" class="top-nav-link">English</a><a href="mcp.html" class="top-nav-link">← MCP</a></div>
       </div>
       <h1>Automatización del navegador</h1>
-      <p class="subtitle">Requisitos mínimos de <code>browser_action</code>.</p>
+      <p class="subtitle">Preparar y utilizar browser_action con el servidor local.</p>
     </header>
 
     <div class="card">
-      <p><code>browser_action</code> controla un navegador Chromium en segundo plano para navegar, hacer capturas, pulsar elementos y rellenar formularios. Solo se puede activar cuando están disponibles Node.js, Playwright y un navegador Chromium compatible.</p>
+      <p><code>browser_action</code> es una herramienta del servidor local que controla Chromium para navegar, hacer capturas, pulsar elementos y rellenar formularios. Necesita Node.js, Playwright y un navegador compatible. No controla la pestaña de ZeroChat ni hereda necesariamente las sesiones de tu navegador habitual.</p>
     </div>
 
     <div class="card">
-      <h2>Instalación recomendada</h2>
-      <ol>
-        <li>Instala Node.js 18 o posterior, que incluye <code>npm</code>.</li>
-        <li>En ZeroChat, abre <strong>Ajustes → MCP</strong> y arranca <strong>Playwright MCP</strong>. ZeroChat descarga Playwright y Chromium en <code>~/zerochat/services/playwright/</code>.</li>
-        <li>Vuelve a conectar el servidor local o recarga ZeroChat. Ya podrás activar <code>browser_action</code>.</li>
-      </ol>
-      <p>También puedes usar una instalación de Playwright disponible para Node.js junto con Google Chrome, Microsoft Edge o Chromium. No instales paquetes Python para esta herramienta.</p>
+      <h2>Preparación</h2>
+      <ol><li>Inicia el backend <code>zerochat</code> o <code>python3 zerochat.py</code> y comprueba que Node.js y <code>npm</code> estén disponibles para ese proceso.</li>
+      <li>Abre <strong>Ajustes → MCP</strong> e inicia <strong>Playwright MCP</strong>. Su instalación prepara Playwright y Chromium bajo <code>~/zerochat/services/playwright/</code>.</li>
+      <li>Recarga ZeroChat para actualizar las herramientas detectadas y habilita <code>browser_action</code> si aparece disponible.</li></ol>
+      <p>La herramienta local <code>browser_action</code> y las herramientas externas de Playwright MCP son interfaces distintas aunque puedan aprovechar las mismas dependencias. También puede detectarse una instalación de Playwright para Node.js con Chrome, Edge o Chromium. Instalar el paquete Python de Playwright no satisface este requisito.</p>
+      <p>Si no está disponible, revisa la salida de instalación y los requisitos del navegador en tu sistema. La descarga puede necesitar red y bibliotecas del sistema; instalar el paquete npm por sí solo no garantiza que Chromium arranque.</p>
     </div>
 
     <div class="alert alert-warning">

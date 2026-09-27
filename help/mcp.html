@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía de MCP en ZeroChat: servidor local, herramientas, servicios externos y permisos.">
+  <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Servidor local, servicios MCP y alcance de los permisos.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,140 +13,80 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/mcp.html" class="top-nav-link">English 🌐</a>
+          <a href="en/mcp.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Protocolo MCP (Model Context Protocol)</h1>
-      <p class="subtitle">Usa herramientas de tu equipo y servicios MCP externos desde ZeroChat, con el servidor local y controles de autorización integrados.</p>
+      <p class="subtitle">Servidor local, servicios MCP y alcance de los permisos.</p>
     </header>
 
     <div class="card">
-      <p>Las herramientas locales usan su nombre canónico directo (por ejemplo, <code>read_file</code> o <code>execute_command</code>) y las externas <code>mcp_&lt;servicio&gt;_&lt;herramienta&gt;</code>, por ejemplo <code>mcp_browser_service_browser_navigate</code>. Los permisos se guardan por este nombre completo: autorizar una herramienta no autoriza su homónima en otro servicio. No se admiten alias antiguos. Los caracteres especiales se codifican para evitar colisiones.</p>
+      <p>Las herramientas locales tienen nombres como <code>read_file</code> o <code>execute_command</code>. Las externas usan <code>mcp_&lt;servicio&gt;_&lt;herramienta&gt;</code>. Los permisos se asocian al nombre completo; autorizar una herramienta no autoriza otra del mismo nombre en un servicio distinto.</p>
     </div>
 
     <div class="card">
-      <h2>1. ¿Qué es MCP?</h2>
-      <p>
-        El <strong>Model Context Protocol (MCP)</strong> es un estándar abierto promovido por Anthropic para conectar modelos de inteligencia artificial con fuentes de datos y herramientas del mundo real de manera uniforme.
-      </p>
-      <p>
-        En ZeroChat, el servidor local inicia en <code>127.0.0.1</code> y abre GitHub Pages con un token de sesión. Puedes instalarlo desde PyPI o ejecutar <code>zerochat.py</code> directamente: ambos métodos usan el mismo origen web y no requieren configurar una URL MCP remota.
-      </p>
+      <h2>1. Qué es MCP</h2>
+      <p>MCP permite descubrir e invocar herramientas de otros procesos. En ZeroChat, el servidor local conecta la interfaz del navegador con herramientas del equipo y servicios externos gestionados.</p>
+      <p>Para este flujo, inicia <code>zerochat</code> o <code>python3 zerochat.py</code>. El servidor escucha en la interfaz local y abre la web con el token de sesión. Sin el servidor puedes seguir usando el chat y las herramientas de navegador disponibles.</p>
     </div>
 
     <div class="card">
-      <h2>2. Conexión y Estado en la Interfaz</h2>
-      <p>
-        Abre <strong>Ajustes → MCP</strong> para consultar el estado del servidor local y las herramientas detectadas:
-      </p>
-      <ul>
-        <li><strong>Desconectado:</strong> El servidor local no está disponible. Deja <code>zerochat</code> o <code>zerochat.py</code> ejecutándose y recarga la página si se ha reiniciado.</li>
-        <li><strong>Conectado:</strong> ZeroChat ha descubierto las herramientas locales y puede mostrar los servicios MCP externos disponibles.</li>
-      </ul>
-      <p>
-        No hay botón ni formulario de conexión manual. Ejecuta el comando siguiente y abre la aplicación desde el enlace que inicia el script. El token de sesión protege las peticiones al servidor local: no compartas esa URL ni el token.
-      </p>
+      <h2>2. Conexión y estado</h2>
+      <p>Abre <strong>Ajustes → MCP</strong> para ver el estado y las herramientas descubiertas. No hay un formulario de conexión manual: utiliza el enlace abierto por el comando de arranque.</p>
+      <p>Si aparece desconectado, comprueba que el proceso siga en ejecución, vuelve a abrir su enlace y revisa los permisos de acceso a la red local del navegador. No compartas el enlace de arranque con su token.</p>
     </div>
 
     <div class="card">
-      <h2>3. Servidor Local: PyPI o zerochat.py</h2>
-      <p>
-        La opción recomendada es instalar el ejecutable oficial desde PyPI. No incluye una copia de la interfaz: abre la misma aplicación de GitHub Pages que el script descargado.
-      </p>
-      <p>
-        Como alternativa, descarga <code>zerochat.py</code> y ejecútalo con Python. Ambas opciones arrancan el servidor SSE, abren GitHub Pages y conservan el token de sesión en el mismo origen web.
-        También crean <code>~/zerochat/</code>: ahí se guardan configuración, token y servicios; los MCP Python usan exclusivamente <code>~/zerochat/.venv/</code>, sin instalar paquetes en tu Python global.
-      </p>
-      <p>
-        <strong>Herramientas Locales Esenciales:</strong>
-      </p>
-      <ul>
-        <li><strong><code>execute_command</code>:</strong> Terminal shell unificado para Git, CLI, pruebas y compilación, enriquecido con diagnóstico del sistema operativo.</li>
-        <li><strong><code>read_file</code>:</strong> Lectura segura de archivos con rangos de líneas y límites de contexto.</li>
-        <li><strong><code>edit_file</code>:</strong> Creación y edición atómica de archivos (sobrescritura, anexado o reemplazo de bloques).</li>
-        <li><strong><code>list_directory</code>:</strong> Listado estructurado de un único nivel de carpetas y metadatos de archivos; no recorre subdirectorios.</li>
-      </ul>
-      <p>
-        <strong>Seguridad por Token:</strong> Todas las peticiones desde GitHub Pages requieren el token efímero generado al arrancar. Sin este token, el servidor local rechaza cualquier conexión externa.
-        Las peticiones MCP, incluido el canal SSE, envían el token en cabeceras HTTP, nunca en la URL del endpoint. La solicitud automática del favicon no requiere token y devuelve una respuesta vacía si no hay icono disponible.
-      </p>
-      <p>
-        En una terminal interactiva, la línea de estado muestra <code>[i] información</code> solo cuando hay avisos de la ejecución, como una actualización disponible. Pulsa <code>i</code> para verlos; se conservan hasta que se detiene el servidor.
-      </p>
-      <div class="code-wrapper">
-        <pre><code># Recomendado: instalar desde PyPI
+      <h2>3. Servidor local</h2>
+      <p>Puedes instalar el ejecutable desde PyPI o descargar el script. Fuera del repositorio de desarrollo, ambos abren la interfaz de GitHub Pages y guardan su estado en <code>~/zerochat/</code>.</p>
+      <div class="code-wrapper"><pre><code># PyPI
 pip install zerochat &amp;&amp; zerochat
 
-# Alternativa: descargar y ejecutar el script directamente
-curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
-      </div>
+# Descarga directa
+curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
+      <p>El arranque prepara <code>config/</code>, <code>services/</code> y <code>.venv/</code> para los MCP Python. Revisa los avisos si falla la creación del entorno antes de iniciar servicios. El ejecutable principal sigue usando el intérprete con el que lo arrancaste.</p>
+      <ul><li><code>list_directory</code>: lista directorios; admite recorrido recursivo limitado.</li>
+      <li><code>read_file</code>: lee texto con rangos y límites de tamaño.</li>
+      <li><code>write_file</code>: crea o sobrescribe archivos.</li>
+      <li><code>edit_file</code>: sustituye un fragmento que debe coincidir una sola vez; también admite modos de compatibilidad.</li>
+      <li><code>search_files</code>: busca texto o expresiones regulares en archivos.</li>
+      <li><code>bash</code> y <code>execute_command</code>: ejecutan comandos; la sesión shell puede conservar directorio y variables entre llamadas.</li>
+      <li><code>get_diagnostics</code>: recoge comprobaciones de sintaxis disponibles; no sustituye las pruebas del proyecto.</li>
+      <li><code>browser_action</code>: automatiza Chromium cuando están instalados sus requisitos.</li></ul>
+      <p>Las peticiones MCP usan el token en cabeceras. Las llamadas a herramientas requieren además una autorización firmada de corta duración y un solo uso. El token local se conserva por día; la clave de firma se renueva al reiniciar el proceso.</p>
+      <p>Si la terminal muestra <code>[i] información</code>, pulsa <code>i</code> para consultar avisos como una actualización disponible.</p>
     </div>
 
     <div class="card">
-      <h2>4. Control de Permisos y Niveles de Autorización</h2>
-      <p>
-        Dado que las herramientas locales pueden ejecutar acciones sensibles en tu máquina (como modificar archivos o ejecutar comandos), ZeroChat incorpora un sistema de seguridad jerárquico y determinista:
-      </p>
-      <p>
-        Abre <strong>Ajustes → Permisos</strong> para elegir la política global, gestionar los servidores confiables, revisar las decisiones recordadas y restablecerlas cuando sea necesario. Desde el panel MCP también puedes elegir <em>Preguntar</em>, <em>Permitir</em> o <em>Denegar</em> para cada herramienta o servidor.
-      </p>
-      <ul>
-        <li><strong>Interruptor On/Off:</strong> Permite activar o desactivar individualmente cada herramienta expuesta al modelo sin detener el servidor.</li>
-        <li><strong>Política global de ejecución:</strong>
-          <ul>
-            <li><em>Pedir autorización (recomendado):</em> ZeroChat pausa la ejecución para solicitar tu aprobación explícita según las reglas configuradas.</li>
-            <li><em>Confiar en el espacio de trabajo (Workspace Trust):</em> Confía automáticamente en las operaciones y archivos dentro del directorio de trabajo del proyecto (CWD). Pregunta para accesos externos o comandos globales.</li>
-            <li><em>Todo autorizado:</em> Cualquier herramienta se ejecuta automáticamente sin confirmaciones. Úsalo solo en un entorno de desarrollo de total confianza.</li>
-          </ul>
-        </li>
-        <li><strong>Ámbitos de autorización (Scopes):</strong> Al presentarse una solicitud de confirmación en el chat, puedes elegir entre:
-          <ul>
-            <li><em>Permitir una vez:</em> Concede permiso puntual solo para la llamada actual.</li>
-            <li><em>En esta sesión:</em> Válido mientras el backend siga activo; se limpia ordenadamente al reiniciar el servidor sin borrar tus permisos permanentes.</li>
-            <li><em>Permitir siempre:</em> Regla permanente persistida en almacenamiento local seguro.</li>
-            <li><em>Confiar en el servidor MCP:</em> Autoriza el conjunto completo de herramientas del servidor (por ejemplo, Playwright o Memory) para no tener que autorizarlas una a una.</li>
-          </ul>
-        </li>
-      </ul>
-      <p>
-        La lista <strong>Directorios permitidos</strong> centraliza el acceso de las herramientas locales de archivos. Si la lista está vacía, ZeroChat inyecta por defecto una regla <code>R:</code> para su directorio de arranque. Añade una regla por línea con <code>R:</code> para lectura, <code>W:</code> para modificación o <code>RW:</code> para ambos; por ejemplo, <code>R:./proyecto/**</code> o <code>W:./proyecto/src/**</code>. Usa <code>*</code> para un segmento y <code>**</code> para incluir subdirectorios.
-      </p>
-      <p>
-        Para <code>execute_command</code> y <code>bash</code>, los permisos se sincronizan automáticamente. Las órdenes autorizadas respetan prefijos y admiten tuberías (pipes) y redirecciones sin volver a pedir confirmación innecesariamente, mientras que el encadenamiento arbitrario (<code>;</code> o <code>&&</code>) o los patrones de riesgo se bloquean o solicitan confirmación puntual.
-      </p>
-      <div class="alert alert-warning">
-        <strong>Seguridad en red local:</strong> Asegúrate de que tu servidor MCP escuche únicamente en la interfaz local <code>127.0.0.1</code> y no en <code>0.0.0.0</code> si estás conectado a una red pública no confiable.
-      </div>
+      <h2>4. Permisos</h2>
+      <p>En <strong>Ajustes → Permisos</strong> puedes elegir la política global, revisar reglas recordadas y servidores confiables. El panel MCP permite habilitar herramientas y elegir Preguntar, Permitir o Denegar.</p>
+      <ul><li><strong>Pedir autorización:</strong> pregunta cuando las reglas existentes no resuelven la llamada.</li>
+      <li><strong>Confiar en el espacio de trabajo:</strong> permite operaciones que coinciden con las reglas del directorio; no crea una máquina aislada.</li>
+      <li><strong>Todo autorizado:</strong> permite ejecutar sin confirmación, salvo bloqueos explícitos que tengan prioridad.</li></ul>
+      <p>Las decisiones pueden aplicarse a una llamada, a la sesión del backend o de forma permanente. Confiar en un servidor autoriza un conjunto más amplio que una sola herramienta. Revisa ese alcance antes de recordarlo.</p>
+      <p><strong>Directorios permitidos</strong> admite reglas por línea: <code>R:</code> para leer, <code>W:</code> para escribir y <code>RW:</code> para ambos, con <code>*</code> para un segmento y <code>**</code> para subdirectorios. Una lista vacía incorpora una regla de lectura para el directorio de arranque. Los comandos tienen reglas de prefijos y comprobaciones adicionales.</p>
+      <p>Estos permisos no son un contenedor del sistema operativo. Un comando o servicio autorizado actúa con los permisos del proceso local y puede producir cambios fuera del objetivo previsto. Revisa argumentos y conserva copias o control de versiones; detener una llamada no revierte lo realizado.</p>
     </div>
 
     <div class="card">
       <h2>Automatización del navegador</h2>
-      <p>La herramienta local <code>browser_action</code> necesita Node.js, Playwright y Chromium. ZeroChat comprueba estos requisitos antes de activarla y la mantiene desactivada si falta alguno.</p>
-      <p><a href="browser-action.html">Instalar los requisitos mínimos de browser_action →</a></p>
+      <p><code>browser_action</code> requiere Node.js, Playwright y Chromium. Permanece desactivada si no se detectan los requisitos.</p>
+      <p><a href="browser-action.html">Preparación y uso de browser_action →</a></p>
     </div>
 
     <div class="card">
-      <h2>5. Servicios MCP Externos y Activación Individual</h2>
-      <p>
-        El servidor local gestiona los servicios MCP externos en <code>~/zerochat/services/</code>. No necesitas ejecutar un daemon externo global: cada servicio se inicia y se detiene desde ZeroChat. Borrar <code>~/zerochat/</code> elimina el estado local y todos los MCP instalados.
-      </p>
-      <p>
-        En <strong>Ajustes → MCP</strong>, <em>"Servidores MCP Disponibles"</em> permite iniciar o detener cada servicio y configurar sus opciones. Al iniciarlo, ZeroChat instala las dependencias necesarias cuando corresponda, descubre sus herramientas y las añade al panel. Los servicios basados en Node.js requieren Node.js 18 o posterior y npm.
-      </p>
-      <p>
-        El servidor local incluye definiciones listas para usar en <code>services/</code>:
-      </p>
-      <ul>
-        <li><code>dummy_mcp</code>: Servicio mínimo de prueba en Python puro sin dependencias.</li>
-        <li><code>playwright</code>: Automatización de navegador con Playwright MCP oficial; la opción <em>Headless</em> controla si se muestra la ventana.</li>
-        <li><code>memory</code>: Grafo de conocimiento y memoria persistente estructurada.</li>
-        <li><code>lsp</code>: Language Server Protocol para navegación de código e inteligencia de tipos.</li>
-      </ul>
-      <p>Los parches de interfaz <code>7.4.x</code> se reciben desde GitHub Pages sin actualizar el ejecutable. Solo un cambio de <code>major.minor</code>, por ejemplo de <code>7.4</code> a <code>7.5</code>, requiere actualizar <code>zerochat.py</code> o el paquete PyPI.</p>
+      <h2>5. Servicios MCP externos</h2>
+      <p>En <strong>Ajustes → MCP → Servidores MCP disponibles</strong> puedes configurar, iniciar o detener cada servicio. El gestor instala dependencias cuando corresponde y descubre sus herramientas. La instalación puede necesitar red y herramientas adicionales del sistema.</p>
+      <ul><li><code>dummy_mcp</code>: servicio de prueba.</li>
+      <li><code>playwright</code>: automatización mediante Playwright MCP, con opción Headless.</li>
+      <li><code>memory</code>: grafo de conocimiento persistente.</li>
+      <li><code>lsp</code>: funciones de análisis de código mediante servidores de lenguaje; dependen de las herramientas instaladas.</li></ul>
+      <p>Los servicios se gestionan bajo <code>~/zerochat/services/</code>. Borrar <code>~/zerochat/</code> elimina ese estado y sus dependencias, pero no el historial del navegador ni archivos modificados fuera de esa carpeta.</p>
+      <p>Los parches de una misma serie, como <code>8.0.x</code>, llegan con la web. Un cambio de <code>major.minor</code> puede requerir actualizar el backend. Sigue el aviso correspondiente a PyPI o a la descarga directa; la actualización no es automática.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -165,7 +105,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
   <script src="help.js"></script>

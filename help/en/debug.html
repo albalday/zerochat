@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Debugging, Logs & Message Interceptor · ZeroChat Help</title>
-  <meta name="description" content="Guide to ZeroChat's debug panel, Raw view, and request interceptor.">
+  <title>Debugging, Logs & Message Interceptor · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Inspecting requests, tool results and connection errors.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,73 +13,44 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../debug.html" class="top-nav-link">Español 🌐</a>
+          <a href="../debug.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Debugging, Logs & Interceptor</h1>
-      <p class="subtitle">Inspect internal inference events, monitor network traffic, and modify payloads in flight with the interactive interceptor.</p>
+      <p class="subtitle">Inspecting requests, tool results and connection errors.</p>
     </header>
 
     <div class="card">
-      <h2>1. The Debug Panel</h2>
-      <p>
-        ZeroChat includes a right-hand sidebar designed for developers, security researchers, and power users. Click the terminal icon in the top-right header to toggle the panel.
-      </p>
-      <p>
-        The panel provides a live, monospace console streaming system events in real time.
-      </p>
-      <h3>Event Filter Tabs:</h3>
-      <ul>
-        <li><strong>All:</strong> Unified log view containing system, network, and tool execution messages.</li>
-        <li><strong>Thinking:</strong> Isolates native model reasoning and chain-of-thought blocks.</li>
-        <li><strong>Tool:</strong> Tracks function invocations, parameter bindings, and return values.</li>
-        <li><strong>Network:</strong> Displays HTTP calls, header payloads, status codes, and connection latency.</li>
-        <li><strong>Raw:</strong> Shows unprocessed provider communication entries and outputs.</li>
-      </ul>
+      <h2>1. Debug panel</h2>
+      <p>Open the panel using the terminal icon in the header. It shows application events and information about model and tool requests.</p>
+      <ul><li><strong>All:</strong> all recorded events.</li>
+      <li><strong>Thinking:</strong> reasoning content exposed by the provider.</li>
+      <li><strong>Tool:</strong> calls and results.</li>
+      <li><strong>Network:</strong> recorded request information.</li>
+      <li><strong>Raw:</strong> inputs and outputs without chat formatting.</li></ul>
+      <p>This is not a full capture of browser traffic. Loading, CORS or network errors may also require the browser developer tools.</p>
     </div>
 
     <div class="card">
-      <h2>2. Console Utilities</h2>
-      <ul>
-        <li><strong>Copy Logs:</strong> Copies the formatted log history with timestamps to your clipboard for bug reporting.</li>
-        <li><strong>Clear Console:</strong> Clears the active log view to begin a fresh debugging session.</li>
-        <li><strong>Auto-scroll:</strong> Toggles following latest events automatically or pausing to inspect past entries.</li>
-      </ul>
+      <h2>2. Reading and copying logs</h2>
+      <p>The panel toolbar lets you copy logs, clear the console and enable or pause automatic scrolling.</p>
+      <p>Logs may contain messages, documents, arguments and tool responses. Review and remove private information before sharing; filtering credentials does not anonymize all content.</p>
     </div>
 
     <div class="card">
-      <h2>3. Message Interceptor Mode (Debug Messages)</h2>
-      <p>
-        The <strong>Message Interceptor</strong> pauses outgoing requests right before transmission when the <em>"Debug messages"</em> switch is enabled.
-      </p>
-      <h3>How it works:</h3>
-      <ol>
-        <li>Type a prompt and press Send. The request is <strong>held before reaching the network</strong>.</li>
-        <li>An inspection dialog opens showing the exact <strong>JSON payload</strong> (system prompts, message history, registered tool schemas, temperature, etc.).</li>
-        <li>You can inspect fields, manually edit parameters, or test prompt mutations directly.</li>
-        <li>The header contains the send actions and an X button to cancel:
-          <ul>
-            <li><strong>Continue / Send:</strong> Sends the edited payload to the provider.</li>
-            <li><strong>Send &amp; stop debug:</strong> Sends the payload and disables the interceptor for subsequent requests.</li>
-            <li><strong>X:</strong> Aborts the request cleanly with zero tokens spent.</li>
-          </ul>
-        </li>
-      </ol>
-      <div class="alert alert-info">
-        <strong>Ideal for developers:</strong> Test model robustness against adversarial prompts or verify tool call schema definitions without writing custom proxy code.
-      </div>
+      <h2>3. Message interceptor</h2>
+      <p>Enable <strong>Debug messages</strong> to inspect the prepared JSON before it is sent to the provider. You can edit and send it, send it while disabling the interceptor, or cancel with X.</p>
+      <p>Use it to check how messages, tools and parameters are packaged. An edit may invalidate the request or change what the model receives. Cancelling prevents that pending request but does not undo earlier requests or actions.</p>
     </div>
 
     <div class="card">
       <h2>4. Raw view</h2>
-      <p>
-        The <em>Raw</em> tab is available directly in the panel; it needs no separate activation. Entries are capped to keep the panel usable.
-      </p>
-      <p>Use it to inspect requests, streaming responses, and tool calls while diagnosing a provider.</p>
+      <p>Raw displays request, response and streaming information recorded by ZeroChat. Entries are limited to contain panel size, so it should not be treated as a complete audit archive.</p>
+      <p>When reporting a failure, record the provider, model, action and error, and share only the necessary log excerpt.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -98,7 +69,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
 </body>

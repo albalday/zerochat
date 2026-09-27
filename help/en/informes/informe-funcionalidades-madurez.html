@@ -1,9 +1,394 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Features and maturity — ZeroChat 7.11.0"><title>ZeroChat 7.11.0 · Features and maturity</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1080px;margin:auto;padding:24px 20px 64px}header{border-top:6px solid #08636c;padding:20px 0}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}h3{font-size:1.1rem;margin:1.5em 0 .3em}p{margin:.6em 0 1em}.meta{color:#546575;font-size:.9rem}.lead{font-size:1.12rem}nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}nav a[aria-current]{background:#08636c;color:white}a{color:#075d66}section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}section.verdict{border-left:5px solid #08636c}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}th{background:#eaf3f3}code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}ul,ol{padding-left:1.5rem}.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}@media(max-width:600px){main{padding:14px 12px 40px}section,footer{padding:18px}}</style></head>
-<body><main><header><div class="eyebrow">ZeroChat · Current code audit · 7.11.0</div><h1>Features and maturity</h1><p class="lead">Verified inventory of conversation, providers, agent, MCP, and RAG.</p><p class="meta">25 de septiembre de 2026 · dev · Codex (OpenAI)</p><a href="../architecture.html">← Back to architecture</a></header><nav aria-label="Audit reports"><a href="informe-funcionalidades-madurez.html" aria-current="page">Features and maturity</a><a href="informe-comparativa-herramientas.html">Tool comparison</a><a href="informe-calidad-codigo-infraestructura.html">Code and infrastructure</a><a href="../../informes/informe-funcionalidades-madurez.html" lang="es">Español</a></nav><section class="verdict"><h2>Functional assessment</h2><p>ZeroChat 7.11.0 works as a personal multi-provider client with conversations, profiles, tools, and local RAG. The local backend adds MCP, shell, files, and browser operations; supported functions also work through the static client without it. Local tests support specific flows, but cannot establish reliability across all providers, formats, or mobile devices.</p></section>
-<section><h2>1. Method and evidence</h2><p>The inventory comes from <a href="../../../zerochat.html">the interface</a>, <a href="../../../js/providers.js">adapters</a>, <a href="../../../js/agent-core.js">agent</a>, <a href="../../../js/mcp.js">MCP</a>, <a href="../../../js/rag-service.js">RAG</a>, <a href="../../../py/dd-tools.py">Python tools</a>, and tests. <code>npm test</code> passes 644 cases; <code>npm run test:browser</code> passes 71. No external accounts or models were connected, and answer quality was not benchmarked.</p></section>
-<section><h2>2. Maturity matrix</h2><div class="table-wrap"><table><thead><tr><th>Area</th><th>Implemented and tested</th><th>Limit</th></tr></thead><tbody><tr><td>Conversation and state</td><td>Sessions, branches, attachments, streaming, telemetry, and export; state and UI tests.</td><td>Persistence is browser-local and depends on origin and storage quotas.</td></tr><tr><td>Providers</td><td>OpenAI-compatible base plus Claude, Gemini, Ollama, OpenRouter, and WebLLM adapters.</td><td>Live compatibility depends on API, CORS, model, and browser; tests use doubles.</td></tr><tr><td>Agent and tools</td><td>Tool-call loop, approvals, web search, JavaScript, charts, and RAG tools.</td><td>Models must generate valid calls; shell and MCP need a backend and supervision.</td></tr><tr><td>Local MCP</td><td>Local processes and tools over authenticated HTTP; infrastructure tests.</td><td>Commands and MCP servers have no operating-system privilege isolation.</td></tr><tr><td>Document RAG</td><td>IndexedDB, chunking, Orama lexical index, corpus/document search, and images.</td><td>No embeddings, general OCR, or semantic retrieval benchmark.</td></tr><tr><td>Interface and PWA</td><td>ES/EN, responsive UI, SVG, Service Worker, and Chromium tests.</td><td>Precache can be incomplete; actual offline reload and other browser engines were not checked.</td></tr></tbody></table></div></section>
-<section><h2>3. Conversation, providers, and profiles</h2><p><a href="../../../js/state.js">ChatState</a> holds configuration, sessions, messages, generation, agent, telemetry, and UI slices. <a href="../../../js/conversation-service.js">ConversationService</a> and IndexedDB preserve conversations. Branching, turn removal, import/export, and profiles are present. Large attachments are stored outside persisted message trees. <a href="../../../js/providers.js">BaseProviderAdapter</a> normalizes endpoints, SSE, reasoning, tools, and metrics; <a href="../../../js/providers-webllm.js">WebLLM</a> depends on device resources and support.</p><p>API keys are encrypted in the browser. Custom passwords use derived material and a temporary cache; see <a href="informe-calidad-codigo-infraestructura.html#q1">Q1</a>. Selected providers receive submitted content; local storage does not imply local inference.</p></section>
-<section><h2>4. Agent, MCP, and execution</h2><p><a href="../../../js/tools/README.md">Declarative tools</a> include web search, page/PDF reading, JavaScript, charts, RAG lookup, checkpoint, plan, and finish. The backend provides file read/write, search, commands, and MCP services managed in a venv. The browser requests approval under saved policies and the backend requires a header token. Authorization rules reside in the client, so a client with the token can call RPC directly: see <a href="informe-calidad-codigo-infraestructura.html#q4">Q4</a>.</p><p>The JavaScript sandbox uses an opaque-origin iframe, CSP, and a bounded Worker; this does not isolate shell processes. MCP servers and commands run with user privileges. Having tools does not guarantee every model can complete an agent task correctly.</p></section>
-<section><h2>5. RAG and ingestion</h2><p><a href="../../../js/ingestionEngine.js">Ingestion</a> normalizes text, processes PDF, and accepts individual gzip logs with a 50 MiB decompression limit; ZIP and TAR containers are rejected. <a href="../../../js/rag-index.js">Orama</a> builds derived in-memory indexes from IndexedDB chunks. Retrieval is lexical: it works when query and corpus share terms, but synonym and paraphrase recall have not been measured. There is no native embeddings pipeline or general OCR. The custom PDF parser needs more validation with complex production documents.</p></section>
-<section><h2>6. Fit and next work</h2><p>The product fits personal multi-provider chat, small or medium corpus exploration, and supervised tool use. There is no evidence of multi-user governance, strong isolation for hostile code, or offline reliability under precache failures. Useful next measures include retrieval benchmarks, live API matrix testing, and browser tests on other platforms.</p><p>The prior report's F1–F4 issues were reviewed: F1, F3, and F4 have new coverage, while <a href="informe-calidad-codigo-infraestructura.html#f2">F2 remains open</a> because RPC does not check the mode enum. Current risks are listed in <a href="informe-calidad-codigo-infraestructura.html">code and infrastructure</a>.</p></section><footer><p>Review of the local 7.11.0 tree, 25 September 2026. “Implemented” means observed in code; it is not a universal compatibility guarantee.</p></footer></main></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Functional audit of ZeroChat for occasional personal use · ZeroChat 7.12.0 · 2026-09-27">
+<title>Functional audit of ZeroChat for occasional personal use · ZeroChat 7.12.0</title>
+<style>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1080px;margin:auto;padding:24px 20px 64px}
+header{border-top:6px solid #08636c;padding:20px 0}
+.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}
+h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}
+h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}
+h3{font-size:1.1rem;margin:1.5em 0 .3em}
+p{margin:.6em 0 1em}
+.meta{color:#546575;font-size:.9rem}
+.lead{font-size:1.12rem}
+nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}
+nav a[aria-current]{background:#08636c;color:white}
+a{color:#075d66}
+section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}
+section.verdict{border-left:5px solid #08636c}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}
+th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}
+th{background:#eaf3f3}
+code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}
+ul,ol{padding-left:1.5rem}
+.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}
+@media(max-width:600px){main{padding:14px 12px 40px}
+section,footer{padding:18px}
+}
+
+main{width:100%;min-width:0}
+header,section,footer{overflow-wrap:anywhere}
+h2,h3{scroll-margin-top:1rem}
+pre{overflow-x:auto;padding:1rem;background:#edf1f4;border-radius:7px}
+pre code{padding:0;overflow-wrap:normal}
+blockquote{margin:1rem 0;padding:.5rem 1rem;border-left:4px solid #42858a;background:#eef5f6}
+.table-wrap{max-width:100%}
+.toc{display:block}
+.toc ol{columns:2;column-width:20rem}
+.toc li{break-inside:avoid;margin:.25rem 0}
+.toc a{border:0;padding:0;background:transparent}
+a:focus-visible,.table-wrap:focus-visible{outline:3px solid #08636c;outline-offset:3px}
+footer p:last-child{margin-bottom:0}
+
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">ZeroChat · Audit reports · 7.12.0</div>
+<h1>Functional audit of ZeroChat for occasional personal use</h1>
+<p>This report is retained as historical background within the ZeroChat 8.x help. Its evidence, test counts and findings refer to 7.12.0 and the reference commit below, not to a new 8.x audit. Recommendations are not implemented features or a committed roadmap; new feature development is paused for now.</p>
+<p>Date: 27 September 2026. Baseline: ZeroChat <strong>7.12.0</strong>, branch <code>dev</code>, commit <code>b0d55a7d3094178ca0a5f9afe24747ae283102b3</code>.</p>
+<p>Status: report complete, with no functional changes. Complements the <a href="informe-calidad-codigo-infraestructura.html">technical audit</a> and <a href="informe-comparativa-herramientas.html">tool comparison</a>.</p>
+<nav aria-label="Help navigation">
+<a href="../index.html">Help center</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../../informes/informe-funcionalidades-madurez.html" lang="es" hreflang="es">Español</a>
+</nav>
+</header>
+<nav aria-label="Audit reports">
+<a href="informe-calidad-codigo-infraestructura.html">Technical audit</a>
+<a href="informe-funcionalidades-madurez.html" aria-current="page">Functional audit</a>
+<a href="informe-comparativa-herramientas.html">Tool comparison</a>
+</nav>
+<nav class="toc" aria-label="Contents">
+<p><strong>Contents</strong></p>
+<ol>
+<li><a href="#section-1">Assessment and evaluation criteria</a></li>
+<li><a href="#section-2">Evaluated inventory</a></li>
+<li><a href="#section-3">Assessment by real task</a></li>
+<li><a href="#section-4">Appropriate scope and overexpansion</a></li>
+<li><a href="#section-5">Prioritized gaps</a></li>
+<li><a href="#section-6">Proposed functional acceptance protocol</a></li>
+<li><a href="#section-7">Recommended direction</a></li>
+</ol>
+</nav>
+<section>
+<h2 id="section-1">1. Assessment and evaluation criteria</h2>
+<p><strong>The product is well suited to being a personal test bench for models, endpoints, tools and small projects.</strong> Its functional breadth is already sufficient for that purpose. The greatest return would come from making it easier to resume use after several weeks, improving experiment reproducibility, and making tool scope and data destinations unambiguous.</p>
+<p>The absence of organizations, SSO, billing, team permissions, high availability or distributed deployments is not penalized: these are outside the stated goal. Nor is the product assumed to need to compete with a full IDE or become an always-on automation platform.</p>
+<p>The target user is a technical individual working on their own computer, with a local model or API, supervising bounded tasks. Success means opening the app, configuring or restoring a connection, trying something, understanding the result, keeping what matters and closing without confusing leftovers.</p>
+<p>Evidence comes from code, help and the <strong>666 passing tests</strong> in the full suite. Ease-of-use judgments are heuristic: there were no user sessions or task trials with real providers. “Available” means implemented and supported by the stated evidence; it does not guarantee the quality of the selected model.</p>
+</section>
+<section>
+<h2 id="section-2">2. Evaluated inventory</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Observed status</th>
+<th>Value for the goal</th>
+<th>Conditions and limits</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Streaming chat</td>
+<td>Available</td>
+<td>Essential</td>
+<td>Depends on provider, network and model capabilities</td>
+</tr>
+<tr>
+<td>OpenAI-compatible, Claude, Gemini, Ollama and OpenRouter adapters</td>
+<td>Available</td>
+<td>Very high for switching systems</td>
+<td>CORS and API differences require diagnosis; protocol compatibility does not guarantee every feature</td>
+</tr>
+<tr>
+<td>LM Studio and vLLM</td>
+<td>Usable through compatible endpoints</td>
+<td>Very high for local testing</td>
+<td>ZeroChat does not install these engines or their models</td>
+</tr>
+<tr>
+<td>Connection profiles</td>
+<td>Available, with export/import</td>
+<td>Very high for returning to a configuration</td>
+<td>A profile is not a complete immutable snapshot of an experiment</td>
+</tr>
+<tr>
+<td>Mirror mode</td>
+<td>Available</td>
+<td>Excellent for inspecting a request without API usage</td>
+<td>Does not run a model or certify acceptance by a real provider</td>
+</tr>
+<tr>
+<td>Inspector, debug and telemetry</td>
+<td>Available</td>
+<td>A differentiator for testing</td>
+<td>Distinguish reported metrics from estimates and assumed capabilities</td>
+</tr>
+<tr>
+<td>Reasoning and parameters</td>
+<td>Available depending on adapter</td>
+<td>High</td>
+<td>Visibility depends on what the provider exposes</td>
+</tr>
+<tr>
+<td>Conversations and turn management</td>
+<td>Available</td>
+<td>High</td>
+<td>Persistence is tied to browser origin/profile</td>
+</tr>
+<tr>
+<td>Conversation export to JSON/Markdown and printing</td>
+<td>Available</td>
+<td>High for retaining results</td>
+<td>Not a single backup of the entire product state</td>
+</tr>
+<tr>
+<td>Attachments and document extraction</td>
+<td>Available</td>
+<td>High</td>
+<td>Custom parser: verify fidelity by format and document</td>
+</tr>
+<tr>
+<td>Local knowledge branches</td>
+<td>Available</td>
+<td>High for small manuals and notes</td>
+<td>Local ingestion; textual search has semantic retrieval limits</td>
+</tr>
+<tr>
+<td>RAG search and chunk/image reading tools</td>
+<td>Available</td>
+<td>High for evidence-based questions</td>
+<td>Requires correct tool use and visual capability for images</td>
+</tr>
+<tr>
+<td>Web search and page reading</td>
+<td>Available with fallback strategies</td>
+<td>Useful</td>
+<td>External services, CORS and blocking can affect results and privacy</td>
+</tr>
+<tr>
+<td>JavaScript and charts</td>
+<td>Available</td>
+<td>High for calculations and short analyses</td>
+<td>Restricted, time-limited environment; not a general system process</td>
+</tr>
+<tr>
+<td>Agent loop, plan and checkpoints</td>
+<td>Available</td>
+<td>Useful for multi-step tasks</td>
+<td>Requires a capable model, budget and supervision; compaction can lose information</td>
+</tr>
+<tr>
+<td>Local files, shell and diagnostics</td>
+<td>Available with backend</td>
+<td>Very high for small projects</td>
+<td>Run with user privileges; authorization is not an OS sandbox</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>Available</td>
+<td>Very high as a test client</td>
+<td>Each server has requirements; full conformance across all transports/versions was not certified</td>
+</tr>
+<tr>
+<td>Playwright browsing</td>
+<td>Conditionally available</td>
+<td>Useful for smoke tests</td>
+<td>Requires Node, Playwright and Chromium; recovery defect T04</td>
+</tr>
+<tr>
+<td>WebLLM inference in the browser</td>
+<td>Conditionally available</td>
+<td>Interesting as a self-contained option</td>
+<td>WebGPU, memory, model download and caching; no real GPU validation in this audit</td>
+</tr>
+<tr>
+<td>PWA and web caching</td>
+<td>Available</td>
+<td>Convenient for repeat use</td>
+<td>Does not make a remote API work offline; partial updates still need testing</td>
+</tr>
+<tr>
+<td>Spanish and English, themes and mobile layout</td>
+<td>Available with interface tests</td>
+<td>Appropriate</td>
+<td>No complete accessibility evaluation or all-browser matrix</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Main evidence: <a href="../../../js/providers.js">providers</a>, <a href="../../../js/profile-repository.js">profiles</a>, <a href="../../../js/ui-inspector.js">inspector</a>, <a href="../../../js/ui-telemetry.js">telemetry</a>, <a href="../../../js/export.js">export</a>, <a href="../../../js/rag-index.js">RAG index</a>, <a href="../../../js/agent-core.js">agent</a>, declarative tools and <a href="../../../py/dd-tools.py">local backend</a>.</p>
+<p>Tools separate settings, execution and presentation, receive dependencies through services and are authorized before running. Local knowledge is accessed through four operations: listing documents, searching the knowledge base, reading chunks and retrieving images; image analysis requires a vision-capable model.</p>
+</section>
+<section>
+<h2 id="section-3">3. Assessment by real task</h2>
+<h3 id="subsection-1">A. “I want to try an endpoint or model for ten minutes”</h3>
+<p><strong>Strong fit.</strong> Profiles, adapters, discovery/inspection and metrics help distinguish a bad connection from a model limitation. Mirror mode is especially useful for checking context and format before sending data.</p>
+<p>Likely friction lies in the relationship between base URL, provider type, key, model, capabilities and CORS. A browser failure may look like a model failure. The existing inspector reduces that uncertainty, but its results should become a short, actionable diagnostic guide.</p>
+<p><strong>Proposed improvement:</strong> a “test connection” flow showing the effective provider, minimal request, classified error and next step. It should reuse the inspector. Acceptance criterion: in a clean session, distinguish a nonexistent endpoint, 401, missing model, CORS and absent tool calling without reading code.</p>
+<h3 id="subsection-2">B. “I want to compare two configurations for my project”</h3>
+<p><strong>Moderate-to-strong fit for manual comparison; incomplete as an evaluation system.</strong> Switching profiles and retaining conversations supports experimentation. No integrated workflow was found that automatically runs a fixed corpus, repeats conditions and compares quality/cost using user-defined criteria.</p>
+<p>This is an opportunity aligned with the product's purpose, but it does not justify building an enterprise evaluation lab. A useful first step would be an exported experiment record: model, endpoint without secrets, effective parameters, enabled tools, prompt, context, metrics and date.</p>
+<p><strong>Proposed acceptance criterion:</strong> manually repeat a case with two profiles and explain what changed. Do not promise deterministic answers or interpret tokens per second on different computers as a universal quality measure.</p>
+<h3 id="subsection-3">C. “I want to consult a few manuals or personal notes”</h3>
+<p><strong>Strong fit for small collections and recognizable vocabulary.</strong> Ingestion does not require paid embeddings or operating an external database. Branches separate topics, and reading tools can expand a result without initially sending the full document.</p>
+<p>The implemented index is weighted textual search with tolerance, not a semantic embedding system. This may be a good choice for identifiers, error messages and technical documentation. It should not be presented as proven equivalent to semantic retrieval for synonyms, translations or abstract questions.</p>
+<p>The 50 MiB per-document limit is not a guaranteed corpus capacity. Scanned PDFs, complex layouts, tables and images require specific evaluation; general high-fidelity OCR is not established. The model must be able to use the knowledge tools.</p>
+<p><strong>Proposed improvement:</strong> a diagnostic view explaining retrieved chunks and missing results, building on existing tools. Evaluate twenty or thirty representative questions before adding embeddings: exact matches, paraphrases, bilingual queries and unanswerable questions. Measure correct-source retrieval and answer fidelity separately.</p>
+<h3 id="subsection-4">D. “I want to read and modify a small project”</h3>
+<p><strong>Strong fit with supervision.</strong> Reading, search, editing, diagnostics and commands cover bounded tasks. The agent can alternate reasoning and tools and record progress.</p>
+<p>The important distinction is that commands run on the user's computer. The backend shell and browser share process-level state; starting a new conversation does not establish a clean environment. File-editing ability also does not demonstrate automatic Git control, diff review or rollback equivalent to a dedicated coding tool.</p>
+<p><strong>Proposed improvement:</strong> show the effective directory, shared state and authorized actions at the start of a task; allow execution context reset. For editing, prioritize reviewing and recovering changes. Acceptance criterion: complete a task in a temporary folder, inspect modifications, cancel another task and check which processes/files remain.</p>
+<h3 id="subsection-5">E. “I want to test an MCP server or browser automation”</h3>
+<p><strong>Strong fit as an inspection and occasional-use client; reliability is conditional.</strong> The local host manages servers and normalizes tools. Policies and confirmations help reveal what each call does.</p>
+<p>A successful connection is not proof of complete protocol conformance. External processes, dependencies and the browser add failure points. T04 shows that unexpected Playwright termination can block the session.</p>
+<p><strong>Proposed improvement:</strong> fix recovery and provide a health check distinguishing installed, started, connected and ready to execute. Test a dummy MCP that responds, fails, delays and disconnects, without external accounts.</p>
+<h3 id="subsection-6">F. “I will return in a month and want my work back”</h3>
+<p><strong>Moderate fit.</strong> Profiles and conversations persist, and profiles, conversations and RAG branches can be exported. Storage quota/persistence controls also exist. Backup and restoration are split across subsystems; this should not be described as a total absence of backups.</p>
+<p>Changing origin, browser or profile can make data appear lost. In normal distribution, PyPI and direct download use the same GitHub Pages origin, reducing this problem, but local development still uses different storage.</p>
+<p><strong>Proposed improvement:</strong> a “what is saved and where” summary linking existing exports, with restoration tested in an empty browser profile. The priority is helping users recover their work, not adding cloud synchronization by default.</p>
+</section>
+<section>
+<h2 id="section-4">4. Appropriate scope and overexpansion</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Keep as core</th>
+<th>Keep as advanced options</th>
+<th>Defer unless a need is demonstrated</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Profiles, inspector, Mirror, streaming and export</td>
+<td>MCP, agent, shell and Playwright</td>
+<td>Multiuser support, corporate RBAC and SSO</td>
+</tr>
+<tr>
+<td>Conversations, attachments and small knowledge collections</td>
+<td>WebLLM and fine context settings</td>
+<td>24/7 automation and distributed queues</td>
+</tr>
+<tr>
+<td>Understandable errors and restoration</td>
+<td>Detailed authorization policies</td>
+<td>A huge catalog of proprietary integrations</td>
+</tr>
+<tr>
+<td>Telemetry distinguishing data from estimates</td>
+<td>Checkpoints and tool diagnostics</td>
+<td>Full IDE or general model manager</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The interface already concentrates many decisions. For occasional use, complexity should appear when the task requires it: simple conversation, connection testing, documents or tools. This is a usability hypothesis, not an A/B test result. It does not imply adding another state layer or redesigning the whole application.</p>
+</section>
+<section>
+<h2 id="section-5">5. Prioritized gaps</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Gap</th>
+<th>Minimal proposal</th>
+<th>Evidence of success</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1</td>
+<td>Reproduced technical risks</td>
+<td>Fix T01, T02 and T04 from the technical report</td>
+<td>Automated regressions and verified recovery</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Privacy/encryption expectations</td>
+<td>Show destinations and actual secret protection</td>
+<td>Users can identify what leaves the device</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Scattered diagnostics when returning to the app</td>
+<td>Short flow supported by the inspector</td>
+<td>Establish a connection or understand failure without technical documentation</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Experiments are hard to reproduce</td>
+<td>Exportable record without credentials</td>
+<td>Compare two runs with known conditions</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Restoration split across workflows</td>
+<td>Backup summary and recovery test</td>
+<td>Recover profiles, a conversation and RAG in a clean browser</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Shared local context is not obvious enough</td>
+<td>Visible directory/state and explicit reset</td>
+<td>Switch projects without unexpected inherited state</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>RAG quality is unquantified</td>
+<td>Small evaluation corpus</td>
+<td>Identify correct sources and unsupported answers</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Usage is hard to anticipate</td>
+<td>Per-run summary and understandable limits</td>
+<td>Distinguish context budget, steps and monetary cost</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Step limits, context budgets, cancellation and telemetry already exist. The last proposal does not imply that all limits are missing: a hard monetary budget per task was not verified, and token estimates are not provider billing.</p>
+</section>
+<section>
+<h2 id="section-6">6. Proposed functional acceptance protocol</h2>
+<p>These criteria are <strong>targets for the next consolidation cycle</strong>, not metrics obtained in this audit:</p>
+<ol>
+<li>With a known, available endpoint, start a conversation from an empty profile in under five minutes; record obstacles and help consultations.</li>
+<li>Restore a profile after weeks of inactivity and identify the model and effective folder before using tools.</li>
+<li>Compare two configurations and export conditions/results without API keys or the local token.</li>
+<li>Ingest a small document set, answer exact and paraphrased questions, and recognize a question unsupported by the documents.</li>
+<li>Approve an edit in a temporary folder, review it and reject another without side effects.</li>
+<li>Cancel a slow command or tool and verify actual termination or a precise warning about continuing work.</li>
+<li>Simulate an MCP/browser crash and recover the session without restarting the whole application.</li>
+<li>Restore exports in an empty browser profile and verify the messages, attachments and knowledge that each format promises to preserve.</li>
+</ol>
+<p>Record time, errors, task outcome and need for help. Test Spanish and English, a narrow window and keyboard navigation. Starting with one or two people unfamiliar with the architecture would already provide more usability evidence than adding new features.</p>
+</section>
+<section>
+<h2 id="section-7">7. Recommended direction</h2>
+<p>The most coherent proposition is: <strong>“A personal AI test bench for connecting models, inspecting requests and trying tools on small projects, with data stored in your browser and an optional local backend.”</strong></p>
+<p>This reflects what is implemented and avoids promises of absolute confidentiality, unlimited autonomy or IDE replacement. Maturity for this purpose depends primarily on recoverable errors, clear limits and results that can be saved and repeated.</p>
+</section>
+<footer>
+<p>Summary: a good fit for personal testing of models, tools and small projects. Priorities are easier diagnosis, repeatable experiments, data restoration, and clear action scope and data destinations.</p>
+<p>Point-in-time audit dated 27 September 2026. Recommendations do not imply that fixes have been implemented.</p>
+</footer>
+</main>
+</body>
+</html>

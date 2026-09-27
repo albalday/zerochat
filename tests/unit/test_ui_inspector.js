@@ -162,14 +162,19 @@ test('UIInspector - handleQueryServer utiliza endpoint por defecto si apiUrl est
 
 test('UIInspector - inspecciona la conexión proporcionada sin usar los campos del editor', async () => {
   const originalInspect = API.inspectProvider;
+  const originalFetch = API.fetchServerModels;
   let receivedConfig = null;
+  API.fetchServerModels = async () => ({
+    success: true,
+    models: [{ id: 'profile-model', details: { context_length: 8192 } }]
+  });
   API.inspectProvider = async (config) => {
     receivedConfig = config;
     return {
       success: true,
       provider: 'openai',
       endpoint: { normalized: config.apiUrl },
-      models: { totalDiscovered: 0 },
+      model: { selected: config.model, totalDiscovered: 1 },
       capabilities: {},
       inspectionTimeMs: 1
     };
@@ -186,9 +191,159 @@ test('UIInspector - inspecciona la conexión proporcionada sin usar los campos d
     assert.deepEqual(receivedConfig, {
       apiUrl: 'https://profile.example/v1', apiType: 'openai', apiKey: 'profile-key', model: 'profile-model'
     });
+    assert.ok(elements.inspectorResults.innerHTML.includes('inspector-model-section'));
+    assert.ok(elements.inspectorResults.innerHTML.includes('profile-model'));
   } finally {
     API.inspectProvider = originalInspect;
+    API.fetchServerModels = originalFetch;
   }
+});
+
+test('UIInspector - handleRunInspector muestra error si el perfil no tiene modelo seleccionado', async () => {
+  const elements = {
+    inspectorResults: { style: {}, innerHTML: '' }
+  };
+  const result = await UIInspector.handleRunInspector(elements, {}, {
+    settings: { apiUrl: 'https://profile.example/v1', apiType: 'openai', model: '' }
+  });
+  assert.equal(result, false);
+  assert.ok(elements.inspectorResults.innerHTML.includes('status-error'));
+});
+
+test('UIInspector - handleRunInspector muestra error si la consulta de modelos al servidor falla', async () => {
+  const originalFetch = API.fetchServerModels;
+  API.fetchServerModels = async () => ({
+    success: false,
+    error: 'ECONNREFUSED: Server is offline'
+  });
+  const elements = {
+    inspectorResults: { style: {}, innerHTML: '' }
+  };
+  try {
+    const result = await UIInspector.handleRunInspector(elements, {}, {
+      settings: { apiUrl: 'http://localhost:9999/v1', apiType: 'openai', model: 'llama3' }
+    });
+    assert.equal(result, false);
+    assert.ok(elements.inspectorResults.innerHTML.includes('status-error'));
+    assert.ok(elements.inspectorResults.innerHTML.includes('ECONNREFUSED'));
+  } finally {
+    API.fetchServerModels = originalFetch;
+  }
+});
+
+test('UIInspector - handleRunInspector muestra error si el modelo seleccionado no existe en el servidor', async () => {
+  const originalFetch = API.fetchServerModels;
+  API.fetchServerModels = async () => ({
+    success: true,
+    models: [{ id: 'mistral-7b' }, { id: 'qwen2.5' }]
+  });
+  const elements = {
+    inspectorResults: { style: {}, innerHTML: '' }
+  };
+  try {
+    const result = await UIInspector.handleRunInspector(elements, {}, {
+      settings: { apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'non-existent-model' }
+    });
+    assert.equal(result, false);
+    assert.ok(elements.inspectorResults.innerHTML.includes('status-error'));
+    assert.ok(elements.inspectorResults.innerHTML.includes('non-existent-model'));
+  } finally {
+    API.fetchServerModels = originalFetch;
+  }
+});
+
+test('UIInspector - handleRunInspector consulta primero, captura contexto y razonamiento, muestra resultados abreviados y resumen general', async () => {
+  const originalFetch = API.fetchServerModels;
+  const originalInspect = API.inspectProvider;
+  let queryCalled = false;
+  let inspectCalled = false;
+
+  API.fetchServerModels = async (url) => {
+    queryCalled = true;
+    return {
+      success: true,
+      count: 1,
+      endpoint: `${url}/models`,
+      models: [
+        {
+          id: 'qwen2.5-coder-32b',
+          details: { context_length: 32768 }
+        }
+      ]
+    };
+  };
+
+  API.inspectProvider = async (config) => {
+    inspectCalled = true;
+    assert.equal(queryCalled, true, 'El query debe ejecutarse antes de la inspección general');
+    return {
+      success: true,
+      provider: { id: 'openai', label: 'OpenAI / LM Studio' },
+      endpoint: { normalized: config.apiUrl },
+      model: { selected: config.model, totalDiscovered: 1 },
+      capabilities: {
+        streaming: { status: 'confirmed', detail: 'OK' }
+      },
+      inspectionTimeMs: 42
+    };
+  };
+
+  const elements = {
+    inspectorResults: { style: {}, innerHTML: '' }
+  };
+
+  try {
+    const res = await UIInspector.handleRunInspector(elements, {}, {
+      settings: {
+        apiUrl: 'http://localhost:1234/v1',
+        apiType: 'openai',
+        model: 'qwen2.5-coder-32b',
+        reasoningEffort: 'high'
+      }
+    });
+
+    assert.equal(res, true);
+    assert.equal(queryCalled, true);
+    assert.equal(inspectCalled, true);
+    // Verificamos resultados abreviados del modelo
+    assert.ok(elements.inspectorResults.innerHTML.includes('inspector-model-section'), 'Debe incluir la sección abreviada del modelo');
+    assert.ok(elements.inspectorResults.innerHTML.includes('qwen2.5-coder-32b'), 'Debe mostrar el nombre del modelo');
+    assert.ok(elements.inspectorResults.innerHTML.includes('32.768 tokens'), 'Debe mostrar el tamaño de contexto capturado');
+    // Verificamos el resumen general del endpoint posterior
+    assert.ok(elements.inspectorResults.innerHTML.includes('inspector-endpoint-section'), 'Debe incluir la sección del endpoint');
+    assert.ok(elements.inspectorResults.innerHTML.includes('inspector-cap-grid'), 'Debe incluir la cuadrícula de capacidades');
+  } finally {
+    API.fetchServerModels = originalFetch;
+    API.inspectProvider = originalInspect;
+  }
+});
+
+test('UIInspector - findModelInCatalog resuelve coincidencias exactas, insensibles a mayúsculas y prefijos', () => {
+  const catalog = [
+    { id: 'google/gemma-4-26b-a4b-qat' },
+    { id: 'llama3.2:latest' },
+    { id: 'models/gemini-2.5-flash' },
+    { id: 'Qwen/Qwen2.5-Coder-7B' }
+  ];
+
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'google/gemma-4-26b-a4b-qat')?.id, 'google/gemma-4-26b-a4b-qat');
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'llama3.2')?.id, 'llama3.2:latest');
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'gemini-2.5-flash')?.id, 'models/gemini-2.5-flash');
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'qwen/qwen2.5-coder-7b')?.id, 'Qwen/Qwen2.5-Coder-7B');
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'gemma-4-26b-a4b-qat')?.id, 'google/gemma-4-26b-a4b-qat');
+  assert.equal(UIInspector.findModelInCatalog(catalog, 'inexistente'), null);
+});
+
+test('UIInspector - getModelContextLimit reconoce context_length y max_model_len', () => {
+  const catalog = [
+    { id: 'model-openrouter', details: { context_length: 128000 } },
+    { id: 'model-vllm', details: { max_model_len: 65536 } },
+    { id: 'model-window', details: { context_window: 16384 } }
+  ];
+
+  assert.equal(UIInspector.getModelContextLimit('model-openrouter', catalog), 128000);
+  assert.equal(UIInspector.getModelContextLimit('model-vllm', catalog), 65536);
+  assert.equal(UIInspector.getModelContextLimit('model-window', catalog), 16384);
 });
 
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {

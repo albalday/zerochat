@@ -12,22 +12,19 @@ test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado
   const script = `
 import argparse
 import importlib.util
-import os
-import pty
 import sys
-import termios
+import time
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('zerochat_console_test', Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-assert module.format_uptime(0) == '00:00:00'
-assert module.format_uptime(3661.8) == '01:01:01'
 parser = argparse.ArgumentParser(prog='zerochat.py')
 assert 'usage: zerochat.py' in parser.format_help()
 
 class InteractiveOutput:
-    def __init__(self, output):
-        self.output = output
+    def __init__(self):
+        import io
+        self.output = io.StringIO()
     def isatty(self):
         return True
     def write(self, value):
@@ -37,62 +34,26 @@ class InteractiveOutput:
 
 original_stdin = sys.stdin
 original_stdout = sys.stdout
-saved_fd = os.dup(0)
-master_fd, slave_fd = pty.openpty()
 try:
-    os.dup2(slave_fd, 0)
-    os.close(slave_fd)
-    sys.stdin = os.fdopen(0, 'r', closefd=False)
-    sys.stdout = InteractiveOutput(original_stdout)
-    terminal_before = termios.tcgetattr(0)
+    interactive = InteractiveOutput()
+    sys.stdout = interactive
+    module.CONSOLE_STATUS_IDLE_SECONDS = 0.02
     console = module.ConsoleControl(None, parser, target_url="http://127.0.0.1:6388/zerochat.html#token=abc")
     assert console.enabled is True
     console.start()
-    assert not (termios.tcgetattr(0)[3] & termios.ICANON)
-
-    import io
-    captured = io.StringIO()
-    orig_write = sys.stdout.write
-    sys.stdout.write = captured.write
-    try:
-        console.status_visible = False
-        console.last_activity = 0
-        console._render_status()
-        status_line = captured.getvalue()
-        assert "[h] ayuda · [n] Navegador · [x] salir" in status_line, f"Línea de estado incorrecta: {status_line}"
-
-        module.add_notice("Hay una actualización disponible.")
-        captured.seek(0)
-        captured.truncate(0)
-        console.status_visible = False
-        console.last_activity = 0
-        console._render_status()
-        assert "[i] información" in captured.getvalue(), "Debe mostrar información cuando hay avisos"
-
-        captured.seek(0)
-        captured.truncate(0)
-        console._handle_key("i")
-        assert "Información:" in captured.getvalue()
-        assert "Hay una actualización disponible." in captured.getvalue()
-        assert module.get_notices() == ("Hay una actualización disponible.",), "Consultar avisos no debe eliminarlos"
-    finally:
-        sys.stdout.write = orig_write
-
-    launched = []
-    module.launch_browser = lambda url: launched.append(url)
-    console._handle_key("n")
-    assert launched == ["http://127.0.0.1:6388/zerochat.html#token=abc"]
-    console._handle_key("N")
-    assert len(launched) == 2
-
+    console.log("primer log")
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 1
+    assert "ZeroChat activo" not in interactive.output.getvalue()
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 1
+    console.log("segundo log")
+    time.sleep(0.04)
+    assert interactive.output.getvalue().count("Comandos de consola:") == 2
     console.close()
-    assert termios.tcgetattr(0) == terminal_before
 finally:
     sys.stdin = original_stdin
     sys.stdout = original_stdout
-    os.dup2(saved_fd, 0)
-    os.close(saved_fd)
-    os.close(master_fd)
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });

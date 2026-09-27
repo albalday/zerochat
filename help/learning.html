@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Proyecto y aprendizaje · ZeroChat Docs</title>
-  <meta name="description" content="Dos líneas de autoaprendizaje: construir un cliente de IA y aprender a dirigir su desarrollo con agentes.">
+  <title>Proyecto y aprendizaje · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Proyecto personal de aprendizaje y consolidación de la serie 8.x.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
           <a href="en/learning.html" class="top-nav-link" lang="en">English</a>
@@ -21,39 +21,36 @@
         </div>
       </div>
       <h1>Proyecto y aprendizaje</h1>
-      <p class="subtitle">Dos líneas de autoaprendizaje: construir un cliente de IA y aprender a dirigir su desarrollo con agentes.</p>
+      <p class="subtitle">Proyecto personal de aprendizaje y consolidación de la serie 8.x.</p>
     </header>
 
     <main>
       <p>ZeroChat es un proyecto personal de aprendizaje sobre clientes de IA y ejecución agéntica. El trabajo combina objetivos claros, revisión de decisiones y validación de resultados.</p>
 
     <section class="card">
-      <h2>1. Aprender la tecnología de un cliente de chat</h2>
-      <p>El recorrido va desde un cliente de chat hecho con un prompt simple hasta un cliente con conocimiento local y herramientas:</p>
-      <ul>
-        <li><strong>Chat y proveedores:</strong> streaming SSE, razonamiento, visión y adaptación de APIs mediante una arquitectura común de proveedores.</li>
-        <li><strong>Datos y documentos:</strong> persistencia en IndexedDB, extracción de PDF y recuperación de conocimiento (RAG) con Orama y ZeroChatDB.</li>
-        <li><strong>Ejecución agéntica:</strong> bucles de herramientas, JavaScript aislado en Web Workers, MCP, permisos y un servidor local con herramientas de desarrollo.</li>
-        <li><strong>Inferencia y contexto:</strong> caché, límites de tokens y puntos de control para conversaciones largas; además de modelos dentro del navegador con WebLLM y WebGPU.</li>
-        <li><strong>Interfaz común para escritorio y móvil:</strong> diseño web adaptable, navegación y controles compartidos para ofrecer una experiencia coherente en pantallas de escritorio y dispositivos móviles.</li>
-      </ul>
+      <h2>1. Aprender a construir un cliente de chat</h2>
+      <p>ZeroChat es un proyecto personal para experimentar con modelos y comprender las piezas de un cliente de IA: perfiles de conexión, streaming, adjuntos, almacenamiento, contexto, recuperación documental y herramientas.</p>
+      <p>La implementación permite probar estas funciones juntas, pero sus resultados dependen del modelo, del proveedor y del equipo. No pretende sustituir la revisión de respuestas ni las herramientas de desarrollo especializadas.</p>
+      <ul><li><strong>Chat:</strong> adaptación de APIs, razonamiento expuesto y visión cuando el modelo los admite.</li>
+      <li><strong>Documentos:</strong> extracción de texto y búsqueda léxica local con Orama.</li>
+      <li><strong>Herramientas:</strong> ejecución en navegador, backend local, MCP y permisos.</li>
+      <li><strong>Contexto:</strong> estimaciones, datos de uso del proveedor y puntos de control.</li>
+      <li><strong>Interfaz:</strong> controles compartidos para escritorio y móvil, sujetos a las capacidades del navegador.</li></ul>
     </section>
 
     <section class="card">
-      <h2>2. Aprender a dirigir agentes de codificación</h2>
-      <p>Al crecer la infraestructura —navegador, almacenamiento, proveedores, servidor MCP y backend local—, el aprendizaje también consiste en mantener el control del conjunto:</p>
-      <ul>
-        <li><strong>Planificar antes de ejecutar:</strong> concretar alcance, fases, criterios de aceptación y las pruebas que confirmarán el resultado antes de pedir el cambio.</li>
-        <li><strong>Convertir decisiones en normas:</strong> documentar arquitectura, contratos y flujo de trabajo para orientar al agente, con estado centralizado en <code>ChatState</code> y responsabilidades separadas.</li>
-        <li><strong>Discutir y simplificar con el modelo:</strong> cuestionar propuestas, reutilizar módulos y retirar complejidad innecesaria antes de que se convierta en infraestructura permanente.</li>
-        <li><strong>Verificar cada avance:</strong> usar pruebas unitarias, de infraestructura, de integración, de navegador y auditorías de seguridad para comprobar el comportamiento real.</li>
-      </ul>
-      <h3>Pruebas automatizadas como punto de control</h3>
-      <p>Las pruebas son el punto de control de cada fase del trabajo con agentes. Antes de implementar, concretan qué debe conservarse y qué debe cambiar; durante el trabajo, permiten comprobar el módulo afectado; al cerrar una fase, la suite completa confirma que el cambio no ha roto otros límites del sistema. Los cambios de interfaz se validan en el navegador y los de integración, en las pruebas de infraestructura del servidor local. Si una prueba falla, el agente debe corregir o simplificar la propuesta antes de avanzar.</p>
-      <p>El plan es continuar este ciclo: elegir una capacidad, acordar un diseño sencillo, encargar cambios acotados, revisar las pruebas y documentar lo aprendido.</p>
+      <h2>2. Aprender a trabajar con agentes de codificación</h2>
+      <p>El desarrollo ha servido para practicar cómo definir tareas, revisar propuestas y comprobar cambios generados con ayuda de agentes.</p>
+      <ul><li>Acotar el objetivo y decidir qué comportamiento debe conservarse.</li>
+      <li>Mantener normas y contratos cerca del código que describen.</li>
+      <li>Revisar y simplificar las propuestas antes de incorporarlas.</li>
+      <li>Comprobar los cambios con las pruebas aplicables y revisión manual cuando sea necesaria.</li></ul>
+      <h3>Pruebas y estado del proyecto</h3>
+      <p>La suite comprueba casos concretos de lógica, arquitectura, integración, infraestructura y navegador. Pasarla no demuestra compatibilidad universal ni ausencia de errores.</p>
+      <p>La serie <strong>8.x</strong> consolida las funcionalidades existentes. El desarrollo de nuevas funcionalidades queda en pausa por el momento; esta ayuda describe lo implementado y no anuncia una hoja de ruta.</p>
     </section>
 
-      <p>Este plan resume la evolución práctica del proyecto y sus criterios de calidad.</p>
+      <p>Esta ayuda documenta el uso actual; los informes enlazados conservan su fecha y alcance originales.</p>
     </main>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -64,7 +61,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Proyecto y aprendizaje</p>
+      <p>ZeroChat 8.x · Proyecto y aprendizaje</p>
     </footer>
   </div>
 </body>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Razonamiento (Thinking) y Telemetría de Contexto · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía sobre modelos de razonamiento (Thinking) y monitorización de tokens, caché de contexto y velocidad en tiempo real en ZeroChat.">
+  <title>Razonamiento (Thinking) y Telemetría de Contexto · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Ajustes de razonamiento y lectura de las métricas de contexto.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,79 +13,41 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/reasoning-telemetry.html" class="top-nav-link">English 🌐</a>
+          <a href="en/reasoning-telemetry.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Razonamiento (Thinking) y Telemetría</h1>
-      <p class="subtitle">Descubre cómo controlar el esfuerzo de reflexión de los modelos y supervisar la ventana de contexto y el consumo de tokens en tiempo real.</p>
+      <p class="subtitle">Ajustes de razonamiento y lectura de las métricas de contexto.</p>
     </header>
 
     <div class="card">
-      <h2>1. Modelos con Capacidad de Razonamiento</h2>
-      <p>
-        Los modelos de última generación (como DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Sonnet con thinking o Qwen QwQ) generan una cadena de pensamiento interna previa a emitir su respuesta final.
-      </p>
-      <p>
-        ZeroChat captura estos fragmentos de pensamiento en tiempo real (<code>reasoning_content</code> / <code>thinking</code>) a través de los adaptadores de proveedor y los presenta en un bloque visual independiente y colapsable en el chat.
-      </p>
-      <h3>El Selector de Nivel de Razonamiento</h3>
-      <p>
-        En la barra inferior del composer encontrarás un indicador de velocímetro. Su aguja refleja la intensidad elegida; al pulsarlo se abre un panel compacto con una barra de intensidad y un cierre X.
-      </p>
-      <ul>
-        <li><strong>Ninguno:</strong> No se envía ninguna configuración de razonamiento; es la opción adecuada para respuestas rápidas y concisas.</li>
-        <li><strong>Bajo a Máximo:</strong> Desliza la barra para graduar el esfuerzo de razonamiento según la complejidad de la tarea.</li>
-        <li><strong>Compatibilidad:</strong> ZeroChat adapta el nivel al formato que entiende el proveedor. Si el modelo no admite razonamiento, continúa con una respuesta normal.</li>
-      </ul>
-      <div class="alert alert-info">
-        <strong>Punto de Control Agéntico (<code>agent_checkpoint</code>):</strong> En el menú de razonamiento puedes activar esta herramienta especial. Permite al modelo guardar reflexiones o hallazgos clave antes de ejecutar acciones complejas o búsquedas documentales.
-      </div>
+      <h2>1. Razonamiento del modelo</h2>
+      <p>Algunos proveedores devuelven contenido de razonamiento o un resumen que ZeroChat muestra en un bloque plegable. Ese texto es lo que expone la API, no una vista completa del proceso interno del modelo.</p>
+      <p>El indicador de razonamiento del cuadro de entrada permite elegir desde Ninguno hasta Máximo. ZeroChat traduce ese nivel a los parámetros admitidos por cada adaptador. Ninguno omite la configuración explícita: no garantiza desactivar el razonamiento que un modelo use por defecto. La disponibilidad y el efecto dependen del modelo.</p>
+      <p>En el mismo menú puedes activar <code>agent_checkpoint</code> para que el agente registre hallazgos y próximos pasos. Es una herramienta distinta del razonamiento nativo; no verifica la respuesta.</p>
     </div>
 
     <div class="card">
-      <h2>2. El Hub Unificado de Telemetría (Context Hub)</h2>
-      <p>
-        Junto al selector de perfil se muestra un botón indicador de telemetría (por ejemplo, <code>1.4k / 128k</code>). Este botón sintetiza la salud de la ventana de contexto de la conversación activa mediante un código de colores tipo semáforo:
-      </p>
-      <ul>
-        <li><strong>Verde (Óptimo):</strong> Menos del 75% de la capacidad de contexto utilizada.</li>
-        <li><strong>Ámbar (Advertencia):</strong> Entre el 75% y el 90% de la capacidad consumida. Conviene podar mensajes o ramificar la conversación.</li>
-        <li><strong>Rojo (Crítico):</strong> Por encima del 90% del límite del modelo. Riesgo inminente de truncado o fallo en la API.</li>
-      </ul>
+      <h2>2. Indicador de contexto</h2>
+      <p>El indicador, por ejemplo <code>~1.4k / 128k*</code>, compara tokens usados con la capacidad conocida o asumida. <code>~</code> indica una estimación de uso y <code>*</code> una capacidad asumida.</p>
+      <ul><li><strong>Normal:</strong> menos del 60%.</li>
+      <li><strong>Advertencia:</strong> desde el 60% hasta menos del 85%.</li>
+      <li><strong>Crítico:</strong> desde el 85%.</li></ul>
+      <p>Son umbrales orientativos de la interfaz. El contexto incluye instrucciones, historial, herramientas y resultados, no solo el último mensaje. Si crece demasiado, reduce adjuntos o inicia una conversación con un resumen comprobado. Ramificar conservando todo el historial no libera ese contexto.</p>
     </div>
 
     <div class="card">
-      <h2>3. Métricas Detalladas del Popover de Telemetría</h2>
-      <p>
-        Al pulsar sobre la píldora de tokens, se despliega el <strong>Context Hub Popover</strong>, ofreciendo tres secciones de diagnóstico exhaustivo:
-      </p>
-
-      <h3>Sección 1: Ventana de Contexto Global</h3>
-      <ul>
-        <li><strong>Barra de progreso visual:</strong> Muestra el porcentaje exacto de ocupación de la ventana de contexto.</li>
-        <li><strong>Tokens usados, capacidad y disponibles:</strong> Cifras exactas calculadas con el tokenizer y las respuestas del servidor.</li>
-        <li><strong>Ajuste de capacidad asumida:</strong> Si tu servidor local no anuncia su límite de contexto o deseas limitar artificialmente la ventana (por ejemplo, a 8k o 32k), puedes escribir el valor y pulsar <em>"Usar"</em> para ajustar el semáforo al instante.</li>
-      </ul>
-
-      <h3>Sección 2: Ahorro por Caché de Contexto (Prompt Caching / KV)</h3>
-      <p>
-        En modelos que soportan reutilización de prefijos (como Anthropic Claude, OpenAI o DeepSeek):
-      </p>
-      <ul>
-        <li><strong>Tokens leídos de caché (Ahorro):</strong> Tokens recuperados de la memoria intermedia del proveedor sin coste completo o con descuento masivo de latencia y precio.</li>
-        <li><strong>Tokens escritos en caché:</strong> Bloques recién indexados para acelerar los siguientes turnos de la sesión.</li>
-      </ul>
-
-      <h3>Sección 3: Rendimiento del Último Turno</h3>
-      <ul>
-        <li><strong>Tokens de entrada (Prompt) y salida (Completion):</strong> Desglose exacto del último mensaje intercambiado.</li>
-        <li><strong>Velocidad de generación:</strong> Medida en tokens por segundo (<code>t/s</code>).</li>
-        <li><strong>Latencia TTFT (Time To First Token):</strong> Tiempo transcurrido en milisegundos desde que envías el mensaje hasta que el servidor emite el primer token útil.</li>
-      </ul>
+      <h2>3. Detalle de telemetría</h2>
+      <h3>Ventana de contexto</h3>
+      <p>Pulsa el indicador para ver uso, capacidad y espacio disponible. Se usan datos del proveedor cuando existen y estimaciones cuando faltan. El ajuste manual de capacidad cambia la referencia que usa ZeroChat; no amplía la ventana real del servidor. El contexto enviado puede excluir mensajes antiguos para ajustarse al presupuesto, aunque sigan visibles en el historial.</p>
+      <h3>Caché</h3>
+      <p>Los tokens leídos o escritos en caché se muestran si el proveedor los comunica. No son una medición del ahorro económico: las tarifas y condiciones dependen del servicio.</p>
+      <h3>Último turno</h3>
+      <p>El panel muestra tokens de entrada y salida, velocidad de generación y tiempo hasta el primer token cuando hay datos. Pueden faltar métricas o variar entre proveedores; no equivalen a una factura ni a una comparación controlada de rendimiento.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -104,7 +66,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>

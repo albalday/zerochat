@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Local Knowledge Base (RAG) · ZeroChat Help</title>
-  <meta name="description" content="Guide for local Retrieval-Augmented Generation (RAG) in ZeroChat: knowledge branches, document ingestion, Orama search, and image analysis.">
+  <title>Local Knowledge Base (RAG) · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Loading, searching and limits of the documents consulted by the model.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,98 +13,61 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../rag.html" class="top-nav-link">Español 🌐</a>
+          <a href="../rag.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Local Knowledge Base (RAG)</h1>
-      <p class="subtitle">Query your own documents privately without uploading them to the cloud using the built-in browser RAG engine.</p>
+      <p class="subtitle">Loading, searching and limits of the documents consulted by the model.</p>
     </header>
 
     <div class="card">
-      <h2>1. What is RAG and Why ZeroChat is Unique?</h2>
-      <p>
-        <strong>RAG</strong> (<em>Retrieval-Augmented Generation</em>) is a method that allows language models to ground their answers in your personal documents, manuals, codebases, or technical notes.
-      </p>
-      <p>
-        While typical SaaS tools require uploading sensitive files to remote servers, ZeroChat executes <strong>all document ingestion, chunking, and search indexing locally inside your browser</strong> using the <strong>Orama</strong> search engine backed by <strong>IndexedDB</strong>.
-      </p>
-      <div class="alert alert-success">
-        <strong>Absolute confidentiality:</strong> Your proprietary source code, internal agreements, or confidential records never leave your machine. Only the specific retrieved chunks relevant to answering your question are passed to your chosen model.
-      </div>
+      <h2>1. What RAG does</h2>
+      <p>RAG searches documents and supplies retrieved passages to the model. ZeroChat extracts and splits content in the browser, stores it in IndexedDB and builds text indexes with Orama. Search is lexical: it does not generate embeddings or use a vector index.</p>
+      <p>Loading and indexing do not require an AI service. When answering, retrieved passages and images become part of the conversation and are sent to the selected provider. Local storage does not make a query to a remote provider private.</p>
     </div>
 
     <div class="card">
-      <h2>2. Knowledge Branches</h2>
-      <p>
-        To keep distinct projects cleanly separated, ZeroChat organizes knowledge into independent <strong>Branches</strong>:
-      </p>
-      <ul>
-        <li>Create topic-specific branches (e.g., <em>"API Specs"</em>, <em>"Financial Reports"</em>, <em>"Research Papers"</em>).</li>
-        <li>Activate multiple branches from the <strong>RAG</strong> button in the composer toolbar. To create branches, upload, or manage documents, open <strong>RAG</strong> from the general settings menu.</li>
-        <li>When combining branches in different languages, ZeroChat shows a notice without changing active branches.</li>
-        <li>When a branch is active, the chat engine and agents gain direct retrieval access to its documents.</li>
-      </ul>
+      <h2>2. Knowledge branches</h2>
+      <p>A branch groups documents for a topic or project. These document collections are separate from conversation branches.</p>
+      <ol><li>Open <strong>Settings → RAG</strong> to create a branch, choose its language and manage its documents.</li>
+      <li>Load files and wait for processing to finish.</li>
+      <li>Enable the branches you want to consult using the <strong>RAG</strong> button in the composer.</li></ol>
+      <p>You can enable several. A warning appears if their languages differ; selections remain unchanged. Only active branches are available to retrieval tools.</p>
     </div>
 
     <div class="card">
-      <h2>3. Document Ingestion & Chunking</h2>
-      <p>
-        Open RAG from the general settings menu, then drop files into its management panel or select them from disk:
-      </p>
-      <ul>
-        <li><strong>PDFs & Books:</strong> Parses text per page and captures embedded figures and diagrams.</li>
-        <li><strong>Markdown & Plain Text:</strong> Respects heading structures (<code>#</code>, <code>##</code>) for semantic boundary division.</li>
-        <li><strong>Source Code Files:</strong> Groups code blocks respecting function and class scopes so technical context is preserved.</li>
-        <li><strong>Intelligent Chunking:</strong> Divides content into optimal token windows with configured overlap to ensure complete contextual coherence.</li>
-        <li><strong>Duplicate Detection:</strong> When uploading a file with the same name and path as an existing document in the branch, ZeroChat prompts you to either <em>Replace</em> the previous document or <em>Ignore</em> the duplicate. You can check the box to apply this decision to all remaining duplicates in the batch.</li>
-        <li><strong>Cooperative Cancellation:</strong> During long or multi-file ingestions, you can click the <em>Stop</em> button to halt the process cleanly at any point without corrupting the index or previously saved documents.</li>
-      </ul>
+      <h2>3. Loading and processing documents</h2>
+      <p>Drag files into the RAG panel or select them from its upload area. Text is split into chunks so parts of a document can be searched and read.</p>
+      <ul><li><strong>PDF:</strong> extracts text and images where the format allows it. There is no general OCR for scanned documents; tables, columns and figures may lose information.</li>
+      <li><strong>Text, Markdown and code:</strong> processed as text. Splitting does not guarantee that a function, table or idea stays within a single chunk.</li>
+      <li><strong>Duplicates:</strong> if a document name and path match an existing one in the branch, you can replace or skip it and apply the choice to other duplicates in that upload.</li>
+      <li><strong>Stop:</strong> requests cancellation. Check which documents finished before loading the remaining ones again.</li></ul>
     </div>
 
     <div class="card">
-      <h2>4. Retrieval Strategies & Agent Tools</h2>
-      <p>
-        The model queries active documents through RAG tools:
-      </p>
-      <ol>
-        <li>
-          <strong>Active Agent Tool Calling:</strong> The model dynamically queries the database using specialized tools:
-          <ul>
-            <li><code>list_documents</code>: Discovers available documents in the branch.</li>
-            <li><code>search_knowledge_base</code>: Searches for specific terms and semantic matches.</li>
-            <li><code>read_knowledge_chunk</code>: Reads a specific section in high resolution.</li>
-            <li><code>read_knowledge_image</code>: Inspects embedded figures or chart images visually.</li>
-          </ul>
-        </li>
-      </ol>
+      <h2>4. Search and retrieval tools</h2>
+      <p>The model must support tool calls and have access to the RAG tools. Enabling a branch does not send all its documents or guarantee the model will consult them.</p>
+      <ul><li><code>list_documents</code>: lists available documents.</li>
+      <li><code>search_knowledge_base</code>: searches words in a specific document or the active branches.</li>
+      <li><code>read_knowledge_chunk</code>: retrieves chunks identified by a search.</li>
+      <li><code>read_knowledge_image</code>: retrieves an extracted image; interpreting it requires a vision model.</li></ul>
+      <p>Name the document or topic and ask for sources. If results are missing, try terms that appear in the text; lexical search may miss synonyms or translations.</p>
     </div>
 
     <div class="card">
-      <h2>5. Configuration & Recommendations</h2>
-
-      <h3>IndexedDB + Orama</h3>
-      <p>
-        Files, metadata, and chunks are stored in IndexedDB. Orama builds an in-memory search index for the active branch.
-      </p>
-
-      <h3>No permissions or ingestion costs</h3>
-      <p>
-        Selecting a file only grants read access to that specific upload. No folder permissions are requested, and no LLM calls are made to summarize or index documents.
-      </p>
-
-      <h3>Configuring the model for document queries</h3>
-      <p>
-        For factual queries over documents, use a low temperature (0 to 0.2): this reduces variation and increases the likelihood that the model sticks to retrieved passages. Higher temperatures (0.7+) are better suited for creative writing tasks, not for extracting numbers or facts. The model must also support tool calling; if it doesn't, it won't be able to query this knowledge base.
-      </p>
-
-      <h3>Agent checkpoint for low-context models</h3>
-      <p>
-        Compact models or those with limited context windows can become overwhelmed when accumulating multiple document fragments. Enable the <strong>Agent Checkpoint (agent_checkpoint)</strong> from the Reasoning menu: it allows the model to consolidate intermediate findings and maintain a clear research plan. Especially recommended for models with fewer than 14B parameters or context windows under 32k tokens.
-      </p>
+      <h2>5. Settings and limits</h2>
+      <h3>Storage</h3>
+      <p>Documents and chunks are kept in IndexedDB; Orama indexes are built in memory. Usable volume depends on browser memory and storage quota. Clearing site data deletes the document collection.</p>
+      <h3>File access</h3>
+      <p>Selecting files allows that upload to be read, without granting general disk access. Keep the originals: exporting a conversation does not back up RAG branches.</p>
+      <h3>Answer quality</h3>
+      <p>A low temperature can reduce variation but does not guarantee accuracy. Check figures and quotations against the original, especially for PDFs with tables or scans.</p>
+      <h3>Checkpoints</h3>
+      <p><code>agent_checkpoint</code>, available from Reasoning, lets the model summarize findings and record its next step. It does not expand the context window or ensure every detail survives the summary.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -123,7 +86,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
 </body>

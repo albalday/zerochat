@@ -1,9 +1,394 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Funcionalidades y madurez — ZeroChat 7.11.0"><title>ZeroChat 7.11.0 · Funcionalidades y madurez</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1080px;margin:auto;padding:24px 20px 64px}header{border-top:6px solid #08636c;padding:20px 0}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}h3{font-size:1.1rem;margin:1.5em 0 .3em}p{margin:.6em 0 1em}.meta{color:#546575;font-size:.9rem}.lead{font-size:1.12rem}nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}nav a[aria-current]{background:#08636c;color:white}a{color:#075d66}section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}section.verdict{border-left:5px solid #08636c}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}th{background:#eaf3f3}code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}ul,ol{padding-left:1.5rem}.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}@media(max-width:600px){main{padding:14px 12px 40px}section,footer{padding:18px}}</style></head>
-<body><main><header><div class="eyebrow">ZeroChat · Auditoría del código actual · 7.11.0</div><h1>Funcionalidades y madurez</h1><p class="lead">Inventario comprobado de conversación, proveedores, agente, MCP y RAG.</p><p class="meta">25 de septiembre de 2026 · dev · Codex (OpenAI)</p><a href="../architecture.html">← Volver a arquitectura</a></header><nav aria-label="Informes de auditoría"><a href="informe-funcionalidades-madurez.html" aria-current="page">Funcionalidades y madurez</a><a href="informe-comparativa-herramientas.html">Comparativa de herramientas</a><a href="informe-calidad-codigo-infraestructura.html">Código e infraestructura</a><a href="../en/informes/informe-funcionalidades-madurez.html" lang="en">English</a></nav><section class="verdict"><h2>Dictamen funcional</h2><p>ZeroChat 7.11.0 funciona como cliente personal multiproveedor con conversación, perfiles, herramientas y RAG local. El backend local añade MCP, shell, archivos y navegador; la interfaz estática también puede usarse sin él para las funciones compatibles. Las pruebas locales respaldan flujos concretos, pero no permiten afirmar fiabilidad de cualquier proveedor, formato o equipo móvil.</p></section>
-<section><h2>1. Método y evidencia</h2><p>Inventario construido desde <a href="../../zerochat.html">la interfaz</a>, <a href="../../js/providers.js">adaptadores</a>, <a href="../../js/agent-core.js">agente</a>, <a href="../../js/mcp.js">MCP</a>, <a href="../../js/rag-service.js">RAG</a>, <a href="../../py/dd-tools.py">herramientas Python</a> y tests. <code>npm test</code> pasa 644 casos; <code>npm run test:browser</code> pasa 71. No se conectaron cuentas ni modelos externos ni se midió calidad de respuestas.</p></section>
-<section><h2>2. Matriz de madurez</h2><div class="table-wrap"><table><thead><tr><th>Área</th><th>Implementado y probado</th><th>Límite</th></tr></thead><tbody><tr><td>Conversación y estado</td><td>Sesiones, ramas, adjuntos, streaming, telemetría y exportación; pruebas de estado e interfaz.</td><td>La persistencia vive en el navegador; depende del origen y de las cuotas locales.</td></tr><tr><td>Proveedores</td><td>Base OpenAI compatible y adaptadores Claude, Gemini, Ollama, OpenRouter y WebLLM.</td><td>Compatibilidad real depende de API, CORS, modelo y navegador; los tests usan simulaciones.</td></tr><tr><td>Agente y herramientas</td><td>Bucle de tool calls, autorizaciones, búsqueda web, ejecución JavaScript, gráficos y herramientas RAG.</td><td>Un modelo debe producir llamadas válidas; shell y MCP requieren backend y supervisión.</td></tr><tr><td>MCP local</td><td>Procesos y herramientas locales mediante token HTTP; pruebas de infraestructura.</td><td>No hay aislamiento de privilegios del sistema para comandos o servidores MCP.</td></tr><tr><td>RAG documental</td><td>IndexedDB, fragmentación, índice Orama léxico, búsqueda por documento/corpus e imágenes.</td><td>Sin embeddings, OCR general o benchmark de recuperación semántica.</td></tr><tr><td>Interfaz y PWA</td><td>ES/EN, responsive, SVG, Service Worker y pruebas Chromium.</td><td>La precaché puede quedar incompleta; no se verificó recarga offline real ni otros motores.</td></tr></tbody></table></div></section>
-<section><h2>3. Conversación, proveedores y perfiles</h2><p><a href="../../js/state.js">ChatState</a> mantiene slices de configuración, sesiones, mensajes, generación, agente, telemetría y UI. <a href="../../js/conversation-service.js">ConversationService</a> y el almacenamiento IndexedDB conservan conversaciones. Hay bifurcación y eliminación de turnos, importación/exportación y gestión de perfiles. Los adjuntos pesados se separan de los mensajes persistidos. <a href="../../js/providers.js">BaseProviderAdapter</a> unifica endpoints, SSE, razonamiento, herramientas y métricas; <a href="../../js/providers-webllm.js">WebLLM</a> requiere recursos y compatibilidad del dispositivo.</p><p>Las claves API se cifran en el navegador. La contraseña personalizada utiliza material derivado y caché temporal; sus límites se detallan en <a href="informe-calidad-codigo-infraestructura.html#q1">Q1</a>. El proveedor elegido recibe el contenido enviado a ese proveedor; el almacenamiento local no implica inferencia local.</p></section>
-<section><h2>4. Agente, MCP y ejecución</h2><p><a href="../../js/tools/README.md">Las herramientas declarativas</a> incluyen búsqueda web, lectura de páginas/PDF, JavaScript, gráficos, consulta RAG, checkpoint, plan y finalización. El backend ofrece lectura/escritura de archivos, búsqueda, comandos y servicios MCP gestionados en un venv. El navegador pide aprobación según la política guardada y el backend exige token en cabeceras. Las reglas de autorización viven en el cliente, de modo que un cliente con token puede invocar RPC directamente: véase <a href="informe-calidad-codigo-infraestructura.html#q4">Q4</a>.</p><p>El sandbox JavaScript usa iframe de origen opaco, CSP y Worker con límites; no equivale a aislar procesos shell. Los servidores MCP y comandos operan con los privilegios del usuario. La presencia de herramientas no garantiza que todos los modelos ejecuten una tarea agéntica correctamente.</p></section>
-<section><h2>5. RAG e ingesta</h2><p><a href="../../js/ingestionEngine.js">La ingesta</a> normaliza texto, procesa PDF y permite logs gzip individuales con límite de descompresión de 50 MiB; ZIP y TAR se rechazan como contenedores. <a href="../../js/rag-index.js">Orama</a> crea índices derivados en memoria a partir de fragmentos de IndexedDB. La búsqueda es léxica: responde bien cuando la consulta comparte términos con el corpus, pero no se ha medido recuperación de sinónimos o paráfrasis. No se observa pipeline nativo de embeddings ni OCR general. El parser PDF propio necesita validación adicional con documentos de producción complejos.</p></section>
-<section><h2>6. Uso recomendado y pendientes</h2><p>Encaja en chat personal multiproveedor, consulta de corpus pequeños o medianos y experimentación supervisada con herramientas. No hay evidencia de gobierno multiusuario, aislamiento fuerte para código hostil ni fiabilidad offline bajo fallos de precaché. Para madurar el producto conviene medir recuperación con un corpus de referencia, probar APIs reales en una matriz de proveedores y ejecutar pruebas de navegador en otras plataformas.</p><p>Los fallos F1–F4 del informe anterior se revisaron: F1, F3 y F4 tienen cobertura nueva, pero <a href="informe-calidad-codigo-infraestructura.html#f2">F2 sigue abierto</a> porque el validador RPC no comprueba el enum de modo. Los riesgos vigentes figuran en <a href="informe-calidad-codigo-infraestructura.html">calidad e infraestructura</a>.</p></section><footer><p>Revisión del árbol local 7.11.0, 25 de septiembre de 2026. «Implementado» indica presencia comprobada; no equivale a una garantía universal de compatibilidad.</p></footer></main></body></html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Auditoría funcional de ZeroChat para uso personal puntual · ZeroChat 7.12.0 · 2026-09-27">
+<title>Auditoría funcional de ZeroChat para uso personal puntual · ZeroChat 7.12.0</title>
+<style>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1080px;margin:auto;padding:24px 20px 64px}
+header{border-top:6px solid #08636c;padding:20px 0}
+.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}
+h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}
+h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}
+h3{font-size:1.1rem;margin:1.5em 0 .3em}
+p{margin:.6em 0 1em}
+.meta{color:#546575;font-size:.9rem}
+.lead{font-size:1.12rem}
+nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}
+nav a[aria-current]{background:#08636c;color:white}
+a{color:#075d66}
+section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}
+section.verdict{border-left:5px solid #08636c}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}
+th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}
+th{background:#eaf3f3}
+code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}
+ul,ol{padding-left:1.5rem}
+.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}
+@media(max-width:600px){main{padding:14px 12px 40px}
+section,footer{padding:18px}
+}
+
+main{width:100%;min-width:0}
+header,section,footer{overflow-wrap:anywhere}
+h2,h3{scroll-margin-top:1rem}
+pre{overflow-x:auto;padding:1rem;background:#edf1f4;border-radius:7px}
+pre code{padding:0;overflow-wrap:normal}
+blockquote{margin:1rem 0;padding:.5rem 1rem;border-left:4px solid #42858a;background:#eef5f6}
+.table-wrap{max-width:100%}
+.toc{display:block}
+.toc ol{columns:2;column-width:20rem}
+.toc li{break-inside:avoid;margin:.25rem 0}
+.toc a{border:0;padding:0;background:transparent}
+a:focus-visible,.table-wrap:focus-visible{outline:3px solid #08636c;outline-offset:3px}
+footer p:last-child{margin-bottom:0}
+
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">ZeroChat · Informes de auditoría · 7.12.0</div>
+<h1>Auditoría funcional de ZeroChat para uso personal puntual</h1>
+<p>Este informe se conserva como antecedente dentro de la ayuda de ZeroChat 8.x. Sus evidencias, recuentos de pruebas y hallazgos corresponden a 7.12.0 y al commit de referencia indicado, no a una nueva auditoría de 8.x. Las recomendaciones no son funcionalidades implementadas ni una hoja de ruta comprometida; el desarrollo de nuevas funcionalidades queda en pausa por el momento.</p>
+<p>Fecha: 27 de septiembre de 2026. Base: ZeroChat <strong>7.12.0</strong>, rama <code>dev</code>, commit <code>b0d55a7d3094178ca0a5f9afe24747ae283102b3</code>.</p>
+<p>Estado: informe cerrado, sin cambios funcionales. Complementa la <a href="informe-calidad-codigo-infraestructura.html">auditoría técnica</a> y la <a href="informe-comparativa-herramientas.html">comparación de herramientas</a>.</p>
+<nav aria-label="Navegación de ayuda">
+<a href="../index.html">Centro de ayuda</a>
+<a href="../architecture.html">Arquitectura</a>
+<a href="../en/informes/informe-funcionalidades-madurez.html" lang="en" hreflang="en">English</a>
+</nav>
+</header>
+<nav aria-label="Informes de auditoría">
+<a href="informe-calidad-codigo-infraestructura.html">Auditoría técnica</a>
+<a href="informe-funcionalidades-madurez.html" aria-current="page">Auditoría funcional</a>
+<a href="informe-comparativa-herramientas.html">Comparación de herramientas</a>
+</nav>
+<nav class="toc" aria-label="Contenido">
+<p><strong>Contenido</strong></p>
+<ol>
+<li><a href="#section-1">Dictamen y criterio de evaluación</a></li>
+<li><a href="#section-2">Inventario evaluado</a></li>
+<li><a href="#section-3">Evaluación por tarea real</a></li>
+<li><a href="#section-4">Adecuación y exceso de alcance</a></li>
+<li><a href="#section-5">Brechas priorizadas</a></li>
+<li><a href="#section-6">Protocolo de aceptación funcional propuesto</a></li>
+<li><a href="#section-7">Orientación recomendada</a></li>
+</ol>
+</nav>
+<section>
+<h2 id="section-1">1. Dictamen y criterio de evaluación</h2>
+<p><strong>El producto encaja bien como banco de pruebas personal de modelos, endpoints, herramientas y pequeños proyectos.</strong> Su amplitud funcional ya es suficiente para ese propósito. El mayor retorno vendría de facilitar la vuelta después de semanas sin usarlo, mejorar la reproducibilidad de los experimentos y hacer inequívocos el alcance de las herramientas y el destino de los datos.</p>
+<p>No se penaliza la ausencia de organizaciones, SSO, facturación, permisos de equipo, alta disponibilidad o despliegues distribuidos: quedan fuera del objetivo indicado. Tampoco se presupone que deba competir con un IDE completo o convertirse en plataforma de automatización permanente.</p>
+<p>Se evalúa a una persona técnica que usa su propio equipo, dispone de un modelo local o una API, trabaja de forma supervisada y necesita resolver tareas acotadas. El éxito consiste en abrir, configurar o recuperar una conexión, probar algo, entender el resultado, conservar lo necesario y cerrar sin residuos confusos.</p>
+<p>La evidencia procede del código, la ayuda y las <strong>666 pruebas aprobadas</strong> de la suite completa. La valoración de facilidad de uso es heurística: no se realizaron sesiones con usuarios ni una batería de tareas con proveedores reales. «Disponible» significa implementado y respaldado por la evidencia indicada; no garantiza la calidad del modelo seleccionado.</p>
+</section>
+<section>
+<h2 id="section-2">2. Inventario evaluado</h2>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Capacidad</th>
+<th>Estado observado</th>
+<th>Valor para el objetivo</th>
+<th>Condiciones y límites</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chat con streaming</td>
+<td>Disponible</td>
+<td>Esencial</td>
+<td>Depende del proveedor, red y capacidades del modelo</td>
+</tr>
+<tr>
+<td>Adaptadores OpenAI compatible, Claude, Gemini, Ollama y OpenRouter</td>
+<td>Disponibles</td>
+<td>Muy alto para cambiar de sistema</td>
+<td>CORS y diferencias de API requieren diagnóstico; compatibilidad de protocolo no garantiza todas las funciones</td>
+</tr>
+<tr>
+<td>LM Studio y vLLM</td>
+<td>Utilizables mediante endpoint compatible</td>
+<td>Muy alto para pruebas locales</td>
+<td>ZeroChat no instala esos motores ni sus modelos</td>
+</tr>
+<tr>
+<td>Perfiles de conexión</td>
+<td>Disponibles, con exportación/importación</td>
+<td>Muy alto para volver a una configuración</td>
+<td>El perfil no sustituye una instantánea completa e inmutable de un experimento</td>
+</tr>
+<tr>
+<td>Modo Espejo</td>
+<td>Disponible</td>
+<td>Excelente para observar la petición sin consumir API</td>
+<td>No ejecuta un modelo ni certifica que el proveedor real acepte la petición</td>
+</tr>
+<tr>
+<td>Inspector, debug y telemetría</td>
+<td>Disponibles</td>
+<td>Diferenciador para pruebas</td>
+<td>Distinguir métricas publicadas de estimaciones y capacidades asumidas</td>
+</tr>
+<tr>
+<td>Razonamiento y parámetros</td>
+<td>Disponibles según adaptador</td>
+<td>Alto</td>
+<td>Lo visible depende de lo que exponga el proveedor</td>
+</tr>
+<tr>
+<td>Conversaciones y gestión de turnos</td>
+<td>Disponibles</td>
+<td>Alto</td>
+<td>Persistencia ligada al origen/perfil del navegador</td>
+</tr>
+<tr>
+<td>Exportación de conversación a JSON/Markdown e impresión</td>
+<td>Disponible</td>
+<td>Alto para conservar resultados</td>
+<td>No equivale a copia única del estado completo del producto</td>
+</tr>
+<tr>
+<td>Adjuntos y extracción documental</td>
+<td>Disponibles</td>
+<td>Alto</td>
+<td>Parser propio: verificar fidelidad según formato y documento</td>
+</tr>
+<tr>
+<td>Conocimiento local por ramas</td>
+<td>Disponible</td>
+<td>Alto para manuales y notas pequeñas</td>
+<td>Ingesta local; consulta textual, con límites de recuperación semántica</td>
+</tr>
+<tr>
+<td>Herramientas RAG de búsqueda y lectura de fragmentos/imágenes</td>
+<td>Disponibles</td>
+<td>Alto para preguntas con evidencia</td>
+<td>Requieren uso correcto de herramientas y, para imágenes, capacidad visual</td>
+</tr>
+<tr>
+<td>Búsqueda y lectura web</td>
+<td>Disponibles con estrategias alternativas</td>
+<td>Útil</td>
+<td>Servicios externos, CORS y bloqueos pueden afectar resultado y privacidad</td>
+</tr>
+<tr>
+<td>JavaScript y gráficos</td>
+<td>Disponibles</td>
+<td>Alto para cálculos y análisis cortos</td>
+<td>Entorno restringido y temporal; no sustituye un proceso general del sistema</td>
+</tr>
+<tr>
+<td>Bucle agéntico, plan y checkpoints</td>
+<td>Disponibles</td>
+<td>Útil en tareas de varios pasos</td>
+<td>Modelo capaz, presupuesto y supervisión; la compacción puede perder información</td>
+</tr>
+<tr>
+<td>Archivos, shell y diagnósticos locales</td>
+<td>Disponibles con backend</td>
+<td>Muy alto para proyectos pequeños</td>
+<td>Ejecutan con permisos del usuario; autorización no equivale a sandbox del sistema</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>Disponible</td>
+<td>Muy alto como cliente de pruebas</td>
+<td>Requisitos de cada servidor; no se certificó conformidad completa de todos los transportes/versiones</td>
+</tr>
+<tr>
+<td>Navegación con Playwright</td>
+<td>Disponible de forma condicional</td>
+<td>Útil para smoke tests</td>
+<td>Requiere Node, Playwright y Chromium; defecto de recuperación T04</td>
+</tr>
+<tr>
+<td>Inferencia WebLLM en navegador</td>
+<td>Disponible de forma condicional</td>
+<td>Interesante como opción autónoma</td>
+<td>WebGPU, memoria, descarga y caché de modelos; no validada con GPU real en esta auditoría</td>
+</tr>
+<tr>
+<td>PWA y caché web</td>
+<td>Disponibles</td>
+<td>Conveniencia para uso recurrente</td>
+<td>No hacen offline a una API remota; actualización parcial pendiente de ensayo</td>
+</tr>
+<tr>
+<td>Español e inglés, temas y adaptación móvil</td>
+<td>Disponibles con pruebas de interfaz</td>
+<td>Adecuado</td>
+<td>Sin evaluación completa de accesibilidad ni matriz de todos los navegadores</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Evidencia principal: <a href="../../js/providers.js">proveedores</a>, <a href="../../js/profile-repository.js">perfiles</a>, <a href="../../js/ui-inspector.js">inspector</a>, <a href="../../js/ui-telemetry.js">telemetría</a>, <a href="../../js/export.js">exportación</a>, <a href="../../js/rag-index.js">índice RAG</a>, <a href="../../js/agent-core.js">agente</a>, herramientas declarativas y <a href="../../py/dd-tools.py">backend local</a>.</p>
+<p>Las herramientas separan configuración, ejecución y presentación, reciben sus dependencias mediante servicios y se autorizan antes de ejecutarse. El conocimiento local se consulta mediante cuatro operaciones: listar documentos, buscar en la base, leer fragmentos y recuperar imágenes; estas últimas requieren un modelo con capacidad visual.</p>
+</section>
+<section>
+<h2 id="section-3">3. Evaluación por tarea real</h2>
+<h3 id="subsection-1">A. «Quiero probar un endpoint o un modelo durante diez minutos»</h3>
+<p><strong>Encaje alto.</strong> Perfiles, adaptadores, descubrimiento/inspección y métricas permiten separar una mala conexión de una limitación del modelo. El modo Espejo es especialmente útil para comprobar el contexto y formato antes de enviar datos.</p>
+<p>La fricción previsible está en la relación entre URL base, tipo de proveedor, clave, modelo, capacidades y CORS. Un fallo de navegador puede parecer un fallo del modelo. El inspector existente reduce esa incertidumbre, pero conviene convertir sus resultados en una guía de diagnóstico breve y accionable.</p>
+<p><strong>Mejora propuesta:</strong> un recorrido «probar conexión» que muestre proveedor efectivo, petición mínima, error clasificado y siguiente paso. Debe reutilizar el inspector. Criterio de aceptación: en una sesión limpia, distinguir endpoint inexistente, 401, modelo ausente, CORS y ausencia de tool calling sin consultar el código.</p>
+<h3 id="subsection-2">B. «Quiero comparar dos configuraciones para mi proyecto»</h3>
+<p><strong>Encaje medio-alto para comparación manual; incompleto como sistema de evaluación.</strong> Cambiar de perfil y conservar conversaciones permite experimentar. No se encontró un flujo integrado que ejecute automáticamente un corpus fijo, repita condiciones y genere una comparación de calidad/coste con criterios del usuario.</p>
+<p>Es una oportunidad alineada con el propósito, pero no justifica construir un laboratorio de evaluación empresarial. El primer paso útil sería exportar una ficha del experimento: modelo, endpoint sin secretos, parámetros efectivos, herramientas habilitadas, prompt, contexto, métricas y fecha.</p>
+<p><strong>Aceptación propuesta:</strong> repetir manualmente un caso con dos perfiles y poder explicar qué cambió. No prometer respuestas deterministas, ni interpretar tokens por segundo de distintos equipos como una medida universal de calidad.</p>
+<h3 id="subsection-3">C. «Quiero consultar unos manuales o notas personales»</h3>
+<p><strong>Encaje alto para material pequeño y vocabulario reconocible.</strong> La ingesta no exige pagar embeddings ni operar una base de datos externa. Las ramas separan temas, y las herramientas de lectura permiten ampliar un resultado sin enviar inicialmente todo el documento.</p>
+<p>El índice implementado es textual con ponderaciones y tolerancia; no es un sistema de embeddings semánticos. Puede ser una elección acertada para identificadores, mensajes de error y documentación técnica. No debe venderse como equivalencia demostrada a recuperación semántica para sinónimos, traducciones o preguntas abstractas.</p>
+<p>El límite de 50 MiB por documento no representa capacidad garantizada del corpus. PDF escaneado, maquetación compleja, tablas e imágenes requieren evaluación específica; no se acredita un OCR general de alta fidelidad. El modelo debe poder utilizar las herramientas de conocimiento.</p>
+<p><strong>Mejora propuesta:</strong> una vista de diagnóstico que explique fragmentos encontrados y ausencias, apoyándose en las herramientas existentes. Evaluar veinte o treinta preguntas representativas antes de añadir embeddings: exactas, paráfrasis, bilingües y sin respuesta. Medir recuperación de la fuente correcta y fidelidad de la respuesta, por separado.</p>
+<h3 id="subsection-4">D. «Quiero leer y cambiar un proyecto pequeño»</h3>
+<p><strong>Encaje alto con supervisión.</strong> Lectura, búsqueda, edición, diagnósticos y comandos cubren tareas acotadas. El agente puede alternar razonamiento y herramientas y registrar avances.</p>
+<p>La diferencia importante es que los comandos se ejecutan en el equipo del usuario. El shell y navegador del backend comparten estado por proceso; iniciar otra conversación no acredita un entorno limpio. La capacidad de editar archivos tampoco demuestra control automático de Git, revisión de diffs o reversión equivalente a una herramienta de programación dedicada.</p>
+<p><strong>Mejora propuesta:</strong> mostrar carpeta efectiva, estado compartido y acciones autorizadas al iniciar una tarea; permitir reiniciar el contexto de ejecución. Para ediciones, priorizar revisión y recuperación del cambio. Criterio de aceptación: completar una tarea en una carpeta temporal, revisar lo modificado, cancelar otra y comprobar qué procesos/archivos permanecen.</p>
+<h3 id="subsection-5">E. «Quiero probar un servidor MCP o una automatización web»</h3>
+<p><strong>Encaje alto como cliente de inspección y uso puntual; fiabilidad condicionada.</strong> El host local permite gestionar servidores y normalizar herramientas. Las políticas y confirmaciones son útiles para descubrir qué hace cada llamada.</p>
+<p>No debe confundirse conexión satisfactoria con conformidad completa del protocolo. Los procesos externos, dependencias y navegador añaden puntos de fallo. T04 demuestra que el cierre inesperado de Playwright puede bloquear la sesión.</p>
+<p><strong>Mejora propuesta:</strong> corregir recuperación y ofrecer una prueba de salud que distinga instalado, arrancado, conectado y listo para ejecutar. Ensayar un MCP ficticio que responde, falla, tarda y se desconecta, sin necesitar cuentas externas.</p>
+<h3 id="subsection-6">F. «Vuelvo dentro de un mes y quiero recuperar mi trabajo»</h3>
+<p><strong>Encaje medio.</strong> Perfiles y conversaciones persisten, y existen exportaciones de perfiles, conversaciones y ramas RAG. También hay controles de cuota/persistencia del almacenamiento. La copia y restauración están fragmentadas entre subsistemas; no se debe presentar esto como ausencia total de backup.</p>
+<p>Cambiar de origen, navegador o perfil puede hacer que los datos parezcan perdidos. En distribución normal, PyPI y descarga usan el mismo origen de GitHub Pages, lo que reduce este problema, pero el desarrollo local sigue teniendo otro almacenamiento.</p>
+<p><strong>Mejora propuesta:</strong> un resumen «qué está guardado y dónde», con enlaces a las exportaciones existentes y una restauración ensayada en un perfil de navegador vacío. La prioridad es que el usuario sepa recuperar su trabajo, no añadir sincronización en la nube por defecto.</p>
+</section>
+<section>
+<h2 id="section-4">4. Adecuación y exceso de alcance</h2>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Mantener como núcleo</th>
+<th>Mantener como opción avanzada</th>
+<th>Posponer salvo necesidad demostrada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Perfiles, inspector, Espejo, streaming y exportación</td>
+<td>MCP, agente, shell y Playwright</td>
+<td>Multiusuario, RBAC corporativo y SSO</td>
+</tr>
+<tr>
+<td>Conversaciones, adjuntos y conocimiento pequeño</td>
+<td>WebLLM y ajustes finos de contexto</td>
+<td>Automatización 24/7 y colas distribuidas</td>
+</tr>
+<tr>
+<td>Errores comprensibles y restauración</td>
+<td>Políticas de autorización detalladas</td>
+<td>Catálogo masivo de integraciones propias</td>
+</tr>
+<tr>
+<td>Telemetría que distinga datos de estimaciones</td>
+<td>Checkpoints y diagnóstico de herramientas</td>
+<td>IDE completo o gestor general de modelos</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>La interfaz ya concentra muchas decisiones. Para uso ocasional, la complejidad debe aparecer cuando la tarea la necesite: conversación simple, prueba de conexión, documentos o herramientas. Esta recomendación es una hipótesis de usabilidad, no el resultado de una prueba A/B. No implica añadir otra capa de estado ni rediseñar toda la aplicación.</p>
+</section>
+<section>
+<h2 id="section-5">5. Brechas priorizadas</h2>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Prioridad</th>
+<th>Brecha</th>
+<th>Propuesta mínima</th>
+<th>Evidencia de éxito</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1</td>
+<td>Riesgos técnicos reproducidos</td>
+<td>Corregir T01, T02 y T04 del informe técnico</td>
+<td>Regresiones automatizadas y recuperación verificada</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Expectativas de privacidad/cifrado</td>
+<td>Indicar destinos y protección real de secretos</td>
+<td>El usuario puede identificar qué sale del dispositivo</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Diagnóstico disperso al volver a usar la app</td>
+<td>Recorrido breve apoyado en el inspector</td>
+<td>Completar conexión o entender el fallo sin documentación técnica</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Experimentos difíciles de reproducir</td>
+<td>Ficha exportable sin credenciales</td>
+<td>Comparar dos ejecuciones con condiciones conocidas</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Restauración repartida en varios flujos</td>
+<td>Resumen de copias y prueba de recuperación</td>
+<td>Recuperar perfiles, conversación y RAG en un navegador limpio</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Contexto local compartido poco evidente</td>
+<td>Carpeta/estado visibles y reinicio explícito</td>
+<td>Cambiar de proyecto sin heredar estado inesperado</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Calidad RAG no cuantificada</td>
+<td>Corpus pequeño de evaluación</td>
+<td>Fuentes correctas y respuestas sin evidencia identificadas</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Consumo difícil de anticipar</td>
+<td>Resumen por ejecución y límites comprensibles</td>
+<td>Distinguir presupuesto de contexto, pasos y coste monetario</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Ya existen límite de pasos, presupuestos de contexto, cancelación y telemetría. La última propuesta no supone que falten todos los límites: no se verificó un presupuesto monetario duro por tarea, y una estimación de tokens no equivale a facturación del proveedor.</p>
+</section>
+<section>
+<h2 id="section-6">6. Protocolo de aceptación funcional propuesto</h2>
+<p>Estos criterios son <strong>objetivos para la próxima consolidación</strong>, no métricas obtenidas en esta auditoría:</p>
+<ol>
+<li>Con endpoint disponible y conocido, iniciar una conversación desde un perfil vacío en menos de cinco minutos; registrar bloqueos y consultas a la ayuda.</li>
+<li>Recuperar un perfil tras semanas de inactividad e identificar modelo y carpeta efectiva antes de usar herramientas.</li>
+<li>Comparar dos configuraciones y exportar condiciones/resultados sin API keys ni token local.</li>
+<li>Ingerir un conjunto pequeño de documentos, resolver preguntas exactas y paráfrasis, y reconocer una pregunta sin respaldo documental.</li>
+<li>Aprobar una edición en una carpeta temporal, revisar el resultado y rechazar otra sin efectos secundarios.</li>
+<li>Cancelar un comando o herramienta lenta y comprobar terminación efectiva o una advertencia precisa del trabajo que continúa.</li>
+<li>Simular caída de MCP/navegador y recuperar la sesión sin reiniciar toda la aplicación.</li>
+<li>Restaurar las exportaciones en un perfil de navegador vacío y comprobar mensajes, adjuntos y conocimiento que cada formato promete conservar.</li>
+</ol>
+<p>Registrar tiempo, errores, resultado de tarea y necesidad de ayuda. Probar español e inglés, una ventana estrecha y navegación por teclado. Empezar con una o dos personas que no conozcan la arquitectura ya aportaría más evidencia de usabilidad que añadir nuevas funciones.</p>
+</section>
+<section>
+<h2 id="section-7">7. Orientación recomendada</h2>
+<p>La propuesta más coherente es: <strong>«Un banco de pruebas personal de IA para conectar modelos, inspeccionar peticiones y probar herramientas sobre proyectos pequeños, con datos guardados en tu navegador y un backend local opcional»</strong>.</p>
+<p>Esta formulación refleja lo implementado y evita promesas de confidencialidad absoluta, autonomía ilimitada o sustitución de un IDE. La madurez necesaria para el objetivo depende sobre todo de errores recuperables, límites claros y resultados que se puedan guardar y repetir.</p>
+</section>
+<footer>
+<p>Síntesis: buen encaje para pruebas personales de modelos, herramientas y proyectos pequeños. La prioridad es facilitar el diagnóstico, repetir experimentos, restaurar datos y aclarar el alcance de las acciones y el destino de la información.</p>
+<p>Auditoría puntual del 27 de septiembre de 2026. Las recomendaciones no implican correcciones implementadas.</p>
+</footer>
+</main>
+</body>
+</html>

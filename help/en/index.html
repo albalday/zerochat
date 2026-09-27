@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Help & Documentation Center · ZeroChat</title>
-  <meta name="description" content="Complete user manual and technical documentation for ZeroChat: universal, autonomous, and private web client for AI models and local agents.">
+  <title>Help & Documentation Center · ZeroChat · 8.x</title>
+  <meta name="description" content="ZeroChat 8.x help: chat, profiles, documents, tools and local server.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,27 +13,23 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
           <div class="lang-switch">
             <a href="../index.html" class="lang-link">Español</a> | <span class="lang-current">English</span>
           </div>
-          <span class="top-nav-link">Version 7.x</span>
+          <span class="top-nav-link">Version 8.x</span>
         </div>
       </div>
       <h1>ZeroChat Help Center</h1>
-      <p class="subtitle">Reference guide and technical documentation to get the most out of your portable, private AI client.</p>
+      <p class="subtitle">Personal help for ZeroChat 8.x: usage, configuration and limits.</p>
     </header>
 
     <div class="card">
       <h2>What is ZeroChat?</h2>
-      <p>
-        <strong>ZeroChat</strong> is a standalone, secure, and portable web client designed to interact with artificial intelligence models, orchestrate autonomous multi-turn agents, and search local document knowledge bases.
-      </p>
-      <p>
-        Unlike conventional web apps, ZeroChat is served as a static web application (<code>zerochat.html</code>) that runs directly on GitHub Pages or any static web server with no heavy dependencies, database backends, or proxies. All your personal data, chat histories, profile credentials, and indexed documents remain strictly on your machine within your browser.
-      </p>
+      <p>ZeroChat is a web client for personal use: chatting with AI models, consulting documents and trying tools. The <strong>8.x</strong> series consolidates existing features; new feature development is paused for now.</p>
+      <p>History is stored in the browser. Messages, attachments and results included in a request are sent to the selected provider. Web tools may use intermediary services. There is no automatic cross-device sync or guarantee of absolute privacy.</p>
       <div class="download-action-box">
         <a href="../../zerochat.html" class="btn-open-app" id="btn-open-app">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -43,23 +39,19 @@
       </div>
 
       <div class="alert alert-info" style="margin-top: 1rem;">
-        <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Two Ways to Launch: Standalone Web vs. Local Backend</h3>
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Two ways to launch</h3>
         <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
-          <li>
-            <strong><code>zerochat.html</code> (Direct Web / PWA):</strong> Opens directly in any desktop or mobile browser (specifically optimized for Android as an installable PWA). By default it uses dark mode and, on mobile, keeps the conversation panel closed to prioritize the chat; both can be changed from the interface controls. Delivers commercial or local inference (WebLLM/WebGPU), in-browser RAG knowledge bases (Orama), Agent mode with a secure JS sandbox, and private IndexedDB storage without requiring Python, a terminal, or installation. PWA installation is available through the browser’s own options when supported. ZeroChat does not offer installation buttons or prompts, including when opened from this help page.
-          </li>
-          <li>
-            <strong><code>zerochat.py</code> (Local with Python backend):</strong> Background local server (port 6388 with a secure ephemeral token). Extends the web app with host operating system control: reading and editing local project files, executing terminal commands, and connecting external MCP servers (Playwright, LSP, memory).
-          </li>
+          <li><strong>Web:</strong> open ZeroChat over HTTPS and configure a profile. Chat, attachments, RAG and browser tools work without Python. WebLLM requires WebGPU. PWA installation, where supported, uses browser options; ZeroChat shows no installation prompts.</li>
+          <li><strong>Local server:</strong> start <code>zerochat</code> or <code>zerochat.py</code> to add files, commands and MCP services. Review permissions before enabling tools.</li>
         </ul>
         <div style="font-size: 0.9rem;">
-          <a href="architecture.html">View full technical comparison & capabilities in Architecture →</a>
+          <a href="architecture.html">Read about usage modes and limits in Architecture →</a>
         </div>
       </div>
 
       <div class="alert alert-info" style="margin-top: 1rem;">
         <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Local server: recommended installation</h3>
-        <p style="margin: 0.5rem 0;">Install the official executable from PyPI; it opens the GitHub Pages interface with a secure local session. PyPI and the direct download use the same <code>~/zerochat/</code> directory for state and MCP services.</p>
+        <p style="margin: 0.5rem 0;">Install the official executable from PyPI; it opens the GitHub Pages interface with an authenticated local server session. PyPI and the direct download use the same <code>~/zerochat/</code> directory for state and MCP services.</p>
         <div class="code-wrapper">
           <pre><code>pip install zerochat &amp;&amp; zerochat</code></pre>
         </div>
@@ -81,8 +73,8 @@
     </div>
 
     <div class="card">
-      <h2>System Features & Modules</h2>
-      <p>Explore each ZeroChat component below. Click any card to read its detailed technical guide:</p>
+      <h2>Usage guides</h2>
+      <p>Each page explains a feature, how to use it and the limits to keep in mind.</p>
 
       <div class="features-grid">
         <!-- 1. Architecture & Portability -->
@@ -91,7 +83,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <div class="feature-title">Architecture & Portability</div>
-          <div class="feature-desc">Static web application served over HTTPS, local persistence in IndexedDB, and total data sovereignty without server middleware.</div>
+          <div class="feature-desc">Static web app, optional backend, per-origin storage and data sent to external services.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -101,7 +93,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
           <div class="feature-title">Profiles & Providers</div>
-          <div class="feature-desc">Connect with OpenAI, Ollama, OpenRouter, Claude, Gemini, and local Mirror with automated model and capability discovery.</div>
+          <div class="feature-desc">Configure providers, models, API keys, capability queries and profile backups.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -111,7 +103,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </div>
           <div class="feature-title">Local WebLLM Inference</div>
-          <div class="feature-desc">Execute models 100% inside the browser on your GPU via WebGPU, with catalog browsing, progressive downloading, and cache persistence.</div>
+          <div class="feature-desc">Download and run models with WebGPU; memory, cache and compatibility requirements.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -121,7 +113,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
           </div>
           <div class="feature-title">Agent Mode & Tools</div>
-          <div class="feature-desc">Autonomous multi-turn loop with sandboxed JavaScript execution in Web Worker, web search, page fetching, and interactive SVG charts.</div>
+          <div class="feature-desc">Tool calls, JavaScript execution, web search, plans and charts.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -131,7 +123,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           </div>
           <div class="feature-title">Local Knowledge (RAG)</div>
-          <div class="feature-desc">Ingest PDFs and documents into independent branches with vector and lexical indexing powered by Orama in the browser.</div>
+          <div class="feature-desc">Organize documents in branches and query them with local Orama lexical search.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -141,7 +133,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
           <div class="feature-title">MCP Protocol</div>
-          <div class="feature-desc">Local server with file and terminal tools, external MCP services, and permission controls.</div>
+          <div class="feature-desc">Files, commands, MCP services and authorization through the local server.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -151,7 +143,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><circle cx="8" cy="8" r="1"/></svg>
           </div>
           <div class="feature-title">Browser automation</div>
-          <div class="feature-desc">Install browser_action's requirements to browse and take screenshots with Playwright.</div>
+          <div class="feature-desc">Prepare browser_action and distinguish it from external Playwright MCP tools.</div>
           <div class="feature-link">View installation guide →</div>
         </a>
 
@@ -161,7 +153,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
           <div class="feature-title">Debugging & Interceptor</div>
-          <div class="feature-desc">Debug console with filters, a Raw view, and an interceptor for outgoing messages.</div>
+          <div class="feature-desc">Review events, requests and errors; edit JSON before sending.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -171,7 +163,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <div class="feature-title">Conversations & Branching</div>
-          <div class="feature-desc">History, branches, search, and JSON, Markdown, or PDF export; JSON backup import.</div>
+          <div class="feature-desc">History, branches, JSON and Markdown exports, and printing to PDF.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -181,7 +173,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </div>
           <div class="feature-title">Composer & Multimedia</div>
-          <div class="feature-desc">Auto-expanding input textarea, keyboard shortcuts, and multi-format attachments (vision images, PDFs, source code, CSV, text).</div>
+          <div class="feature-desc">Write messages, attach images or documents and check their limits.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
 
@@ -191,7 +183,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"/></svg>
           </div>
           <div class="feature-title">Reasoning & Telemetry</div>
-          <div class="feature-desc">Thinking effort control, agent checkpointing, and real-time monitoring of tokens, cache hit savings, and context window health.</div>
+          <div class="feature-desc">Adjust reasoning and interpret tokens, context estimates and cache metrics.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
       </div>
@@ -199,7 +191,7 @@
 
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
   <script src="../help.js"></script>
