@@ -100,164 +100,95 @@ CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
 NOTICES: list[str] = []
 NOTICES_LOCK = threading.Lock()
-
-def format_uptime(seconds: float) -> str:
-    """Devuelve una duración breve y estable para la línea de estado de consola."""
-    total = max(0, int(seconds))
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
 class ConsoleControl:
-    """Atajos de consola y línea de estado, solo para terminales interactivos."""
+    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
     def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, target_url: str | None = None):
         self.server = server
         self.parser = parser
         self.target_url = target_url
-        self.started_at = time.monotonic()
-        self.last_activity = self.started_at
-        self.stop_event = threading.Event()
+        self.last_activity = time.monotonic()
         self.lock = threading.Lock()
-        self.status_visible = False
-        self.enabled = bool(getattr(sys.stdin, "isatty", lambda: False)() and getattr(sys.stdout, "isatty", lambda: False)())
-        self._threads: list[threading.Thread] = []
-        self._terminal_fd: int | None = None
-        self._terminal_state = None
+        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        self._idle_timer: threading.Timer | None = None
+        self._keyboard_stop = threading.Event()
+        self._keyboard_thread: threading.Thread | None = None
+        self._timer_generation = 0
         self._closed = False
 
     def start(self):
-        if not self.enabled:
-            return
-        if os.name != "nt":
-            try:
-                import termios
-                import tty
-                self._terminal_fd = sys.stdin.fileno()
-                self._terminal_state = termios.tcgetattr(self._terminal_fd)
-                tty.setcbreak(self._terminal_fd)
-            except (OSError, ValueError):
-                self._restore_terminal()
-                self.enabled = False
-                return
-        self._threads = [
-            threading.Thread(target=self._status_loop, name="zerochat-console-status", daemon=True),
-            threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True),
-        ]
-        for thread in self._threads:
-            thread.start()
+        if self.enabled:
+            self._reset_idle_timer()
+        if self._keyboard_enabled:
+            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
+            self._keyboard_thread.start()
 
     def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        self.stop_event.set()
-        for thread in self._threads:
-            if thread is not threading.current_thread():
-                thread.join(timeout=1.0)
-        self._restore_terminal()
-        self.clear_status(final=True)
-
-    def _restore_terminal(self):
-        if self._terminal_fd is None or self._terminal_state is None:
-            return
-        try:
-            import termios
-            termios.tcsetattr(self._terminal_fd, termios.TCSADRAIN, self._terminal_state)
-        except OSError:
-            pass
-        finally:
-            self._terminal_fd = None
-            self._terminal_state = None
-
-    def clear_status(self, *, final: bool = False):
-        if not self.enabled:
-            return
         with self.lock:
-            if self.status_visible:
-                sys.stdout.write("\r\033[2K")
-                self.status_visible = False
-            if final:
-                sys.stdout.write("\r\n")
-            sys.stdout.flush()
+            self._closed = True
+            self._keyboard_stop.set()
+            if self._idle_timer:
+                self._idle_timer.cancel()
+                self._idle_timer = None
 
-    def log(self, message: str, *, flush: bool = True):
+    def _reset_idle_timer(self):
         with self.lock:
-            if self.enabled and self.status_visible:
-                sys.stdout.write("\r\033[2K")
-                self.status_visible = False
-            print(message, flush=flush)
+            if self._closed:
+                return
             self.last_activity = time.monotonic()
+            self._timer_generation += 1
+            if self._idle_timer:
+                self._idle_timer.cancel()
+            generation = self._timer_generation
+            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
 
-    def show_help(self):
+    def _show_commands_once(self, generation: int):
         with self.lock:
-            if self.status_visible:
-                sys.stdout.write("\r\033[2K")
-                self.status_visible = False
+            if self._closed or generation != self._timer_generation:
+                return
             commands = "[h] ayuda · [n] Navegador"
             if get_notices():
                 commands += " · [i] información"
-            print(f"\nComandos de consola: {commands} · [x] salir ordenadamente\n", flush=True)
-            print(self.parser.format_help().rstrip(), flush=True)
-            self.last_activity = time.monotonic()
+            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
+            self._idle_timer = None
+
+    def log(self, message: str, *, flush: bool = True):
+        print(message, flush=flush)
+        if self.enabled:
+            self._reset_idle_timer()
+
+    def show_help(self):
+        print(self.parser.format_help().rstrip(), flush=True)
 
     def show_notices(self):
         notices = get_notices()
         if not notices:
             return
-        with self.lock:
-            if self.status_visible:
-                sys.stdout.write("\r\033[2K")
-                self.status_visible = False
-            print("\nInformación:", flush=True)
-            for notice in notices:
-                print(f"- {notice}", flush=True)
-            print(flush=True)
-            self.last_activity = time.monotonic()
+        print("Información:", flush=True)
+        for notice in notices:
+            print(f"- {notice}", flush=True)
 
-    def _render_status(self):
-        if not self.enabled:
-            return
-        uptime = format_uptime(time.monotonic() - self.started_at)
-        with self.lock:
-            if time.monotonic() - self.last_activity < CONSOLE_STATUS_IDLE_SECONDS:
-                return
-            commands = "[h] ayuda · [n] Navegador"
-            if get_notices():
-                commands += " · [i] información"
-            sys.stdout.write(f"\r\033[2KZeroChat activo {uptime} · {commands} · [x] salir")
-            sys.stdout.flush()
-            self.status_visible = True
-
-    def _status_loop(self):
-        while not self.stop_event.wait(1.0):
-            self._render_status()
-
-    def _handle_key(self, key: str):
-        if key.lower() == "h":
+    def _handle_command(self, command: str):
+        key = command.strip().lower()
+        if key == "h":
             self.show_help()
-        elif key.lower() == "n":
-            if self.target_url:
-                launch_browser(self.target_url)
-        elif key.lower() == "i":
+        elif key == "n" and self.target_url:
+            launch_browser(self.target_url)
+        elif key == "i":
             self.show_notices()
-        elif key.lower() == "x":
+        elif key == "x":
             self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
             stop_zerochat_server(self.server)
 
     def _keyboard_loop(self):
-        if os.name == "nt":
-            import msvcrt
-            while not self.stop_event.wait(0.05):
-                if msvcrt.kbhit():
-                    self._handle_key(msvcrt.getwch())
-            return
-
-        import select
-        while not self.stop_event.is_set():
-            ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if ready:
-                self._handle_key(sys.stdin.read(1))
+        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
+        while not self._keyboard_stop.is_set():
+            line = sys.stdin.readline()
+            if not line:
+                return
+            self._handle_command(line)
 
 
 def console_log(message: str, *, flush: bool = True):
