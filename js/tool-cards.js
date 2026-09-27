@@ -49,6 +49,36 @@
     return null;
   };
 
+  function keepAuthorizationVisible(element, overlayElement = null) {
+    if (!element || typeof document === 'undefined') return;
+    const reveal = () => {
+      if (!element.isConnected) return;
+      const messagesList = element.closest?.('#messages-list') || document.getElementById('messages-list');
+      if (!messagesList) {
+        element.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        return;
+      }
+      const elementRect = element.getBoundingClientRect();
+      const overlayRect = overlayElement?.isConnected ? overlayElement.getBoundingClientRect() : null;
+      const listRect = messagesList.getBoundingClientRect();
+      const bottom = Math.max(elementRect.bottom, overlayRect?.bottom || -Infinity);
+      const overflow = bottom - listRect.bottom + 16;
+      if (overflow <= 0) return;
+      const targetTop = Math.min(
+        messagesList.scrollHeight - messagesList.clientHeight,
+        messagesList.scrollTop + overflow
+      );
+      const reducedMotion = typeof window !== 'undefined'
+        && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      messagesList.scrollTo?.({ top: targetTop, behavior: reducedMotion ? 'auto' : 'smooth' });
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => requestAnimationFrame(reveal));
+    } else {
+      setTimeout(reveal, 0);
+    }
+  }
+
   function collapseCard(card) {
     if (!card) return;
     const cardEl = card.querySelector?.('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card')
@@ -154,6 +184,7 @@
     const cardEl = card.querySelector?.('.tool-execution-card, .mcp-card, .tool-card-wrapper') || card;
     if (cardEl && cardEl.classList) {
       cardEl.classList.remove('collapsed');
+      cardEl.classList.add('tool-card-auth-active');
     }
 
     // Actualizar badge a pendiente de autorización
@@ -213,25 +244,31 @@
       `;
     }
 
-    const serverTag = serverName ? `<span class="mcp-card-server-tag">${esc(serverName)}</span>` : '';
+    const morePermissionsLabel = tFn('tool_auth_more_permissions') || 'Más permisos';
+    const morePermissionsTitle = esc(tFn('tool_auth_more_permissions_title') || 'Elegir una autorización ampliada');
     authPromptEl.innerHTML = `
       <div class="tool-auth-header">
         <div class="tool-auth-title-row">
           <span class="tool-auth-shield-icon">${SHIELD_SVG}</span>
           <strong class="tool-auth-title">${tFn('tool_auth_title') || 'Autorización de Ejecución'}</strong>
-          ${serverTag}
         </div>
         <p class="tool-auth-desc">${tFn('tool_auth_desc') || 'Esta herramienta MCP requiere tu confirmación antes de interactuar con el sistema:'}</p>
       </div>
       <div class="tool-auth-actions">
         <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir solo esta llamada')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
-        <button type="button" class="btn-auth-action btn-auth-allow-session" title="${esc(tFn('tool_auth_allow_session') || 'Permitir durante toda la sesión activa de chat')}">${CLOCK_SVG} <span>${tFn('tool_auth_allow_session') || 'En esta sesión'}</span></button>
-        <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre esta herramienta')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre'}</span></button>
-        ${serverButtonHtml}
-        ${contextualButtonsHtml}
+        <div class="tool-auth-more">
+          <button type="button" class="btn-auth-action btn-auth-more" title="${morePermissionsTitle}" aria-label="${morePermissionsTitle}" aria-expanded="false">${CHEVRON_SVG} <span class="btn-auth-more-label">${morePermissionsLabel}</span></button>
+          <div class="tool-auth-more-menu" role="group" aria-label="${morePermissionsTitle}" hidden>
+            <button type="button" class="btn-auth-action btn-auth-allow-session" title="${esc(tFn('tool_auth_allow_session') || 'Permitir durante toda la sesión activa de chat')}">${CLOCK_SVG} <span>${tFn('tool_auth_allow_session') || 'En esta sesión'}</span></button>
+            <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre esta herramienta')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre'}</span></button>
+            ${contextualButtonsHtml}
+            ${serverButtonHtml}
+          </div>
+        </div>
         <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
       </div>
     `;
+    keepAuthorizationVisible(cardEl);
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -240,6 +277,7 @@
         if (authPromptEl && authPromptEl.parentNode) {
           authPromptEl.remove();
         }
+        cardEl?.classList?.remove('tool-card-auth-active');
         if (signal && abortHandler) {
           signal.removeEventListener('abort', abortHandler);
         }
@@ -279,6 +317,18 @@
       const btnAllowCmd = authPromptEl.querySelector('.btn-auth-allow-cmd');
       const btnAllowPath = authPromptEl.querySelector('.btn-auth-allow-path');
       const btnDeny = authPromptEl.querySelector('.btn-auth-deny');
+      const btnMore = authPromptEl.querySelector('.btn-auth-more');
+      const moreMenu = authPromptEl.querySelector('.tool-auth-more-menu');
+
+      btnMore?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = btnMore.getAttribute('aria-expanded') === 'true';
+        btnMore.setAttribute('aria-expanded', String(!isOpen));
+        if (moreMenu) moreMenu.hidden = isOpen;
+        btnMore.closest('.tool-auth-more')?.classList.toggle('is-open', !isOpen);
+        if (!isOpen) keepAuthorizationVisible(cardEl, moreMenu);
+      });
+      moreMenu?.addEventListener('click', (e) => e.stopPropagation());
 
       btnAllowOnce?.addEventListener('click', (e) => {
         e.stopPropagation();
