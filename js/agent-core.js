@@ -581,7 +581,9 @@
       const t = (key, fallback) => (I18n?.t ? I18n.t(key) : fallback);
       const authEval = ToolSecurity?.manager?.evaluateAuthorization
         ? ToolSecurity.manager.evaluateAuthorization(tool, args, context)
-        : { status: 'allow', requiresApproval: false };
+        : (tool.category === 'mcp'
+          ? { status: 'deny', requiresApproval: true }
+          : { status: 'allow', requiresApproval: false });
 
       if (authEval.status === 'deny') {
         return { allowed: false, error: t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.') };
@@ -709,7 +711,8 @@
     async executeToolCall(toolCall, context = {}) {
       const rawName = toolCall?.function?.name || '';
       const tool = this.registry.getTool(rawName);
-      const parsedArgs = this.parseArguments(toolCall?.function?.arguments);
+      // Work from a stable value: the authorization dialog may await user input.
+      const parsedArgs = JSON.parse(JSON.stringify(this.parseArguments(toolCall?.function?.arguments)));
 
       if (!tool) {
         const error = `Herramienta '${rawName}' no encontrada en el registro.`;
@@ -757,8 +760,8 @@
 
         const ToolRuntime = getToolRuntime();
         const executionContext = ToolRuntime?.createToolExecutionContext
-          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context })
-          : { displayMode, ...context };
+          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context, toolAuthorization: true })
+          : { displayMode, ...context, toolAuthorization: true };
         const execResult = await tool.execute(parsedArgs, executionContext);
         const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const elapsed = parseFloat((endTime - startTime).toFixed(2));

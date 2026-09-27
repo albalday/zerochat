@@ -4,6 +4,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const pkg = require('../../package.json');
 
 test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
@@ -120,6 +121,28 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   const port = 6400 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'test-token-secret-12345';
+  const nativeFetch = global.fetch;
+  let toolAuthorization = null;
+  const signedFetch = async (url, options = {}) => {
+    const body = typeof options.body === 'string' ? options.body : '';
+    let request;
+    try { request = JSON.parse(body); } catch (_) {}
+    if (toolAuthorization && request?.method === 'tools/call' && String(url).startsWith(baseUrl)) {
+      const expiresAt = Date.now() + toolAuthorization.ttlMs;
+      const nonce = crypto.randomBytes(16).toString('base64url');
+      const pathName = new URL(url).pathname.replace(/\/$/, '') || '/';
+      const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+      const signatureBase = JSON.stringify(['zerochat-tool-auth-v1', toolAuthorization.sessionId, 'POST', pathName, expiresAt, nonce, bodyHash]);
+      const signature = crypto.createHmac('sha256', Buffer.from(toolAuthorization.key, 'base64url')).update(signatureBase).digest('base64url');
+      options = { ...options, headers: { ...(options.headers || {}),
+        'X-ZeroChat-Tool-Session': toolAuthorization.sessionId,
+        'X-ZeroChat-Tool-Expires': String(expiresAt),
+        'X-ZeroChat-Tool-Nonce': nonce,
+        'X-ZeroChat-Tool-Signature': signature } };
+    }
+    return nativeFetch(url, options);
+  };
+  global.fetch = signedFetch;
 
   const serverProc = spawn('python3', [
     serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
@@ -224,6 +247,24 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const initJson = await initRes.json();
     assert.equal(initJson.result?.serverInfo?.name, 'ZeroChat Local Server');
     assert.equal(initJson.result?.serverInfo?.version, pkg.version.split('.').slice(0, 2).join('.'));
+    toolAuthorization = initJson.result?.toolAuthorization;
+    assert.equal(toolAuthorization?.version, 'zerochat-tool-auth-v1');
+    const unsignedToolRes = await nativeFetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 301, method: 'tools/call', params: { name: 'list_directory', arguments: { path: '.' } } })
+    });
+    assert.equal(unsignedToolRes.status, 403, 'Una llamada tools/call sin sello debe rechazarse');
+    const { McpClient: SignedMcpClient } = require('../../js/mcp.js');
+    global.fetch = nativeFetch;
+    const signedClient = new SignedMcpClient({ id: 'mcp_proxy', url: baseUrl, token: testToken });
+    try {
+      assert.equal((await signedClient.initialize()).success, true);
+      assert.equal((await signedClient.callTool('list_directory', { path: '.' }, { toolAuthorization: true })).success, true);
+    } finally {
+      signedClient.disconnect();
+      global.fetch = signedFetch;
+    }
 
     // 5. Comprobar tools/list
     const toolsRes = await fetch(baseUrl, {
@@ -669,6 +710,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(stoppedDummy?.toolCount, 0);
 
   } finally {
+    global.fetch = nativeFetch;
     serverProc.kill('SIGTERM');
   }
 });
@@ -898,7 +940,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });
 
     // 3. Petición POST con initialize
-    await fetch(baseUrl, {
+    const loggingInitRes = await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -906,6 +948,7 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'initialize', params: {} })
     });
+    const loggingAuth = (await loggingInitRes.json()).result?.toolAuthorization;
 
     // 4. Petición POST con tools/call fallida (archivo no existente) con argumento sensible
     await fetch(baseUrl, {
@@ -939,21 +982,26 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     });
 
     // 6. Petición POST con herramienta no existente (-32601)
+    const unknownBody = JSON.stringify({
+      jsonrpc: '2.0', id: 12, method: 'tools/call',
+      params: { name: 'herramienta_fantasma', arguments: { secret_api_key: 'confidential_key_abc_999' } }
+    });
+    const unknownExpires = Date.now() + loggingAuth.ttlMs;
+    const unknownNonce = crypto.randomBytes(16).toString('base64url');
+    const unknownHash = crypto.createHash('sha256').update(unknownBody).digest('hex');
+    const unknownBase = JSON.stringify(['zerochat-tool-auth-v1', loggingAuth.sessionId, 'POST', '/', unknownExpires, unknownNonce, unknownHash]);
+    const unknownSignature = crypto.createHmac('sha256', Buffer.from(loggingAuth.key, 'base64url')).update(unknownBase).digest('base64url');
     await fetch(baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${testToken}`
+        'Authorization': `Bearer ${testToken}`,
+        'X-ZeroChat-Tool-Session': loggingAuth.sessionId,
+        'X-ZeroChat-Tool-Expires': String(unknownExpires),
+        'X-ZeroChat-Tool-Nonce': unknownNonce,
+        'X-ZeroChat-Tool-Signature': unknownSignature
       },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 12,
-        method: 'tools/call',
-        params: {
-          name: 'herramienta_fantasma',
-          arguments: { secret_api_key: 'confidential_key_abc_999' }
-        }
-      })
+      body: unknownBody
     });
 
     // Dar margen para vaciar buffers de stdout

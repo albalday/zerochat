@@ -174,6 +174,32 @@
     return /network|fetch|econnrefused|timeout|conexión mcp cerrada|http 5\d\d|http 404/.test(message);
   }
 
+  const TOOL_AUTH_VERSION = 'zerochat-tool-auth-v1';
+
+  function base64Url(bytes) {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  }
+
+  function base64UrlBytes(value) {
+    const padded = String(value).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(value).length + 3) % 4);
+    const binary = atob(padded);
+    return Uint8Array.from(binary, char => char.charCodeAt(0));
+  }
+
+  function hex(bytes) {
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function webCrypto() {
+    if (globalThis.crypto?.subtle) return globalThis.crypto;
+    if (typeof require !== 'undefined') {
+      try { return require('crypto').webcrypto; } catch (_) {}
+    }
+    return null;
+  }
+
   /**
    * Cliente de Protocolo MCP (Model Context Protocol) basado en JSON-RPC 2.0 sobre HTTP.
    */
@@ -193,6 +219,7 @@
       this.requestId = 1;
       this.serverCapabilities = null;
       this.serverInfo = null;
+      this.toolAuthorization = null;
     }
 
     /**
@@ -241,6 +268,38 @@
       }
       if (this.headers && typeof this.headers === 'object') {
         Object.assign(headers, this.headers);
+      }
+      return headers;
+    }
+
+    async buildToolAuthorizationHeaders(targetUrl, body) {
+      const credentials = this.toolAuthorization;
+      const cryptoApi = webCrypto();
+      if (!credentials || !cryptoApi?.subtle) throw new Error('Local tool authorization is unavailable. Reconnect to ZeroChat.');
+      const expiresAt = Date.now() + credentials.ttlMs;
+      const nonceBytes = new Uint8Array(16);
+      cryptoApi.getRandomValues(nonceBytes);
+      const nonce = base64Url(nonceBytes);
+      const encodedBody = new TextEncoder().encode(body);
+      const bodyHash = hex(new Uint8Array(await cryptoApi.subtle.digest('SHA-256', encodedBody)));
+      const path = new URL(targetUrl).pathname.replace(/\/$/, '') || '/';
+      const signatureBase = JSON.stringify([TOOL_AUTH_VERSION, credentials.sessionId, 'POST', path, expiresAt, nonce, bodyHash]);
+      const key = await cryptoApi.subtle.importKey('raw', base64UrlBytes(credentials.key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const signature = base64Url(new Uint8Array(await cryptoApi.subtle.sign('HMAC', key, new TextEncoder().encode(signatureBase))));
+      return {
+        'X-ZeroChat-Tool-Session': credentials.sessionId,
+        'X-ZeroChat-Tool-Expires': String(expiresAt),
+        'X-ZeroChat-Tool-Nonce': nonce,
+        'X-ZeroChat-Tool-Signature': signature
+      };
+    }
+
+    async buildRequestHeaders(targetUrl, body, options) {
+      const headers = this.buildHeaders();
+      if (options.toolAuthorization) {
+        if (this.id === 'mcp_proxy' || this.id === 'mcp_external') {
+          Object.assign(headers, await this.buildToolAuthorizationHeaders(targetUrl, body));
+        }
       }
       return headers;
     }
@@ -416,17 +475,18 @@
       };
 
       const timeoutMs = options.timeoutMs || this.timeoutMs;
+      const body = JSON.stringify(payload);
       let res;
       try {
         res = await fetchWithTimeout(targetUrl, {
           method: 'POST',
-          headers: this.buildHeaders(),
-          body: JSON.stringify(payload),
+          headers: await this.buildRequestHeaders(targetUrl, body, options),
+          body,
           signal: options.signal
         }, timeoutMs);
       } catch (fetchErr) {
         // En caso de fallo de red en endpoint SSE, reconectar y reintentar una única vez
-        if (!options._isRetry && (isSseEndpoint || this.postUrl)) {
+        if (!options.toolAuthorization && !options._isRetry && (isSseEndpoint || this.postUrl)) {
           this.disconnect();
           return this.request(method, params, { ...options, _isRetry: true, forceReconnect: true });
         }
@@ -447,8 +507,8 @@
         if (resolved && resolved !== targetUrl) {
           res = await fetchWithTimeout(resolved, {
             method: 'POST',
-            headers: this.buildHeaders(),
-            body: JSON.stringify(payload),
+            headers: await this.buildRequestHeaders(resolved, body, options),
+            body,
             signal: options.signal
           }, timeoutMs);
         }
@@ -500,6 +560,11 @@
 
         this.serverCapabilities = result?.capabilities || {};
         this.serverInfo = result?.serverInfo || { name: this.name, version: 'unknown' };
+        const auth = result?.toolAuthorization;
+        if ((this.id === 'mcp_proxy' || this.id === 'mcp_external') && auth?.version === TOOL_AUTH_VERSION &&
+            typeof auth.sessionId === 'string' && typeof auth.key === 'string' && Number.isInteger(auth.ttlMs) && auth.ttlMs > 0 && auth.ttlMs <= 30_000) {
+          this.toolAuthorization = { sessionId: auth.sessionId, key: auth.key, ttlMs: auth.ttlMs };
+        }
 
         // Enviar notificación de inicialización completada si el servidor lo soporta
         try {
@@ -761,7 +826,8 @@
             try {
               return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
-                timeoutMs: options.timeoutMs
+                timeoutMs: options.timeoutMs,
+                toolAuthorization: context.toolAuthorization === true
               });
             } catch (error) {
               if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
