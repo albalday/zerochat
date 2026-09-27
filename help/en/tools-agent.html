@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Mode & Built-in Tools · ZeroChat Help</title>
-  <meta name="description" content="Guide for the autonomous agentic loop in ZeroChat: JavaScript execution under technical user supervision, web search, page fetching, and charts.">
+  <title>Agent Mode & Built-in Tools · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Enabling, running and understanding the limits of tools available to the model.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,104 +13,49 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../tools-agent.html" class="top-nav-link">Español 🌐</a>
+          <a href="../tools-agent.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Agent Mode & Built-in Tools</h1>
-      <p class="subtitle">Turn passive language models into active agents capable of reasoning, running code, querying the web, and rendering graphics.</p>
+      <p class="subtitle">Enabling, running and understanding the limits of tools available to the model.</p>
     </header>
 
     <div class="card">
-      <h2>1. What is Agent Mode in ZeroChat?</h2>
-      <p>
-        <strong>Agent Mode</strong> transforms the standard question-answer conversation into an autonomous, multi-turn reasoning loop (<em>Agentic Loop</em>).
-      </p>
-      <p>
-        When you submit a complex task, the model determines which tools it needs, issues structured function calls, ZeroChat runs the tool in your browser, and feeds the result back to the model until the goal is accomplished.
-      </p>
-      <div class="alert alert-info">
-        <strong>Max Turn Safety Limit (<code>maxAgentTurns</code>):</strong> In Settings, choose the maximum consecutive agent turns from 5 to 35 (15 by default) to limit loops and token use.
-      </div>
+      <h2>1. How the agent works</h2>
+      <p>With a model that supports tools, ZeroChat can alternate model requests and executions: the model requests a tool, receives its result and decides the next step. A tool may run in the browser, on the local server or in an MCP service.</p>
+      <p>Enable the tools you need in Settings and review their permissions. The agent turn limit is configurable and defaults to 15. It limits iterations, without guaranteeing completion or setting a maximum cost. You can stop generation; completed actions are not undone.</p>
     </div>
 
     <div class="card">
-      <h2>2. Built-in Tools Catalog</h2>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Tool Name</th>
-              <th>Description & Capabilities</th>
-              <th>Runtime Environment</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>execute_javascript</code></td>
-              <td>Runs local JavaScript for calculations, algorithmic logic, data restructuring, or string parsing under technical user supervision.</td>
-              <td>Local Web Worker with execution limits</td>
-            </tr>
-            <tr>
-              <td><code>search_web</code></td>
-              <td>Searches the live internet for recent news, technical documentation, or real-time data.</td>
-              <td>SearXNG or DuckDuckGo with zero API keys</td>
-            </tr>
-            <tr>
-              <td><code>fetch_web_page</code></td>
-              <td>Downloads a web page URL and converts it into clean, readable Markdown stripping ads and boilerplate.</td>
-              <td>HTTP client with anti-SSRF protections</td>
-            </tr>
-            <tr>
-              <td><code>download_pdf</code></td>
-              <td>Downloads PDF documents from URLs and extracts their textual content for LLM inspection.</td>
-              <td>In-browser client PDF parser</td>
-            </tr>
-            <tr>
-              <td><code>render_chart</code></td>
-              <td>Generates interactive native SVG charts (line, bar, scatter, etc.) rendered inline within the chat stream.</td>
-              <td>Client SVG renderer (<code>charts.js</code>)</td>
-            </tr>
-            <tr>
-              <td><code>list_documents</code><br><code>search_knowledge_base</code><br><code>read_knowledge_chunk</code><br><code>read_knowledge_image</code></td>
-              <td>Inspects, searches, and reads document chunks from your local RAG knowledge branches.</td>
-              <td>Orama & IndexedDB client engine</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p><code>agent_checkpoint</code> lets the agent summarize findings and decide whether to continue researching or respond.</p>
-
-      <h3>Local host authorization</h3>
-      <p>Local-server tool calls are authorized in the interface and carry a single-use ephemeral seal. The server verifies that their content, destination, and validity period have not changed and rejects replays. The seal stays only in memory and is renewed when the server restarts; it does not replace permission review when a browser is compromised.</p>
+      <h2>2. Built-in tools</h2>
+      <div class="table-responsive"><table><thead><tr><th>Tool</th><th>Use and limits</th></tr></thead>
+      <tbody><tr><td><code>execute_javascript</code></td><td>Calculations and transformations in an isolated browser environment.</td></tr>
+      <tr><td><code>search_web</code></td><td>Search through DuckDuckGo or SearXNG. Quotas, blocks or service changes can cause failures.</td></tr>
+      <tr><td><code>fetch_web_page</code></td><td>Retrieves text from public pages; it does not replace a signed-in browser.</td></tr>
+      <tr><td><code>download_pdf</code></td><td>Downloads a PDF and extracts readable text, subject to parser limitations.</td></tr>
+      <tr><td><code>render_chart</code></td><td>Displays data in SVG charts; it does not validate data or calculations.</td></tr>
+      <tr><td><code>list_documents</code>, <code>search_knowledge_base</code>, <code>read_knowledge_chunk</code>, <code>read_knowledge_image</code></td><td>Query active RAG branches.</td></tr>
+      <tr><td><code>agent_checkpoint</code></td><td>Records findings and the next step.</td></tr>
+      <tr><td><code>update_plan</code></td><td>Displays tasks and their status as declared by the model.</td></tr>
+      <tr><td><code>finish_task</code></td><td>Signals completion with a summary; it does not independently check the result.</td></tr></tbody></table></div>
+      <p>Web tools send queries and URLs to external services. Retrieval may use Jina Reader or AllOrigins; do not assume a direct connection without intermediaries or send them private URLs or credentials.</p>
+      <p>File, terminal and browser automation tools need the <a href="mcp.html">local server</a>. Their calls include authorization and a temporary single-use signature; this does not protect against a compromised interface with session access.</p>
     </div>
 
     <div class="card">
-      <h2>3. JavaScript Execution Under Technical Supervision</h2>
-      <p>
-        <code>execute_javascript</code> is a supporting tool for calculations, data processing, and algorithms. It is intended for use with the awareness and active supervision of a technical user, who can enable or disable it in Settings.
-      </p>
-      <ul>
-        <li><strong>Web Worker execution:</strong> It normally runs in a separate thread to keep the interface responsive during calculations or heavier algorithms.</li>
-        <li><strong>Time limit:</strong> If a script exceeds the configured time, ZeroChat stops the Worker.</li>
-        <li><strong>Output limits:</strong> Excessive results are truncated and console messages are limited to preserve responsiveness.</li>
-        <li><strong>Restricted APIs for calculations:</strong> The Worker neutralizes network and sub-worker APIs that are unnecessary for this tool.</li>
-      </ul>
+      <h2>3. Running JavaScript</h2>
+      <p><code>execute_javascript</code> runs code using an iframe with an isolated origin, network restrictions and a Web Worker. Time and output limits apply; the aim is to perform calculations without giving code direct access to chat or disk.</p>
+      <p>Enable it when you need this processing and can review what it does. Isolation does not guarantee correct results or eliminate every resource risk. System commands use separate tools on the local server.</p>
     </div>
 
     <div class="card">
-      <h2>4. Interactive Tool Cards</h2>
-      <p>
-        When an agent calls a tool, ZeroChat renders a dedicated <strong>Tool Card</strong> directly in the chat message flow:
-      </p>
-      <ul>
-        <li><strong>Live status indicator:</strong> Displays an animated spinner while processing and a green checkmark or error alert upon completion.</li>
-        <li><strong>Collapsible input & output:</strong> Expand the card to inspect the exact arguments passed to the function and the data returned.</li>
-        <li><strong>Full session persistence:</strong> Tool cards and their expanded/collapsed state are preserved across session reloads.</li>
-      </ul>
+      <h2>4. Tool cards</h2>
+      <p>Each call displays a card with status and expandable arguments and results. Saved cards are restored when opening history.</p>
+      <p>Review paths, commands and web destinations before authorizing. A successful execution status means the call completed, not that the user's task was solved correctly. Errors or cancellation can leave partial effects: check affected files or services before repeating.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -129,7 +74,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
 </body>

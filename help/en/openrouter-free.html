@@ -3,36 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenRouter API key · ZeroChat</title>
-  <meta name="description" content="How to create an OpenRouter API key for use in ZeroChat.">
+  <title>OpenRouter API key · ZeroChat · 8.x</title>
+  <meta name="description" content="Configuring a OpenRouter key in a ZeroChat profile.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
   <div class="container">
     <header>
       <h1>Get an OpenRouter API key</h1>
-      <p class="subtitle">Create an OpenRouter key for use in ZeroChat.</p>
+      <p class="subtitle">ZeroChat 8.x · Configuring a OpenRouter key in a ZeroChat profile.</p>
     </header>
 
     <main>
       <section class="card">
-        <h2>Steps</h2>
-        <ol>
-          <li>
-            Open <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">OpenRouter’s official API keys page</a> and sign in or create an account.
-          </li>
-          <li>Select <strong>Create API Key</strong> or <strong>Create Key</strong>.</li>
-          <li>Enter a recognizable name, such as <code>ZeroChat</code>, and create the key.</li>
-          <li>Copy the key immediately and store it privately. OpenRouter shows its complete value only once.</li>
-          <li>In ZeroChat, create or edit an <strong>OpenRouter</strong> provider profile, paste the key, and choose a model.</li>
-        </ol>
-      </section>
+      <h2>Steps</h2>
+      <ol><li>Open the <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">OpenRouter key page</a> and sign in to your account.</li>
+      <li>Create a key using your account's options and keep it private. Gemini may require creating or selecting a project.</li>
+      <li>In ZeroChat, create or edit a <strong>OpenRouter</strong> profile, enter the key and press <strong>Query</strong>.</li>
+      <li>Select an available model and save the profile. Try a short message first.</li></ol>
+      <p>If you cannot create a key or the query fails, check account permissions and the <a href="https://openrouter.ai/docs/quickstart" target="_blank" rel="noopener noreferrer">official OpenRouter guide</a>. Interface labels and options may change.</p>
+    </section>
 
       <section class="card">
-        <h2>Important</h2>
-        <p>Models, limits, and prices change. Always check <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer">OpenRouter's current catalog and terms</a> before production use.</p>
-        <p>Never share the API key or publish it in chats, screenshots, repositories, or public configuration files.</p>
-      </section>
+      <h2>Usage and limits</h2>
+      <p>Creating a key does not guarantee free usage. Models, quotas, pricing, availability and data handling depend on the provider and account. Check their terms before sending personal data or enabling billing.</p>
+      <p>ZeroChat uses the key from your browser for provider requests. Do not publish it or share profile backups without reviewing their content and protection. If exposed, revoke it at the provider and configure a new one.</p>
+    </section>
     </main>
   </div>
 </body>

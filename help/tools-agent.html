@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Modo Agente y Herramientas Nativas · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía del ciclo agéntico autónomo en ZeroChat: ejecución de JavaScript bajo supervisión técnica, búsqueda web, descarga de páginas y gráficas interactivas.">
+  <title>Modo Agente y Herramientas Nativas · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Activación, ejecución y límites de las herramientas que puede utilizar el modelo.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,104 +13,49 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/tools-agent.html" class="top-nav-link">English 🌐</a>
+          <a href="en/tools-agent.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Modo Agente y Herramientas Nativas</h1>
-      <p class="subtitle">Convierte a los modelos de lenguaje en asistentes activos capaces de razonar, ejecutar código, buscar información y dibujar gráficos.</p>
+      <p class="subtitle">Activación, ejecución y límites de las herramientas que puede utilizar el modelo.</p>
     </header>
 
     <div class="card">
-      <h2>1. ¿Qué es el Modo Agente en ZeroChat?</h2>
-      <p>
-        El <strong>Modo Agente</strong> transforma la interacción pasiva de pregunta-respuesta en un bucle autónomo multivuelta (<em>Agentic Loop</em>).
-      </p>
-      <p>
-        Cuando planteas una tarea compleja, el modelo evalúa qué herramientas necesita, emite una llamada estructurada (Function Calling), ZeroChat ejecuta la herramienta en tu navegador y devuelve el resultado al modelo para que continúe resolviendo el problema hasta completar el objetivo.
-      </p>
-      <div class="alert alert-info">
-        <strong>Límite de turnos de seguridad (<code>maxAgentTurns</code>):</strong> En Ajustes puedes definir el máximo de turnos consecutivos del agente, entre 5 y 35 (15 por defecto), para limitar bucles y consumo de tokens.
-      </div>
+      <h2>1. Cómo funciona el agente</h2>
+      <p>Con un modelo que admite herramientas, ZeroChat puede alternar peticiones al modelo y ejecuciones: el modelo pide una herramienta, recibe su resultado y decide el siguiente paso. La herramienta puede ejecutarse en el navegador, en el servidor local o en un servicio MCP.</p>
+      <p>Activa las herramientas necesarias en Ajustes y revisa sus permisos. El límite de turnos del agente es configurable y vale 15 por defecto. Limita iteraciones, no garantiza completar la tarea ni fija un coste máximo. Puedes detener la generación; las acciones ya realizadas no se deshacen.</p>
     </div>
 
     <div class="card">
-      <h2>2. Catálogo de Herramientas Integradas (Built-in Tools)</h2>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Herramienta</th>
-              <th>Descripción y Capacidades</th>
-              <th>Entorno de Ejecución</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>execute_javascript</code></td>
-              <td>Ejecuta JavaScript local para cálculos matemáticos, algoritmos, transformaciones de datos o procesamiento de cadenas, bajo supervisión técnica.</td>
-              <td>Web Worker local con límites de ejecución</td>
-            </tr>
-            <tr>
-              <td><code>search_web</code></td>
-              <td>Realiza búsquedas en tiempo real en Internet para obtener información de actualidad o documentación técnica reciente.</td>
-              <td>SearXNG o DuckDuckGo sin API key</td>
-            </tr>
-            <tr>
-              <td><code>fetch_web_page</code></td>
-              <td>Descarga el contenido de una URL pública y lo convierte a Markdown limpio eliminando publicidad y scripts innecesarios.</td>
-              <td>Cliente HTTP con protección anti-SSRF</td>
-            </tr>
-            <tr>
-              <td><code>download_pdf</code></td>
-              <td>Descarga un documento PDF desde una URL y extrae su texto para que el modelo pueda consultarlo.</td>
-              <td>Parser PDF en el navegador</td>
-            </tr>
-            <tr>
-              <td><code>render_chart</code></td>
-              <td>Genera visualizaciones gráficas interactivas nativas en SVG (líneas, barras, dispersión, etc.) insertadas directamente en la conversación.</td>
-              <td>Motor SVG cliente (<code>charts.js</code>)</td>
-            </tr>
-            <tr>
-              <td><code>list_documents</code><br><code>search_knowledge_base</code><br><code>read_knowledge_chunk</code><br><code>read_knowledge_image</code></td>
-              <td>Herramientas para inspeccionar, buscar e indexar fragmentos de documentos cargados en la base de conocimiento local (RAG).</td>
-              <td>Motor Orama & IndexedDB local</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p><code>agent_checkpoint</code> permite al agente resumir hallazgos y decidir si continúa investigando o responde.</p>
-
-      <h3>Autorización del host local</h3>
-      <p>Las llamadas a herramientas del servidor local se autorizan en la interfaz y llevan un sello efímero de un solo uso. El servidor comprueba que el contenido, destino y vigencia no han cambiado y rechaza repeticiones. El sello se conserva solo en memoria y se renueva al reiniciar el servidor; no sustituye la revisión de permisos ante un navegador comprometido.</p>
+      <h2>2. Herramientas integradas</h2>
+      <div class="table-responsive"><table><thead><tr><th>Herramienta</th><th>Uso y límites</th></tr></thead>
+      <tbody><tr><td><code>execute_javascript</code></td><td>Cálculos y transformaciones en un entorno aislado del navegador.</td></tr>
+      <tr><td><code>search_web</code></td><td>Búsqueda con DuckDuckGo o SearXNG. Puede fallar por cuotas, bloqueos o cambios del servicio.</td></tr>
+      <tr><td><code>fetch_web_page</code></td><td>Recupera texto de páginas públicas; no sustituye un navegador con sesión iniciada.</td></tr>
+      <tr><td><code>download_pdf</code></td><td>Descarga un PDF y extrae texto legible, con las limitaciones del parser.</td></tr>
+      <tr><td><code>render_chart</code></td><td>Presenta datos en gráficos SVG; no valida los datos ni los cálculos.</td></tr>
+      <tr><td><code>list_documents</code>, <code>search_knowledge_base</code>, <code>read_knowledge_chunk</code>, <code>read_knowledge_image</code></td><td>Consulta las ramas RAG activas.</td></tr>
+      <tr><td><code>agent_checkpoint</code></td><td>Registra hallazgos y el siguiente paso.</td></tr>
+      <tr><td><code>update_plan</code></td><td>Muestra tareas y su estado según lo declarado por el modelo.</td></tr>
+      <tr><td><code>finish_task</code></td><td>Señala la finalización con un resumen; no comprueba por sí misma el resultado.</td></tr></tbody></table></div>
+      <p>Las herramientas web envían consultas y URLs a servicios externos. La recuperación puede utilizar Jina Reader o AllOrigins; no presupongas una conexión directa sin intermediarios ni les envíes URLs privadas o con credenciales.</p>
+      <p>Las herramientas de archivos, terminal y navegador automatizado necesitan el <a href="mcp.html">servidor local</a>. Sus llamadas incorporan autorización y un sello temporal de un solo uso; esto no protege frente a una interfaz comprometida con acceso a la sesión.</p>
     </div>
 
     <div class="card">
-      <h2>3. Ejecución de JavaScript bajo supervisión técnica</h2>
-      <p>
-        <code>execute_javascript</code> es una herramienta de apoyo para cálculos, procesamiento de datos y algoritmos. Su uso requiere el conocimiento y la supervisión activa de una persona usuaria técnica, que puede habilitarla o deshabilitarla desde la configuración.
-      </p>
-      <ul>
-        <li><strong>Ejecución en Web Worker:</strong> Normalmente se realiza en un hilo independiente para no bloquear la interfaz durante cálculos o algoritmos pesados.</li>
-        <li><strong>Límite de tiempo:</strong> Si el script supera el tiempo configurado, ZeroChat detiene el Worker.</li>
-        <li><strong>Límites de salida:</strong> Se truncan los resultados excesivos y se limita el número de mensajes de consola para preservar la capacidad de respuesta.</li>
-        <li><strong>APIs restringidas para cálculos:</strong> El Worker neutraliza APIs de red y de creación de subprocesos que no son necesarias para esta herramienta.</li>
-      </ul>
+      <h2>3. Ejecutar JavaScript</h2>
+      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado, restricciones de red y un Web Worker. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco.</p>
+      <p>Actívala si necesitas ese procesamiento y puedes revisar lo que hace. El aislamiento no garantiza resultados correctos ni elimina todos los riesgos de recursos. Para comandos del sistema se usan herramientas distintas del servidor local.</p>
     </div>
 
     <div class="card">
-      <h2>4. Tarjetas de Herramientas Interactivas (Tool Cards)</h2>
-      <p>
-        Cuando el agente invoca una herramienta durante una conversación, ZeroChat muestra una <strong>Tool Card</strong> en el flujo de mensajes que refleja el estado de la operación en tiempo real:
-      </p>
-      <ul>
-        <li><strong>Cabecera con estado:</strong> Muestra un spinner animado durante la ejecución y un check verde o icono de alerta al terminar.</li>
-        <li><strong>Entrada y salida colapsables:</strong> Puedes desplegar la tarjeta para ver los argumentos exactos pasados a la función y el resultado devuelto por la herramienta.</li>
-        <li><strong>Persistencia en historial:</strong> Si recargas la página o navegas entre conversaciones, las tarjetas de herramientas se restauran fielmente con sus desplegables operativos.</li>
-      </ul>
+      <h2>4. Tarjetas de herramientas</h2>
+      <p>Cada llamada muestra una tarjeta con estado, argumentos y resultado desplegables. Las tarjetas guardadas se restauran al abrir el historial.</p>
+      <p>Revisa especialmente rutas, comandos y destinos web antes de autorizar. Un estado de ejecución correcta significa que la llamada terminó, no que la tarea del usuario esté bien resuelta. Un error o una cancelación puede dejar efectos parciales: comprueba los archivos o servicios afectados antes de repetir.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -129,7 +74,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>

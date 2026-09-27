@@ -3,36 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gemini API key · ZeroChat</title>
-  <meta name="description" content="How to create a Gemini API key for use in ZeroChat.">
+  <title>Gemini API key · ZeroChat · 8.x</title>
+  <meta name="description" content="Configuring a Gemini key in a ZeroChat profile.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
   <div class="container">
     <header>
       <h1>Get a Gemini API key</h1>
-      <p class="subtitle">Create the key in Google AI Studio using your Google account.</p>
+      <p class="subtitle">ZeroChat 8.x · Configuring a Gemini key in a ZeroChat profile.</p>
     </header>
 
     <main>
       <section class="card">
-        <h2>Steps</h2>
-        <ol>
-          <li>
-            Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio’s official API keys page</a> and sign in with your Google account.
-          </li>
-          <li>Accept the terms if Google asks you to. New accounts may receive an initial project and API key automatically.</li>
-          <li>If you do not have a key to use, select <strong>Create API key</strong> and follow the dialog to create or choose a project.</li>
-          <li>Copy the API key and store it privately.</li>
-          <li>In ZeroChat, create or edit a <strong>Gemini</strong> provider profile, paste the key, and select an available model.</li>
-        </ol>
-      </section>
+      <h2>Steps</h2>
+      <ol><li>Open the <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Gemini key page</a> and sign in to your account.</li>
+      <li>Create a key using your account's options and keep it private. Gemini may require creating or selecting a project.</li>
+      <li>In ZeroChat, create or edit a <strong>Gemini</strong> profile, enter the key and press <strong>Query</strong>.</li>
+      <li>Select an available model and save the profile. Try a short message first.</li></ol>
+      <p>If you cannot create a key or the query fails, check account permissions and the <a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener noreferrer">official Gemini guide</a>. Interface labels and options may change.</p>
+    </section>
 
       <section class="card">
-        <h2>Important</h2>
-        <p>Models, limits, prices, and availability change. Check <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer">Gemini API's official information</a> before production use.</p>
-        <p>Never share the API key or publish it in chats, screenshots, repositories, or public configuration files.</p>
-      </section>
+      <h2>Usage and limits</h2>
+      <p>Creating a key does not guarantee free usage. Models, quotas, pricing, availability and data handling depend on the provider and account. Check their terms before sending personal data or enabling billing.</p>
+      <p>ZeroChat uses the key from your browser for provider requests. Do not publish it or share profile backups without reviewing their content and protection. If exposed, revoke it at the provider and configure a new one.</p>
+    </section>
     </main>
   </div>
 </body>

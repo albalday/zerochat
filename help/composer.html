@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Composer, Atajos y Archivos Adjuntos · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía del cuadro de entrada de ZeroChat: autoexpansión de texto, atajos de teclado y adjuntos multimedia como imágenes para visión, PDFs, código y CSV.">
+  <title>Composer, Atajos y Archivos Adjuntos · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Redactar mensajes, adjuntar archivos y revisar lo que se envía al proveedor.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,102 +13,46 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/composer.html" class="top-nav-link">English 🌐</a>
+          <a href="en/composer.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Composer, Atajos y Archivos Adjuntos</h1>
-      <p class="subtitle">Aprende a redactar mensajes con comodidad, utilizar atajos rápidos y enviar archivos multimedia o código al modelo.</p>
+      <p class="subtitle">Redactar mensajes, adjuntar archivos y revisar lo que se envía al proveedor.</p>
     </header>
 
     <div class="card">
-      <h2>1. El Composer Flotante Inteligente</h2>
-      <p>
-        El área de entrada o <strong>Composer</strong> de ZeroChat está diseñada para ofrecer una experiencia moderna, limpia y fluida, inspirada en las mejores interfaces de chat de IA.
-      </p>
-      <ul>
-        <li><strong>Auto-expansión suave:</strong> El campo de texto crece dinámicamente conforme escribes párrafos largos (utilizando la directiva moderna <code>field-sizing: content</code> con soporte de fallback automático), sin desbordar la ventana ni tapar los mensajes previos.</li>
-        <li><strong>Barra inferior integrada:</strong> Reúne adjuntos, razonamiento, RAG y telemetría de contexto. Las herramientas y MCP se configuran desde Ajustes.</li>
-        <li><strong>Entrada móvil:</strong> El campo muestra una indicación breve para que el texto de fondo no ocupe varias líneas en pantallas estrechas.</li>
-        <li><strong>Botón de detención (Stop):</strong> Durante la generación en tiempo real (streaming SSE), el botón de envío se convierte en un botón de parada instantánea para cancelar la respuesta en cualquier momento.</li>
-      </ul>
+      <h2>1. Cuadro de entrada</h2>
+      <p>El campo crece al escribir. La barra inferior reúne adjuntos, razonamiento, selección RAG y contexto; las herramientas y MCP se configuran desde Ajustes.</p>
+      <p>Pulsa Enviar para iniciar la respuesta. Durante la generación, el botón permite detenerla. Detener solicita la cancelación: no deshace una edición, un comando o una acción web que ya se haya ejecutado.</p>
     </div>
 
     <div class="card">
-      <h2>2. Atajos de Teclado Esenciales</h2>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Atajo</th>
-              <th>Contexto</th>
-              <th>Acción realizada</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>Enter</code></td>
-              <td>En el cuadro de texto</td>
-              <td>Enviar el mensaje actual al modelo.</td>
-            </tr>
-            <tr>
-              <td><code>Shift + Enter</code></td>
-              <td>En el cuadro de texto</td>
-              <td>Insertar un salto de línea sin enviar.</td>
-            </tr>
-            <tr>
-              <td><code>Escape</code></td>
-              <td>En cualquier modal o menú</td>
-              <td>Cerrar el diálogo emergente o desplegable activo.</td>
-            </tr>
-            <tr>
-              <td><code>Flechas ↑ / ↓</code></td>
-              <td>En el selector de perfiles</td>
-              <td>Navegar entre los perfiles disponibles de la lista.</td>
-            </tr>
-            <tr>
-              <td><code>Ctrl / Cmd + V</code></td>
-              <td>En la ventana del chat</td>
-              <td>Pegar imágenes o texto directamente desde el portapapeles.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h2>2. Atajos de teclado</h2>
+      <ul><li><code>Enter</code>: enviar el mensaje desde el cuadro de texto.</li>
+      <li><code>Shift + Enter</code>: insertar un salto de línea.</li>
+      <li><code>Escape</code>: cerrar los diálogos o menús que admiten este atajo.</li>
+      <li><code>↑ / ↓</code>: recorrer opciones del selector de perfiles.</li>
+      <li><code>Ctrl / Cmd + V</code>: pegar texto; el pegado de imágenes depende del contenido y de los permisos del portapapeles.</li></ul>
     </div>
 
     <div class="card">
-      <h2>3. Adjuntar Archivos y Documentos</h2>
-      <p>
-        ZeroChat cuenta con un potente motor cliente de procesamiento de archivos (<code>file-parser.js</code>). Puedes añadir archivos pulsando el icono del clip o simplemente <strong>arrastrándolos y soltándolos</strong> (Drag & Drop) sobre el área del chat.
-      </p>
-      <h3>Formatos compatibles:</h3>
-      <ul>
-        <li><strong>Imágenes (PNG, JPEG, WebP, GIF):</strong> Si el modelo activo soporta capacidades multimodales de visión (como GPT-4o, Claude 3.5/3.7 Sonnet o Gemini Flash/Pro), la imagen se procesa y se envía al modelo para que pueda analizarla, describirla o extraer información de ella.</li>
-        <li><strong>Documentos PDF:</strong> El texto del PDF se extrae localmente en el navegador y se adjunta de forma estructurada al mensaje con su nombre y recuento de páginas.</li>
-        <li><strong>Código Fuente y Scripts:</strong> Archivos <code>.js</code>, <code>.ts</code>, <code>.py</code>, <code>.html</code>, <code>.css</code>, <code>.json</code>, <code>.sql</code>, <code>.c</code>, <code>.cpp</code>, <code>.rs</code>, <code>.go</code>, <code>.sh</code> y más. Se preparan como bloques de código con marcado de sintaxis.</li>
-        <li><strong>Tablas y Datos:</strong> Archivos <code>.csv</code> y <code>.tsv</code> que el modelo puede parsear e interpretar para análisis de datos o generación de gráficos.</li>
-        <li><strong>Documentos de Texto:</strong> <code>.md</code> (Markdown), <code>.txt</code>, <code>.xml</code>, <code>.yaml</code>.</li>
-      </ul>
-      <div class="alert alert-info">
-        <strong>Previsualización y eliminación:</strong> Antes de pulsar enviar, verás miniaturas interactivas de cada archivo adjunto con su nombre y tamaño. Puedes eliminar cualquiera de ellos pulsando su botón "X".
-      </div>
+      <h2>3. Archivos adjuntos</h2>
+      <p>Usa el clip, arrastra archivos al chat o pega una imagen. Revisa los adjuntos antes de enviar y elimina los que no quieras incluir con su botón de cierre.</p>
+      <ul><li><strong>Imágenes:</strong> requieren un modelo con visión; admitir un archivo no asegura que el proveedor acepte su formato o tamaño.</li>
+      <li><strong>PDF:</strong> se extrae texto en el navegador. Los escaneos sin texto y los diseños complejos pueden dar resultados incompletos; no hay OCR general.</li>
+      <li><strong>Texto y código:</strong> admite, entre otros, TXT, Markdown, JSON, JavaScript, Python, HTML y CSS.</li>
+      <li><strong>CSV y TSV:</strong> se envían como contenido textual que el modelo puede analizar; comprueba delimitadores, unidades y resultados.</li></ul>
+      <p>El contenido adjunto se envía al proveedor con el mensaje y consume contexto. Para consultar partes de varios documentos, utiliza la <a href="rag.html">base RAG</a>.</p>
     </div>
 
     <div class="card">
-      <h2>4. Renderizado Enriquecido de Mensajes</h2>
-      <p>
-        Las respuestas del asistente se procesan con un motor Markdown completo de alto rendimiento que incluye:
-      </p>
-      <ul>
-        <li>Resaltado de sintaxis en bloques de código con botón de copia rápida al portapapeles.</li>
-        <li>Tablas formateadas con alineación de columnas.</li>
-        <li>Fórmulas matemáticas en formato LaTeX (KaTeX) inline y en bloque.</li>
-        <li>Bloques colapsables de razonamiento (Thinking) con contador de tiempo de reflexión.</li>
-        <li>Tarjetas interactivas de herramientas (Tool Cards) para ejecuciones del agente.</li>
-      </ul>
+      <h2>4. Presentación de mensajes</h2>
+      <p>Las respuestas admiten Markdown, tablas, bloques de código con copia y fórmulas con KaTeX. El razonamiento que expone el proveedor aparece en bloques plegables; las llamadas a herramientas tienen tarjetas con argumentos, resultados y estado.</p>
+      <p>El formato no valida el contenido: revisa código, cálculos y enlaces antes de utilizarlos.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -127,7 +71,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>

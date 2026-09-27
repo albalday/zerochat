@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Profiles & AI Providers · ZeroChat Help</title>
-  <meta name="description" content="Guide for configuring connection profiles in ZeroChat: OpenAI, Ollama, LM Studio, OpenRouter, Anthropic Claude, Google Gemini, WebLLM, and Mirror profile.">
+  <title>Profiles & AI Providers · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Configuring connections, models, keys and profile backups.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,152 +13,69 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../profiles.html" class="top-nav-link">Español 🌐</a>
+          <a href="../profiles.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Profiles & AI Providers</h1>
-      <p class="subtitle">Learn how to connect ZeroChat with any language model, running either on your machine or in the cloud.</p>
+      <p class="subtitle">Configuring connections, models, keys and profile backups.</p>
     </header>
 
     <div class="card">
-      <h2>1. Connection Profile Management</h2>
-      <p>
-        ZeroChat lets you define multiple <strong>connection profiles</strong>. A profile encapsulates the API protocol type, server endpoint URL, authentication key (optional for local servers), and selected model name.
-      </p>
-      <p>
-        To manage profiles, click the active profile name in the header. The selector lets you create and export profiles, close the menu, and edit or delete each listed profile. Selecting one makes it active.
-      </p>
-      <div class="alert alert-info">
-        <strong>Instant switching:</strong> You can switch models or providers mid-conversation without losing context. Simply open the profile dropdown and select another one.
-      </div>
-      <p>
-        The profile selector lets you <strong>Export</strong> all editable definitions. It downloads an encrypted HTML file: open it to start importing into ZeroChat. After confirmation, new profiles are added and matching identifiers are updated without changing the Mirror profile.
-      </p>
-      <p>
-        API keys are encrypted in the browser's local profile storage and remain encrypted inside the backup, which adds a second encryption layer. The <strong>Lock changes</strong> checkbox, located in the editor header, marks a profile as non-editable when it is loaded again; the lock protects all profile settings. Changes are saved using the <strong>Save</strong> button in the modal header.
-      </p>
-      <div class="alert alert-warning">
-        From <strong>Settings → Encryption → New password</strong>, you can protect API keys with your own password. ZeroChat never stores the password: it temporarily keeps its hash in browser storage for 24 hours so unlocked access is shared across tabs. You will need to enter it again afterwards. <strong>Use default</strong> requests the current key and re-encrypts all API keys with ZeroChat’s built-in key. If there are no saved API keys, the app will say so and will not change anything.
-      </div>
+      <h2>1. Managing profiles</h2>
+      <p>A profile contains the provider, URL, API key, model, generation settings and tool settings. Click the profile name in the header to select, create, edit or delete one. You can switch between messages; existing history is sent to the new provider on subsequent requests.</p>
+      <p>The editor includes temperature, instructions, reasoning and the agent turn limit. <strong>Save</strong> applies changes; <strong>Lock changes</strong> prevents normal profile editing but is not computer access control.</p>
+      <p><strong>Export</strong> downloads HTML containing encrypted editable profiles. Open it to start importing into ZeroChat and confirm: new profiles are added and matching identifiers are updated. Mirror is retained.</p>
+      <p>In <strong>Settings → Encryption</strong> you can set your own password or return to the default. The application's built-in key is known; default encryption does not protect secrets from someone with access to storage or the backup. With a custom password, unlocking material remains in browser storage for 24 hours. Treat backups as sensitive files and keep your password: forgotten keys cannot be recovered.</p>
     </div>
 
     <div class="card">
-      <h2>2. Supported Providers & Protocols</h2>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Interface Type</th>
-              <th>Common Servers & Services</th>
-              <th>Typical Endpoint</th>
-              <th>API Key</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>OpenAI / Compatible</strong></td>
-              <td>LM Studio, LocalAI, vLLM, official OpenAI</td>
-              <td><code>http://localhost:1234/v1</code></td>
-              <td>Optional on local / Required on OpenAI</td>
-            </tr>
-            <tr>
-              <td><strong>Ollama</strong></td>
-              <td>Local Ollama server</td>
-              <td><code>http://localhost:11434</code></td>
-              <td>Not required</td>
-            </tr>
-            <tr>
-              <td><strong>OpenRouter</strong></td>
-              <td>OpenRouter multi-model gateway</td>
-              <td><code>https://openrouter.ai/api/v1</code></td>
-              <td>Required (<code>sk-or-...</code>)</td>
-            </tr>
-            <tr>
-              <td><strong>Anthropic Claude</strong></td>
-              <td>Official Anthropic API</td>
-              <td><code>https://api.anthropic.com/v1</code></td>
-              <td>Required (<code>sk-ant-...</code>)</td>
-            </tr>
-            <tr>
-              <td><strong>Google Gemini</strong></td>
-              <td>Google AI Studio</td>
-              <td>Gemini OpenAI-compatible endpoint</td>
-              <td>Required</td>
-            </tr>
-            <tr>
-              <td><strong>WebLLM</strong></td>
-              <td>In-browser direct (WebGPU)</td>
-              <td><code>webllm://local</code> (automated)</td>
-              <td>Not applicable (100% local)</td>
-            </tr>
-            <tr>
-              <td><strong>Mirror (Espejo)</strong></td>
-              <td>Internal offline testing</td>
-              <td>No endpoint (simulated mode)</td>
-              <td>Not applicable</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h2>2. Providers and protocols</h2>
+      <div class="table-responsive"><table><thead><tr><th>Provider</th><th>Connection</th><th>Requirement</th></tr></thead>
+      <tbody><tr><td>OpenAI and compatible servers</td><td>Compatible chat API; for example LM Studio, LocalAI or vLLM</td><td>Server URL, model and key if required</td></tr>
+      <tr><td>Ollama</td><td><code>http://localhost:11434</code></td><td>Running service and allowed origin</td></tr>
+      <tr><td>OpenRouter</td><td><code>https://openrouter.ai/api/v1</code></td><td>API key; <a href="openrouter-free.html">how to obtain one</a></td></tr>
+      <tr><td>Anthropic Claude</td><td><code>https://api.anthropic.com/v1</code></td><td>API key</td></tr>
+      <tr><td>Google Gemini</td><td>OpenAI-compatible endpoint</td><td>API key; <a href="gemini-free.html">how to obtain one</a></td></tr>
+      <tr><td>WebLLM</td><td><code>webllm://local</code></td><td>WebGPU and a downloaded model</td></tr>
+      <tr><td>Mirror</td><td>Local simulation</td><td>No key or inference</td></tr></tbody></table></div>
+      <p>Chat compatibility does not mean every model supports images, tools or reasoning. CORS, local network permissions and browser restrictions also apply.</p>
     </div>
 
     <div class="card">
-      <h2>3. Server Inspection (Query Button) & Validation</h2>
-      <p>
-        When creating or editing a profile, ZeroChat provides a <strong>Query</strong> button next to the URL input. This inspects the server before saving:
-      </p>
-      <ul>
-        <li><strong>Model discovery:</strong> Fetches the available models catalog and populates the dropdown automatically.</li>
-        <li><strong>Capability inspection:</strong> Verifies if the model supports vision, function calling (tools), native reasoning, and advertised context capacity.</li>
-        <li><strong>Save protection:</strong> For remote APIs or local HTTP endpoints, ZeroChat requires a successful Query before saving to ensure the connection works properly.</li>
-      </ul>
-      <div class="alert alert-success">
-        <strong>Fast save on WebLLM:</strong> When selecting an already downloaded WebLLM model from local cache, the <em>Query</em> button is optional, allowing you to save the profile immediately.
-      </div>
+      <h2>3. Querying the server</h2>
+      <ol><li>Select the API type and enter the URL and key where required.</li>
+      <li>Press <strong>Query</strong> to retrieve models and available information.</li>
+      <li>Select the model, review settings and save.</li></ol>
+      <p>Network profiles require a successful query before saving. Capabilities may come from metadata or model-based heuristics: a successful query does not guarantee all subsequent operations will work.</p>
+      <p>For WebLLM, you can save an already downloaded model without repeating Query. To prepare another, open the catalogue and finish its download.</p>
     </div>
 
     <div class="card">
-      <h2>4. Quick Profile Inspection (Magnifying Glass Icon)</h2>
-      <p>
-        From the profile selector dropdown in the header, each profile includes a <strong>magnifying glass</strong> icon to inspect its connection at any time without having to open the editor:
-      </p>
-      <ul>
-        <li><strong>Prior query of the selected model:</strong> It first performs an active query to the server to verify that the configured model is available, immediately capturing updates to the <em>context window size</em> and the supported <em>reasoning level</em>. If the model is not available or connection fails, it reports the error immediately.</li>
-        <li><strong>Abbreviated results:</strong> Displays a direct summary of the verified model with its captured context and reasoning capabilities.</li>
-        <li><strong>General endpoint diagnostics:</strong> It then displays the comprehensive capability diagnostics for the endpoint (SSE streaming, tools, vision, JSON mode, context caching, etc.).</li>
-      </ul>
+      <h2>4. Inspecting a profile</h2>
+      <p>The magnifying glass in the selector queries the configured model and displays availability, context and capability diagnostics. If it fails, check the URL, key, running service and browser access.</p>
+      <p>Diagnostics help locate problems but do not certify compatibility with every feature. Try a simple conversation before adding images or tools.</p>
     </div>
 
     <div class="card">
-      <h2>5. Special Configuration for Ollama (CORS)</h2>
-      <p>
-        When connecting to <strong>Ollama</strong>, browsers will block requests due to CORS (Cross-Origin Resource Sharing) unless Ollama is started with cross-origin access enabled:
-      </p>
-      <div class="code-wrapper">
-        <pre><code># On Linux / macOS (terminal)
-OLLAMA_ORIGINS="*" ollama serve
+      <h2>5. Ollama and CORS</h2>
+      <p>If the browser blocks access through CORS, allow the origin used to open ZeroChat in Ollama's configuration and restart its service. For GitHub Pages, the origin is <code>https://albalday.github.io</code>.</p>
+      <div class="code-wrapper"><pre><code># Linux / macOS
+OLLAMA_ORIGINS="https://albalday.github.io" ollama serve
 
-# On Windows (PowerShell)
-$env:OLLAMA_ORIGINS="*"
-ollama serve</code></pre>
-      </div>
-      <p>If running Ollama as a systemd service on Linux, add <code>Environment="OLLAMA_ORIGINS=*"</code> under the <code>[Service]</code> section.</p>
+# Windows PowerShell
+$env:OLLAMA_ORIGINS="https://albalday.github.io"
+ollama serve</code></pre></div>
+      <p>If Ollama already runs as a service, change that service's environment instead of starting a second instance. For the local interface, add its exact origin. See the <a href="https://docs.ollama.com/faq" target="_blank" rel="noopener noreferrer">Ollama documentation</a>. CORS does not replace authentication or resolve every browser restriction on local networks.</p>
     </div>
 
     <div class="card">
-      <h2>6. The Built-in "Mirror" Profile</h2>
-      <p>
-        ZeroChat includes a read-only <strong>Mirror (Espejo)</strong> profile. It is ideal for UI testing and troubleshooting:
-      </p>
-      <ul>
-        <li>Makes zero network calls and needs no local server running.</li>
-        <li>Returns an immediate formatted preview of the normalized OpenAI-compatible payload.</li>
-        <li>Serves as a reliable fallback whenever an active profile is deleted or inaccessible.</li>
-      </ul>
+      <h2>6. Mirror profile</h2>
+      <p>Mirror is a read-only test profile that displays the message and normalized request structure without calling a model. Use it to inspect the interface and request format.</p>
+      <p>It does not generate AI answers or validate an external provider. A working Mirror profile does not establish that networking or credentials are configured correctly.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -177,7 +94,7 @@ ollama serve</code></pre>
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
   <script src="../help.js"></script>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Project and learning · ZeroChat Docs</title>
-  <meta name="description" content="Two learning tracks: building an AI client and learning to guide its development with agents.">
+  <title>Project and learning · ZeroChat 8.x Docs</title>
+  <meta name="description" content="A personal learning project and consolidation of the 8.x series.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
           <a href="../learning.html" class="top-nav-link" lang="es">Español</a>
@@ -21,39 +21,36 @@
         </div>
       </div>
       <h1>Project and learning</h1>
-      <p class="subtitle">Two learning tracks: building an AI client and learning to guide its development with agents.</p>
+      <p class="subtitle">A personal learning project and consolidation of the 8.x series.</p>
     </header>
 
     <main>
       <p>ZeroChat is a personal learning project about AI clients and agentic execution. The work combines clear goals, decision review, and result validation.</p>
 
     <section class="card">
-      <h2>1. Learning chat client technology</h2>
-      <p>The journey goes from a simple prompt-built chat client to one with local knowledge and tools:</p>
-      <ul>
-        <li><strong>Chat and providers:</strong> SSE streaming, reasoning, vision and API adaptation through a shared provider architecture.</li>
-        <li><strong>Data and documents:</strong> IndexedDB persistence, PDF extraction and retrieval-augmented generation (RAG) with Orama and ZeroChatDB.</li>
-        <li><strong>Agentic execution:</strong> tool loops, JavaScript isolated in Web Workers, MCP, permissions and a local server with development tools.</li>
-        <li><strong>Inference and context:</strong> caching, token limits and checkpoints for long conversations, plus models running inside the browser with WebLLM and WebGPU.</li>
-        <li><strong>Shared desktop and mobile UI:</strong> responsive web design, navigation, and shared controls that provide a consistent experience across desktop screens and mobile devices.</li>
-      </ul>
+      <h2>1. Learning to build a chat client</h2>
+      <p>ZeroChat is a personal project for experimenting with models and understanding an AI client's components: connection profiles, streaming, attachments, storage, context, document retrieval and tools.</p>
+      <p>The implementation lets these features be tried together, but results depend on the model, provider and computer. It does not replace answer review or specialized development tools.</p>
+      <ul><li><strong>Chat:</strong> API adaptation, exposed reasoning and vision where supported.</li>
+      <li><strong>Documents:</strong> text extraction and local lexical search with Orama.</li>
+      <li><strong>Tools:</strong> browser execution, local backend, MCP and permissions.</li>
+      <li><strong>Context:</strong> estimates, provider usage data and checkpoints.</li>
+      <li><strong>Interface:</strong> shared desktop and mobile controls, subject to browser capabilities.</li></ul>
     </section>
 
     <section class="card">
-      <h2>2. Learning to guide coding agents</h2>
-      <p>As the infrastructure grows—browser, storage, providers, MCP server, and local backend—learning also means keeping control of the whole system:</p>
-      <ul>
-        <li><strong>Plan before executing:</strong> define scope, stages, acceptance criteria and the tests that will confirm the outcome before requesting a change.</li>
-        <li><strong>Turn decisions into rules:</strong> document architecture, contracts and the workflow to guide the agent, with centralized state in <code>ChatState</code> and separate responsibilities.</li>
-        <li><strong>Discuss and simplify with the model:</strong> question proposals, reuse modules and remove unnecessary complexity before it becomes permanent infrastructure.</li>
-        <li><strong>Verify each step:</strong> use unit, infrastructure, integration, and browser tests alongside security audits to check real behavior.</li>
-      </ul>
-      <h3>Automated tests as a checkpoint</h3>
-      <p>Tests are the checkpoint at every stage of work with coding agents. Before implementation, they define what must remain stable and what must change; during the work, they check the affected module; when a stage closes, the full suite confirms that the change has not broken other system boundaries. Interface changes are checked in the browser and integration changes in local server infrastructure tests. If a test fails, the agent must correct or simplify the proposal before moving forward.</p>
-      <p>The plan is to keep repeating this cycle: choose a capability, agree on a simple design, assign scoped changes, review tests and document what was learned.</p>
+      <h2>2. Learning to work with coding agents</h2>
+      <p>Development has provided practice in defining tasks, reviewing proposals and checking changes made with agent assistance.</p>
+      <ul><li>Limit the objective and decide which behaviour must be preserved.</li>
+      <li>Keep rules and contracts close to the code they describe.</li>
+      <li>Review and simplify proposals before incorporating them.</li>
+      <li>Check changes with applicable tests and manual review where needed.</li></ul>
+      <h3>Tests and project status</h3>
+      <p>The suite checks specific logic, architecture, integration, infrastructure and browser cases. Passing it does not prove universal compatibility or absence of errors.</p>
+      <p>The <strong>8.x</strong> series consolidates existing features. New feature development is paused for now; this help describes what is implemented and does not announce a roadmap.</p>
     </section>
 
-      <p>This plan summarizes the project's practical evolution and quality criteria.</p>
+      <p>This help documents current usage; linked reports retain their original date and scope.</p>
     </main>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -64,7 +61,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Project and learning</p>
+      <p>ZeroChat 8.x · Project and learning</p>
     </footer>
   </div>
 </body>

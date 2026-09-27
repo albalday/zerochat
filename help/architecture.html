@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arquitectura y Portabilidad · Ayuda de ZeroChat</title>
-  <meta name="description" content="Detalles de la arquitectura técnica de ZeroChat: aplicación web estática servida por HTTPS, backend local unificado en zerochat.py, almacenamiento local en IndexedDB y privacidad.">
+  <title>Arquitectura y Portabilidad · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Distribución de funciones entre el navegador y el servidor local.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,234 +13,81 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/architecture.html" class="top-nav-link">English 🌐</a>
+          <a href="en/architecture.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Arquitectura y Portabilidad</h1>
-      <p class="subtitle">Descubre cómo funciona ZeroChat como aplicación web autónoma, independiente de servidor y 100% portable.</p>
+      <p class="subtitle">Distribución de funciones entre el navegador y el servidor local.</p>
     </header>
 
     <div class="card">
-      <h2>1. Arquitectura Web Estática y Backend Unificado</h2>
-      <p>
-        ZeroChat está diseñado bajo una premisa fundamental: <strong>máxima simplicidad, velocidad y control sin dependencias pesadas</strong>.
-      </p>
-      <p>
-        La aplicación web se sirve de forma directa y estática por HTTPS desde GitHub Pages como <code>zerochat.html</code>, cargando sus módulos <code>css/</code> y <code>js/</code> sin proceso de empaquetado. El Service Worker permite reutilizar recursos disponibles sin sustituir la conexión cuando sea necesaria.
-      </p>
-      <p>
-        Toda la interacción con el sistema local se canaliza a través del ejecutable <code>zerochat</code> instalado desde PyPI o del script <code>zerochat.py</code>. Ambos abren la misma interfaz de GitHub Pages y autentican las sesiones mediante tokens diarios de seguridad.
-      </p>
-      <div class="alert alert-success">
-        <strong>Ventaja clave:</strong> Sin compiladores ni herramientas complejas de empaquetado. La aplicación web se sirve estáticamente y el backend local se ejecuta en cualquier equipo con un simple comando de terminal.
-      </div>
+      <h2>1. Aplicación web y backend local</h2>
+      <p>La interfaz se sirve como archivos estáticos: <code>zerochat.html</code> carga módulos de <code>js/</code> y <code>css/</code>. No es un único HTML autónomo. El navegador ejecuta la interfaz, conserva datos y realiza las peticiones al proveedor elegido.</p>
+      <p>El backend opcional es el ejecutable <code>zerochat</code> de PyPI o el script <code>zerochat.py</code>. Añade herramientas del equipo y gestión de servicios MCP. No es necesario para el chat con un proveedor accesible desde el navegador.</p>
     </div>
 
     <div class="card" id="modos-arranque">
-      <h2>2. Modos de arranque: zerochat.html (Web) vs. zerochat.py (Backend local)</h2>
-      <p>
-        ZeroChat está concebido para ofrecer dos experiencias complementarias según el contexto de uso: una <strong>aplicación web universal y autónoma</strong> (ideal para movilidad y uso diario sin instalación) y una <strong>estación de trabajo local</strong> (para desarrollo y control directo del sistema operativo).
-      </p>
-
-      <h3>A. La versión Web pura (<code>zerochat.html</code>)</h3>
-      <p>
-        Disponible directamente en la web (GitHub Pages) o abriendo el archivo localmente. Es una aplicación completa y autosuficiente que <strong>no requiere Python, terminal, servidores auxiliares ni instalación</strong>.
-      </p>
-      <ul>
-        <li>
-          <strong>Experiencia web universal:</strong>
-          Diseñada como Progressive Web App (PWA) instalable desde navegadores modernos, con panel lateral táctil y composer autoexpansible. No requiere Python, root ni herramientas de terminal.
-        </li>
-        <li>
-          <strong>Conectividad multimodelo completa:</strong>
-          Conexión directa desde el navegador con OpenAI, Anthropic Claude, Google Gemini y OpenRouter, así como servidores locales en red con CORS (Ollama, LM Studio).
-        </li>
-        <li>
-          <strong>Inferencia local privada en navegador (WebLLM / WebGPU):</strong>
-          Descarga y ejecuta modelos de lenguaje open-source en la GPU del propio dispositivo sin enviar datos al exterior.
-        </li>
-        <li>
-          <strong>Motor RAG documental integrado:</strong>
-          Indexación y búsqueda vectorial/léxica de PDFs y documentos con Orama, ejecutada en Web Workers y persistida en IndexedDB.
-        </li>
-        <li>
-          <strong>Modo Agente con herramientas de navegador:</strong>
-          Ejecución de código JavaScript en sandbox aislado de 3 capas (iframe con origen opaco <code>null</code>, CSP restrictivo sin red y Web Worker con terminación forzada), generación de gráficas interactivas SVG, búsqueda en la web y lectura de páginas públicas.
-        </li>
-        <li>
-          <strong>Soberanía absoluta de datos:</strong>
-          Historiales, ramas, adjuntos y configuraciones residen exclusivamente en el IndexedDB local de tu navegador.
-        </li>
-      </ul>
-
-      <h3>B. Qué añade el Backend local (<code>zerochat.py</code>)</h3>
-      <p>
-        Diseñado para puestos de escritorio (Linux, macOS, Windows) donde el agente de IA necesita actuar como asistente de desarrollo sobre el sistema operativo. También se ha probado en Android mediante Termux:
-      </p>
-      <ul>
-        <li>
-          <strong>Acceso al sistema de archivos local:</strong>
-          Exploración de directorios, lectura de código fuente e inserción o edición atómica de archivos en el disco duro (<code>read_file</code>, <code>edit_file</code>, <code>list_directory</code>).
-        </li>
-        <li>
-          <strong>Ejecución de comandos del sistema:</strong>
-          Lanzamiento de compilaciones, pruebas y comandos shell en la terminal local del equipo (<code>execute_command</code>).
-        </li>
-        <li>
-          <strong>Servidores MCP externos:</strong>
-          Integración con el ecosistema Model Context Protocol (automatización de navegador con Playwright, servidores LSP de análisis estático, persistencia relacional SQLite).
-        </li>
-        <li>
-          <strong>Gestión automatizada de entorno:</strong>
-          Un único directorio <code>~/zerochat/</code> contiene el token, configuración y servicios. Sus dependencias Python se aíslan en <code>~/zerochat/.venv/</code>, sin modificar el Python global.
-        </li>
-      </ul>
-
-      <h3>Tabla comparativa de capacidades</h3>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Capacidad / Característica</th>
-              <th style="text-align: center;"><code>zerochat.html</code> (Web / PWA)</th>
-              <th style="text-align: center;"><code>zerochat.py</code> (Backend local)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Conexión con proveedores de IA comerciales (OpenAI, Claude, Gemini, etc.)</td>
-              <td style="text-align: center;">✅ Sí</td>
-              <td style="text-align: center;">✅ Sí</td>
-            </tr>
-            <tr>
-              <td>Inferencia 100% local en navegador con WebLLM y WebGPU</td>
-              <td style="text-align: center;">✅ Sí</td>
-              <td style="text-align: center;">✅ Sí</td>
-            </tr>
-            <tr>
-              <td>Base de conocimiento RAG documental (Orama en navegador)</td>
-              <td style="text-align: center;">✅ Sí</td>
-              <td style="text-align: center;">✅ Sí</td>
-            </tr>
-            <tr>
-              <td>Modo Agente con sandbox JS, búsqueda web y gráficas SVG</td>
-              <td style="text-align: center;">✅ Sí</td>
-              <td style="text-align: center;">✅ Sí</td>
-            </tr>
-            <tr>
-              <td>Persistencia privada en IndexedDB y exportación/importación</td>
-              <td style="text-align: center;">✅ Sí</td>
-              <td style="text-align: center;">✅ Sí</td>
-            </tr>
-            <tr>
-              <td>Uso directo en móviles (Android / iOS) sin terminal ni Python</td>
-              <td style="text-align: center;">✅ Nativo (PWA)</td>
-              <td style="text-align: center;">⚠️ Requiere Python (Termux o escritorio)</td>
-            </tr>
-            <tr>
-              <td>Lectura, edición y navegación de archivos en el disco local</td>
-              <td style="text-align: center;">❌ No disponible</td>
-              <td style="text-align: center;">✅ Sí (herramientas locales)</td>
-            </tr>
-            <tr>
-              <td>Ejecución de comandos de terminal y shell en el host</td>
-              <td style="text-align: center;">❌ No disponible</td>
-              <td style="text-align: center;">✅ Sí (bash/shell)</td>
-            </tr>
-            <tr>
-              <td>Servidores MCP externos (Playwright, memoria, LSP)</td>
-              <td style="text-align: center;">❌ No disponible</td>
-              <td style="text-align: center;">✅ Sí (gestor MCP integrado)</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h2>2. Modos de arranque</h2>
+      <h3>A. Web</h3>
+      <p>Abre la interfaz de GitHub Pages por HTTPS. Incluye perfiles, chat, adjuntos, RAG, herramientas ejecutadas en el navegador y WebLLM si el dispositivo admite WebGPU. Las APIs remotas requieren red, credenciales cuando proceda y acceso permitido desde el navegador.</p>
+      <p>La instalación como PWA depende del navegador y se hace desde sus opciones. ZeroChat no muestra un botón ni un aviso de instalación. El Service Worker puede reutilizar recursos en caché, sin garantizar que todas las funciones estén disponibles sin conexión.</p>
+      <h3>B. Backend local</h3>
+      <p>Añade lectura y escritura de archivos, búsqueda, comandos, diagnósticos, automatización de navegador y servicios MCP. Requiere Python y los requisitos propios de cada herramienta. La disponibilidad debe comprobarse en el sistema operativo concreto.</p>
+      <h3>Comparación de capacidades</h3>
+      <div class="table-responsive"><table><thead><tr><th>Función</th><th>Solo web</th><th>Web con backend</th></tr></thead>
+      <tbody><tr><td>Chat, perfiles, historial y adjuntos</td><td>Sí</td><td>Sí</td></tr>
+      <tr><td>RAG y JavaScript en el navegador</td><td>Sí</td><td>Sí</td></tr>
+      <tr><td>WebLLM</td><td>Con WebGPU compatible</td><td>Con WebGPU compatible</td></tr>
+      <tr><td>Búsqueda web y lectura de páginas</td><td>Con red y servicios accesibles</td><td>Con red y servicios accesibles</td></tr>
+      <tr><td>Archivos y comandos del equipo</td><td>No</td><td>Con herramientas habilitadas y permisos</td></tr>
+      <tr><td>MCP gestionados y browser_action</td><td>No</td><td>Con sus dependencias instaladas</td></tr></tbody></table></div>
     </div>
 
     <div class="card">
-      <h2>3. Entrega Web Estática y Conexión con el Backend Local</h2>
-      <p>ZeroChat se sirve de manera estática y universal a través de la web:</p>
-      <ul>
-        <li>
-          <strong>Servicio Web Universal (HTTPS):</strong> Servido directamente desde GitHub Pages (<code>https://albalday.github.io/zerochat/zerochat.html</code>). Toda la ejecución de interfaz, renderizado y llamadas a APIs de inferencia ocurre en el navegador con acceso a APIs modernas de persistencia como <code>navigator.storage.persist()</code> y almacenamiento seguro en IndexedDB.
-        </li>
-        <li>
-          <strong>Backend Local Unificado:</strong> Al ejecutar <code>zerochat</code> tras instalarlo desde PyPI, o <code>python3 zerochat.py</code> tras descargar el script, el servidor local arranca en <code>127.0.0.1:6388</code> y abre GitHub Pages. La aplicación consume el token de sesión una sola vez, lo elimina de la barra de direcciones y lo conserva en una cookie del mismo origen web.
-        </li>
-      </ul>
-      <div class="alert alert-info">
-        <strong>Desarrollo y pruebas locales automáticas:</strong> Al ejecutar <code>python3 zerochat.py</code> directamente dentro del repositorio clonado, el script detecta automáticamente el entorno de desarrollo y sirve la interfaz local en <code>http://127.0.0.1:6388/zerochat.html</code> sin necesidad de servidores auxiliares ni parámetros.
-        <br><br>
-        <strong>Cómo lanzar las pruebas:</strong>
-        <ul style="margin-top: 0.5rem; margin-bottom: 0;">
-          <li><code>python3 zerochat.py</code>: Arranca el backend y abre automáticamente la interfaz local de desarrollo en el navegador.</li>
-          <li><code>python3 zerochat.py --test</code>: Ejecuta la autocomprobación interna rápida de herramientas del sistema (lectura, listado y comandos).</li>
-          <li><code>npm test</code>: Ejecuta la suite completa automatizada (unitarias, integración, arquitectura, infraestructura y navegador con Playwright).</li>
-          <li><code>npm run test:browser</code>: Ejecuta exclusivamente las pruebas de interfaz visual y navegador.</li>
-        </ul>
-      </div>
+      <h2>3. Web publicada y desarrollo local</h2>
+      <p>Fuera del repositorio, el ejecutable abre <a href="https://albalday.github.io/zerochat/zerochat.html">GitHub Pages</a> y escucha por defecto en <code>127.0.0.1:6388</code>. La interfaz recibe el token de arranque, lo retira de la dirección y lo conserva en una cookie del origen web. No compartas esa URL antes de que se retire el token.</p>
+      <p>Dentro del repositorio, <code>python3 zerochat.py</code> detecta los archivos de desarrollo y sirve <code>http://127.0.0.1:6388/zerochat.html</code>. Este origen tiene almacenamiento distinto de GitHub Pages.</p>
+      <p><code>python3 zerochat.py --test</code> ejecuta una autocomprobación de herramientas. <code>npm test</code> ejecuta la suite del proyecto y <code>npm run test:browser</code> las pruebas de navegador. Una autocomprobación no valida todos los proveedores ni todas las plataformas.</p>
     </div>
 
     <div class="card">
-      <h2>4. Infraestructura local, distribución y actualizaciones</h2>
-      <p>La instalación con <code>pip install zerochat</code> distribuye únicamente el ejecutable Python. La descarga directa distribuye ese mismo ejecutable como <code>zerochat.py</code>. Ninguna incluye HTML, JavaScript o CSS: ambas abren la interfaz publicada en GitHub Pages, por lo que el almacenamiento web y la cookie de sesión comparten un único origen.</p>
-      <p>En el directorio personal del usuario, los dos modos crean la misma estructura:</p>
-      <div class="code-wrapper"><pre><code>~/zerochat/
-├── .venv/       Entorno aislado para dependencias MCP Python
-├── config/      Token y preferencias de servicios
-└── services/    Servidores MCP y sus dependencias</code></pre></div>
-      <p>El ejecutable de PyPI permanece gestionado por pip y el archivo descargado permanece donde lo guardaste. Borrar <code>~/zerochat/</code> elimina el estado local y los MCP, sin tocar ninguno de los dos ejecutables.</p>
-      <p>Las versiones usan <code>mayor.menor.parche</code>. El parche actualiza solo la interfaz de GitHub Pages; <code>7.11.0</code> es compatible con <code>7.11.x</code>. Un salto de <code>7.11</code> a <code>7.12</code> actualiza el backend: ZeroChat avisa y muestra el comando correspondiente, <code>python -m pip install --upgrade zerochat</code> para PyPI o la descarga de <code>zerochat.py</code> para curl.</p>
+      <h2>4. Distribución y actualizaciones</h2>
+      <p><code>pip install zerochat</code> instala el ejecutable Python; la descarga directa proporciona <code>zerochat.py</code>. La interfaz se carga por separado desde GitHub Pages. Ambos modos preparan este estado local:</p><pre><code>~/zerochat/
+├── .venv/       Dependencias de MCP Python
+├── config/      Token y configuración
+└── services/    Servicios MCP</code></pre><p>Borrar esta carpeta elimina ese estado, no el ejecutable instalado, el historial del navegador ni archivos modificados fuera de ella.</p>
+      <p>La compatibilidad se identifica con <code>major.minor</code>: por ejemplo, la interfaz <code>8.0.x</code> corresponde al backend <code>8.0</code>. Los parches web no requieren reinstalarlo. Para una nueva serie, el aviso indica el comando de actualización de PyPI con su intérprete o la descarga del script. No se actualiza automáticamente.</p>
       <h3>Informes técnicos</h3>
-      <p>Auditoría de ZeroChat 7.12.0 (27 de septiembre de 2026), con evidencia local, 666 pruebas aprobadas y límites de verificación explícitos:</p>
-      <ul>
-        <li><a href="informes/informe-funcionalidades-madurez.html">Auditoría funcional para uso personal puntual</a>: adecuación a pruebas de sistemas y proyectos pequeños, carencias y criterios de aceptación.</li>
-        <li><a href="informes/informe-comparativa-herramientas.html">Comparativa con herramientas similares</a>: siete alternativas, fuentes oficiales, posicionamiento y prioridades.</li>
-        <li><a href="informes/informe-calidad-codigo-infraestructura.html">Auditoría técnica de calidad de software</a>: arquitectura, seguridad, 12 hallazgos priorizados y plan de consolidación.</li>
-      </ul>
+      <p>Los siguientes informes conservan la revisión de 7.12.0 del 27 de septiembre de 2026. Son antecedentes, no una certificación ni una nueva ejecución de pruebas de 8.x:</p>
+      <ul><li><a href="informes/informe-funcionalidades-madurez.html">Evaluación funcional para uso personal</a>.</li>
+      <li><a href="informes/informe-comparativa-herramientas.html">Comparación con otras herramientas</a>.</li>
+      <li><a href="informes/informe-calidad-codigo-infraestructura.html">Revisión técnica y hallazgos</a>.</li></ul>
     </div>
 
     <div class="card">
-      <h2>5. Almacenamiento Local y Privacidad de Datos</h2>
-      <p>
-        La arquitectura de datos de ZeroChat sigue el principio de <strong>soberanía del usuario</strong>. La aplicación nunca envía historiales de conversación, credenciales ni documentos a ningún servidor centralizado de telemetría.
-      </p>
-      <h3>Capas de almacenamiento en el cliente:</h3>
-      <ul>
-        <li>
-          <strong>IndexedDB (ZeroChatDB):</strong> Base de datos estructurada en el navegador donde se guardan las sesiones de chat, los mensajes, metadatos, configuraciones de perfiles de usuario y las ramas del motor RAG.
-        </li>
-        <li>
-          <strong>Almacenamiento aislado de adjuntos:</strong> Las imágenes Base64 y los documentos pesados se aíslan en almacenes específicos de IndexedDB para que el árbol de mensajes permanezca rápido, ligero y fluido.
-        </li>
-        <li>
-          <strong>Cache Storage API:</strong> Utilizada por el motor WebLLM para almacenar de forma persistente los pesos y parámetros de modelos locales de lenguaje descargados.
-        </li>
-        <li>
-          <strong>LocalStorage / Cookies de sesión (ChatStorage):</strong> Gestiona estados efímeros y preferencias de interfaz (como el tema oscuro o claro activo).
-        </li>
-      </ul>
+      <h2>5. Almacenamiento y privacidad</h2>
+      <h3>Qué se guarda</h3>
+      <p>IndexedDB conserva conversaciones, perfiles, adjuntos y RAG. Otras preferencias y material de desbloqueo usan almacenamiento del navegador; los modelos utilizan caché. Los datos pertenecen al origen, navegador y perfil usados. No hay sincronización automática ni garantía de conservación si el navegador los elimina.</p>
+      <p>Las conversaciones no están cifradas como una bóveda. Las claves API tienen cifrado local con limitaciones que se explican en <a href="profiles.html">Perfiles</a>. Exporta copias de lo que necesites conservar antes de limpiar datos.</p>
+      <h3>Qué sale del equipo</h3>
+      <p>Los proveedores remotos reciben los mensajes, adjuntos y resultados de herramientas que se incorporan a sus peticiones. Las búsquedas y lecturas web pueden pasar por servicios externos como Jina Reader o AllOrigins; las dependencias y modelos también pueden descargarse de servidores externos.</p>
+      <p>WebLLM realiza la inferencia local, pero usar herramientas de red sigue generando comunicaciones. Revisa proveedor y herramientas antes de enviar contenido sensible. Alojar el historial localmente no equivale a privacidad absoluta.</p>
     </div>
 
     <div class="card">
-      <h2>6. El Estado Canónico (ChatState)</h2>
-      <p>
-        Para evitar fugas de memoria o desincronizaciones entre componentes, ZeroChat utiliza un almacén de estado único y centralizado denominado <code>ChatState</code>.
-      </p>
-      <p>
-        Todo cambio en el ciclo de vida de la aplicación (cambio de sesión, inserción de un mensaje por streaming, progreso de inferencia o invocación de herramientas) se realiza mediante mutadores atómicos de dominio (como <code>appendMessage</code>, <code>replaceMessages</code> o <code>saveSessionMetadata</code>). De este modo, la interfaz se actualiza de manera reactiva y consistente en todo momento.
-      </p>
+      <h2>6. Estado de la aplicación</h2>
+      <p><code>ChatState</code> coordina configuración, sesiones, mensajes, generación, agente, telemetría, interfaz y permisos. Los módulos utilizan mutadores de dominio para mantener los cambios sincronizados.</p>
+      <p>Es una decisión interna de arquitectura. No añade sincronización entre dispositivos ni convierte la sesión del navegador en un entorno aislado para cada herramienta del backend.</p>
     </div>
 
     <div class="card">
       <h2>7. Reglas compartidas de conversación</h2>
-      <p>Las respuestas nuevas y restauradas comparten componentes visuales de bloques y copia. El streaming conserva su cursor durante la generación. Los errores de conexión utilizan una vista común que escapa el mensaje recibido y la URL antes de incorporarlos al HTML.</p>
-      <p>La configuración activa se obtiene de <code>ChatConfig</code>. Las interfaces de perfiles y catálogo consultan al proveedor WebLLM para conocer los modelos completados, sin interpretar por separado sus metadatos almacenados.</p>
-      <p>El estado, el motor y las vistas reutilizan las reglas de <code>message-turns.js</code> para identificar turnos y reconocer mensajes iniciales de fecha. La eliminación de turnos comparte un algoritmo de saneamiento; <code>ChatState</code> conserva el bloqueo durante la generación y la actualización atómica del historial.</p>
+      <p>La gestión de turnos, los componentes de mensajes y la presentación de errores se comparten entre conversaciones nuevas y restauradas. Las herramientas guardadas conservan sus resultados en el historial.</p>
+      <p>El historial visible y el contexto enviado al proveedor pueden diferir por límites de tokens, adaptación del proveedor o selección de fragmentos RAG. Utiliza el <a href="debug.html">panel de depuración</a> para revisar una petición concreta.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -259,7 +106,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reasoning (Thinking) & Context Telemetry · ZeroChat Help</title>
-  <meta name="description" content="Guide for reasoning models (Thinking) and real-time monitoring of tokens, context cache hits, and generation speed in ZeroChat.">
+  <title>Reasoning (Thinking) & Context Telemetry · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Reasoning settings and interpretation of context metrics.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,76 +13,41 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="../reasoning-telemetry.html" class="top-nav-link">Español 🌐</a>
+          <a href="../reasoning-telemetry.html" class="top-nav-link">Español</a>
           <a href="index.html" class="top-nav-link">← Back to Index</a>
         </div>
       </div>
       <h1>Reasoning (Thinking) & Telemetry</h1>
-      <p class="subtitle">Learn how to control model deliberation effort and supervise context window consumption and token metrics in real time.</p>
+      <p class="subtitle">Reasoning settings and interpretation of context metrics.</p>
     </header>
 
     <div class="card">
-      <h2>1. Reasoning-Capable Models</h2>
-      <p>
-        Next-generation models (such as DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Sonnet with thinking, and Qwen QwQ) generate internal thought chains prior to answering.
-      </p>
-      <p>
-        ZeroChat streams these thinking chunks in real time, rendering them inside collapsible thought blocks with timers.
-      </p>
-      <h3>The Reasoning Effort Selector</h3>
-      <p>
-        The composer toolbar includes a speedometer indicator. Its needle reflects the selected intensity; click it to open a compact panel with an intensity slider and an X close button.
-      </p>
-      <ul>
-        <li><strong>None:</strong> No reasoning configuration is sent; it is the right choice for fast, concise answers.</li>
-        <li><strong>Low to Maximum:</strong> Use the slider to adjust reasoning effort to the task's complexity.</li>
-        <li><strong>Compatibility:</strong> ZeroChat adapts the level to the format understood by the provider. If the model does not support reasoning, it continues with a normal response.</li>
-      </ul>
-      <div class="alert alert-info">
-        <strong>Agent Checkpoint (<code>agent_checkpoint</code>):</strong> Enable this tool from the reasoning menu to let models store intermediate conclusions before complex tool loops or RAG searches.
-      </div>
+      <h2>1. Model reasoning</h2>
+      <p>Some providers return reasoning content or a summary that ZeroChat displays in a collapsible block. This is what the API exposes, not a complete view of the model's internal process.</p>
+      <p>The composer's reasoning control lets you choose from None to Maximum. ZeroChat maps the level to parameters supported by each adapter. None omits explicit configuration: it does not guarantee disabling reasoning used by a model by default. Availability and effect depend on the model.</p>
+      <p>The same menu can enable <code>agent_checkpoint</code> so the agent records findings and next steps. This tool is separate from native reasoning; it does not verify the answer.</p>
     </div>
 
     <div class="card">
-      <h2>2. Unified Context Hub</h2>
-      <p>
-        Next to the profile selector, the telemetry chip (e.g., <code>1.4k / 128k</code>) reflects context health via color-coded status:
-      </p>
-      <ul>
-        <li><strong>Green (Optimal):</strong> Under 75% of context limit used.</li>
-        <li><strong>Amber (Warning):</strong> Between 75% and 90% consumed; consider pruning or branching.</li>
-        <li><strong>Red (Critical):</strong> Over 90% capacity used; truncation risk is imminent.</li>
-      </ul>
+      <h2>2. Context indicator</h2>
+      <p>The indicator, for example <code>~1.4k / 128k*</code>, compares used tokens with the known or assumed capacity. <code>~</code> marks estimated usage and <code>*</code> marks assumed capacity.</p>
+      <ul><li><strong>Normal:</strong> below 60%.</li>
+      <li><strong>Warning:</strong> from 60% to below 85%.</li>
+      <li><strong>Critical:</strong> 85% and above.</li></ul>
+      <p>These are UI guidance thresholds. Context includes instructions, history, tools and results, not just the last message. If it grows too large, reduce attachments or start a conversation with a checked summary. Branching while retaining all history does not free that context.</p>
     </div>
 
     <div class="card">
-      <h2>3. Context Hub Popover Diagnostics</h2>
-      <p>
-        Click the token pill to open the comprehensive telemetry diagnostic view:
-      </p>
-
-      <h3>Section 1: Global Context Window</h3>
-      <ul>
-        <li><strong>Progress Bar:</strong> Visual percentage of context window used.</li>
-        <li><strong>Used, Limit, and Available Tokens:</strong> Exact token metrics synthesized from server usage data and client tokenizer estimates.</li>
-        <li><strong>Assumed Capacity Override:</strong> Manually input custom limits (e.g., 8k or 32k) if your local server does not publish its capacity.</li>
-      </ul>
-
-      <h3>Section 2: Prompt Cache Savings (KV Cache)</h3>
-      <ul>
-        <li><strong>Cached Read Tokens (Savings):</strong> Tokens served from cache with reduced pricing and latency.</li>
-        <li><strong>Cached Write Tokens:</strong> New prefix tokens cached for subsequent turns.</li>
-      </ul>
-
-      <h3>Section 3: Last Turn Performance</h3>
-      <ul>
-        <li><strong>Prompt & Completion Tokens:</strong> Token breakdown for the latest message.</li>
-        <li><strong>Generation Speed:</strong> Measured in tokens per second (<code>t/s</code>).</li>
-        <li><strong>Latency (TTFT):</strong> Time to First Token in milliseconds.</li>
-      </ul>
+      <h2>3. Telemetry details</h2>
+      <h3>Context window</h3>
+      <p>Click the indicator to see usage, capacity and available space. Provider data is used when available, with estimates otherwise. Manually setting capacity changes ZeroChat's reference; it does not enlarge the server's actual window. Sent context may exclude older messages to fit the budget even while they remain visible in history.</p>
+      <h3>Cache</h3>
+      <p>Cache read and write tokens appear when reported by the provider. They do not measure financial savings: rates and conditions depend on the service.</p>
+      <h3>Last turn</h3>
+      <p>The panel displays input and output tokens, generation speed and time to first token when data is available. Metrics may be missing or vary between providers; they are neither an invoice nor a controlled performance comparison.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
@@ -101,7 +66,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Universal Web AI Client · User Manual</p>
+      <p>ZeroChat 8.x · Personal user guide</p>
     </footer>
   </div>
 </body>

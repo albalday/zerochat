@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Centro de Ayuda y Documentación · ZeroChat</title>
-  <meta name="description" content="Manual de usuario y documentación técnica completa de ZeroChat: cliente web universal, autónomo y privado para modelos de IA y agentes locales.">
+  <title>Centro de Ayuda y Documentación · ZeroChat · 8.x</title>
+  <meta name="description" content="Ayuda de ZeroChat 8.x: chat, perfiles, documentos, herramientas y servidor local.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,28 +13,23 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
           <div class="lang-switch">
             <span class="lang-current">Español</span> | <a href="en/index.html" class="lang-link">English</a>
           </div>
-          <span class="top-nav-link">Versión 7.x</span>
+          <span class="top-nav-link">Versión 8.x</span>
         </div>
       </div>
       <h1>Centro de Ayuda de ZeroChat</h1>
-      <p class="subtitle">Manual de usuario y documentación técnica de ZeroChat.</p>
+      <p class="subtitle">Ayuda personal para ZeroChat 8.x: uso, configuración y límites.</p>
     </header>
 
     <div class="card">
       <h2>¿Qué es ZeroChat?</h2>
-      <p>
-        <strong>ZeroChat</strong> es un cliente web autónomo, seguro y portátil para interactuar con modelos de inteligencia artificial, orquestar agentes autónomos y consultar bases de conocimiento documental locales.
-      </p>
-      <p>
-        ZeroChat se sirve como una aplicación web estática (<code>zerochat.html</code>) que funciona directamente en cualquier servidor estático, evitando o simplificando el proceso de instalación. Toda la información personal, conversaciones, configuraciones y documentos indexados permanecen estrictamente bajo tu control dentro de tu propio navegador.
-      </p>
-
+      <p>ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y probar herramientas. La serie <strong>8.x</strong> consolida las funciones existentes; el desarrollo de nuevas funcionalidades queda en pausa por el momento.</p>
+      <p>El historial se guarda en el navegador. Los mensajes, adjuntos y resultados que forman parte de una petición se envían al proveedor seleccionado. Las herramientas web pueden usar servicios intermediarios. No hay sincronización automática entre dispositivos ni una garantía de privacidad absoluta.</p>
       <div class="download-action-box">
         <a href="../zerochat.html" class="btn-open-app" id="btn-open-app">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -46,21 +41,17 @@
       <div class="alert alert-info" style="margin-top: 1rem;">
         <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Dos formas de arranque</h3>
         <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
-          <li>
-            <strong><code>zerochat.html</code> (Web directa / PWA):</strong> Funciona directamente en el navegador con inferencia comercial o local (WebLLM/WebGPU), base documental RAG, modo Agente con sandbox JS y persistencia en IndexedDB sin requerir Python ni instalación. La instalación como PWA está disponible desde las opciones del navegador cuando este la admite. ZeroChat no ofrece botones ni avisos de instalación, tampoco al abrirlo desde esta ayuda.
-          </li>
-          <li>
-            <strong><code>zerochat.py</code> (Backend local):</strong> Servidor local que añade control del sistema operativo: lectura y edición de archivos locales, comandos de terminal y servidores MCP externos.
-          </li>
+          <li><strong>Web:</strong> abre ZeroChat por HTTPS y configura un perfil. Permite chat, adjuntos, RAG y herramientas del navegador sin Python. WebLLM requiere WebGPU. La instalación PWA, si se admite, se hace desde el navegador; ZeroChat no muestra avisos de instalación.</li>
+          <li><strong>Servidor local:</strong> inicia <code>zerochat</code> o <code>zerochat.py</code> para añadir archivos, comandos y servicios MCP. Revisa los permisos antes de habilitar herramientas.</li>
         </ul>
         <div style="font-size: 0.9rem;">
-          <a href="architecture.html">Ver comparativa técnica completa y capacidades en Arquitectura →</a>
+          <a href="architecture.html">Consultar modos de uso y límites en Arquitectura →</a>
         </div>
       </div>
 
       <div class="alert alert-info" style="margin-top: 1rem;">
         <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Servidor local: instalación recomendada</h3>
-        <p style="margin: 0.5rem 0;">Instala el ejecutable oficial desde PyPI; abre la interfaz de GitHub Pages con una sesión local segura. PyPI y la descarga directa usan el mismo directorio <code>~/zerochat/</code> para el estado y los MCP.</p>
+        <p style="margin: 0.5rem 0;">Instala el ejecutable oficial desde PyPI; abre la interfaz de GitHub Pages con una sesión autenticada con el servidor local. PyPI y la descarga directa usan el mismo directorio <code>~/zerochat/</code> para el estado y los MCP.</p>
         <div class="code-wrapper">
           <pre><code>pip install zerochat &amp;&amp; zerochat</code></pre>
         </div>
@@ -84,8 +75,8 @@
     </div>
 
     <div class="card">
-      <h2>Funcionalidades del Sistema</h2>
-      <p>Explora cada uno de los módulos de ZeroChat. Haz clic en cualquier tarjeta para acceder a su guía técnica detallada:</p>
+      <h2>Guías de uso</h2>
+      <p>Cada página explica una función, cómo utilizarla y qué límites conviene conocer.</p>
 
       <div class="features-grid">
         <!-- 1. Arquitectura y Portabilidad -->
@@ -94,7 +85,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <div class="feature-title">Arquitectura y Portabilidad</div>
-          <div class="feature-desc">Aplicación web servida estáticamente vía HTTPS, persistencia local en IndexedDB y soberanía absoluta de datos sin intermediarios.</div>
+          <div class="feature-desc">Web estática, backend opcional, almacenamiento por origen y datos que se envían a servicios externos.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -104,7 +95,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
           <div class="feature-title">Perfiles y Proveedores</div>
-          <div class="feature-desc">Conexión con OpenAI, Ollama, OpenRouter, Claude, Gemini y Espejo local con detección automática de modelos y capacidades.</div>
+          <div class="feature-desc">Configurar proveedores, modelos, claves API, consultas de capacidades y copias de perfiles.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -114,7 +105,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </div>
           <div class="feature-title">Inferencia Local WebLLM</div>
-          <div class="feature-desc">Ejecución 100% en el navegador aprovechando la GPU vía WebGPU, con catálogo integrado, descarga progresiva y persistencia en caché.</div>
+          <div class="feature-desc">Descargar y ejecutar modelos con WebGPU; requisitos de memoria, caché y compatibilidad.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -124,7 +115,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
           </div>
           <div class="feature-title">Modo Agente y Herramientas</div>
-          <div class="feature-desc">Ciclo autónomo multivuelta con ejecución de JavaScript en sandbox seguro, búsqueda en la web, extracción de páginas y gráficas interactivas SVG.</div>
+          <div class="feature-desc">Llamadas a herramientas, ejecución de JavaScript, búsqueda web, planes y gráficos.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -134,7 +125,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           </div>
           <div class="feature-title">Conocimiento Local (RAG)</div>
-          <div class="feature-desc">Ingestión de PDFs y documentos en ramas independientes con indexación vectorial y léxica mediante Orama en el navegador.</div>
+          <div class="feature-desc">Organizar documentos en ramas y consultarlos con búsqueda léxica local de Orama.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -144,7 +135,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
           <div class="feature-title">Protocolo MCP</div>
-          <div class="feature-desc">Servidor local con herramientas de archivos y terminal, servicios MCP externos y control de permisos.</div>
+          <div class="feature-desc">Archivos, comandos, servicios MCP y autorización con el servidor local.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -154,7 +145,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><circle cx="8" cy="8" r="1"/></svg>
           </div>
           <div class="feature-title">Automatización del navegador</div>
-          <div class="feature-desc">Instala los requisitos de browser_action para navegar y hacer capturas con Playwright.</div>
+          <div class="feature-desc">Preparar browser_action y distinguirla de las herramientas externas de Playwright MCP.</div>
           <div class="feature-link">Ver guía de instalación →</div>
         </a>
 
@@ -164,7 +155,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
           <div class="feature-title">Depuración e Interceptor</div>
-          <div class="feature-desc">Consola de depuración con filtros, vista Raw e interceptor de mensajes antes del envío.</div>
+          <div class="feature-desc">Revisar eventos, peticiones y errores; editar el JSON antes de enviarlo.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -174,7 +165,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <div class="feature-title">Conversaciones y Ramas</div>
-          <div class="feature-desc">Historial, ramas, búsqueda y exportación en JSON, Markdown o PDF; importación de copias JSON.</div>
+          <div class="feature-desc">Historial, ramas, exportación JSON y Markdown e impresión para guardar como PDF.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -184,7 +175,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </div>
           <div class="feature-title">Composer y Multimedia</div>
-          <div class="feature-desc">Cuadro de entrada autoexpansible, atajos de teclado y adjuntos multiformato (imágenes para visión, PDFs, código fuente, CSV y texto).</div>
+          <div class="feature-desc">Redactar mensajes, adjuntar imágenes o documentos y comprobar sus límites.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
 
@@ -194,7 +185,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"/></svg>
           </div>
           <div class="feature-title">Razonamiento y Telemetría</div>
-          <div class="feature-desc">Control del nivel de pensamiento (Thinking), punto de control agéntico y monitorización en tiempo real de tokens, caché y ventana de contexto.</div>
+          <div class="feature-desc">Ajustar razonamiento e interpretar tokens, estimaciones de contexto y métricas de caché.</div>
           <div class="feature-link">Ver guía detallada →</div>
         </a>
       </div>
@@ -202,7 +193,7 @@
 
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
   <script src="help.js"></script>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Depuración, Logs e Interceptor de Mensajes · Ayuda de ZeroChat</title>
-  <meta name="description" content="Guía del panel de depuración, visor Raw e interceptor de peticiones de ZeroChat.">
+  <title>Depuración, Logs e Interceptor de Mensajes · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Revisar peticiones, resultados de herramientas y errores de conexión.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,76 +13,44 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat Docs
+          ZeroChat 8.x Docs
         </a>
         <div class="header-actions">
-          <a href="en/debug.html" class="top-nav-link">English 🌐</a>
+          <a href="en/debug.html" class="top-nav-link">English</a>
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
       <h1>Depuración, Logs e Interceptor</h1>
-      <p class="subtitle">Inspecciona las entrañas de la inferencia, supervisa el tráfico de red y modifica peticiones en vuelo con el interceptor interactivo.</p>
+      <p class="subtitle">Revisar peticiones, resultados de herramientas y errores de conexión.</p>
     </header>
 
     <div class="card">
-      <h2>1. El Panel Lateral de Depuración (Debug Panel)</h2>
-      <p>
-        ZeroChat incluye un panel lateral derecho especializado para desarrolladores, auditores de seguridad y usuarios curiosos. Se abre pulsando el icono de terminal en la esquina superior derecha del encabezado.
-      </p>
-      <p>
-        Este panel muestra en tiempo real una consola con formato monoespaciado donde se registran cronológicamente todos los eventos internos de la aplicación.
-      </p>
-      <h3>Pestañas de Filtrado de Eventos:</h3>
-      <ul>
-        <li><strong>Todo (All):</strong> Vista unificada con todos los mensajes del sistema, red y herramientas.</li>
-        <li><strong>Razonamiento (Thinking):</strong> Filtra exclusivamente los fragmentos de pensamiento interno generados por el modelo.</li>
-        <li><strong>Herramientas (Tool):</strong> Muestra las llamadas a funciones emitidas por el agente y los valores devueltos tras la ejecución.</li>
-        <li><strong>Red (Network):</strong> Peticiones HTTP, cabeceras, códigos de respuesta de los servidores de inferencia y tiempos de conexión.</li>
-        <li><strong>Raw:</strong> Muestra las entradas y salidas sin procesar de la comunicación del proveedor.</li>
-      </ul>
+      <h2>1. Panel de depuración</h2>
+      <p>Abre el panel con el icono de terminal de la cabecera. Permite revisar eventos de la aplicación y de las peticiones a modelos y herramientas.</p>
+      <ul><li><strong>Todo:</strong> conjunto de eventos registrados.</li>
+      <li><strong>Razonamiento:</strong> contenido de razonamiento expuesto por el proveedor.</li>
+      <li><strong>Herramientas:</strong> llamadas y resultados.</li>
+      <li><strong>Red:</strong> información registrada de las peticiones.</li>
+      <li><strong>Raw:</strong> entradas y salidas sin el formato del chat.</li></ul>
+      <p>No es una captura completa de todo el tráfico del navegador. Para errores de carga, CORS o red puede hacer falta consultar también sus herramientas de desarrollo.</p>
     </div>
 
     <div class="card">
-      <h2>2. Utilidades de la Consola de Logs</h2>
-      <p>En la cabecera del panel de depuración dispones de acciones rápidas:</p>
-      <ul>
-        <li><strong>Copiar logs:</strong> Vuelca todo el historial de eventos en el portapapeles en formato texto con marcas de tiempo para adjuntarlo a un reporte de incidencias o bug.</li>
-        <li><strong>Limpiar consola:</strong> Vacía el registro en pantalla para comenzar una nueva sesión de depuración limpia.</li>
-        <li><strong>Auto-scroll:</strong> Alterna entre seguir automáticamente la salida conforme se emite o pausar el desplazamiento para examinar un fragmento anterior con comodidad.</li>
-      </ul>
+      <h2>2. Consultar y copiar registros</h2>
+      <p>La barra del panel permite copiar los registros, limpiar la consola y activar o pausar el desplazamiento automático.</p>
+      <p>Los registros pueden contener mensajes, documentos, argumentos y respuestas de herramientas. Revisa y elimina información privada antes de compartirlos; el filtrado de credenciales no equivale a anonimizar todo el contenido.</p>
     </div>
 
     <div class="card">
-      <h2>3. Modo Interceptor de Mensajes (Debug Messages)</h2>
-      <p>
-        Una de las herramientas más singulares de ZeroChat para experimentación y pruebas de seguridad es el <strong>Interceptor de Mensajes</strong>. Se activa mediante el interruptor <em>"Debug messages"</em> en la barra de controles del panel de depuración.
-      </p>
-      <h3>¿Cómo funciona el interceptor?</h3>
-      <ol>
-        <li>Al escribir un mensaje en el chat y pulsar Enviar, la petición <strong>no viaja inmediatamente a la red</strong>.</li>
-        <li>Se abre una ventana modal de inspección interactiva mostrando el <strong>payload JSON exacto</strong> que se iba a transmitir al proveedor (mensajes del historial, sistema de prompts, herramientas registradas, temperatura, etc.).</li>
-        <li>Puedes inspeccionar los campos, editar manualmente cualquier parámetro o inyectar roles de prueba directamente en el editor.</li>
-        <li>La cabecera reúne las acciones de envío y el botón X para cancelar:
-          <ul>
-            <li><strong>Continuar / Enviar:</strong> Transmite la petición (con las modificaciones que hayas realizado) al servidor.</li>
-            <li><strong>Enviar y parar debug:</strong> Transmite la petición y desactiva el interceptor para los siguientes envíos.</li>
-            <li><strong>X:</strong> Aborta el envío de forma limpia sin generar tráfico ni consumir tokens.</li>
-          </ul>
-        </li>
-      </ol>
-      <div class="alert alert-info">
-        <strong>Ideal para desarrolladores:</strong> Esta función permite simular respuestas intermedias, evaluar la resistencia del modelo ante jailbreaks o prompts modificados y comprobar cómo empaqueta ZeroChat las herramientas en la llamada HTTP.
-      </div>
+      <h2>3. Interceptor de mensajes</h2>
+      <p>Activa <strong>Debug messages</strong> para revisar el JSON preparado antes de su envío al proveedor. Puedes editarlo y enviarlo, enviarlo desactivando el interceptor o cancelar con X.</p>
+      <p>Sirve para comprobar cómo se empaquetan mensajes, herramientas y parámetros. Una modificación puede invalidar la petición o cambiar lo que recibe el modelo. Cancelar evita ese envío pendiente, pero no revierte peticiones ni acciones anteriores.</p>
     </div>
 
     <div class="card">
       <h2>4. Vista Raw</h2>
-      <p>
-        La pestaña <em>Raw</em> está disponible directamente en el panel; no requiere activación adicional. Las entradas se limitan para que el panel siga siendo utilizable.
-      </p>
-      <p>
-        Úsala para comprobar solicitudes, respuestas de streaming y llamadas a herramientas al diagnosticar un proveedor.
-      </p>
+      <p>Raw muestra información de solicitudes, respuestas y streaming registrada por ZeroChat. Las entradas se limitan para contener el volumen del panel, por lo que no debe tratarse como un archivo exhaustivo de auditoría.</p>
+      <p>Para describir un fallo, anota proveedor, modelo, acción y error, y adjunta solo el fragmento de registro necesario.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
@@ -101,7 +69,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat · Cliente Web Universal de IA · Manual de Usuario</p>
+      <p>ZeroChat 8.x · Ayuda de uso personal</p>
     </footer>
   </div>
 </body>
