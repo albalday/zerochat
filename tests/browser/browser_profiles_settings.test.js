@@ -582,18 +582,27 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de i
     assert.equal(localDelete, 1, 'El perfil local debe tener boton de borrar');
 
     await page.evaluate(() => {
+      window.ChatAPI.fetchServerModels = async () => ({
+        success: true,
+        models: [{ id: 'google/gemma-4-26b-a4b-qat', details: { context_length: 32768 } }]
+      });
       window.ChatAPI.inspectProvider = async (config) => ({
         success: true,
         provider: { id: config.apiType, label: config.apiType },
         endpoint: { normalized: config.apiUrl },
-        model: { selected: config.model, totalDiscovered: 0 },
+        model: { selected: config.model, totalDiscovered: 1 },
         inspectionTimeMs: 1,
-        capabilities: {}
+        capabilities: {
+          streaming: { status: 'confirmed', detail: 'OK' }
+        }
       });
     });
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="inspect"]');
     await page.waitForFunction(() => document.getElementById('inspector-dialog').open);
     assert.match(await page.locator('#inspector-profile-name').textContent(), /Local chat/);
+    await page.waitForFunction(() => document.querySelector('#inspector-results .inspector-model-section'));
+    assert.match(await page.locator('#inspector-results .inspector-model-section').textContent(), /google\/gemma-4-26b-a4b-qat/);
+    await page.waitForFunction(() => document.querySelector('#inspector-results .inspector-endpoint-section'));
     await page.click('#btn-close-inspector');
     await page.waitForFunction(() => !document.getElementById('inspector-dialog').open);
 

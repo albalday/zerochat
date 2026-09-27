@@ -10,7 +10,6 @@ Añadir mcps stdio y http
 
 Seguridad por defecto de playwrigth mas cebtrada
 
-mensaje de actualziar pip mas frecuente o salir
 
 analizar nuvos codigo de paneles. 
 ver codigo comun, viejo y
@@ -20,6 +19,4 @@ playwright de instalacion minima para tools minimo
 
 Probar sutomatico safari
 
-Espacio entre pregunta y respuesta
-
-Python en de zeroxhat cuando python es env
+la lupa ha de hacer query o otra cosa para actualizar conext size

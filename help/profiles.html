@@ -122,7 +122,19 @@
     </div>
 
     <div class="card">
-      <h2>4. Configuración Especial para Ollama (CORS)</h2>
+      <h2>4. Inspección Rápida de Perfiles (Icono de Lupa)</h2>
+      <p>
+        Desde el menú desplegable de perfiles en la cabecera, cada perfil incluye un icono de <strong>lupa</strong> para inspeccionar su conexión en cualquier momento sin necesidad de entrar a editarlo:
+      </p>
+      <ul>
+        <li><strong>Consulta previa del modelo seleccionado:</strong> Primero realiza una consulta activa al servidor para verificar la disponibilidad del modelo configurado, capturando de forma inmediata actualizaciones en el <em>tamaño de ventana de contexto</em> y en el <em>nivel de razonamiento</em> soportado. Si el modelo no está disponible o no se puede conectar, informa del error de inmediato.</li>
+        <li><strong>Resultados abreviados:</strong> Muestra un resumen directo del modelo verificado con su contexto y razonamiento capturados.</li>
+        <li><strong>Diagnóstico general del endpoint:</strong> A continuación muestra el diagnóstico exhaustivo de capacidades del endpoint (streaming SSE, herramientas, visión, JSON mode, caché de contexto, etc.).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>5. Configuración Especial para Ollama (CORS)</h2>
       <p>
         Si utilizas <strong>Ollama</strong>, el navegador puede bloquear las peticiones debido a la política de seguridad CORS (Cross-Origin Resource Sharing) si Ollama solo escucha en su origen por defecto.
       </p>
@@ -139,7 +151,7 @@ ollama serve</code></pre>
     </div>
 
     <div class="card">
-      <h2>5. El Perfil "Espejo" (Mirror) para Pruebas</h2>
+      <h2>6. El Perfil "Espejo" (Mirror) para Pruebas</h2>
       <p>
         ZeroChat incluye de serie el perfil de solo lectura <strong>Espejo</strong>. Este perfil es ideal para pruebas de interfaz y diagnóstico:
       </p>

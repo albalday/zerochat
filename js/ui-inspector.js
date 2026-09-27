@@ -29,6 +29,8 @@
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getState = () => resolveDep('ChatState', './state.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getUITelemetry = () => resolveDep('ChatUITelemetry', './ui-telemetry.js');
 
   function t(key, params) {
     const I18n = getI18n();
@@ -199,14 +201,49 @@
     return discoveredModels;
   }
 
-  function getModelContextLimit(model) {
+  function findModelInCatalog(models, targetModel) {
+    if (!Array.isArray(models) || !targetModel) return null;
+    const target = String(targetModel).trim().toLowerCase();
+    if (!target) return null;
+
+    let match = models.find(m => {
+      const id = String(m?.id || m?.name || '').trim().toLowerCase();
+      return id === target;
+    });
+    if (match) return match;
+
+    const targetBase = target.replace(/^models\//, '').replace(/:latest$/, '');
+    match = models.find(m => {
+      const id = String(m?.id || m?.name || '').trim().toLowerCase();
+      const idBase = id.replace(/^models\//, '').replace(/:latest$/, '');
+      return idBase === targetBase;
+    });
+    if (match) return match;
+
+    match = models.find(m => {
+      const id = String(m?.id || m?.name || '').trim().toLowerCase();
+      return id.endsWith('/' + target) || target.endsWith('/' + id);
+    });
+    return match || null;
+  }
+
+  function getModelContextLimit(model, customCatalog = null) {
     const selected = String(model || '').trim();
-    const entry = discoveredModels.find(item => String(item?.id || item?.name || '').trim() === selected);
+    if (!selected) return null;
+    const catalog = Array.isArray(customCatalog) ? customCatalog : discoveredModels;
+    const entry = findModelInCatalog(catalog, selected);
     const details = entry?.details || entry || {};
     const loaded = Number(details.loaded_context_length);
     const maximum = Number(details.max_context_length);
+    const ctxLen = Number(
+      details.context_length ?? entry?.context_length ??
+      details.context_window ?? entry?.context_window ??
+      details.max_model_len ?? entry?.max_model_len ??
+      details.max_context_tokens ?? details.max_tokens
+    );
     if (Number.isFinite(loaded) && loaded > 0) return Math.floor(loaded);
     if (Number.isFinite(maximum) && maximum > 0) return Math.floor(maximum);
+    if (Number.isFinite(ctxLen) && ctxLen > 0) return Math.floor(ctxLen);
     if (details.webllmCache || selected.includes('-MLC')) return 4096;
     return null;
   }
@@ -622,12 +659,14 @@
     }
   }
 
-  function renderInspectorReport(elements, report) {
+  function renderInspectorReport(elements, report, options = {}) {
     if (!elements || !elements.inspectorResults || !report) return;
+    const modelSectionHtml = options?.modelSectionHtml || '';
 
     if (report.success === false || report.connected === false) {
       elements.inspectorResults.innerHTML = `
-        <div class="server-query-status status-error" style="display: block;">
+        ${modelSectionHtml}
+        <div class="server-query-status status-error" style="display: block; ${modelSectionHtml ? 'margin-top: 0.85rem;' : ''}">
           ${escapeHtml(report.error || t('inspector_conn_failed') || 'Fallo de conexión: No se pudo conectar con el servidor.')}
         </div>
       `;
@@ -691,33 +730,37 @@
     const unknownText = t('inspector_unknown') || 'Desconocido';
 
     elements.inspectorResults.innerHTML = `
-      <div class="inspector-header-meta">
-        <div class="inspector-meta-item">
-          <span class="meta-label">${escapeHtml(metaProvider)}</span>
-          <span class="meta-value">${escapeHtml(p.label || p.id || unknownText)}</span>
+      ${modelSectionHtml}
+      <div class="inspector-endpoint-section" style="${modelSectionHtml ? 'margin-top: 0.85rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;' : ''}">
+        ${modelSectionHtml ? `<div class="inspector-section-title">${escapeHtml(t('inspector_endpoint_title'))}</div>` : ''}
+        <div class="inspector-header-meta">
+          <div class="inspector-meta-item">
+            <span class="meta-label">${escapeHtml(metaProvider)}</span>
+            <span class="meta-value">${escapeHtml(p.label || p.id || unknownText)}</span>
+          </div>
+          <div class="inspector-meta-item">
+            <span class="meta-label">${escapeHtml(metaEndpoint)}</span>
+            <span class="meta-value" style="font-family: monospace; font-size: 0.775rem;">${escapeHtml(ep.normalized || ep.raw || '')}</span>
+          </div>
+          <div class="inspector-meta-item">
+            <span class="meta-label">${escapeHtml(metaModels)}</span>
+            <span class="meta-value">${escapeHtml(modelInfoText)}</span>
+          </div>
+          <div class="inspector-meta-item">
+            <span class="meta-label">${escapeHtml(metaLatency)}</span>
+            <span class="meta-value">${report.inspectionTimeMs || 0} ms</span>
+          </div>
         </div>
-        <div class="inspector-meta-item">
-          <span class="meta-label">${escapeHtml(metaEndpoint)}</span>
-          <span class="meta-value" style="font-family: monospace; font-size: 0.775rem;">${escapeHtml(ep.normalized || ep.raw || '')}</span>
-        </div>
-        <div class="inspector-meta-item">
-          <span class="meta-label">${escapeHtml(metaModels)}</span>
-          <span class="meta-value">${escapeHtml(modelInfoText)}</span>
-        </div>
-        <div class="inspector-meta-item">
-          <span class="meta-label">${escapeHtml(metaLatency)}</span>
-          <span class="meta-value">${report.inspectionTimeMs || 0} ms</span>
-        </div>
-      </div>
 
-      <div class="inspector-cap-grid">
-        ${cardsHtml}
+        <div class="inspector-cap-grid">
+          ${cardsHtml}
+        </div>
       </div>
     `;
   }
 
   async function handleRunInspector(elements, appConfig, connection = null) {
-    if (!elements || !elements.inspectorResults) return;
+    if (!elements || !elements.inspectorResults) return false;
 
     const source = connection?.settings || connection || null;
     const apiUrl = String(source?.apiUrl ?? (elements.settingApiUrl ? elements.settingApiUrl.value : appConfig?.apiUrl || '')).trim();
@@ -734,7 +777,19 @@
           </div>
         `;
       }
-      return;
+      return false;
+    }
+
+    if (!model) {
+      if (elements.inspectorResults) {
+        elements.inspectorResults.style.display = 'block';
+        elements.inspectorResults.innerHTML = `
+          <div class="server-query-status status-error" style="display: block;">
+            ${escapeHtml(t('inspector_err_no_model') || 'No se ha seleccionado ningún modelo en este perfil para inspeccionar.')}
+          </div>
+        `;
+      }
+      return false;
     }
 
     if (elements.btnRunInspector) elements.btnRunInspector.disabled = true;
@@ -746,24 +801,130 @@
     elements.inspectorResults.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
         <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;"><svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>
-        <p style="margin-top: 0.5rem; font-size: 0.85rem;">${t('btn_running_inspector')}</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_querying_model', { model }))}</p>
       </div>
     `;
 
     try {
       const API = getApi();
+      if (!API?.fetchServerModels) {
+        throw new Error('API query function not available.');
+      }
+
+      addDebugLog('network', `[Inspector] Consultando modelos en ${apiUrl} [${apiType}] para modelo ${model}`);
+      let queryRes;
+      try {
+        queryRes = await API.fetchServerModels(apiUrl, apiKey, apiType);
+      } catch (err) {
+        queryRes = { success: false, error: err?.message || String(err) };
+      }
+
+      if (!queryRes || queryRes.success === false) {
+        const errorMsg = queryRes?.error || 'No se pudo conectar con el servidor de modelos.';
+        const ollamaHelp = getOllamaConnectionHelp(apiType, new Error(errorMsg));
+        elements.inspectorResults.innerHTML = `
+          <div class="server-query-status status-error" style="display: block;">
+            ${ollamaHelp || escapeHtml(t('inspector_err_query_failed', { err: errorMsg }))}
+          </div>
+        `;
+        return false;
+      }
+
+      const models = Array.isArray(queryRes.models) ? queryRes.models : [];
+      const locallyManaged = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().localModelManagement === true;
+      const sortedModels = locallyManaged ? sortWebLLMModels(models) : models;
+      saveCachedModels(sortedModels, { apiUrl, apiType });
+
+      const foundModel = findModelInCatalog(sortedModels, model);
+      if (!foundModel) {
+        elements.inspectorResults.innerHTML = `
+          <div class="server-query-status status-error" style="display: block;">
+            ${escapeHtml(t('inspector_err_model_not_found', { model }))}
+          </div>
+        `;
+        return false;
+      }
+
+      // Capturar tamaño de contexto
+      const contextLimit = getModelContextLimit(model, sortedModels);
+      const Config = getConfig();
+      const runtimeConfig = Config?.getActive?.() || appConfig || {};
+      const isActiveConnection = runtimeConfig?.apiUrl === apiUrl && runtimeConfig?.model === model;
+      if (isActiveConnection && contextLimit && Config?.updateRuntime) {
+        Config.updateRuntime({ modelContextLimit: contextLimit });
+      }
+
+      const UITel = getUITelemetry();
+      const contextFormatted = contextLimit
+        ? `${UITel?.formatContextCapacity ? UITel.formatContextCapacity(contextLimit) : Math.round(contextLimit / 1000) + 'K'} (${contextLimit.toLocaleString()} tokens)`
+        : t('inspector_context_unknown');
+
+      // Capturar nivel de razonamiento y soporte
+      const Providers = getProviders();
+      const adapter = Providers?.registry?.resolve?.(apiUrl, apiType) || null;
+      const adapterCaps = adapter?.getCapabilities?.(model) || {};
+      const reasoningSupported = adapterCaps.reasoning !== false;
+      const isReasoningModel = /(?:-r1|r1|qwq|o1|o3|reasoning|thinking|gemma-4|deepseek)/i.test(model);
+      const configuredEffort = String(source?.reasoningEffort || runtimeConfig?.reasoningEffort || 'medium').toLowerCase();
+      const rawLevels = adapter?.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
+      const levels = rawLevels.filter(l => l !== 'off');
+
+      let reasoningSummary = '';
+      if (adapter?.id === 'webllm' || (!reasoningSupported && !isReasoningModel)) {
+        reasoningSummary = t('inspector_reasoning_none');
+      } else {
+        const effortLabel = t(`reasoning_level_${configuredEffort}`) || t(`reasoning_intensity_${configuredEffort}`) || configuredEffort;
+        reasoningSummary = t('inspector_reasoning_supported', {
+          levels: levels.join(', '),
+          effort: effortLabel
+        });
+      }
+
+      const modelDisplayName = foundModel.id || foundModel.name || model;
+      const modelSectionHtml = `
+        <div class="inspector-model-section">
+          <div class="inspector-model-header">
+            <div class="inspector-model-title">
+              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              <span>${escapeHtml(t('inspector_model_title'))}: <strong>${escapeHtml(modelDisplayName)}</strong></span>
+            </div>
+            <span class="cap-badge cap-badge-confirmed">✓ ${escapeHtml(t('inspector_status_confirmed'))}</span>
+          </div>
+          <div class="inspector-model-grid">
+            <div class="inspector-meta-item">
+              <span class="meta-label">${escapeHtml(t('inspector_meta_context'))}</span>
+              <span class="meta-value">${escapeHtml(contextFormatted)}</span>
+            </div>
+            <div class="inspector-meta-item">
+              <span class="meta-label">${escapeHtml(t('inspector_meta_reasoning'))}</span>
+              <span class="meta-value">${escapeHtml(reasoningSummary)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      elements.inspectorResults.innerHTML = `
+        ${modelSectionHtml}
+        <div id="inspector-endpoint-loading" style="padding: 1.25rem; text-align: center; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 0.75rem;">
+          <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_diagnosing_endpoint'))}</p>
+        </div>
+      `;
+
       if (!API?.inspectProvider) {
         throw new Error(t('inspector_module_unavailable') || 'Módulo de inspección no disponible.');
       }
 
       addDebugLog('network', `Ejecutando Provider Inspector en ${apiUrl} [${apiType}]`);
-      const report = await API.inspectProvider({ apiUrl, apiType, apiKey, model });
-
-      if (report && (report.success === false || report.connected === false)) {
-        throw new Error(report.error || t('inspector_conn_failed') || 'Fallo de conexión con el servidor.');
+      let report = null;
+      try {
+        report = await API.inspectProvider({ apiUrl, apiType, apiKey, model });
+      } catch (probeErr) {
+        report = { success: false, connected: false, error: probeErr?.message || String(probeErr) };
       }
 
-      renderInspectorReport(elements, report);
+      renderInspectorReport(elements, report, { modelSectionHtml });
+      return true;
     } catch (err) {
       console.error('Error in Provider Inspector:', err);
       const ollamaHelp = getOllamaConnectionHelp(apiType, err);
@@ -772,6 +933,7 @@
           ${ollamaHelp || escapeHtml(err.message || String(err))}
         </div>
       `;
+      return false;
     } finally {
       if (elements.btnRunInspector) elements.btnRunInspector.disabled = false;
       if (btnText) btnText.textContent = originalText;
@@ -784,6 +946,7 @@
     getConnectionCacheKey,
     getCachedModels,
     getModelContextLimit,
+    findModelInCatalog,
     populateModelList,
     renderWebLLMModels,
     getWebLLMState,

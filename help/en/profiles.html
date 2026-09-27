@@ -122,7 +122,19 @@
     </div>
 
     <div class="card">
-      <h2>4. Special Configuration for Ollama (CORS)</h2>
+      <h2>4. Quick Profile Inspection (Magnifying Glass Icon)</h2>
+      <p>
+        From the profile selector dropdown in the header, each profile includes a <strong>magnifying glass</strong> icon to inspect its connection at any time without having to open the editor:
+      </p>
+      <ul>
+        <li><strong>Prior query of the selected model:</strong> It first performs an active query to the server to verify that the configured model is available, immediately capturing updates to the <em>context window size</em> and the supported <em>reasoning level</em>. If the model is not available or connection fails, it reports the error immediately.</li>
+        <li><strong>Abbreviated results:</strong> Displays a direct summary of the verified model with its captured context and reasoning capabilities.</li>
+        <li><strong>General endpoint diagnostics:</strong> It then displays the comprehensive capability diagnostics for the endpoint (SSE streaming, tools, vision, JSON mode, context caching, etc.).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>5. Special Configuration for Ollama (CORS)</h2>
       <p>
         When connecting to <strong>Ollama</strong>, browsers will block requests due to CORS (Cross-Origin Resource Sharing) unless Ollama is started with cross-origin access enabled:
       </p>
@@ -138,7 +150,7 @@ ollama serve</code></pre>
     </div>
 
     <div class="card">
-      <h2>5. The Built-in "Mirror" Profile</h2>
+      <h2>6. The Built-in "Mirror" Profile</h2>
       <p>
         ZeroChat includes a read-only <strong>Mirror (Espejo)</strong> profile. It is ideal for UI testing and troubleshooting:
       </p>

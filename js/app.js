@@ -449,6 +449,7 @@
       elements.inspectorDialog.showModal();
     }
     await handleRunInspector(profile);
+    syncPublishedModelContextLimit();
   }
 
   // ==========================================================================
