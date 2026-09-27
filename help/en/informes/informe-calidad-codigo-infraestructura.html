@@ -1,10 +1,347 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Code quality and infrastructure — ZeroChat 7.11.0"><title>ZeroChat 7.11.0 · Code quality and infrastructure</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1080px;margin:auto;padding:24px 20px 64px}header{border-top:6px solid #08636c;padding:20px 0}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}h3{font-size:1.1rem;margin:1.5em 0 .3em}p{margin:.6em 0 1em}.meta{color:#546575;font-size:.9rem}.lead{font-size:1.12rem}nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}nav a[aria-current]{background:#08636c;color:white}a{color:#075d66}section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}section.verdict{border-left:5px solid #08636c}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}th{background:#eaf3f3}code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}ul,ol{padding-left:1.5rem}.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}@media(max-width:600px){main{padding:14px 12px 40px}section,footer{padding:18px}}</style></head>
-<body><main><header><div class="eyebrow">ZeroChat · Current code audit · 7.11.0</div><h1>Code quality and infrastructure</h1><p class="lead">Verified status, local security, and corrective work.</p><p class="meta">25 de septiembre de 2026 · dev · Codex (OpenAI)</p><a href="../architecture.html">← Back to architecture</a></header><nav aria-label="Audit reports"><a href="informe-funcionalidades-madurez.html">Features and maturity</a><a href="informe-comparativa-herramientas.html">Tool comparison</a><a href="informe-calidad-codigo-infraestructura.html" aria-current="page">Code and infrastructure</a><a href="../../informes/informe-calidad-codigo-infraestructura.html" lang="es">Español</a></nav><section class="verdict"><h2>Assessment</h2><p>The 7.11.0 codebase is testable and modular at source level: 644 general tests and 71 browser tests pass in this review; <code>npm run build</code> rebuilds the backend without product diffs. Security and recovery limits remain open. No remote compromise or line coverage measurement is claimed.</p></section>
-<section><h2>1. Scope and method</h2><p>Reviewed <code>zerochat.html</code>, <code>js/</code>, <code>css/</code>, <code>py/</code>, <code>zerochat.py</code>, <code>sw.js</code>, <code>tests/</code>, <code>scripts/</code>, and CI workflows. Claims in the 7.8.0 reports were checked against current code and tests. This is static inspection plus local testing, without a penetration test, live providers, every browser, or load testing.</p><p>Examined baseline: <code>dev</code> branch at 7.11.0. File references link to reviewed code.</p></section>
-<section><h2>2. Executed validation</h2><div class="table-wrap"><table><thead><tr><th>Check</th><th>Result</th><th>Scope</th></tr></thead><tbody><tr><td><code>npm test</code></td><td>644/644, no failures</td><td>Project runner covering logic, integration, architecture, infrastructure, and browser tests.</td></tr><tr><td><code>npm run test:browser</code></td><td>71/71, no failures</td><td>Local Chromium and Playwright scenarios; several check page and console errors.</td></tr><tr><td><code>npm run build</code></td><td>Passed</td><td>Orama and assembled backend; no generated product diff.</td></tr></tbody></table></div><p>Provider tests largely use doubles and do not prove external API availability. Performance, branch coverage, screen reader accessibility, and end-to-end offline reliability were not measured.</p></section>
-<section><h2>3. Observed architecture</h2><p>The web client is static HTML/CSS/JS. <a href="../../../js/state.js">ChatState</a> owns conversation state, <a href="../../../js/storage-db.js">ZeroChatDB</a> handles IndexedDB, <a href="../../../js/providers.js">BaseProviderAdapter</a> normalizes providers, and <a href="../../../js/tools/README.md">the tool contract</a> defines registration and views. The backend is assembled from <code>py/*.py</code>, with <code>zz-main.py</code> last. Packaging metadata and smoke tests target a Python-only wheel; this review did not rebuild the wheel.</p><p>Large modules still raise maintenance costs: <code>js/app.js</code> exceeds 2,100 lines, <code>js/file-parser.js</code> 2,000, and <code>js/agent-core.js</code> 1,600. Size alone is not a defect; future changes should preserve responsibility boundaries and add focused regression tests.</p></section>
-<section><h2>4. Open findings</h2><div class="table-wrap"><table><thead><tr><th>ID / priority</th><th>Evidence and impact</th><th>Remedy and acceptance test</th></tr></thead><tbody><tr id="f2"><td>F2 · High</td><td><a href="../../../py/ee-mcp.py">ee-mcp.py</a> checks <code>edit_file.mode</code> only as a string up to 32 characters, not against the enum declared in <a href="../../../py/dd-tools.py">dd-tools.py</a>. In <code>edit_file</code>, an unknown mode with <code>content</code> falls through to full-file write. An authenticated RPC call can overwrite a file due to a mode error.</td><td>Reject modes outside <code>surgical|write|append|replace_chunk</code> before touching the file, including direct Python calls. Test via HTTP that an invalid mode leaves bytes and metadata unchanged.</td></tr><tr id="q1"><td>Q1 · High</td><td><a href="../../../js/profile-backup.js">profile-backup.js</a> uses direct SHA-256 as password material and stores that reusable value in <code>localStorage</code> for up to 24 hours. Backups encrypted with the public default key offer limited secrecy; same-origin script access can recover cached material.</td><td>Use a versioned salted KDF and migrate old backups; reduce or remove persistent caching. Test old-format decryption, wrong passwords, expiry, and cross-tab behavior.</td></tr><tr id="q2"><td>Q2 · Medium</td><td><a href="../../../py/cc-environment.py">cc-environment.py</a> keeps a daily server token in <code>~/zerochat/config/token.json</code> without explicitly setting mode 0600. File confidentiality depends on umask; a same-day restart reuses the token.</td><td>Create with owner-only permissions, check existing files, and decide whether to rotate per launch. Test a permissive umask and rejection of an old token after rotation.</td></tr><tr id="q3"><td>Q3 · Medium</td><td><a href="../../../sw.js">sw.js</a> uses <code>Promise.allSettled</code> and suppresses download errors at install. An incomplete cache may activate although published-path routing tests pass.</td><td>Define required assets and fail or retry install if missing. Test a failed critical fetch and offline reload under <code>/zerochat/</code>.</td></tr><tr id="q4"><td>Q4 · Medium</td><td><a href="../../../js/tool-security.js">tool-security.js</a> applies R/W and approval rules in the browser. <a href="../../../py/ff-server.py">ff-server.py</a> authenticates RPC but does not independently enforce those policies. A client holding a valid token can directly invoke local tools with the user's privileges.</td><td>Document the trust model; if modified clients must be contained, enforce policy at the backend. Test a direct authenticated request outside an allowed folder and revocation.</td></tr></tbody></table></div><p>Q4 is an architectural boundary, not a token-free exploit. The venv isolates Python dependencies, not shell or MCP operating system privileges.</p></section>
-<section><h2>5. Earlier findings and residual risk</h2><p>F1, F3, and F4 from the 7.8.0 report should no longer be listed as open. F2 remains open, as shown above. <a href="../../../tests/integration/test_tool_security.js">Permission tests</a> cover command prefixes with directory rules, relative paths, and shell aliases. <a href="../../../py/dd-tools.py">read_file</a> enforces a UTF-8 byte budget and <code>edit_file</code> declares a mode enum that the RPC validator does not enforce. <a href="../../../tests/unit/test_service_worker.js">Service Worker tests</a> execute the handler for the published path. Coverage limits remain: precache tests do not simulate network failure.</p><p>HTML sinks, Markdown, tool cards, and URLs still need review when changed. Current utility and UI tests cover sanitization paths, but a textual search for <code>innerHTML</code> neither proves nor rules out XSS.</p></section>
-<section><h2>6. Code hygiene and boundaries</h2><p>Searches covered native dialogs, obsolete tool fields, state outside <code>ChatState</code>, <code>innerHTML</code> sinks, event listeners, and translation keys. Architecture contracts and current tests cover dialogs, icons, declarative tools, state, and sanitization in specific paths. No code was labeled dead solely for lacking a static reference: UMD modules, dynamic registration, and HTML loading require runtime confirmation. No functional duplication was established strongly enough to recommend a broad extraction.</p><p>HTML review should focus on MCP results, document titles, and agent cards. <a href="../../../js/utils.js">ChatUtils</a> supplies text and sanitization helpers; <a href="../../../js/markdown.js">Markdown</a> has its own boundary. Each changed view displaying external data should have an injection test using malicious text, URLs, and attributes.</p></section>
-<section><h2>7. Recommended sequence</h2><ol><li>Fix F2 and add an HTTP regression test.</li><li>Revise Q1 encryption and cache design with a compatible migration.</li><li>Harden Q2 token creation and rotation.</li><li>Choose Q4's trust boundary explicitly and add direct RPC tests.</li><li>Make Q3 offline installation verifiable under partial failure.</li><li>Keep browser and packaging gates in CI for promotions.</li></ol><p>Module size alone does not justify a broad rewrite. Each fix needs a test reproducing the specific behavior.</p></section><footer><p>Point-in-time technical review of the local 7.11.0 tree, 25 September 2026. This is not a security certification.</p></footer></main></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Technical audit of ZeroChat · ZeroChat 7.12.0 · 2026-09-27">
+<title>Technical audit of ZeroChat · ZeroChat 7.12.0</title>
+<style>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1080px;margin:auto;padding:24px 20px 64px}
+header{border-top:6px solid #08636c;padding:20px 0}
+.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}
+h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}
+h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}
+h3{font-size:1.1rem;margin:1.5em 0 .3em}
+p{margin:.6em 0 1em}
+.meta{color:#546575;font-size:.9rem}
+.lead{font-size:1.12rem}
+nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}
+nav a[aria-current]{background:#08636c;color:white}
+a{color:#075d66}
+section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}
+section.verdict{border-left:5px solid #08636c}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}
+th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}
+th{background:#eaf3f3}
+code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}
+ul,ol{padding-left:1.5rem}
+.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}
+@media(max-width:600px){main{padding:14px 12px 40px}
+section,footer{padding:18px}
+}
+
+main{width:100%;min-width:0}
+header,section,footer{overflow-wrap:anywhere}
+h2,h3{scroll-margin-top:1rem}
+pre{overflow-x:auto;padding:1rem;background:#edf1f4;border-radius:7px}
+pre code{padding:0;overflow-wrap:normal}
+blockquote{margin:1rem 0;padding:.5rem 1rem;border-left:4px solid #42858a;background:#eef5f6}
+.table-wrap{max-width:100%}
+.toc{display:block}
+.toc ol{columns:2;column-width:20rem}
+.toc li{break-inside:avoid;margin:.25rem 0}
+.toc a{border:0;padding:0;background:transparent}
+a:focus-visible,.table-wrap:focus-visible{outline:3px solid #08636c;outline-offset:3px}
+footer p:last-child{margin-bottom:0}
+
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">ZeroChat · Audit reports · 7.12.0</div>
+<h1>Technical audit of ZeroChat</h1>
+<p>Date: 27 September 2026. Reviewed version: <strong>7.12.0</strong>, compatible backend <strong>7.12</strong>. Branch: <code>dev</code>. Reference commit: <code>b0d55a7d3094178ca0a5f9afe24747ae283102b3</code>.</p>
+<p>Status: report complete; findings remain open. This audit does not modify or fix the product. The pre-existing change to <code>todo.txt</code> is outside its scope.</p>
+<p>Related reports: <a href="informe-funcionalidades-madurez.html">functional suitability</a> and <a href="informe-comparativa-herramientas.html">competitive comparison</a>.</p>
+<nav aria-label="Help navigation">
+<a href="../index.html">Help center</a>
+<a href="../architecture.html">Architecture</a>
+<a href="../../informes/informe-calidad-codigo-infraestructura.html" lang="es" hreflang="es">Español</a>
+</nav>
+</header>
+<nav aria-label="Audit reports">
+<a href="informe-calidad-codigo-infraestructura.html" aria-current="page">Technical audit</a>
+<a href="informe-funcionalidades-madurez.html">Functional audit</a>
+<a href="informe-comparativa-herramientas.html">Competitive comparison</a>
+</nav>
+<nav class="toc" aria-label="Contents">
+<p><strong>Contents</strong></p>
+<ol>
+<li><a href="#section-1">Assessment</a></li>
+<li><a href="#section-2">Scope and method</a></li>
+<li><a href="#section-3">Executed checks</a></li>
+<li><a href="#section-4">Quality by area</a></li>
+<li><a href="#section-5">Findings and actions</a></li>
+<li><a href="#section-6">Consolidation plan</a></li>
+<li><a href="#section-7">Repeating the review</a></li>
+</ol>
+</nav>
+<section>
+<h2 id="section-1">1. Assessment</h2>
+<p><strong>ZeroChat has a solid technical foundation for a supervised personal tool, with significant reservations about security and error recovery.</strong> The separation of providers, state, persistence, tools and interface is real and supported by tests. The full suite passes. However, additional checks reproduce a bypass of the development server's public-file allowlist, overly permissive token file permissions under a common configuration, and a deadlock in the browser controller.</p>
+<p>A rewrite or enterprise infrastructure is not justified. These defects should be fixed and the credential protection model reviewed before expanding tool capabilities or presenting the product as a secure environment for sensitive information.</p>
+<p>This result is not a certification, a code coverage measurement or a guarantee that no vulnerabilities exist. It is a cross-cutting review of code and documentation, execution of the test suite, and targeted checks of higher-risk areas.</p>
+</section>
+<section>
+<h2 id="section-2">2. Scope and method</h2>
+<p>The review covered <code>zerochat.html</code>, the main <code>js/</code> modules, all eight <code>py/</code> modules, their correspondence with <code>zerochat.py</code>, the service worker, distribution configuration, workflows, test runner, representative tests at every level and user guides. Particular attention went to local authentication, tool authorization, credentials, process execution, storage, RAG, providers and error recovery.</p>
+<p>Execution environment: Linux, Node <strong>24.18.1</strong>, Python <strong>3.14.7</strong>, and Chromium through Playwright. CI specifies Node 22 and Python 3.12 on Ubuntu, so the environments are not identical.</p>
+<p>Evidence types:</p>
+<ul>
+<li><strong>R: reproduced</strong> by running the suite or an additional controlled check.</li>
+<li><strong>C: confirmed in code/configuration</strong>; this does not imply exploitation or an observed production failure.</li>
+<li><strong>P: pending measurement</strong>; a validation recommendation, not a demonstrated defect.</li>
+</ul>
+<p>Priorities: <strong>P1</strong> fix before expanding exposure or capabilities; <strong>P2</strong> next consolidation cycle; <strong>P3</strong> incremental improvement. Severity expresses potential impact; priority also accounts for the intended personal use. No CVSS scores are assigned without a deployment-specific threat analysis.</p>
+<p>The review did not make paid provider calls, conduct an external penetration test, run destructive load tests, evaluate accessibility with users, perform real GPU inference or install the product on Windows/macOS. It did not build a wheel either. No real credentials were inspected.</p>
+</section>
+<section>
+<h2 id="section-3">3. Executed checks</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>npm test</code></td>
+<td><strong>666 tests, 666 passed, 0 failed, 0 skipped</strong>, exit 0</td>
+<td>All levels discovered by the runner</td>
+</tr>
+<tr>
+<td>Runner inventory</td>
+<td>90 files: 37 unit, 33 integration, 14 browser, 3 architecture and 3 infrastructure</td>
+<td>File count, distinct from test case count</td>
+</tr>
+<tr>
+<td>Binary comparison of sorted concatenated <code>py/*.py</code> against <code>zerochat.py</code></td>
+<td>Match</td>
+<td>Generated backend is synchronized</td>
+</tr>
+<tr>
+<td><code>npm audit --json</code></td>
+<td>0 reported vulnerabilities</td>
+<td>Audited npm dependencies; excludes product code, CDN resources and some installable MCP dependencies</td>
+</tr>
+<tr>
+<td>Local HTTP request without a token to <code>/js/../package.json</code></td>
+<td><strong>200</strong>, body matches <code>package.json</code></td>
+<td>Temporary audit server and HTTP client that preserves <code>..</code></td>
+</tr>
+<tr>
+<td>Token creation with <code>umask 022</code></td>
+<td>File mode <strong>0644</strong>, token reused</td>
+<td>Temporary directory through <code>ZEROCHAT_DATA_DIR</code>; token value not printed</td>
+</tr>
+<tr>
+<td>Encrypt/decrypt a dummy value with the default key</td>
+<td>Recoverable without a password</td>
+<td>Public API of <code>profile-backup.js</code></td>
+</tr>
+<tr>
+<td>Immediate EOF from a simulated <code>PersistentBrowserSession</code> process</td>
+<td>Blocked thread, lock held</td>
+<td>Isolated reproduction of the class; no browser launched</td>
+</tr>
+<tr>
+<td>Test group integrity</td>
+<td>One nonexistent path in <code>generation</code></td>
+<td>The full suite does discover the actual file</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Startup tests include console checks and passed. The overall log contains errors deliberately triggered by negative tests, including WebLLM tests; these should not be confused with console errors during normal startup. Line and branch coverage were not measured: 666 tests do not establish a coverage percentage.</p>
+</section>
+<section>
+<h2 id="section-4">4. Quality by area</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Assessment</th>
+<th>Evidence and limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Architecture</td>
+<td>Good modular foundation</td>
+<td>UMD, <code>BaseProviderAdapter</code>, <code>ChatState</code>, <code>ChatConfig</code>, conversation services and tool contracts</td>
+</tr>
+<tr>
+<td>Maintainability</td>
+<td>Sound, with concentrated complexity</td>
+<td><code>app.js</code>: 2,158 lines; <code>file-parser.js</code>: 2,088; <code>agent-core.js</code>: 1,670; size alone is not a defect</td>
+</tr>
+<tr>
+<td>Reliability</td>
+<td>Broad automated regression coverage, incomplete recovery</td>
+<td>Passing suite, but a deadlock reproduced outside covered cases</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Real controls and concrete gaps</td>
+<td>Token, HMAC, nonces, validation and JS isolation; reservations below</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>Appropriate for individual use</td>
+<td>IndexedDB, separate attachment and RAG stores, exports and quota handling</td>
+</tr>
+<tr>
+<td>Performance</td>
+<td>Reasonable choices, no certified capacity</td>
+<td>In-memory index, ingestion and sandbox limits, deferred panel updates; benchmarks missing</td>
+</tr>
+<tr>
+<td>Compatibility</td>
+<td>Tested contracts, limited real-world matrix</td>
+<td>Adapters and tests; CI browser coverage limited to Chromium</td>
+</tr>
+<tr>
+<td>Distribution</td>
+<td>Clear and automated</td>
+<td>Synchronized concatenation, single-module wheel configuration, release through Trusted Publishing</td>
+</tr>
+<tr>
+<td>Documentation</td>
+<td>Extensive, with overstated promises</td>
+<td>Bilingual help; privacy and the meaning of encryption need precision</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="subsection-1">Strengths worth preserving</h3>
+<ol>
+<li><a href="../../../js/providers.js">Adapters</a> normalize formats and streaming without scattering integration logic throughout the interface. Mirror mode lets users inspect requests without a provider.</li>
+<li><a href="../../../js/state.js">State</a>, <a href="../../../js/config-store.js">configuration</a> and the <a href="../../../js/conversation-service.js">conversation service</a> have explicit boundaries and coordination tests.</li>
+<li><a href="../../../js/storage-db.js">ZeroChatDB</a> centralizes the schema and separates messages, attachments and knowledge. <a href="../../../js/ragStorage.js">RagStorage</a> handles persistence, quota estimates and export/import.</li>
+<li>Each tool declares its name and input schema, settings, execution, result format and optional view. Dependencies are injected through services, and the executor checks authorization before acting.</li>
+<li>The <a href="../../../py/ff-server.py">server</a> requires an API token, compares secrets with <code>compare_digest</code>, limits HTTP bodies to 1 MiB and verifies signatures with expiration, a body hash and an atomically consumed nonce. Signing must not be confused with isolation from a compromised frontend.</li>
+<li>The <a href="../../../js/sandbox.js">JavaScript sandbox</a> uses an iframe, worker, network restrictions and timed termination, with browser tests. Its own contract explains that this is not operating-system isolation.</li>
+<li>CI runs all five levels, and release publication validates the tag, package and tests before Trusted Publishing. These guarantees do not require a web bundling system.</li>
+</ol>
+</section>
+<section>
+<h2 id="section-5">5. Findings and actions</h2>
+<h3 id="t01">T01. Static-file allowlist bypass — medium, P1, R</h3>
+<p><strong>Evidence:</strong> <code>ZeroChatServerHandler.serve_static_file</code>, <a href="../../../py/ff-server.py">ff-server.py</a>. It checks that the resolved path stays inside the repository, but evaluates the allowlist against <code>clean_rel</code>, before resolving <code>..</code>. <code>/js/../package.json</code> starts with <code>js/</code> and ultimately reads an unauthorized root-level file.</p>
+<p><strong>Reproduction:</strong> temporary local server and <code>http.client.HTTPConnection</code>; literal GET to <code>/js/../package.json</code>, without Authorization or Origin. Result: 200 and content identical to the file. A browser or <code>fetch</code> may normalize the path before sending it; the existing <code>/../package.json</code> case does not cover this vector.</p>
+<p><strong>Impact:</strong> unauthenticated reading of non-hidden, non-blocked files within the development repository. No escape outside that root, hidden-file access or code execution was demonstrated. Installed mode without a development root does not serve these files. Default loopback binding limits exposure.</p>
+<p><strong>Action and acceptance:</strong> apply the allowlist to the canonical relative path and review symlinks. Add HTTP requests without normalization covering <code>..</code>, valid paths, hidden files and symlinks. Reject every unauthorized target even if the input starts with <code>js/</code>.</p>
+<h3 id="t02">T02. Daily token permissions depend on umask — high if local access is possible, P1, R/C</h3>
+<p><strong>Evidence:</strong> <code>get_daily_token</code>, <a href="../../../py/cc-environment.py">cc-environment.py</a>, writes <code>config/token.tmp</code> and renames it without setting permissions. With <code>umask 022</code>, the reproduced mode is <strong>0644</strong>. The token is reused during the day; existing tests explicitly require this. It is not a new secret for each launch.</p>
+<p><strong>Impact:</strong> another local user could read it if they can also traverse the parent directories. This does not assume every home directory is accessible. With the token, a client can initialize the API and obtain signing credentials; HMAC does not protect against token theft. The HMAC key does change on each launch.</p>
+<p><strong>Action and acceptance:</strong> create the secret with owner-only permissions, protect the directory and define suitable Windows ACLs. Correct permissions on existing files. Decide and document whether to retain daily-token convenience; calling it ephemeral is insufficient. Tests with permissive umask, an existing token and restart must check permissions and lifecycle without logging secrets.</p>
+<h3 id="t03">T03. Limited protection of credentials and backups — high with access to storage/exports, P1, R/C</h3>
+<p><strong>Evidence:</strong> <a href="../../../js/profile-backup.js">profile-backup.js</a>, <code>getKey</code>, <code>keyMaterialFromPassword</code>, <code>cacheKeyMaterial</code>. Default mode derives the AES-GCM key from a constant embedded in the code. A custom password is hashed using SHA-256 without salt or a work factor; derived material can be remembered in localStorage for 24 hours.</p>
+<p><strong>Impact:</strong> AES-GCM provides cryptographic integrity, but a publicly known encryption key provides no confidentiality against someone who obtains an encrypted copy. A weak password allows fast offline guessing. Remembered material permits decryption while accessible and does not protect against malicious same-origin JavaScript. The module comment acknowledges the embedded-key limitation, but the user experience must make it unambiguous.</p>
+<p><strong>Action and acceptance:</strong> explicitly distinguish default protection from password encryption; for confidentiality, use salted, cost-configurable key derivation, a versioned format and migration. Avoid persisting key-equivalent material without an informed choice. Test old/new restoration, incorrect passwords, tampering and removal of remembered key material. Do not introduce a change that makes existing backups unusable.</p>
+<h3 id="t04">T04. Deadlock when browser automation fails — medium, P1, R</h3>
+<p><strong>Evidence:</strong> <code>PersistentBrowserSession.execute</code> and <code>close</code>, <a href="../../../py/dd-tools.py">dd-tools.py</a>. <code>execute</code> holds a <code>threading.Lock</code> and calls <code>close</code> on EOF or exception; <code>close</code> tries to acquire that same non-reentrant lock.</p>
+<p><strong>Reproduction:</strong> the original class was extracted with AST and <code>_ensure_running</code> replaced by a simulated process with in-memory stdin and empty stdout. After immediate EOF, <code>execute</code> does not return and the lock stays held. The check ran in an isolated daemon thread, without a browser or leftover processes.</p>
+<p><strong>Impact:</strong> a process crash can block subsequent calls and session shutdown. In addition, <code>readline()</code> has no independent deadline; Playwright timeouts do not cover all process failures.</p>
+<p><strong>Action and acceptance:</strong> separate internal cleanup under the lock from public shutdown, or revise locking, and add an IPC deadline. Test EOF, invalid JSON, broken pipes, silent processes, concurrent shutdown and subsequent recovery.</p>
+<h3 id="t05">T05. Python MCP may execute outside the venv — medium, P2, C</h3>
+<p><strong>Evidence:</strong> <code>_prepare_service</code>, <a href="../../../py/ee-mcp.py">ee-mcp.py</a>, uses <code>sys.executable</code> as <code>pythonExecutable</code> when the venv Python is missing. <a href="../../../py/cc-environment.py">cc-environment.py</a> allows execution to continue after venv creation fails.</p>
+<p><strong>Impact:</strong> this contradicts the rule requiring Python MCP processes to run exclusively in <code>~/zerochat/.venv</code>. Global package installation was not demonstrated; the finding concerns the fallback execution path.</p>
+<p><strong>Action and acceptance:</strong> keep chat operational but report the affected MCP as unavailable when its isolated interpreter is missing. Test missing/failed venv creation and verify that global Python is not launched as a fallback.</p>
+<h3 id="t06">T06. Privacy claims exceed the implementation — medium, P1, C</h3>
+<p><strong>Evidence:</strong> the product introduction promises absolute privacy and no intermediaries; <a href="../../../help/rag.html">RAG help</a> says data never leaves the device, while subsequently explaining that snippets are sent to the model. <a href="../../../js/web-search.js">web-search.js</a> uses Jina for search, and <a href="../../../js/web-browser.js">web-browser.js</a> includes Jina and AllOrigins. The RAG index itself is built locally.</p>
+<p><strong>Impact:</strong> users may provide sensitive information under a mistaken expectation. Third parties may receive queries or URLs; RAG snippets sent to a remote provider leave the device. This does not mean all conversations use a proxy.</p>
+<p><strong>Action and acceptance:</strong> explain destinations for each function and add an explicit option to disallow intermediaries. Correct both languages. A test with intercepted requests should show that intermediary-free mode never contacts those domains.</p>
+<h3 id="t07">T07. Partial execution limits and shared isolation boundaries — medium, P2, C/P</h3>
+<p><strong>Evidence:</strong> <a href="../../../py/dd-tools.py">dd-tools.py</a> keeps <code>BASH_SESSION</code> and <code>_BROWSER_SESSION</code> per process, without conversation partitioning. The shell retains cwd and exported variables. <code>communicate()</code>/<code>capture_output=True</code> accumulate output before truncation. The branch executing with a different cwd uses <code>subprocess.run(shell=True)</code>; the persistent branch does kill the process group on timeout.</p>
+<p><strong>Impact:</strong> two conversations using the same backend share system context. Truncating the response does not limit the memory needed to capture it. Cancelling a frontend request does not by itself demonstrate termination of remote work. Memory exhaustion was not induced and orphaned processes were not measured.</p>
+<p><strong>Action and acceptance:</strong> decide whether shared sessions are an intended feature and make that visible; offer a per-project reset or isolation where appropriate. Bound output during reading, standardize process-tree termination and test cancellation with dummy processes. A second conversation must have documented behavior for cwd, environment and browser state.</p>
+<h3 id="t08">T08. Partial test selection is incomplete — medium, P2, R/C</h3>
+<p><strong>Evidence:</strong> <a href="../../../scripts/test-runner.mjs">test-runner.mjs</a>. <code>generation</code> references <code>tests/unit/test_generation_controller.js</code>, but the file is in <code>tests/integration/</code>. <code>resolveGroupFiles</code> silently filters missing paths. <code>resolveChangedFiles</code> generically selects only unit tests for changes such as <code>js/chat-engine.js</code>, <code>js/state.js</code> or <code>js/rag-service.js</code>, despite their integration tests.</p>
+<p><strong>Impact:</strong> a group or <code>test:changed</code> can pass without running relevant regressions. <strong>This does not affect the result of <code>npm test</code> or full CI</strong>, which discover all levels.</p>
+<p><strong>Action and acceptance:</strong> fix the group, reject nonexistent entries and test the impact map for core modules. Check group listings and selection by changed file.</p>
+<h3 id="t09">T09. Web updates do not guarantee an atomic resource set — medium, P2, C/P</h3>
+<p><strong>Evidence:</strong> <a href="../../../sw.js">sw.js</a> precaches with <code>Promise.allSettled</code>, tolerates failures, activates through <code>skipWaiting</code> and updates individual resources using stale-while-revalidate.</p>
+<p><strong>Potential impact:</strong> partial updates or intermittent connectivity may leave a mixed resource set or an incomplete cache. An actual update failure was not reproduced here.</p>
+<p><strong>Action and acceptance:</strong> check complete installation before activation or verify a consistent resource manifest. Test a transition between two versions, one failed resource, two tabs and offline startup. Distinguish web caching from WebLLM model availability.</p>
+<h3 id="t10">T10. Platform, performance and external-result coverage — medium, P2, C/P</h3>
+<p><strong>Evidence:</strong> <a href="../../../tests/helpers/browser-env.js">browser helpers</a> use Chromium; workflows run on Ubuntu. Adapter and WebLLM tests do not establish real operation of every model or GPU. No corpus, concurrency or latency benchmark was produced.</p>
+<p><strong>Action and acceptance:</strong> define a minimum supported matrix; test installation on advertised platforms, Safari/Firefox if support is retained, a small controlled provider set, quotas and storage recovery. Record hardware, datasets and percentiles. Do not claim corpus capacity solely because an individual document may be 50 MiB.</p>
+<h3 id="t11">T11. Frontend trust surface and dynamic dependencies — medium, P2, C</h3>
+<p><strong>Evidence:</strong> the CSP in <a href="../../../zerochat.html">zerochat.html</a> permits <code>unsafe-inline</code>, <code>unsafe-eval</code> and broad connections; <a href="../../../js/providers-webllm.js">providers-webllm.js</a> imports code from a CDN. The session cookie is written by JS with <code>Path=/</code> in <a href="../../../js/cookies.js">cookies.js</a>. GitHub Pages paths on the same domain share an origin; a path is not a security boundary.</p>
+<p><strong>Impact:</strong> compromise of the origin or application-executed code can reach client-accessible data and secrets. No XSS vulnerability was found or exploited here; these are trust boundaries, not evidence of compromise. <code>npm audit</code> does not rule them out.</p>
+<p><strong>Action and acceptance:</strong> inventory runtime dependencies, justify CSP exceptions and test gradual reductions. Consider a dedicated origin when hosting applications with different trust levels. Document that tool signatures do not defend against a compromised frontend itself.</p>
+<h3 id="t12">T12. Concentrated responsibilities and documentation debt — low, P3, C</h3>
+<p><strong>Evidence:</strong> modules exceeding 1,500–2,000 lines, a custom document parser and manually ordered scripts. The distribution description refers to a single HTML file although the web app requires <code>js/</code> and <code>css/</code>. The RAG help metadescription mentions hybrid search, but <a href="../../../js/rag-index.js">rag-index.js</a> builds text fields and runs weighted lexical queries with tolerance, without embeddings in that flow.</p>
+<p><strong>Action and acceptance:</strong> correct terminology, document parser limits and extract responsibilities only when changing specific areas. Preserve contracts and regressions; do not replace the architecture solely because of file size.</p>
+</section>
+<section>
+<h2 id="section-6">6. Consolidation plan</h2>
+<div class="table-wrap" role="region" aria-label="Report table" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Order</th>
+<th>Work</th>
+<th>Completion criterion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>T01, T02, T04</td>
+<td>Reproductions become regression tests that pass after the defect is fixed</td>
+</tr>
+<tr>
+<td>2</td>
+<td>T03 and T06</td>
+<td>Clear protection and data destinations, validated backup migration, consistent ES/EN help</td>
+</tr>
+<tr>
+<td>3</td>
+<td>T05, T07 and T08</td>
+<td>Mandatory venv for Python MCP, explicit cancellation/state behavior and reliable test selection</td>
+</tr>
+<tr>
+<td>4</td>
+<td>T09–T11</td>
+<td>Update tests, supported matrix and documented trust boundaries</td>
+</tr>
+<tr>
+<td>Ongoing</td>
+<td>T12</td>
+<td>Small changes with contracts and tests, without a general refactor</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Promotion to <code>master</code>, a version bump and publication are not requested. Future fixes must follow the <code>dev</code> workflow and applicable validation.</p>
+</section>
+<section>
+<h2 id="section-7">7. Repeating the review</h2>
+<p>Main commands executed:</p>
+<pre><code class="language-bash">npm test
+npm audit --json
+node scripts/test-runner.mjs --list
+</code></pre>
+<p>For the HTTP vector, start a test backend with <code>ZEROCHAT_DATA_DIR</code> set to a temporary directory, bound to loopback, without browser or venv initialization. Use <code>http.client</code> to send the literal path <code>/js/../package.json</code>; alternatively use <code>curl --path-as-is</code>. Compare status and content without introducing sensitive data. Stop the process afterward. For permissions, set <code>umask 022</code>, call <code>get_daily_token</code> in that temporary environment and inspect <code>stat</code> without displaying the value.</p>
+<p>For the deadlock, simulate closed stdout and run <code>execute</code> in a controlled process/thread with a deadline; the check must not hang indefinitely while reproducing the defect. For encryption, use only a dummy value and verify decryption in default mode without a password.</p>
+<p>The additional results do not alter the product test suite: they identify the gaps a future fix must cover. Earlier repository reports are historical and were not treated as evidence that a defect still exists.</p>
+</section>
+<footer>
+<p>Summary: a modular foundation supported by 666 passing tests, with 12 prioritized findings. The first fixes should address static-file access, token permissions and the browser automation deadlock.</p>
+<p>Point-in-time audit dated 27 September 2026. Recommendations do not imply that fixes have been implemented.</p>
+</footer>
+</main>
+</body>
+</html>

@@ -1,7 +1,405 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Comparativa de herramientas — ZeroChat 7.11.0"><title>ZeroChat 7.11.0 · Comparativa de herramientas</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1080px;margin:auto;padding:24px 20px 64px}header{border-top:6px solid #08636c;padding:20px 0}.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}h3{font-size:1.1rem;margin:1.5em 0 .3em}p{margin:.6em 0 1em}.meta{color:#546575;font-size:.9rem}.lead{font-size:1.12rem}nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}nav a[aria-current]{background:#08636c;color:white}a{color:#075d66}section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}section.verdict{border-left:5px solid #08636c}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}th{background:#eaf3f3}code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}ul,ol{padding-left:1.5rem}.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}@media(max-width:600px){main{padding:14px 12px 40px}section,footer{padding:18px}}</style></head>
-<body><main><header><div class="eyebrow">ZeroChat · Auditoría del código actual · 7.11.0</div><h1>Comparativa de herramientas</h1><p class="lead">Posicionamiento de ZeroChat frente a cinco alternativas con fuentes oficiales.</p><p class="meta">25 de septiembre de 2026 · dev · Codex (OpenAI)</p><a href="../architecture.html">← Volver a arquitectura</a></header><nav aria-label="Informes de auditoría"><a href="informe-funcionalidades-madurez.html">Funcionalidades y madurez</a><a href="informe-comparativa-herramientas.html" aria-current="page">Comparativa de herramientas</a><a href="informe-calidad-codigo-infraestructura.html">Código e infraestructura</a><a href="../en/informes/informe-comparativa-herramientas.html" lang="en">English</a></nav><section class="verdict"><h2>Dictamen comparativo</h2><p>ZeroChat destaca por una web estática, conversaciones locales y un backend Python opcional para herramientas. Es una elección razonable para un entorno personal inspeccionable. Las alternativas documentan funciones más amplias en administración multiusuario, RAG semántico o gestión integrada de modelos. Esta comparación describe capacidades y encaje; no es un benchmark de velocidad, seguridad ni calidad de respuestas.</p></section>
-<section><h2>1. Método y límites</h2><p>ZeroChat 7.11.0 se inspeccionó y probó localmente (644 pruebas generales y 71 de navegador). Los demás productos se contrastaron solo con documentación oficial consultada el 25 de septiembre de 2026; no se instalaron ni auditaron sus códigos. Funciones, plataformas y licencias pueden variar con edición y fecha. «Mejor encaje» es una inferencia basada en las capacidades citadas, no una superioridad medida.</p></section>
-<section><h2>2. Matriz de orientación</h2><div class="table-wrap"><table><thead><tr><th>Producto</th><th>Orientación documentada</th><th>Lectura práctica</th></tr></thead><tbody><tr><td>ZeroChat</td><td>Cliente estático personal, RAG léxico local, agentes y backend opcional para shell/MCP.</td><td>Menor infraestructura central; el usuario gestiona credenciales, copias y procesos locales.</td></tr><tr><td><a href="https://docs.openwebui.com/features/">Open WebUI</a></td><td>Plataforma autohospedada con conocimiento, herramientas, MCP HTTP y <a href="https://docs.openwebui.com/features/authentication-access/rbac/permissions/">RBAC</a>.</td><td>Encaja mejor si hacen falta usuarios, recursos compartidos y administración.</td></tr><tr><td><a href="https://www.librechat.ai/docs/features/agents">LibreChat</a></td><td>Agentes configurables, búsqueda semántica de archivos, MCP y ACL de agentes.</td><td>Encaja mejor como plataforma compartida de agentes y proveedores.</td></tr><tr><td><a href="https://docs.anythingllm.com/">AnythingLLM</a></td><td>Espacios de trabajo y documentos, configuración de modelos y <a href="https://docs.useanything.com/agent/setup">agentes</a>.</td><td>Encaja si la gestión de colecciones documentales es central.</td></tr><tr><td><a href="https://www.jan.ai/docs/desktop/quickstart">Jan</a></td><td>Aplicación de escritorio que descarga/ejecuta modelos locales, conecta nube y MCP.</td><td>Encaja si se quiere inferencia local integrada.</td></tr><tr><td><a href="https://releases.chatboxai.app/en/guide/work-mode/configuration">Chatbox</a></td><td>Work Mode con archivos, código, skills, MCP y base de conocimiento semántica.</td><td>Competidor personal directo; las funciones dependen de plataforma.</td></tr></tbody></table></div></section>
-<section><h2>3. Diferencias que importan</h2><h3>Despliegue y control</h3><p>ZeroChat usa GitHub Pages para la interfaz y conserva conversaciones en el navegador. Al usar shell o MCP, el ejecutable local arranca un servidor protegido por token. Open WebUI y LibreChat organizan funciones de servidor y permisos de usuario, según sus documentos. La comparación de costes operativos es una inferencia de esas arquitecturas; no se midió tiempo de instalación ni consumo de recursos.</p><h3>Documentos e inferencia</h3><p>El RAG de ZeroChat usa Orama con búsqueda léxica. <a href="https://www.librechat.ai/docs/features/agents">LibreChat</a> documenta file search semántica, <a href="https://docs.openwebui.com/features/workspace/knowledge/">Open WebUI</a> bases de conocimiento y <a href="https://releases.chatboxai.app/en/guide/work-mode/configuration">Chatbox</a> embeddings y reranking opcional. Jan integra descarga y ejecución de modelos locales; ZeroChat se conecta a motores externos o usa WebLLM cuando el navegador lo permite. No se comparó recall, latencia ni exactitud.</p><h3>Herramientas y seguridad</h3><p>ZeroChat tiene aprobaciones en el cliente y backend tokenizado, con los límites descritos en <a href="informe-calidad-codigo-infraestructura.html">el informe técnico</a>. <a href="https://www.librechat.ai/docs/features/mcp">LibreChat</a> documenta MCP y permisos por usuario; <a href="https://docs.openwebui.com/features/extensibility/mcp/">Open WebUI</a> MCP HTTP; <a href="https://www.jan.ai/docs/agent/mcp">Jan</a> conectores MCP; <a href="https://releases.chatboxai.app/en/guide/work-mode/configuration">Chatbox</a> MCP remoto y stdio en escritorio. La presencia de MCP no demuestra aislamiento equivalente entre productos.</p></section>
-<section><h2>4. Elección según necesidad</h2><ul><li><strong>Cliente personal transparente y adaptable:</strong> ZeroChat.</li><li><strong>Administración compartida con roles:</strong> evaluar Open WebUI o LibreChat.</li><li><strong>Trabajo centrado en documentos y espacios:</strong> evaluar AnythingLLM y el RAG de las plataformas de servidor.</li><li><strong>Descarga y ejecución local de modelos en escritorio:</strong> evaluar Jan.</li><li><strong>Flujo personal de chat y tareas con herramientas integradas:</strong> comparar ZeroChat con Chatbox en la plataforma usada.</li></ul><p>Para una decisión de compra o despliegue conviene ensayar el mismo corpus, modelos, permisos y hardware en los candidatos seleccionados. Las funciones documentadas pueden requerir configuración, servicios o licencias.</p></section><footer><p>Fuentes externas: documentación oficial enlazada junto a cada afirmación. Consulta del 25 de septiembre de 2026. Solo ZeroChat se ejecutó en esta auditoría.</p></footer></main></body></html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="ZeroChat: orientación y funcionalidades frente a la competencia · ZeroChat 7.12.0 · 2026-09-27">
+<title>ZeroChat: orientación y funcionalidades frente a la competencia · ZeroChat 7.12.0</title>
+<style>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:#edf2f5;color:#172937;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1080px;margin:auto;padding:24px 20px 64px}
+header{border-top:6px solid #08636c;padding:20px 0}
+.eyebrow{font-size:.8rem;font-weight:800;letter-spacing:.1em;color:#08636c;text-transform:uppercase}
+h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;margin:.4em 0}
+h2{font-size:1.5rem;line-height:1.25;margin:0 0 .7em}
+h3{font-size:1.1rem;margin:1.5em 0 .3em}
+p{margin:.6em 0 1em}
+.meta{color:#546575;font-size:.9rem}
+.lead{font-size:1.12rem}
+nav{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+nav a{padding:.45rem .7rem;border:1px solid #ccd9df;border-radius:7px;background:white}
+nav a[aria-current]{background:#08636c;color:white}
+a{color:#075d66}
+section,footer{background:white;border:1px solid #d1dce2;border-radius:10px;padding:24px;margin:16px 0}
+section.verdict{border-left:5px solid #08636c}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:650px;font-size:.93rem}
+th,td{padding:9px 11px;border-bottom:1px solid #dce5e9;text-align:left;vertical-align:top}
+th{background:#eaf3f3}
+code{background:#edf1f4;border-radius:3px;padding:1px 3px;overflow-wrap:anywhere}
+ul,ol{padding-left:1.5rem}
+.note{background:#eef5f6;border-left:4px solid #42858a;padding:10px 14px}
+@media(max-width:600px){main{padding:14px 12px 40px}
+section,footer{padding:18px}
+}
+
+main{width:100%;min-width:0}
+header,section,footer{overflow-wrap:anywhere}
+h2,h3{scroll-margin-top:1rem}
+pre{overflow-x:auto;padding:1rem;background:#edf1f4;border-radius:7px}
+pre code{padding:0;overflow-wrap:normal}
+blockquote{margin:1rem 0;padding:.5rem 1rem;border-left:4px solid #42858a;background:#eef5f6}
+.table-wrap{max-width:100%}
+.toc{display:block}
+.toc ol{columns:2;column-width:20rem}
+.toc li{break-inside:avoid;margin:.25rem 0}
+.toc a{border:0;padding:0;background:transparent}
+a:focus-visible,.table-wrap:focus-visible{outline:3px solid #08636c;outline-offset:3px}
+footer p:last-child{margin-bottom:0}
+
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">ZeroChat · Informes de auditoría · 7.12.0</div>
+<h1>ZeroChat: orientación y funcionalidades frente a la competencia</h1>
+<p>Fecha de consulta: <strong>27 de septiembre de 2026</strong>. ZeroChat evaluado: <strong>7.12.0</strong>, commit <code>b0d55a7d3094178ca0a5f9afe24747ae283102b3</code> en <code>dev</code>.</p>
+<p>Estado: informe cerrado. Véanse <a href="informe-calidad-codigo-infraestructura.html">auditoría técnica</a> y <a href="informe-funcionalidades-madurez.html">auditoría funcional</a>.</p>
+<nav aria-label="Navegación de ayuda">
+<a href="../index.html">Centro de ayuda</a>
+<a href="../architecture.html">Arquitectura</a>
+<a href="../en/informes/informe-comparativa-herramientas.html" lang="en" hreflang="en">English</a>
+</nav>
+</header>
+<nav aria-label="Informes de auditoría">
+<a href="informe-calidad-codigo-infraestructura.html">Auditoría técnica</a>
+<a href="informe-funcionalidades-madurez.html">Auditoría funcional</a>
+<a href="informe-comparativa-herramientas.html" aria-current="page">Comparativa competitiva</a>
+</nav>
+<nav class="toc" aria-label="Contenido">
+<p><strong>Contenido</strong></p>
+<ol>
+<li><a href="#section-1">Conclusión</a></li>
+<li><a href="#section-2">Método y selección</a></li>
+<li><a href="#section-3">Mapa de orientación</a></li>
+<li><a href="#section-4">Comparación funcional</a></li>
+<li><a href="#section-5">Dónde aporta valor ZeroChat</a></li>
+<li><a href="#section-6">Dónde una alternativa puede encajar mejor</a></li>
+<li><a href="#section-7">Posicionamiento y prioridades</a></li>
+<li><a href="#section-8">Cómo comprobar la ventaja propuesta</a></li>
+</ol>
+</nav>
+<section>
+<h2 id="section-1">1. Conclusión</h2>
+<p><strong>ZeroChat tiene un espacio defendible como cliente web de experimentación personal, con backend opcional y observabilidad de las peticiones.</strong> Chat multiproveedor, RAG y MCP ya forman parte de varias alternativas; no son por sí solos una diferenciación suficiente.</p>
+<p>La combinación que interesa preservar es acceso web directo, configuración pequeña y exportable, modo Espejo, inspector, telemetría y herramientas locales para tareas acotadas. La ventaja potencial es el tiempo necesario para abrir, probar, entender y cerrar. Esa ventaja todavía debe medirse con usuarios y condiciones comparables; no se deduce de que la aplicación no use un bundle.</p>
+</section>
+<section>
+<h2 id="section-2">2. Método y selección</h2>
+<p>Se comparan siete alternativas con funciones solapadas y distinta orientación: Cherry Studio y Msty Studio como clientes personales; Open WebUI y LibreChat como aplicaciones de mayor amplitud; AnythingLLM para trabajo documental; LM Studio para modelos locales; Aider para programación en repositorios.</p>
+<p>Las afirmaciones sobre terceros se basan en documentación oficial consultada en la fecha indicada. <strong>No se instalaron ni se midieron estas alternativas.</strong> Sus prestaciones son declaradas/documentadas, no resultados de un benchmark propio. La calidad del código, la seguridad efectiva, latencia y fiabilidad de cada competidor quedan fuera de esta comparación.</p>
+<p>No se asignan precios, cuotas, números de modelos o estrellas: cambian y no son necesarios para resolver la orientación del producto. Los costes se comparan por componentes operativos. No se asume que una capacidad anunciada esté disponible en todas las ediciones o planes. Cuando no se verifica una prestación, se indica expresamente en lugar de afirmar su ausencia.</p>
+<p>La muestra es deliberada, no un censo del mercado. Los asistentes alojados generalistas y otros IDE/agentes pueden resolver algunas de las mismas tareas, pero no se hace aquí una comparativa de planes o suscripciones de esos productos.</p>
+</section>
+<section>
+<h2 id="section-3">3. Mapa de orientación</h2>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Producto</th>
+<th>Centro de gravedad</th>
+<th>Relación con ZeroChat</th>
+<th>Fuente</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ZeroChat</strong></td>
+<td>Probar modelos, peticiones y herramientas desde web; backend local opcional</td>
+<td>Producto auditado</td>
+<td>Arquitectura revisada: web estática, estado centralizado, almacenamiento local y backend Python opcional. Desarrollo modular con pruebas automatizadas y ayuda bilingüe.</td>
+</tr>
+<tr>
+<td><strong>Cherry Studio</strong></td>
+<td>Estación personal multiproveedor: conversación, conocimiento y utilidades</td>
+<td>Competidor cercano por uso individual y amplitud</td>
+<td><a href="https://cherryai.com/docs/en/">Introducción oficial</a></td>
+</tr>
+<tr>
+<td><strong>Msty Studio</strong></td>
+<td>Trabajo personal con modelos locales y conocimiento</td>
+<td>Alternativa cercana para quien prefiere un entorno integrado</td>
+<td><a href="https://docs.msty.ai/studio/managing-models/local-models">Modelos locales</a>, <a href="https://docs.msty.ai/studio/knowledge-stacks/overview">Knowledge Stacks</a></td>
+</tr>
+<tr>
+<td><strong>Open WebUI</strong></td>
+<td>Plataforma autohospedada de IA con amplio ecosistema</td>
+<td>Se solapa en chat, conocimiento y herramientas; requiere valorar despliegue</td>
+<td><a href="https://docs.openwebui.com/">Documentación oficial</a></td>
+</tr>
+<tr>
+<td><strong>LibreChat</strong></td>
+<td>Aplicación de asistentes y agentes configurables con distintos proveedores</td>
+<td>Se solapa en proveedores, agentes y MCP</td>
+<td><a href="https://www.librechat.ai/docs/features/agents">Agentes y catálogo de funciones</a></td>
+</tr>
+<tr>
+<td><strong>AnythingLLM</strong></td>
+<td>Uso de documentos, espacios de trabajo y agentes</td>
+<td>Alternativa cuando el conocimiento es el centro de la tarea</td>
+<td><a href="https://docs.anythingllm.com/">Documentación oficial</a></td>
+</tr>
+<tr>
+<td><strong>LM Studio</strong></td>
+<td>Descarga, ejecución y servicio de modelos locales</td>
+<td>Complemento como backend y alternativa para chat local</td>
+<td><a href="https://lmstudio.ai/docs/app">Aplicación</a>, <a href="https://lmstudio.ai/docs/developer">API de desarrollo</a></td>
+</tr>
+<tr>
+<td><strong>Aider</strong></td>
+<td>Programación asistida sobre repositorios Git</td>
+<td>Competidor por la tarea de modificar código, no por todo el producto</td>
+<td><a href="https://aider.chat/docs/">Documentación oficial</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>La orientación es una interpretación de esas funciones y del objetivo de uso, no una clasificación oficial de los fabricantes.</p>
+</section>
+<section>
+<h2 id="section-4">4. Comparación funcional</h2>
+<h3 id="subsection-1">4.1 Conversación, conocimiento y herramientas</h3>
+<p>«Documentado» significa presente en las fuentes; no implica igualdad de calidad, alcance ni requisitos.</p>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Producto</th>
+<th>Modelos/conexiones</th>
+<th>Documentos</th>
+<th>Herramientas y ejecución</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ZeroChat</strong></td>
+<td>Adaptadores cloud, API compatible, Ollama y WebLLM</td>
+<td>Ingesta/indexación textual en navegador, ramas, lectura de fragmentos/imágenes</td>
+<td>JavaScript, web, agente, MCP y archivos/shell/Playwright con backend</td>
+</tr>
+<tr>
+<td><strong>Cherry Studio</strong></td>
+<td>Agregación de proveedores</td>
+<td>Base de conocimiento con distintas fuentes</td>
+<td>MCP y funciones de estación personal documentados. <a href="https://cherryai.com/docs/en/">Fuente</a> / <a href="https://cherryai.com/">MCP y funciones</a></td>
+</tr>
+<tr>
+<td><strong>Msty Studio</strong></td>
+<td>Gestión local de Ollama, MLX y Llama.cpp en la documentación revisada</td>
+<td>Knowledge Stacks con selección de embeddings locales</td>
+<td>No se verifica aquí una matriz MCP/ejecución equivalente. <a href="https://docs.msty.ai/studio/managing-models/local-models">Modelos</a> / <a href="https://docs.msty.ai/studio/knowledge-stacks/overview">Conocimiento</a></td>
+</tr>
+<tr>
+<td><strong>Open WebUI</strong></td>
+<td>Modelos locales y APIs compatibles</td>
+<td>Conocimiento/RAG en su plataforma</td>
+<td>Herramientas y ecosistema de ejecución; no atribuir todas las funciones de Computer al núcleo. <a href="https://docs.openwebui.com/">Fuente</a></td>
+</tr>
+<tr>
+<td><strong>LibreChat</strong></td>
+<td>Agentes con distintos proveedores</td>
+<td>RAG de archivos y otras funciones de conocimiento en su catálogo</td>
+<td>Agentes y MCP documentados. <a href="https://www.librechat.ai/docs/features/agents">Fuente</a></td>
+</tr>
+<tr>
+<td><strong>AnythingLLM</strong></td>
+<td>Proveedores locales y cloud</td>
+<td>Embedders y bases vectoriales configurables</td>
+<td>Agentes, flujos y MCP en su documentación. <a href="https://docs.anythingllm.com/">Fuente</a></td>
+</tr>
+<tr>
+<td><strong>LM Studio</strong></td>
+<td>Ejecución local y servidor con API</td>
+<td>Chat con documentos documentado</td>
+<td>MCP y tool calling local; APIs para desarrolladores. <a href="https://lmstudio.ai/docs/app">Aplicación</a> / <a href="https://lmstudio.ai/docs/developer">API</a></td>
+</tr>
+<tr>
+<td><strong>Aider</strong></td>
+<td>Modelos usados para tareas de programación</td>
+<td>Contexto del repositorio y mapa de código; no equiparable sin más a una biblioteca RAG</td>
+<td>Edición, Git y ejecución de lint/tests. <a href="https://aider.chat/docs/">Fuente</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>La principal diferencia documental de ZeroChat es una cadena de ingesta e índice local textual sin necesidad de un embedder. Esto reduce componentes para probar manuales pequeños, pero no demuestra mejor recuperación que las alternativas vectoriales. Las respuestas dependen además del modelo y del contenido seleccionado.</p>
+<h3 id="subsection-2">4.2 Puesta en marcha y mantenimiento</h3>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Producto</th>
+<th>Implicación para uso esporádico</th>
+<th>Juicio de encaje</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ZeroChat</strong></td>
+<td>Web directa para chat; Python opcional para herramientas; Node/Playwright para navegador</td>
+<td>Ligero para empezar, con requisitos crecientes al activar funciones</td>
+</tr>
+<tr>
+<td><strong>Cherry Studio</strong></td>
+<td>Instalación de cliente y configuración de proveedor según su inicio rápido</td>
+<td>Alternativa cercana si se prefiere una aplicación instalada. <a href="https://cherryai.com/docs/en/getting-started/quick-start/">Inicio rápido</a></td>
+</tr>
+<tr>
+<td><strong>Msty Studio</strong></td>
+<td>El área de modelos locales puede preparar el motor seleccionado antes de instalar el modelo</td>
+<td>Interesante para reducir gestión manual del motor local. <a href="https://docs.msty.ai/studio/managing-models/local-models">Fuente</a></td>
+</tr>
+<tr>
+<td><strong>Open WebUI</strong></td>
+<td>Ofrece Docker, Python y aplicación de escritorio; hay que mantener la modalidad elegida</td>
+<td>No es correcto reducirlo a «requiere Docker». <a href="https://docs.openwebui.com/">Instalación</a></td>
+</tr>
+<tr>
+<td><strong>LibreChat</strong></td>
+<td>Configuración de una aplicación de agentes y servicios asociados</td>
+<td>Conviene contrastar esfuerzo de instalación con la frecuencia de uso; no se midió aquí. <a href="https://www.librechat.ai/docs/features/agents">Documentación</a></td>
+</tr>
+<tr>
+<td><strong>AnythingLLM</strong></td>
+<td>Modalidades Desktop, Self-hosted y Cloud</td>
+<td>Desktop merece comparación específica para uso personal; no atribuirle necesariamente la carga de un servidor. <a href="https://docs.anythingllm.com/">Modalidades</a></td>
+</tr>
+<tr>
+<td><strong>LM Studio</strong></td>
+<td>Aplicación para descargar y ejecutar modelos; depende de recursos del equipo</td>
+<td>Encaje alto si el problema principal es operar un modelo local. <a href="https://lmstudio.ai/docs/app">Fuente</a></td>
+</tr>
+<tr>
+<td><strong>Aider</strong></td>
+<td>Flujo de programación en terminal/repo</td>
+<td>Encaje alto para una persona habituada a Git y comandos. <a href="https://aider.chat/docs/">Fuente</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Las celdas de encaje son inferencias de producto. No contienen tiempos de instalación medidos. En todos los casos, usar un proveedor externo puede añadir consumo facturado, y usar un modelo local exige recursos; «local» no significa coste total nulo.</p>
+</section>
+<section>
+<h2 id="section-5">5. Dónde aporta valor ZeroChat</h2>
+<h3 id="subsection-3">Observación de la petición y diagnóstico</h3>
+<p>El modo Espejo, el inspector y la telemetría están alineados con probar sistemas. Son más valiosos para este público que ampliar por defecto el catálogo de funciones. La recomendación es unirlos en un recorrido coherente y exportar una ficha de experimento sin credenciales.</p>
+<p>No se afirma que ningún competidor permita inspección: no se hizo una evaluación exhaustiva de sus pantallas de diagnóstico. La diferencia propuesta es la prioridad que ZeroChat puede dar a ese recorrido.</p>
+<h3 id="subsection-4">Aplicación web con infraestructura opcional</h3>
+<p>Separar chat y backend permite iniciar una prueba sin mantener un servidor de aplicación propio. Cuando se necesita acceso al sistema, se añade <code>zerochat.py</code>. Es una buena decisión para tareas ocasionales.</p>
+<p>La simplicidad debe juzgarse en el caso completo: MCP puede necesitar dependencias, el navegador automatizado requiere Playwright y la inferencia local necesita un motor o WebGPU. «Sin instalación» describe una parte del producto, no todas sus prestaciones.</p>
+<h3 id="subsection-5">Conocimiento pequeño sin servicio de embeddings</h3>
+<p>El índice textual local puede ser suficiente para nombres de funciones, códigos de error y manuales cortos. Antes de competir en sofisticación RAG, conviene comprobar si los fallos reales del usuario vienen de extracción, particionado, recuperación o interpretación del modelo.</p>
+<h3 id="subsection-6">Combinación de cliente y pequeñas acciones locales</h3>
+<p>Puede evitar cambiar de herramienta para leer archivos, hacer un cálculo y probar un endpoint. La utilidad depende de fiabilidad y claridad de permisos. Los defectos técnicos reproducidos reducen hoy la fuerza de cualquier mensaje de confianza o robustez.</p>
+</section>
+<section>
+<h2 id="section-6">6. Dónde una alternativa puede encajar mejor</h2>
+<p>Estas recomendaciones son inferencias basadas en las funciones citadas, no resultados de una prueba comparativa:</p>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Necesidad dominante</th>
+<th>Alternativa a considerar</th>
+<th>Consecuencia para ZeroChat</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Descargar y servir modelos locales como actividad principal</td>
+<td>LM Studio; Msty Studio según motor</td>
+<td>Integrarse bien con esos endpoints antes que duplicar un gestor de modelos</td>
+</tr>
+<tr>
+<td>Estación personal de IA con muchas utilidades</td>
+<td>Cherry Studio</td>
+<td>Competir en claridad y diagnóstico, no en número bruto de funciones</td>
+</tr>
+<tr>
+<td>Conocimiento y documentos como actividad central</td>
+<td>AnythingLLM; Msty Studio</td>
+<td>Medir recuperación y restauración antes de prometer equivalencia</td>
+</tr>
+<tr>
+<td>Plataforma autohospedada de mayor amplitud</td>
+<td>Open WebUI; LibreChat</td>
+<td>Conservar un alcance pequeño si no se necesitan servicios permanentes</td>
+</tr>
+<tr>
+<td>Modificaciones frecuentes de repositorios con Git y tests</td>
+<td>Aider</td>
+<td>Resolver tareas pequeñas; evitar prometer el flujo de una herramienta de código dedicada</td>
+</tr>
+<tr>
+<td>Prueba rápida de endpoint, petición y herramientas desde navegador</td>
+<td>ZeroChat</td>
+<td>Concentrar el producto en ese recorrido y medir su ventaja</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>No se puede afirmar con esta evidencia que una alternativa sea globalmente más segura, rápida o barata. Tampoco que ZeroChat sea la única que conserva datos localmente: varias alternativas documentan modalidades locales.</p>
+</section>
+<section>
+<h2 id="section-7">7. Posicionamiento y prioridades</h2>
+<p>Mensaje recomendado:</p>
+<blockquote>
+<p>Banco de pruebas personal de IA: conecta modelos, inspecciona peticiones, consulta documentos pequeños y prueba herramientas locales desde una interfaz web.</p>
+</blockquote>
+<p>Evitar como promesas centrales «privacidad absoluta», «cualquier modelo con todas las funciones», «RAG semántico» sin implementación/medición que lo sostenga o «sustituto de un IDE». La documentación debe separar almacenamiento local de procesamiento remoto.</p>
+<div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
+<table>
+<thead>
+<tr>
+<th>Horizonte</th>
+<th>Prioridad</th>
+<th>Razón competitiva</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consolidación inmediata</td>
+<td>Corregir defectos reproducidos y precisar seguridad/privacidad</td>
+<td>Una tarea corta exige errores recuperables y expectativas correctas</td>
+</tr>
+<tr>
+<td>Siguiente bloque</td>
+<td>Recorrido de diagnóstico y ficha exportable del experimento</td>
+<td>Refuerza el uso de pruebas de sistemas</td>
+</tr>
+<tr>
+<td>Siguiente bloque</td>
+<td>Copia/restauración comprensible y reinicio de contexto local</td>
+<td>Facilita volver a usarlo y cambiar de proyecto</td>
+</tr>
+<tr>
+<td>Después de medir</td>
+<td>Evaluación pequeña de RAG y, si hace falta, recuperación adicional</td>
+<td>Evita añadir complejidad sin beneficio comprobado</td>
+</tr>
+<tr>
+<td>Fuera de prioridad</td>
+<td>Funciones corporativas, infraestructura distribuida o IDE completo</td>
+<td>Diluirían el objetivo personal y puntual</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section>
+<h2 id="section-8">8. Cómo comprobar la ventaja propuesta</h2>
+<p>Ensayo futuro: misma persona, equipo, modelo, documentos y tareas; versión y edición registradas para cada producto. Comparar ZeroChat con Cherry Studio para cliente personal, LM Studio para prueba local, AnythingLLM para documentos y Aider para una modificación de código. No forzar a cada producto a ejecutar tareas fuera de su orientación.</p>
+<p>Medir tiempo hasta primer resultado correcto, número de configuraciones manuales, claridad del error, recuperación tras fallo, exportación útil y mantenimiento necesario después de un mes sin uso. En RAG, evaluar fuente recuperada y fidelidad de respuesta; en código, diff y tests. Costes de proveedor y ejecución deben registrarse por separado.</p>
+<p>Hasta ejecutar ese ensayo, la conclusión es de <strong>encaje estratégico</strong>, no de superioridad demostrada. ZeroChat no necesita ganar todas las categorías: necesita ser una opción fiable y fácil de retomar para experimentar con IA y proyectos pequeños.</p>
+</section>
+<footer>
+<p>Síntesis: frente a siete alternativas, ZeroChat puede diferenciarse por el acceso web, el modo Espejo, el inspector y las pruebas locales acotadas. La ventaja en tiempo y facilidad de uso todavía debe medirse; no se afirma superioridad demostrada.</p>
+<p>Auditoría puntual del 27 de septiembre de 2026. Las recomendaciones no implican correcciones implementadas.</p>
+</footer>
+</main>
+</body>
+</html>
