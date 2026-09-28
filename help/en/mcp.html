@@ -80,11 +80,12 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
 
     <div class="card">
       <h2>5. External MCP services</h2>
-      <p>In <strong>Settings → MCP → Available MCP servers</strong>, configure, start or stop each service. The manager installs dependencies when needed and discovers tools. Installation may require network access and additional system tools.</p>
-      <ul><li><code>dummy_mcp</code>: test service.</li>
-      <li><code>playwright</code>: automation through Playwright MCP, with a Headless option.</li>
-      <li><code>memory</code>: persistent knowledge graph.</li>
-      <li><code>lsp</code>: code analysis through language servers; capabilities depend on installed tools.</li></ul>
+      <p>In <strong>Settings → MCP → Available MCP servers</strong>, configure, start or stop each service. When you select Start, ZeroChat automatically installs the npm package and its dependencies in the service's own directory. If a requirement cannot be prepared, the card displays the error and links to this section.</p>
+      <ul><li><code>dummy_mcp</code>: bundled test service; it does not download dependencies.</li>
+      <li><code>playwright</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@playwright/mcp</code> and Chromium. Downloading Chromium requires network access and disk space.</li>
+      <li><code>memory</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@modelcontextprotocol/server-memory</code> and its dependencies.</li>
+      <li><code>lsp</code>: requires Node.js 24+ and npm. ZeroChat installs <code>@axivo/mcp-lsp</code> and its dependencies; to analyse a specific language, also install its corresponding language server (for example, <code>pyright</code>, <code>typescript-language-server</code>, or <code>gopls</code>) and make it available on <code>PATH</code>.</li></ul>
+      <p>If installation fails, check the stated Node.js version with <code>node --version</code>, confirm that <code>npm --version</code> works, and check npm network access and free disk space. Fix the requirement and select Start again; reinstalling ZeroChat is not necessary.</p>
       <p>Services are managed under <code>~/zerochat/services/</code>. Deleting <code>~/zerochat/</code> removes this state and its dependencies, but not browser history or files changed outside that folder.</p>
       <p>Patches in a series such as <code>8.0.x</code> arrive with the web app. A <code>major.minor</code> change may require updating the backend. Follow the notice for PyPI or direct download; updates are not automatic.</p>
     </div>

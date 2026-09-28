@@ -531,3 +531,90 @@ test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón I
   assert.ok(container.innerHTML.includes('Detener'));
   assert.ok(container.innerHTML.includes('2 herramientas activas'));
 });
+
+test('ChatUIMcp - un error de servidor MCP incluye un enlace a la ayuda de dependencias', () => {
+  const container = { innerHTML: '' };
+  ChatUIMcp.renderExternalServers(container, [{
+    id: 'lsp',
+    status: 'error',
+    error: 'lsp requiere Node.js 24+'
+  }], (key) => ChatI18n.t(key));
+
+  assert.ok(container.innerHTML.includes('help/mcp.html'));
+  assert.ok(container.innerHTML.includes('Consultar ayuda de dependencias MCP'));
+  assert.ok(container.innerHTML.includes('Node.js 24+'));
+});
+
+test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado iniciando', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const previousState = ChatState.get('mcp');
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const listeners = {};
+  const btn = {
+    disabled: false,
+    textContent: 'Iniciar',
+    attributes: {},
+    getAttribute: attr => ({ 'data-server-id': 'dummy_mcp', 'data-action': 'start' }[attr] || null),
+    setAttribute(attr, value) { this.attributes[attr] = value; },
+    removeAttribute(attr) { delete this.attributes[attr]; },
+    addEventListener: (event, listener) => { listeners[event] = listener; }
+  };
+  const container = {
+    innerHTML: '',
+    querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
+  };
+
+  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'dummy_mcp', status: 'stopped' }] });
+  try {
+    ChatMCP.manager.startExternalServer = async () => {
+      assert.equal(ChatState.get('mcp').externalServers[0].status, 'starting');
+    };
+    ChatUIMcp.renderExternalServers(container, [{ id: 'dummy_mcp', status: 'stopped' }], (key) => ChatI18n.t(key));
+
+    await listeners.click();
+
+    assert.equal(btn.textContent, 'Iniciando');
+    assert.equal(btn.disabled, false);
+    assert.equal(btn.attributes['aria-busy'], undefined);
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    ChatState.set('mcp', previousState);
+  }
+});
+
+test('ChatUIMcp - un error al iniciar un servidor MCP se muestra en su tarjeta', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const previousState = ChatState.get('mcp');
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const originalError = console.error;
+  const listeners = {};
+  const btn = {
+    disabled: false,
+    textContent: 'Iniciar',
+    getAttribute: attr => ({ 'data-server-id': 'dummy_mcp', 'data-action': 'start' }[attr] || null),
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    addEventListener: (event, listener) => { listeners[event] = listener; }
+  };
+  const container = {
+    innerHTML: '',
+    querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
+  };
+
+  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'dummy_mcp', status: 'stopped' }] });
+  try {
+    ChatMCP.manager.startExternalServer = async () => { throw new Error('connection failed'); };
+    console.error = () => {};
+    ChatUIMcp.renderExternalServers(container, [{ id: 'dummy_mcp', status: 'stopped' }], (key) => ChatI18n.t(key));
+
+    await listeners.click();
+
+    const server = ChatState.get('mcp').externalServers[0];
+    assert.equal(server.status, 'stopped');
+    assert.equal(server.error, 'No se pudo actualizar el servidor MCP.');
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    console.error = originalError;
+    ChatState.set('mcp', previousState);
+  }
+});
