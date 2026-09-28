@@ -233,17 +233,30 @@
     const catalog = Array.isArray(customCatalog) ? customCatalog : discoveredModels;
     const entry = findModelInCatalog(catalog, selected);
     const details = entry?.details || entry || {};
-    const loaded = Number(details.loaded_context_length);
-    const maximum = Number(details.max_context_length);
-    const ctxLen = Number(
-      details.context_length ?? entry?.context_length ??
-      details.context_window ?? entry?.context_window ??
-      details.max_model_len ?? entry?.max_model_len ??
-      details.max_context_tokens ?? details.max_tokens
-    );
-    if (Number.isFinite(loaded) && loaded > 0) return Math.floor(loaded);
-    if (Number.isFinite(maximum) && maximum > 0) return Math.floor(maximum);
-    if (Number.isFinite(ctxLen) && ctxLen > 0) return Math.floor(ctxLen);
+    const meta = details.meta || entry?.meta || {};
+
+    // 1. Contexto activo/cargado en servidor (máxima prioridad)
+    const activeCandidates = [details.loaded_context_length, meta.n_ctx]
+      .map(Number)
+      .filter(v => Number.isFinite(v) && v > 0);
+    if (activeCandidates.length) return Math.floor(Math.min(...activeCandidates));
+
+    // 2. Contexto nominal o de entrenamiento del modelo
+    const modelCandidates = [
+      details.max_context_length,
+      meta.n_ctx_train,
+      details.context_length ?? entry?.context_length,
+      details.context_window ?? entry?.context_window,
+      details.max_model_len ?? entry?.max_model_len
+    ]
+      .map(Number)
+      .filter(v => Number.isFinite(v) && v > 0);
+    if (modelCandidates.length) return Math.floor(Math.min(...modelCandidates));
+
+    // 3. Fallback de tokens de contexto o tokens máximos declarados
+    const fallbackLen = Number(details.max_context_tokens ?? details.max_tokens);
+    if (Number.isFinite(fallbackLen) && fallbackLen > 0) return Math.floor(fallbackLen);
+
     if (details.webllmCache || selected.includes('-MLC')) return 4096;
     return null;
   }

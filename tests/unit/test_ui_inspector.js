@@ -346,6 +346,56 @@ test('UIInspector - getModelContextLimit reconoce context_length y max_model_len
   assert.equal(UIInspector.getModelContextLimit('model-window', catalog), 16384);
 });
 
+test('UIInspector - getModelContextLimit reconoce meta.n_ctx de llama.cpp', () => {
+  const catalog = [
+    {
+      id: 'gemma-4-26B-A4B-it-QAT-Q4_0',
+      details: {
+        meta: { n_ctx: 128000, n_ctx_train: 262144, n_params: 25233142046 }
+      }
+    },
+    {
+      id: 'solo-train',
+      details: { meta: { n_ctx_train: 262144 } }
+    },
+    {
+      id: 'ambos-formatos',
+      details: { context_length: 200000, meta: { n_ctx: 128000 } }
+    }
+  ];
+
+  assert.equal(UIInspector.getModelContextLimit('gemma-4-26B-A4B-it-QAT-Q4_0', catalog), 128000);
+  assert.equal(UIInspector.getModelContextLimit('solo-train', catalog), 262144);
+  // Con ambos presentes, el contexto activo del servidor tiene precedencia
+  assert.equal(UIInspector.getModelContextLimit('ambos-formatos', catalog), 128000);
+});
+
+test('UIInspector - getModelContextLimit no permite que max_tokens de salida recorte el contexto total', () => {
+  const catalog = [
+    {
+      id: 'model-with-max-tokens',
+      details: { max_context_length: 131072, max_tokens: 4096 }
+    },
+    {
+      id: 'model-with-context-and-tokens',
+      details: { context_length: 65536, max_tokens: 2048 }
+    },
+    {
+      id: 'model-with-train-and-tokens',
+      details: { meta: { n_ctx_train: 128000 }, max_tokens: 4096 }
+    },
+    {
+      id: 'model-only-max-tokens',
+      details: { max_tokens: 8192 }
+    }
+  ];
+
+  assert.equal(UIInspector.getModelContextLimit('model-with-max-tokens', catalog), 131072);
+  assert.equal(UIInspector.getModelContextLimit('model-with-context-and-tokens', catalog), 65536);
+  assert.equal(UIInspector.getModelContextLimit('model-with-train-and-tokens', catalog), 128000);
+  assert.equal(UIInspector.getModelContextLimit('model-only-max-tokens', catalog), 8192);
+});
+
 test('UIInspector - populateModelList puebla datalist y selectHelper', () => {
   const datalistOptions = [];
   const selectOptions = [];
