@@ -1338,6 +1338,16 @@
   margin: 0.2rem 0 0 0;
 }
 
+.mcp-server-error p {
+  margin: 0;
+}
+
+.mcp-server-error a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
 .mcp-server-actions {
   flex-shrink: 0;
 }

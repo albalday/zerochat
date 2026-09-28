@@ -42,7 +42,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "8.0.0"
+SOURCE_BACKEND_VERSION = "8.1.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -1756,7 +1756,8 @@ for raw in sys.stdin:
                 "product": {
                     "package": "@playwright/mcp",
                     "version": "0.0.81",
-                    "browser": "chromium"
+                    "browser": "chromium",
+                    "nodeMajor": 18
                 }
             }, indent=2), encoding="utf-8")
 
@@ -1795,7 +1796,8 @@ for raw in sys.stdin:
                 "type": "npm",
                 "product": {
                     "package": "@modelcontextprotocol/server-memory",
-                    "version": "2026.8.31"
+                    "version": "2026.8.31",
+                    "nodeMajor": 18
                 }
             }, indent=2), encoding="utf-8")
 
@@ -1832,7 +1834,8 @@ for raw in sys.stdin:
                 "type": "npm",
                 "product": {
                     "package": "@axivo/mcp-lsp",
-                    "version": "1.0.5"
+                    "version": "1.0.5",
+                    "nodeMajor": 24
                 }
             }, indent=2), encoding="utf-8")
 
@@ -1917,9 +1920,25 @@ for raw in sys.stdin:
                 if not package or not version:
                     raise RuntimeError("El instalador npm debe definir package y version")
                 if not shutil.which("node") or not shutil.which("npm"):
-                    raise RuntimeError("Node.js 18+ y npm son necesarios para instalar este servicio MCP")
+                    raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
 
-                needs_install = not marker.exists()
+                required_node_major = int(product.get(
+                    "nodeMajor",
+                    24 if package == "@axivo/mcp-lsp" else 18
+                ))
+                version_result = subprocess.run(
+                    [node, "--version"], capture_output=True, text=True, timeout=5
+                )
+                version_match = re.match(r"v(\\d+)", version_result.stdout.strip())
+                if version_result.returncode != 0 or not version_match:
+                    raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
+                if int(version_match.group(1)) < required_node_major:
+                    raise RuntimeError(
+                        f"{server_id} requiere Node.js {required_node_major}+; se detectó {version_result.stdout.strip()}"
+                    )
+
+                package_dir = service_dir / "node_modules" / Path(*package.split("/"))
+                needs_install = not marker.exists() or not package_dir.is_dir()
                 if not needs_install:
                     try:
                         installation = json.loads(marker.read_text(encoding="utf-8"))
@@ -1939,9 +1958,18 @@ for raw in sys.stdin:
                     browser = product.get("browser")
                     if browser:
                         playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
-                        if playwright_cli.is_file():
-                            subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
-                            installation["browser"] = browser
+                        if not playwright_cli.is_file():
+                            raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
+                        browser_result = subprocess.run(
+                            [node, str(playwright_cli), "install", browser], cwd=service_dir,
+                            capture_output=True, text=True, timeout=600
+                        )
+                        if browser_result.returncode != 0:
+                            raise RuntimeError(
+                                f"Fallo instalando el navegador {browser} de Playwright: "
+                                f"{browser_result.stderr or browser_result.stdout}"
+                            )
+                        installation["browser"] = browser
                     marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
 
         return {
@@ -2064,7 +2092,6 @@ for raw in sys.stdin:
 
 
 GLOBAL_MCP_MANAGER = McpServiceManager()
-
 DEFAULT_HEARTBEAT_TIMEOUT = float(os.environ.get("ZEROCHAT_HEARTBEAT_TIMEOUT", "60.0"))
 DEFAULT_HEARTBEAT_GRACE = float(os.environ.get("ZEROCHAT_HEARTBEAT_GRACE", "45.0"))
 DEFAULT_HEARTBEAT_POLL = float(os.environ.get("ZEROCHAT_HEARTBEAT_POLL", "5.0"))
