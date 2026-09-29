@@ -5,6 +5,10 @@
     "package": "@playwright/mcp",
     "version": "0.0.81",
     "browser": "chromium"
+  },
+  "requirements": {
+    "node": {
+      "minimumMajor": 18
+    }
   }
 }
-

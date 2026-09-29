@@ -535,9 +535,9 @@ test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón I
 test('ChatUIMcp - un error de servidor MCP incluye un enlace a la ayuda de dependencias', () => {
   const container = { innerHTML: '' };
   ChatUIMcp.renderExternalServers(container, [{
-    id: 'lsp',
+    id: 'example-mcp',
     status: 'error',
-    error: 'lsp requiere Node.js 24+'
+    error: 'example-mcp requiere Node.js 24+'
   }], (key) => ChatI18n.t(key));
 
   assert.ok(container.innerHTML.includes('help/mcp.html'));

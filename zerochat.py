@@ -42,7 +42,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "8.1.0"
+SOURCE_BACKEND_VERSION = "8.2.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -1488,8 +1488,16 @@ def public_tool_name(server_id: str, original: str) -> str:
     return name
 
 
+def _mcp_trace_text(value: object, max_len: int = 1000) -> str:
+    """Normaliza diagnósticos MCP para consola sin exponer secretos comunes."""
+    text = " ".join(str(value).strip().splitlines())
+    text = re.sub(r"(?i)(\b(?:api[_-]?key|token|secret|password)\b\s*[=:]\s*)\S+", r"\1***", text)
+    text = re.sub(r"(?i)(--(?:api[_-]?key|token|secret|password)\s+)\S+", r"\1***", text)
+    return text[:max_len - 3] + "..." if len(text) > max_len else text
+
+
 class StdioMcpClient:
-    def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str]):
+    def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None):
         self.command = command
         self.args = args
         self.cwd = cwd
@@ -1500,12 +1508,14 @@ class StdioMcpClient:
         self._lock = threading.Lock()
         self._alive = False
         self.tools: list[dict] = []
+        self._trace = trace or (lambda _message: None)
 
     def running(self) -> bool:
         return self._alive and self.process is not None and self.process.poll() is None
 
     def start(self, handshake_timeout: int = 30):
         cmd = [self.command] + self.args
+        self._trace(f"launching: {_mcp_trace_text(' '.join(cmd))}")
         self.process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -1530,11 +1540,14 @@ class StdioMcpClient:
         self.notify("notifications/initialized")
         tools_resp = self.request("tools/list", {}, timeout=10)
         self.tools = tools_resp.get("tools", [])
+        self._trace(f"handshake completed; {len(self.tools)} tool(s) available")
 
     def _drain_stderr(self):
         if self.process and self.process.stderr:
-            for _ in self.process.stderr:
-                pass
+            for line in self.process.stderr:
+                line = _mcp_trace_text(line)
+                if line:
+                    self._trace(f"stderr: {line}")
 
     def _read_stdout(self):
         try:
@@ -1556,6 +1569,10 @@ class StdioMcpClient:
                         waiter.put(msg)
         finally:
             self._alive = False
+            if self.process:
+                return_code = self.process.poll()
+                if return_code is not None:
+                    self._trace(f"process exited with code {return_code}")
             with self._lock:
                 pending = list(self._pending.values())
                 self._pending.clear()
@@ -1633,6 +1650,10 @@ class McpServiceManager:
         self._ensure_default_services()
         self.services = self._load_services()
         self.preferences = self._load_preferences()
+
+    @staticmethod
+    def _trace(server_id: str, message: str):
+        console_log(f"[{time.strftime('%H:%M:%S')}] [MCP {server_id}] {_mcp_trace_text(message)}", flush=True)
 
     def _ensure_default_services(self):
         dummy_dir = self.services_root / "dummy_mcp"
@@ -1756,8 +1777,10 @@ for raw in sys.stdin:
                 "product": {
                     "package": "@playwright/mcp",
                     "version": "0.0.81",
-                    "browser": "chromium",
-                    "nodeMajor": 18
+                    "browser": "chromium"
+                },
+                "requirements": {
+                    "node": {"minimumMajor": 18}
                 }
             }, indent=2), encoding="utf-8")
 
@@ -1796,46 +1819,10 @@ for raw in sys.stdin:
                 "type": "npm",
                 "product": {
                     "package": "@modelcontextprotocol/server-memory",
-                    "version": "2026.8.31",
-                    "nodeMajor": 18
-                }
-            }, indent=2), encoding="utf-8")
-
-        # 4. lsp
-        lsp_dir = self.services_root / "lsp"
-        lsp_dir.mkdir(parents=True, exist_ok=True)
-        lsp_service = lsp_dir / "service.json"
-        lsp_installer = lsp_dir / "installer.json"
-        if not lsp_service.exists():
-            lsp_service.write_text(json.dumps({
-                "schemaVersion": 1,
-                "id": "lsp",
-                "displayName": {
-                    "es": "LSP y Navegación de Código",
-                    "en": "LSP & Code Intelligence"
+                    "version": "2026.8.31"
                 },
-                "description": {
-                    "es": "Servidor de protocolos de lenguaje (LSP): salto a definiciones, búsqueda de símbolos, referencias e inspección de tipos sin sobrecargar el contexto.",
-                    "en": "Language Server Protocol (LSP) server: jump to definitions, symbol search, references, and type inspection without context overload."
-                },
-                "enabledByDefault": False,
-                "transport": "stdio",
-                "launch": {
-                    "executable": "${nodeExecutable}",
-                    "args": ["${serviceDir}/node_modules/@axivo/mcp-lsp/dist/index.js"],
-                    "cwd": "${serviceDir}",
-                    "env": {},
-                    "handshakeTimeoutSeconds": 30
-                }
-            }, indent=2), encoding="utf-8")
-        if not lsp_installer.exists():
-            lsp_installer.write_text(json.dumps({
-                "schemaVersion": 1,
-                "type": "npm",
-                "product": {
-                    "package": "@axivo/mcp-lsp",
-                    "version": "1.0.5",
-                    "nodeMajor": 24
+                "requirements": {
+                    "node": {"minimumMajor": 18}
                 }
             }, indent=2), encoding="utf-8")
 
@@ -1907,6 +1894,7 @@ for raw in sys.stdin:
         npm = shutil.which("npm") or "npm"
 
         if installer_file.exists():
+            self._trace(server_id, f"reading installer: {installer_file.name}")
             marker = service_dir / ".installed.json"
             try:
                 installer = json.loads(installer_file.read_text(encoding="utf-8"))
@@ -1922,16 +1910,24 @@ for raw in sys.stdin:
                 if not shutil.which("node") or not shutil.which("npm"):
                     raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
 
-                required_node_major = int(product.get(
-                    "nodeMajor",
-                    24 if package == "@axivo/mcp-lsp" else 18
-                ))
+                requirements = installer.get("requirements", {})
+                node_requirement = requirements.get("node")
+                if node_requirement is None:
+                    # Compatibilidad con instaladores creados antes de requirements.node.
+                    required_node_major = int(product.get("nodeMajor", 18))
+                elif not isinstance(node_requirement, dict):
+                    raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
+                else:
+                    required_node_major = node_requirement.get("minimumMajor")
+                    if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
+                        raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
                 version_result = subprocess.run(
                     [node, "--version"], capture_output=True, text=True, timeout=5
                 )
-                version_match = re.match(r"v(\\d+)", version_result.stdout.strip())
+                version_match = re.match(r"v(\d+)", version_result.stdout.strip())
                 if version_result.returncode != 0 or not version_match:
                     raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
+                self._trace(server_id, f"Node.js detected: {version_result.stdout.strip()} (minimum {required_node_major})")
                 if int(version_match.group(1)) < required_node_major:
                     raise RuntimeError(
                         f"{server_id} requiere Node.js {required_node_major}+; se detectó {version_result.stdout.strip()}"
@@ -1949,11 +1945,13 @@ for raw in sys.stdin:
 
                 if needs_install:
                     self.states[server_id] = "installing"
+                    self._trace(server_id, f"installing npm package: {package}@{version}")
                     manifest = service_dir / "package.json"
                     manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
                     res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
                     if res.returncode != 0:
                         raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
+                    self._trace(server_id, f"npm package installed: {package}@{version}")
                     installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
                     browser = product.get("browser")
                     if browser:
@@ -1971,6 +1969,8 @@ for raw in sys.stdin:
                             )
                         installation["browser"] = browser
                     marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
+                else:
+                    self._trace(server_id, f"npm package already installed: {package}@{version}")
 
         return {
             "serviceDir": str(service_dir),
@@ -1988,6 +1988,8 @@ for raw in sys.stdin:
             if current and current.running():
                 return self.list_servers()
             self.states[server_id] = "starting"
+            client = None
+            self._trace(server_id, "start requested")
             try:
                 service_dir = server["_directory"]
                 values = self._prepare_service(server_id, server)
@@ -2015,7 +2017,10 @@ for raw in sys.stdin:
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
 
-                client = StdioMcpClient(command, args, str(service_dir), env)
+                client = StdioMcpClient(
+                    command, args, str(service_dir), env,
+                    trace=lambda message: self._trace(server_id, message)
+                )
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.clients[server_id] = client
                 self.states[server_id] = "running"
@@ -2023,11 +2028,15 @@ for raw in sys.stdin:
                 entry = self.preferences.setdefault(server_id, {})
                 entry["enabled"] = True
                 self._save_preferences()
+                self._trace(server_id, "started successfully")
             except Exception as exc:
                 self.states[server_id] = "error"
                 self.errors[server_id] = str(exc)
+                self._trace(server_id, f"start failed: {exc}")
                 if server_id in self.clients:
                     self.clients.pop(server_id).stop()
+                elif client:
+                    client.stop()
             return self.list_servers()
 
     def stop(self, server_id: str) -> list[dict]:
