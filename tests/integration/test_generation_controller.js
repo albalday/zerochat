@@ -79,6 +79,37 @@ test('GenerationController - handleSendMessage ignores empty input with no files
   assert.equal(appendCalled, false);
 });
 
+test('GenerationController - cancelar conserva las tarjetas de herramientas visibles', async t => {
+  const State = require('../../js/state.js');
+  const previous = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments']
+    .map(name => [name, global[name]]);
+  t.after(() => previous.forEach(([name, value]) => {
+    if (value === undefined) delete global[name]; else global[name] = value;
+  }));
+  global.ChatState = State.createStore();
+  global.ChatProfileRepository = { load: async () => null };
+  global.ChatAttachments = { getFiles: () => [] };
+  global.ChatEngine = { executeAgentTurnLoop: async () => ({ cancelled: true }) };
+  let removed = false;
+  const wrapper = {
+    parentNode: { removeChild: () => { removed = true; } },
+    querySelector: selector => selector === '.tool-call-group' ? {} : null
+  };
+
+  await GenerationController.handleSendMessage({
+    elements: { userInput: { value: 'Detén la tarea' } },
+    api: { streamChatCompletion() {} },
+    getRuntimeConfig: () => ({ model: 'test', apiUrl: 'http://localhost' }),
+    appendUserMessage: () => 'user-cancel-test',
+    getChatHistory: () => global.ChatState.get('messages'),
+    createAssistantMessagePlaceholder: () => ({
+      wrapper, row: {}, content: {}, actions: { style: {} }, statsContainer: { style: {} }, msgId: 'assistant-cancel-test'
+    })
+  });
+
+  assert.equal(removed, false, 'La cancelación no debe eliminar un turno con tarjetas de herramientas');
+});
+
 test('GenerationController - handleSendMessage rejects empty model configuration gracefully', async () => {
   let finishCalled = false;
   let rowClasses = [];

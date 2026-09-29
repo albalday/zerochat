@@ -836,7 +836,8 @@
       if (ToolCards && ToolCards.createLiveToolCard && container && typeof document !== 'undefined') {
         cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs);
         if (cardEl) {
-          container.appendChild(cardEl);
+          if (ToolCards.appendToolCard) ToolCards.appendToolCard(container, cardEl);
+          else container.appendChild(cardEl);
           if (typeof attachListeners === 'function') attachListeners(cardEl);
           if (typeof scrollToBottom === 'function') scrollToBottom();
         }
@@ -866,6 +867,7 @@
           displayMode: execRes.displayMode || execRes.tool?.displayMode,
           outcome: execRes.outcome
         });
+        ToolCards.completeToolCard?.(cardEl, execRes.result || execRes);
         if (typeof attachListeners === 'function') attachListeners(cardEl);
         if (typeof scrollToBottom === 'function') scrollToBottom();
       }

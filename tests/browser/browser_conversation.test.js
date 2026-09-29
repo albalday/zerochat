@@ -56,6 +56,55 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
   } finally { await browser.close(); }
 });
 
+test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su detalle desplegable', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(() => {
+      const ToolCards = window.ChatToolCards;
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const first = ToolCards.createLiveToolCard('generic_one', { value: 1 });
+      const second = ToolCards.createLiveToolCard('generic_two', { value: 2 });
+      ToolCards.appendToolCard(container, first);
+      // El runtime crea este bloque vacío entre pasos; no debe partir el grupo.
+      const emptyTurn = document.createElement('div');
+      emptyTurn.className = 'agentic-turn-block';
+      container.appendChild(emptyTurn);
+      ToolCards.appendToolCard(container, second);
+      const group = container.querySelector('.tool-call-group');
+      const history = group.querySelector('.tool-call-group-history');
+      const running = {
+        groups: container.querySelectorAll('.tool-call-group').length,
+        isOpen: history.open,
+        hasEmptySeparator: !!container.querySelector('.agentic-turn-block'),
+        activeCards: group.querySelectorAll('.tool-call-group-active-cards .tool-card-wrapper').length,
+        visibleActiveCards: [...group.querySelectorAll('.tool-call-group-active-cards .tool-card-wrapper')].filter(el => el.getClientRects().length > 0).length
+      };
+      history.open = true;
+      ToolCards.completeToolCard(first, { success: true });
+      ToolCards.completeToolCard(second, { success: false });
+      const completed = {
+        isOpen: history.open,
+        status: group.querySelector('.tool-call-group-status').textContent,
+        cards: group.querySelectorAll('.tool-card-wrapper').length,
+        hasError: group.classList.contains('has-error')
+      };
+      const expandedCards = group.querySelectorAll('.tool-call-group-cards .tool-card-wrapper').length;
+      container.remove();
+      return { running, completed, expandedCards };
+    });
+    assert.deepEqual(result.running, { groups: 1, isOpen: false, hasEmptySeparator: false, activeCards: 2, visibleActiveCards: 2 });
+    assert.equal(result.completed.isOpen, true);
+    assert.match(result.completed.status, /2/);
+    assert.equal(result.completed.cards, 2);
+    assert.equal(result.completed.hasError, true);
+    assert.equal(result.expandedCards, 2);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown', async () => {
   const browser = await createTestBrowser();
   try {

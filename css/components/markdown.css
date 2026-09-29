@@ -300,6 +300,62 @@
   text-align: left;
 }
 
+/* Un bloque condensa llamadas consecutivas sin separar su contexto textual. */
+.tool-call-group {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0.5rem 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  overflow: hidden;
+}
+
+.tool-call-group.tool-call-group-auth-active {
+  overflow: visible;
+  position: relative;
+  z-index: 2;
+}
+
+.tool-call-group-history {
+  margin: 0;
+}
+
+.tool-call-group-summary {
+  min-height: 2.4rem;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.tool-call-group-summary::-webkit-details-marker { display: none; }
+.tool-call-group-summary::after {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s ease;
+}
+.tool-call-group-history[open] .tool-call-group-summary::after { transform: rotate(225deg) translate(-2px, -2px); }
+.tool-call-group-status { color: var(--text-muted); font-weight: 500; }
+.tool-call-group.is-running { border-color: var(--primary); }
+.tool-call-group.is-running .tool-call-group-summary > .ui-icon { color: var(--primary); animation: pulse-tool-badge 1.4s infinite ease-in-out; }
+.tool-call-group.has-error .tool-call-group-summary > .ui-icon { color: var(--error-color); }
+.tool-call-group-cards { padding: 0 0.5rem 0.25rem; }
+.tool-call-group-active-cards { padding: 0 0.5rem 0.25rem; }
+.tool-call-group-active-cards > .tool-card-wrapper { margin: 0.35rem 0; }
+.tool-call-group-cards > .tool-card-wrapper { margin: 0.35rem 0; }
+
+
 .tool-execution-card {
   margin: 0.75rem 0;
   border: 1px solid var(--border-color);

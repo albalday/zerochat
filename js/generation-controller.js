@@ -362,7 +362,8 @@
       }
 
       if (loopResult && loopResult.cancelled) {
-        if (wrapper && !wrapper.querySelector?.('.agentic-turn-block') && wrapper.parentNode) {
+        const hasVisibleToolGroup = !!wrapper?.querySelector?.('.tool-call-group');
+        if (wrapper && !hasVisibleToolGroup && !wrapper.querySelector?.('.agentic-turn-block') && wrapper.parentNode) {
           wrapper.parentNode.removeChild(wrapper);
         }
         if (typeof options.setDebugStatus === 'function') options.setDebugStatus('idle');

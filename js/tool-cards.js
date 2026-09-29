@@ -18,6 +18,75 @@
   const SERVER_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
   const DEFAULT_TOOL_ICON = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 
+  const TOOL_CALLS_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 6 4 4-8 8-4-4z"></path><path d="m5 19-2 2"></path><path d="m17 7 2-2"></path></svg>';
+
+  function getToolCallGroup(container) {
+    const lastChild = container?.lastElementChild;
+    return lastChild?.classList?.contains('tool-call-group') ? lastChild : null;
+  }
+
+  function updateToolCallGroup(group) {
+    if (!group) return;
+    const cards = Array.from(group.querySelectorAll('.tool-card-wrapper'));
+    const running = cards.filter(card => card.dataset.toolCallStatus === 'running');
+    const failed = cards.filter(card => card.dataset.toolCallStatus === 'error').length;
+    const count = cards.length;
+    const label = group.querySelector('.tool-call-group-label');
+    const status = group.querySelector('.tool-call-group-status');
+    const isRunning = running.length > 0;
+    group.classList.toggle('is-running', isRunning);
+    group.classList.toggle('has-error', !isRunning && failed > 0);
+    if (label) label.textContent = t('tool_calls_group_title') || 'Tool calls';
+    if (status) status.textContent = isRunning
+      ? (t('tool_calls_group_running', { count }) || `${count} tool call${count === 1 ? '' : 's'} running`)
+      : (t('tool_calls_group_complete', { count, failed }) || `${count} tool call${count === 1 ? '' : 's'} completed`);
+  }
+
+  function createToolCallGroup(container) {
+    const doc = container?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !container) return null;
+    const group = doc.createElement('div');
+    group.className = 'tool-call-group is-running';
+    group.innerHTML = `<details class="tool-call-group-history"><summary class="tool-call-group-summary">${TOOL_CALLS_SVG}<span class="tool-call-group-label"></span><span class="tool-call-group-status"></span></summary><div class="tool-call-group-cards"></div></details><div class="tool-call-group-active-cards"></div>`;
+    container.appendChild(group);
+    return group;
+  }
+
+  function appendToolCard(container, card, options = {}) {
+    if (!container || !card) return null;
+    // Las visualizaciones son resultado principal, no ruido de ejecución.
+    if (card.querySelector?.('.chat-chart-card')) {
+      container.appendChild(card);
+      return null;
+    }
+    // Cada paso del runtime crea un bloque de asistente antes de saber si emitirá
+    // texto. Si queda vacío, no representa una respuesta y no debe cortar el grupo.
+    const trailingAssistantBlock = container.lastElementChild;
+    if (trailingAssistantBlock?.classList?.contains('agentic-turn-block')
+      && !trailingAssistantBlock.textContent.trim()) {
+      trailingAssistantBlock.remove();
+    }
+    const group = getToolCallGroup(container) || createToolCallGroup(container);
+    const cards = group?.querySelector(options.completed ? '.tool-call-group-cards' : '.tool-call-group-active-cards');
+    if (!cards) {
+      container.appendChild(card);
+      return null;
+    }
+    card.dataset.toolCallStatus = options.completed ? (options.success === false ? 'error' : 'success') : 'running';
+    cards.appendChild(card);
+    updateToolCallGroup(group);
+    return group;
+  }
+
+  function completeToolCard(card, result = {}) {
+    if (!card) return;
+    card.dataset.toolCallStatus = result?.success === false || result?.error ? 'error' : 'success';
+    const group = card.closest?.('.tool-call-group');
+    const completedCards = group?.querySelector('.tool-call-group-cards');
+    if (completedCards) completedCards.appendChild(card);
+    updateToolCallGroup(group);
+  }
+
   function createCardWrapper(ui, extraClass = '') {
     const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
     if (!doc) return null;
@@ -173,7 +242,6 @@
     if (!card || typeof document === 'undefined') {
       return Promise.resolve('deny');
     }
-
     const tFn = (key, params) => t(key, params);
     const esc = getMarkdown().escapeHtml;
     const toolName = toolCall?.function?.name || options.toolName || 'tool';
@@ -183,10 +251,12 @@
 
     // Asegurar que la tarjeta esté expandida para que el usuario visualice la petición
     const cardEl = card.querySelector?.('.tool-execution-card, .mcp-card, .tool-card-wrapper') || card;
+    const toolGroup = card.closest?.('.tool-call-group');
     if (cardEl && cardEl.classList) {
       cardEl.classList.remove('collapsed');
       cardEl.classList.add('tool-card-auth-active');
     }
+    toolGroup?.classList?.add('tool-call-group-auth-active');
 
     // Actualizar badge a pendiente de autorización
     const badge = card.querySelector?.('.tool-card-badge');
@@ -279,6 +349,9 @@
           authPromptEl.remove();
         }
         cardEl?.classList?.remove('tool-card-auth-active');
+        if (!toolGroup?.querySelector?.('.tool-card-auth-active')) {
+          toolGroup?.classList?.remove('tool-call-group-auth-active');
+        }
         if (signal && abortHandler) {
           signal.removeEventListener('abort', abortHandler);
         }
@@ -410,6 +483,8 @@
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,
+    appendToolCard,
+    completeToolCard,
     promptToolAuthorization,
     collapseCard,
     SPINNER_SVG,

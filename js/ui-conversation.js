@@ -605,7 +605,10 @@
                 const toolMsg = assistantGroup.find(m => m.role === 'tool' && (m.tool_call_id === tc.id || m.name === tc.function?.name));
                 const cardEl = renderStoredToolCard(tc, toolMsg);
                 if (cardEl && content) {
-                  content.appendChild(cardEl);
+                  const success = !toolMsg?.content || !/\"success\"\s*:\s*false|\"error\"\s*:/i.test(toolMsg.content);
+                  const ToolCards = getToolCards();
+                  if (ToolCards?.appendToolCard) ToolCards.appendToolCard(content, cardEl, { completed: true, success });
+                  else content.appendChild(cardEl);
                 }
               });
             }
