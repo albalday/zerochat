@@ -66,7 +66,7 @@
         temperature: '0.7',
         reasoningEffort: 'medium',
         reasoningTransport: 'auto',
-        maxAgentTurns: 15,
+        maxAgentTurns: 40,
         theme: DEFAULT_THEME,
         language: 'es',
         enabledTools: {

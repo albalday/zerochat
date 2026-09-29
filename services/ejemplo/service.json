@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "ejemplo",
+  "displayName": {
+    "es": "Ejemplo de MCP",
+    "en": "MCP example"
+  },
+  "description": {
+    "es": "Plantilla mínima para crear servicios MCP gestionados por ZeroChat. Muestra el protocolo stdio y la estructura de configuración que debe seguir un nuevo MCP.",
+    "en": "Minimal template for creating ZeroChat-managed MCP services. It demonstrates the stdio protocol and configuration structure for a new MCP."
+  },
+  "help": {
+    "url": "help/mcp.html#crear-mcp-con-agente",
+    "label": {
+      "es": "Guía para crear un MCP gestionado",
+      "en": "Guide to creating a managed MCP"
+    }
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "launch": {
+    "executable": "${pythonExecutable}",
+    "args": ["${serviceDir}/ejemplo_mcp_server.py"],
+    "cwd": "${serviceDir}",
+    "env": {},
+    "handshakeTimeoutSeconds": 10
+  }
+}

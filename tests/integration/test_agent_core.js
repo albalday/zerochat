@@ -166,9 +166,14 @@ test('AgentCore - Detección y detención de bucles infinitos en el agente', () 
   const tc2 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
   const tc3 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
   const tcDiff = { function: { name: 'search_web', arguments: '{"query":"melilla"}' } };
+  const tcOrdered = { function: { name: 'search_web', arguments: '{"query":"ceuta","filters":{"language":"es","year":2026}}' } };
+  const tcReordered = { function: { name: 'search_web', arguments: '{"filters":{"year":2026,"language":"es"},"query":"ceuta"}' } };
 
   assert.equal(agent.getToolCallFingerprint(tc1), agent.getToolCallFingerprint(tc2));
   assert.notEqual(agent.getToolCallFingerprint(tc1), agent.getToolCallFingerprint(tcDiff));
+  assert.equal(agent.getToolCallFingerprint(tcOrdered), agent.getToolCallFingerprint(tcReordered));
+  assert.equal(agent.getToolBatchFingerprint([tc1, tcDiff]), agent.getToolBatchFingerprint([tc1, tcDiff]));
+  assert.notEqual(agent.getToolBatchFingerprint([tc1, tcDiff]), agent.getToolBatchFingerprint([tcDiff, tc1]));
 });
 
 test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, getActivePromptGuide)', () => {

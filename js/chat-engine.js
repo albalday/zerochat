@@ -392,7 +392,7 @@
       reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
       messages: chatHistory,
       signal: params.signal,
-      maxSteps: params.maxAgentTurns || appConfig.maxAgentTurns || 15,
+      maxSteps: params.maxAgentTurns || appConfig.maxAgentTurns || 40,
       maxRetries: 0,
       autoSynthesize: true,
       synthesizeOnLoop: false,

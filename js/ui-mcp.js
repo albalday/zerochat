@@ -62,6 +62,19 @@
     return isEnabled && isAvailable;
   }
 
+  // `help` is the standard optional service.json field shown on an MCP card.
+  // Keep arbitrary schemes out of an HTML attribute even though the value is escaped.
+  function getServiceHelp(help, language, translator = t) {
+    if (!help || typeof help !== 'object') return null;
+    const rawUrl = typeof help.url === 'string' ? help.url.trim() : '';
+    const isHttpUrl = /^https?:\/\//i.test(rawUrl);
+    const isSafeRelativeUrl = /^(?!\/\/)[a-zA-Z0-9][a-zA-Z0-9._~!$&'()*+,;=@\/?#%-]*$/.test(rawUrl);
+    if (!isHttpUrl && !isSafeRelativeUrl) return null;
+    const label = help.label?.[language] || help.label?.es || help.label?.en || help.label || translator('mcp_external_help');
+    if (typeof label !== 'string' || !label.trim()) return null;
+    return { url: rawUrl, label: label.trim() };
+  }
+
   function updateToolEnabledState(toolId, enabled) {
     const Config = getConfig();
     if (!Config) return false;
@@ -283,6 +296,8 @@
       const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
       const statusLabel = translator(`mcp_external_status_${server.status || 'stopped'}`);
       const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
+      const help = getServiceHelp(server.help, language, translator);
+      const helpHtml = help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : '';
       const err = server.error ? `
         <div class="mcp-server-error">
           <p>${escapeHtml(server.error)}</p>
@@ -328,6 +343,7 @@
               ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
             </div>
             ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
+            ${helpHtml}
             ${playwrightReplacementNotice}
             ${err}
             ${optionsHtml}
@@ -805,6 +821,7 @@
     buildMcpEndpoint,
     isBrowserActionActive,
     generateTerminalCommand,
+    getServiceHelp,
     copyCommandToClipboard,
     renderConnectionStatus,
     renderToolsList,

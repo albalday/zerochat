@@ -299,7 +299,7 @@
         temperature: runtimeConfig.temperature,
         reasoningEffort: runtimeConfig.reasoningEffort || 'medium',
         reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
-        maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 15,
+        maxAgentTurns: runtimeConfig.maxAgentTurns ? Number(runtimeConfig.maxAgentTurns) : 40,
         chatHistory: getChatHistory(),
         appConfig: runtimeConfig,
         assistantMsgId: assistantMsgId,

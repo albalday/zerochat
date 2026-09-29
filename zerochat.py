@@ -1656,36 +1656,45 @@ class McpServiceManager:
         console_log(f"[{time.strftime('%H:%M:%S')}] [MCP {server_id}] {_mcp_trace_text(message)}", flush=True)
 
     def _ensure_default_services(self):
-        dummy_dir = self.services_root / "dummy_mcp"
-        dummy_dir.mkdir(parents=True, exist_ok=True)
-        service_json_file = dummy_dir / "service.json"
-        dummy_server_file = dummy_dir / "dummy_mcp_server.py"
+        example_dir = self.services_root / "ejemplo"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        service_json_file = example_dir / "service.json"
+        example_server_file = example_dir / "ejemplo_mcp_server.py"
+        example_readme_file = example_dir / "README.md"
+        installer_example_file = example_dir / "installer.json.example"
 
         if not service_json_file.exists():
             service_json_file.write_text(json.dumps({
                 "schemaVersion": 1,
-                "id": "dummy_mcp",
+                "id": "ejemplo",
                 "displayName": {
-                    "es": "MCP de prueba",
-                    "en": "Test MCP"
+                    "es": "Ejemplo de MCP",
+                    "en": "MCP example"
                 },
                 "description": {
-                    "es": "Servicio MCP mínimo para comprobar la infraestructura externa.",
-                    "en": "Minimal MCP service for verifying the external infrastructure."
+                    "es": "Plantilla mínima para crear servicios MCP gestionados por ZeroChat. Muestra el protocolo stdio y la estructura de configuración que debe seguir un nuevo MCP.",
+                    "en": "Minimal template for creating ZeroChat-managed MCP services. It demonstrates the stdio protocol and configuration structure for a new MCP."
+                },
+                "help": {
+                    "url": "help/mcp.html#crear-mcp-con-agente",
+                    "label": {
+                        "es": "Guía para crear un MCP gestionado",
+                        "en": "Guide to creating a managed MCP"
+                    }
                 },
                 "enabledByDefault": False,
                 "transport": "stdio",
                 "launch": {
                     "executable": "${pythonExecutable}",
-                    "args": ["${serviceDir}/dummy_mcp_server.py"],
+                    "args": ["${serviceDir}/ejemplo_mcp_server.py"],
                     "cwd": "${serviceDir}",
                     "env": {},
                     "handshakeTimeoutSeconds": 10
                 }
             }, indent=2), encoding="utf-8")
 
-        if not dummy_server_file.exists():
-            dummy_server_file.write_text('''#!/usr/bin/env python3
+        if not example_server_file.exists():
+            example_server_file.write_text('''#!/usr/bin/env python3
 import json, sys
 
 def reply(req_id, result=None, error=None):
@@ -1702,7 +1711,7 @@ for raw in sys.stdin:
     if method == "initialize":
         reply(req_id, {
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "ZeroChat Dummy MCP", "version": "1.0.0"},
+            "serverInfo": {"name": "ZeroChat MCP Example", "version": "1.0.0"},
             "capabilities": {"tools": {}}
         })
     elif method == "tools/list":
@@ -1725,6 +1734,22 @@ for raw in sys.stdin:
             "isError": False
         })
 ''', encoding="utf-8")
+
+        if not installer_example_file.exists():
+            installer_example_file.write_text(json.dumps({
+                "schemaVersion": 1,
+                "type": "npm",
+                "product": {
+                    "package": "@scope/mcp-package",
+                    "version": "1.2.3"
+                },
+                "requirements": {
+                    "node": {"minimumMajor": 18}
+                }
+            }, indent=2) + "\n", encoding="utf-8")
+
+        if not example_readme_file.exists():
+            example_readme_file.write_text('''# Ejemplo de MCP gestionado\n\nEsta carpeta es la plantilla para que un agente cree un servicio MCP gestionado por ZeroChat. Para crear uno nuevo, copie esta estructura en `~/zerochat/services/<id-seguro>/`; no modifique este ejemplo.\n\n## Archivos\n\n- `service.json` es obligatorio. Define el identificador, los textos visibles, el proceso y el campo estándar opcional `help`.\n- `installer.json` es opcional. Créelo a partir de `installer.json.example` solo si ZeroChat debe instalar un paquete npm. Fije siempre una versión exacta.\n- El ejecutable o script de arranque se declara en `launch`. Use `${serviceDir}`, `${pythonExecutable}` o `${nodeExecutable}` en lugar de rutas de usuario.\n\n## Campo de ayuda\n\nTodos los servicios pueden incluir:\n\n```json\n"help": {\n  "url": "help/mcp.html",\n  "label": { "es": "Texto en español", "en": "English text" }\n}\n```\n\nLa interfaz muestra ese enlace en la tarjeta del servicio. `url` debe ser una ruta relativa de ZeroChat o una URL `https:` o `http:`.\n\n## Instrucción para un agente\n\nCopia este texto y sustituye solo `<nombre-del-mcp>`:\n\n```text\nSiguiendo estrictamente la estructura de ~/zerochat/services/ejemplo, busca en Internet la documentación oficial de instalación del MCP <nombre-del-mcp> y crea en ~/zerochat/services/ el directorio y los JSON necesarios para instalarlo y ejecutarlo en ZeroChat. Usa exclusivamente fuentes oficiales, fija versiones concretas, añade la sección help con el enlace a la documentación oficial, no incluyas secretos y no inicies el servicio. Al terminar, resume los archivos creados, las fuentes consultadas y los requisitos pendientes.\n```\n''', encoding="utf-8")
 
         # 2. playwright
         playwright_dir = self.services_root / "playwright"
@@ -1871,6 +1896,7 @@ for raw in sys.stdin:
                 "id": server_id,
                 "displayName": server.get("displayName", {}),
                 "description": server.get("description", {}),
+                "help": server.get("help"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else self.states.get(server_id, "stopped"),
                 "toolCount": len(client.tools) if running else 0,

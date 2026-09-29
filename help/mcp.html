@@ -81,12 +81,31 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
     <div class="card">
       <h2>5. Servicios MCP externos</h2>
       <p>En <strong>Ajustes → MCP → Servidores MCP disponibles</strong> puedes configurar, iniciar o detener cada servicio. Al pulsar Iniciar, ZeroChat instala automáticamente el paquete npm y sus dependencias en el directorio propio del servicio. Si no puede preparar un requisito, la tarjeta muestra el error y enlaza a esta sección.</p>
-      <ul><li><code>dummy_mcp</code>: servicio de prueba incluido; no descarga dependencias.</li>
+      <ul><li><code>ejemplo</code>: plantilla incluida para crear servicios MCP gestionados; no descarga dependencias. Su tarjeta enlaza a esta guía.</li>
       <li><code>playwright</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@playwright/mcp</code> y Chromium. La descarga de Chromium necesita red y espacio en disco. Si <code>browser_action</code> está activa, ZeroChat pide confirmación antes de desactivarla y sustituirla por las herramientas completas de Playwright.</li>
       <li><code>memory</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@modelcontextprotocol/server-memory</code> y sus dependencias.</li>
       </ul>
       <p>Si falla una instalación, comprueba la versión indicada de Node.js con <code>node --version</code>, que <code>npm --version</code> funcione, la conexión a npm y el espacio libre. Corrige el requisito y vuelve a pulsar Iniciar; no es necesario reinstalar ZeroChat.</p>
       <p>Los servicios se gestionan bajo <code>~/zerochat/services/</code>. Borrar <code>~/zerochat/</code> elimina ese estado y sus dependencias, pero no el historial del navegador ni archivos modificados fuera de esa carpeta.</p>
+      <h3 id="crear-mcp-con-agente">Crear un servicio MCP con un agente</h3>
+      <p>Usa <code>~/zerochat/services/ejemplo/</code> como estructura de referencia. Cada servicio necesita <code>service.json</code>; añade <code>installer.json</code> solo cuando ZeroChat tenga que instalar un paquete npm. El campo opcional estándar <code>help</code> permite que el JSON defina un enlace visible en la tarjeta del servicio:</p>
+      <div class="code-wrapper"><pre><code>"help": {
+  "url": "help/mcp.html#crear-mcp-con-agente",
+  "label": { "es": "Guía del servicio", "en": "Service guide" }
+}</code></pre></div>
+      <p>La URL debe ser una ruta relativa de ZeroChat o una URL <code>https:</code> o <code>http:</code>. No guardes tokens, contraseñas ni otros secretos en los JSON: decláralos como variables de entorno con un marcador y complétalos fuera de los archivos compartibles.</p>
+      <p>Copia este prompt y sustituye únicamente <code>&lt;nombre-del-mcp&gt;</code>:</p>
+      <div class="code-wrapper"><pre><code>Siguiendo estrictamente la estructura de ~/zerochat/services/ejemplo,
+busca en Internet la documentación oficial de instalación del MCP
+&lt;nombre-del-mcp&gt;.
+
+Crea en ~/zerochat/services/ el directorio y los JSON necesarios para
+instalarlo y ejecutarlo en ZeroChat. Usa exclusivamente fuentes oficiales,
+fija versiones concretas, añade la sección help con el enlace a la
+documentación oficial, no incluyas secretos y no inicies el servicio.
+
+Al terminar, resume los archivos creados, las fuentes consultadas y los
+requisitos pendientes.</code></pre></div>
       <p>Los parches de una misma serie, como <code>8.0.x</code>, llegan con la web. Un cambio de <code>major.minor</code> puede requerir actualizar el backend. Sigue el aviso correspondiente a PyPI o a la descarga directa; la actualización no es automática.</p>
     </div>
 

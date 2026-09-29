@@ -49,6 +49,13 @@ test('ChatConfig - usa razonamiento medio por defecto y conserva una elección e
   assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
 });
 
+test('ChatConfig - usa 40 turnos por defecto y limita la configuración entre 5 y 200', () => {
+  const { store } = createFixture();
+  assert.equal(store.initialize().maxAgentTurns, 40);
+  assert.equal(store.updateRuntime({ maxAgentTurns: 1 }).maxAgentTurns, 5);
+  assert.equal(store.updateRuntime({ maxAgentTurns: 300 }).maxAgentTurns, 200);
+});
+
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
   const { store } = createFixture();
   store.initialize();

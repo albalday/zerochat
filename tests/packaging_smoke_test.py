@@ -84,8 +84,12 @@ def main() -> None:
             venv_python = data_dir / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
             if not venv_python.is_file():
                 raise SystemExit("El paquete no creó ~/zerochat/.venv para los MCP")
-            if not (data_dir / "services" / "dummy_mcp" / "service.json").is_file():
+            if not (data_dir / "services" / "ejemplo" / "service.json").is_file():
                 raise SystemExit("El paquete no inicializó los servicios MCP en ~/zerochat")
+            if not (data_dir / "services" / "ejemplo" / "README.md").is_file():
+                raise SystemExit("El paquete no instaló la guía del MCP de ejemplo")
+            if not (data_dir / "services" / "ejemplo" / "installer.json.example").is_file():
+                raise SystemExit("El paquete no instaló el ejemplo de installer.json")
         finally:
             process.terminate()
             try:

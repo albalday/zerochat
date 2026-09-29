@@ -507,9 +507,10 @@ test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón I
   const container = { innerHTML: '' };
   const mockServers = [
     {
-      id: 'dummy_mcp',
-      displayName: { es: 'Dummy MCP', en: 'Dummy MCP' },
+      id: 'ejemplo',
+      displayName: { es: 'Ejemplo de MCP', en: 'MCP example' },
       description: { es: 'Servidor de prueba', en: 'Test server' },
+      help: { url: 'help/mcp.html', label: { es: 'Guía del ejemplo', en: 'Example guide' } },
       status: 'stopped',
       toolCount: 0
     },
@@ -523,13 +524,28 @@ test('ChatUIMcp - renderExternalServers renderiza tarjetas con badges y botón I
   ];
 
   ChatUIMcp.renderExternalServers(container, mockServers, (k, p) => ChatI18n.t(k, p));
-  assert.ok(container.innerHTML.includes('dummy_mcp'));
+  assert.ok(container.innerHTML.includes('ejemplo'));
+  assert.ok(container.innerHTML.includes('Guía del ejemplo'));
+  assert.ok(container.innerHTML.includes('href="help/mcp.html"'));
   assert.ok(container.innerHTML.includes('status-stopped'));
   assert.ok(container.innerHTML.includes('Iniciar'));
   assert.ok(container.innerHTML.includes('sqlite'));
   assert.ok(container.innerHTML.includes('status-running'));
   assert.ok(container.innerHTML.includes('Detener'));
   assert.ok(container.innerHTML.includes('2 herramientas activas'));
+});
+
+test('ChatUIMcp - el campo help de service.json solo admite URL HTTP o rutas relativas seguras', () => {
+  assert.deepEqual(
+    ChatUIMcp.getServiceHelp({ url: 'https://example.com/help', label: { es: 'Ayuda' } }, 'es'),
+    { url: 'https://example.com/help', label: 'Ayuda' }
+  );
+  assert.deepEqual(
+    ChatUIMcp.getServiceHelp({ url: 'help/mcp.html', label: { en: 'Help' } }, 'es'),
+    { url: 'help/mcp.html', label: 'Help' }
+  );
+  assert.equal(ChatUIMcp.getServiceHelp({ url: 'javascript:alert(1)', label: 'Unsafe' }, 'es'), null);
+  assert.equal(ChatUIMcp.getServiceHelp({ url: '//example.com', label: 'Unsafe' }, 'es'), null);
 });
 
 test('ChatUIMcp - un error de servidor MCP incluye un enlace a la ayuda de dependencias', () => {
@@ -573,7 +589,7 @@ test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado inici
     disabled: false,
     textContent: 'Iniciar',
     attributes: {},
-    getAttribute: attr => ({ 'data-server-id': 'dummy_mcp', 'data-action': 'start' }[attr] || null),
+    getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
     setAttribute(attr, value) { this.attributes[attr] = value; },
     removeAttribute(attr) { delete this.attributes[attr]; },
     addEventListener: (event, listener) => { listeners[event] = listener; }
@@ -583,12 +599,12 @@ test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado inici
     querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
   };
 
-  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'dummy_mcp', status: 'stopped' }] });
+  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
   try {
     ChatMCP.manager.startExternalServer = async () => {
       assert.equal(ChatState.get('mcp').externalServers[0].status, 'starting');
     };
-    ChatUIMcp.renderExternalServers(container, [{ id: 'dummy_mcp', status: 'stopped' }], (key) => ChatI18n.t(key));
+    ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
 
     await listeners.click();
 
@@ -610,7 +626,7 @@ test('ChatUIMcp - un error al iniciar un servidor MCP se muestra en su tarjeta',
   const btn = {
     disabled: false,
     textContent: 'Iniciar',
-    getAttribute: attr => ({ 'data-server-id': 'dummy_mcp', 'data-action': 'start' }[attr] || null),
+    getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
     setAttribute: () => {},
     removeAttribute: () => {},
     addEventListener: (event, listener) => { listeners[event] = listener; }
@@ -620,11 +636,11 @@ test('ChatUIMcp - un error al iniciar un servidor MCP se muestra en su tarjeta',
     querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
   };
 
-  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'dummy_mcp', status: 'stopped' }] });
+  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
   try {
     ChatMCP.manager.startExternalServer = async () => { throw new Error('connection failed'); };
     console.error = () => {};
-    ChatUIMcp.renderExternalServers(container, [{ id: 'dummy_mcp', status: 'stopped' }], (key) => ChatI18n.t(key));
+    ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
 
     await listeners.click();
 

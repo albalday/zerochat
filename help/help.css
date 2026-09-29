@@ -407,22 +407,22 @@ pre code {
 }
 
 .code-wrapper {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   margin-bottom: 1rem;
 }
 
 .code-wrapper pre {
   margin-bottom: 0;
-  padding-right: 4.5rem;
 }
 
 .btn-copy {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #fff;
+  align-self: flex-end;
+  margin-top: 0.5rem;
+  background: var(--primary-light);
+  border: 1px solid var(--border-color);
+  color: var(--primary);
   border-radius: 4px;
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
@@ -431,7 +431,9 @@ pre code {
 }
 
 .btn-copy:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .btn-copy.copied {
@@ -601,4 +603,3 @@ footer {
     text-align: left;
   }
 }
-

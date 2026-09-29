@@ -922,11 +922,13 @@
     constructor(options = {}) {
       this.registry = options.registry || new ToolRegistry();
       this.executor = options.executor || new ToolExecutor(this.registry);
-      this.maxSteps = options.maxSteps || options.maxTurns || (options.appConfig && options.appConfig.maxAgentTurns) || (options.config && options.config.maxAgentTurns) || 15;
+      this.maxSteps = options.maxSteps || options.maxTurns || (options.appConfig && options.appConfig.maxAgentTurns) || (options.config && options.config.maxAgentTurns) || 40;
       this.timeoutMs = options.timeoutMs || 0; // 0 = sin límite global de tiempo
       this.stepTimeoutMs = options.stepTimeoutMs || 60000; // 60s por paso
       this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : 1;
-      this.loopThreshold = options.loopThreshold || 2;
+      // A repeated tool batch is only a loop when it is repeated consecutively.
+      // This leaves normal programming cycles such as test -> edit -> test alone.
+      this.loopThreshold = options.loopThreshold || 5;
       this.autoSynthesize = options.autoSynthesize !== false;
     }
 
@@ -936,10 +938,28 @@
     getToolCallFingerprint(toolCall) {
       if (!toolCall || !toolCall.function) return '';
       const name = toolCall.function.name || '';
-      const args = typeof toolCall.function.arguments === 'object'
-        ? JSON.stringify(toolCall.function.arguments)
-        : String(toolCall.function.arguments || '').trim();
+      const rawArgs = toolCall.function.arguments;
+      let args = rawArgs;
+      if (typeof rawArgs === 'string') {
+        const trimmed = rawArgs.trim();
+        try { args = JSON.parse(trimmed); } catch (_) { args = trimmed; }
+      }
+      const canonicalize = value => {
+        if (Array.isArray(value)) return value.map(canonicalize);
+        if (value && typeof value === 'object') {
+          return Object.keys(value).sort().reduce((result, key) => {
+            result[key] = canonicalize(value[key]);
+            return result;
+          }, {});
+        }
+        return value;
+      };
+      args = typeof args === 'string' ? args : JSON.stringify(canonicalize(args));
       return `${name}:${args}`;
+    }
+
+    getToolBatchFingerprint(toolCalls) {
+      return JSON.stringify((toolCalls || []).map(toolCall => this.getToolCallFingerprint(toolCall)));
     }
 
     /**
@@ -1064,7 +1084,8 @@
       let finalReasoningText = '';
       let lastStats = null;
       const toolExecutions = [];
-      const toolCallSignatures = [];
+      let previousToolBatchFingerprint = null;
+      let consecutiveToolBatchCount = 0;
       let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
@@ -1241,16 +1262,18 @@
           }
 
           // Caso B: Llamadas a herramientas detectadas (soporte para llamadas individuales y en paralelo)
-          const currentSignatures = stepToolCalls.map(tc => this.getToolCallFingerprint(tc));
-          const allRepeated = currentSignatures.length > 0 && currentSignatures.every(sig => {
-            return toolCallSignatures.filter(s => s === sig).length >= loopThreshold;
-          });
+          const currentBatchFingerprint = this.getToolBatchFingerprint(stepToolCalls);
+          consecutiveToolBatchCount = currentBatchFingerprint === previousToolBatchFingerprint
+            ? consecutiveToolBatchCount + 1
+            : 1;
+          previousToolBatchFingerprint = currentBatchFingerprint;
+          const repeatedConsecutively = consecutiveToolBatchCount > loopThreshold;
 
           // Detección y protección contra bucles infinitos
-          if (allRepeated) {
+          if (repeatedConsecutively) {
             status = 'loop_detected';
             if (callbacks.onLoopDetected) {
-              callbacks.onLoopDetected(stepToolCalls[0], loopThreshold + 1, stepIndex);
+              callbacks.onLoopDetected(stepToolCalls[0], consecutiveToolBatchCount, stepIndex);
             }
             const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.';
             currentStepText = (currentStepText || '') + loopWarning;
@@ -1310,10 +1333,6 @@
             }
             break;
           }
-          for (const sig of currentSignatures) {
-            toolCallSignatures.push(sig);
-          }
-
           const trimmedStepText = (currentStepText || '').trim();
           if (
             trimmedStepText.startsWith('<|') ||

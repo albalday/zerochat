@@ -22,7 +22,7 @@ for raw in sys.stdin:
     if method == "initialize":
         reply(req_id, {
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "ZeroChat Dummy MCP", "version": "1.0.0"},
+            "serverInfo": {"name": "ZeroChat MCP Example", "version": "1.0.0"},
             "capabilities": {"tools": {}}
         })
     elif method == "tools/list":
@@ -44,4 +44,3 @@ for raw in sys.stdin:
             "content": [{"type": "text", "text": f"echo: {msg}"}],
             "isError": False
         })
-

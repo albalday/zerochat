@@ -404,6 +404,54 @@ test('AgentRuntime - Detección de bucles infinitos (Loop Detection)', async () 
   assert.match(result.finalText, /Infinite Loop Protection/);
 });
 
+test('AgentRuntime - permite ciclos de programación cuando los lotes de herramientas alternan', async () => {
+  const registry = new ToolRegistry();
+  let testRuns = 0;
+  let edits = 0;
+  registry.registerTool(new Tool({ name: 'run_tests', execute: async () => { testRuns++; return { passed: false }; } }));
+  registry.registerTool(new Tool({ name: 'apply_change', execute: async () => { edits++; return { changed: true }; } }));
+
+  let step = 0;
+  const mockApi = {
+    streamChatCompletion: async () => {
+      if (step++ === 8) return { accumulatedText: 'Trabajo terminado.', toolCalls: [] };
+      const isTest = step % 2 === 1;
+      return {
+        accumulatedText: '',
+        toolCalls: [{
+          id: `call_${step}`,
+          function: { name: isTest ? 'run_tests' : 'apply_change', arguments: isTest ? '{"suite":"unit"}' : '{"target":"app.js"}' }
+        }]
+      };
+    }
+  };
+
+  const result = await new AgentRuntime({ registry, maxSteps: 12 }).execute({
+    api: mockApi,
+    messages: [{ role: 'user', content: 'Corrige el proyecto.' }]
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(testRuns, 4);
+  assert.equal(edits, 4);
+});
+
+test('AgentRuntime - bloquea la sexta repetición consecutiva del mismo lote', async () => {
+  const registry = new ToolRegistry();
+  let executions = 0;
+  registry.registerTool(new Tool({ name: 'repeat', execute: async () => { executions++; return { ok: true }; } }));
+  const toolCall = { function: { name: 'repeat', arguments: '{"value":1}' } };
+  const result = await new AgentRuntime({ registry, maxSteps: 8 }).execute({
+    api: { streamChatCompletion: async params => params.enableTools === false
+      ? { accumulatedText: 'Resumen.', toolCalls: [] }
+      : { accumulatedText: '', toolCalls: [{ ...toolCall, id: `call_${executions}` }] } },
+    messages: [{ role: 'user', content: 'Repite.' }]
+  });
+
+  assert.equal(result.status, 'loop_detected');
+  assert.equal(executions, 5);
+});
+
 test('AgentRuntime - Clean termination when model returns empty text after tools', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({

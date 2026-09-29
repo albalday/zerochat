@@ -328,7 +328,7 @@
       temperature: elements?.settingTemperature ? elements.settingTemperature.value : (appConfig?.temperature || '0.7'),
       reasoningEffort: appConfig?.reasoningEffort || 'medium',
       reasoningTransport: appConfig?.reasoningTransport || 'auto',
-      maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 15),
+      maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 40),
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
       theme: appConfig?.theme || DEFAULT_THEME,
       language: appConfig?.language || 'es',
@@ -389,10 +389,10 @@
         elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
       }
       if (elements.settingMaxAgentTurns) {
-        elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 15;
+        elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 40;
       }
       if (elements.maxAgentTurnsVal) {
-        elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 15;
+        elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 40;
       }
       if (elements.settingEnableContextCache) {
         elements.settingEnableContextCache.checked = appConfig?.enableContextCache !== false;
@@ -724,11 +724,11 @@
               <label for="setting-max-agent-turns" style="margin-bottom: 0;">
                 <strong data-i18n="field_max_agent_turns">Límite de turnos agénticos</strong>
               </label>
-              <span id="max-agent-turns-val" style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary, #2563eb);">15</span>
+              <span id="max-agent-turns-val" style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary, #2563eb);">40</span>
             </div>
-            <span class="label-hint" data-i18n="field_max_agent_turns_hint">Número máximo de pasos o llamadas consecutivas a herramientas antes de forzar la síntesis final (entre 5 y 35).</span>
+            <span class="label-hint" data-i18n="field_max_agent_turns_hint">Número máximo de pasos de herramientas antes de forzar la síntesis final (entre 5 y 200).</span>
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.4rem;">
-              <input type="range" id="setting-max-agent-turns" min="5" max="35" step="1" value="15" style="flex: 1;">
+              <input type="range" id="setting-max-agent-turns" min="5" max="200" step="1" value="40" style="flex: 1;">
             </div>
           </div>
 

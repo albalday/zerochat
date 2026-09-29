@@ -679,24 +679,25 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const statusJson = await statusRes.json();
     assert.equal(statusJson.result?.host, 'running');
     const serverIds = (statusJson.result?.servers || []).map(s => s.id);
-    assert.ok(serverIds.includes('dummy_mcp'), 'dummy_mcp debe estar provisto');
+    assert.ok(serverIds.includes('ejemplo'), 'ejemplo debe estar provisto');
     assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
     assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
     assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
-    const dummyServer = (statusJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
-    assert.equal(dummyServer?.status, 'stopped');
+    const exampleServer = (statusJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    assert.equal(exampleServer?.status, 'stopped');
+    assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
 
-    // Iniciar individualmente dummy_mcp
+    // Iniciar individualmente el ejemplo
     const startRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'dummy_mcp' } })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'zerochat/external/servers/start', params: { serverId: 'ejemplo' } })
     });
     assert.equal(startRes.status, 200);
     const startJson = await startRes.json();
-    const runningDummy = (startJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
-    assert.equal(runningDummy?.status, 'running');
-    assert.equal(runningDummy?.toolCount, 1);
+    const runningExample = (startJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    assert.equal(runningExample?.status, 'running');
+    assert.equal(runningExample?.toolCount, 1);
 
     // tools/list en /mcp/external
     const extToolsRes = await fetch(`${baseUrl}/mcp/external`, {
@@ -707,9 +708,9 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(extToolsRes.status, 200);
     const extToolsJson = await extToolsRes.json();
     const extToolNames = (extToolsJson.result?.tools || []).map(t => t.name);
-    assert.ok(extToolNames.includes('mcp_dummyz5fzmcp_echo'));
+    assert.ok(extToolNames.includes('mcp_ejemplo_echo'));
 
-    // tools/call ejecutando dummy_mcp echo
+    // tools/call ejecutando el echo del ejemplo
     const extCallRes = await fetch(`${baseUrl}/mcp/external`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
@@ -717,7 +718,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
         jsonrpc: '2.0',
         id: 9,
         method: 'tools/call',
-        params: { name: 'mcp_dummyz5fzmcp_echo', arguments: { message: 'probando mcp' } }
+        params: { name: 'mcp_ejemplo_echo', arguments: { message: 'probando mcp' } }
       })
     });
     assert.equal(extCallRes.status, 200);
@@ -725,17 +726,17 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(extCallJson.result?.isError, false);
     assert.equal(extCallJson.result?.content?.[0]?.text, 'echo: probando mcp');
 
-    // Detener individualmente dummy_mcp
+    // Detener individualmente el ejemplo
     const stopRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'zerochat/external/servers/stop', params: { serverId: 'dummy_mcp' } })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'zerochat/external/servers/stop', params: { serverId: 'ejemplo' } })
     });
     assert.equal(stopRes.status, 200);
     const stopJson = await stopRes.json();
-    const stoppedDummy = (stopJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
-    assert.equal(stoppedDummy?.status, 'stopped');
-    assert.equal(stoppedDummy?.toolCount, 0);
+    const stoppedExample = (stopJson.result?.servers || []).find(s => s.id === 'ejemplo');
+    assert.equal(stoppedExample?.status, 'stopped');
+    assert.equal(stoppedExample?.toolCount, 0);
 
   } finally {
     global.fetch = nativeFetch;
