@@ -253,7 +253,6 @@
       cb.addEventListener?.('change', async () => {
         const tid = cb.getAttribute?.('data-tool-id');
         if (!tid) return;
-        const Config = getConfig();
         if (tid === 'browser_action' && cb.checked) {
           const MCP = getMCP();
           const client = MCP?.manager?.clients?.get?.('mcp_proxy');
@@ -267,10 +266,7 @@
             return;
           }
         }
-        if (Config) {
-          const curr = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
-          (Config.updateRuntime || Config.update)?.call(Config, { enabledTools: { ...curr, [tid]: cb.checked } });
-        }
+        updateToolEnabledState(tid, cb.checked);
       });
     });
   }
