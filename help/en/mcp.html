@@ -82,7 +82,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
       <h2>5. External MCP services</h2>
       <p>In <strong>Settings → MCP → Available MCP servers</strong>, configure, start or stop each service. When you select Start, ZeroChat automatically installs the npm package and its dependencies in the service's own directory. If a requirement cannot be prepared, the card displays the error and links to this section.</p>
       <ul><li><code>dummy_mcp</code>: bundled test service; it does not download dependencies.</li>
-      <li><code>playwright</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@playwright/mcp</code> and Chromium. Downloading Chromium requires network access and disk space.</li>
+      <li><code>playwright</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@playwright/mcp</code> and Chromium. Downloading Chromium requires network access and disk space. If <code>browser_action</code> is active, ZeroChat asks for confirmation before disabling it and replacing it with the complete Playwright toolset.</li>
       <li><code>memory</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@modelcontextprotocol/server-memory</code> and its dependencies.</li>
       </ul>
       <p>If installation fails, check the stated Node.js version with <code>node --version</code>, confirm that <code>npm --version</code> works, and check npm network access and free disk space. Fix the requirement and select Start again; reinstalling ZeroChat is not necessary.</p>

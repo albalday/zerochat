@@ -48,6 +48,37 @@
 
   const DEFAULT_TIMEOUT_MS = 15000;
   const MAX_OUTPUT_LENGTH = 60000;
+  const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
+  const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+  function extractImageFromMcpText(textOutput) {
+    try {
+      const parsed = JSON.parse(textOutput);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof parsed.image_base64 !== 'string') {
+        return null;
+      }
+
+      let imageBase64 = parsed.image_base64;
+      let mimeType = parsed.mime_type || parsed.mimeType || 'image/png';
+      const dataUrlMatch = imageBase64.match(/^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i);
+      if (dataUrlMatch) {
+        mimeType = dataUrlMatch[1].toLowerCase();
+        imageBase64 = dataUrlMatch[2];
+      }
+      if (!SAFE_IMAGE_MIME_TYPES.has(mimeType) || imageBase64.length === 0 || imageBase64.length > MAX_IMAGE_BASE64_LENGTH || !/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)) {
+        return null;
+      }
+
+      parsed.image_base64 = `[Base64 image (${mimeType}), length: ${imageBase64.length} chars - attached as visual evidence]`;
+      return {
+        content: JSON.stringify(parsed, null, 2),
+        imageBase64,
+        mimeType
+      };
+    } catch (_) {
+      return null;
+    }
+  }
 
   function getAgentCore() {
     if (typeof window !== 'undefined' && window.ChatAgentCore) return window.ChatAgentCore;
@@ -649,6 +680,11 @@
         textOutput = JSON.stringify(result, null, 2);
       }
 
+      const extractedImage = extractImageFromMcpText(textOutput);
+      if (extractedImage) {
+        textOutput = extractedImage.content;
+      }
+
       if (textOutput.length > MAX_OUTPUT_LENGTH) {
         textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... MCP content truncated due to size limit ...]';
       }
@@ -658,6 +694,10 @@
         isError: isError,
         content: textOutput,
         rawResult: result,
+        ...(extractedImage ? {
+          image_base64: extractedImage.imageBase64,
+          mime_type: extractedImage.mimeType
+        } : {}),
         executionTimeMs: elapsed
       };
     }
