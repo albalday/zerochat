@@ -545,6 +545,25 @@ test('ChatUIMcp - un error de servidor MCP incluye un enlace a la ayuda de depen
   assert.ok(container.innerHTML.includes('Node.js 24+'));
 });
 
+test('ChatUIMcp - detecta si browser_action está activa antes de iniciar Playwright', () => {
+  assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: true }), true);
+  assert.equal(ChatUIMcp.isBrowserActionActive({ browser_action: false }, { name: 'browser_action', available: true }), false);
+  assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: false }), false);
+  assert.equal(ChatUIMcp.isBrowserActionActive({}, null), false);
+});
+
+test('ChatUIMcp - Playwright informa de si browser_action está activa', () => {
+  const previousState = ChatState.get('mcp');
+  const container = { innerHTML: '' };
+  ChatState.set('mcp', { ...previousState, tools: [{ name: 'browser_action', available: true }] });
+  try {
+    ChatUIMcp.renderExternalServers(container, [{ id: 'playwright', status: 'stopped' }], (key) => ChatI18n.t(key));
+    assert.match(container.innerHTML, /browser_action está activa/);
+  } finally {
+    ChatState.set('mcp', previousState);
+  }
+});
+
 test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado iniciando', async () => {
   const ChatMCP = require('../../js/mcp.js');
   const previousState = ChatState.get('mcp');

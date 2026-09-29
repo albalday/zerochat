@@ -236,6 +236,51 @@ test('MCP - Timeout, Cancelación con AbortSignal y Truncado de Salida', async (
   }
 });
 
+test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el texto', async () => {
+  const originalFetch = global.fetch;
+  const screenshotBase64 = 'A'.repeat(70000);
+
+  try {
+    const client = new MCP.McpClient({
+      id: 'local_server',
+      name: 'ZeroChat Local Server',
+      url: 'https://mcp.local/rpc'
+    });
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                action: 'screenshot',
+                mime_type: 'image/png',
+                image_base64: screenshotBase64
+              })
+            }],
+            isError: false
+          }
+        })
+      };
+    };
+
+    const response = await client.callTool('browser_action', { action: 'screenshot' });
+    assert.equal(response.image_base64, screenshotBase64);
+    assert.equal(response.mime_type, 'image/png');
+    assert.ok(response.content.includes('attached as visual evidence'));
+    assert.equal(response.content.includes(screenshotBase64), false);
+    assert.equal(response.content.includes('[... MCP content truncated due to size limit ...]'), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('MCP - McpManager administración de servidores y sincronización', async () => {
   const manager = new MCP.McpManager();
 

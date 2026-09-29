@@ -25,9 +25,9 @@
     <div class="card">
       <h2>Setup</h2>
       <ol><li>Start the backend with <code>zerochat</code> or <code>python3 zerochat.py</code> and check that Node.js and <code>npm</code> are available to that process.</li>
-      <li>Open <strong>Settings → MCP</strong> and start <strong>Playwright MCP</strong>. Its installation prepares Playwright and Chromium under <code>~/zerochat/services/playwright/</code>.</li>
-      <li>Reload ZeroChat to refresh discovered tools and enable <code>browser_action</code> if available.</li></ol>
-      <p>The local <code>browser_action</code> tool and external Playwright MCP tools are separate interfaces even when they share dependencies. A Node.js Playwright installation with Chrome, Edge or Chromium may also be detected. Installing the Python Playwright package does not satisfy this requirement.</p>
+      <li>To use the complete toolset, open <strong>Settings → MCP</strong> and start <strong>Playwright MCP</strong>. Its installation prepares Playwright and Chromium under <code>~/zerochat/services/playwright/</code>.</li>
+      <li>If <code>browser_action</code> is active, accept the replacement notice. ZeroChat disables it before starting Playwright MCP.</li></ol>
+      <p>The local <code>browser_action</code> tool and external Playwright MCP tools are separate interfaces even when they share dependencies, but are offered as alternatives to avoid duplicate browser automation. A Node.js Playwright installation with Chrome, Edge or Chromium may also be detected. Installing the Python Playwright package does not satisfy this requirement.</p>
       <p>If unavailable, check installation output and browser requirements for your system. Downloads may need network access and system libraries; installing the npm package alone does not guarantee Chromium will start.</p>
     </div>
 

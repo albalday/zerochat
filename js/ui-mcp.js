@@ -56,6 +56,27 @@
     return `http://${sanitizeHost(host)}:${sanitizePort(port)}${suffix}`;
   }
 
+  function isBrowserActionActive(enabledTools = {}, browserTool = null) {
+    const isEnabled = enabledTools.browser_action !== false;
+    const isAvailable = !!browserTool && browserTool.available !== false;
+    return isEnabled && isAvailable;
+  }
+
+  function updateToolEnabledState(toolId, enabled) {
+    const Config = getConfig();
+    if (!Config) return false;
+    const current = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
+    const update = Config.updateRuntime || Config.update;
+    if (typeof update !== 'function') return false;
+    try {
+      update.call(Config, { enabledTools: { ...current, [toolId]: enabled } });
+      return true;
+    } catch (error) {
+      console.error('[MCP UI] Error updating enabled tool state:', error);
+      return false;
+    }
+  }
+
   function generateTerminalCommand() {
     return 'pip install zerochat && zerochat';
   }
@@ -250,6 +271,10 @@
     const language = getI18n()?.getLanguage?.() || 'es';
     const Security = getSecurity();
     const Icons = getIcons();
+    const enabledTools = (getConfig()?.get?.() || getConfig()?.getActive?.())?.enabledTools || {};
+    const localTools = getState()?.get?.('mcp')?.tools || [];
+    const browserTool = localTools.find(tool => (tool.id || tool.name) === 'browser_action' || tool.name === 'browser_action');
+    const browserActionActive = isBrowserActionActive(enabledTools, browserTool);
     container.innerHTML = servers.map(server => {
       const isRunning = server.status === 'running';
       const isStarting = server.status === 'starting';
@@ -291,6 +316,8 @@
       const trustBtnText = isServerTrusted ? translator('mcp_security_trusted_server') : translator('mcp_security_trust_server');
       const trustBtnClass = isServerTrusted ? 'btn-mcp-server-trust active' : 'btn-mcp-server-trust';
       const shieldIcon = Icons?.get ? Icons.get('shield', { size: 12 }) : '';
+      const playwrightReplacementNotice = server.id === 'playwright' ? `
+        <p class="mcp-server-replacement-notice">${escapeHtml(translator(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : '';
 
       return `
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
@@ -301,6 +328,7 @@
               ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
             </div>
             ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
+            ${playwrightReplacementNotice}
             ${err}
             ${optionsHtml}
           </div>
@@ -371,6 +399,24 @@
         const sid = btn.getAttribute?.('data-server-id');
         const action = btn.getAttribute?.('data-action');
         if (!sid) return;
+        let browserActionDisabled = false;
+        if (sid === 'playwright' && action === 'start' && browserActionActive) {
+          const accepted = await getDialogs()?.confirm?.(
+            translator('mcp_playwright_replacement_confirm'),
+            {
+              type: 'warning',
+              title: translator('mcp_playwright_replacement_title'),
+              acceptText: translator('mcp_playwright_replacement_accept'),
+              cancelText: translator('notice_cancel')
+            }
+          );
+          if (!accepted) return;
+          browserActionDisabled = updateToolEnabledState('browser_action', false);
+          if (!browserActionDisabled) {
+            await getDialogs()?.alert?.(translator('mcp_external_action_error'), { type: 'error' });
+            return;
+          }
+        }
         btn.disabled = true;
         btn.setAttribute?.('aria-busy', 'true');
         const pendingStatus = action === 'start' ? 'starting' : 'stopped';
@@ -390,6 +436,7 @@
             status: action === 'start' ? 'stopped' : 'running',
             error: translator('mcp_external_action_error')
           });
+          if (browserActionDisabled) updateToolEnabledState('browser_action', true);
         } finally {
           btn.disabled = false;
           btn.removeAttribute?.('aria-busy');
@@ -756,6 +803,7 @@
     sanitizePort,
     sanitizeHost,
     buildMcpEndpoint,
+    isBrowserActionActive,
     generateTerminalCommand,
     copyCommandToClipboard,
     renderConnectionStatus,
