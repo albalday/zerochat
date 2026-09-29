@@ -4,6 +4,10 @@
   "product": {
     "package": "@modelcontextprotocol/server-memory",
     "version": "2026.8.31"
+  },
+  "requirements": {
+    "node": {
+      "minimumMajor": 18
+    }
   }
 }
-

@@ -58,6 +58,73 @@ finally:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: el arranque MCP deja traza de éxito y fallo en la consola', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_trace_test", Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    root = Path(temp_dir) / "services"
+    traces = []
+    zerochat.console_log = lambda message, **_kwargs: traces.append(message)
+
+    def write_service(server_id, script_text):
+        service_dir = root / server_id
+        service_dir.mkdir(parents=True)
+        entrypoint = service_dir / "server.py"
+        entrypoint.write_text(script_text, encoding="utf-8")
+        (service_dir / "service.json").write_text(json.dumps({
+            "id": server_id,
+            "launch": {
+                "executable": sys.executable,
+                "args": [str(entrypoint)],
+                "cwd": str(service_dir),
+                "env": {},
+                "handshakeTimeoutSeconds": 2
+            }
+        }), encoding="utf-8")
+
+    write_service("healthy", '''import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request.get("method")
+    if method == "initialize":
+        result = {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "healthy", "version": "1"}}
+    elif method == "tools/list":
+        result = {"tools": []}
+    else:
+        continue
+    print(json.dumps({"jsonrpc": "2.0", "id": request.get("id"), "result": result}), flush=True)
+''')
+    write_service("broken", 'import sys\\nprint("intentional MCP startup failure", file=sys.stderr, flush=True)\\nsys.exit(3)\\n')
+
+    manager = zerochat.McpServiceManager(root)
+    assert next(item for item in manager.start("healthy") if item["id"] == "healthy")["status"] == "running"
+    assert next(item for item in manager.start("broken") if item["id"] == "broken")["status"] == "error"
+    time.sleep(0.1)
+    manager.close()
+
+    joined = "\\n".join(traces)
+    assert "[MCP healthy] start requested" in joined
+    assert "[MCP healthy] launching:" in joined
+    assert "[MCP healthy] handshake completed" in joined
+    assert "[MCP healthy] started successfully" in joined
+    assert "[MCP broken] stderr: intentional MCP startup failure" in joined
+    assert "[MCP broken] start failed:" in joined
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) {
   const start = Date.now();
   let serverError = '';
@@ -615,7 +682,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(serverIds.includes('dummy_mcp'), 'dummy_mcp debe estar provisto');
     assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
     assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
-    assert.ok(serverIds.includes('lsp'), 'lsp debe estar provisto');
+    assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
     const dummyServer = (statusJson.result?.servers || []).find(s => s.id === 'dummy_mcp');
     assert.equal(dummyServer?.status, 'stopped');
 
@@ -1199,6 +1266,10 @@ assert "-m pip install --upgrade" in zerochat.get_notices()[-1]
 # 6. El entorno MCP no cambia el intérprete del servidor.
 import os
 import tempfile
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 with tempfile.TemporaryDirectory() as temp_dir:
     old_data_dir = os.environ.get("ZEROCHAT_DATA_DIR")
     os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
@@ -1212,6 +1283,22 @@ with tempfile.TemporaryDirectory() as temp_dir:
             os.environ.pop("ZEROCHAT_DATA_DIR", None)
         else:
             os.environ["ZEROCHAT_DATA_DIR"] = old_data_dir
+
+# 7. La validación MCP acepta una versión de Node que cumple el mínimo configurado.
+with tempfile.TemporaryDirectory() as temp_dir:
+    service_dir = Path(temp_dir)
+    (service_dir / "installer.json").write_text(json.dumps({
+        "type": "npm",
+        "product": {"package": "example-mcp", "version": "1.0.0"},
+        "requirements": {"node": {"minimumMajor": 24}}
+    }), encoding="utf-8")
+    (service_dir / "node_modules" / "example-mcp").mkdir(parents=True)
+    (service_dir / ".installed.json").write_text(json.dumps({
+        "package": "example-mcp", "version": "1.0.0"
+    }), encoding="utf-8")
+    with patch.object(zerochat.shutil, "which", side_effect=lambda command: f"/usr/bin/{command}"), \
+         patch.object(zerochat.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="v24.18.1\\n")):
+        zerochat.McpServiceManager()._prepare_service("example", {"_directory": service_dir})
 `;
 
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });

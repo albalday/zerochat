@@ -84,7 +84,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
       <ul><li><code>dummy_mcp</code>: servicio de prueba incluido; no descarga dependencias.</li>
       <li><code>playwright</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@playwright/mcp</code> y Chromium. La descarga de Chromium necesita red y espacio en disco.</li>
       <li><code>memory</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@modelcontextprotocol/server-memory</code> y sus dependencias.</li>
-      <li><code>lsp</code>: requiere Node.js 24+ y npm. ZeroChat instala <code>@axivo/mcp-lsp</code> y sus dependencias; para analizar un lenguaje concreto debes instalar también el servidor de lenguaje correspondiente (por ejemplo, <code>pyright</code>, <code>typescript-language-server</code> o <code>gopls</code>) y dejarlo disponible en <code>PATH</code>.</li></ul>
+      </ul>
       <p>Si falla una instalación, comprueba la versión indicada de Node.js con <code>node --version</code>, que <code>npm --version</code> funcione, la conexión a npm y el espacio libre. Corrige el requisito y vuelve a pulsar Iniciar; no es necesario reinstalar ZeroChat.</p>
       <p>Los servicios se gestionan bajo <code>~/zerochat/services/</code>. Borrar <code>~/zerochat/</code> elimina ese estado y sus dependencias, pero no el historial del navegador ni archivos modificados fuera de esa carpeta.</p>
       <p>Los parches de una misma serie, como <code>8.0.x</code>, llegan con la web. Un cambio de <code>major.minor</code> puede requerir actualizar el backend. Sigue el aviso correspondiente a PyPI o a la descarga directa; la actualización no es automática.</p>
