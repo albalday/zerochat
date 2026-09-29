@@ -137,22 +137,24 @@ def parse_version(ver: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def _read_remote_version(url: str) -> str | None:
-    """Obtiene una versión publicada desde package.json o la API JSON de PyPI."""
+def _read_remote_content(url: str) -> str:
+    """Lee una cabecera acotada de un recurso publicado de ZeroChat."""
     req = urllib.request.Request(url, headers={"User-Agent": f"ZeroChat/{VERSION}"})
     with urllib.request.urlopen(req, timeout=3) as resp:
-        content = resp.read(4096).decode("utf-8", errors="ignore")
-    try:
-        data = json.loads(content)
-        if isinstance(data, dict):
-            candidate = data.get("version")
-            if not isinstance(candidate, str) and isinstance(data.get("info"), dict):
-                candidate = data["info"].get("version")
-            if isinstance(candidate, str):
-                return candidate.strip()
-    except (json.JSONDecodeError, TypeError):
-        pass
-    match = re.search(r'["\']?version["\']?\s*[:=]\s*["\'](\d+\.\d+\.\d+)["\']', content)
+        return resp.read(4096).decode("utf-8", errors="ignore")
+
+
+def _read_remote_ui_version() -> str | None:
+    """Extrae la versión del título de la interfaz servida por GitHub Pages."""
+    content = _read_remote_content(REMOTE_UI_VERSION_URL)
+    match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _read_remote_backend_version() -> str | None:
+    """Extrae la versión estática del ejecutable publicado en GitHub."""
+    content = _read_remote_content(REMOTE_BACKEND_VERSION_URL)
+    match = re.search(r'^SOURCE_BACKEND_VERSION\s*=\s*["\'](\d+\.\d+\.\d+)["\']', content, re.MULTILINE)
     return match.group(1) if match else None
 
 
@@ -162,14 +164,21 @@ def has_new_backend_version(remote_version: str, local_version: str = VERSION) -
 
 
 def check_version():
-    """Informa de actualizaciones del backend, sin avisar por parches web."""
+    """Informa de la versión de Pages y de actualizaciones del ejecutable."""
     if get_dev_root() is not None:
         return
     try:
         installed = is_installed_runtime()
-        remote_ver = _read_remote_version(PYPI_VERSION_URL if installed else REMOTE_VERSION_URL)
-        if remote_ver and re.match(r"^\d+(\.\d+)+", remote_ver) and has_new_backend_version(remote_ver):
-            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_ver)})."
+        remote_ui_version = _read_remote_ui_version()
+        if remote_ui_version:
+            notice = f"Interfaz web en GitHub Pages: v{remote_ui_version}."
+            if remote_ui_version != UI_VERSION:
+                notice += f" El ejecutable incluye la referencia v{UI_VERSION}; la interfaz remota se cargará al abrir el navegador."
+            add_notice(notice)
+
+        remote_backend_version = _read_remote_backend_version()
+        if remote_backend_version and has_new_backend_version(remote_backend_version):
+            notice = f"Nueva versión del servidor disponible (local: {VERSION}, remota: {compatibility_version(remote_backend_version)})."
             if installed:
                 notice += f" Actualiza cuando quieras con: {sys.executable} -m pip install --upgrade --no-cache-dir zerochat"
             else:

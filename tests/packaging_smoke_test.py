@@ -88,6 +88,9 @@ def main() -> None:
                 raise SystemExit("El paquete no inicializó los servicios MCP en ~/zerochat")
             if not (data_dir / "services" / "ejemplo" / "README.md").is_file():
                 raise SystemExit("El paquete no instaló la guía del MCP de ejemplo")
+            example_readme = (data_dir / "services" / "ejemplo" / "README.md").read_text(encoding="utf-8")
+            if "services/ejemplo/README.md" not in example_readme:
+                raise SystemExit("La guía del MCP de ejemplo no contiene el prompt de referencia")
             if not (data_dir / "services" / "ejemplo" / "installer.json.example").is_file():
                 raise SystemExit("El paquete no instaló el ejemplo de installer.json")
         finally:

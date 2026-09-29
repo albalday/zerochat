@@ -42,7 +42,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "8.2.0"
+SOURCE_BACKEND_VERSION = "8.3.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -93,9 +93,11 @@ UI_VERSION = _read_ui_version()
 DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
-REMOTE_VERSION_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/package.json"
-PYPI_VERSION_URL = "https://pypi.org/pypi/zerochat/json"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
+# Las versiones remotas se consultan en las dos distribuciones que consume el
+# usuario: la interfaz publicada en GitHub Pages y el ejecutable en GitHub.
+REMOTE_UI_VERSION_URL = DEFAULT_UI_URL
+REMOTE_BACKEND_VERSION_URL = REMOTE_SCRIPT_URL
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
 NOTICES: list[str] = []

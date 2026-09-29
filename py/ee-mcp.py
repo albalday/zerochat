@@ -295,11 +295,7 @@ class McpServiceManager:
         if services_root:
             self.services_root = Path(services_root)
         else:
-            candidates = [
-                Path.cwd() / "services",
-                get_data_dir() / "services"
-            ]
-            self.services_root = candidates[0] if get_dev_root() is not None and candidates[0].is_dir() else candidates[1]
+            self.services_root = get_data_dir() / "services"
         self.services_root.mkdir(parents=True, exist_ok=True)
         self.config_file = get_data_dir() / "config" / "services.json"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -410,6 +406,50 @@ for raw in sys.stdin:
 
         if not example_readme_file.exists():
             example_readme_file.write_text('''# Ejemplo de MCP gestionado\n\nEsta carpeta es la plantilla para que un agente cree un servicio MCP gestionado por ZeroChat. Para crear uno nuevo, copie esta estructura en `~/zerochat/services/<id-seguro>/`; no modifique este ejemplo.\n\n## Archivos\n\n- `service.json` es obligatorio. Define el identificador, los textos visibles, el proceso y el campo estándar opcional `help`.\n- `installer.json` es opcional. Créelo a partir de `installer.json.example` solo si ZeroChat debe instalar un paquete npm. Fije siempre una versión exacta.\n- El ejecutable o script de arranque se declara en `launch`. Use `${serviceDir}`, `${pythonExecutable}` o `${nodeExecutable}` en lugar de rutas de usuario.\n\n## Campo de ayuda\n\nTodos los servicios pueden incluir:\n\n```json\n"help": {\n  "url": "help/mcp.html",\n  "label": { "es": "Texto en español", "en": "English text" }\n}\n```\n\nLa interfaz muestra ese enlace en la tarjeta del servicio. `url` debe ser una ruta relativa de ZeroChat o una URL `https:` o `http:`.\n\n## Instrucción para un agente\n\nCopia este texto y sustituye solo `<nombre-del-mcp>`:\n\n```text\nSiguiendo estrictamente la estructura de ~/zerochat/services/ejemplo, busca en Internet la documentación oficial de instalación del MCP <nombre-del-mcp> y crea en ~/zerochat/services/ el directorio y los JSON necesarios para instalarlo y ejecutarlo en ZeroChat. Usa exclusivamente fuentes oficiales, fija versiones concretas, añade la sección help con el enlace a la documentación oficial, no incluyas secretos y no inicies el servicio. Al terminar, resume los archivos creados, las fuentes consultadas y los requisitos pendientes.\n```\n''', encoding="utf-8")
+
+        example_readme_file.write_text('''# Crear un MCP gestionado por ZeroChat
+
+Esta carpeta es la referencia para crear servicios MCP gestionados. La ubicación de producción es el directorio personal del usuario, seguido de `zerochat/services` (por ejemplo, `/home/usuario/zerochat/services`). No uses `~`, `$HOME` ni una ruta relativa como `services/`: primero identifica la ruta absoluta del directorio personal y úsala para localizar este archivo. El nuevo servicio se crea como carpeta hermana de `ejemplo`, nunca dentro de ella.
+
+## Procedimiento obligatorio
+
+1. Lee `README.md`, `service.json` y `installer.json.example` de la carpeta `ejemplo` situada en el directorio de datos de ZeroChat.
+2. Consulta solo la documentación oficial del MCP solicitado.
+3. Crea una carpeta con un identificador seguro y descriptivo junto a `ejemplo`.
+4. Crea `service.json` copiando esta estructura y adapta únicamente los valores necesarios.
+5. Crea `installer.json` solo si el MCP se distribuye como paquete npm. Copia `installer.json.example`, fija la versión exacta y declara la versión mínima de Node.js.
+6. Añade `help.url` con la página oficial de instalación y etiquetas en español e inglés.
+7. No incluyas tokens, contraseñas ni valores privados. Decláralos en `launch.env` con un marcador, por ejemplo `${HOME_ASSISTANT_TOKEN}`.
+8. No inicies el servicio. Al terminar, informa de los archivos creados, fuentes oficiales y requisitos pendientes.
+
+## Límites de ZeroChat
+
+ZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.
+
+No inventes una configuración para un MCP que requiera OAuth interactivo, transporte remoto HTTP/SSE, Docker, Python u otro instalador no soportado por estos JSON. En ese caso, no crees archivos: explica el requisito y qué soporte faltaría.
+
+## Contratos JSON
+
+- `service.json` es obligatorio. Conserva `schemaVersion`, `id`, textos bilingües, `transport: "stdio"` y `launch`.
+- En `launch`, usa `${serviceDir}`, `${nodeExecutable}` o `${pythonExecutable}`; no uses rutas absolutas de usuario.
+- `installer.json` es opcional y hoy solo admite `type: "npm"`.
+- `help` es opcional, pero debe incluirse en todo servicio creado:
+
+```json
+"help": {
+  "url": "https://documentacion-oficial.example/install",
+  "label": { "es": "Instalación oficial", "en": "Official installation" }
+}
+```
+
+## Prompt para el usuario
+
+Sustituye únicamente `<nombre-del-mcp>`:
+
+```text
+Para instalar el MCP <nombre-del-mcp>, localiza el directorio personal del usuario y lee primero el archivo zerochat/services/ejemplo/README.md usando su ruta absoluta. Sigue exactamente sus instrucciones.
+```
+''', encoding="utf-8")
 
         # 2. playwright
         playwright_dir = self.services_root / "playwright"

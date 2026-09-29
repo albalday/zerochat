@@ -11,7 +11,7 @@
 }(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults) {
   'use strict';
 
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
   const DEFAULT_THEME = Defaults.DEFAULT_THEME;
   const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
@@ -117,6 +117,11 @@
       } catch (_) {}
       if (stored) {
         const config = { ...stored, modelContextLimit: null };
+        // Version 2 used 15 as the shipped default. Migrate only that legacy
+        // default once; any other persisted choice remains untouched.
+        if (Number(stored.schemaVersion) < SCHEMA_VERSION && Number(config.maxAgentTurns) === 15) {
+          config.maxAgentTurns = DEFAULTS.maxAgentTurns;
+        }
         try {
           if (!profiles?.get?.(config.activeProfile?.id) && fallbackProfile) {
             return commit(applyProfile(config, fallbackProfile));

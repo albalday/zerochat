@@ -8,14 +8,10 @@ webllm lista de modelos mejorar para movil
 
 Añadir mcps stdio y http
 
-Seguridad por defecto de playwrigth mas cebtrada
-
-
 analizar nuvos codigo de paneles. 
 ver codigo comun, viejo y
 ver si normalziar barra de botones
 
-playwright de instalacion minima para tools minimo
-
 Probar sutomatico safari
 
+lista chats y estado tras borrar mensaje

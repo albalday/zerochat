@@ -56,7 +56,7 @@
     const defaultState = {
       // 1. Configuración de la Aplicación y Preferencias
       config: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         activeProfile: null,
         apiUrl: 'http://localhost:1234/v1',
         apiType: 'openai',

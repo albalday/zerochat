@@ -95,17 +95,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
 }</code></pre></div>
       <p>The URL must be a ZeroChat-relative path or an <code>https:</code> or <code>http:</code> URL. Do not store tokens, passwords or other secrets in JSON: declare them as environment variables with a placeholder and fill them outside shareable files.</p>
       <p>Copy this prompt and replace only <code>&lt;mcp-name&gt;</code>:</p>
-      <div class="code-wrapper"><pre><code>Following the structure of ~/zerochat/services/ejemplo exactly,
-search the Internet for the official installation documentation for the MCP
-&lt;mcp-name&gt;.
-
-Create under ~/zerochat/services/ the directory and JSON files needed to
-install and run it in ZeroChat. Use official sources only, pin concrete
-versions, add the help section linking to the official documentation,
-include no secrets, and do not start the service.
-
-When finished, summarize the files created, sources consulted, and
-remaining requirements.</code></pre></div>
+      <div class="code-wrapper"><pre><code>To install the MCP &lt;mcp-name&gt;, locate the user's home directory and first read README.md in zerochat/services/ejemplo using its absolute path. Follow its instructions exactly.</code></pre></div>
       <p>Patches in a series such as <code>8.0.x</code> arrive with the web app. A <code>major.minor</code> change may require updating the backend. Follow the notice for PyPI or direct download; updates are not automatic.</p>
     </div>
 

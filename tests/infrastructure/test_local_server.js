@@ -1253,16 +1253,23 @@ try:
 except ValueError:
     pass
 
-# La comprobación de versión publica el aviso sin escribirlo directamente en consola.
+# La comprobación consulta GitHub Pages para la interfaz y GitHub para el ejecutable.
 from unittest.mock import patch
 newer_version = f"{int(zerochat.VERSION.split('.')[0]) + 1}.0.0"
 with patch.object(zerochat, "get_dev_root", return_value=None), \
      patch.object(zerochat, "is_installed_runtime", return_value=True), \
-     patch.object(zerochat, "_read_remote_version", return_value=newer_version):
+     patch.object(zerochat, "_read_remote_ui_version", return_value="99.1.2"), \
+     patch.object(zerochat, "_read_remote_backend_version", return_value=newer_version):
     zerochat.check_version()
-assert len(zerochat.get_notices()) == 2
+assert len(zerochat.get_notices()) == 3
+assert "Interfaz web en GitHub Pages: v99.1.2" in zerochat.get_notices()[-2]
 assert "Nueva versión del servidor disponible" in zerochat.get_notices()[-1]
 assert "-m pip install --upgrade" in zerochat.get_notices()[-1]
+
+with patch.object(zerochat, "_read_remote_content", return_value="<title>ZeroChat v8.2.2</title>"):
+    assert zerochat._read_remote_ui_version() == "8.2.2"
+with patch.object(zerochat, "_read_remote_content", return_value='SOURCE_BACKEND_VERSION = "8.2.0"'):
+    assert zerochat._read_remote_backend_version() == "8.2.0"
 
 # 6. El entorno MCP no cambia el intérprete del servidor.
 import os

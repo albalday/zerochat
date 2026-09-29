@@ -32,7 +32,7 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   const { store, getPersisted } = createFixture();
   const config = store.initialize();
 
-  assert.equal(config.schemaVersion, 2);
+  assert.equal(config.schemaVersion, 3);
   assert.equal(config.theme, 'dark');
   assert.equal(config.language, 'es');
   assert.equal(config.mcpAutoConnect, false);
@@ -54,6 +54,21 @@ test('ChatConfig - usa 40 turnos por defecto y limita la configuración entre 5 
   assert.equal(store.initialize().maxAgentTurns, 40);
   assert.equal(store.updateRuntime({ maxAgentTurns: 1 }).maxAgentTurns, 5);
   assert.equal(store.updateRuntime({ maxAgentTurns: 300 }).maxAgentTurns, 200);
+});
+
+test('ChatConfig - migra el valor predeterminado heredado de 15 turnos a 40 una sola vez', () => {
+  const { store } = createFixture();
+  store.initialize();
+  const legacy = store.updateRuntime({ maxAgentTurns: 15 });
+  // Simula una configuración persistida antes del cambio de valor predeterminado.
+  legacy.schemaVersion = 2;
+  const storage = {
+    loadRuntimeConfigV2: () => legacy,
+    saveRuntimeConfigV2: () => {}
+  };
+  const migrated = ChatConfig.createConfigStore({ state: State.createStore(), storage, profiles: { initialize: () => {}, get: () => null, list: () => [] } }).initialize();
+  assert.equal(migrated.maxAgentTurns, 40);
+  assert.equal(migrated.schemaVersion, 3);
 });
 
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
