@@ -534,7 +534,9 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
       await window.ChatApp.switchToSession('sess_tool_hist_toggle');
     });
 
-    // 2. Esperar que se renderice la tarjeta de la tool
+    // 2. Las tools históricas se restauran dentro del historial plegado del grupo.
+    await page.waitForSelector('.tool-call-group-history');
+    await page.click('.tool-call-group-summary');
     await page.waitForSelector('.tool-execution-card');
 
     // 3. Verificar que aparece minimizada (collapsed) inicialmente
