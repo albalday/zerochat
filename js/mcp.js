@@ -720,6 +720,41 @@
     return parts.join('\n');
   }
 
+  function getSafeMcpImageDataUrl(image = {}) {
+    const base64 = typeof image.image_base64 === 'string' ? image.image_base64 : '';
+    const mimeType = String(image.mime_type || image.mimeType || 'image/png').toLowerCase();
+    if (!SAFE_IMAGE_MIME_TYPES.has(mimeType) || base64.length === 0 || base64.length > MAX_IMAGE_BASE64_LENGTH || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+      return null;
+    }
+    return `data:${mimeType};base64,${base64}`;
+  }
+
+  function getSafeMcpImageFromMessage(message = {}) {
+    const image = Array.isArray(message.images) ? message.images.find(item => item?.dataUrl) : null;
+    if (!image || typeof image.dataUrl !== 'string') return null;
+    const match = image.dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i);
+    if (!match) return null;
+    return getSafeMcpImageDataUrl({ mime_type: match[1], image_base64: match[2] });
+  }
+
+  function appendMcpScreenshot(cardDiv, dataUrl, translator) {
+    if (!cardDiv || !dataUrl || typeof document === 'undefined') return;
+    const result = cardDiv.querySelector?.('.tool-card-result');
+    if (!result) return;
+    const figure = document.createElement('figure');
+    figure.className = 'mcp-screenshot-preview';
+    const image = document.createElement('img');
+    image.className = 'mcp-screenshot-image';
+    image.src = dataUrl;
+    image.alt = translator('mcp_screenshot_alt');
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    const caption = document.createElement('figcaption');
+    caption.textContent = translator('mcp_screenshot_caption');
+    figure.append(image, caption);
+    result.appendChild(figure);
+  }
+
   function createMcpToolView(toolName, serverName) {
     const iconSvg = getMcpIconSvg(14);
 
@@ -773,6 +808,9 @@
           const out = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : (result?.error || 'Sin salida'));
           resEl.innerHTML = `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`;
         }
+        const screenshot = getSafeMcpImageDataUrl(result);
+        if (screenshot) appendMcpScreenshot(cardDiv, screenshot, t);
+        if (screenshot) result.keepExpanded = true;
       },
       renderHistoricalCard: (args, message, ui) => {
         if (typeof document === 'undefined') return null;
@@ -780,7 +818,10 @@
         const t = ui?.t || (k => k);
         const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'}</span></span>`;
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
-        return renderCard(args, `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`, badge, ui, true);
+        const card = renderCard(args, `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`, badge, ui, true);
+        const screenshot = getSafeMcpImageFromMessage(message);
+        if (screenshot) appendMcpScreenshot(card, screenshot, t);
+        return card;
       }
     };
   }
@@ -1387,6 +1428,8 @@
 
   return {
     McpClient,
+    getSafeMcpImageDataUrl,
+    getSafeMcpImageFromMessage,
     McpToolProvider,
     McpManager,
     probeConnection,

@@ -281,6 +281,16 @@ test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el t
   }
 });
 
+test('MCP - acepta para la vista de tarjeta solo imágenes Base64 válidas y acotadas', () => {
+  const valid = MCP.getSafeMcpImageDataUrl({
+    mime_type: 'image/png',
+    image_base64: 'aGVsbG8='
+  });
+  assert.equal(valid, 'data:image/png;base64,aGVsbG8=');
+  assert.equal(MCP.getSafeMcpImageDataUrl({ mime_type: 'text/html', image_base64: 'aGVsbG8=' }), null);
+  assert.equal(MCP.getSafeMcpImageDataUrl({ mime_type: 'image/png', image_base64: '<svg>' }), null);
+});
+
 test('MCP - McpManager administración de servidores y sincronización', async () => {
   const manager = new MCP.McpManager();
 

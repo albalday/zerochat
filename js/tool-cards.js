@@ -136,7 +136,7 @@
       || resolveToolDisplayMode(name)
       || 'collapsed';
 
-    if (displayMode === 'collapsed') {
+    if (displayMode === 'collapsed' && !result?.keepExpanded) {
       collapseCard(card);
     }
   }
@@ -154,7 +154,8 @@
     const card = view?.renderHistoricalCard
       ? view.renderHistoricalCard(args, message, context())
       : fallback(toolName, args, displayMode === 'collapsed');
-    if (displayMode === 'collapsed') {
+    const keepExpanded = Array.isArray(message?.images) && message.images.some(image => image?.action === 'screenshot');
+    if (displayMode === 'collapsed' && !keepExpanded) {
       collapseCard(card);
     }
     return card;
