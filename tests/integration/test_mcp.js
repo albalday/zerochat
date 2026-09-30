@@ -80,7 +80,7 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
 
     // Solo debe resolver por el nombre público completo.
     assert.equal(registry.hasTool('get_weather_forecast'), false);
-    assert.ok(registry.hasTool('mcp_weatherz5fzserver_get_weather_forecast'));
+    assert.ok(registry.hasTool('weatherz5fzserver_get_weather_forecast'));
 
     const defs = registry.getDefinitions();
     const weatherDef = defs.find(d => d.function.name.includes('get_weather_forecast'));
@@ -719,7 +719,7 @@ def public_tool_name(server_id, original):
             else:
                 encoded.append(f"z{ord(ch):x}z")
         return "".join(encoded)
-    name = f"mcp_{encode(server_id)}_{encode(original, True)}"
+    name = f"{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
         raise ValueError("MCP public name exceeds 64 characters")
     return name
@@ -784,8 +784,8 @@ else:
   });
   const tools = await provider.discoverTools();
   assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
-  assert.equal(tools[0].name, 'mcp_browserz5fzservice_browser_navigate');
-  assert.ok(tools.some(tool => tool.name === 'mcp_composio_zczozmzpzozszizo_zszezazrzczh_ztzozozlzs'),
+  assert.equal(tools[0].name, 'browserz5fzservice_browser_navigate');
+  assert.ok(tools.some(tool => tool.name === 'composio_zczozmzpzozszizo_zszezazrzczh_ztzozozlzs'),
     'los nombres remotos en mayúsculas deben permanecer dentro del límite de 64 caracteres');
   const registry = new AgentCore.ToolRegistry();
   registry.registerProvider(provider);
@@ -819,13 +819,13 @@ else:
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
   }
-  for (const call of ['mcp__browser_service__browser_navigate', 'mcp_browser_service_missing', 'browser_navigate']) {
+  for (const call of ['mcp__browser_service__browser_navigate', 'browser_service_missing', 'browser_navigate']) {
     assert.throws(() => host({ call }), /Unknown external MCP tool/);
   }
   for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
     assert.throws(() => host({ servers: { test: names } }), /Invalid MCP|exceeds|Duplicate/);
   }
-  rawTools[0] = { ...rawTools[0], name: 'mcp_wrong_browser_navigate' };
+  rawTools[0] = { ...rawTools[0], name: 'wrong_browser_navigate' };
   await assert.rejects(provider.discoverTools(), /Invalid external MCP public name/);
 });
 
@@ -890,7 +890,7 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
             json: async () => ({
               jsonrpc: '2.0', id: body.id,
               result: {
-                tools: [{ name: 'mcp_sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
+                tools: [{ name: 'sqlite_query', description: 'Query SQLite', metadata: { mcpServerId: 'sqlite', originalName: 'query' } }]
               }
             })
           };
@@ -905,16 +905,16 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
     assert.ok(connResult.externalSync);
     assert.equal(connResult.externalSync.status.host, 'running');
     assert.equal(connResult.externalSync.externalTools.length, 1);
-    assert.equal(connResult.externalSync.externalTools[0].name, 'mcp_sqlite_query');
+    assert.equal(connResult.externalSync.externalTools[0].name, 'sqlite_query');
 
     // La herramienta externa debe estar en el registry
-    const tool = registry.getTool('mcp_sqlite_query');
-    assert.ok(tool, 'mcp_sqlite_query debe estar registrada en el registry');
+    const tool = registry.getTool('sqlite_query');
+    assert.ok(tool, 'sqlite_query debe estar registrada en el registry');
 
     // Reconectar connectProxy no debe destruir las herramientas externas
     const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
     assert.equal(reconnectResult.success, true);
-    assert.ok(registry.getTool('mcp_sqlite_query'), 'mcp_sqlite_query debe seguir registrada tras reconectar');
+    assert.ok(registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
     await manager.disconnectProxy(registry);
   } finally {

@@ -40,7 +40,7 @@ Las llamadas `tools/call` al host local incorporan además un sello efímero emi
 El contrato público es `<herramienta>` (nombre canónico directo) para herramientas locales
 del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `execute_command`) y
 `mcp_<servicio>_<herramienta>` para servicios externos, tanto directos como
-agregados por el host. Ejemplo: `mcp_browser_service_browser_navigate`.
+agregados por el host. Ejemplo: `browser_service_browser_navigate`.
 El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijos.
 `metadata.mcpServerId` y `metadata.originalName` conservan la identidad remota.
 Las llamadas del host solo resuelven herramientas actualmente anunciadas.

@@ -761,7 +761,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(extToolsRes.status, 200);
     const extToolsJson = await extToolsRes.json();
     const extToolNames = (extToolsJson.result?.tools || []).map(t => t.name);
-    assert.ok(extToolNames.includes('mcp_ejemplo_echo'));
+    assert.ok(extToolNames.includes('ejemplo_echo'));
 
     // tools/call ejecutando el echo del ejemplo
     const extCallRes = await fetch(`${baseUrl}/mcp/external`, {
@@ -771,7 +771,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
         jsonrpc: '2.0',
         id: 9,
         method: 'tools/call',
-        params: { name: 'mcp_ejemplo_echo', arguments: { message: 'probando mcp' } }
+        params: { name: 'ejemplo_echo', arguments: { message: 'probando mcp' } }
       })
     });
     assert.equal(extCallRes.status, 200);

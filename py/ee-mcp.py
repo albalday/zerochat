@@ -157,7 +157,7 @@ def public_tool_name(server_id: str, original: str) -> str:
             else:
                 encoded.append(f"z{ord(ch):x}z")
         return "".join(encoded)
-    name = f"mcp_{encode(server_id)}_{encode(original, True)}"
+    name = f"{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
         raise ValueError(f"El nombre público de la herramienta MCP excede 64 caracteres: {name}")
     return name

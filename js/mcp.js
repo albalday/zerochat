@@ -49,7 +49,7 @@
       }).join('');
     };
     const name = serverId === null ? encode(originalName, true)
-      : `mcp_${encode(serverId)}_${encode(originalName, true)}`;
+      : `${encode(serverId)}_${encode(originalName, true)}`;
     if (name.length > 64) throw new Error('MCP public name exceeds 64 characters');
     return name;
   }
