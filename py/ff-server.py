@@ -560,21 +560,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                             "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
                             "isError": True
                         }
-                elif tool_name.startswith("mcp_"):
-                    try:
-                        result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
-                        if isinstance(result, dict) and result.get("isError"):
-                            c_list = result.get("content", [])
-                            if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
-                                tool_error_info = c_list[0].get("text", "Error en herramienta MCP")
-                            else:
-                                tool_error_info = "Error en herramienta MCP"
-                    except Exception as ex:
-                        tool_error_info = str(ex)
-                        result = {
-                            "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
-                            "isError": True
-                        }
                 else:
                     error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
             elif method == "zerochat/external/status":

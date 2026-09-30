@@ -407,7 +407,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     }
     const sectionOrder = await page.$$eval('#sidebar-settings-nav .sidebar-settings-item', els => els.map(e => e.getAttribute('data-section')));
     const agentIndex = sectionOrder.indexOf('agent');
-    const ragIndex = sectionOrder.indexOf('rag-manage');
+    const ragIndex = sectionOrder.indexOf('rag');
     const mcpIndex = sectionOrder.indexOf('mcp');
     const permissionsIndex = sectionOrder.indexOf('permissions');
     assert.ok(agentIndex >= 0 && ragIndex === agentIndex + 1, 'La sección RAG debe estar posicionada inmediatamente después de Agente');

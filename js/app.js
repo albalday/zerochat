@@ -127,11 +127,15 @@
       btnCloseSidebarSettings: document.getElementById('btn-close-sidebar-settings'),
       sidebarSettingsNav: document.getElementById('sidebar-settings-nav'),
       sidebarEncryptionNav: document.getElementById('sidebar-encryption-nav'),
+      sidebarRagNav: document.getElementById('sidebar-rag-nav'),
       sidebarSettingsFooter: document.getElementById('sidebar-settings-footer'),
       sidebarSettingsItems: document.querySelectorAll('.sidebar-settings-item'),
       btnEncryptionBack: document.getElementById('btn-encryption-back'),
       btnEncryptionPassword: document.getElementById('btn-encryption-password'),
       btnEncryptionDefault: document.getElementById('btn-encryption-default'),
+      btnRagBack: document.getElementById('btn-rag-back'),
+      btnRagBranches: document.getElementById('btn-rag-branches'),
+      btnRagActivate: document.getElementById('btn-rag-activate'),
 
       // Modal de exportación
       exportModal: document.getElementById('export-modal'),
@@ -830,7 +834,11 @@
       openEncryptionMenu();
       return;
     }
-    if (sectionId === 'rag' || sectionId === 'rag-manage') {
+    if (sectionId === 'rag') {
+      openRagMenu();
+      return;
+    }
+    if (sectionId === 'rag-manage') {
       if (window.ChatRagUI && typeof window.ChatRagUI.openManageModal === 'function') {
         window.ChatRagUI.openManageModal();
       } else if (window.ChatRagUI && typeof window.ChatRagUI.openRagModal === 'function') {
@@ -853,12 +861,27 @@
   function openEncryptionMenu() {
     if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = true;
     if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = false;
+    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = true;
     if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = true;
     UISidebar.setActiveSettingsSection?.(elements, '');
   }
 
   function closeEncryptionMenu() {
     if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = true;
+    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = false;
+    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = false;
+  }
+
+  function openRagMenu() {
+    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = true;
+    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = true;
+    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = false;
+    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = true;
+    UISidebar.setActiveSettingsSection?.(elements, '');
+  }
+
+  function closeRagMenu() {
+    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = true;
     if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = false;
     if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = false;
   }
@@ -1326,6 +1349,7 @@
     if (elements.btnOpenSettings) {
       elements.btnOpenSettings.addEventListener('click', () => {
         closeEncryptionMenu();
+        closeRagMenu();
         if (UISidebar.setSidebarMode) {
           UISidebar.setSidebarMode(elements, 'settings');
         }
@@ -1334,6 +1358,7 @@
     if (elements.btnSidebarBackToChats) {
       elements.btnSidebarBackToChats.addEventListener('click', () => {
         closeEncryptionMenu();
+        closeRagMenu();
         if (UISidebar.setSidebarMode) {
           UISidebar.setSidebarMode(elements, 'chat');
         }
@@ -1351,13 +1376,22 @@
     if (elements.btnEncryptionDefault) {
       elements.btnEncryptionDefault.addEventListener('click', () => UIProfiles.handleUseDefaultEncryptionKey?.());
     }
+    if (elements.btnRagBack) {
+      elements.btnRagBack.addEventListener('click', closeRagMenu);
+    }
+    if (elements.btnRagBranches) {
+      elements.btnRagBranches.addEventListener('click', () => openSettingsSection('rag-manage'));
+    }
+    if (elements.btnRagActivate) {
+      elements.btnRagActivate.addEventListener('click', () => window.ChatRagUI?.openActivationModal?.());
+    }
     if (elements.sidebarSettingsItems) {
       elements.sidebarSettingsItems.forEach(item => {
         const sectionId = item.dataset?.section || item.getAttribute('data-section');
         if (!sectionId) return;
         item.addEventListener('click', () => {
           openSettingsSection(sectionId);
-          if (sectionId !== 'encryption' && UISidebar.isMobile && UISidebar.isMobile()) {
+          if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile && UISidebar.isMobile()) {
             closeSidebar();
           }
         });

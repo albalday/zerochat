@@ -112,8 +112,9 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
     });
     await page.waitForTimeout(300);
 
-    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
-    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
+    await page.click('.sidebar-settings-item[data-section="rag"]');
+    await page.click('#btn-rag-branches');
     await page.waitForSelector('#rag-manage-modal[open]', { timeout: 5000 });
     await page.waitForSelector('#rag-import-input', { state: 'attached', timeout: 5000 });
 

@@ -349,7 +349,6 @@
       await storage().deleteDocument(documentId);
       indexer()?.invalidateBranch(branchId);
       await renderWorkspace(branchId);
-      await updateQuota();
     }));
   }
 
@@ -432,7 +431,6 @@
         onDuplicateConflict
       });
       await renderWorkspace(branchId, result);
-      await updateQuota();
     } finally {
       currentIngestionController = null;
     }
@@ -665,7 +663,6 @@
     }
     await renderManageDialog();
     await syncActivationIfOpen();
-    await updateQuota();
   }
 
   async function isGzipBlob(blob) {
@@ -753,7 +750,6 @@
       indexer()?.invalidateBranch(branch.id);
       await renderManageDialog(branch.id);
       await syncActivationIfOpen();
-      await updateQuota();
       await updateToolbarStatus();
       ChatDialogs.alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
       return branch;
@@ -765,17 +761,6 @@
     }
   }
 
-  async function updateQuota() {
-    if (typeof document === 'undefined') return;
-    const node = document.getElementById('rag-storage-quota-info');
-    const estimate = await storage().getStorageEstimate();
-    const dbIcon = '<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>';
-    const quotaText = estimate.quota
-      ? (t('rag_quota_indexeddb', { usage: formatBytes(estimate.usage), quota: formatBytes(estimate.quota) }) || `IndexedDB: ${formatBytes(estimate.usage)} de ${formatBytes(estimate.quota)}`)
-      : (t('rag_quota_indexeddb_local') || 'IndexedDB local');
-    if (node) node.innerHTML = `${dbIcon} <span>${escapeHtml(quotaText)}</span>`;
-  }
-
   async function refresh() {
     if (typeof document !== 'undefined') {
       const activationModal = document.getElementById('rag-modal');
@@ -783,7 +768,6 @@
       if (activationModal?.open) await renderActivationDialog();
       if (manageModal?.open) await renderManageDialog();
     }
-    await updateQuota();
     await updateToolbarStatus();
   }
 
@@ -791,9 +775,7 @@
     if (typeof document === 'undefined') return;
     const modal = document.getElementById('rag-modal');
     if (!modal) return;
-    renderActivationDialog()
-      .then(() => updateQuota())
-      .catch(() => {});
+    renderActivationDialog().catch(() => {});
     modal.showModal();
   }
 
@@ -801,9 +783,7 @@
     if (typeof document === 'undefined') return;
     const modal = document.getElementById('rag-manage-modal');
     if (!modal) return;
-    renderManageDialog()
-      .then(() => updateQuota())
-      .catch(() => {});
+    renderManageDialog().catch(() => {});
     modal.showModal();
   }
 
@@ -919,10 +899,6 @@
             <div class="toggle-card-title"><span id="rag-active-status-title" data-i18n="rag_status_disabled">Conocimiento desactivado</span></div>
             <p class="toggle-card-desc" id="rag-active-status-desc" data-i18n="rag_status_disabled_desc">Selecciona una o varias ramas para que el agente pueda buscar en tus documentos.</p>
           </div>
-          <div id="rag-storage-quota-info" class="rag-storage-quota-info rag-master-storage">
-            <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-database"></use></svg>
-            <span>IndexedDB</span>
-          </div>
         </div>
         <div class="form-field">
           <label><strong data-i18n="rag_available_branches">Ramas disponibles</strong><span class="label-hint" data-i18n="rag_available_branches_hint">Puedes activar una o varias ramas simultáneamente para búsquedas cruzadas.</span></label>
@@ -947,7 +923,7 @@
   function getRagManageModalHTML() {
     return `<div class="modal-header">
       <div class="modal-title">
-        <h3 data-i18n="rag_modal_title_manage">RAG. Gestionar</h3>
+        <h3 data-i18n="rag_modal_title_manage">RAG-Ramas</h3>
       </div>
       <div class="rag-manage-header-actions">
         <button type="button" id="btn-rag-new-branch" class="btn-primary">

@@ -966,6 +966,10 @@ input.form-input:focus-visible,
   padding: 0.85rem 1rem;
   text-align: left;
   width: 100%;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  border-radius: var(--radius-md);
 }
 
 .export-card-btn:hover {
@@ -998,6 +1002,24 @@ input.form-input:focus-visible,
   font-size: 0.775rem;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+#export-modal .btn-close-modal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background-color: var(--bg-surface-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+}
+
+#export-modal .btn-close-modal:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-hover);
 }
 
 
@@ -1036,13 +1058,6 @@ input.form-input:focus-visible,
 .rag-manage-header-actions .btn-primary {
   padding: 0.4rem 0.65rem;
   font-size: 0.78rem;
-}
-.rag-master-storage {
-  flex-shrink: 0;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-subtle);
 }
 
 .rag-branch-select-card {
@@ -1160,20 +1175,21 @@ input.form-input:focus-visible,
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }
-.rag-ingestion-progress-item { display: grid; grid-template-columns: minmax(120px, 0.5fr) 1fr minmax(100px, 0.4fr); }
+.rag-ingestion-progress-item { display: grid; grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr) minmax(0, 0.4fr); }
 .rag-ingestion-progress-item.error { border-color: var(--danger-color, #dc2626); }
-.rag-ingestion-progress-item progress { width: 100%; }
-.rag-ingestion-global-progress { display: grid; grid-template-columns: 1fr minmax(140px, 0.6fr) auto; align-items: center; gap: 0.65rem; padding: 0.75rem 0.8rem; margin-bottom: 0.65rem; border: 1px solid var(--primary-color); border-radius: var(--radius-sm); background: var(--primary-light); }
+.rag-ingestion-progress-item > *, .rag-ingestion-global-progress > * { min-width: 0; }
+.rag-ingestion-progress-item strong, .rag-ingestion-progress-item span, .rag-ingestion-global-progress strong, .rag-ingestion-global-progress span { overflow-wrap: anywhere; }
+.rag-ingestion-progress-item progress { width: 100%; max-width: 100%; }
+.rag-ingestion-global-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr) auto; align-items: center; gap: 0.65rem; padding: 0.75rem 0.8rem; margin-bottom: 0.65rem; border: 1px solid var(--primary-color); border-radius: var(--radius-sm); background: var(--primary-light); }
 .rag-ingestion-global-progress > div { display: grid; gap: 0.1rem; }
 .rag-ingestion-global-progress span { color: var(--text-muted); font-size: 0.78rem; }
-.rag-ingestion-global-progress progress { width: 100%; }
+.rag-ingestion-global-progress progress { width: 100%; max-width: 100%; }
 .rag-ingestion-progress-recent { display: grid; gap: 0.5rem; }
 .rag-empty-state { padding: 2rem; text-align: center; color: var(--text-muted); }
 .modal-footer-info { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-muted); }
 .rag-branch-summary-footer { font-size: 0.75rem; color: var(--text-muted); }
 .rag-branch-summary-footer strong { color: var(--text-main, currentColor); font-weight: 600; }
 .rag-footer-separator { color: var(--text-muted); opacity: 0.6; }
-.rag-storage-quota-info { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--text-muted); }
 .rag-help-container { display: grid; gap: 1rem; }
 
 /* Mantener Documentos y Ayuda en la misma escala tipográfica que Activar. */
@@ -1199,6 +1215,7 @@ input.form-input:focus-visible,
   .rag-manage-toolbar { align-items: stretch; flex-direction: column; }
   .rag-ingestion-progress-item { grid-template-columns: 1fr; }
   .rag-ingestion-global-progress { grid-template-columns: 1fr; }
+  .rag-ingestion-global-progress > div:last-child { flex-wrap: wrap; }
 }
 
 .notice-dialog {

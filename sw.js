@@ -4,7 +4,7 @@
  * y actualización en segundo plano (Stale-While-Revalidate).
  */
 
-const CACHE_NAME = 'zerochat-v8.3.2';
+const CACHE_NAME = 'zerochat-v8.4.0';
 
 const PRECACHE_ASSETS = [
   './',

@@ -60,6 +60,7 @@ finally:
 
 test('zerochat.py: reinstala los archivos MCP gestionados sin borrar datos ni servicios del usuario', () => {
   const repoRoot = path.resolve(__dirname, '../..');
+  assert.doesNotThrow(() => execFileSync('node', ['scripts/build-managed-services.mjs'], { cwd: repoRoot, stdio: 'pipe' }));
   const script = `
 import importlib.util
 import json

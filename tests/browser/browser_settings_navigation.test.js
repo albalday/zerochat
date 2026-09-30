@@ -43,7 +43,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(sidebar.mode, true);
       assert.equal(sidebar.languages, 2);
       assert.equal(sidebar.themes, 2);
-      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag-manage', 'mcp', 'permissions', 'encryption', undefined]);
+      assert.deepEqual(sidebar.sections.map(item => item.id), ['model', 'agent', 'rag', 'mcp', 'permissions', 'encryption', undefined]);
       assert.ok(sidebar.sections.every(item => item.icon && item.label));
       assert.deepEqual(sidebar.sections.at(-1), { id: undefined, icon: true, label: 'Ayuda', href: 'help/index.html', target: '_blank' });
 
@@ -53,6 +53,21 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(await page.locator('#btn-encryption-back use').getAttribute('href'), '#icon-arrow-left');
       assert.equal(await page.locator('#sidebar-settings-nav').isHidden(), true);
       await page.locator('#btn-encryption-back').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-settings-nav').hidden);
+
+      await page.locator('#sidebar-settings-nav [data-section="rag"]').evaluate(item => item.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-rag-nav').hidden);
+      assert.deepEqual(await page.$$eval('#sidebar-rag-nav .sidebar-settings-item', items => items.map(item => item.textContent.trim())), ['Volver', 'Ramas', 'Activar']);
+      assert.equal(await page.locator('#btn-rag-activate use').getAttribute('href'), '#icon-check-circle');
+      await page.locator('#btn-rag-branches').evaluate(button => button.click());
+      await page.waitForSelector('#rag-manage-modal[open]');
+      assert.equal(await page.locator('#rag-manage-modal h3').textContent(), 'RAG-Ramas');
+      await page.locator('#btn-close-rag-manage').evaluate(button => button.click());
+      await page.locator('#btn-rag-activate').evaluate(button => button.click());
+      await page.waitForSelector('#rag-modal[open]');
+      assert.equal(await page.locator('#rag-storage-quota-info').count(), 0);
+      await page.locator('#btn-close-rag').evaluate(button => button.click());
+      await page.locator('#btn-rag-back').evaluate(button => button.click());
       await page.waitForFunction(() => !document.getElementById('sidebar-settings-nav').hidden);
 
       const helpPagePromise = page.context().waitForEvent('page');
@@ -154,6 +169,29 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         settingsVisible: !document.getElementById('sidebar-view-settings').hidden
       }));
       assert.deepEqual(mobileClosed, { sidebarHidden: false, settingsVisible: true });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  test('RAG: el progreso y los resultados de ingesta no desbordan en móvil', async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.evaluate(() => {
+        const modal = document.getElementById('rag-manage-modal');
+        modal.innerHTML = `<div class="modal-body"><div id="rag-ingestion-progress">
+          <div class="rag-ingestion-global-progress"><div><strong>Carga global: 1 de 1</strong><span>1 indexado</span></div><progress max="100" value="100"></progress><div style="display:inline-flex; align-items:center; gap:0.5rem;"><span>100%</span><button type="button" class="rag-stop-ingestion-btn">Detener</button></div></div>
+          <div class="rag-ingestion-progress-recent"><div class="rag-ingestion-progress-item error"><strong>documento-con-un-nombre-muy-largo-sin-espacios-para-comprobar-el-ajuste-en-movil.pdf</strong><span>Error-de-ingesta-con-un-texto-muy-largo-sin-espacios-que-debe-ajustarse</span><progress max="100" value="100"></progress></div></div>
+        </div></div>`;
+        modal.showModal();
+      });
+      const dimensions = await page.evaluate(() => Array.from(document.querySelectorAll('.rag-ingestion-global-progress, .rag-ingestion-progress-item')).map(element => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth
+      })));
+      assert.ok(dimensions.every(({ clientWidth, scrollWidth }) => scrollWidth <= clientWidth), 'Los controles y resultados de ingesta deben ajustarse al ancho móvil');
     } finally {
       await browser.close();
     }

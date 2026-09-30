@@ -39,11 +39,15 @@ Las llamadas `tools/call` al host local incorporan además un sello efímero emi
 
 El contrato público es `<herramienta>` (nombre canónico directo) para herramientas locales
 del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `execute_command`) y
-`mcp_<servicio>_<herramienta>` para servicios externos, tanto directos como
+`<servicio>_<herramienta>` para servicios externos, tanto directos como
 agregados por el host. Ejemplo: `browser_service_browser_navigate`.
 El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijos.
 `metadata.mcpServerId` y `metadata.originalName` conservan la identidad remota.
 Las llamadas del host solo resuelven herramientas actualmente anunciadas.
+
+Los archivos de los servicios gestionados tienen como fuente de verdad `services/`.
+`npm run build:backend` ejecuta primero `scripts/build-managed-services.mjs`, que
+genera `py/dd-managed-services.py` para integrarlos en `zerochat.py`.
 
 Los componentes se codifican sin pérdida: se conservan `a-y` y `0-9`;
 solo en la herramienta se conserva también `_`. Cualquier otro carácter,

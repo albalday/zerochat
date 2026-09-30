@@ -526,6 +526,35 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     assert.ok(exportIcons.cardsHaveSvg, 'Todas las tarjetas de exportación deben tener icono SVG');
     assert.equal(exportIcons.hasExportEmojis, false, 'Las tarjetas de exportación no deben contener emojis');
 
+    const exportDarkContrast = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      const parseColor = color => (color.match(/\d+/g) || []).slice(0, 3).map(Number);
+      const luminance = color => {
+        const channels = parseColor(color).map(value => {
+          const normalized = value / 255;
+          return normalized <= 0.03928 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+      };
+      const contrast = (foreground, background) => {
+        const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+        return (light + 0.05) / (dark + 0.05);
+      };
+      const card = document.querySelector('#export-modal .export-card-btn');
+      const title = card.querySelector('strong');
+      const description = card.querySelector('.export-card-info span');
+      const background = getComputedStyle(card).backgroundColor;
+      return {
+        title: contrast(getComputedStyle(title).color, background),
+        description: contrast(getComputedStyle(description).color, background),
+        closeColor: getComputedStyle(document.getElementById('btn-close-export')).color,
+        closeBackground: getComputedStyle(document.getElementById('btn-close-export')).backgroundColor
+      };
+    });
+    assert.ok(exportDarkContrast.title >= 4.5, 'El título de cada tarjeta de exportación debe tener contraste AA en oscuro');
+    assert.ok(exportDarkContrast.description >= 4.5, 'La descripción de cada tarjeta de exportación debe tener contraste AA en oscuro');
+    assert.notEqual(exportDarkContrast.closeColor, exportDarkContrast.closeBackground, 'El cierre de exportación debe usar colores semánticos en oscuro');
+
     await page.evaluate(() => document.getElementById('export-modal').close());
 
     // 3. Abrir modal de RAG desde el compositor (modo activate)
@@ -572,8 +601,9 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     });
     await page.waitForTimeout(300); // Esperar transición a vista de settings
 
-    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
-    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
+    await page.click('.sidebar-settings-item[data-section="rag"]');
+    await page.click('#btn-rag-branches');
     await page.waitForSelector('#rag-manage-modal[open]');
 
     const ragIcons = await page.evaluate(() => {
@@ -632,8 +662,9 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     });
     await page.waitForTimeout(300);
 
-    await page.waitForSelector('.sidebar-settings-item[data-section="rag-manage"]', { state: 'visible', timeout: 5000 });
-    await page.click('.sidebar-settings-item[data-section="rag-manage"]');
+    await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
+    await page.click('.sidebar-settings-item[data-section="rag"]');
+    await page.click('#btn-rag-branches');
     await page.waitForSelector('#rag-branch-details-card');
 
     // Verificar que el textbox en la pestaña de documentos fue eliminado para ganar espacio
