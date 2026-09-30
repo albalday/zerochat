@@ -965,6 +965,7 @@
       this.storageKey = 'chat_mcp_servers';
       this.sessionToken = null;
       this.healthCheckPromise = null;
+      this.externalStartupNoticeShown = false;
       this.loadConfig();
     }
 
@@ -1266,6 +1267,7 @@
       let externalSync = null;
       if (registerResult.success) {
         externalSync = await this.syncExternalServers(registry).catch(() => null);
+        this.notifyStoppedExternalServices(externalSync?.status?.servers);
         if (typeof window !== 'undefined' && window.ChatApp?.startServerHeartbeat && this.sessionToken) {
           window.ChatApp.startServerHeartbeat(host, port, this.sessionToken);
         }
@@ -1279,6 +1281,21 @@
         tools: registerResult.tools || [],
         externalSync
       };
+    }
+
+    notifyStoppedExternalServices(servers) {
+      if (this.externalStartupNoticeShown || !Array.isArray(servers)) return false;
+      const hasStoppedEnabledService = servers.some(server => server?.enabled === true && server?.status === 'stopped');
+      if (!hasStoppedEnabledService) return false;
+
+      this.externalStartupNoticeShown = true;
+      const dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+      const i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
+      if (typeof dialogs?.alert !== 'function') return false;
+      const message = i18n?.t?.('mcp_external_stopped_notice') ||
+        'Previously enabled MCP services were not started automatically. Go to Settings → MCP to start them.';
+      void dialogs.alert(message, { type: 'info' });
+      return true;
     }
 
     /**
