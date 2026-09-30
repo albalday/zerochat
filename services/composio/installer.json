@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "type": "npm",
+  "product": {
+    "package": "mcp-remote",
+    "version": "0.13.5"
+  },
+  "requirements": {
+    "node": {
+      "minimumMajor": 18
+    }
+  }
+}

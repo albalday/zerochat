@@ -153,6 +153,7 @@ def _mcp_trace_text(value: object, max_len: int = 1000) -> str:
     text = " ".join(str(value).strip().splitlines())
     text = re.sub(r"(?i)(\b(?:api[_-]?key|token|secret|password)\b\s*[=:]\s*)\S+", r"\1***", text)
     text = re.sub(r"(?i)(--(?:api[_-]?key|token|secret|password)\s+)\S+", r"\1***", text)
+    text = re.sub(r"(?i)([?&](?:access_token|code|id_token|refresh_token|state)=)[^&\s]+", r"\1***", text)
     return text[:max_len - 3] + "..." if len(text) > max_len else text
 
 
@@ -357,6 +358,7 @@ class McpServiceManager:
                 "displayName": server.get("displayName", {}),
                 "description": server.get("description", {}),
                 "help": server.get("help"),
+                "remote": server.get("remote"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else self.states.get(server_id, "stopped"),
                 "toolCount": len(client.tools) if running else 0,

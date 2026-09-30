@@ -294,6 +294,15 @@
       const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
       const help = getServiceHelp(server.help, language, translator);
       const helpHtml = help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : '';
+      const remote = server.remote?.type === 'mcp-remote' ? server.remote : null;
+      let remoteEndpoint = '';
+      if (remote?.url) {
+        try {
+          const endpoint = new URL(remote.url);
+          remoteEndpoint = endpoint.protocol === 'https:' ? endpoint.host : '';
+        } catch (_) {}
+      }
+      const remoteHtml = remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(translator('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : '';
       const err = server.error ? `
         <div class="mcp-server-error">
           <p>${escapeHtml(server.error)}</p>
@@ -339,6 +348,7 @@
               ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
             </div>
             ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
+            ${remoteHtml}
             ${helpHtml}
             ${playwrightReplacementNotice}
             ${err}

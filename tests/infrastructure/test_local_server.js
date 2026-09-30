@@ -71,6 +71,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     spec = importlib.util.spec_from_file_location("zerochat_managed_services_test", Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
     zerochat = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zerochat)
+    oauth_trace = zerochat._mcp_trace_text("https://auth.example/authorize?state=csrf-value&code=oauth-code&scope=openid")
+    assert "csrf-value" not in oauth_trace
+    assert "oauth-code" not in oauth_trace
+    assert "scope=openid" in oauth_trace
     services_root = Path(temp_dir) / "services"
     managed_service = services_root / "playwright" / "service.json"
     runtime_marker = services_root / "playwright" / ".installed.json"
@@ -714,12 +718,20 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(statusJson.result?.host, 'running');
     const serverIds = (statusJson.result?.servers || []).map(s => s.id);
     assert.ok(serverIds.includes('ejemplo'), 'ejemplo debe estar provisto');
+    assert.ok(serverIds.includes('composio'), 'composio debe estar provisto');
     assert.ok(serverIds.includes('playwright'), 'playwright debe estar provisto');
     assert.ok(serverIds.includes('memory'), 'memory debe estar provisto');
     assert.equal(serverIds.includes('lsp'), false, 'lsp no debe ofrecerse como servicio integrado');
     const exampleServer = (statusJson.result?.servers || []).find(s => s.id === 'ejemplo');
     assert.equal(exampleServer?.status, 'stopped');
     assert.equal(exampleServer?.help?.url, 'help/mcp.html#crear-mcp-con-agente');
+    const composioServer = (statusJson.result?.servers || []).find(s => s.id === 'composio');
+    assert.deepEqual(composioServer?.remote, {
+      type: 'mcp-remote',
+      transport: 'streamable-http',
+      url: 'https://connect.composio.dev/mcp',
+      authentication: 'composio-connect'
+    });
 
     // Iniciar individualmente el ejemplo
     const startRes = await fetch(baseUrl, {

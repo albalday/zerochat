@@ -413,7 +413,7 @@ Esta carpeta es la referencia para crear servicios MCP gestionados. La ubicació
 
 ZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.
 
-No inventes una configuración para un MCP que requiera OAuth interactivo, transporte remoto HTTP/SSE, Docker, Python u otro instalador no soportado por estos JSON. En ese caso, no crees archivos: explica el requisito y qué soporte faltaría.
+ZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SSE con OAuth. Decláralo como un servicio `stdio`: el proceso local debe ser `mcp-remote`, mientras que `remote` describe el endpoint remoto para la interfaz. Conserva las credenciales y el almacén OAuth dentro de `${serviceDir}`.
 
 ## Contratos JSON
 
@@ -613,6 +613,65 @@ for raw in sys.stdin:
   "product": {
     "package": "@modelcontextprotocol/server-memory",
     "version": "2026.8.31"
+  },
+  "requirements": {
+    "node": {
+      "minimumMajor": 18
+    }
+  }
+}
+''',
+    "composio/service.json": r'''{
+  "schemaVersion": 1,
+  "id": "composio",
+  "displayName": {
+    "es": "Composio Connect",
+    "en": "Composio Connect"
+  },
+  "description": {
+    "es": "MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub. Composio solicita la autorización de cada aplicación cuando sea necesaria.",
+    "en": "Remote MCP for apps such as Gmail, Google Drive, Slack, and GitHub. Composio requests authorization for each app when it is needed."
+  },
+  "help": {
+    "url": "https://docs.composio.dev/docs/composio-connect",
+    "label": {
+      "es": "Guía oficial de Composio Connect",
+      "en": "Composio Connect official guide"
+    }
+  },
+  "enabledByDefault": false,
+  "transport": "stdio",
+  "remote": {
+    "type": "mcp-remote",
+    "transport": "streamable-http",
+    "url": "https://connect.composio.dev/mcp",
+    "authentication": "composio-connect"
+  },
+  "launch": {
+    "executable": "${nodeExecutable}",
+    "args": [
+      "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
+      "https://connect.composio.dev/mcp",
+      "--protocol",
+      "auto",
+      "--auth-timeout",
+      "120"
+    ],
+    "cwd": "${serviceDir}",
+    "env": {
+      "HOME": "${serviceDir}",
+      "USERPROFILE": "${serviceDir}"
+    },
+    "handshakeTimeoutSeconds": 150
+  }
+}
+''',
+    "composio/installer.json": r'''{
+  "schemaVersion": 1,
+  "type": "npm",
+  "product": {
+    "package": "mcp-remote",
+    "version": "0.13.5"
   },
   "requirements": {
     "node": {
@@ -1748,6 +1807,7 @@ def _mcp_trace_text(value: object, max_len: int = 1000) -> str:
     text = " ".join(str(value).strip().splitlines())
     text = re.sub(r"(?i)(\b(?:api[_-]?key|token|secret|password)\b\s*[=:]\s*)\S+", r"\1***", text)
     text = re.sub(r"(?i)(--(?:api[_-]?key|token|secret|password)\s+)\S+", r"\1***", text)
+    text = re.sub(r"(?i)([?&](?:access_token|code|id_token|refresh_token|state)=)[^&\s]+", r"\1***", text)
     return text[:max_len - 3] + "..." if len(text) > max_len else text
 
 
@@ -1952,6 +2012,7 @@ class McpServiceManager:
                 "displayName": server.get("displayName", {}),
                 "description": server.get("description", {}),
                 "help": server.get("help"),
+                "remote": server.get("remote"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
                 "status": "running" if running else self.states.get(server_id, "stopped"),
                 "toolCount": len(client.tools) if running else 0,

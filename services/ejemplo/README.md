@@ -17,7 +17,7 @@ Esta carpeta es la referencia para crear servicios MCP gestionados. La ubicació
 
 ZeroChat gestiona procesos MCP por `stdio`. Puede instalar paquetes npm mediante `installer.json` y arrancarlos con `${nodeExecutable}`. También puede arrancar un ejecutable o script ya disponible con `launch`.
 
-No inventes una configuración para un MCP que requiera OAuth interactivo, transporte remoto HTTP/SSE, Docker, Python u otro instalador no soportado por estos JSON. En ese caso, no crees archivos: explica el requisito y qué soporte faltaría.
+ZeroChat también puede usar `mcp-remote` como puente para un MCP remoto HTTP/SSE con OAuth. Decláralo como un servicio `stdio`: el proceso local debe ser `mcp-remote`, mientras que `remote` describe el endpoint remoto para la interfaz. Conserva las credenciales y el almacén OAuth dentro de `${serviceDir}`.
 
 ## Contratos JSON
 

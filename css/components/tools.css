@@ -1353,6 +1353,27 @@
   margin: 0;
 }
 
+.mcp-server-remote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0.1rem 0 0;
+  font-family: var(--font-mono, monospace);
+}
+
+.mcp-server-remote-badge {
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  font-family: var(--font-sans, sans-serif);
+  font-weight: 600;
+  padding: 0.08rem 0.4rem;
+}
+
 .mcp-server-error {
   font-size: 0.75rem;
   color: #ef4444;

@@ -548,6 +548,22 @@ test('ChatUIMcp - el campo help de service.json solo admite URL HTTP o rutas rel
   assert.equal(ChatUIMcp.getServiceHelp({ url: '//example.com', label: 'Unsafe' }, 'es'), null);
 });
 
+test('ChatUIMcp - identifica los servicios mcp-remote sin exponer la ruta completa', () => {
+  const container = { innerHTML: '', querySelectorAll: () => [] };
+  ChatUIMcp.renderExternalServers(container, [{
+    id: 'composio',
+    status: 'stopped',
+    remote: {
+      type: 'mcp-remote',
+      url: 'https://connect.composio.dev/mcp?secret=must-not-be-rendered'
+    }
+  }], (key) => ChatI18n.t(key));
+
+  assert.match(container.innerHTML, /MCP remoto HTTP/);
+  assert.match(container.innerHTML, /connect\.composio\.dev/);
+  assert.doesNotMatch(container.innerHTML, /must-not-be-rendered/);
+});
+
 test('ChatUIMcp - un error de servidor MCP incluye un enlace a la ayuda de dependencias', () => {
   const container = { innerHTML: '' };
   ChatUIMcp.renderExternalServers(container, [{
