@@ -58,6 +58,40 @@ finally:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: reinstala los archivos MCP gestionados sin borrar datos ni servicios del usuario', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_managed_services_test", Path(${JSON.stringify(path.resolve(__dirname, '../../zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    services_root = Path(temp_dir) / "services"
+    managed_service = services_root / "playwright" / "service.json"
+    runtime_marker = services_root / "playwright" / ".installed.json"
+    user_service = services_root / "custom" / "service.json"
+    managed_service.write_text("modified", encoding="utf-8")
+    runtime_marker.write_text("keep", encoding="utf-8")
+    user_service.parent.mkdir(parents=True)
+    user_service.write_text('{"id":"custom"}', encoding="utf-8")
+
+    zerochat.materialize_managed_services(services_root)
+
+    repo_services = Path(${JSON.stringify(path.join(repoRoot, 'services'))})
+    for relative_path, content in zerochat.MANAGED_SERVICE_FILES.items():
+        assert (services_root / relative_path).read_text(encoding="utf-8") == content
+        assert (repo_services / relative_path).read_text(encoding="utf-8") == content
+    assert runtime_marker.read_text(encoding="utf-8") == "keep"
+    assert user_service.read_text(encoding="utf-8") == '{"id":"custom"}'
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('zerochat.py: el arranque MCP deja traza de éxito y fallo en la consola', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `

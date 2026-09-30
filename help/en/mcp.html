@@ -87,6 +87,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
       </ul>
       <p>If installation fails, check the stated Node.js version with <code>node --version</code>, confirm that <code>npm --version</code> works, and check npm network access and free disk space. Fix the requirement and select Start again; reinstalling ZeroChat is not necessary.</p>
       <p>Services are managed under <code>~/zerochat/services/</code>. Deleting <code>~/zerochat/</code> removes this state and its dependencies, but not browser history or files changed outside that folder.</p>
+      <p>At startup, ZeroChat restores its bundled configuration files for <code>ejemplo</code>, <code>playwright</code>, and <code>memory</code>. It keeps their installed dependencies and data, as well as service folders created by the user.</p>
       <h3 id="crear-mcp-con-agente">Creating an MCP service with an agent</h3>
       <p>Use <code>~/zerochat/services/ejemplo/</code> as the reference structure. Each service needs <code>service.json</code>; add <code>installer.json</code> only when ZeroChat must install an npm package. The optional standard <code>help</code> field lets JSON define a visible link on the service card:</p>
       <div class="code-wrapper"><pre><code>"help": {
