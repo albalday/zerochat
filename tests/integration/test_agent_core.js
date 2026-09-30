@@ -81,6 +81,22 @@ test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparad
   ToolSecurity.manager.revokeToolPolicy('read_file');
 });
 
+test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas', () => {
+  const registry = new AgentCoreModule.ToolRegistry();
+  const upper = new AgentCoreModule.Tool({ name: 'composio_SEARCH', category: 'mcp' });
+  const lower = new AgentCoreModule.Tool({ name: 'composio_search', category: 'mcp' });
+
+  registry.registerTool(upper);
+  registry.registerTool(lower);
+
+  assert.equal(registry.getTool('composio_SEARCH'), upper);
+  assert.equal(registry.getTool('composio_search'), lower);
+  assert.equal(registry.getTool('COMPOSIO_SEARCH'), null);
+  registry.unregisterTool('composio_SEARCH');
+  assert.equal(registry.getTool('composio_SEARCH'), null);
+  assert.equal(registry.getTool('composio_search'), lower);
+});
+
 test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita', async () => {
   const registry = new AgentCoreModule.ToolRegistry();
   registry.registerTool(new AgentCoreModule.Tool({

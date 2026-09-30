@@ -133,7 +133,11 @@
    */
   function normalizeToolName(rawName) {
     if (!rawName) return '';
-    const clean = String(rawName).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const exactName = String(rawName).trim();
+    // Keep remote MCP identifiers verbatim.  Their case is part of their
+    // identity and the registry dispatches MCP tools case-sensitively.
+    if (/[A-Z]/.test(exactName)) return exactName;
+    const clean = exactName.toLowerCase().replace(/[^a-z0-9_]/g, '');
     const noUnderscore = clean.replace(/_/g, '');
     return TOOL_NAME_MAP[clean] || TOOL_NAME_MAP[noUnderscore] || clean;
   }

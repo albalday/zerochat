@@ -17,6 +17,7 @@ test('Api - Normalización de nombres de herramientas', () => {
   assert.equal(Api.normalizeToolName('eval_javascript'), 'execute_javascript');
   assert.equal(Api.normalizeToolName('downloadpdf'), 'download_pdf');
   assert.equal(Api.normalizeToolName('render_chart'), 'render_chart');
+  assert.equal(Api.normalizeToolName('composio_COMPOSIO_SEARCH_TOOLS'), 'composio_COMPOSIO_SEARCH_TOOLS');
 });
 
 test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {

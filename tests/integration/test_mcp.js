@@ -706,19 +706,8 @@ def public_tool_name(server_id, original):
     def encode(value, tool=False):
         if not isinstance(value, str) or not value or len(value) > 256:
             raise ValueError("Invalid MCP name component")
-        encoded = []
-        for ch in value:
-            if "a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"):
-                encoded.append(ch)
-            elif ch == "z":
-                encoded.append("zz")
-            elif "A" <= ch <= "Y":
-                encoded.append("z" + ch.lower())
-            elif ch == "Z":
-                encoded.append("z0")
-            else:
-                encoded.append(f"z{ord(ch):x}z")
-        return "".join(encoded)
+        return "".join(ch if ("a" <= ch <= "z" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
+                       else f"z{ord(ch):x}z" for ch in value)
     name = f"{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
         raise ValueError("MCP public name exceeds 64 characters")
@@ -785,8 +774,8 @@ else:
   const tools = await provider.discoverTools();
   assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
   assert.equal(tools[0].name, 'browserz5fzservice_browser_navigate');
-  assert.ok(tools.some(tool => tool.name === 'composio_zczozmzpzozszizo_zszezazrzczh_ztzozozlzs'),
-    'los nombres remotos en mayúsculas deben permanecer dentro del límite de 64 caracteres');
+  assert.ok(tools.some(tool => tool.name === 'composio_COMPOSIO_SEARCH_TOOLS'),
+    'los nombres remotos en mayúsculas deben conservarse legibles');
   const registry = new AgentCore.ToolRegistry();
   registry.registerProvider(provider);
   for (const tool of tools) {

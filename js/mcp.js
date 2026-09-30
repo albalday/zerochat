@@ -37,16 +37,10 @@
       if (typeof value !== 'string' || !value || value.length > 256) {
         throw new Error('Invalid MCP name component');
       }
-      // ToolRegistry resolves names case-insensitively. Encode upper-case
-      // ASCII compactly in lower case so COMPOSIO_SEARCH_TOOLS remains unique
-      // and below model providers' 64-character function-name limit.
-      return Array.from(value, ch => {
-        if (/^[a-y0-9]$/.test(ch) || (tool && ch === '_')) return ch;
-        if (ch === 'z') return 'zz';
-        if (/^[A-Y]$/.test(ch)) return `z${ch.toLowerCase()}`;
-        if (ch === 'Z') return 'z0';
-        return `z${ch.codePointAt(0).toString(16)}z`;
-      }).join('');
+      // MCP function names and the registry preserve ASCII case.  Keeping it
+      // makes names supplied by a remote service readable to people and models.
+      return Array.from(value, ch => /^[a-zA-Z0-9]$/.test(ch) || (tool && ch === '_')
+        ? ch : `z${ch.codePointAt(0).toString(16)}z`).join('');
     };
     const name = serverId === null ? encode(originalName, true)
       : `${encode(serverId)}_${encode(originalName, true)}`;

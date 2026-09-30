@@ -350,7 +350,7 @@
       if (!validation.valid) {
         throw new Error(`Contrato de herramienta inválido: ${validation.errors.join(' ')}`);
       }
-      const canonicalName = tool.name.trim().toLowerCase();
+      const canonicalName = tool.category === 'mcp' ? tool.name.trim() : tool.name.trim().toLowerCase();
       this.tools.set(canonicalName, tool);
 
       if (tool.category === 'mcp') return tool;
@@ -374,9 +374,14 @@
      */
     getTool(rawName) {
       if (!rawName) return null;
-      const clean = String(rawName).trim().toLowerCase();
+      const exactName = String(rawName).trim();
+      if (this.tools.has(exactName)) {
+        return this.tools.get(exactName);
+      }
+      const clean = exactName.toLowerCase();
       if (this.tools.has(clean)) {
-        return this.tools.get(clean);
+        const tool = this.tools.get(clean);
+        return tool.category === 'mcp' ? null : tool;
       }
       const canonical = this.aliasMap.get(clean) || this.aliasMap.get(clean.replace(/_/g, ''));
       if (canonical && this.tools.has(canonical) && this.tools.get(canonical).category !== 'mcp') {
@@ -414,10 +419,11 @@
      */
     unregisterTool(name) {
       if (!name) return;
-      const clean = String(name).trim().toLowerCase();
-      const tool = this.tools.get(clean);
+      const exactName = String(name).trim();
+      const clean = exactName.toLowerCase();
+      const tool = this.tools.get(exactName) || this.tools.get(clean);
       if (tool) {
-        this.tools.delete(clean);
+        this.tools.delete(tool.category === 'mcp' ? exactName : clean);
         this.aliasMap.delete(clean.replace(/_/g, ''));
         if (Array.isArray(tool.aliases)) {
           tool.aliases.forEach(alias => {
