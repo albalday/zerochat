@@ -706,8 +706,19 @@ def public_tool_name(server_id, original):
     def encode(value, tool=False):
         if not isinstance(value, str) or not value or len(value) > 256:
             raise ValueError("Invalid MCP name component")
-        return "".join(ch if ("a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"))
-                       else f"z{ord(ch):x}z" for ch in value)
+        encoded = []
+        for ch in value:
+            if "a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"):
+                encoded.append(ch)
+            elif ch == "z":
+                encoded.append("zz")
+            elif "A" <= ch <= "Y":
+                encoded.append("z" + ch.lower())
+            elif ch == "Z":
+                encoded.append("z0")
+            else:
+                encoded.append(f"z{ord(ch):x}z")
+        return "".join(encoded)
     name = f"mcp_{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
         raise ValueError("MCP public name exceeds 64 characters")
@@ -759,7 +770,8 @@ else:
     second: ['browser_navigate', 'read_file'],
     'a-b': ['read_file'], a_b: ['read_file'],
     a: ['b_read_file'], A: ['read_file'], az: ['read_file'],
-    edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ']
+    edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ'],
+    composio: ['COMPOSIO_SEARCH_TOOLS']
   };
   const host = extra => JSON.parse(execFileSync('python3', ['-c', hostScript], {
     cwd: path.resolve(__dirname, '../..'), input: JSON.stringify({ servers, ...extra }), encoding: 'utf8', stdio: 'pipe', timeout: 5000
@@ -773,6 +785,8 @@ else:
   const tools = await provider.discoverTools();
   assert.equal(new Set(tools.map(t => t.name)).size, tools.length);
   assert.equal(tools[0].name, 'mcp_browserz5fzservice_browser_navigate');
+  assert.ok(tools.some(tool => tool.name === 'mcp_composio_zczozmzpzozszizo_zszezazrzczh_ztzozozlzs'),
+    'los nombres remotos en mayúsculas deben permanecer dentro del límite de 64 caracteres');
   const registry = new AgentCore.ToolRegistry();
   registry.registerProvider(provider);
   for (const tool of tools) {

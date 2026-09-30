@@ -1796,8 +1796,23 @@ def public_tool_name(server_id: str, original: str) -> str:
     def encode(value: str, tool: bool = False) -> str:
         if not isinstance(value, str) or not value or len(value) > 256:
             raise ValueError("Componente de nombre MCP no válido")
-        return "".join(ch if ("a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"))
-                       else f"z{ord(ch):x}z" for ch in value)
+        # ToolRegistry is case-insensitive, so upper-case characters cannot be
+        # retained verbatim.  Encode each one in two lower-case characters
+        # rather than the old four-character Unicode escape; Composio names
+        # such as COMPOSIO_SEARCH_TOOLS then fit providers' 64-char limit.
+        encoded = []
+        for ch in value:
+            if "a" <= ch <= "y" or "0" <= ch <= "9" or (tool and ch == "_"):
+                encoded.append(ch)
+            elif ch == "z":
+                encoded.append("zz")
+            elif "A" <= ch <= "Y":
+                encoded.append("z" + ch.lower())
+            elif ch == "Z":
+                encoded.append("z0")
+            else:
+                encoded.append(f"z{ord(ch):x}z")
+        return "".join(encoded)
     name = f"mcp_{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
         raise ValueError(f"El nombre público de la herramienta MCP excede 64 caracteres: {name}")
