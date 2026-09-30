@@ -265,6 +265,8 @@ for raw in sys.stdin:
       "https://connect.composio.dev/mcp",
       "--protocol",
       "auto",
+      "--static-oauth-client-metadata",
+      "{\"client_name\":\"zerochat-mcp-remote\"}",
       "--auth-timeout",
       "120"
     ],

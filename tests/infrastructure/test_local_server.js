@@ -62,6 +62,7 @@ test('zerochat.py: reinstala los archivos MCP gestionados sin borrar datos ni se
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -75,6 +76,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert "csrf-value" not in oauth_trace
     assert "oauth-code" not in oauth_trace
     assert "scope=openid" in oauth_trace
+    composio_definition = json.loads(zerochat.MANAGED_SERVICE_FILES["composio/service.json"])
+    composio_args = composio_definition["launch"]["args"]
+    metadata_index = composio_args.index("--static-oauth-client-metadata")
+    assert json.loads(composio_args[metadata_index + 1])["client_name"] == "zerochat-mcp-remote"
     services_root = Path(temp_dir) / "services"
     managed_service = services_root / "playwright" / "service.json"
     runtime_marker = services_root / "playwright" / ".installed.json"
