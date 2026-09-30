@@ -264,7 +264,7 @@ for raw in sys.stdin:
       "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
       "https://connect.composio.dev/mcp",
       "--protocol",
-      "auto",
+      "legacy",
       "--static-oauth-client-metadata",
       "{\"client_name\":\"zerochat-mcp-remote\"}",
       "--auth-timeout",

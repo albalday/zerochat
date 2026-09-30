@@ -80,6 +80,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
     composio_args = composio_definition["launch"]["args"]
     metadata_index = composio_args.index("--static-oauth-client-metadata")
     assert json.loads(composio_args[metadata_index + 1])["client_name"] == "zerochat-mcp-remote"
+    protocol_index = composio_args.index("--protocol")
+    assert composio_args[protocol_index + 1] == "legacy"
     services_root = Path(temp_dir) / "services"
     managed_service = services_root / "playwright" / "service.json"
     runtime_marker = services_root / "playwright" / ".installed.json"

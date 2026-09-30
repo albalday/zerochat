@@ -232,7 +232,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_cors_headers()
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
 
     def do_GET(self):
         t0 = time.monotonic()
@@ -613,7 +616,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(resp_bytes)))
         self.send_cors_headers()
         self.end_headers()
-        self.wfile.write(resp_bytes)
+        try:
+            self.wfile.write(resp_bytes)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+            return
         self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000, error_info=error_info)
 
     def log_message(self, format, *args):

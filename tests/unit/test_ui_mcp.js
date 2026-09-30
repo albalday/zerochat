@@ -130,6 +130,14 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.reconnectHint.style.display, 'none');
 });
 
+test('ChatUIMcp - incorpora herramientas externas al listado MCP', () => {
+  const allTools = ChatUIMcp.getAllMcpTools({
+    tools: [{ name: 'read_file' }],
+    externalTools: [{ name: 'mcp_composio_search' }]
+  });
+  assert.deepEqual(allTools.map(tool => tool.name), ['read_file', 'mcp_composio_search']);
+});
+
 test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {
   const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   let copiedText = '';

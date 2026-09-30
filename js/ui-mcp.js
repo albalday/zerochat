@@ -62,6 +62,12 @@
     return isEnabled && isAvailable;
   }
 
+  function getAllMcpTools(state = {}) {
+    const localTools = Array.isArray(state.tools) ? state.tools : [];
+    const externalTools = Array.isArray(state.externalTools) ? state.externalTools : [];
+    return [...localTools, ...externalTools];
+  }
+
   // `help` is the standard optional service.json field shown on an MCP card.
   // Keep arbitrary schemes out of an HTML attribute even though the value is escaped.
   function getServiceHelp(help, language, translator = t) {
@@ -500,7 +506,7 @@
         const ver = state.serverInfo?.version ? ` v${state.serverInfo.version}` : '';
         const latency = Number(state.latencyMs);
         const lat = Number.isFinite(latency) && latency > 0 ? ` · ${latency}ms` : '';
-        const count = Array.isArray(state.tools) ? state.tools.length : 0;
+        const count = getAllMcpTools(state).length;
         const toolLabel = count > 0 ? translator('mcp_tools_discovered', { count }) : translator('mcp_no_tools');
         const titleStr = `${name}${ver}${lat}`.trim();
         if (typeof elements.serverDetails.setAttribute === 'function') {
@@ -523,7 +529,7 @@
 
     if (elements.toolsContainer) {
       const currentConfig = getConfig()?.get?.() || {};
-      const allTools = isConn ? (state.tools || []) : [];
+      const allTools = isConn ? getAllMcpTools(state) : [];
       renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
     }
 
@@ -631,7 +637,7 @@
           if (elements?.toolsContainer) {
             const currentConfig = getConfig()?.get?.() || {};
             const state = getState()?.get?.('mcp') || {};
-            const allTools = state.tools || [];
+            const allTools = getAllMcpTools(state);
             renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
           }
         }
@@ -651,7 +657,7 @@
           if (elements?.toolsContainer) {
             const currentConfig = getConfig()?.get?.() || {};
             const state = getState()?.get?.('mcp') || {};
-            const allTools = state.tools || [];
+            const allTools = getAllMcpTools(state);
             renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
           }
         }
@@ -666,7 +672,7 @@
     const State = getState();
     const isConn = State?.get ? State.get('mcp')?.status === 'connected' : false;
     const st = State?.get?.('mcp') || {};
-    const allTools = isConn ? (st.tools || []) : [];
+    const allTools = isConn ? getAllMcpTools(st) : [];
     renderToolsList(container, allTools, currentCfg.enabledTools || {}, translator);
   }
 
@@ -826,6 +832,7 @@
     sanitizeHost,
     buildMcpEndpoint,
     isBrowserActionActive,
+    getAllMcpTools,
     generateTerminalCommand,
     getServiceHelp,
     copyCommandToClipboard,
