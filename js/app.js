@@ -107,6 +107,7 @@
 
   // Referencias al DOM
   let elements = {};
+  let serviceWorkerUpdatePromptShown = false;
 
   function cacheDomElements() {
     elements = {
@@ -2173,8 +2174,36 @@
     if (typeof window !== 'undefined' &&
         'serviceWorker' in navigator &&
         (location.protocol === 'http:' || location.protocol === 'https:')) {
+      const promptServiceWorkerUpdate = () => {
+        if (serviceWorkerUpdatePromptShown || !window.ChatDialogs?.confirm) return;
+        serviceWorkerUpdatePromptShown = true;
+        window.ChatDialogs.confirm(t('pwa_update_available'), {
+          type: 'info',
+          title: t('pwa_update_title'),
+          acceptText: t('pwa_update_reload'),
+          cancelText: t('pwa_update_later')
+        }).then(accepted => {
+          if (accepted) window.location.reload();
+        }).catch(() => {});
+      };
       const register = () => {
         navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .then(registration => {
+            const promptIfWaiting = () => {
+              if (registration.waiting) promptServiceWorkerUpdate();
+            };
+            promptIfWaiting();
+            registration.addEventListener?.('updatefound', () => {
+              const worker = registration.installing;
+              if (!worker) return;
+              worker.addEventListener?.('statechange', () => {
+                if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                  promptServiceWorkerUpdate();
+                }
+              });
+            });
+            registration.update?.().catch(() => {});
+          })
           .catch(() => {});
       };
       if (document.readyState === 'complete') {

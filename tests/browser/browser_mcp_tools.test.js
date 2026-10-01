@@ -38,6 +38,47 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - en móvil las acciones MCP no comprimen la descripción del servidor', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const layout = await page.evaluate(() => {
+      const container = document.createElement('div');
+      container.className = 'mcp-servers-list';
+      document.body.appendChild(container);
+      window.ChatUIMcp.renderExternalServers(container, [{
+        id: 'composio',
+        displayName: { es: 'Composio Connect' },
+        description: { es: 'MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub. Composio solicita la autorización de cada aplicación cuando sea necesaria.' },
+        status: 'stopped',
+        remote: { type: 'mcp-remote', url: 'https://connect.composio.dev/mcp' }
+      }], key => window.ChatI18n.t(key));
+      const item = container.querySelector('.mcp-server-item');
+      const info = item.querySelector('.mcp-server-info');
+      const desc = item.querySelector('.mcp-server-desc');
+      const actions = item.querySelector('.mcp-server-actions');
+      const trust = item.querySelector('.btn-mcp-server-trust');
+      const toggle = item.querySelector('.btn-mcp-server-toggle');
+      const result = {
+        itemDirection: getComputedStyle(item).flexDirection,
+        actionsDisplay: getComputedStyle(actions).display,
+        descriptionWidth: desc.getBoundingClientRect().width,
+        actionsBelowInfo: actions.getBoundingClientRect().top >= info.getBoundingClientRect().bottom,
+        buttonsShareRow: Math.abs(trust.getBoundingClientRect().top - toggle.getBoundingClientRect().top) < 1
+      };
+      container.remove();
+      return result;
+    });
+    assert.equal(layout.itemDirection, 'column');
+    assert.equal(layout.actionsDisplay, 'grid');
+    assert.ok(layout.descriptionWidth > 250);
+    assert.equal(layout.actionsBelowInfo, true);
+    assert.equal(layout.buttonsShareRow, true);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una sola fila', async () => {
   const browser = await createTestBrowser();
   try {

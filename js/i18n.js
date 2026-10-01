@@ -35,6 +35,10 @@
       notice_export_error: 'Error al exportar la rama: {err}',
       notice_branch_restored: 'Rama "{name}" restaurada con éxito.',
       notice_import_error: 'Error al restaurar: {err}',
+      pwa_update_title: 'Actualización disponible',
+      pwa_update_available: 'Hay una nueva versión de ZeroChat lista para aplicar.',
+      pwa_update_reload: 'Recargar ahora',
+      pwa_update_later: 'Más tarde',
 
       // Metadatos y Encabezados
       app_title: APP_TITLE,
@@ -742,6 +746,10 @@
       notice_export_error: 'Could not export branch: {err}',
       notice_branch_restored: 'Branch "{name}" restored successfully.',
       notice_import_error: 'Could not restore: {err}',
+      pwa_update_title: 'Update available',
+      pwa_update_available: 'A new version of ZeroChat is ready to apply.',
+      pwa_update_reload: 'Reload now',
+      pwa_update_later: 'Later',
 
       // Metadata & Headers
       app_title: APP_TITLE,

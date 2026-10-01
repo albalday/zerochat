@@ -550,6 +550,68 @@
   word-break: break-word;
 }
 
+/* En pantallas estrechas el estado no debe competir con nombres MCP largos. */
+@media (max-width: 640px) {
+  .tool-call-group {
+    border-color: var(--border-subtle);
+    background: transparent;
+  }
+
+  .tool-call-group-cards,
+  .tool-call-group-active-cards {
+    padding: 0 0.35rem 0.2rem;
+  }
+
+  .tool-execution-card {
+    margin: 0.45rem 0;
+    border-color: var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: none;
+  }
+
+  .tool-card-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    padding: 0.45rem 0.6rem;
+    gap: 0.35rem 0.5rem;
+  }
+
+  .tool-card-title {
+    min-width: 0;
+  }
+
+  .tool-card-title > span:last-child {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .tool-card-header-actions {
+    display: contents;
+  }
+
+  .tool-card-badge {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    padding: 0.1rem 0.4rem;
+  }
+
+  .btn-tool-collapse {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  [data-theme="dark"] .tool-execution-card {
+    border-color: var(--border-subtle);
+  }
+}
+
 hr {
   border: none;
   border-top: 1px solid var(--border-color, #e2e8f0);

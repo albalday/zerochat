@@ -84,6 +84,67 @@ test('Browser UI - informa del alcance de almacenamiento en file://', async () =
   }
 });
 
+test('Browser PWA - comprueba actualizaciones al arrancar y avisa cuando el worker queda listo', async () => {
+  const server = await startStaticServer();
+  const { port } = server.address();
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      const registrationListeners = {};
+      const workerListeners = {};
+      const installing = {
+        state: 'installing',
+        addEventListener: (type, listener) => { workerListeners[type] = listener; }
+      };
+      const registration = {
+        waiting: null,
+        installing,
+        addEventListener: (type, listener) => { registrationListeners[type] = listener; },
+        update: () => {
+          window.__serviceWorkerUpdateChecks = (window.__serviceWorkerUpdateChecks || 0) + 1;
+          return Promise.resolve();
+        }
+      };
+      Object.defineProperty(navigator, 'serviceWorker', {
+        configurable: true,
+        value: { controller: {}, register: () => Promise.resolve(registration) }
+      });
+      window.__finishServiceWorkerUpdate = () => {
+        registrationListeners.updatefound();
+        installing.state = 'installed';
+        workerListeners.statechange();
+      };
+    });
+    await page.goto(`http://127.0.0.1:${port}/zerochat.html`, { waitUntil: 'load' });
+    await page.waitForFunction(() => window.__serviceWorkerUpdateChecks === 1);
+    const result = await page.evaluate(async () => {
+      const notices = [];
+      const originalConfirm = window.ChatDialogs.confirm;
+      window.ChatDialogs.confirm = async (message, options) => {
+        notices.push({ message, options });
+        return false;
+      };
+      window.__finishServiceWorkerUpdate();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      window.ChatDialogs.confirm = originalConfirm;
+      return notices;
+    });
+    assert.deepEqual(result, [{
+      message: 'Hay una nueva versión de ZeroChat lista para aplicar.',
+      options: {
+        type: 'info',
+        title: 'Actualización disponible',
+        acceptText: 'Recargar ahora',
+        cancelText: 'Más tarde'
+      }
+    }]);
+  } finally {
+    await browser.close();
+    await stopStaticServer(server);
+  }
+});
+
 test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idioma', async () => {
   const browser = await createTestBrowser();
   try {

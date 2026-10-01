@@ -105,6 +105,36 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
   } finally { await browser.close(); }
 });
 
+test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo su nombre', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const layout = await page.evaluate(() => {
+      const card = window.ChatToolCards.createLiveToolCard('composio_COMPOSIO_MULTI_EXECUTE_TOOL', { value: 1 });
+      document.body.appendChild(card);
+      window.ChatToolCards.updateLiveToolCard(card, 'composio_COMPOSIO_MULTI_EXECUTE_TOOL', { value: 1 }, { success: true }, 12);
+      const header = card.querySelector('.tool-card-header');
+      const title = card.querySelector('.tool-card-title');
+      const badge = card.querySelector('.tool-card-badge');
+      const collapse = card.querySelector('.btn-tool-collapse');
+      const result = {
+        grid: getComputedStyle(header).display,
+        badgeBelowTitle: badge.getBoundingClientRect().top >= title.getBoundingClientRect().bottom,
+        collapseAtRight: collapse.getBoundingClientRect().left > title.getBoundingClientRect().right,
+        titleLines: Math.round(title.querySelector('span:last-child').getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight))
+      };
+      card.remove();
+      return result;
+    });
+    assert.equal(layout.grid, 'grid');
+    assert.equal(layout.badgeBelowTitle, true);
+    assert.equal(layout.collapseAtRight, true);
+    assert.ok(layout.titleLines <= 2);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown', async () => {
   const browser = await createTestBrowser();
   try {

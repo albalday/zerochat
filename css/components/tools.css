@@ -1401,6 +1401,42 @@
   cursor: pointer;
 }
 
+/* En móvil las acciones no deben reducir la descripción a una columna estrecha. */
+@media (max-width: 640px) {
+  .mcp-server-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .mcp-server-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+  }
+
+  .btn-mcp-server-trust {
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .btn-mcp-server-toggle {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .mcp-server-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-mcp-server-toggle {
+    width: 100%;
+  }
+}
+
 .mcp-server-options {
   margin-top: 0.5rem;
   display: flex;
