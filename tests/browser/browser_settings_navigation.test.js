@@ -196,4 +196,88 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await browser.close();
     }
   });
+  test('Agente y Permisos comparten superficies suaves y controles accesibles en móvil', { timeout: 30000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(3000);
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => {
+        if (message.type() === 'error') errors.push(message.text());
+      });
+      await seedConnectionProfiles(page);
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.locator('#btn-open-settings').evaluate(button => button.click());
+      await page.locator('#sidebar-settings-nav [data-section="agent"]').evaluate(button => button.click());
+      await page.waitForSelector('#settings-dialog[open]');
+      await page.evaluate(() => Promise.all(document.getElementById('settings-dialog').getAnimations().map(animation => animation.finished.catch(() => {}))));
+
+      for (const section of ['agent', 'permissions']) {
+        if (section === 'permissions') {
+          await page.locator('#btn-close-settings').click();
+          await page.waitForSelector('#notice-dialog[open]');
+          await page.locator('#notice-accept').click();
+          await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
+          await page.locator('#sidebar-settings-nav [data-section="permissions"]').evaluate(button => button.click());
+          await page.evaluate(() => {
+            window.ChatToolSecurity.manager.setToolPolicy('mcp_layout_test', 'allow', { originalName: 'tool_with_a_very_long_name_for_mobile_permissions_layout', constraints: { path: { allowedDirectories: ['/a/very/long/path/to/a/workspace/that/needs/to/fit/inside/mobile/permissions'] } } });
+          });
+        }
+        for (const width of [320, 390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 844 });
+          for (const language of ['es', 'en']) {
+            for (const theme of ['light', 'dark']) {
+              const layout = await page.evaluate(({ section, language, theme }) => {
+                window.ChatI18n.setLanguage(language, false);
+                document.documentElement.setAttribute('data-theme', theme);
+                if (section === 'permissions') window.ChatUIMcp.renderSavedAuthorizations();
+                const panel = document.getElementById(`settings-${section}`);
+                const directoryStyle = getComputedStyle(document.getElementById('mcp-directory-rules'));
+                const referenceInputStyle = getComputedStyle(document.getElementById('setting-system-data-prompt'));
+                const blocks = Array.from(panel.querySelectorAll(section === 'agent' ? '.form-field' : '.mcp-status-card'));
+                const items = Array.from(panel.querySelectorAll(section === 'agent' ? '.setting-toggle-card' : '.mcp-policy-options, .mcp-auth-item'));
+                return {
+                  overflow: panel.scrollWidth > panel.clientWidth + 1,
+                  fullWidth: blocks.every(block => Math.abs(block.getBoundingClientRect().width - panel.getBoundingClientRect().width) < 1),
+                  borderless: [...blocks, ...items].every(item => getComputedStyle(item).borderLeftWidth === '0px'),
+                  softBackground: items.every(item => getComputedStyle(item).backgroundColor !== getComputedStyle(document.getElementById('settings-dialog')).backgroundColor),
+                  itemCount: items.length,
+                  directoryFieldThemed: section !== 'permissions' || (directoryStyle.backgroundColor === referenceInputStyle.backgroundColor && directoryStyle.color === referenceInputStyle.color),
+                  controlsFit: Array.from(panel.querySelectorAll('.switch, input[type="radio"], .btn-revoke-auth, #btn-mcp-clear-auths')).every(control => {
+                    const rect = control.getBoundingClientRect();
+                    const bounds = panel.getBoundingClientRect();
+                    return rect.width > 0 && rect.left >= bounds.left && rect.right <= bounds.right + 1;
+                  })
+                };
+              }, { section, language, theme });
+              const context = `${section} ${width}px ${language} ${theme}`;
+              assert.equal(layout.overflow, false, context);
+              assert.equal(layout.fullWidth, true, context);
+              assert.equal(layout.borderless, true, context);
+              assert.equal(layout.softBackground, true, context);
+              assert.equal(layout.controlsFit, true, context);
+              assert.equal(layout.directoryFieldThemed, true, context);
+              assert.ok(layout.itemCount > 0, context);
+            }
+          }
+        }
+        if (section === 'agent') {
+          const checkbox = page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first();
+          const before = await checkbox.isChecked();
+          await checkbox.locator('..').click();
+          assert.equal(await checkbox.isChecked(), !before);
+          await checkbox.locator('..').click();
+        } else {
+          await page.locator('#mcp-policy-workspace-trust').check();
+          assert.equal(await page.locator('#mcp-policy-workspace-trust').isChecked(), true);
+          await page.locator('#mcp-policy-ask').check();
+          await page.locator('#settings-permissions .btn-revoke-auth').click();
+          assert.equal(await page.locator('#settings-permissions .mcp-auth-item').count(), 0);
+          assert.equal(await page.locator('#btn-mcp-clear-auths').isHidden(), true);
+        }
+      }
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+  });
 });

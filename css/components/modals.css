@@ -203,6 +203,43 @@
   font-size: 0.7rem;
 }
 
+/* Agente comparte las secciones abiertas y superficies suaves de MCP y Permisos. */
+#settings-agent .settings-section-intro,
+#settings-agent .settings-section-intro p {
+  margin: 0;
+}
+
+#settings-agent > .form-field {
+  margin: 0;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#settings-agent .agent-tools-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+#settings-agent .setting-toggle-card {
+  background: var(--bg-surface-subtle);
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  white-space: normal;
+}
+
+#settings-agent .toggle-card-info {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  #settings-agent .setting-toggle-card {
+    padding: 0.75rem;
+  }
+}
+
 /* Switch Toggle */
 .switch {
   position: relative;
@@ -811,12 +848,6 @@ input.form-input:focus-visible,
   border-color: var(--input-border-focus);
   box-shadow: var(--input-focus-ring);
   outline: none;
-}
-
-#mcp-setup-dialog input.form-input:focus,
-#mcp-setup-dialog input.form-input:focus-visible {
-  border-color: var(--border-color);
-  box-shadow: none;
 }
 
 /* Evita que Chromium sustituya los colores de la aplicación al autocompletar. */

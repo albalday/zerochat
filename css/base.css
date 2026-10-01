@@ -178,21 +178,14 @@ select:focus-visible {
 .setting-toggle-card,
 .connection-active-card,
 .rag-branch-details-card,
-.rag-active-tip-card,
-.mcp-status-card,
-.mcp-config-card,
-.mcp-instructions-card,
-.mcp-tool-card {
+.rag-active-tip-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
 }
 
 .chat-chart-card,
-.inspector-intro-card,
-.mcp-status-card,
-.mcp-config-card,
-.mcp-instructions-card {
+.inspector-intro-card {
   border-radius: var(--radius-lg);
   padding: 1rem;
   box-shadow: var(--shadow-sm);

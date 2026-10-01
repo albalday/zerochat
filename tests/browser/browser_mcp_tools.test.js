@@ -79,6 +79,88 @@ test('Browser UI - en móvil las acciones MCP no comprimen la descripción del s
   } finally { await browser.close(); }
 });
 
+test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contadores', { timeout: 30000 }, async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await page.locator('#btn-open-settings').evaluate(button => button.click());
+    await page.locator('#sidebar-settings-nav [data-section="mcp"]').evaluate(button => button.click());
+    await page.waitForSelector('#settings-dialog[open]');
+    await page.evaluate(() => Promise.all(document.getElementById('settings-dialog').getAnimations().map(animation => animation.finished.catch(() => {}))));
+
+    for (const width of [320, 390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const language of ['es', 'en']) {
+        for (const theme of ['light', 'dark']) {
+          const layout = await page.evaluate(({ language, theme }) => {
+            window.ChatI18n.setLanguage(language, false);
+            document.documentElement.setAttribute('data-theme', theme);
+            const panel = document.getElementById('settings-mcp');
+            window.ChatUIMcp.renderConnectionStatus({
+              statusBadge: document.getElementById('mcp-status-badge'),
+              statusText: document.getElementById('mcp-status-text'),
+              serverDetails: document.getElementById('mcp-server-details'),
+              bootstrapCard: document.getElementById('mcp-bootstrap-card')
+            }, { status: 'connected', tools: Array.from({ length: 20 }, () => ({})) });
+            window.ChatUIMcp.renderExternalServers(document.getElementById('mcp-servers-list'), [{
+              id: 'composio', displayName: { es: 'Composio Connect', en: 'Composio Connect' },
+              description: { es: 'MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub.', en: 'Remote MCP to access applications such as Gmail, Google Drive, Slack or GitHub.' },
+              status: 'running', toolCount: 11,
+              remote: { type: 'mcp-remote', url: 'https://connect.composio.dev/mcp' },
+              help: { url: 'https://composio.dev', label: { es: 'Guía oficial de Composio Connect', en: 'Official Composio Connect guide' } }
+            }]);
+            const rect = selector => panel.querySelector(selector).getBoundingClientRect();
+            const intersects = (a, b) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1;
+            const title = rect('.mcp-title-group strong');
+            const count = rect('.mcp-server-details');
+            const status = rect('.mcp-status-actions');
+            const section = panel.querySelector('#mcp-servers-card');
+            const item = panel.querySelector('.mcp-server-item');
+            const toggle = panel.querySelector('.btn-mcp-server-toggle');
+            return {
+              overlap: intersects(title, count) || intersects(title, status) || intersects(count, status),
+              overflow: panel.scrollWidth > panel.clientWidth + 1,
+              sectionWidth: section.getBoundingClientRect().width,
+              panelWidth: panel.getBoundingClientRect().width,
+              outerBorder: getComputedStyle(section).borderLeftWidth,
+              innerBorder: getComputedStyle(item).borderLeftWidth,
+              itemBackground: getComputedStyle(item).backgroundColor,
+              panelBackground: getComputedStyle(document.getElementById('settings-dialog')).backgroundColor,
+              descriptionWidth: rect('.mcp-server-desc').width,
+              actionsBelow: rect('.mcp-server-actions').top >= rect('.mcp-server-info').bottom,
+              toggleHeight: toggle.getBoundingClientRect().height,
+              stopColor: getComputedStyle(toggle).color,
+              stopBorderColor: getComputedStyle(toggle).borderColor
+            };
+          }, { language, theme });
+          const context = `${width}px ${language} ${theme}`;
+          assert.equal(layout.overlap, false, context);
+          assert.equal(layout.overflow, false, context);
+          assert.equal(layout.sectionWidth, layout.panelWidth, context);
+          assert.equal(layout.outerBorder, '0px', context);
+          assert.equal(layout.innerBorder, '0px', context);
+          assert.notEqual(layout.itemBackground, layout.panelBackground, context);
+          assert.ok(layout.toggleHeight >= 36, context);
+          assert.equal(layout.stopColor, layout.stopBorderColor, context);
+          if (width <= 640) {
+            assert.ok(layout.descriptionWidth >= width - 70, context);
+            assert.equal(layout.actionsBelow, true, context);
+            assert.ok(layout.toggleHeight >= 40, context);
+          }
+        }
+      }
+    }
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una sola fila', async () => {
   const browser = await createTestBrowser();
   try {

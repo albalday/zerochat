@@ -719,7 +719,7 @@
             <p data-i18n="agent_intro">Configura las herramientas agénticas que se transmiten al modelo.</p>
           </div>
 
-          <div class="form-field" style="margin-bottom: 1.25rem;">
+          <div class="form-field">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
               <label for="setting-max-agent-turns" style="margin-bottom: 0;">
                 <strong data-i18n="field_max_agent_turns">Límite de turnos agénticos</strong>
@@ -778,7 +778,7 @@
           </div>
 
           <!-- Tarjeta de Servidores MCP Disponibles -->
-          <div id="mcp-servers-card" class="mcp-status-card" style="margin-top: 1rem;">
+          <div id="mcp-servers-card" class="mcp-status-card">
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
@@ -792,7 +792,7 @@
           </div>
 
           <!-- Contenedor dinámico de herramientas MCP registradas -->
-          <div id="mcp-tools-container" class="mcp-tools-container" style="margin-top: 1rem;"></div>
+          <div id="mcp-tools-container" class="mcp-tools-container"></div>
         </div>
 
         <!-- Sección: Permisos de ejecución MCP -->
@@ -835,7 +835,7 @@
           </div>
 
           <!-- Tarjeta 2: Directorios Permitidos -->
-          <div class="mcp-status-card" style="margin-top: 1rem;">
+          <div class="mcp-status-card">
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
@@ -845,12 +845,14 @@
               </div>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
-            <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="width: 100%; resize: vertical; margin-top: 0.5rem;"></textarea>
+            <div class="form-field">
+              <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="resize: vertical;"></textarea>
+            </div>
             <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
           </div>
 
           <!-- Tarjeta 3: Herramientas y Servidores Autorizados -->
-          <div class="mcp-status-card" style="margin-top: 1rem;">
+          <div class="mcp-status-card">
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
