@@ -27,67 +27,49 @@
     </header>
 
     <div class="card">
-      <h2>What is ZeroChat?</h2>
-      <p>ZeroChat is a web client for personal use: chatting with AI models, consulting documents and trying tools. The <strong>8.x</strong> series consolidates existing features; new feature development is paused for now.</p>
-      <p>History is stored in the browser. Messages, attachments and results included in a request are sent to the selected provider. Web tools may use intermediary services. There is no automatic cross-device sync or guarantee of absolute privacy.</p>
+      <h2>Start with the web app</h2>
+      <p>ZeroChat lets you chat with AI models, consult documents and use tools. Open the app, create a <a href="profiles.html">connection profile</a> and select a model.</p>
       <div class="download-action-box">
         <a href="../../zerochat.html" class="btn-open-app" id="btn-open-app">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           Open ZeroChat (zerochat.html)
         </a>
-        <span class="download-hint">Ready to use directly in your browser or connect with your local backend in <code>zerochat.py</code>.</span>
+        <span class="download-hint">No installation needed for web chat.</span>
       </div>
+      <p>Chat, attachments and RAG work without Python. To access computer files, run commands or use MCP services, start the optional local server below. <a href="architecture.html">Usage modes, storage and privacy →</a></p>
+    </div>
 
-      <div class="alert alert-info" style="margin-top: 1rem;">
-        <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Two ways to launch</h3>
-        <ul style="margin: 0 0 0.5rem 1.25rem; padding: 0;">
-          <li><strong>Web:</strong> open ZeroChat over HTTPS and configure a profile. Chat, attachments, RAG and browser tools work without Python. WebLLM requires WebGPU. PWA installation, where supported, uses browser options; ZeroChat shows no installation prompts.</li>
-          <li><strong>Local server:</strong> start <code>zerochat</code> or <code>zerochat.py</code> to add files, commands and MCP services. Review permissions before enabling tools.</li>
-        </ul>
-        <div style="font-size: 0.9rem;">
-          <a href="architecture.html">Read about usage modes and limits in Architecture →</a>
-        </div>
-      </div>
-
-      <div class="alert alert-info" style="margin-top: 1rem;">
-        <h3 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 1.05rem;">Local server: recommended installation</h3>
-        <p style="margin: 0.5rem 0;">Install the official executable from PyPI; it opens the GitHub Pages interface with an authenticated local server session. PyPI and the direct download use the same <code>~/zerochat/</code> directory for state and MCP services.</p>
-        <div class="code-wrapper">
-          <pre><code>pip install zerochat &amp;&amp; zerochat</code></pre>
-        </div>
-        <p style="margin: 0.5rem 0;"><strong>Direct alternative:</strong> download <code>zerochat.py</code> and run it with Python.</p>
-        <p style="margin: 0.5rem 0;">
-          <strong>Download zerochat.py:</strong>
-          <a href="../../zerochat.py" download style="margin-left: 0.5rem;">zerochat.py</a>
-        </p>
-        <p style="margin: 0.5rem 0;"><strong>Run it directly (curl):</strong></p>
-        <div class="code-wrapper">
-          <pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre>
-        </div>
-        <p style="margin: 0.5rem 0;">Delete <code>~/zerochat/</code> to remove configuration, token, MCP services, and their dependencies without removing the installed or downloaded executable.</p>
-      </div>
-
-      <div class="alert alert-info">
-        <strong>Self-learning project:</strong> ZeroChat was created to learn and experiment with AI and coding agents. <a href="learning.html">View the details →</a>
-      </div>
+    <div class="card" id="servidor-local">
+      <h2>Add the local server</h2>
+      <p>You need Python. Choose <strong>one</strong> of these alternatives; both open the web app and use <code>~/zerochat/</code> for local data.</p>
+      <h3>Install from PyPI (recommended)</h3>
+<div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
+      <p>On subsequent launches, run <code>zerochat</code>.</p>
+      <h3>Download the script</h3>
+<div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
+      <p>On subsequent launches, run <code>python3 zerochat.py</code> from the download folder. You can also <a href="../../zerochat.py" download>download the file</a> manually.</p>
+      <p>Keep the process running and use the link it opens. Then go to <a href="mcp.html">Settings → MCP</a> to check the connection and enable tools.</p>
     </div>
 
     <div class="card">
-      <h2>Usage guides</h2>
-      <p>Each page explains a feature, how to use it and the limits to keep in mind.</p>
-
+      <h2>Getting started</h2>
       <div class="features-grid">
-        <!-- 1. Architecture & Portability -->
+        <a href="learning.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 7v14M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v17h-5a4 4 0 0 0-4 1 4 4 0 0 0-4-1H3z"/></svg>
+          </div>
+          <div class="feature-title">Personal project and learning</div>
+          <div class="feature-desc">Why ZeroChat exists: learning about AI, experimenting with coding agents and understanding its limits.</div>
+          <div class="feature-link">About the project →</div>
+        </a>
         <a href="architecture.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
-          <div class="feature-title">Architecture & Portability</div>
+          <div class="feature-title">Infrastructure and data</div>
           <div class="feature-desc">Static web app, optional backend, per-origin storage and data sent to external services.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
-
-        <!-- 2. Connection Profiles -->
         <a href="profiles.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -96,78 +78,6 @@
           <div class="feature-desc">Configure providers, models, API keys, capability queries and profile backups.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
-
-        <!-- 3. WebLLM & WebGPU -->
-        <a href="webllm.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          </div>
-          <div class="feature-title">Local WebLLM Inference</div>
-          <div class="feature-desc">Download and run models with WebGPU; memory, cache and compatibility requirements.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- 4. Agent Mode & Tools -->
-        <a href="tools-agent.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
-          </div>
-          <div class="feature-title">Agent Mode & Tools</div>
-          <div class="feature-desc">Tool calls, JavaScript execution, web search, plans and charts.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- 5. Local Knowledge RAG -->
-        <a href="rag.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          </div>
-          <div class="feature-title">Local Knowledge (RAG)</div>
-          <div class="feature-desc">Organize documents in branches and query them with local Orama lexical search.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- 6. MCP Protocol -->
-        <a href="mcp.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-          </div>
-          <div class="feature-title">MCP Protocol</div>
-          <div class="feature-desc">Files, commands, MCP services and authorization through the local server.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- Browser automation -->
-        <a href="browser-action.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><circle cx="8" cy="8" r="1"/></svg>
-          </div>
-          <div class="feature-title">Browser automation</div>
-          <div class="feature-desc">Prepare browser_action and distinguish it from external Playwright MCP tools.</div>
-          <div class="feature-link">View installation guide →</div>
-        </a>
-
-        <!-- 7. Debugging & Logs -->
-        <a href="debug.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-          </div>
-          <div class="feature-title">Debugging & Interceptor</div>
-          <div class="feature-desc">Review events, requests and errors; edit JSON before sending.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- 8. Conversations & History -->
-        <a href="conversations.html" class="feature-card">
-          <div class="feature-icon-wrapper">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </div>
-          <div class="feature-title">Conversations & Branching</div>
-          <div class="feature-desc">History, branches, JSON and Markdown exports, and printing to PDF.</div>
-          <div class="feature-link">View detailed guide →</div>
-        </a>
-
-        <!-- 9. Message Composer & Attachments -->
         <a href="composer.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -176,8 +86,36 @@
           <div class="feature-desc">Write messages, attach images or documents and check their limits.</div>
           <div class="feature-link">View detailed guide →</div>
         </a>
+        <a href="conversations.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="feature-title">Conversations & Branching</div>
+          <div class="feature-desc">History, branches, JSON and Markdown exports, and printing to PDF.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
+      </div>
+    </div>
 
-        <!-- 10. Reasoning & Telemetry -->
+    <div class="card">
+      <h2>Documents and models</h2>
+      <div class="features-grid">
+        <a href="rag.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </div>
+          <div class="feature-title">Local Knowledge (RAG)</div>
+          <div class="feature-desc">Organize documents in branches and query them with local Orama lexical search.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
+        <a href="webllm.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <div class="feature-title">Local WebLLM Inference</div>
+          <div class="feature-desc">Download and run models with WebGPU; memory, cache and compatibility requirements.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
         <a href="reasoning-telemetry.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"/></svg>
@@ -189,6 +127,43 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>Tools and troubleshooting</h2>
+      <div class="features-grid">
+        <a href="tools-agent.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+          </div>
+          <div class="feature-title">Agent Mode & Tools</div>
+          <div class="feature-desc">Tool calls, JavaScript execution, web search, plans and charts.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
+        <a href="mcp.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          </div>
+          <div class="feature-title">Local server and MCP</div>
+          <div class="feature-desc">Files, commands, MCP services and authorization through the local server.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
+        <a href="browser-action.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><circle cx="8" cy="8" r="1"/></svg>
+          </div>
+          <div class="feature-title">Browser automation</div>
+          <div class="feature-desc">Prepare browser_action and distinguish it from external Playwright MCP tools.</div>
+          <div class="feature-link">View installation guide →</div>
+        </a>
+        <a href="debug.html" class="feature-card">
+          <div class="feature-icon-wrapper">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </div>
+          <div class="feature-title">Debugging & Interceptor</div>
+          <div class="feature-desc">Review events, requests and errors; edit JSON before sending.</div>
+          <div class="feature-link">View detailed guide →</div>
+        </a>
+      </div>
+    </div>
 
     <footer>
       <p>ZeroChat 8.x · Personal user guide</p>

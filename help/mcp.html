@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Protocolo MCP (Model Context Protocol) · Ayuda de ZeroChat · 8.x</title>
+  <title>Servidor local y MCP · Ayuda de ZeroChat · 8.x</title>
   <meta name="description" content="Servidor local, servicios MCP y alcance de los permisos.">
   <link rel="stylesheet" href="help.css">
 </head>
@@ -20,90 +20,77 @@
           <a href="index.html" class="top-nav-link">← Volver al Índice</a>
         </div>
       </div>
-      <h1>Protocolo MCP (Model Context Protocol)</h1>
+      <h1>Servidor local y MCP</h1>
       <p class="subtitle">Servidor local, servicios MCP y alcance de los permisos.</p>
     </header>
 
-    <div class="card">
-      <p>Las herramientas locales tienen nombres como <code>read_file</code> o <code>execute_command</code>. Las externas usan <code>&lt;servicio&gt;_&lt;herramienta&gt;</code>. Los permisos se asocian al nombre completo; autorizar una herramienta no autoriza otra del mismo nombre en un servicio distinto.</p>
+    <div class="card" id="servidor-local">
+      <h2>1. Arranca y conecta</h2>
+      <p>MCP conecta el chat con herramientas del equipo y servicios externos. Necesitas el servidor local de ZeroChat. Elige una forma de instalación:</p>
+      <h3>PyPI (recomendado)</h3>
+        <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
+      <h3>Descarga directa</h3>
+        <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
+      <p>Para los siguientes arranques, utiliza <code>zerochat</code> o <code>python3 zerochat.py</code>, respectivamente. Ambos abren GitHub Pages y guardan los datos locales en <code>~/zerochat/</code>.</p>
+      <ol>
+        <li>Mantén el servidor en ejecución y abre el enlace que proporciona.</li>
+        <li>Ve a <strong>Ajustes → MCP</strong> y comprueba la conexión y las herramientas descubiertas.</li>
+        <li>Habilita las herramientas que necesites y revisa sus permisos.</li>
+      </ol>
+      <p>Si aparece desconectado, comprueba que el proceso siga en ejecución, vuelve a abrir su enlace y revisa los permisos de red local del navegador. No hay formulario de conexión manual. No compartas el enlace de arranque que contiene el token.</p>
+      <p><a href="architecture.html">Modos de uso, datos locales y actualizaciones →</a></p>
     </div>
 
     <div class="card">
-      <h2>1. Qué es MCP</h2>
-      <p>MCP permite descubrir e invocar herramientas de otros procesos. En ZeroChat, el servidor local conecta la interfaz del navegador con herramientas del equipo y servicios externos gestionados.</p>
-      <p>Para este flujo, inicia <code>zerochat</code> o <code>python3 zerochat.py</code>. El servidor escucha en la interfaz local y abre la web con el token de sesión. Sin el servidor puedes seguir usando el chat y las herramientas de navegador disponibles.</p>
-    </div>
-
-    <div class="card">
-      <h2>2. Conexión y estado</h2>
-      <p>Abre <strong>Ajustes → MCP</strong> para ver el estado y las herramientas descubiertas. No hay un formulario de conexión manual: utiliza el enlace abierto por el comando de arranque.</p>
-      <p>Si aparece desconectado, comprueba que el proceso siga en ejecución, vuelve a abrir su enlace y revisa los permisos de acceso a la red local del navegador. No compartas el enlace de arranque con su token.</p>
-    </div>
-
-    <div class="card">
-      <h2>3. Servidor local</h2>
-      <p>Puedes instalar el ejecutable desde PyPI o descargar el script. Fuera del repositorio de desarrollo, ambos abren la interfaz de GitHub Pages y guardan su estado en <code>~/zerochat/</code>.</p>
-      <div class="code-wrapper"><pre><code># PyPI
-pip install zerochat &amp;&amp; zerochat
-
-# Descarga directa
-curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
-      <p>El arranque prepara <code>config/</code>, <code>services/</code> y <code>.venv/</code> para los MCP Python. Revisa los avisos si falla la creación del entorno antes de iniciar servicios. El ejecutable principal sigue usando el intérprete con el que lo arrancaste.</p>
-      <ul><li><code>list_directory</code>: lista directorios; admite recorrido recursivo limitado.</li>
-      <li><code>read_file</code>: lee texto con rangos y límites de tamaño.</li>
-      <li><code>write_file</code>: crea o sobrescribe archivos.</li>
-      <li><code>edit_file</code>: sustituye un fragmento que debe coincidir una sola vez; también admite modos de compatibilidad.</li>
-      <li><code>search_files</code>: busca texto o expresiones regulares en archivos.</li>
-      <li><code>bash</code> y <code>execute_command</code>: ejecutan comandos; la sesión shell puede conservar directorio y variables entre llamadas.</li>
-      <li><code>get_diagnostics</code>: recoge comprobaciones de sintaxis disponibles; no sustituye las pruebas del proyecto.</li>
-      <li><code>browser_action</code>: automatiza Chromium cuando están instalados sus requisitos.</li></ul>
-      <p>Las peticiones MCP usan el token en cabeceras. Las llamadas a herramientas requieren además una autorización firmada de corta duración y un solo uso. El token local se conserva por día; la clave de firma se renueva al reiniciar el proceso.</p>
-      <p>Si la terminal muestra <code>[i] información</code>, pulsa <code>i</code> para consultar avisos como una actualización disponible.</p>
-    </div>
-
-    <div class="card">
-      <h2>4. Permisos</h2>
-      <p>En <strong>Ajustes → Permisos</strong> puedes elegir la política global, revisar reglas recordadas y servidores confiables. El panel MCP permite habilitar herramientas y elegir Preguntar, Permitir o Denegar.</p>
-      <ul><li><strong>Pedir autorización:</strong> pregunta cuando las reglas existentes no resuelven la llamada.</li>
-      <li><strong>Confiar en el espacio de trabajo:</strong> permite operaciones que coinciden con las reglas del directorio; no crea una máquina aislada.</li>
-      <li><strong>Todo autorizado:</strong> permite ejecutar sin confirmación, salvo bloqueos explícitos que tengan prioridad.</li></ul>
-      <p>El panel de Permisos utiliza secciones abiertas con separadores discretos y fondos suaves para las políticas y autorizaciones guardadas. Los títulos y detalles se adaptan al ancho disponible.</p>
-      <p>Las decisiones pueden aplicarse a una llamada, a la sesión del backend o de forma permanente. Confiar en un servidor autoriza un conjunto más amplio que una sola herramienta. Revisa ese alcance antes de recordarlo.</p>
-      <p>En los diálogos de autorización, cada herramienta MCP externa identifica su servicio de origen. Confiar en <code>composio</code> autoriza sus herramientas, sin autorizar las de otros servicios externos. La autorización individual se aplica únicamente a la herramienta seleccionada.</p>
-      <p><strong>Directorios permitidos</strong> admite reglas por línea: <code>R:</code> para leer, <code>W:</code> para escribir y <code>RW:</code> para ambos, con <code>*</code> para un segmento y <code>**</code> para subdirectorios. Una lista vacía incorpora una regla de lectura para el directorio de arranque. Los comandos tienen reglas de prefijos y comprobaciones adicionales.</p>
-      <p>Estos permisos no son un contenedor del sistema operativo. Un comando o servicio autorizado actúa con los permisos del proceso local y puede producir cambios fuera del objetivo previsto. Revisa argumentos y conserva copias o control de versiones; detener una llamada no revierte lo realizado.</p>
-    </div>
-
-    <div class="card">
-      <h2>Automatización del navegador</h2>
-      <p><code>browser_action</code> requiere Node.js, Playwright y Chromium. Permanece desactivada si no se detectan los requisitos.</p>
-      <p><a href="browser-action.html">Preparación y uso de browser_action →</a></p>
-    </div>
-
-    <div class="card">
-      <h2>5. Servicios MCP externos</h2>
-      <p>En <strong>Ajustes → MCP → Servidores MCP disponibles</strong> puedes configurar, iniciar o detener cada servicio. Al pulsar Iniciar, ZeroChat instala automáticamente el paquete npm y sus dependencias en el directorio propio del servicio. Si no puede preparar un requisito, la tarjeta muestra el error y enlaza a esta sección. Los servicios habilitados en una sesión anterior no se reinician automáticamente; al conectar, ZeroChat muestra un aviso para que los inicies desde esta sección después de comprobar las actualizaciones de la web. Si aceptas recargar para actualizar, el aviso se muestra en el siguiente arranque.</p>
-      <p>El panel separa las secciones con títulos y líneas discretas, y resalta cada servidor con un fondo suave. En móvil, el estado de conexión y los contadores se distribuyen según el ancho disponible, y las acciones aparecen debajo de la descripción.</p>
-      <ul><li><code>ejemplo</code>: plantilla incluida para crear servicios MCP gestionados; no descarga dependencias. Su tarjeta enlaza a esta guía.</li>
-      <li><code>composio</code>: conexión remota mediante <code>mcp-remote</code> al endpoint de Composio Connect. Requiere Node.js 18+ y npm; ZeroChat instala el puente en su directorio propio. Al usar una aplicación como Gmail, Composio presenta su autorización OAuth en el navegador. Las credenciales y el estado OAuth del puente quedan aislados dentro del directorio del servicio.</li>
-      <li><code>playwright</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@playwright/mcp</code> y Chromium. La descarga de Chromium necesita red y espacio en disco. Si <code>browser_action</code> está activa, ZeroChat pide confirmación antes de desactivarla y sustituirla por las herramientas completas de Playwright.</li>
-      <li><code>memory</code>: requiere Node.js 18+ y npm. ZeroChat instala <code>@modelcontextprotocol/server-memory</code> y sus dependencias.</li>
+      <h2>2. Usa las herramientas del equipo</h2>
+      <ul>
+        <li><strong>Archivos:</strong> <code>list_directory</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code> y <code>search_files</code>.</li>
+        <li><strong>Comandos:</strong> <code>bash</code> y <code>execute_command</code>. La sesión shell puede conservar el directorio y las variables entre llamadas.</li>
+        <li><strong>Comprobaciones de sintaxis:</strong> <code>get_diagnostics</code>; no sustituye las pruebas del proyecto.</li>
+        <li><strong>Navegador:</strong> <code>browser_action</code> requiere Node.js, Playwright y Chromium. Consulta la <a href="browser-action.html">guía de preparación</a>.</li>
       </ul>
-      <p>Si falla una instalación, comprueba la versión indicada de Node.js con <code>node --version</code>, que <code>npm --version</code> funcione, la conexión a npm y el espacio libre. Corrige el requisito y vuelve a pulsar Iniciar; no es necesario reinstalar ZeroChat.</p>
-      <p>Al pulsar Iniciar, el botón muestra Iniciando y queda deshabilitado. Si el arranque supera 15 segundos, ZeroChat consulta el estado y espera hasta diez intervalos adicionales de 15 segundos mientras siga en iniciando, mostrando el número de intento. Completa la autorización OAuth en el navegador. Si se agota la espera, el servicio puede seguir arrancando: recarga la página para comprobar el resultado en el panel MCP.</p>
-      <p>Los servicios se gestionan bajo <code>~/zerochat/services/</code>. Borrar <code>~/zerochat/</code> elimina ese estado y sus dependencias, pero no el historial del navegador ni archivos modificados fuera de esa carpeta.</p>
-      <p>En Termux, ZeroChat prepara un puente <code>xdg-open</code> para que los MCP abran los enlaces de autorización con <code>termux-open-url</code>.</p>
-      <p>Al arrancar, ZeroChat restaura los archivos de configuración incluidos para <code>ejemplo</code>, <code>composio</code>, <code>playwright</code> y <code>memory</code>. Conserva sus dependencias instaladas y sus datos, además de las carpetas de servicios creadas por el usuario.</p>
-      <h3 id="crear-mcp-con-agente">Crear un servicio MCP con un agente</h3>
-      <p>Usa <code>~/zerochat/services/ejemplo/</code> como estructura de referencia. Cada servicio necesita <code>service.json</code>; añade <code>installer.json</code> solo cuando ZeroChat tenga que instalar un paquete npm. El campo opcional estándar <code>help</code> permite que el JSON defina un enlace visible en la tarjeta del servicio:</p>
-      <div class="code-wrapper"><pre><code>"help": {
-  "url": "help/mcp.html#crear-mcp-con-agente",
-  "label": { "es": "Guía del servicio", "en": "Service guide" }
-}</code></pre></div>
-      <p>La URL debe ser una ruta relativa de ZeroChat o una URL <code>https:</code> o <code>http:</code>.</p>
-      <h3>Crear un MCP local (stdio)</h3>
-      <p>Copia este prompt y sustituye <code>&lt;nombre-del-mcp&gt;</code>. El modelo crea la definición; tú introduces la clave y arrancas el servicio:</p>
-      <div class="code-wrapper"><pre><code>Quiero crear el MCP local &lt;nombre-del-mcp&gt; para ZeroChat.
+      <p>Los resultados de herramientas forman parte de la conversación y pueden enviarse al modelo seleccionado.</p>
+    </div>
+
+    <div class="card" id="servicios-externos">
+      <h2>3. Inicia un servicio MCP externo</h2>
+      <p>En <strong>Ajustes → MCP → Servidores MCP disponibles</strong>, configura cada servicio y pulsa <strong>Iniciar</strong>. ZeroChat prepara sus dependencias declaradas. Para detenerlo, pulsa <strong>Detener</strong>.</p>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Servicio incluido</th><th>Uso y requisitos</th></tr></thead>
+        <tbody>
+          <tr><td><code>ejemplo</code></td><td>Plantilla para servicios propios; no descarga dependencias.</td></tr>
+          <tr><td><code>composio</code></td><td>Aplicaciones remotas mediante mcp-remote y OAuth; Node.js 18+ y npm.</td></tr>
+          <tr><td><code>playwright</code></td><td>Automatización de navegador; Node.js 18+, npm y Chromium. Si browser_action está activa, ZeroChat pide confirmación antes de sustituirla.</td></tr>
+          <tr><td><code>memory</code></td><td>Memoria y grafos de conocimiento; Node.js 18+ y npm.</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Arranque y OAuth</h3>
+      <p>El botón muestra <strong>Iniciando</strong> y queda deshabilitado. Si el arranque supera 15 segundos, ZeroChat consulta el estado y espera hasta diez intervalos adicionales de 15 segundos mientras siga iniciando. El botón indica el número de intento.</p>
+      <p>Completa la autorización OAuth en el navegador. Si se agota la espera, el servicio puede seguir arrancando; recarga la página para comprobar el resultado. En Termux, los enlaces de autorización se abren con <code>termux-open-url</code>.</p>
+      <p>Los servicios no se reinician automáticamente en el siguiente arranque de ZeroChat. Inícialos desde este panel cuando los necesites.</p>
+      <h3>Si falla la instalación</h3>
+      <p>Lee el error de la tarjeta. Comprueba <code>node --version</code>, <code>npm --version</code>, la conexión a la red y el espacio libre; después vuelve a intentarlo. No necesitas reinstalar ZeroChat.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. Revisa los permisos</h2>
+      <p>En <strong>Ajustes → Permisos</strong>, elige la política global y revisa las autorizaciones guardadas. En el panel MCP puedes elegir Preguntar, Permitir o Denegar para cada herramienta.</p>
+      <ul>
+        <li><strong>Pedir autorización:</strong> pregunta cuando las reglas existentes no resuelven la llamada.</li>
+        <li><strong>Confiar en el espacio de trabajo:</strong> permite operaciones que coinciden con las reglas de directorio.</li>
+        <li><strong>Todo autorizado:</strong> ejecuta sin confirmación, salvo bloqueos explícitos que tengan prioridad.</li>
+      </ul>
+      <p>Las decisiones pueden aplicarse a una llamada, a la sesión del backend o de forma permanente. Las herramientas externas se llaman <code>&lt;servicio&gt;_&lt;herramienta&gt;</code>: confiar en <code>composio</code> autoriza sus herramientas, no las de otros servicios. Permitir una herramienta no autoriza todo el servicio.</p>
+      <p><strong>Directorios permitidos:</strong> una regla por línea con <code>R:</code> (lectura), <code>W:</code> (escritura) o <code>RW:</code> (ambas). Usa <code>*</code> para un segmento y <code>**</code> para subdirectorios. Una lista vacía incorpora una regla de lectura para el directorio de arranque. Los comandos también tienen reglas de prefijos y comprobaciones adicionales.</p>
+      <p>Estas reglas no son un aislamiento del sistema operativo. Los comandos y servicios autorizados actúan con los permisos del proceso local. Detener una llamada no revierte sus cambios.</p>
+    </div>
+
+    <div class="card" id="crear-mcp-con-agente">
+      <h2>5. Añade tu propio servicio</h2>
+      <p>Crea una carpeta nueva dentro de <code>~/zerochat/services/</code> con nombre e <code>id</code> únicos. Usa <code>ejemplo</code> como plantilla: <code>service.json</code> es obligatorio; añade <code>installer.json</code> solo para paquetes npm. El <code>README.md</code> de la plantilla describe los campos, incluido el enlace opcional <code>help</code>.</p>
+      <p>Puedes pedir al agente que cree la definición con uno de estos prompts. Sustituye los marcadores. El agente prepara los archivos; tú introduces las credenciales y arrancas el servicio.</p>
+      <details><summary>Prompt para un MCP local (stdio)</summary>
+        <div class="code-wrapper"><pre><code>Quiero crear el MCP local &lt;nombre-del-mcp&gt; para ZeroChat.
 Localiza el directorio personal del usuario y lee README.md,
 service.json e installer.json.example de zerochat/services/ejemplo
 usando sus rutas absolutas. Sigue las instrucciones del README.
@@ -113,9 +100,10 @@ Si necesita una API key, deja PASTE_API_KEY_HERE en launch.env,
 con el nombre de variable que exige el MCP. No me pidas la clave.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
-      <h3 id="crear-mcp-remoto">Crear un MCP remoto (HTTP/SSE)</h3>
-      <p>Usa Composio como ejemplo de puente local <code>mcp-remote</code>. La conexión con ZeroChat sigue siendo <code>stdio</code>; el puente conecta con el endpoint remoto. Copia este prompt y sustituye el nombre y la URL:</p>
-      <div class="code-wrapper"><pre><code>Quiero crear el MCP remoto &lt;nombre-del-mcp&gt; para ZeroChat.
+      </details>
+      <details id="crear-mcp-remoto"><summary>Prompt para un MCP remoto (HTTP/SSE)</summary>
+        <p>El proceso gestionado <code>mcp-remote</code> usa stdio con ZeroChat y HTTP/SSE con el proveedor. Toma Composio como ejemplo de puente y adapta la autenticación al nuevo proveedor.</p>
+        <div class="code-wrapper"><pre><code>Quiero crear el MCP remoto &lt;nombre-del-mcp&gt; para ZeroChat.
 Su endpoint es &lt;url-del-mcp&gt;.
 Localiza el directorio personal del usuario y lee README.md de
 zerochat/services/ejemplo y los JSON de zerochat/services/composio
@@ -132,21 +120,29 @@ referencia a esa variable; mcp-remote resolverá la referencia.
 No me pidas la clave ni la escribas en los argumentos o en la URL.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
-      <h3 id="api-key-servicio">Introducir y conservar una API key</h3>
+      </details>
+      <p>Si la carpeta nueva no aparece en Ajustes → MCP, reinicia ZeroChat y vuelve a conectar. Tus carpetas se conservan al actualizar. Las definiciones incluidas (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>) se restauran al arrancar; crea una copia con otro nombre e id en lugar de editarlas. No copies dependencias ni credenciales OAuth.</p>
+    </div>
+
+    <div class="card" id="api-key-servicio">
+      <h2>6. Introduce una API key</h2>
       <ol>
-        <li>Crea una carpeta propia dentro de <code>~/zerochat/services/</code>, con <code>service.json</code> y, si necesita npm, <code>installer.json</code>. Puedes pedirlo con los prompts anteriores o copiar la definición de un servicio existente, sin copiar sus dependencias ni credenciales OAuth.</li>
-        <li>Si copias una definición, cambia el nombre de carpeta, el <code>id</code> del JSON y los textos visibles. El <code>id</code> debe ser único. Ajusta el endpoint y la autenticación según la documentación del proveedor; cambiar solo la clave no convierte OAuth en autenticación por API key.</li>
-        <li>Abre el <code>service.json</code> de tu carpeta y sustituye <code>PASTE_API_KEY_HERE</code> por la clave real dentro de <code>launch.env</code>. Usa el nombre exacto de variable que espera el MCP. No pegues la clave en el chat.</li>
-        <li>Guarda un JSON válido, conservando el resto de <code>launch</code>. En Linux y Termux limita el acceso al archivo con <code>chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json</code>. La clave queda en texto plano: no compartas ese archivo ni lo subas al repositorio.</li>
-        <li>Abre <strong>Ajustes → MCP</strong> y pulsa <strong>Iniciar</strong>. Si la carpeta nueva no aparece, reinicia ZeroChat y vuelve a conectar. Para cambiar la clave de un servicio activo, detén el servicio, edita el JSON y vuelve a iniciarlo.</li>
+        <li>Detén el servicio si está activo. Abre el <code>service.json</code> de tu carpeta.</li>
+        <li>Sustituye <code>PASTE_API_KEY_HERE</code> en <code>launch.env</code> por la clave real, usando el nombre de variable que exige el proveedor. No la pegues en el chat.</li>
+        <li>Guarda un JSON válido. En Linux o Termux limita el acceso con <code>chmod 600 /ruta/absoluta/zerochat/services/mi-servicio/service.json</code>.</li>
+        <li>Inicia el servicio desde <strong>Ajustes → MCP</strong>.</li>
       </ol>
-      <p>Ejemplo de un campo dentro de <code>launch</code> para un MCP local; reemplaza el nombre de variable por el que indique el proveedor:</p>
-      <div class="code-wrapper"><pre><code>"env": {
+      <p>La clave queda en texto plano: no compartas ni subas este archivo al repositorio. Borrar <code>~/zerochat/</code> también elimina los servicios y sus credenciales; conserva una copia privada si la necesitas.</p>
+      <details><summary>Ejemplo para un servicio local</summary>
+        <p>Dentro de <code>launch</code>, utiliza el nombre de variable indicado por el MCP:</p>
+        <div class="code-wrapper"><pre><code>"env": {
   "SERVICE_API_KEY": "PASTE_API_KEY_HERE"
 }</code></pre></div>
-      <p>No necesitas <code>export</code>, un archivo <code>.env</code> ni un JSON adicional de credenciales. ZeroChat pasa el valor escrito en <code>launch.env</code> al proceso MCP. <code>${SERVICE_API_KEY}</code> dentro de ese campo sería texto literal: ZeroChat solo sustituye las rutas de servicio/intérpretes y las referencias <code>${option:...}</code>.</p>
-      <p>Para un remoto que acepte <code>Authorization: Bearer</code>, adapta los argumentos del puente y añade la clave al <code>env</code> existente, conservando <code>HOME</code> y <code>USERPROFILE</code>:</p>
-      <div class="code-wrapper"><pre><code>"args": [
+        <p>No necesitas <code>export</code>, un archivo <code>.env</code> ni otro JSON de credenciales. Escribe el valor real en <code>launch.env</code>; las referencias a variables de entorno en ese campo quedan como texto literal. ZeroChat sustituye rutas de servicio/intérpretes y referencias <code>${option:...}</code>.</p>
+      </details>
+      <details><summary>Ejemplo para un servicio remoto con cabecera Bearer</summary>
+        <p>Adapta los argumentos del puente y conserva el aislamiento existente de <code>HOME</code> y <code>USERPROFILE</code>:</p>
+        <div class="code-wrapper"><pre><code>"args": [
   "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
   "https://mcp.example.com/mcp",
   "--header",
@@ -157,9 +153,8 @@ No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre>
   "USERPROFILE": "${serviceDir}",
   "REMOTE_API_KEY": "PASTE_API_KEY_HERE"
 }</code></pre></div>
-      <p>En este caso <code>mcp-remote</code>, no ZeroChat, resuelve <code>${REMOTE_API_KEY}</code> en la cabecera. Si el proveedor exige otra cabecera, como <code>X-API-Key</code>, usa esa cabecera y su formato. El campo <code>remote.authentication</code> describe el servicio para la interfaz; no configura la autenticación. Consulta la <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">documentación oficial de cabeceras del puente</a>.</p>
-      <p>Los archivos de tu carpeta propia se conservan al reiniciar y actualizar ZeroChat. No edites los JSON de las carpetas distribuidas (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code> y <code>memory</code>): se restauran en cada arranque. Borrar <code>~/zerochat/</code> también elimina tus servicios y sus claves; conserva una copia privada si la necesitas.</p>
-      <p>Los parches de una misma serie, como <code>8.0.x</code>, llegan con la web. Un cambio de <code>major.minor</code> puede requerir actualizar el backend. Sigue el aviso correspondiente a PyPI o a la descarga directa; la actualización no es automática.</p>
+        <p><code>mcp-remote</code> resuelve <code>${REMOTE_API_KEY}</code> en la cabecera. Usa la cabecera y el formato que exija el proveedor. <code>remote.authentication</code> es descriptivo; no configura la autenticación. Consulta la <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">documentación de cabeceras del puente</a>.</p>
+      </details>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
