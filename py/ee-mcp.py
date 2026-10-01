@@ -510,6 +510,11 @@ class McpServiceManager:
                 if is_termux_environment():
                     scripts_dir = str(self.services_root / "scripts")
                     env["PATH"] = scripts_dir + (os.pathsep + env["PATH"] if env.get("PATH") else "")
+                    # El paquete npm `open` (usado por mcp-remote) respeta BROWSER antes de
+                    # evaluar la plataforma, evitando el xdg-open bundled que no funciona en Android.
+                    termux_opener = get_termux_open_url_executable()
+                    if termux_opener:
+                        env.setdefault("BROWSER", termux_opener)
 
                 client = StdioMcpClient(
                     command, args, str(service_dir), env,

@@ -17,3 +17,6 @@ dialogos rag
 texto de i de .py de instalar chome.... play right etc .. no es bueno
 
 arranque comtosio en termux cad vez peor
+
+el chat si no está al final no deberia ir al final por ir sacando nuevas lineas. 
+molesta sobre el desaplazamiento que ha hecho el usuario
