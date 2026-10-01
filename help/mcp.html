@@ -65,7 +65,7 @@
         </tbody>
       </table></div>
       <h3>Arranque y OAuth</h3>
-      <p>El botón muestra <strong>Iniciando</strong> y queda deshabilitado. Si el arranque supera 15 segundos, ZeroChat consulta el estado y espera hasta diez intervalos adicionales de 15 segundos mientras siga iniciando. El botón indica el número de intento.</p>
+      <p>El botón muestra <strong>Iniciando</strong> y queda deshabilitado. Si el arranque supera 15 segundos, ZeroChat consulta el estado y espera hasta diez intervalos adicionales de 15 segundos mientras siga instalando o iniciando. La instalación y la espera de OAuth no se consideran fallos al vencer el primer timeout; cuando el servicio está activo, el panel se actualiza automáticamente. El botón indica el número de intento.</p>
       <p>Completa la autorización OAuth en el navegador. Si se agota la espera, el servicio puede seguir arrancando; recarga la página para comprobar el resultado. En Termux, los enlaces de autorización se abren con <code>termux-open-url</code>.</p>
       <p>Los servicios no se reinician automáticamente en el siguiente arranque de ZeroChat. Inícialos desde este panel cuando los necesites.</p>
       <h3>Si falla la instalación</h3>
@@ -96,8 +96,10 @@ service.json e installer.json.example de zerochat/services/ejemplo
 usando sus rutas absolutas. Sigue las instrucciones del README.
 Consulta la documentación oficial del MCP y crea una carpeta hermana
 con nombre e id propios; no modifiques los servicios incluidos.
-Si necesita una API key, deja PASTE_API_KEY_HERE en launch.env,
-con el nombre de variable que exige el MCP. No me pidas la clave.
+Si necesita una API key, deja PASTE_API_KEY_HERE en service.json,
+dentro del objeto env de launch, con la variable que exige el MCP.
+Yo sustituiré el marcador por mi clave a mano en ese service.json.
+No me pidas la clave ni crees un archivo launch.env o .env.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
       </details>
@@ -114,8 +116,10 @@ Consulta la documentación oficial del MCP y del puente para adaptar
 endpoint, transporte y autenticación. No copies sin verificar las
 opciones específicas de OAuth o protocolo de Composio.
 Conserva el aislamiento HOME y USERPROFILE en ${serviceDir}.
-Si requiere API key, deja PASTE_API_KEY_HERE en launch.env y
-configura --header con la cabecera que exige el proveedor y una
+Si requiere API key, deja PASTE_API_KEY_HERE en service.json,
+dentro del objeto env de launch. Yo introduciré mi clave a mano
+en ese service.json; no crees un archivo launch.env o .env.
+Configura --header con la cabecera que exige el proveedor y una
 referencia a esa variable; mcp-remote resolverá la referencia.
 No me pidas la clave ni la escribas en los argumentos o en la URL.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
@@ -126,6 +130,7 @@ No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre>
 
     <div class="card" id="api-key-servicio">
       <h2>6. Introduce una API key</h2>
+      <p><code>launch.env</code> indica el objeto <code>env</code> dentro de <code>launch</code> en <code>service.json</code>; no es un archivo. El agente deja el marcador y tú introduces la clave real a mano en ese JSON.</p>
       <ol>
         <li>Detén el servicio si está activo. Abre el <code>service.json</code> de tu carpeta.</li>
         <li>Sustituye <code>PASTE_API_KEY_HERE</code> en <code>launch.env</code> por la clave real, usando el nombre de variable que exige el proveedor. No la pegues en el chat.</li>

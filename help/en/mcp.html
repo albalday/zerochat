@@ -65,7 +65,7 @@
         </tbody>
       </table></div>
       <h3>Startup and OAuth</h3>
-      <p>The button shows <strong>Starting</strong> and stays disabled. If startup exceeds 15 seconds, ZeroChat checks the status and waits for up to ten additional 15-second intervals while it remains starting. The button shows the attempt number.</p>
+      <p>The button shows <strong>Starting</strong> and stays disabled. If startup exceeds 15 seconds, ZeroChat checks the status and waits for up to ten additional 15-second intervals while it remains installing or starting. Installation and the OAuth wait are not treated as failures when the first timeout expires; once the service is active, the panel updates automatically. The button shows the attempt number.</p>
       <p>Complete OAuth authorization in the browser. If the wait expires, the service may still be starting; reload the page to check the outcome. In Termux, authorization links open through <code>termux-open-url</code>.</p>
       <p>Services are not restarted automatically on the next ZeroChat startup. Start them from this panel when needed.</p>
       <h3>If installation fails</h3>
@@ -96,8 +96,10 @@ and installer.json.example in zerochat/services/ejemplo using
 absolute paths. Follow the README instructions.
 Read the MCP's official documentation and create a sibling folder
 with its own name and id; do not modify the bundled services.
-If it needs an API key, put PASTE_API_KEY_HERE in launch.env,
-under the variable name required by the MCP. Do not ask for my key.
+If it needs an API key, put PASTE_API_KEY_HERE in service.json,
+inside the env object under launch, using the required variable.
+I will manually replace the placeholder with my key in service.json.
+Do not ask for my key or create a launch.env or .env file.
 Give me the absolute JSON path and the field to edit manually.
 Do not install or start it; I will do that from Settings → MCP.</code></pre></div>
       </details>
@@ -114,8 +116,10 @@ Read the MCP's and bridge's official documentation to adapt the
 endpoint, transport and authentication. Verify Composio's specific
 OAuth and protocol options before copying any of them.
 Keep HOME and USERPROFILE isolated inside ${serviceDir}.
-If an API key is required, put PASTE_API_KEY_HERE in launch.env
-and configure --header with the provider's required header and a
+If an API key is required, put PASTE_API_KEY_HERE in service.json,
+inside the env object under launch. I will enter my key manually
+in service.json; do not create a launch.env or .env file.
+Configure --header with the provider's required header and a
 reference to that variable; mcp-remote will resolve the reference.
 Do not ask for my key or put it in the arguments or URL.
 Give me the absolute JSON path and the field to edit manually.
@@ -126,6 +130,7 @@ Do not install or start it; I will do that from Settings → MCP.</code></pre></
 
     <div class="card" id="api-key-servicio">
       <h2>6. Enter an API key</h2>
+      <p><code>launch.env</code> means the <code>env</code> object under <code>launch</code> in <code>service.json</code>; it is not a file. The agent leaves the placeholder and you manually enter the real key in that JSON.</p>
       <ol>
         <li>Stop the service if it is running. Open your folder's <code>service.json</code>.</li>
         <li>Replace <code>PASTE_API_KEY_HERE</code> inside <code>launch.env</code> with the real key, using the exact variable name required by the provider. Do not paste it into the chat.</li>

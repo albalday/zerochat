@@ -1074,3 +1074,17 @@ test('MCP - el timeout de arranque no reconecta SSE ni reenvía el comando', asy
   assert.equal(disconnect.mock.callCount(), 0);
   assert.equal(client.isSseActive, true);
 });
+
+test('MCP - timeout SSE identifica la expiración y elimina la petición pendiente sin reenviarla', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const fetch = t.mock.method(global, 'fetch', async () => ({ ok: true, status: 202 }));
+  const client = new MCP.McpClient({ url: 'http://127.0.0.1:6388/mcp', timeoutMs: 15000 });
+  const pending = assert.rejects(client.request('zerochat/external/servers/start', { serverId: 'fixture' }),
+    error => error.code === 'MCP_REQUEST_TIMEOUT');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(client.pendingRequests.size, 1);
+  t.mock.timers.tick(15000);
+  await pending;
+  assert.equal(client.pendingRequests.size, 0);
+  assert.equal(fetch.mock.callCount(), 1);
+});

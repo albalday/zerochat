@@ -558,7 +558,9 @@
           const timer = setTimeout(() => {
             if (this.pendingRequests.has(id)) {
               this.pendingRequests.delete(id);
-              reject(new Error(`Timeout esperando respuesta para petición #${id} (${method})`));
+              const error = new Error(`Timeout esperando respuesta para petición #${id} (${method})`);
+              error.code = 'MCP_REQUEST_TIMEOUT';
+              reject(error);
             }
           }, timeoutMs);
           this.pendingRequests.set(id, { resolve, reject, timer });
@@ -1428,7 +1430,7 @@
       } catch (error) {
         // El timeout inicial no implica fallo: el backend puede estar aún
         // iniciando el servicio (p. ej. esperando la autorización OAuth).
-        if (!error || error.name !== 'AbortError') throw error;
+        if (!error || (error.name !== 'AbortError' && error.code !== 'MCP_REQUEST_TIMEOUT')) throw error;
       }
       if (result) {
         await this.syncExternalServers(registry).catch(() => {});
@@ -1448,7 +1450,7 @@
           await this.syncExternalServers(registry);
           return status;
         }
-        if (server?.status !== 'starting') {
+        if (server?.status !== 'starting' && server?.status !== 'installing') {
           const error = new Error(`MCP server '${serverId}' did not start: ${server?.status || 'unknown'}`);
           error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
           error.externalServer = server;
@@ -1460,7 +1462,7 @@
           error.externalServer = server;
           throw error;
         }
-        if (typeof onWait === 'function') onWait(attempt + 1, EXTERNAL_START_POLL_ATTEMPTS);
+        if (typeof onWait === 'function') onWait(attempt + 1, EXTERNAL_START_POLL_ATTEMPTS, server.status);
         await new Promise(resolve => setTimeout(resolve, EXTERNAL_START_POLL_INTERVAL_MS));
       }
     }

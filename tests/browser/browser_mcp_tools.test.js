@@ -34,6 +34,12 @@ test('Browser UI - ayuda MCP ofrece prompts multilínea copiables y claves API e
       });
       assert.equal(result.prompts.length, 2);
       assert.ok(result.prompts.every(prompt => prompt.lines >= 8 && prompt.copy));
+      for (const prompt of result.prompts) {
+        assert.match(prompt.text, /PASTE_API_KEY_HERE en service\.json|PASTE_API_KEY_HERE in service\.json/);
+        assert.match(prompt.text, /objeto env de launch|env object under launch/);
+        assert.match(prompt.text, /a mano|manually/);
+        assert.match(prompt.text, /(?:no|ni) crees un archivo launch\.env o \.env|(?:Do not ask for my key or|do not) create a launch\.env or \.env file/);
+      }
       assert.ok(result.prompts[1].text.includes('zerochat/services/composio'));
       assert.equal(result.remote, true);
       assert.equal(result.keys, true);
@@ -914,6 +920,92 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
     }
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
+});
+
+test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y activo sin reabrir el panel', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const results = await page.evaluate(async () => {
+      const container = document.createElement('div');
+      document.body.append(container);
+      const manager = ChatMCP.manager;
+      const originalRequest = manager.requestExternalControl;
+      const originalSync = manager.syncExternalServers;
+      const originalTimeout = window.setTimeout;
+      manager.syncExternalServers = async () => {};
+      const ui = ChatUIMcp.initMcpUI({ serversList: container });
+      const results = [];
+      try {
+        for (const language of ['es', 'en']) {
+          ChatI18n.setLanguage(language, false);
+          ChatState.set('mcp', {
+            ...ChatState.get('mcp'), status: 'connected',
+            externalServers: [{ id: 'oauth-fixture', status: 'stopped' }]
+          });
+          let starts = 0, checks = 0;
+          const phases = [];
+          const running = { id: 'oauth-fixture', status: 'running', toolCount: 1 };
+          manager.requestExternalControl = async method => {
+            if (method.endsWith('/start')) {
+              starts += 1;
+              const error = new Error('Initial request timed out');
+              error.name = 'AbortError';
+              throw error;
+            }
+            checks += 1;
+            return { servers: [checks < 3 ? { id: 'oauth-fixture', status: checks === 1 ? 'installing' : 'starting' } : running] };
+          };
+          manager.syncExternalServers = async () => {
+            ChatState.set('mcp', state => ({ ...state, externalServers: [running] }));
+          };
+          window.setTimeout = (callback, delay, ...args) => {
+            if (delay === 15000) {
+              const button = container.querySelector('.btn-mcp-server-toggle');
+              phases.push({ status: ChatState.get('mcp').externalServers[0].status,
+                disabled: button.disabled, error: !!container.querySelector('.mcp-server-error') });
+              return originalTimeout(callback, 0, ...args);
+            }
+            return originalTimeout(callback, delay, ...args);
+          };
+          container.querySelector('.btn-mcp-server-toggle').click();
+          for (let wait = 0; checks < 3 && wait < 200; wait += 1) {
+            await new Promise(resolve => originalTimeout(resolve, 5));
+          }
+          if (checks < 3) throw new Error('MCP status polling did not reach running');
+          await new Promise(resolve => originalTimeout(resolve, 0));
+          results.push({ starts, phases, status: ChatState.get('mcp').externalServers[0].status,
+            action: container.querySelector('.btn-mcp-server-toggle').getAttribute('data-action'),
+            error: !!container.querySelector('.mcp-server-error') });
+        }
+      } finally {
+        window.setTimeout = originalTimeout;
+        manager.requestExternalControl = originalRequest;
+        manager.syncExternalServers = originalSync;
+        ui.destroy();
+        container.remove();
+      }
+      return results;
+    });
+    for (const result of results) {
+      assert.equal(result.starts, 1);
+      assert.deepEqual(result.phases, [
+        { status: 'installing', disabled: true, error: false },
+        { status: 'starting', disabled: true, error: false }
+      ]);
+      assert.equal(result.status, 'running');
+      assert.equal(result.action, 'stop');
+      assert.equal(result.error, false);
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
 });
 
 });

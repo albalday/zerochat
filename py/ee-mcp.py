@@ -478,6 +478,7 @@ class McpServiceManager:
             if current and current.running():
                 return self.list_servers()
             self.states[server_id] = "starting"
+            self.errors.pop(server_id, None)
             client = None
             self._trace(server_id, "start requested")
             try:
@@ -514,6 +515,7 @@ class McpServiceManager:
                     command, args, str(service_dir), env,
                     trace=lambda message: self._trace(server_id, message)
                 )
+                self.states[server_id] = "starting"
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.clients[server_id] = client
                 self.states[server_id] = "running"

@@ -14,10 +14,6 @@ Probar sutomatico safari
 
 dialogos rag
 
-ejemplos arranque en dos copu y no uno.
-
-ayuda farragosa.....
-
 texto de i de .py de instalar chome.... play right etc .. no es bueno
 
 arranque comtosio en termux cad vez peor

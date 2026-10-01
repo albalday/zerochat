@@ -1430,3 +1430,53 @@ test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ me
 
   assert.equal(currentZerochat, concatenated, 'zerochat.py debe coincidir exactamente con la concatenación ordenada de py/*.py (ejecuta npm run build:backend)');
 });
+
+test('zerochat.py: la instalación termina en starting antes del handshake OAuth y conserva errores reales', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_start_state_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = Path(temp_dir) / "services"
+    custom = root / "oauth-fixture"
+    custom.mkdir()
+    (custom / "service.json").write_text(json.dumps({
+        "id": "oauth-fixture", "launch": {"args": [], "handshakeTimeoutSeconds": 150}
+    }))
+    manager = module.McpServiceManager(root)
+    def status():
+        return next(item for item in manager.list_servers() if item["id"] == "oauth-fixture")
+    def prepare(server_id, server):
+        assert status()["status"] == "starting"
+        assert status()["error"] is None
+        manager.states[server_id] = "installing"
+        assert status()["status"] == "installing"
+        return {}
+    for fail in [True, False]:
+        manager.errors["oauth-fixture"] = "Previous failure"
+        client = Mock(tools=[])
+        def handshake(timeout):
+            assert timeout == 150
+            assert status()["status"] == "starting"
+            assert status()["error"] is None
+            if fail:
+                raise RuntimeError("OAuth failed")
+        client.start.side_effect = handshake
+        with patch.object(manager, "_prepare_service", side_effect=prepare), patch.object(module, "StdioMcpClient", return_value=client):
+            manager.start("oauth-fixture")
+        assert status()["status"] == ("error" if fail else "running")
+        assert status()["error"] == ("OAuth failed" if fail else None)
+        assert client.stop.call_count == (1 if fail else 0)
+    manager.close()
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});

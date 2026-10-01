@@ -455,8 +455,8 @@
         btn.textContent = pendingLabel;
         updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null });
         const MCP = getMCP();
-        const reportStartWait = (attempt, total) => {
-          updateExternalServerState(sid, { startWait: { attempt, total } });
+        const reportStartWait = (attempt, total, status = 'starting') => {
+          updateExternalServerState(sid, { status, error: null, startWait: { attempt, total } });
         };
         try {
           if (action === 'start') {
