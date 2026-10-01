@@ -104,6 +104,56 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: un MCP propio conserva su API key local y la pasa desde launch.env', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_key_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    root = Path(temp_dir) / "services"
+    custom = root / "custom-key"
+    custom.mkdir()
+    definition = {
+        "id": "custom-key", "launch": {
+            "executable": "\u0024{pythonExecutable}", "args": [],
+            "env": {"SERVICE_API_KEY": "fixture-key", "HOME": "\u0024{serviceDir}"}
+        }
+    }
+    config = custom / "service.json"
+    config.write_text(json.dumps(definition), encoding="utf-8")
+    config.chmod(0o600)
+    traces = []
+    module.console_log = lambda message, **kwargs: traces.append(message)
+    manager = module.McpServiceManager(root)
+    module.materialize_managed_services(root)
+    assert json.loads(config.read_text()) == definition
+    assert config.stat().st_mode & 0o777 == 0o600
+    client = Mock(tools=[])
+    client.running.return_value = True
+    with patch.dict(os.environ, {"SERVICE_API_KEY": "inherited-fixture"}), patch.object(module, "StdioMcpClient", return_value=client) as constructor:
+        manager.start("custom-key")
+        env = constructor.call_args.args[3]
+        assert env["SERVICE_API_KEY"] == "fixture-key"
+        assert env["HOME"] == str(custom)
+        assert "PATH" in env
+        assert os.environ["SERVICE_API_KEY"] == "inherited-fixture"
+        client.start.assert_called_once()
+    assert "fixture-key" not in "".join(traces)
+    assert next(item for item in manager.list_servers() if item["id"] == "custom-key")["status"] == "running"
+    manager.close()
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('zerochat.py: el arranque MCP deja traza de éxito y fallo en la consola', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `

@@ -447,4 +447,94 @@ test('Browser UI - una nueva pestaña usa la cookie sin propagar el token en la 
     await stopStaticServer(server);
   }
 });
+
+for (const outcome of ['later', 'reload', 'none', 'offline']) {
+  test(`Browser PWA - aviso MCP posterior al control de actualización (${outcome})`, async () => {
+    const server = await startStaticServer();
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      await page.route('http://127.0.0.1:6388/**', route => route.fulfill({
+        contentType: 'application/json', body: JSON.stringify({ success: true })
+      }));
+      await page.addInitScript(({ outcome }) => {
+        const events = JSON.parse(sessionStorage.getItem('startup-events') || '[]');
+        window.__startupEvents = events;
+        window.__recordStartup = event => {
+          events.push(event);
+          sessionStorage.setItem('startup-events', JSON.stringify(events));
+        };
+        const secondLoad = events.includes('update');
+        const listeners = [];
+        const worker = {
+          state: 'installing',
+          addEventListener: (type, listener) => listeners.push(listener)
+        };
+        const registration = {
+          waiting: null,
+          installing: !secondLoad && ['later', 'reload'].includes(outcome) ? worker : null,
+          addEventListener: () => {},
+          update: async () => {
+            window.__recordStartup('check');
+            if (outcome === 'offline') throw new Error('offline');
+          }
+        };
+        window.__finishUpdate = () => {
+          worker.state = 'installed';
+          registration.waiting = worker;
+          listeners.forEach(listener => listener());
+        };
+        Object.defineProperty(navigator, 'serviceWorker', {
+          configurable: true,
+          value: { controller: {}, register: async () => registration }
+        });
+      }, { outcome });
+      await page.route('**/js/app.js', async route => {
+        const source = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
+        await route.fulfill({ contentType: 'application/javascript', body: `
+          window.ChatMCP.manager.connectProxy = async options => {
+            if (options.notifyStartup !== false) throw new Error('MCP notice must be deferred');
+            window.ChatState.set('mcp', { status: 'connected', externalServers: [
+              { id: 'memory', enabled: true, status: 'stopped' }
+            ] });
+            return { success: true };
+          };
+          window.ChatDialogs.confirm = async () => {
+            window.__recordStartup('update');
+            return new Promise(resolve => { window.__resolveUpdate = resolve; });
+          };
+          window.ChatDialogs.alert = async () => window.__recordStartup('mcp');
+        ` + source });
+      });
+      await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#token=test-startup`, { waitUntil: 'load' });
+      await page.waitForFunction(() => window.__startupEvents.includes('check'));
+      if (['later', 'reload'].includes(outcome)) {
+        assert.deepEqual(await page.evaluate(() => window.__startupEvents), ['check']);
+        await page.evaluate(() => window.__finishUpdate());
+        await page.waitForFunction(() => !!window.__resolveUpdate);
+        assert.deepEqual(await page.evaluate(() => window.__startupEvents), ['check', 'update']);
+        if (outcome === 'reload') {
+          await Promise.all([
+            page.waitForEvent('load'),
+            page.evaluate(() => window.__resolveUpdate(true))
+          ]);
+        } else {
+          await page.evaluate(() => window.__resolveUpdate(false));
+        }
+      }
+      await page.waitForFunction(() => window.__startupEvents.includes('mcp'));
+      const expected = outcome === 'reload' ? ['check', 'update', 'check', 'mcp'] :
+        outcome === 'later' ? ['check', 'update', 'mcp'] : ['check', 'mcp'];
+      assert.deepEqual(await page.evaluate(() => window.__startupEvents), expected);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await stopStaticServer(server);
+    }
+  });
+}
+
 });

@@ -506,6 +506,9 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
+                if is_termux_environment():
+                    scripts_dir = str(self.services_root / "scripts")
+                    env["PATH"] = scripts_dir + (os.pathsep + env["PATH"] if env.get("PATH") else "")
 
                 client = StdioMcpClient(
                     command, args, str(service_dir), env,

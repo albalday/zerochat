@@ -853,15 +853,16 @@
       for (const rt of rawTools) {
         const external = this.client.id === 'mcp_external';
         const sourceServer = external ? rt.metadata?.mcpServerId : this.client.id;
+        const serverName = external ? sourceServer : this.serverName;
         const toolName = external ? rt.metadata?.originalName : rt.name;
         const namespacedName = publicToolName(this.client.id === 'mcp_proxy' ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
-        const descPrefix = external ? `[MCP: ${this.serverName}] ` : '';
+        const descPrefix = external ? `[MCP: ${serverName}] ` : '';
         const toolDesc = rt.description
           ? `${descPrefix}${rt.description}`
-          : (external ? `[MCP: ${this.serverName}] Herramienta ${toolName}` : toolName);
+          : (external ? `[MCP: ${serverName}] Herramienta ${toolName}` : toolName);
 
         const tool = new AgentCore.Tool({
           id: namespacedName,
@@ -889,7 +890,7 @@
             icon: 'plug',
             iconSvg: getMcpIconSvg(14),
             label: toolName,
-            mcpServerName: this.serverName,
+            mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
             mcpServerId: sourceServer,
@@ -920,13 +921,13 @@
               return outcome?.error || result?.error || 'No output';
             },
             toMarkdown: (args, result, outcome) => {
-              return formatMcpMarkdown(toolName, args, result, outcome, this.serverName);
+              return formatMcpMarkdown(toolName, args, result, outcome, serverName);
             }
           },
           displayMode: 'collapsed',
-          view: createMcpToolView(toolName, this.serverName),
+          view: createMcpToolView(toolName, serverName),
           formatter: (args, result) => {
-            return formatMcpMarkdown(toolName, args, result, null, this.serverName);
+            return formatMcpMarkdown(toolName, args, result, null, serverName);
           }
         });
 
@@ -1201,7 +1202,7 @@
      * Si silentOnFailure es true (p. ej. comprobación inicial de arranque), no marca estado 'error'
      * si el servidor simplemente no está levantado, sino que registra 'disconnected' limpiamente.
      */
-    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false, token = null } = {}, registry = null) {
+    async connectProxy({ host = '127.0.0.1', port = 6388, endpoint = null, timeoutMs = 1500, silentOnFailure = false, token = null, notifyStartup = true } = {}, registry = null) {
       const effectiveToken = token || this.sessionToken;
       if (effectiveToken) {
         this.setSessionToken(effectiveToken);
@@ -1258,7 +1259,7 @@
       let externalSync = null;
       if (registerResult.success) {
         externalSync = await this.syncExternalServers(registry).catch(() => null);
-        this.notifyStoppedExternalServices(externalSync?.status?.servers);
+        if (notifyStartup) this.notifyStoppedExternalServices(externalSync?.status?.servers);
         if (typeof window !== 'undefined' && window.ChatApp?.startServerHeartbeat && this.sessionToken) {
           window.ChatApp.startServerHeartbeat(host, port, this.sessionToken);
         }

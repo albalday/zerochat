@@ -1753,6 +1753,7 @@
   }
 
   function init() {
+    let startupMcpConnection = Promise.resolve();
     ensureModalsMarkup();
     cacheDomElements();
     if (Debug.setElements) Debug.setElements(elements);
@@ -2120,11 +2121,15 @@
       const targetHost = backendSession?.host || currentCfg?.mcpHost || '127.0.0.1';
 
       if ((effectiveToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
-        window.ChatMCP.manager.connectProxy({
+        startupMcpConnection = window.ChatMCP.manager.connectProxy({
           host: targetHost,
           port: targetPort,
           token: effectiveToken,
-          silentOnFailure: !effectiveToken
+          silentOnFailure: !effectiveToken,
+          notifyStartup: false
+        }).catch(error => {
+          console.warn('Error conectando MCP al arrancar:', error);
+          return { success: false };
         });
       }
 
@@ -2164,53 +2169,67 @@
     setupLightDismissDialogs();
 
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
-    registerServiceWorker();
+    void registerServiceWorker().then(async reloading => {
+      if (reloading) return;
+      const connection = await startupMcpConnection;
+      if (connection?.success) {
+        window.ChatMCP?.manager?.notifyStoppedExternalServices(State.get('mcp')?.externalServers);
+      }
+    }).catch(error => console.warn('Error comprobando MCP al arrancar:', error));
 
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
   }
 
-  function registerServiceWorker() {
-    if (typeof window !== 'undefined' &&
-        'serviceWorker' in navigator &&
-        (location.protocol === 'http:' || location.protocol === 'https:')) {
-      const promptServiceWorkerUpdate = () => {
-        if (serviceWorkerUpdatePromptShown || !window.ChatDialogs?.confirm) return;
-        serviceWorkerUpdatePromptShown = true;
-        window.ChatDialogs.confirm(t('pwa_update_available'), {
-          type: 'info',
-          title: t('pwa_update_title'),
-          acceptText: t('pwa_update_reload'),
-          cancelText: t('pwa_update_later')
-        }).then(accepted => {
-          if (accepted) window.location.reload();
-        }).catch(() => {});
-      };
-      const register = () => {
-        navigator.serviceWorker.register('./sw.js', { scope: './' })
-          .then(registration => {
-            const promptIfWaiting = () => {
-              if (registration.waiting) promptServiceWorkerUpdate();
-            };
-            promptIfWaiting();
-            registration.addEventListener?.('updatefound', () => {
-              const worker = registration.installing;
-              if (!worker) return;
-              worker.addEventListener?.('statechange', () => {
-                if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-                  promptServiceWorkerUpdate();
-                }
-              });
-            });
-            registration.update?.().catch(() => {});
-          })
-          .catch(() => {});
-      };
-      if (document.readyState === 'complete') {
-        register();
-      } else {
-        window.addEventListener('load', register, { once: true });
+  async function registerServiceWorker() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) ||
+        !['http:', 'https:'].includes(location.protocol)) return false;
+
+    let updatePrompt = null;
+    const promptServiceWorkerUpdate = () => {
+      if (updatePrompt) return updatePrompt;
+      if (serviceWorkerUpdatePromptShown || !window.ChatDialogs?.confirm) return Promise.resolve(false);
+      serviceWorkerUpdatePromptShown = true;
+      updatePrompt = window.ChatDialogs.confirm(t('pwa_update_available'), {
+        type: 'info',
+        title: t('pwa_update_title'),
+        acceptText: t('pwa_update_reload'),
+        cancelText: t('pwa_update_later')
+      }).then(accepted => {
+        if (accepted) window.location.reload();
+        return accepted;
+      }).catch(() => false);
+      return updatePrompt;
+    };
+    if (document.readyState !== 'complete') {
+      await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
+    }
+    try {
+      const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      registration.addEventListener?.('updatefound', () => {
+        const worker = registration.installing;
+        worker?.addEventListener?.('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+            void promptServiceWorkerUpdate();
+          }
+        });
+      });
+      if (registration.waiting) return await promptServiceWorkerUpdate();
+      await registration.update?.().catch(() => {});
+      const worker = registration.installing;
+      if (worker && !['installed', 'activated', 'redundant'].includes(worker.state)) {
+        await new Promise(resolve => {
+          worker.addEventListener('statechange', () => {
+            if (['installed', 'activated', 'redundant'].includes(worker.state)) resolve();
+          });
+        });
       }
+      if (registration.waiting || (worker?.state === 'installed' && navigator.serviceWorker.controller)) {
+        return await promptServiceWorkerUpdate();
+      }
+      return await (updatePrompt || Promise.resolve(false));
+    } catch (_) {
+      return false;
     }
   }
 

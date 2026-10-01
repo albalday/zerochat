@@ -818,6 +818,44 @@ else:
   await assert.rejects(provider.discoverTools(), /Invalid external MCP public name/);
 });
 
+test('MCP - autorización externa muestra el servicio de origen y conserva permisos separados', async () => {
+  const Security = require('../../js/tool-security.js');
+  const provider = new MCP.McpToolProvider({
+    id: 'mcp_external', name: 'ZeroChat External MCP Host',
+    initialize: async () => {},
+    listTools: async () => [
+      ['composio', 'COMPOSIO_SEARCH_TOOLS'],
+      ['composio', 'COMPOSIO_MULTI_EXECUTE_TOOL'],
+      ['playwright', 'browser_navigate']
+    ].map(([server, name]) => ({
+      name: `${server}_${name}`,
+      metadata: { mcpServerId: server, originalName: name }
+    }))
+  });
+  const [search, execute, browser] = await provider.discoverTools();
+  const manager = new Security.ToolSecurityManager({ storageKey: 'test_external_service_labels' });
+  for (const tool of [search, execute, browser]) {
+    const auth = manager.evaluateAuthorization(tool, {});
+    assert.equal(auth.serverName, tool.metadata.mcpServerId);
+    assert.equal(auth.serverId, tool.metadata.mcpServerId);
+    assert.equal(auth.requiresApproval, true);
+    assert.ok(tool.description.includes(`[MCP: ${auth.serverName}]`));
+    assert.ok(tool.formatter({}, {}).includes(auth.serverName));
+    assert.ok(!tool.formatter({}, {}).includes('ZeroChat External MCP Host'));
+  }
+  manager.setToolPolicy(search.id, 'allow');
+  assert.equal(manager.evaluateAuthorization(search, {}).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(execute, {}).requiresApproval, true);
+  assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
+  const auth = manager.evaluateAuthorization(execute, {});
+  manager.setServerPolicy(auth.serverId, 'allow', { serverName: auth.serverName });
+  assert.equal(manager.listAuthorizedServers()[0].serverName, 'composio');
+  assert.equal(manager.evaluateAuthorization(execute, {}).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
+  manager.setToolPolicy(execute.id, 'deny');
+  assert.equal(manager.evaluateAuthorization(execute, {}).status, 'deny');
+});
+
 test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitamente', async () => {
   for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
     const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
@@ -833,6 +871,8 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
   const originalFetch = global.fetch;
   const manager = new MCP.McpManager();
   const registry = new AgentCore.ToolRegistry();
+  let startupNotices = 0;
+  manager.notifyStoppedExternalServices = () => { startupNotices += 1; };
 
   try {
     global.fetch = async (url, options) => {
@@ -889,8 +929,9 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
       return { ok: true, status: 200, json: async () => ({}) };
     };
 
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, notifyStartup: false }, registry);
     assert.equal(connResult.success, true);
+    assert.equal(startupNotices, 0);
     assert.ok(connResult.externalSync);
     assert.equal(connResult.externalSync.status.host, 'running');
     assert.equal(connResult.externalSync.externalTools.length, 1);
@@ -903,6 +944,7 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
     // Reconectar connectProxy no debe destruir las herramientas externas
     const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
     assert.equal(reconnectResult.success, true);
+    assert.equal(startupNotices, 1);
     assert.ok(registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
     await manager.disconnectProxy(registry);

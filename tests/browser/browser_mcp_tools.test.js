@@ -8,6 +8,42 @@ describe('Browser UI - mcp_tools', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
+test('Browser UI - ayuda MCP ofrece prompts multilínea copiables y claves API en ambos idiomas', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    for (const helpPath of ['help/mcp.html', 'help/en/mcp.html']) {
+      await page.goto('file://' + path.resolve(__dirname, '../..', helpPath), { waitUntil: 'load' });
+      const result = await page.evaluate(() => {
+        const boxes = Array.from(document.querySelectorAll('.code-wrapper'));
+        const prompts = boxes.filter(box => box.textContent.includes('PASTE_API_KEY_HERE') && box.textContent.includes('README.md'));
+        return {
+          prompts: prompts.map(box => ({
+            lines: box.querySelector('pre').textContent.trim().split('\n').length,
+            copy: Boolean(box.querySelector('.btn-copy')),
+            text: box.querySelector('pre').textContent
+          })),
+          remote: Boolean(document.getElementById('crear-mcp-remoto')),
+          keys: Boolean(document.getElementById('api-key-servicio')),
+          header: boxes.some(box => box.textContent.includes('Authorization: Bearer ${REMOTE_API_KEY}')),
+          permissions: document.body.textContent.includes('chmod 600')
+        };
+      });
+      assert.equal(result.prompts.length, 2);
+      assert.ok(result.prompts.every(prompt => prompt.lines >= 8 && prompt.copy));
+      assert.ok(result.prompts[1].text.includes('zerochat/services/composio'));
+      assert.equal(result.remote, true);
+      assert.equal(result.keys, true);
+      assert.equal(result.header, true);
+      assert.equal(result.permissions, true);
+    }
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - los metadatos MCP externos se renderizan como texto', async () => {
   const browser = await createTestBrowser();
   try {
@@ -35,6 +71,43 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
     });
     assert.equal(result.detailsSafe, true);
     assert.equal(result.executed, false);
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - autorización de Composio muestra y devuelve únicamente su servicio', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(async () => {
+      const provider = new window.ChatMCP.McpToolProvider({
+        id: 'mcp_external', name: 'ZeroChat External MCP Host',
+        initialize: async () => {},
+        listTools: async () => [{
+          name: 'composio_COMPOSIO_SEARCH_TOOLS',
+          metadata: { mcpServerId: 'composio', originalName: 'COMPOSIO_SEARCH_TOOLS' }
+        }]
+      });
+      const [tool] = await provider.discoverTools();
+      const manager = new window.ChatToolSecurity.ToolSecurityManager({ storageKey: 'browser_composio_auth' });
+      const auth = manager.evaluateAuthorization(tool, {});
+      const call = { function: { name: tool.name, arguments: '{}' } };
+      const card = window.ChatToolCards.createLiveToolCard(tool.name, {});
+      document.body.appendChild(card);
+      const pending = window.ChatToolCards.promptToolAuthorization(card, call, { ...auth, args: {} });
+      const button = card.querySelector('.btn-auth-allow-server');
+      const label = button.textContent;
+      const title = button.title;
+      button.click();
+      const decision = await pending;
+      card.remove();
+      return { label, title, decision };
+    });
+    assert.ok(result.label.includes('composio'));
+    assert.ok(result.title.includes('composio'));
+    assert.ok(!result.label.includes('External MCP Host'));
+    assert.deepEqual(result.decision, { decision: 'allow_server_always', serverId: 'composio' });
   } finally { await browser.close(); }
 });
 

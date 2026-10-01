@@ -6,8 +6,6 @@ sub agente (mismo-otro)
 
 webllm lista de modelos mejorar para movil
 
-Añadir mcps stdio y http
-
 analizar nuvos codigo de paneles. 
 ver codigo comun, viejo y
 ver si normalziar barra de botones
@@ -16,14 +14,4 @@ Probar sutomatico safari
 
 microfono. igual vale el del teclado.....
 
-recargar pwa y html en arranque
-
-version mas consultable
-
-vuelta submenus a menu
-
-dialogs mcp y ventanitas para movil
-
-arranque navegador desde composio ayudar. si ha ido al pararlo
-
-ayuuda mcp-http revisar
+dialogos rag
