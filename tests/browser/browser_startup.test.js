@@ -189,21 +189,37 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
   }
 });
 
-test('Browser help - recomienda PyPI y conserva el arranque directo de zerochat.py', async () => {
+test('Browser help - PyPI y descarga directa tienen bloques copiables independientes en ambos idiomas', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../help/index.html'), { waitUntil: 'load' });
-    await page.waitForSelector('.code-wrapper .btn-copy');
-
-    const commands = await page.$$eval('.code-wrapper pre code', elements => elements.map(el => el.textContent.trim()));
-    const button = await page.$eval('.code-wrapper .btn-copy', el => ({ type: el.type, text: el.textContent.trim() }));
-    assert.equal(commands[0], 'pip install zerochat && zerochat');
-    assert.ok(commands.includes('curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'));
-    assert.deepEqual(button, { type: 'button', text: 'Copiar' });
-  } finally {
-    await browser.close();
-  }
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    const commands = [
+      'pip install zerochat && zerochat',
+      'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'
+    ];
+    for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/mcp.html', 'help/en/mcp.html']) {
+      await page.goto('file://' + path.resolve(__dirname, '../..', helpPath), { waitUntil: 'load' });
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true, value: { writeText: async text => { window.copiedHelpText = text; } }
+        });
+      });
+      const wrappers = page.locator('.code-wrapper');
+      for (let index = 0; index < commands.length; index += 1) {
+        const wrapper = wrappers.nth(index);
+        assert.equal((await wrapper.locator('pre code').textContent()).trim(), commands[index]);
+        const button = wrapper.locator('.btn-copy');
+        assert.equal(await button.getAttribute('type'), 'button');
+        assert.equal(await button.textContent(), helpPath.includes('/en/') ? 'Copy' : 'Copiar');
+        await button.click();
+        assert.equal(await page.evaluate(() => window.copiedHelpText), commands[index]);
+      }
+    }
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
 });
 
 test('Browser UI - zerochat.html declara el mismo runtime que se distribuye', async () => {
