@@ -1058,3 +1058,19 @@ test('MCP - SSE rechaza endpoints externos, eventos excesivos y errores HTTP', a
     }
   } finally { global.fetch = originalFetch; }
 });
+
+
+test('MCP - el timeout de arranque no reconecta SSE ni reenvía el comando', async (t) => {
+  const client = new MCP.McpClient({ url: 'http://127.0.0.1:6388/sse' });
+  client.postUrl = 'http://127.0.0.1:6388/message';
+  client.isSseActive = true;
+  const aborted = new Error('Request timed out');
+  aborted.name = 'AbortError';
+  const fetch = t.mock.method(global, 'fetch', async () => { throw aborted; });
+  const disconnect = t.mock.method(client, 'disconnect', () => {});
+  await assert.rejects(client.request('zerochat/external/servers/start', { serverId: 'ejemplo' }),
+    error => error === aborted);
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.equal(disconnect.mock.callCount(), 0);
+  assert.equal(client.isSseActive, true);
+});

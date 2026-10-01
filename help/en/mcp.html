@@ -90,6 +90,7 @@ curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&am
       <li><code>memory</code>: requires Node.js 18+ and npm. ZeroChat installs <code>@modelcontextprotocol/server-memory</code> and its dependencies.</li>
       </ul>
       <p>If installation fails, check the stated Node.js version with <code>node --version</code>, confirm that <code>npm --version</code> works, and check npm network access and free disk space. Fix the requirement and select Start again; reinstalling ZeroChat is not necessary.</p>
+      <p>When you select Start, the button shows Starting and becomes disabled. If startup exceeds 15 seconds, ZeroChat checks the status and waits for up to ten additional 15-second intervals while it remains starting, displaying the attempt number. Complete OAuth authorization in the browser. If the wait expires, the service may still be starting: reload the page to check the outcome in the MCP panel.</p>
       <p>Services are managed under <code>~/zerochat/services/</code>. Deleting <code>~/zerochat/</code> removes this state and its dependencies, but not browser history or files changed outside that folder.</p>
       <p>On Termux, ZeroChat prepares an <code>xdg-open</code> bridge so MCP services open authorization links with <code>termux-open-url</code>.</p>
       <p>At startup, ZeroChat restores its bundled configuration files for <code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, and <code>memory</code>. It keeps their installed dependencies and data, as well as service folders created by the user.</p>

@@ -677,3 +677,215 @@ test('ChatUIMcp - un error al iniciar un servidor MCP se muestra en su tarjeta',
     ChatState.set('mcp', previousState);
   }
 });
+
+function makeAbortError() {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+async function flushMicrotasks() {
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+test('ChatMCP - start: si el timeout inicial expira, comprueba el estado y acepta running', async (t) => {
+  const ChatMCP = require('../../js/mcp.js');
+  const manager = ChatMCP.manager;
+  const originalRequest = manager.requestExternalControl;
+  const originalFetch = manager.fetchExternalServers;
+  const originalSync = manager.syncExternalServers;
+  const waits = [];
+  let syncCalls = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    manager.requestExternalControl = async () => { throw makeAbortError(); };
+    manager.fetchExternalServers = async () => ({ host: 'running', servers: [{ id: 'ejemplo', status: 'running' }] });
+    manager.syncExternalServers = async () => { syncCalls += 1; };
+
+    const pending = manager.startExternalServer('ejemplo', null, (attempt, total) => waits.push([attempt, total]));
+    await flushMicrotasks();
+    t.mock.timers.tick(15000);
+    await flushMicrotasks();
+
+    const result = await pending;
+    assert.equal(result.servers[0].status, 'running');
+    assert.deepEqual(waits, []);
+    assert.equal(syncCalls, 1);
+  } finally {
+    t.mock.timers.reset();
+    manager.requestExternalControl = originalRequest;
+    manager.fetchExternalServers = originalFetch;
+    manager.syncExternalServers = originalSync;
+  }
+});
+
+test('ChatMCP - start: si el estado se queda en starting, renuncia tras 10 comprobaciones', async (t) => {
+  const ChatMCP = require('../../js/mcp.js');
+  const manager = ChatMCP.manager;
+  const originalRequest = manager.requestExternalControl;
+  const originalFetch = manager.fetchExternalServers;
+  let fetchCalls = 0;
+  const waits = [];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    manager.requestExternalControl = async () => { throw makeAbortError(); };
+    manager.fetchExternalServers = async () => {
+      fetchCalls += 1;
+      return { host: 'running', servers: [{ id: 'ejemplo', status: 'starting' }] };
+    };
+
+    const pending = assert.rejects(
+      manager.startExternalServer('ejemplo', null, (attempt, total) => waits.push([attempt, total])),
+      error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
+    );
+    for (let i = 0; i < 10; i += 1) {
+      await flushMicrotasks();
+      t.mock.timers.tick(15000);
+      await flushMicrotasks();
+    }
+
+    await pending;
+    assert.equal(fetchCalls, 11);
+    assert.equal(waits.length, 10);
+    assert.deepEqual(waits[0], [1, 10]);
+    assert.deepEqual(waits[9], [10, 10]);
+  } finally {
+    t.mock.timers.reset();
+    manager.requestExternalControl = originalRequest;
+    manager.fetchExternalServers = originalFetch;
+  }
+});
+
+test('ChatMCP - start: si el estado informa error, renuncia sin esperar las 10 comprobaciones', async (t) => {
+  const ChatMCP = require('../../js/mcp.js');
+  const manager = ChatMCP.manager;
+  const originalRequest = manager.requestExternalControl;
+  const originalFetch = manager.fetchExternalServers;
+  let fetchCalls = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    manager.requestExternalControl = async () => { throw makeAbortError(); };
+    manager.fetchExternalServers = async () => {
+      fetchCalls += 1;
+      return { host: 'running', servers: [{ id: 'ejemplo', status: 'error' }] };
+    };
+
+    await assert.rejects(manager.startExternalServer('ejemplo', null, () => {}),
+      error => error.externalServer.status === 'error');
+    assert.equal(fetchCalls, 1);
+  } finally {
+    t.mock.timers.reset();
+    manager.requestExternalControl = originalRequest;
+    manager.fetchExternalServers = originalFetch;
+  }
+});
+
+test('ChatMCP - start: un error distinto del timeout se propaga sin comprobar el estado', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const manager = ChatMCP.manager;
+  const originalRequest = manager.requestExternalControl;
+  const originalFetch = manager.fetchExternalServers;
+  let fetchCalls = 0;
+  try {
+    manager.requestExternalControl = async () => { throw new Error('Sin conexión'); };
+    manager.fetchExternalServers = async () => {
+      fetchCalls += 1;
+      return { host: 'running', servers: [] };
+    };
+
+    await assert.rejects(() => manager.startExternalServer('ejemplo'), /Sin conexión/);
+    assert.equal(fetchCalls, 0);
+  } finally {
+    manager.requestExternalControl = originalRequest;
+    manager.fetchExternalServers = originalFetch;
+  }
+});
+
+test('ChatUIMcp - durante las esperas del arranque, el botón indica el intento', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const previousState = ChatState.get('mcp');
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const listeners = {};
+  const btn = {
+    disabled: false,
+    textContent: 'Iniciar',
+    getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    addEventListener: (event, listener) => { listeners[event] = listener; }
+  };
+  const container = {
+    innerHTML: '',
+    querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
+  };
+
+  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  try {
+    ChatMCP.manager.startExternalServer = async (serverId, registry, onWait) => {
+      assert.equal(serverId, 'ejemplo');
+      assert.equal(typeof onWait, 'function');
+      onWait(2, 10);
+    };
+    ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
+
+    await listeners.click();
+
+    assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 2, total: 10 });
+    assert.equal(btn.disabled, false);
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    ChatState.set('mcp', previousState);
+  }
+});
+
+
+test('ChatMCP - start: solo espera mientras el estado confirmado sea starting', async (t) => {
+  const manager = require('../../js/mcp.js').manager;
+  t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let waits = 0;
+  for (const status of ['available', 'installing', 'stopped', undefined]) {
+    const fetch = t.mock.method(manager, 'fetchExternalServers', async () => ({
+      servers: status ? [{ id: 'ejemplo', status }] : []
+    }));
+    await assert.rejects(manager.startExternalServer('ejemplo', null, () => { waits += 1; }),
+      error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
+    assert.equal(fetch.mock.callCount(), 1);
+    fetch.mock.restore();
+  }
+  assert.equal(waits, 0);
+});
+
+test('ChatMCP - start: un fallo consultando el estado detiene la espera', async (t) => {
+  const manager = require('../../js/mcp.js').manager;
+  t.mock.method(manager, 'requestExternalControl', async method => {
+    if (method.endsWith('/start')) throw makeAbortError();
+    throw new Error('Status unavailable');
+  });
+  await assert.rejects(manager.startExternalServer('ejemplo'),
+    error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
+});
+
+test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque', async (t) => {
+  const manager = require('../../js/mcp.js').manager;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const request = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let checks = 0;
+  t.mock.method(manager, 'fetchExternalServers', async () => ({
+    servers: [{ id: 'ejemplo', status: ++checks === 3 ? 'running' : 'starting' }]
+  }));
+  const sync = t.mock.method(manager, 'syncExternalServers', async () => {});
+  const waits = [];
+  const pending = manager.startExternalServer('ejemplo', null, (attempt, total) => waits.push([attempt, total]));
+  await flushMicrotasks();
+  assert.deepEqual(waits, [[1, 10]]);
+  t.mock.timers.tick(14999);
+  await flushMicrotasks();
+  assert.equal(checks, 1);
+  t.mock.timers.tick(1);
+  await flushMicrotasks();
+  assert.deepEqual(waits, [[1, 10], [2, 10]]);
+  t.mock.timers.tick(15000);
+  assert.equal((await pending).servers[0].status, 'running');
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(sync.mock.callCount(), 1);
+});

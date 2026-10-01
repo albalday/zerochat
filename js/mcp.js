@@ -49,6 +49,8 @@
   }
 
   const DEFAULT_TIMEOUT_MS = 15000;
+  const EXTERNAL_START_POLL_ATTEMPTS = 10;
+  const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -518,6 +520,9 @@
           signal: options.signal
         }, timeoutMs);
       } catch (fetchErr) {
+        // Un timeout no es un fallo de red: reintentar desconectaría el canal y
+        // reenviaría la petición, que no tiene por qué ser idempotente.
+        if (fetchErr && fetchErr.name === 'AbortError') throw fetchErr;
         // En caso de fallo de red en endpoint SSE, reconectar y reintentar una única vez
         if (!options.toolAuthorization && !options._isRetry && (isSseEndpoint || this.postUrl)) {
           this.disconnect();
@@ -1375,7 +1380,8 @@
     async fetchExternalServers(options = {}) {
       try {
         return await this.requestExternalControl('zerochat/external/status', {}, options);
-      } catch (_) {
+      } catch (error) {
+        if (options.throwOnError) throw error;
         return { host: 'running', servers: [] };
       }
     }
@@ -1415,10 +1421,48 @@
       return { status, externalTools };
     }
 
-    async startExternalServer(serverId, registry = null) {
-      const result = await this.requestExternalControl('zerochat/external/servers/start', { serverId });
-      await this.syncExternalServers(registry).catch(() => {});
-      return result;
+    async startExternalServer(serverId, registry = null, onWait = null) {
+      let result = null;
+      try {
+        result = await this.requestExternalControl('zerochat/external/servers/start', { serverId });
+      } catch (error) {
+        // El timeout inicial no implica fallo: el backend puede estar aún
+        // iniciando el servicio (p. ej. esperando la autorización OAuth).
+        if (!error || error.name !== 'AbortError') throw error;
+      }
+      if (result) {
+        await this.syncExternalServers(registry).catch(() => {});
+        return result;
+      }
+      for (let attempt = 0; attempt <= EXTERNAL_START_POLL_ATTEMPTS; attempt += 1) {
+        let status;
+        try {
+          status = await this.fetchExternalServers({ throwOnError: true });
+        } catch (cause) {
+          const error = new Error('Unable to check MCP startup status.', { cause });
+          error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
+          throw error;
+        }
+        const server = (status?.servers || []).find(item => item?.id === serverId);
+        if (server?.status === 'running') {
+          await this.syncExternalServers(registry);
+          return status;
+        }
+        if (server?.status !== 'starting') {
+          const error = new Error(`MCP server '${serverId}' did not start: ${server?.status || 'unknown'}`);
+          error.code = 'EXTERNAL_START_STATUS_UNAVAILABLE';
+          error.externalServer = server;
+          throw error;
+        }
+        if (attempt === EXTERNAL_START_POLL_ATTEMPTS) {
+          const error = new Error(`MCP server '${serverId}' is still starting after ${EXTERNAL_START_POLL_ATTEMPTS} waits.`);
+          error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
+          error.externalServer = server;
+          throw error;
+        }
+        if (typeof onWait === 'function') onWait(attempt + 1, EXTERNAL_START_POLL_ATTEMPTS);
+        await new Promise(resolve => setTimeout(resolve, EXTERNAL_START_POLL_INTERVAL_MS));
+      }
     }
 
     async stopExternalServer(serverId, registry = null) {

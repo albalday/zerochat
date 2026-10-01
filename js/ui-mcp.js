@@ -297,6 +297,9 @@
       const isBusy = isStarting || isInstalling;
       const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
       const statusLabel = translator(`mcp_external_status_${server.status || 'stopped'}`);
+      const startLabel = isStarting && server.startWait
+        ? translator('mcp_external_start_wait_attempt', server.startWait)
+        : (isBusy ? statusLabel : translator('mcp_btn_start_server'));
       const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
       const help = getServiceHelp(server.help, language, translator);
       const helpHtml = help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : '';
@@ -364,8 +367,8 @@
             <button type="button" class="${trustBtnClass}" data-server-id="${escapeHtml(server.id)}" title="${escapeHtml(trustBtnText)}">
               ${shieldIcon} <span>${escapeHtml(trustBtnText)}</span>
             </button>
-            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled' : ''}>
-              ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : translator('mcp_btn_start_server'))}
+            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled aria-busy="true"' : ''}>
+              ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : startLabel)}
             </button>
           </div>
         </div>`;
@@ -450,21 +453,29 @@
         const pendingStatus = action === 'start' ? 'starting' : 'stopped';
         const pendingLabel = translator(`mcp_external_status_${pendingStatus}`);
         btn.textContent = pendingLabel;
-        updateExternalServerState(sid, { status: pendingStatus, error: null });
+        updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null });
         const MCP = getMCP();
+        const reportStartWait = (attempt, total) => {
+          updateExternalServerState(sid, { startWait: { attempt, total } });
+        };
         try {
           if (action === 'start') {
-            await MCP?.manager?.startExternalServer?.(sid);
+            await MCP?.manager?.startExternalServer?.(sid, null, reportStartWait);
           } else {
             await MCP?.manager?.stopExternalServer?.(sid);
           }
         } catch (error) {
-          console.error(`[MCP UI] Error trying to ${action} external server:`, error);
+          const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
+            (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
+          if (!error.code?.startsWith('EXTERNAL_START_')) {
+            console.error(`[MCP UI] Error trying to ${action} external server:`, error);
+          }
           updateExternalServerState(sid, {
-            status: action === 'start' ? 'stopped' : 'running',
-            error: translator('mcp_external_action_error')
+            status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
+            startWait: null,
+            error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error')
           });
-          if (browserActionDisabled) updateToolEnabledState('browser_action', true);
+          if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
         } finally {
           btn.disabled = false;
           btn.removeAttribute?.('aria-busy');
@@ -475,12 +486,13 @@
 
   function updateExternalServerState(serverId, changes) {
     const State = getState();
-    const current = State?.get?.('mcp');
-    if (!current || !Array.isArray(current.externalServers)) return;
-    const externalServers = current.externalServers.map(server => (
-      server.id === serverId ? { ...server, ...changes } : server
-    ));
-    State.set?.('mcp', { ...current, externalServers });
+    if (!State?.set) return;
+    State.set('mcp', current => ({
+      ...current,
+      externalServers: (current.externalServers || []).map(server => (
+        server.id === serverId ? { ...server, ...changes } : server
+      ))
+    }));
   }
 
   function renderConnectionStatus(elements, mcpState, translator = t) {
