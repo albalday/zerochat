@@ -88,11 +88,21 @@
   }
 
   function createCardWrapper(ui, extraClass = '') {
+    if (ui?.createCardWrapper) return ui.createCardWrapper(extraClass);
     const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
     if (!doc) return null;
     const cardDiv = doc.createElement('div');
     cardDiv.className = extraClass ? `tool-card-wrapper ${extraClass}` : 'tool-card-wrapper';
     return cardDiv;
+  }
+
+  // HTML slots are internal markup: callers must escape external text before passing it.
+  function renderCardHtml({ titleHtml = '', badgeHtml = '', bodyHtml = '', className = '', collapsed = false, collapsible = true, buttonTitle = '', titleSuffixHtml = '' } = {}, ui = {}) {
+    const translate = ui.t || t;
+    const classes = ['tool-execution-card', ...String(className).split(/\s+/).filter(c => c && c !== 'tool-execution-card' && c !== 'collapsed')];
+    if (collapsed) classes.push('collapsed');
+    const label = buttonTitle || translate(collapsed ? 'tool_btn_expand' : 'tool_btn_collapse');
+    return `<div class="${safeEscapeHtml(classes.join(' '))}"><div class="tool-card-header"><div class="tool-card-title">${titleHtml}</div>${titleSuffixHtml}<div class="tool-card-header-actions">${badgeHtml}${collapsible ? `<button type="button" class="btn-tool-collapse" title="${safeEscapeHtml(label)}">${ui.CHEVRON_SVG || CHEVRON_SVG}</button>` : ''}</div></div><div class="tool-card-collapsible-body">${bodyHtml}</div></div>`;
   }
 
   const context = () => ({
@@ -101,7 +111,7 @@
     charts: typeof window !== 'undefined' ? window.ChatCharts : null,
     icons: typeof window !== 'undefined' ? window.ChatIcons : null,
     t,
-    createCardWrapper: (extraClass) => createCardWrapper(context(), extraClass),
+    createCardWrapper: (extraClass) => createCardWrapper({ document: typeof document === 'undefined' ? null : document }, extraClass),
     SPINNER_SVG,
     CHECK_SVG,
     ERROR_SVG,
@@ -150,8 +160,8 @@
 
   function collapseCard(card) {
     if (!card) return;
-    const cardEl = card.querySelector?.('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card')
-      || (card.matches?.('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card') ? card : null);
+    const cardEl = card.querySelector?.('.tool-execution-card, .chat-chart-card')
+      || (card.matches?.('.tool-execution-card, .chat-chart-card') ? card : null);
     if (cardEl) {
       cardEl.classList.add('collapsed');
       const btn = cardEl.querySelector('.btn-tool-collapse');
@@ -171,15 +181,12 @@
     const badgeContent = isCollapsed
       ? `${CHECK_SVG} <span>${t('tool_status_success') || 'Completado'}</span>`
       : `${SPINNER_SVG} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span>`;
-    const collapseBtnTitle = isCollapsed ? (t('tool_btn_expand') || 'Expandir herramienta') : (t('tool_btn_collapse') || 'Minimizar');
-    const collapseBtn = hasArgs
-      ? `<button type="button" class="btn-tool-collapse" title="${collapseBtnTitle}">${CHEVRON_SVG}</button>`
-      : '';
-    const bodyHtml = hasArgs
-      ? `<div class="tool-card-collapsible-body"><div class="tool-card-result"><pre class="tool-card-code"><code>${getMarkdown().escapeHtml(JSON.stringify(args, null, 2))}</code></pre></div></div>`
-      : '';
-    const cardClass = isCollapsed ? 'tool-execution-card collapsed' : 'tool-execution-card';
-    card.innerHTML = `<div class="${cardClass}"><div class="tool-card-header"><div class="tool-card-title"><span>${icon}</span><span>${getMarkdown().escapeHtml(name)}</span></div><div class="tool-card-header-actions"><span class="${badgeClass}">${badgeContent}</span>${collapseBtn}</div></div>${bodyHtml}</div>`;
+    card.innerHTML = renderCardHtml({
+      collapsed: isCollapsed,
+      titleHtml: `<span>${icon}</span><span>${getMarkdown().escapeHtml(name)}</span>`,
+      badgeHtml: `<span class="${badgeClass}">${badgeContent}</span>`,
+      bodyHtml: hasArgs ? `<div class="tool-card-result"><pre class="tool-card-code"><code>${getMarkdown().escapeHtml(JSON.stringify(args, null, 2))}</code></pre></div>` : ''
+    });
     return card;
   }
 
@@ -480,6 +487,7 @@
     resolveToolView: getView,
     resolveToolDisplayMode,
     createCardWrapper,
+    renderCardHtml,
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,

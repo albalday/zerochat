@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'list_documents',
     description: 'Returns the catalog of available documents (title, chunks, and images). Accepts an optional filter to narrow documents by title keywords (e.g. "Walmart", "2020", "10K"). Use it when you do not know the available sources or when a previous search did not find the expected document.',
@@ -36,25 +38,21 @@
 
   const LAYERS_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>';
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const card = doc.createElement('div');
-    card.className = 'tool-card-wrapper';
-    return card;
-  }
 
   function createLiveCard(_args, ui) {
-    const card = createCardWrapper(ui);
+    const card = getCards().createCardWrapper(ui);
     if (!card) return null;
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const title = t('tool_rag_list_title') || 'Base de Conocimiento (Índice de Documentos)';
     const loading = t('tool_rag_list_loading') || 'Consultando documentos indexados...';
     const retrieving = t('tool_rag_list_retrieving') || 'Recuperando documentos desde IndexedDB...';
-    card.innerHTML = `<div class="tool-execution-card rag-execution-card"><div class="tool-card-header"><div class="tool-card-title"><span>${LAYERS_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${retrieving}</span></div></div></div></div>`;
+    card.innerHTML = getCards().renderCardHtml({
+      className: 'rag-execution-card',
+      titleHtml: `<span>${LAYERS_ICON_SVG}</span><span>${title}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${retrieving}</span></div></div>`
+    }, ui);
     return card;
   }
 

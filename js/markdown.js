@@ -504,7 +504,7 @@
     });
 
     // 3. Botones y cabeceras de colapsar / minimizar tarjetas de herramientas
-    container.querySelectorAll('.tool-card-header, .web-card-header, .search-card-header, .chat-chart-header, .btn-tool-collapse').forEach(function (el) {
+    container.querySelectorAll('.tool-card-header, .chat-chart-header, .btn-tool-collapse').forEach(function (el) {
       if (el.dataset.collapseInit) return;
       el.dataset.collapseInit = 'true';
       el.addEventListener('click', function (e) {
@@ -512,7 +512,7 @@
         if (el.classList.contains('btn-tool-collapse')) {
           e.stopPropagation();
         }
-        const card = el.closest('.tool-execution-card, .web-request-card, .web-search-card, .chat-chart-card');
+        const card = el.closest('.tool-execution-card, .chat-chart-card');
         if (!card) return;
         const isCollapsed = card.classList.toggle('collapsed');
         const btn = card.querySelector('.btn-tool-collapse');

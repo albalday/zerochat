@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'download_pdf',
     description: 'Downloads a PDF file or document from a web URL and extracts all its readable text to analyze and include in the context (e.g. "https://arxiv.org/pdf/2310.06825.pdf").',
@@ -15,14 +17,6 @@
     return args?.url || args?.URL || args?.uri || args?.link || args?.href || args?.path || args?.input || (typeof args === 'string' ? args : '');
   }
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const PDF_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
 
@@ -33,14 +27,18 @@
   }
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || getHtmlSafety();
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const url = getUrl(args);
-    cardDiv.innerHTML = `<div class="web-request-card pdf-request-card"><div class="web-card-header"><div class="web-card-title"><span>${PDF_ICON_SVG}</span><span>${t('tool_pdf_title')}</span></div><div class="tool-card-header-actions"><span class="web-card-badge status-loading">${spinner} <span>${t('tool_badge_downloading') || 'Descargando...'}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving') || 'Recibiendo contenido...'}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_pdf')}</span></div></div></div></div>`;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: 'web-request-card pdf-request-card',
+      titleHtml: `<span>${PDF_ICON_SVG}</span><span>${t('tool_pdf_title')}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_downloading') || 'Descargando...'}</span></span>`,
+      bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving') || 'Recibiendo contenido...'}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_pdf')}</span></div></div>`
+    }, ui);
     return cardDiv;
   }
 
@@ -52,9 +50,9 @@
     const errorSvg = ui?.ERROR_SVG || '';
     const success = result?.success !== false && !result?.error;
     const content = result?.content || result?.error || '';
-    const badge = cardDiv.querySelector('.web-card-badge');
+    const badge = cardDiv.querySelector('.tool-card-badge');
     if (badge) {
-      badge.className = `web-card-badge ${success ? 'status-success' : 'status-error'}`;
+      badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
       badge.innerHTML = success
         ? `${checkSvg} <span>PDF OK (${elapsedMs || 0}ms)</span>`
         : `${errorSvg} <span>Error PDF (${elapsedMs || 0}ms)</span>`;

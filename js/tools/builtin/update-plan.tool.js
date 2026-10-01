@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'update_plan',
     description: 'Updates the visible agent work plan and task statuses to track progress in the UI.',
@@ -41,14 +43,6 @@
   const TASK_PENDING_SVG = '<svg class="ui-icon status-icon-pending" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted, #94a3b8)" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>';
   const TASK_FAILED_SVG = '<svg class="ui-icon status-icon-failed" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--error-color, #ef4444)" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -76,17 +70,21 @@
   }
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const title = t('tool_update_plan_title') || 'Plan de trabajo del agente';
     const statusText = t('tool_update_plan_loading') || 'Actualizando plan de tareas...';
     const rawTasks = Array.isArray(args?.tasks) ? args.tasks : [];
 
-    cardDiv.innerHTML = `<div class="tool-execution-card agent-plan-card"><div class="tool-card-header"><div class="tool-card-title"><span>${PLAN_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result">${renderTaskListHtml(rawTasks, Markdown)}</div></div></div>`;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: 'agent-plan-card',
+      titleHtml: `<span>${PLAN_ICON_SVG}</span><span>${title}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span>`,
+      bodyHtml: `<div class="tool-card-result">${renderTaskListHtml(rawTasks, Markdown)}</div>`
+    }, ui);
     return cardDiv;
   }
 

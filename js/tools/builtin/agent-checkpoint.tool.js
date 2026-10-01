@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'agent_checkpoint',
     description: 'Agentic checkpoint for consolidating findings and recording the next step: invoke it after querying sources, verifying whether information is sufficient, or validating the final answer.',
@@ -34,28 +36,24 @@
 
   const CHECKPOINT_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"></path><line x1="12" y1="13" x2="12" y2="21"></line></svg>';
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const title = t('tool_agent_checkpoint_title') || 'Punto de control agéntico';
     const statusText = t('tool_agent_checkpoint_loading') || 'Consolidando hallazgos...';
 
-    cardDiv.innerHTML = `<div class="tool-execution-card agent-checkpoint-card"><div class="tool-card-header"><div class="tool-card-title"><span>${CHECKPOINT_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="checkpoint-findings"><strong>${t('tool_agent_checkpoint_findings') || 'Hallazgos clave:'}</strong><div class="checkpoint-findings-text">${Markdown.escapeHtml(args?.findings || '')}</div></div></div></div></div>`;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: 'agent-checkpoint-card',
+      titleHtml: `<span>${CHECKPOINT_ICON_SVG}</span><span>${title}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><div class="checkpoint-findings"><strong>${t('tool_agent_checkpoint_findings') || 'Hallazgos clave:'}</strong><div class="checkpoint-findings-text">${Markdown.escapeHtml(args?.findings || '')}</div></div></div>`
+    }, ui);
     return cardDiv;
   }
 

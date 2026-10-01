@@ -105,6 +105,74 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
   } finally { await browser.close(); }
 });
 
+test('Browser UI - completing one tool preserves user-opened groups and previous executions', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const result = await page.evaluate(() => {
+      const cards = ChatToolCards;
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const isCollapsed = card => card.querySelector('.tool-execution-card').classList.contains('collapsed');
+      const create = name => {
+        const card = cards.createLiveToolCard(name, { value: 1 });
+        cards.appendToolCard(container, card);
+        ChatMarkdown.attachCopyCodeListeners(card);
+        return card;
+      };
+      const finish = (card, name, success = true) => {
+        const output = { success };
+        cards.updateLiveToolCard(card, name, {}, output, 1);
+        cards.completeToolCard(card, output);
+        ChatMarkdown.attachCopyCodeListeners(card);
+      };
+      const first = create('first_execution');
+      const second = create('second_execution');
+      finish(first, 'first_execution');
+      finish(second, 'second_execution');
+      const group = first.closest('.tool-call-group');
+      const history = group.querySelector('details');
+      const untouched = !history.open && isCollapsed(first) && isCollapsed(second);
+      history.querySelector('summary').click();
+      first.querySelector('.tool-card-header').click();
+      second.querySelector('.btn-tool-collapse').click();
+      const userOpened = history.open && !isCollapsed(first) && !isCollapsed(second);
+      const third = create('third_execution');
+      const fourth = create('fourth_execution');
+      const activeUnaffected = !isCollapsed(fourth);
+      finish(third, 'third_execution');
+      const afterThird = history.open && !isCollapsed(first) && !isCollapsed(second)
+        && isCollapsed(third) && !isCollapsed(fourth);
+      third.querySelector('.btn-tool-collapse').click();
+      finish(fourth, 'fourth_execution', false);
+      const afterFourth = history.open && !isCollapsed(first) && !isCollapsed(second)
+        && !isCollapsed(third) && isCollapsed(fourth);
+      // A separate group also retains its automatic closed state.
+      const separator = document.createElement('p');
+      separator.textContent = 'Assistant response';
+      container.appendChild(separator);
+      const fifth = create('fifth_execution');
+      finish(fifth, 'fifth_execution');
+      const otherHistory = fifth.closest('.tool-call-group').querySelector('details');
+      const independentGroups = !otherHistory.open && isCollapsed(fifth) && history.open
+        && !isCollapsed(first) && !isCollapsed(second) && !isCollapsed(third);
+      history.querySelector('summary').click();
+      const sixth = create('sixth_execution');
+      finish(sixth, 'sixth_execution');
+      const userClosed = !history.open && !isCollapsed(first) && !isCollapsed(second)
+        && !isCollapsed(third) && !otherHistory.open;
+      container.remove();
+      return { untouched, userOpened, activeUnaffected, afterThird, afterFourth, independentGroups, userClosed };
+    });
+    for (const [name, value] of Object.entries(result)) assert.equal(value, true, name);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo su nombre', async () => {
   const browser = await createTestBrowser();
   try {
@@ -132,6 +200,85 @@ test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo 
     assert.equal(layout.badgeBelowTitle, true);
     assert.equal(layout.collapseAtRight, true);
     assert.ok(layout.titleLines <= 2);
+  } finally { await browser.close(); }
+});
+
+test('Browser UI - native, MCP and historical cards share mobile layout; charts stay outside groups', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    const result = await page.evaluate(async () => {
+      const provider = new ChatMCP.McpToolProvider({
+        id: 'mobile', name: 'Long server label',
+        initialize: async () => {},
+        listTools: async () => [{ name: 'LONG_TOOL_NAME_WITH_MANY_CHARACTERS', inputSchema: { type: 'object' } }]
+      });
+      const tools = await provider.discoverTools();
+      const mcp = tools[0];
+      ChatAgentCore.registry.registerTool(mcp);
+      const container = document.createElement('div');
+      container.style.width = '350px';
+      document.body.appendChild(container);
+      const cases = [
+        ['search_web', { query: '<img src=x onerror=alert(1)>' }, { success: true, count: 1, results: [{ title: '<script>bad</script>', url: 'javascript:alert(1)', snippet: '<img src=x>' }] }],
+        ['fetch_web_page', { url: 'https://example.com' }, { success: false, error: 'Failed' }],
+        ['download_pdf', { url: 'https://example.com/a.pdf' }, { success: true, text: 'PDF' }],
+        ['execute_javascript', { code: 'return 1' }, { success: true, result: '1' }],
+        ['read_knowledge_image', { imageRef: 'rag-image://doc:image' }, { success: true, documentTitle: '<script>bad</script>' }],
+        [mcp.name, { input: 'value' }, { success: true, content: '<script>bad</script>' }]
+      ];
+      const layouts = [];
+      for (const [name, args, output] of cases) {
+        const card = ChatToolCards.createLiveToolCard(name, args);
+        ChatToolCards.appendToolCard(container, card);
+        ChatToolCards.updateLiveToolCard(card, name, args, output, 15);
+        ChatToolCards.completeToolCard(card, output);
+        const group = card.closest('.tool-call-group-history');
+        group.open = true;
+        const header = card.querySelector('.tool-card-header');
+        const title = card.querySelector('.tool-card-title');
+        const badge = card.querySelector('.tool-card-badge');
+        layouts.push({ name, grid: getComputedStyle(header).display,
+          below: badge.getBoundingClientRect().top >= title.getBoundingClientRect().bottom,
+          collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'),
+          unsafe: !!card.querySelector('script, img[onerror], a[href^="javascript:"]') });
+        const historical = ChatToolCards.renderHistoricalToolCard({ function: { name, arguments: JSON.stringify(args) } }, { content: JSON.stringify(output) });
+        layouts.push({ name: name + ' history', canonical: !!historical.querySelector('.tool-card-header'),
+          collapsed: historical.querySelector('.tool-execution-card').classList.contains('collapsed') });
+      }
+      ChatMarkdown.attachCopyCodeListeners(container);
+      const first = container.querySelector('.tool-execution-card');
+      first.querySelector('.btn-tool-collapse').click();
+      const toggles = !first.classList.contains('collapsed');
+      const chartArgs = { type: 'bar', title: 'Chart', labels: ['a'], datasets: [{ label: 'Data', data: [1] }] };
+      const chart = ChatToolCards.createLiveToolCard('render_chart', chartArgs);
+      ChatToolCards.appendToolCard(container, chart);
+      ChatToolCards.updateLiveToolCard(chart, 'render_chart', chartArgs, { success: true }, 1);
+      const chartOutside = chart.parentNode === container && !chart.querySelector('.collapsed');
+      const chartHistory = ChatToolCards.renderHistoricalToolCard({ function: { name: 'render_chart', arguments: JSON.stringify(chartArgs) } }, { content: '{}' });
+      ChatToolCards.appendToolCard(container, chartHistory, { completed: true });
+      const chartHistoryOutside = chartHistory.parentNode === container && !chartHistory.querySelector('.collapsed');
+      container.remove();
+      return { layouts, toggles, chartOutside, chartHistoryOutside };
+    });
+    for (const layout of result.layouts) {
+      assert.equal(layout.collapsed, true, layout.name);
+      if (layout.canonical !== undefined) assert.equal(layout.canonical, true, layout.name);
+      else {
+        assert.equal(layout.grid, 'grid', layout.name);
+        assert.equal(layout.below, true, layout.name);
+        assert.equal(layout.unsafe, false, layout.name);
+      }
+    }
+    assert.equal(result.toggles, true);
+    assert.equal(result.chartOutside, true);
+    assert.equal(result.chartHistoryOutside, true);
+    assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
 

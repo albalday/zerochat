@@ -59,3 +59,19 @@ públicos de más de 64 caracteres y los duplicados se rechazan explícitamente.
 El registro no genera alias MCP ni elimina sus guiones bajos para resolverlos.
 Los permisos persistidos se consultan exclusivamente por identificador canónico,
 nunca por nombre original, sufijo o alias. No existe migración de nombres antiguos.
+
+## Tarjetas de ejecución
+
+`ChatToolCards.renderCardHtml(options, context)` construye el armazón único de las
+tarjetas nativas, MCP y de respaldo: cabecera, estado, botón y cuerpo plegable.
+Las vistas aportan `titleHtml`, `badgeHtml` y `bodyHtml`, escapando previamente
+cualquier dato externo; estos slots solo admiten HTML interno seguro.
+`className` conserva selectores específicos del contenido, sin cambiar el diseño
+de la cabecera. `titleSuffixHtml` permite mostrar el servidor MCP por separado
+del nombre truncado. El plegado y la agrupación se coordinan en `ChatToolCards`.
+Los gráficos son resultados principales: permanecen abiertos fuera de los grupos.
+Las capturas MCP conservan `keepExpanded` para permitir inspeccionar la imagen.
+
+El cierre automático se limita a la tarjeta que termina. Actualizar el estado de
+un grupo o mover una tarjeta al historial no modifica el atributo `open` del
+agrupador ni el plegado de otras tarjetas, respetando la interacción del usuario.

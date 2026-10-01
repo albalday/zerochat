@@ -379,9 +379,9 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
       const searchCard = ChatToolCards.createLiveToolCard('search_web', { query: 'test query' });
       container.appendChild(searchCard);
 
-      const searchTitle = searchCard.querySelector('.search-card-title');
+      const searchTitle = searchCard.querySelector('.tool-card-title');
       const searchTitleSvg = searchTitle?.querySelector('svg');
-      const searchBadge = searchCard.querySelector('.search-card-badge');
+      const searchBadge = searchCard.querySelector('.tool-card-badge');
       const searchBadgeSpinnerSvg = searchBadge?.querySelector('svg.ui-icon-spin');
 
       const searchTitleHasEmoji = searchTitle?.textContent.includes('🔍') || false;

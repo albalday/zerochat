@@ -379,8 +379,6 @@
 }
 
 .tool-card-header,
-.web-card-header,
-.search-card-header,
 .chat-chart-header {
   cursor: pointer;
   user-select: none;
@@ -475,8 +473,6 @@
 }
 
 .tool-execution-card.collapsed .btn-tool-collapse svg,
-.web-request-card.collapsed .btn-tool-collapse svg,
-.web-search-card.collapsed .btn-tool-collapse svg,
 .chat-chart-card.collapsed .btn-tool-collapse svg {
   transform: rotate(-90deg);
 }
@@ -486,8 +482,6 @@
 }
 
 .tool-execution-card.collapsed .tool-card-collapsible-body,
-.web-request-card.collapsed .tool-card-collapsible-body,
-.web-search-card.collapsed .tool-card-collapsible-body,
 .chat-chart-card.collapsed .tool-card-collapsible-body {
   display: none;
 }
@@ -550,7 +544,7 @@
   word-break: break-word;
 }
 
-/* En pantallas estrechas el estado no debe competir con nombres MCP largos. */
+/* Todas las herramientas comparten el mismo encabezado adaptable. */
 @media (max-width: 640px) {
   .tool-call-group {
     border-color: var(--border-subtle);
@@ -590,7 +584,7 @@
     overflow-wrap: anywhere;
   }
 
-  .tool-card-header-actions {
+  .tool-card-header .tool-card-header-actions {
     display: contents;
   }
 
@@ -619,42 +613,6 @@ hr {
 }
 
 /* Subzona de Pantalla: Tarjeta de Consulta Web en Modo Agente */
-.web-request-card {
-  margin: 0.75rem 0;
-  border: 1px solid #0284c7;
-  background: #f0f9ff;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
-.web-card-header {
-  background: linear-gradient(135deg, #0284c7, #0ea5e9);
-  color: white;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.web-card-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.web-card-badge {
-  font-size: 0.7rem;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--radius-full);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
 
 .web-card-section {
   padding: 0.5rem 0.85rem;
@@ -707,51 +665,6 @@ hr {
 }
 
 /* Subzona de Pantalla: Tarjeta de Búsqueda Web en Modo Agente */
-.web-search-card {
-  margin: 0.75rem 0;
-  border: 1px solid #0d9488;
-  background: #f0fdfa;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-  width: 100%;
-  box-sizing: border-box;
-  text-align: left;
-}
-
-.search-card-header {
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
-  color: white;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-  user-select: none;
-  width: 100%;
-  box-sizing: border-box;
-  text-align: left;
-}
-
-.search-card-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  text-align: left;
-}
-
-.search-card-badge {
-  font-size: 0.7rem;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--radius-full);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
 
 .search-query-section,
 .search-results-section {
@@ -813,4 +726,13 @@ hr {
   line-height: 1.35;
   text-align: left;
   word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .tool-card-header > .mcp-card-server-tag {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: start;
+    margin-left: 0;
+  }
 }

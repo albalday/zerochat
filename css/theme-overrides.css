@@ -215,10 +215,6 @@
 
 
 /* Modo Oscuro: Tarjeta de consulta web */
-[data-theme="dark"] .web-request-card {
-  border-color: #0369a1;
-  background-color: #082f49;
-}
 
 [data-theme="dark"] .web-card-section.web-request-section {
   background-color: #0c1829;
@@ -244,14 +240,7 @@
 }
 
 /* Modo Oscuro: Tarjeta de búsqueda web */
-[data-theme="dark"] .web-search-card {
-  border-color: #0f766e;
-  background-color: #042f2e;
-}
 
-[data-theme="dark"] .search-card-header {
-  background: linear-gradient(135deg, #0f766e, #115e59);
-}
 
 [data-theme="dark"] .search-query-section,
 [data-theme="dark"] .search-results-section {

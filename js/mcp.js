@@ -762,26 +762,17 @@
 
     const renderCard = (args, contentHtml, badgeHtml, ui, isCollapsed = false) => {
       const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
-      const t = ui?.t || (k => k);
       const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card') : document.createElement('div');
       card.className = 'tool-card-wrapper mcp-card';
       const argStr = args && typeof args === 'object' && Object.keys(args).length ? esc(JSON.stringify(args, null, 2)) : '';
-      const cardClass = isCollapsed ? 'tool-execution-card collapsed' : 'tool-execution-card';
-      const btnTitle = isCollapsed ? (t('tool_btn_expand') || 'Expandir') : (t('tool_btn_collapse') || 'Minimizar');
-      card.innerHTML = `
-        <div class="${cardClass}">
-          <div class="tool-card-header">
-            <div class="tool-card-title">${iconSvg}<span>${esc(toolName)}</span><span class="mcp-card-server-tag">${esc(serverName || 'MCP')}</span></div>
-            <div class="tool-card-header-actions">
-              ${badgeHtml}
-              <button type="button" class="btn-tool-collapse" title="${btnTitle}">${ui?.CHEVRON_SVG || '▼'}</button>
-            </div>
-          </div>
-          <div class="tool-card-collapsible-body">
-            ${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}
-            <div class="tool-card-result">${contentHtml}</div>
-          </div>
-        </div>`;
+      const cards = typeof window !== 'undefined' && window.ChatToolCards || require('./tool-cards.js');
+      card.innerHTML = cards.renderCardHtml({
+        collapsed: isCollapsed,
+        titleHtml: `${iconSvg}<span>${esc(toolName)}</span>`,
+        titleSuffixHtml: `<span class="mcp-card-server-tag">${esc(serverName || 'MCP')}</span>`,
+        badgeHtml,
+        bodyHtml: `${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}<div class="tool-card-result">${contentHtml}</div>`
+      }, ui);
       return card;
     };
 

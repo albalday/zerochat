@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'finish_task',
     description: 'Formally signals task completion by the agent, summarizing the work done and verification performed.',
@@ -22,28 +24,24 @@
 
   const FINISH_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>';
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const title = t('tool_finish_task_title') || 'Finalización de tarea';
     const statusText = t('tool_finish_task_loading') || 'Cerrando tarea...';
 
-    cardDiv.innerHTML = `<div class="tool-execution-card agent-finish-card"><div class="tool-card-header"><div class="tool-card-title"><span>${FINISH_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="finish-summary-label" style="font-weight: 600; opacity: 0.85; margin-bottom: 4px;">${t('tool_finish_task_summary') || 'Resumen de ejecución:'}</div><div class="finish-summary-text" style="white-space: pre-wrap; font-size: 0.9em;">${Markdown.escapeHtml(args?.summary || '')}</div></div></div></div>`;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: 'agent-finish-card',
+      titleHtml: `<span>${FINISH_ICON_SVG}</span><span>${title}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${statusText}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><div class="finish-summary-label" style="font-weight: 600; opacity: 0.85; margin-bottom: 4px;">${t('tool_finish_task_summary') || 'Resumen de ejecución:'}</div><div class="finish-summary-text" style="white-space: pre-wrap; font-size: 0.9em;">${Markdown.escapeHtml(args?.summary || '')}</div></div>`
+    }, ui);
     return cardDiv;
   }
 

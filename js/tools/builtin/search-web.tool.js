@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'search_web',
     description: 'Searches the internet in real time for up-to-date information, news, articles, and web links using DuckDuckGo.',
@@ -19,14 +21,6 @@
     return args?.query || args?.q || args?.search || args?.keyword || args?.term || args?.input || (typeof args === 'string' ? args : '');
   }
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const SEARCH_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
   const LINK_ICON_SVG = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
@@ -39,13 +33,17 @@
   }
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || getHtmlSafety();
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
-    cardDiv.innerHTML = `<div class="web-search-card"><div class="search-card-header"><div class="search-card-title"><span>${SEARCH_ICON_SVG}</span><span>${t('tool_search_title') || 'Búsqueda en Internet'}</span></div><div class="tool-card-header-actions"><span class="search-card-badge status-loading">${spinner} <span>${t('tool_badge_searching') || 'Buscando...'}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="search-query-section"><div class="section-label">${t('tool_search_query')}</div><div class="query-badge">${SEARCH_ICON_SVG} <strong>${Markdown.escapeHtml(getQuery(args))}</strong></div></div><div class="search-results-section"><div class="section-label search-sources-label">${t('tool_search_searching') || 'Buscando fuentes...'}</div><div class="search-results-list tool-loading-placeholder">${spinner} <span>${t('tool_loading_search') || 'Consultando motores de búsqueda...'}</span></div></div></div></div>`;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: 'web-search-card',
+      titleHtml: `<span>${SEARCH_ICON_SVG}</span><span>${t('tool_search_title') || 'Búsqueda en Internet'}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_searching') || 'Buscando...'}</span></span>`,
+      bodyHtml: `<div class="search-query-section"><div class="section-label">${t('tool_search_query')}</div><div class="query-badge">${SEARCH_ICON_SVG} <strong>${Markdown.escapeHtml(getQuery(args))}</strong></div></div><div class="search-results-section"><div class="section-label search-sources-label">${t('tool_search_searching') || 'Buscando fuentes...'}</div><div class="search-results-list tool-loading-placeholder">${spinner} <span>${t('tool_loading_search') || 'Consultando motores de búsqueda...'}</span></div></div>`
+    }, ui);
     return cardDiv;
   }
 
@@ -57,9 +55,9 @@
     const errorSvg = ui?.ERROR_SVG || '';
     const isSuccess = result?.success !== false && !result?.error;
     const count = result?.count || (Array.isArray(result?.results) ? result.results.length : 0);
-    const badge = cardDiv.querySelector('.search-card-badge');
+    const badge = cardDiv.querySelector('.tool-card-badge');
     if (badge) {
-      badge.className = `search-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
+      badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
       badge.innerHTML = isSuccess
         ? `${checkSvg} <span>${count} fuentes (${elapsedMs || 0}ms)</span>`
         : `${errorSvg} <span>Error búsqueda (${elapsedMs || 0}ms)</span>`;

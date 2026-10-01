@@ -5,6 +5,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'search_knowledge_base',
     description: 'Searches relevant knowledge-base chunks. Use scope="document" with documentHint for one exact source, scope="corpus" for comparisons or multiple sources, and scope="auto" only when the target scope is unclear. For multi-document retrieval, make one corpus search instead of repeating the same query per document.',
@@ -44,29 +46,25 @@
 
   const DB_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>';
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const card = doc.createElement('div');
-    card.className = 'tool-card-wrapper';
-    return card;
-  }
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   function createLiveCard(args, ui) {
-    const card = createCardWrapper(ui);
+    const card = getCards().createCardWrapper(ui);
     if (!card) return null;
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const chevron = ui?.CHEVRON_SVG || '';
     const query = args?.query || args?.q || args?.search || '';
     const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) }) || `Conocimiento local: "${Markdown.escapeHtml(query)}"`;
     const loading = t('tool_rag_search_loading') || 'Buscando con Orama...';
     const building = t('tool_rag_search_building') || 'Construyendo el índice local...';
-    card.innerHTML = `<div class="tool-execution-card rag-execution-card"><div class="tool-card-header"><div class="tool-card-title"><span>${DB_ICON_SVG}</span><span>${title}</span></div><div class="tool-card-header-actions"><span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span><button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button></div></div><div class="tool-card-collapsible-body"><div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${building}</span></div></div></div></div>`;
+    card.innerHTML = getCards().renderCardHtml({
+      className: 'rag-execution-card',
+      titleHtml: `<span>${DB_ICON_SVG}</span><span>${title}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${building}</span></div></div>`
+    }, ui);
     return card;
   }
 

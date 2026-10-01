@@ -30,27 +30,32 @@
     };
   }
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   function createLiveCard(args, ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    const t = ui?.t || ((key) => key);
+    const card = getCards().createCardWrapper(ui);
+    if (!card) return null;
+    const t = ui?.t || (key => key);
     const md = getMarkdown(ui);
-    const safeRef = md.escapeHtml(args?.imageRef || '');
-    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${safeRef}</code></div></div>`;
-    return cardDiv;
+    card.innerHTML = getCards().renderCardHtml({
+      titleHtml: `<span>${md.escapeHtml(t('tool_rag_image_title'))}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${ui?.SPINNER_SVG || ''}<span>${md.escapeHtml(t('tool_badge_executing'))}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><code>${md.escapeHtml(args?.imageRef || '')}</code><div class="rag-image-result"></div></div>`
+    }, ui);
+    return card;
   }
 
-  function updateLiveCard(cardDiv, args, result, _elapsedMs, ui) {
-    if (!cardDiv) return;
-    const t = ui?.t || ((key) => key);
-    const md = getMarkdown(ui);
-    const safeRef = md.escapeHtml(args?.imageRef || '');
-    const content = result?.success ? (result.documentTitle || result.imageRef) : (result?.error || 'Error');
-    const safeContent = md.escapeHtml(content || '');
-    cardDiv.innerHTML = `<div class="rag-image-card"><div class="rag-card-header"><span>${t('tool_rag_image_title') || 'Imagen RAG'}</span>: <code>${safeRef}</code></div><div class="rag-card-body">${safeContent}</div></div>`;
+  function updateLiveCard(card, _args, result, elapsedMs, ui) {
+    if (!card) return;
+    const t = ui?.t || (key => key);
+    const success = result?.success !== false && !result?.error;
+    const badge = card.querySelector('.tool-card-badge');
+    if (badge) {
+      badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
+      badge.innerHTML = `${success ? ui?.CHECK_SVG || '' : ui?.ERROR_SVG || ''}<span>${getMarkdown(ui).escapeHtml(t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs || 0 }))}</span>`;
+    }
+    const body = card.querySelector('.rag-image-result');
+    if (body) body.textContent = success ? result?.documentTitle || result?.imageRef || '' : result?.error || '';
   }
 
   function renderHistoricalCard(args, toolMessage, ui) {

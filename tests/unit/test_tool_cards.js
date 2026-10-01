@@ -214,3 +214,30 @@ test('ChatToolCards - Herramientas con displayMode: expanded permanecen abiertas
 });
 
 
+
+test('ChatToolCards - common frame escapes attributes and keeps internal safe slots', () => {
+  const html = ChatToolCards.renderCardHtml({
+    className: 'web-search-card" onclick="bad',
+    titleHtml: '<span>&lt;script&gt;</span>',
+    badgeHtml: '<span class="tool-card-badge status-error">Error</span>',
+    bodyHtml: '<code>&lt;img onerror=bad&gt;</code>',
+    buttonTitle: '" onclick="bad', collapsed: true
+  });
+  assert.ok(html.includes('tool-execution-card'));
+  assert.ok(html.includes('tool-card-header'));
+  assert.ok(html.includes('tool-card-collapsible-body'));
+  assert.ok(html.includes('collapsed'));
+  assert.ok(html.includes('&quot;'));
+  assert.ok(!html.includes(' onclick="bad'));
+  assert.ok(!html.includes('<script>'));
+});
+
+test('ChatToolCards - preserves injected wrapper factories', () => {
+  const card = {};
+  let requestedClass;
+  assert.equal(ChatToolCards.createCardWrapper({ createCardWrapper: className => {
+    requestedClass = className;
+    return card;
+  } }, 'mcp-card'), card);
+  assert.equal(requestedClass, 'mcp-card');
+});

@@ -13,6 +13,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+
   const definition = {
     name: 'execute_javascript',
     description: 'Executes JavaScript code in an isolated local worker to assist with calculations and data processing under technical user supervision. Always use return <value> or console.log() to emit the result.',
@@ -47,14 +49,6 @@
     return `> ⚡ **execute_javascript**\n> \`\`\`javascript\n> ${code.split('\n').join('\n> ')}\n> \`\`\`\n> \`\`\`\n> ${String(output).split('\n').join('\n> ')}\n> \`\`\``;
   }
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -64,38 +58,27 @@
       t: ui?.t || ((key) => key),
       spinner: ui?.SPINNER_SVG || '',
       checkSvg: ui?.CHECK_SVG || '',
-      errorSvg: ui?.ERROR_SVG || '',
-      chevron: ui?.CHEVRON_SVG || ''
+      errorSvg: ui?.ERROR_SVG || ''
     };
   }
 
   const JS_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>';
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
-    const { Markdown, t, spinner, chevron } = getUiHelpers(ui);
+    const { Markdown, t, spinner } = getUiHelpers(ui);
     const code = getCode(args);
-    cardDiv.innerHTML = `
-      <div class="tool-execution-card">
-        <div class="tool-card-header">
-          <div class="tool-card-title">
-            <span>${JS_ICON_SVG}</span>
-            <span>${t('tool_js_title_running') || 'execute_javascript'}</span>
-          </div>
-          <div class="tool-card-header-actions">
-            <span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></span>
-            <button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button>
-          </div>
-        </div>
-        <div class="tool-card-collapsible-body">
-          <pre class="tool-card-code"><code>${Markdown.escapeHtml(code)}</code></pre>
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: '',
+      titleHtml: `<span>${JS_ICON_SVG}</span>
+            <span>${t('tool_js_title_running') || 'execute_javascript'}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></span>`,
+      bodyHtml: `<pre class="tool-card-code"><code>${Markdown.escapeHtml(code)}</code></pre>
           <div class="tool-card-result">
             <div class="tool-loading-placeholder">${spinner} <span>${t('tool_loading_js') || 'Ejecutando código JavaScript...'}</span></div>
-          </div>
-        </div>
-      </div>
-    `;
+          </div>`
+    }, ui);
     return cardDiv;
   }
 
@@ -121,9 +104,9 @@
   }
 
   function renderHistoricalCard(args, toolMessage, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
-    const { Markdown, t, checkSvg, chevron } = getUiHelpers(ui);
+    const { Markdown, t, checkSvg } = getUiHelpers(ui);
     let output = '';
     if (toolMessage?.content) {
       try {
@@ -136,21 +119,13 @@
       }
     }
     const cleanOutput = String(output ?? '').trim();
-    cardDiv.innerHTML = `
-      <div class="tool-execution-card">
-        <div class="tool-card-header">
-          <div class="tool-card-title"><span>${JS_ICON_SVG}</span><span>${t('tool_js_title_running') || 'execute_javascript'}</span></div>
-          <div class="tool-card-header-actions">
-            <span class="tool-card-badge status-success">${checkSvg} <span>${t('tool_status_success') || 'Completado'}</span></span>
-            <button type="button" class="btn-tool-collapse" title="${t('tool_btn_collapse') || 'Minimizar'}">${chevron}</button>
-          </div>
-        </div>
-        <div class="tool-card-collapsible-body">
-          <pre class="tool-card-code"><code>${Markdown.escapeHtml(getCode(args).trim())}</code></pre>
-          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>
-        </div>
-      </div>
-    `;
+    cardDiv.innerHTML = getCards().renderCardHtml({
+      className: '',
+      titleHtml: `<span>${JS_ICON_SVG}</span><span>${t('tool_js_title_running') || 'execute_javascript'}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-success">${checkSvg} <span>${t('tool_status_success') || 'Completado'}</span></span>`,
+      bodyHtml: `<pre class="tool-card-code"><code>${Markdown.escapeHtml(getCode(args).trim())}</code></pre>
+          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>`
+    }, ui);
     return cardDiv;
   }
 
