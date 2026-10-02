@@ -1329,8 +1329,148 @@
     return 0;
   }
 
+  const ADOBE_CMYK_SEGMENT = new Uint8Array([
+    0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00
+  ]);
+
   /**
-   * Convierte un Data URL JPEG en espacio de color CMYK / YCCK a un Data URL JPEG sRGB bajo demanda.
+   * Invierte las muestras de un JPEG CMYK baseline (x → 256 - x) sin decodificarlo.
+   * Los navegadores interpretan todo JPEG CMYK con la convención invertida de Adobe, pero en un PDF
+   * DCTDecode entrega los valores sin invertir. Negar un coeficiente DCT equivale a complementar sus
+   * bits de magnitud, así que basta con recorrer el flujo Huffman y voltear esos bits.
+   * Devuelve null si el JPEG no es baseline (progresivo, aritmético, etc.).
+   */
+  function invertJpegCmykSamples(bytes) {
+    const u16 = p => (bytes[p] << 8) | bytes[p + 1];
+    if (u16(0) !== 0xFFD8) return null;
+    const dcTables = [];
+    const acTables = [];
+    const parts = [bytes.subarray(0, 2)];
+    let frame = null;
+    let restartInterval = 0;
+    let hasAdobe = false;
+    let offset = 2;
+
+    const buildTable = p => {
+      const map = new Map();
+      let code = 0;
+      let k = p + 16;
+      for (let len = 1; len <= 16; len++) {
+        for (let i = 0; i < bytes[p + len - 1]; i++) map.set((len << 16) | code++, bytes[k++]);
+        code <<= 1;
+      }
+      return { map, next: k };
+    };
+
+    while (offset + 2 <= bytes.length) {
+      if (bytes[offset] !== 0xFF) return null;
+      const marker = bytes[offset + 1];
+      if (marker === 0xD9) { parts.push(bytes.subarray(offset, offset + 2)); break; }
+      if (offset + 4 > bytes.length) return null;
+      const segmentEnd = offset + 2 + u16(offset + 2);
+      if (marker === 0xC4) {
+        for (let p = offset + 4; p < segmentEnd;) {
+          const info = bytes[p];
+          const { map, next } = buildTable(p + 1);
+          ((info >> 4) ? acTables : dcTables)[info & 0x0F] = map;
+          p = next;
+        }
+      } else if (marker === 0xC0 || marker === 0xC1) {
+        const components = [];
+        for (let i = 0; i < bytes[offset + 9]; i++) {
+          const q = offset + 10 + i * 3;
+          components.push({ id: bytes[q], h: bytes[q + 1] >> 4, v: bytes[q + 1] & 0x0F });
+        }
+        frame = { height: u16(offset + 5), width: u16(offset + 7), components };
+      } else if (marker >= 0xC2 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+        return null;
+      } else if (marker === 0xDD) {
+        restartInterval = u16(offset + 4);
+      } else if (marker === 0xEE && bytes[offset + 4] === 0x41 && bytes[offset + 5] === 0x64) {
+        hasAdobe = true;
+      }
+      parts.push(bytes.subarray(offset, segmentEnd));
+      const scanHeader = offset;
+      offset = segmentEnd;
+      if (marker !== 0xDA) continue;
+      if (!frame) return null;
+
+      const scan = [];
+      for (let i = 0; i < bytes[scanHeader + 4]; i++) {
+        const q = scanHeader + 5 + i * 2;
+        const component = frame.components.find(c => c.id === bytes[q]);
+        if (!component) return null;
+        scan.push({ ...component, dc: dcTables[bytes[q + 1] >> 4], ac: acTables[bytes[q + 1] & 0x0F] });
+      }
+      const hMax = Math.max(...frame.components.map(c => c.h));
+      const vMax = Math.max(...frame.components.map(c => c.v));
+      const totalMcus = scan.length === 1
+        ? Math.ceil(Math.ceil(frame.width * scan[0].h / hMax) / 8) * Math.ceil(Math.ceil(frame.height * scan[0].v / vMax) / 8)
+        : Math.ceil(frame.width / (8 * hMax)) * Math.ceil(frame.height / (8 * vMax));
+      const blocks = scan.map(c => ({ c, count: scan.length === 1 ? 1 : c.h * c.v }));
+
+      for (let mcu = 0; mcu < totalMcus;) {
+        const data = [];
+        while (offset < bytes.length) {
+          if (bytes[offset] !== 0xFF) {
+            data.push(bytes[offset++]);
+            continue;
+          }
+          if (bytes[offset + 1] !== 0x00) break;
+          data.push(0xFF);
+          offset += 2;
+        }
+        const buf = Uint8Array.from(data);
+        let bit = 0;
+        const readBit = () => (buf[bit >> 3] >> (7 - (bit++ & 7))) & 1;
+        const flipBits = n => { for (let i = 0; i < n; i++, bit++) buf[bit >> 3] ^= 1 << (7 - (bit & 7)); };
+        const decode = map => {
+          let code = 0;
+          for (let len = 1; len <= 16; len++) {
+            code = (code << 1) | readBit();
+            const symbol = map.get((len << 16) | code);
+            if (symbol !== undefined) return symbol;
+          }
+          throw new Error('Código Huffman no válido en el JPEG');
+        };
+        const segmentMcus = restartInterval ? Math.min(restartInterval, totalMcus - mcu) : totalMcus - mcu;
+        for (let m = 0; m < segmentMcus; m++) {
+          for (const { c, count } of blocks) {
+            for (let b = 0; b < count; b++) {
+              flipBits(decode(c.dc));
+              for (let k = 1; k < 64;) {
+                const rs = decode(c.ac);
+                if ((rs & 0x0F) === 0) {
+                  if (rs >> 4 !== 15) break;
+                  k += 16;
+                  continue;
+                }
+                k += (rs >> 4) + 1;
+                flipBits(rs & 0x0F);
+              }
+            }
+          }
+        }
+        mcu += segmentMcus;
+        const stuffed = [];
+        for (const byte of buf) {
+          stuffed.push(byte);
+          if (byte === 0xFF) stuffed.push(0x00);
+        }
+        parts.push(Uint8Array.from(stuffed));
+        if (bytes[offset] === 0xFF && bytes[offset + 1] >= 0xD0 && bytes[offset + 1] <= 0xD7) {
+          parts.push(bytes.subarray(offset, offset + 2));
+          offset += 2;
+        }
+      }
+    }
+    // Sin marcador Adobe, algunos navegadores no aplican la inversión: se añade uno CMYK (transform 0).
+    if (!hasAdobe) parts.splice(1, 0, ADOBE_CMYK_SEGMENT);
+    return concatByteArrays(...parts);
+  }
+
+  /**
+   * Convierte un Data URL JPEG CMYK / YCCK extraído de un PDF a un Data URL JPEG sRGB bajo demanda.
    * La decodificación la hace el navegador; sin canvas (Node) el Data URL se devuelve sin cambios.
    */
   async function convertCmykDataUrlToRgb(dataUrl) {
@@ -1345,7 +1485,9 @@
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       if (getJpegComponentCount(bytes) !== 4) return dataUrl;
 
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
+      const pdfConvention = invertJpegCmykSamples(bytes);
+      if (!pdfConvention) console.warn('JPEG CMYK no baseline: se muestra sin corregir la convención de color del PDF.');
+      const bitmap = await createImageBitmap(new Blob([pdfConvention || bytes], { type: 'image/jpeg' }));
       try {
         const canvas = document.createElement('canvas');
         canvas.width = bitmap.width;
