@@ -72,8 +72,8 @@
       </table></div>
       <h3>Arranque y OAuth</h3>
       <p>El botón muestra <strong>Iniciando</strong> y queda deshabilitado. Si el arranque supera 15 segundos, ZeroChat consulta el estado y espera hasta diez intervalos adicionales de 15 segundos mientras siga instalando o iniciando. La instalación y la espera de OAuth no se consideran fallos al vencer el primer timeout; cuando el servicio está activo, el panel se actualiza automáticamente. El botón indica el número de intento.</p>
-      <p>Completa la autorización OAuth en el navegador. Si se agota la espera, el servicio puede seguir arrancando; recarga la página para comprobar el resultado. En Termux, los enlaces de autorización se abren con <code>termux-open-url</code>.</p>
-      <p>Los servicios no se reinician automáticamente en el siguiente arranque de ZeroChat. Inícialos desde este panel cuando los necesites.</p>
+      <p>Si el servicio necesita OAuth, la tarjeta muestra el aviso <strong>Se requiere autorización</strong> con el botón <strong>Autorizar en el navegador</strong>. ZeroChat intenta abrir la pestaña de autorización; si el navegador la bloquea, pulsa el botón. Al abrirse desde la propia web, funciona también en Android y Termux. Si se agota la espera, el servicio puede seguir arrancando; recarga la página para comprobar el resultado.</p>
+      <p>Los servicios no se reinician automáticamente en el siguiente arranque de ZeroChat. Si había alguno habilitado, un aviso lo recuerda al conectar; inícialos desde este panel cuando los necesites.</p>
       <h3>Si falla la instalación</h3>
       <p>Lee el error de la tarjeta. Comprueba <code>node --version</code>, <code>npm --version</code>, la conexión a la red y el espacio libre; después vuelve a intentarlo. No necesitas reinstalar ZeroChat.</p>
     </div>

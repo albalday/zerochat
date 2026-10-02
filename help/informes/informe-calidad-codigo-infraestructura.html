@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Auditoría técnica de ZeroChat · ZeroChat 7.12.0 · 2026-09-27">
-<title>Auditoría técnica de ZeroChat · ZeroChat 7.12.0</title>
+<meta name="description" content="Auditoría técnica de ZeroChat · ZeroChat 8.10.1 · 2026-10-02">
+<title>Auditoría técnica de ZeroChat · ZeroChat 8.10.1</title>
 <style>
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -54,12 +54,12 @@ footer p:last-child{margin-bottom:0}
 <body>
 <main>
 <header>
-<div class="eyebrow">ZeroChat · Informes de auditoría · 7.12.0</div>
+<div class="eyebrow">ZeroChat · Informes de auditoría · 8.10.1</div>
 <h1>Auditoría técnica de ZeroChat</h1>
-<p>Este informe se conserva como antecedente dentro de la ayuda de ZeroChat 8.x. Sus evidencias, recuentos de pruebas y hallazgos corresponden a 7.12.0 y al commit de referencia indicado, no a una nueva auditoría de 8.x. Las recomendaciones no son funcionalidades implementadas ni una hoja de ruta comprometida; el desarrollo de nuevas funcionalidades queda en pausa por el momento.</p>
-<p>Fecha: 27 de septiembre de 2026. Versión examinada: <strong>7.12.0</strong>, backend compatible <strong>7.12</strong>. Rama: <code>dev</code>. Commit de referencia: <code>b0d55a7d3094178ca0a5f9afe24747ae283102b3</code>.</p>
-<p>Estado: informe cerrado; los hallazgos quedan abiertos. Esta auditoría no modifica ni corrige el producto. El cambio preexistente en <code>todo.txt</code> queda fuera del análisis.</p>
-<p>Informes relacionados: <a href="informe-funcionalidades-madurez.html">adecuación funcional</a> y <a href="informe-comparativa-herramientas.html">comparación de herramientas</a>.</p>
+<p>Auditoría completa de ZeroChat <strong>8.10.1</strong> (backend compatible <strong>8.10</strong>). Sustituye a la auditoría de 7.12.0 del 27 de septiembre de 2026: los hallazgos anteriores se han vuelto a comprobar sobre el código actual y solo se conservan los que siguen abiertos y son relevantes.</p>
+<p>Fecha: 2 de octubre de 2026. Rama: <code>dev</code>. Commit de referencia: <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code>.</p>
+<p>Estado: informe cerrado; los hallazgos quedan abiertos. La auditoría no modifica ni corrige el producto. Las recomendaciones no son funcionalidades implementadas ni una hoja de ruta comprometida.</p>
+<p>Informes relacionados: <a href="informe-funcionalidades-madurez.html">auditoría funcional</a> y <a href="informe-comparativa-herramientas.html">comparación de herramientas</a>.</p>
 <nav aria-label="Navegación de ayuda">
 <a href="../index.html">Centro de ayuda</a>
 <a href="../architecture.html">Arquitectura</a>
@@ -77,7 +77,7 @@ footer p:last-child{margin-bottom:0}
 <li><a href="#section-1">Dictamen</a></li>
 <li><a href="#section-2">Alcance y método</a></li>
 <li><a href="#section-3">Evidencia ejecutada</a></li>
-<li><a href="#section-4">Calidad por área</a></li>
+<li><a href="#section-4">Seguimiento de la auditoría 7.12.0</a></li>
 <li><a href="#section-5">Hallazgos y acciones</a></li>
 <li><a href="#section-6">Plan de consolidación</a></li>
 <li><a href="#section-7">Repetición de la revisión</a></li>
@@ -85,263 +85,148 @@ footer p:last-child{margin-bottom:0}
 </nav>
 <section>
 <h2 id="section-1">1. Dictamen</h2>
-<p><strong>ZeroChat presenta una base técnica sólida para una herramienta personal supervisada, con reservas relevantes de seguridad y recuperación ante errores.</strong> La separación de proveedores, estado, persistencia, herramientas e interfaz es real y está respaldada por pruebas. La suite completa pasa. Sin embargo, comprobaciones adicionales reproducen una elusión de la lista de archivos públicos del servidor de desarrollo, permisos demasiado abiertos del token bajo una configuración habitual y un interbloqueo del controlador del navegador.</p>
-<p>No se justifica una reescritura ni introducir infraestructura empresarial. Sí se recomienda corregir estos defectos y revisar el modelo de protección de credenciales antes de ampliar el alcance de las herramientas o presentar el producto como un entorno seguro para información sensible.</p>
-<p>El resultado no equivale a una certificación, una medición de cobertura de código ni una garantía de ausencia de vulnerabilidades. Es una revisión transversal del código y documentación, ejecución de la suite y comprobaciones dirigidas sobre puntos de mayor riesgo.</p>
+<p><strong>La base técnica sigue siendo sólida para una herramienta personal supervisada, pero el sistema de permisos de herramientas locales no ofrece hoy los límites que su interfaz promete.</strong> Dos defectos reproducidos permiten que el modelo lea o escriba fuera de las carpetas autorizadas y ejecute comandos arbitrarios tras una autorización aparentemente acotada. Son el riesgo más relevante del producto porque convierten una decisión prudente del usuario en una autorización mucho más amplia.</p>
+<p>Desde 7.12.0 se ha simplificado el backend, se han añadido servicios MCP gestionados (Playwright, Memory, Composio con OAuth), soporte nativo de PowerShell y una limpieza de código muerto. La suite completa pasa (744 pruebas) y la documentación de privacidad y RAG se ha corregido. En cambio, siguen abiertos el interbloqueo del navegador automatizado, los permisos del token y la elusión de la lista de archivos estáticos, y aparece un bloqueo nuevo en el gestor MCP.</p>
+<p>No se justifica una reescritura. Se recomienda corregir T01–T04 antes de ampliar herramientas o recomendar las políticas «Permitir siempre» y «Confiar en el espacio de trabajo». El resultado no equivale a una certificación ni a una medición de cobertura.</p>
 </section>
 <section>
 <h2 id="section-2">2. Alcance y método</h2>
-<p>Se revisaron <code>zerochat.html</code>, los módulos principales de <code>js/</code>, los ocho módulos de <code>py/</code>, la correspondencia con <code>zerochat.py</code>, el service worker, la configuración de distribución, los workflows, el runner, pruebas representativas de cada nivel y las guías de usuario. Se examinaron especialmente autenticación local, autorización de herramientas, credenciales, ejecución de procesos, almacenamiento, RAG, proveedores y recuperación de errores.</p>
-<p>Entorno de ejecución: Linux, Node <strong>24.18.1</strong>, Python <strong>3.14.7</strong>, Chromium mediante Playwright. La CI declara Node 22 y Python 3.12 sobre Ubuntu; no es exactamente el mismo entorno.</p>
-<p>Tipos de evidencia:</p>
-<ul>
-<li><strong>R: reproducido</strong> mediante ejecución de la suite o una comprobación adicional controlada.</li>
-<li><strong>C: comprobado en código/configuración</strong>; no supone explotación ni fallo observado en producción.</li>
-<li><strong>P: pendiente de medición</strong>; recomendación de validación, no defecto demostrado.</li>
-</ul>
-<p>Prioridades: <strong>P1</strong> corregir antes de ampliar exposición o capacidades; <strong>P2</strong> siguiente bloque de consolidación; <strong>P3</strong> mejora incremental. La severidad expresa impacto potencial; la prioridad incorpora el uso personal previsto. No se asignan puntuaciones CVSS sin un análisis específico de despliegue y amenaza.</p>
-<p>No se hicieron llamadas de pago a proveedores, un pentest externo, pruebas de carga destructivas, una evaluación de accesibilidad con usuarios, inferencia real con GPU ni instalación en Windows/macOS. Tampoco se construyó un wheel en esta revisión. No se han inspeccionado credenciales reales.</p>
+<p>Se revisaron <code>zerochat.html</code>, los módulos de <code>js/</code> con mayor superficie de riesgo (permisos, MCP, Markdown, copias de perfiles, service worker), los nueve módulos de <code>py/</code> y su correspondencia con <code>zerochat.py</code>, el runner de pruebas y la ayuda. Se repitieron las reproducciones de la auditoría anterior y se añadieron comprobaciones dirigidas sobre los cambios de 8.x.</p>
+<p>Entorno: Linux, Node <strong>24.18.1</strong>, Python <strong>3.14.7</strong>, Chromium mediante Playwright. Las reproducciones usaron un <code>ZEROCHAT_DATA_DIR</code> temporal, servidores efímeros en loopback y procesos simulados; no se imprimieron secretos ni se tocaron datos reales.</p>
+<p>Tipos de evidencia: <strong>R</strong> reproducido mediante ejecución; <strong>C</strong> comprobado en código o configuración. Prioridades: <strong>P1</strong> corregir antes de ampliar capacidades; <strong>P2</strong> siguiente bloque de consolidación; <strong>P3</strong> mejora incremental.</p>
+<p>Se han omitido observaciones sin impacto práctico para el uso personal previsto (estilo, tamaño de módulos, matrices de plataformas no anunciadas). No se hicieron llamadas de pago a proveedores, pentest externo, pruebas de carga ni instalaciones en Windows o macOS.</p>
 </section>
 <section>
 <h2 id="section-3">3. Evidencia ejecutada</h2>
 <div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
 <table>
 <thead>
-<tr>
-<th>Comprobación</th>
-<th>Resultado</th>
-<th>Alcance</th>
-</tr>
+<tr><th>Comprobación</th><th>Resultado</th><th>Alcance</th></tr>
 </thead>
 <tbody>
-<tr>
-<td><code>npm test</code></td>
-<td><strong>666 pruebas, 666 correctas, 0 fallos, 0 omitidas</strong>, salida 0</td>
-<td>Todos los niveles descubiertos por el runner</td>
-</tr>
-<tr>
-<td>Inventario del runner</td>
-<td>90 archivos: 37 unitarios, 33 integración, 14 navegador, 3 arquitectura y 3 infraestructura</td>
-<td>Cuenta de archivos, distinta de la cuenta de casos</td>
-</tr>
-<tr>
-<td>Comparación binaria de concatenación ordenada de <code>py/*.py</code> con <code>zerochat.py</code></td>
-<td>Coinciden</td>
-<td>Backend generado sincronizado</td>
-</tr>
-<tr>
-<td><code>npm audit --json</code></td>
-<td>0 vulnerabilidades notificadas</td>
-<td>Dependencias npm auditadas; no cubre código propio, CDN ni todos los MCP instalables</td>
-</tr>
-<tr>
-<td>HTTP local sin token a <code>/js/../package.json</code></td>
-<td><strong>200</strong>, cuerpo igual a <code>package.json</code></td>
-<td>Servidor efímero de auditoría, cliente HTTP que conserva <code>..</code></td>
-</tr>
-<tr>
-<td>Creación del token con <code>umask 022</code></td>
-<td>Archivo <strong>0644</strong>, token reutilizado</td>
-<td>Directorio temporal mediante <code>ZEROCHAT_DATA_DIR</code>; no se imprime el token</td>
-</tr>
-<tr>
-<td>Cifrado/descifrado de valor ficticio con clave predeterminada</td>
-<td>Recuperable sin contraseña</td>
-<td>API pública de <code>profile-backup.js</code></td>
-</tr>
-<tr>
-<td>EOF inmediato en proceso simulado de <code>PersistentBrowserSession</code></td>
-<td>Hilo bloqueado, mutex retenido</td>
-<td>Reproducción aislada de la clase; sin lanzar navegador</td>
-</tr>
-<tr>
-<td>Integridad de grupos de pruebas</td>
-<td>Una ruta inexistente en <code>generation</code></td>
-<td>La suite completa sí encuentra el archivo real</td>
-</tr>
+<tr><td><code>npm test</code></td><td><strong>744 pruebas, 744 correctas, 0 fallos, 0 omitidas</strong>, salida 0</td><td>Todos los niveles descubiertos por el runner</td></tr>
+<tr><td>Inventario del runner</td><td>92 archivos: 37 unitarios, 33 integración, 15 navegador, 4 arquitectura y 3 infraestructura</td><td>Cuenta de archivos, no de casos</td></tr>
+<tr><td>Concatenación de <code>py/*.py</code> frente a <code>zerochat.py</code></td><td>Idénticos</td><td>Backend generado sincronizado</td></tr>
+<tr><td><code>npm audit --json</code></td><td>0 vulnerabilidades</td><td>Dependencias npm; no cubre CDN ni paquetes MCP instalables</td></tr>
+<tr><td><code>evaluateAuthorization</code> con la regla por defecto <code>R:&lt;carpeta de arranque&gt;</code></td><td><code>read_file ~/.ssh/id_rsa</code> → <strong>allow</strong>; <code>/home/u/.ssh/id_rsa</code> → ask</td><td>Gestor de permisos real en Node</td></tr>
+<tr><td>Regla de «Permitir siempre "git *"»</td><td><code>git status; rm -rf ~/proyecto</code> → <strong>allow</strong>, también en <code>execute_command</code></td><td>Mismo objeto de restricciones que crea la tarjeta de autorización</td></tr>
+<tr><td>Política «Confiar en el espacio de trabajo»</td><td><code>rm -rf ~</code>, <code>cat ~/.ssh/id_rsa</code> y <code>curl … | sh</code> → <strong>allow</strong></td><td>Gestor de permisos real en Node</td></tr>
+<tr><td><code>McpServiceManager</code> con un servicio que no completa el handshake</td><td><code>tools()</code> bloqueado 5,5 s; <code>stop()</code> esperó 6 s (timeout de 6 s)</td><td>Servicios temporales; el bloqueo dura todo el handshake</td></tr>
+<tr><td>EOF inmediato en <code>PersistentBrowserSession.execute</code></td><td>Hilo sin terminar tras 3 s, lock retenido</td><td>Proceso simulado; sin navegador</td></tr>
+<tr><td><code>execute_command</code> con <code>cwd</code> distinto y timeout de 1 s</td><td>Responde a 1 s, pero el proceso hijo sigue vivo</td><td>La rama de sesión persistente sí termina el grupo</td></tr>
+<tr><td>Creación del token con <code>umask 022</code></td><td><code>config/token.json</code> <strong>0644</strong>, directorio 0755</td><td>Sin mostrar el token</td></tr>
+<tr><td>GET literal <code>/js/../package.json</code> sin token</td><td><strong>200</strong>, contenido idéntico; también <code>AGENTS.md</code>, <code>zerochat.py</code></td><td>Solo modo desarrollo; <code>/package.json</code> directo devuelve 401</td></tr>
+<tr><td>Inyección en Markdown (<code>onerror</code>, <code>javascript:</code>, HTML crudo, tablas, citas)</td><td>Sin atributos ejecutables en la salida</td><td>Nueve casos; el texto se escapa antes de analizarse</td></tr>
+<tr><td>Precarga del service worker frente a recursos de <code>zerochat.html</code></td><td>Coinciden los 82 recursos</td><td>Lista de <code>sw.js</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>Los tests de arranque incluyen comprobaciones de consola y pasaron. El log general contiene errores provocados deliberadamente por pruebas negativas, por ejemplo de WebLLM; no deben confundirse con errores de consola de un arranque normal. No se ha medido cobertura de líneas o ramas: 666 pruebas no permiten inferir un porcentaje.</p>
 </section>
 <section>
-<h2 id="section-4">4. Calidad por área</h2>
+<h2 id="section-4">4. Seguimiento de la auditoría 7.12.0</h2>
 <div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
 <table>
 <thead>
-<tr>
-<th>Área</th>
-<th>Evaluación</th>
-<th>Evidencia y límite</th>
-</tr>
+<tr><th>Hallazgo anterior</th><th>Estado en 8.10.1</th><th>Referencia</th></tr>
 </thead>
 <tbody>
-<tr>
-<td>Arquitectura</td>
-<td>Buena base modular</td>
-<td>UMD, <code>BaseProviderAdapter</code>, <code>ChatState</code>, <code>ChatConfig</code>, servicios de conversación y contratos de herramientas</td>
-</tr>
-<tr>
-<td>Mantenibilidad</td>
-<td>Correcta, con concentración de complejidad</td>
-<td><code>app.js</code>: 2.158 líneas; <code>file-parser.js</code>: 2.088; <code>agent-core.js</code>: 1.670; tamaño no equivale por sí solo a defecto</td>
-</tr>
-<tr>
-<td>Fiabilidad</td>
-<td>Amplia regresión automatizada, recuperación incompleta</td>
-<td>Suite verde, pero interbloqueo reproducido fuera de los casos cubiertos</td>
-</tr>
-<tr>
-<td>Seguridad</td>
-<td>Controles reales y brechas concretas</td>
-<td>Token, HMAC, nonces, validación y aislamiento JS; reservas detalladas debajo</td>
-</tr>
-<tr>
-<td>Persistencia</td>
-<td>Diseño adecuado al uso individual</td>
-<td>IndexedDB, almacenes separados de adjuntos y RAG; exportaciones y tratamiento de cuotas</td>
-</tr>
-<tr>
-<td>Rendimiento</td>
-<td>Decisiones razonables, sin capacidad certificada</td>
-<td>Índice en memoria, límites de ingesta y sandbox, actualización diferida de paneles; faltan benchmarks</td>
-</tr>
-<tr>
-<td>Compatibilidad</td>
-<td>Contratos comprobados, matriz real limitada</td>
-<td>Adaptadores y pruebas; navegador de CI limitado a Chromium</td>
-</tr>
-<tr>
-<td>Distribución</td>
-<td>Clara y automatizada</td>
-<td>Concatenación sincronizada, wheel configurado con un único módulo, release con Trusted Publishing</td>
-</tr>
-<tr>
-<td>Documentación</td>
-<td>Extensa, con promesas excesivas</td>
-<td>Ayuda bilingüe; privacidad y significado de cifrado necesitan precisión</td>
-</tr>
+<tr><td>T01 Elusión de archivos estáticos</td><td>Abierto, reproducido</td><td>T06</td></tr>
+<tr><td>T02 Token dependiente de umask</td><td>Abierto, reproducido</td><td>T05</td></tr>
+<tr><td>T03 Protección de credenciales</td><td>Ayuda corregida; derivación de contraseña sin cambios</td><td>T09</td></tr>
+<tr><td>T04 Interbloqueo del navegador</td><td>Abierto, reproducido</td><td>T04</td></tr>
+<tr><td>T05 MCP Python fuera del venv</td><td>Abierto</td><td>T08</td></tr>
+<tr><td>T06 Privacidad sobredimensionada</td><td><strong>Cerrado</strong>: la ayuda y el README describen intermediarios y destinos</td><td>—</td></tr>
+<tr><td>T07 Límites de ejecución</td><td>Parcial: la sesión persistente termina el grupo; la rama con <code>cwd</code> no</td><td>T07</td></tr>
+<tr><td>T08 Selección parcial de pruebas</td><td>Abierto</td><td>T10</td></tr>
+<tr><td>T09 Actualización no atómica del service worker</td><td>Sin cambios; no reproducido y precarga completa. Se retira por baja relevancia</td><td>—</td></tr>
+<tr><td>T10 Matriz de plataformas y rendimiento</td><td>Se retira: es una recomendación de validación, no un defecto</td><td>—</td></tr>
+<tr><td>T11 Superficie de confianza del frontend</td><td>Sin cambios; Markdown resiste las inyecciones probadas y Pages solo aloja ZeroChat. Se retira</td><td>—</td></tr>
+<tr><td>T12 Deuda documental</td><td><strong>Cerrado</strong>: la ayuda RAG declara búsqueda léxica sin embeddings</td><td>—</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="subsection-1">Fortalezas que conviene conservar</h3>
-<ol>
-<li>Los <a href="../../js/providers.js">adaptadores</a> normalizan formatos y streaming sin dispersar toda la integración en la interfaz. El modo Espejo permite observar peticiones sin proveedor.</li>
-<li><a href="../../js/state.js">Estado</a>, <a href="../../js/config-store.js">configuración</a> y <a href="../../js/conversation-service.js">servicio de conversación</a> tienen límites explícitos y pruebas de coordinación.</li>
-<li><a href="../../js/storage-db.js">ZeroChatDB</a> centraliza el esquema y separa mensajes, adjuntos y conocimiento. <a href="../../js/ragStorage.js">RagStorage</a> contempla persistencia, estimación de cuota y exportación/importación.</li>
-<li>Cada herramienta declara su nombre y esquema de entrada, configuración, ejecución, formato del resultado y vista opcional. Las dependencias se inyectan mediante servicios y el ejecutor comprueba la autorización antes de actuar.</li>
-<li>El <a href="../../py/ff-server.py">servidor</a> exige token para la API, compara secretos con <code>compare_digest</code>, limita el cuerpo HTTP a 1 MiB y verifica firmas con caducidad, hash del cuerpo y nonce consumido atómicamente. La firma no debe confundirse con aislamiento frente a un frontend comprometido.</li>
-<li>El <a href="../../js/sandbox.js">sandbox JavaScript</a> tiene iframe, worker, restricciones de red y terminación temporal, con pruebas de navegador. Su propio contrato aclara que no es aislamiento de sistema operativo.</li>
-<li>La CI ejecuta los cinco niveles, y la publicación valida etiqueta, paquete y pruebas antes de Trusted Publishing. No se requiere incorporar un sistema de compilación web para obtener estas garantías.</li>
-</ol>
 </section>
 <section>
 <h2 id="section-5">5. Hallazgos y acciones</h2>
-<h3 id="t01">T01. Elusión de la lista de archivos estáticos — media, P1, R</h3>
-<p><strong>Evidencia:</strong> <code>ZeroChatServerHandler.serve_static_file</code>, <a href="../../py/ff-server.py">ff-server.py</a>. Se verifica que la ruta resuelta permanezca dentro del repositorio, pero la lista permitida se evalúa sobre <code>clean_rel</code>, anterior a resolver <code>..</code>. <code>/js/../package.json</code> empieza por <code>js/</code> y termina leyendo un archivo no autorizado de la raíz.</p>
-<p><strong>Reproducción:</strong> servidor local temporal y <code>http.client.HTTPConnection</code>; GET literal a <code>/js/../package.json</code>, sin Authorization ni Origin. Resultado: 200 y contenido idéntico al archivo. Un navegador o <code>fetch</code> puede normalizar el camino antes del envío; el caso existente con <code>/../package.json</code> no cubre este vector.</p>
-<p><strong>Impacto:</strong> lectura sin token de archivos no ocultos y no bloqueados dentro del repositorio de desarrollo. No se ha demostrado escape fuera de esa raíz, acceso a archivos ocultos ni ejecución de código. El modo instalado sin raíz de desarrollo no sirve estos archivos. La escucha loopback limita la exposición por defecto.</p>
-<p><strong>Acción y aceptación:</strong> aplicar la lista permitida a la ruta canónica relativa y revisar enlaces simbólicos. Añadir solicitudes HTTP sin normalización con <code>..</code>, rutas válidas, archivos ocultos y symlinks. Todos los destinos no autorizados deben rechazarse, aunque la entrada empiece por <code>js/</code>.</p>
-<h3 id="t02">T02. Token diario con permisos dependientes de umask — alta condicionada al acceso local, P1, R/C</h3>
-<p><strong>Evidencia:</strong> <code>get_daily_token</code>, <a href="../../py/cc-environment.py">cc-environment.py</a>, escribe <code>config/token.tmp</code> y lo renombra, sin fijar permisos. Con <code>umask 022</code>, el resultado reproducido es <strong>0644</strong>. Se reutiliza durante el día; las pruebas existentes lo exigen expresamente. No es un secreto nuevo para cada arranque.</p>
-<p><strong>Impacto:</strong> otro usuario local podría leerlo si también puede atravesar los directorios padres. No se presupone que todos los hogares sean accesibles. Con el token, un cliente puede inicializar la API y obtener credenciales de firma; el HMAC no protege frente al robo de ese token. La clave HMAC sí cambia en cada arranque.</p>
-<p><strong>Acción y aceptación:</strong> crear el secreto con permisos exclusivos, proteger el directorio y definir ACL apropiadas en Windows. Corregir permisos de archivos existentes. Decidir y documentar si la comodidad del token diario se conserva; no basta con llamarlo efímero. Tests con umask permisiva, token existente y reinicio deben comprobar permisos y ciclo de vida sin registrar secretos.</p>
-<h3 id="t03">T03. Protección limitada de credenciales y copias — alta con acceso al almacenamiento/exportación, P1, R/C</h3>
-<p><strong>Evidencia:</strong> <a href="../../js/profile-backup.js">profile-backup.js</a>, <code>getKey</code>, <code>keyMaterialFromPassword</code>, <code>cacheKeyMaterial</code>. El modo predeterminado deriva la clave AES-GCM de una constante incluida en el código. La contraseña personalizada se transforma mediante SHA-256 sin sal ni factor de trabajo; el material derivado puede recordarse en localStorage durante 24 horas.</p>
-<p><strong>Impacto:</strong> AES-GCM aporta integridad criptográfica, pero una clave pública no aporta confidencialidad frente a quien obtiene una copia cifrada. Una contraseña débil permite intentos offline rápidos. El material recordado permite descifrar mientras sea accesible; tampoco protege frente a JavaScript malicioso del mismo origen. La limitación de la clave embebida está reconocida en el comentario del módulo, pero debe ser inequívoca en la experiencia del usuario.</p>
-<p><strong>Acción y aceptación:</strong> diferenciar explícitamente protección predeterminada y cifrado con contraseña; para confidencialidad, utilizar derivación con sal y coste configurable, formato versionado y migración. Evitar persistir material equivalente a la clave sin una elección informada. Probar restauración antigua/nueva, contraseña incorrecta, manipulación y eliminación de la clave recordada. No recomendar un cambio que inutilice las copias existentes.</p>
+<h3 id="t01">T01. Las reglas de carpetas tratan <code>~</code> como ruta relativa — alta, P1, R</h3>
+<p><strong>Evidencia:</strong> <code>normalizeDirectoryPath</code> y <code>evaluateDirectoryRule</code> en <a href="../../js/tool-security.js">tool-security.js</a> consideran relativa cualquier ruta que no empiece por <code>/</code> y la resuelven contra la carpeta de arranque. El backend, en cambio, aplica <code>Path(path).expanduser()</code> en <a href="../../py/dd-tools.py">dd-tools.py</a>. <code>~/.ssh/id_rsa</code> se evalúa como <code>&lt;arranque&gt;/~/.ssh/id_rsa</code>, coincide con la regla y se lee del directorio personal.</p>
+<p><strong>Impacto:</strong> con la configuración por defecto (lista vacía → <code>R:&lt;carpeta de arranque&gt;</code>), el modelo puede leer cualquier archivo del usuario sin confirmación (claves SSH, tokens, <code>~/zerochat/config/token.json</code>, credenciales de servicios MCP). Con una regla <code>W:</code> o <code>RW:</code> puede escribir <code>~/.bashrc</code> y obtener ejecución persistente. La comprobación es léxica: un enlace simbólico dentro de la carpeta autorizada también lleva fuera de ella.</p>
+<p><strong>Acción y aceptación:</strong> resolver la ruta con la misma semántica que el backend (expansión de <code>~</code>, cwd real y, preferiblemente, comprobación final en el servidor tras <code>resolve()</code>). Rechazar o preguntar ante <code>~</code>, variables y rutas no normalizables. Pruebas: <code>~/x</code>, <code>~usuario/x</code>, symlink saliente y ruta absoluta equivalente deben pedir confirmación con la regla por defecto.</p>
+
+<h3 id="t02">T02. Autorizaciones de comandos más amplias de lo que indican — alta, P1, R</h3>
+<p><strong>Evidencia:</strong> el botón «Permitir siempre "git *"» (<a href="../../js/tool-cards.js">tool-cards.js</a>) guarda <code>allowedPrefixes: ["git"]</code> con <code>allowChaining: true</code> y <code>allowPipes: true</code>, aunque su descripción dice «solo comandos que comiencen por "git"». <code>evaluateCommandConstraint</code> solo compara el inicio de la cadena, de modo que <code>git status; rm -rf ~/proyecto</code>, <code>git log &amp;&amp; curl … | sh</code> o <code>git $(…)</code> se ejecutan sin preguntar. La regla se replica a <code>bash</code> y <code>execute_command</code>.</p>
+<p>La política «Confiar en el espacio de trabajo» promete preguntar ante «accesos externos o comandos globales», pero solo detecta <code>sudo</code>, algunos directorios del sistema y <code>../</code>: <code>rm -rf ~</code>, <code>cat ~/.ssh/id_rsa</code>, <code>cp x /home/u/.bashrc</code> y <code>curl … | sh</code> se permiten.</p>
+<p><strong>Impacto:</strong> una respuesta manipulada (por ejemplo, mediante una página web o un documento RAG) puede ejecutar cualquier comando con los permisos del usuario después de una autorización que parecía acotada.</p>
+<p><strong>Acción y aceptación:</strong> que «Permitir siempre» de comandos no permita encadenamiento, sustitución ni tuberías salvo elección explícita, y que el texto describa exactamente lo autorizado. Describir «Confiar en el espacio de trabajo» como lo que es (lista de bloqueo heurística) o limitarlo a comandos sin efectos fuera del proyecto. Pruebas con <code>;</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>|</code>, <code>$()</code>, comillas invertidas, <code>~</code>, <code>$HOME</code> y rutas absolutas del usuario.</p>
+
+<h3 id="t03">T03. Un servicio MCP que arranca bloquea a todos los demás — media, P1, R</h3>
+<p><strong>Evidencia:</strong> <code>McpServiceManager.start</code> en <a href="../../py/ee-mcp.py">ee-mcp.py</a> mantiene <code>self._lock</code> durante <code>npm install</code> (hasta 600 s), la instalación del navegador de Playwright (hasta 600 s) y el handshake (150 s en Composio mientras espera OAuth). <code>tools()</code>, <code>call()</code>, <code>stop()</code> y <code>configure()</code> necesitan el mismo lock.</p>
+<p><strong>Impacto:</strong> mientras un servicio se instala o espera la autorización OAuth, ninguna herramienta MCP de otros servicios responde y el botón Detener no puede cancelar el arranque. Las peticiones HTTP quedan en espera y la interfaz las interpreta como fallos o timeouts.</p>
+<p><strong>Acción y aceptación:</strong> marcar el estado bajo el lock y ejecutar instalación y handshake fuera de él, con cancelación que termine el proceso en curso. Prueba con un servicio que no responde: <code>tools()</code> y <code>call()</code> de otro servicio deben responder de inmediato y <code>stop()</code> debe cancelar el arranque.</p>
+
 <h3 id="t04">T04. Interbloqueo al fallar el navegador automatizado — media, P1, R</h3>
-<p><strong>Evidencia:</strong> <code>PersistentBrowserSession.execute</code> y <code>close</code>, <a href="../../py/dd-tools.py">dd-tools.py</a>. <code>execute</code> mantiene un <code>threading.Lock</code> y llama a <code>close</code> ante EOF o excepción; <code>close</code> intenta adquirir el mismo lock, que no es reentrante.</p>
-<p><strong>Reproducción:</strong> clase original extraída con AST, <code>_ensure_running</code> sustituido por un proceso simulado con stdin de memoria y stdout vacío. Tras EOF inmediato, <code>execute</code> no termina y el lock continúa retenido. Se ejecutó en un hilo daemon aislado, sin navegador ni procesos pendientes.</p>
-<p><strong>Impacto:</strong> una caída del proceso puede dejar bloqueadas llamadas posteriores y el cierre de esa sesión. Además, <code>readline()</code> no tiene un límite propio de espera; los timeouts de Playwright no cubren todos los fallos del proceso.</p>
-<p><strong>Acción y aceptación:</strong> separar limpieza interna bajo lock de cierre público o revisar la estrategia de bloqueo, e incorporar un deadline de IPC. Probar EOF, JSON inválido, tubería rota, proceso silencioso, cierre concurrente y posterior recuperación.</p>
-<h3 id="t05">T05. Posible ejecución de MCP Python fuera del venv — media, P2, C</h3>
-<p><strong>Evidencia:</strong> <code>_prepare_service</code>, <a href="../../py/ee-mcp.py">ee-mcp.py</a>, usa <code>sys.executable</code> como <code>pythonExecutable</code> si no existe el Python del venv. <a href="../../py/cc-environment.py">cc-environment.py</a> permite continuar cuando falla su creación.</p>
-<p><strong>Impacto:</strong> contradice la norma de ejecutar MCP Python exclusivamente en <code>~/zerochat/.venv</code>. No se ha demostrado instalación global de paquetes; el hallazgo es la ruta de ejecución alternativa.</p>
-<p><strong>Acción y aceptación:</strong> mantener operativo el chat, pero declarar indisponible el MCP afectado si falta su intérprete aislado. Probar ausencia/fallo del venv y verificar que no se lanza el Python global como alternativa.</p>
-<h3 id="t06">T06. Privacidad descrita de forma más amplia que la implementación — media, P1, C</h3>
-<p><strong>Evidencia:</strong> La presentación del producto promete privacidad absoluta y ausencia de intermediarios; <a href="../../help/rag.html">ayuda RAG</a> afirma que los datos jamás abandonan el equipo, aunque indica después que envía fragmentos al modelo. <a href="../../js/web-search.js">web-search.js</a> utiliza Jina para buscar, y <a href="../../js/web-browser.js">web-browser.js</a> incluye Jina y AllOrigins. El índice RAG sí se construye localmente.</p>
-<p><strong>Impacto:</strong> el usuario puede introducir información sensible bajo una expectativa equivocada. El tercero puede recibir consultas o URLs; si los resultados RAG se envían a un proveedor remoto, esos fragmentos salen del dispositivo. No implica que todas las conversaciones pasen por un proxy.</p>
-<p><strong>Acción y aceptación:</strong> explicar destinos por función y añadir una opción explícita para impedir intermediarios. Corregir ambas lenguas. Una prueba con solicitudes interceptadas debe demostrar que el modo sin intermediarios no contacta con esos dominios.</p>
-<h3 id="t07">T07. Límites de ejecución parcial y aislamiento compartido — media, P2, C/P</h3>
-<p><strong>Evidencia:</strong> <a href="../../py/dd-tools.py">dd-tools.py</a> conserva <code>BASH_SESSION</code> y <code>_BROWSER_SESSION</code> por proceso, sin partición por conversación. El shell conserva cwd y variables exportadas. <code>communicate()</code>/<code>capture_output=True</code> acumulan salida antes de truncarla. La rama de ejecución con cwd distinto utiliza <code>subprocess.run(shell=True)</code>; la rama persistente sí mata el grupo de procesos al agotar tiempo.</p>
-<p><strong>Impacto:</strong> dos conversaciones que usan el mismo backend comparten contexto del sistema. Truncar la respuesta no limita la memoria necesaria para capturarla. Cancelar la solicitud del frontend no acredita por sí solo la terminación del trabajo remoto. No se han provocado agotamientos de memoria ni medido procesos huérfanos.</p>
-<p><strong>Acción y aceptación:</strong> decidir si la sesión compartida es una función y hacerla visible; ofrecer reinicio por proyecto o aislarla cuando proceda. Acotar salida durante lectura, homogeneizar terminación de árboles y comprobar cancelación con procesos ficticios. Una segunda conversación debe tener comportamiento documentado respecto a cwd, entorno y navegador.</p>
-<h3 id="t08">T08. Selección parcial de pruebas incompleta — media, P2, R/C</h3>
-<p><strong>Evidencia:</strong> <a href="../../scripts/test-runner.mjs">test-runner.mjs</a>. <code>generation</code> referencia <code>tests/unit/test_generation_controller.js</code>, pero existe en <code>tests/integration/</code>. <code>resolveGroupFiles</code> filtra silenciosamente rutas ausentes. <code>resolveChangedFiles</code> asigna genéricamente solo unitarias a cambios como <code>js/chat-engine.js</code>, <code>js/state.js</code> o <code>js/rag-service.js</code>, pese a sus pruebas de integración.</p>
-<p><strong>Impacto:</strong> un grupo o <code>test:changed</code> puede dar verde sin ejecutar regresiones relevantes. <strong>No afecta al resultado de <code>npm test</code> ni a la CI completa</strong>, que descubren todos los niveles.</p>
-<p><strong>Acción y aceptación:</strong> corregir el grupo, rechazar entradas inexistentes y cubrir con tests el mapa de impacto de los módulos principales. Comprobar listados de grupos y selección por archivo modificado.</p>
-<h3 id="t09">T09. Actualización web sin garantía de conjunto atómico — media, P2, C/P</h3>
-<p><strong>Evidencia:</strong> <a href="../../sw.js">sw.js</a> usa precarga con <code>Promise.allSettled</code>, tolera fallos, activa mediante <code>skipWaiting</code> y actualiza recursos individualmente con stale-while-revalidate.</p>
-<p><strong>Impacto potencial:</strong> una actualización parcial o conectividad intermitente puede dejar una combinación de recursos o una caché incompleta. No se ha reproducido aquí una rotura de actualización.</p>
-<p><strong>Acción y aceptación:</strong> comprobar instalación completa antes de activar o verificar un manifiesto de recursos coherente. Ensayar transición entre dos versiones, un recurso que falla, dos pestañas y arranque offline. Distinguir caché web de disponibilidad de modelos WebLLM.</p>
-<h3 id="t10">T10. Cobertura de plataformas, rendimiento y resultados externos — media, P2, C/P</h3>
-<p><strong>Evidencia:</strong> los <a href="../../tests/helpers/browser-env.js">helpers de navegador</a> usan Chromium; los workflows se ejecutan en Ubuntu. Las pruebas de adaptadores y WebLLM no acreditan funcionamiento real de todos los modelos ni de toda GPU. No se obtuvo un benchmark de corpus, concurrencia o latencias.</p>
-<p><strong>Acción y aceptación:</strong> definir una matriz mínima soportada; probar instalación en plataformas anunciadas, Safari/Firefox si se mantienen dentro del soporte, proveedores con un conjunto pequeño y controlado, cuotas y recuperación de almacenamiento. Registrar hardware, datos y percentiles. No declarar un límite de corpus basándose solo en que cada documento admita 50 MiB.</p>
-<h3 id="t11">T11. Superficie de confianza del frontend y dependencias dinámicas — media, P2, C</h3>
-<p><strong>Evidencia:</strong> CSP de <a href="../../zerochat.html">zerochat.html</a> permite <code>unsafe-inline</code>, <code>unsafe-eval</code> y conexiones amplias; <a href="../../js/providers-webllm.js">providers-webllm.js</a> importa código desde CDN. La cookie de sesión se escribe desde JS con <code>Path=/</code> en <a href="../../js/cookies.js">cookies.js</a>. GitHub Pages comparte origen entre rutas del mismo dominio; una ruta no es una frontera de seguridad.</p>
-<p><strong>Impacto:</strong> un compromiso del origen o código que ejecuta la aplicación puede alcanzar datos y secretos disponibles al cliente. No se ha encontrado ni explotado aquí una vulnerabilidad XSS; estas son fronteras de confianza, no una prueba de compromiso. <code>npm audit</code> no las descarta.</p>
-<p><strong>Acción y aceptación:</strong> inventariar dependencias cargadas en ejecución, justificar excepciones CSP y probar reducciones graduales. Considerar origen dedicado si se alojan aplicaciones de distinta confianza. Documentar que las firmas de herramientas no defienden frente al propio frontend comprometido.</p>
-<h3 id="t12">T12. Concentración de responsabilidades y deuda documental — baja, P3, C</h3>
-<p><strong>Evidencia:</strong> módulos de más de 1.500–2.000 líneas, parser de documentos propio y orden manual de scripts. La descripción de distribución habla de un único HTML aunque la web requiere <code>js/</code> y <code>css/</code>. La metadescripción de la ayuda RAG menciona búsqueda híbrida, pero <a href="../../js/rag-index.js">rag-index.js</a> construye campos textuales y consulta lexical con tolerancia y pesos, sin embeddings en ese flujo.</p>
-<p><strong>Acción y aceptación:</strong> corregir términos, documentar límites del parser y extraer responsabilidades solo al modificar áreas concretas. Mantener contratos y regresiones; no sustituir la arquitectura por tamaño de archivo solamente.</p>
+<p><strong>Evidencia:</strong> <code>PersistentBrowserSession.execute</code> en <a href="../../py/dd-tools.py">dd-tools.py</a> mantiene un <code>threading.Lock</code> y llama a <code>close()</code> ante EOF o excepción; <code>close()</code> intenta adquirir el mismo lock, que no es reentrante. <code>readline()</code> tampoco tiene límite de espera.</p>
+<p><strong>Impacto:</strong> una caída de Node o Chromium deja colgado ese hilo de forma indefinida y bloquea todas las llamadas posteriores a <code>browser_action</code> hasta reiniciar el servidor.</p>
+<p><strong>Acción y aceptación:</strong> separar la limpieza interna (sin lock) del cierre público o usar <code>RLock</code>, y añadir un deadline de IPC. Probar EOF, JSON inválido, tubería rota, proceso silencioso y recuperación posterior.</p>
+
+<h3 id="t05">T05. Token de sesión diario legible por otros usuarios locales — media condicionada, P2, R/C</h3>
+<p><strong>Evidencia:</strong> <code>get_daily_token</code> en <a href="../../py/cc-environment.py">cc-environment.py</a> crea <code>config/token.json</code> sin fijar permisos (0644 con <code>umask 022</code>) y lo reutiliza todo el día. Además, la URL de arranque con <code>#token=…</code> se pasa como argumento al lanzador del navegador, visible en la lista de procesos mientras este vive.</p>
+<p><strong>Impacto:</strong> otro usuario local que pueda atravesar el directorio personal obtiene el token, inicializa la API, recibe la clave HMAC y puede ejecutar herramientas. Depende de los permisos del hogar (700 en el equipo auditado; 750 o 755 en otras distribuciones).</p>
+<p><strong>Acción y aceptación:</strong> crear el directorio con 0700 y el archivo con 0600 (corrigiendo los existentes); valorar un token por arranque. Pruebas con <code>umask</code> permisiva y archivo previo.</p>
+
+<h3 id="t06">T06. Elusión de la lista de archivos estáticos en modo desarrollo — baja, P2, R</h3>
+<p><strong>Evidencia:</strong> <code>serve_static_file</code> en <a href="../../py/ff-server.py">ff-server.py</a> evalúa la lista permitida sobre la ruta antes de resolver <code>..</code>. <code>GET /js/../package.json</code> devuelve 200 sin token; también <code>AGENTS.md</code>, <code>todo.txt</code> y <code>zerochat.py</code>.</p>
+<p><strong>Impacto:</strong> lectura sin token de archivos no ocultos del repositorio de desarrollo. No afecta a las instalaciones PyPI o curl, que no sirven archivos, ni permite salir de la raíz.</p>
+<p><strong>Acción y aceptación:</strong> aplicar la lista a la ruta relativa canónica. Prueba con <code>http.client</code> o <code>curl --path-as-is</code>.</p>
+
+<h3 id="t07">T07. El timeout de <code>execute_command</code> con otra carpeta no termina el trabajo — media, P2, R</h3>
+<p><strong>Evidencia:</strong> si <code>cwd</code> difiere de la sesión, <code>execute_command</code> usa <code>subprocess.run(shell=True, capture_output=True)</code> sin grupo de procesos. Al vencer el plazo se mata el shell, pero el proceso hijo continúa (reproducido con <code>sleep</code>). La salida se acumula completa en memoria antes de truncarse. La rama de sesión persistente sí termina el grupo.</p>
+<p><strong>Impacto:</strong> el modelo y el usuario reciben «terminado» mientras el comando sigue modificando archivos o consumiendo recursos.</p>
+<p><strong>Acción y aceptación:</strong> reutilizar el mecanismo de la sesión persistente (<code>start_new_session</code> y <code>_kill_process_tree</code>) y acotar la salida durante la lectura. Prueba: tras el timeout no debe quedar ningún proceso del comando.</p>
+
+<h3 id="t08">T08. MCP Python puede ejecutarse con el intérprete global — baja, P3, C</h3>
+<p><strong>Evidencia:</strong> <code>_prepare_service</code> en <a href="../../py/ee-mcp.py">ee-mcp.py</a> usa <code>sys.executable</code> si no existe <code>~/zerochat/.venv</code>, y <code>ensure_virtual_environment</code> continúa si su creación falla. Contradice la norma de ejecutar los MCP Python exclusivamente en el venv.</p>
+<p><strong>Acción y aceptación:</strong> marcar el servicio como no disponible con un error claro si falta el intérprete aislado.</p>
+
+<h3 id="t09">T09. Contraseña de cifrado sin sal ni coste — baja, P3, C</h3>
+<p><strong>Evidencia:</strong> <code>keyMaterialFromPassword</code> en <a href="../../js/profile-backup.js">profile-backup.js</a> aplica un único SHA-256 sin sal y el material derivado se guarda en <code>localStorage</code> durante 24 horas. La ayuda ya explica que la clave predeterminada es conocida.</p>
+<p><strong>Impacto:</strong> una copia exportada con contraseña débil admite ataques de diccionario rápidos fuera de línea.</p>
+<p><strong>Acción y aceptación:</strong> PBKDF2 con sal e iteraciones en un formato versionado, manteniendo la lectura de copias antiguas.</p>
+
+<h3 id="t10">T10. Selección parcial de pruebas incompleta — baja, P3, R</h3>
+<p><strong>Evidencia:</strong> en <a href="../../scripts/test-runner.mjs">test-runner.mjs</a>, el grupo <code>generation</code> referencia <code>tests/unit/test_generation_controller.js</code>, que está en <code>tests/integration/</code>; <code>resolveGroupFiles</code> descarta en silencio rutas inexistentes, y <code>test:changed</code> asigna solo pruebas unitarias a cambios de <code>js/state.js</code> o <code>js/chat-engine.js</code>.</p>
+<p><strong>Impacto:</strong> una validación parcial puede salir verde sin ejecutar regresiones relevantes. No afecta a <code>npm test</code> ni a la CI.</p>
+<p><strong>Acción y aceptación:</strong> corregir la ruta, fallar ante entradas inexistentes e incluir integración para módulos de coordinación.</p>
 </section>
 <section>
 <h2 id="section-6">6. Plan de consolidación</h2>
 <div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
 <table>
 <thead>
-<tr>
-<th>Orden</th>
-<th>Trabajo</th>
-<th>Criterio de cierre</th>
-</tr>
+<tr><th>Orden</th><th>Trabajo</th><th>Criterio de cierre</th></tr>
 </thead>
 <tbody>
-<tr>
-<td>1</td>
-<td>T01, T02, T04</td>
-<td>Reproducciones convertidas en regresiones que pasan tras corregir el defecto</td>
-</tr>
-<tr>
-<td>2</td>
-<td>T03 y T06</td>
-<td>Protección y destinos de datos inequívocos, migración de copias validada, ayuda ES/EN coherente</td>
-</tr>
-<tr>
-<td>3</td>
-<td>T05, T07 y T08</td>
-<td>Venv obligatorio para MCP Python, cancelación/estado explícitos y selección de tests fiable</td>
-</tr>
-<tr>
-<td>4</td>
-<td>T09–T11</td>
-<td>Pruebas de actualización, matriz soportada y fronteras de confianza documentadas</td>
-</tr>
-<tr>
-<td>Continuo</td>
-<td>T12</td>
-<td>Cambios pequeños acompañados de contratos y pruebas, sin refactorización general</td>
-</tr>
+<tr><td>1</td><td>T01 y T02</td><td>Reproducciones convertidas en regresiones; textos de autorización que describen exactamente lo permitido (ES/EN)</td></tr>
+<tr><td>2</td><td>T03 y T04</td><td>Arranques y caídas de procesos externos sin bloquear otras herramientas; cancelación verificada</td></tr>
+<tr><td>3</td><td>T05–T07</td><td>Permisos 0600/0700, lista estática canónica y timeouts sin procesos huérfanos</td></tr>
+<tr><td>Continuo</td><td>T08–T10</td><td>Cambios pequeños con pruebas, sin refactorización general</td></tr>
 </tbody>
 </table>
 </div>
-<p>No se solicita promoción a <code>master</code>, incremento de versión ni publicación. Cuando se implementen correcciones, deben respetar el flujo de <code>dev</code> y la validación aplicable.</p>
+<p>No se solicita promoción a <code>master</code>, incremento de versión ni publicación.</p>
 </section>
 <section>
 <h2 id="section-7">7. Repetición de la revisión</h2>
-<p>Comandos principales ejecutados:</p>
 <pre><code class="language-bash">npm test
 npm audit --json
 node scripts/test-runner.mjs --list
 </code></pre>
-<p>Para el vector HTTP, iniciar un backend de prueba con <code>ZEROCHAT_DATA_DIR</code> apuntando a un directorio temporal, escucha loopback, sin navegador ni venv. Enviar con <code>http.client</code> la ruta literal <code>/js/../package.json</code>; alternativamente usar <code>curl --path-as-is</code>. Comparar estado y contenido, sin introducir datos sensibles. Cerrar el proceso al terminar. Para permisos, establecer <code>umask 022</code>, llamar a <code>get_daily_token</code> en ese entorno temporal y consultar <code>stat</code>, sin mostrar el valor.</p>
-<p>Para el interbloqueo, simular stdout cerrado y ejecutar <code>execute</code> en un proceso/hilo controlado con deadline; la comprobación no debe quedar esperando indefinidamente al reproducir el defecto. Para cifrado, usar exclusivamente un valor ficticio y verificar descifrado mediante el modo predeterminado sin contraseña.</p>
-<p>Los resultados adicionales no alteran la suite del producto: explican precisamente los huecos que una futura corrección debe cubrir. Los informes anteriores del repositorio son históricos y no se utilizaron como prueba de que un defecto continúe existiendo.</p>
+<p>Permisos (T01, T02): cargar <code>js/tool-security.js</code> en Node, crear un <code>ToolSecurityManager</code>, fijar la carpeta de arranque con <code>setStartupDirectory</code> y llamar a <code>evaluateAuthorization</code> con <code>read_file</code> sobre <code>~/.ssh/id_rsa</code>; para comandos, aplicar <code>setToolPolicy('bash', 'allow', …)</code> con el objeto de restricciones que crea la tarjeta y evaluar comandos encadenados. No hace falta ejecutar nada en el sistema.</p>
+<p>Backend (T03–T07): importar <code>zerochat.py</code> con <code>ZEROCHAT_DATA_DIR</code> temporal y <code>umask 022</code>; consultar <code>stat</code> del token sin mostrarlo; levantar <code>ThreadingHTTPServer</code> en un puerto efímero y pedir <code>/js/../package.json</code> con <code>http.client</code>; crear un <code>McpServiceManager</code> con un servicio que no responde al <code>initialize</code> y medir <code>tools()</code>; sustituir <code>_ensure_running</code> por un proceso simulado con stdout vacío y ejecutar <code>execute</code> en un hilo con deadline; llamar a <code>execute_command('sleep N; …', cwd='/tmp', timeout_seconds=1)</code> y buscar el proceso con <code>pgrep</code>.</p>
 </section>
 <footer>
-<p>Síntesis: base modular respaldada por 666 pruebas aprobadas; quedan 12 hallazgos priorizados. Las primeras correcciones deben abordar el acceso a archivos estáticos, los permisos del token y el bloqueo del navegador automatizado.</p>
-<p>Auditoría puntual del 27 de septiembre de 2026. Las recomendaciones no implican correcciones implementadas.</p>
+<p>Síntesis: base modular respaldada por 744 pruebas aprobadas; quedan 10 hallazgos priorizados. Las primeras correcciones deben abordar las reglas de carpetas y las autorizaciones de comandos, que hoy permiten acciones no confirmadas fuera del alcance indicado al usuario.</p>
+<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1. Sustituye al informe de 7.12.0. Las recomendaciones no implican correcciones implementadas.</p>
 </footer>
 </main>
 </body>
