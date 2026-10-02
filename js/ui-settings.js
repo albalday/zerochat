@@ -4,25 +4,19 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./defaults.js'));
+    module.exports = factory(require('./utils.js'), require('./defaults.js'));
   } else {
-    root.ChatUISettings = factory(root.ChatDefaults);
+    root.ChatUISettings = factory(root.ChatUtils, root.ChatDefaults);
   }
-})(typeof self !== 'undefined' ? self : this, function (Defaults) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, Defaults) {
   'use strict';
 
   const DEFAULT_THEME = Defaults.DEFAULT_THEME;
 
-  function resolveDep(globalName, relPath) {
-    if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require !== 'undefined') { try { return require(relPath); } catch (e) { return null; } }
-    return null;
-  }
+  const { resolveDep, escapeHtml } = Utils;
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
-  const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
@@ -35,22 +29,6 @@
     return key;
   }
 
-  function escapeHtml(str) {
-    const Markdown = getMarkdown();
-    if (Markdown && typeof Markdown.escapeHtml === 'function') {
-      return Markdown.escapeHtml(str);
-    }
-    return String(str || '').replace(/[&<>"']/g, (m) => {
-      switch (m) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        case "'": return '&#39;';
-        default: return m;
-      }
-    });
-  }
 
   function applyTheme(elements, appConfig, theme) {
     const doc = (typeof document !== 'undefined') ? document : null;

@@ -12,20 +12,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatUITelemetry = factory();
+    root.ChatUITelemetry = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  function resolveDep(globalName, relPath) {
-    if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof require !== 'undefined') {
-      try { return require(relPath); } catch (e) { return null; }
-    }
-    return null;
-  }
+  const { resolveDep } = Utils;
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');

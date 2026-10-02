@@ -4,21 +4,16 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatUISidebar = factory();
+    root.ChatUISidebar = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  function resolveDep(globalName, relPath) {
-    if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof require !== 'undefined') { try { return require(relPath); } catch (e) { return null; } }
-    return null;
-  }
+  const { resolveDep, escapeHtml } = Utils;
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getIcons = () => resolveDep('ChatIcons', './icons.js');
 
   function t(key, params) {
@@ -27,22 +22,6 @@
     return key;
   }
 
-  function escapeHtml(str) {
-    const Markdown = getMarkdown();
-    if (Markdown && typeof Markdown.escapeHtml === 'function') {
-      return Markdown.escapeHtml(str);
-    }
-    return String(str || '').replace(/[&<>"']/g, (m) => {
-      switch (m) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        case "'": return '&#39;';
-        default: return m;
-      }
-    });
-  }
 
   function isMobile() {
     return typeof window !== 'undefined' && window.innerWidth <= 768;

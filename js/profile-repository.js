@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./cookies.js'), require('./profile-backup.js'));
+    module.exports = factory(require('./cookies.js'), require('./profile-backup.js'), require('./utils.js'));
   } else {
-    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup);
+    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup, root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function (Storage, Backup) {
+}(typeof self !== 'undefined' ? self : this, function (Storage, Backup, Utils) {
   'use strict';
 
   const STORAGE_KEY = 'profiles_v1';
@@ -21,9 +21,7 @@
   ]);
   const STORAGE_PROFILE_FIELDS = Object.freeze([...PROFILE_FIELDS, 'apiKey']);
 
-  function clone(value) {
-    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-  }
+  const { clone } = Utils;
 
   function createId(name) {
     return `profile:${encodeURIComponent(String(name || '').trim())}`;

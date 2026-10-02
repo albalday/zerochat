@@ -1,17 +1,13 @@
 /** UI del selector compacto de intensidad de razonamiento. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatUIReasoning = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
+  else root.ChatUIReasoning = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
 
-  function resolveDep(globalName, relPath) {
-    if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof require !== 'undefined') { try { return require(relPath); } catch (_) { return null; } }
-    return null;
-  }
+  const { resolveDep } = Utils;
 
   function t(key, params) {
     const I18n = resolveDep('ChatI18n', './i18n.js');

@@ -4,16 +4,13 @@
  * process implementation.
  */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatUIMcp = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
+  else root.ChatUIMcp = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
   const DEFAULT_HOST = '127.0.0.1';
   const DEFAULT_PORT = 6388;
-  const resolveDep = (name, path) => (typeof window !== 'undefined' && window.ChatUtils?.resolveDep
-    ? window.ChatUtils.resolveDep(name, path)
-    : ((typeof window !== 'undefined' && window[name]) || (typeof require !== 'undefined'
-      ? (() => { try { return require(path); } catch (_) { return null; } })() : null)));
+  const { resolveDep, escapeHtml } = Utils;
   const getUtils = () => resolveDep('ChatUtils', './utils.js');
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getIcons = () => resolveDep('ChatIcons', './icons.js');
@@ -23,7 +20,6 @@
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const t = (key, params) => getI18n()?.t ? getI18n().t(key, params) : key;
-  const escapeHtml = value => getUtils()?.escapeHtml ? getUtils().escapeHtml(value) : '';
 
   function clearSafeContent(element) {
     const utils = getUtils();

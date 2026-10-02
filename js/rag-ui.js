@@ -1,8 +1,8 @@
 /** Minimal UI for IndexedDB-backed local knowledge. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatRagUI = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
+  else root.ChatRagUI = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   let activeBranchIds = new Set();
@@ -23,10 +23,7 @@
   function runtimeConfig() {
     return typeof window !== 'undefined' ? window.ChatConfig : null;
   }
-  function escapeHtml(value) {
-    const markdown = typeof window !== 'undefined' ? window.ChatMarkdown : null;
-    return markdown?.escapeHtml ? markdown.escapeHtml(String(value || '')) : String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-  }
+  const { escapeHtml } = Utils;
   function formatBytes(bytes) {
     if (!bytes) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB'];

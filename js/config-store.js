@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./state.js'), require('./cookies.js'), require('./profile-repository.js'), require('./defaults.js'));
+    module.exports = factory(require('./state.js'), require('./cookies.js'), require('./profile-repository.js'), require('./defaults.js'), require('./utils.js'));
   } else {
-    root.ChatConfig = factory(root.ChatState, root.ChatStorage, root.ChatProfileRepository, root.ChatDefaults);
+    root.ChatConfig = factory(root.ChatState, root.ChatStorage, root.ChatProfileRepository, root.ChatDefaults, root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults) {
+}(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults, Utils) {
   'use strict';
 
   const SCHEMA_VERSION = 3;
@@ -34,9 +34,7 @@
     }
   });
 
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
-  }
+  const { clone } = Utils;
 
   function normalizeBranchIds(value, fallback) {
     const values = Array.isArray(value) ? value : (value ? [value] : fallback || []);

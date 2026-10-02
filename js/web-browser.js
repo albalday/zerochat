@@ -31,11 +31,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatWebBrowser = factory();
+    root.ChatWebBrowser = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const MAX_CONTENT_LENGTH = 60000;
@@ -53,34 +53,7 @@
     return null;
   }
 
-  function getUtils() {
-    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
-    if (typeof require !== 'undefined') {
-      try { return require('./utils.js'); } catch (e) {}
-    }
-    return null;
-  }
-
-  /**
-   * Realiza un fetch con timeout controlado mediante AbortController.
-   */
-  async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const Utils = getUtils();
-    if (Utils && typeof Utils.fetchWithTimeout === 'function') {
-      return Utils.fetchWithTimeout(url, options, timeoutMs);
-    }
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-
-    try {
-      return await fetch(url, {
-        ...options,
-        signal: controller ? controller.signal : undefined
-      });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
+  const { fetchWithTimeout } = Utils;
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.

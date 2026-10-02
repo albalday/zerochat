@@ -7,11 +7,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatCharts = factory();
+    root.ChatCharts = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const COLOR_PALETTE = [
@@ -27,25 +27,7 @@
     '#84cc16'  // lime
   ];
 
-  function getUtils() {
-    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
-    if (typeof require !== 'undefined') {
-      try { return require('./utils.js'); } catch (e) { return null; }
-    }
-    return null;
-  }
-
-  function escapeHtml(str) {
-    const Utils = getUtils();
-    if (Utils && typeof Utils.escapeHtml === 'function') return Utils.escapeHtml(str);
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+  const { escapeHtml } = Utils;
 
   /**
    * Genera un gráfico de barras verticales en SVG.

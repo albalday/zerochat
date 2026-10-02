@@ -5,21 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'));
+    module.exports = factory(require('./utils.js'), require('./message-turns.js'));
   } else {
-    root.ChatConversationService = factory(root.ChatMessageTurns);
+    root.ChatConversationService = factory(root.ChatUtils, root.ChatMessageTurns);
   }
-}(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns) {
   'use strict';
 
-  function resolveDep(globalName, relPath) {
-    if (typeof window !== 'undefined' && window[globalName]) return window[globalName];
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require !== 'undefined') {
-      try { return require(relPath); } catch (_) {}
-    }
-    return null;
-  }
+  const { resolveDep } = Utils;
 
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getState() { return resolveDep('ChatState', './state.js'); }

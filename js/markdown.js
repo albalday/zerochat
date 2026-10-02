@@ -8,11 +8,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatMarkdown = factory();
+    root.ChatMarkdown = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   const Sandbox = typeof window !== 'undefined' ? (window.ChatSandbox || {}) : {};
@@ -26,39 +26,7 @@
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
-  function getUtils() {
-    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
-    if (typeof require !== 'undefined') {
-      try { return require('./utils.js'); } catch (e) { return null; }
-    }
-    return null;
-  }
-
-  function escapeHtml(str) {
-    const Utils = getUtils();
-    if (Utils && typeof Utils.escapeHtml === 'function') return Utils.escapeHtml(str);
-    return str == null ? '' : String(str);
-  }
-
-  /**
-   * Sanitiza URLs para prevenir ataques XSS vía javascript:, data:, vbscript: o URLs maliciosas.
-   * @param {string} rawUrl - URL sin procesar
-   * @returns {string} - URL segura o '#' si es inválida
-   */
-  function sanitizeUrl(rawUrl) {
-    const Utils = getUtils();
-    return Utils?.sanitizeUrl ? Utils.sanitizeUrl(rawUrl) : '#';
-  }
-
-  /**
-   * Sanitiza URLs de imágenes (https, http, data:image, blob) para evitar inyecciones XSS.
-   * @param {string} rawUrl - URL de imagen
-   * @returns {string} - URL segura o '' si es inválida
-   */
-  function sanitizeImageUrl(rawUrl) {
-    const Utils = getUtils();
-    return Utils?.sanitizeImageUrl ? Utils.sanitizeImageUrl(rawUrl) : '';
-  }
+  const { escapeHtml, sanitizeUrl, sanitizeImageUrl } = Utils;
 
   function parseInlineMarkdown(text) {
     if (!text) return '';
