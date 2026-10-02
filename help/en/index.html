@@ -45,10 +45,31 @@
       <h3>Install from PyPI (recommended)</h3>
 <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
       <p>On subsequent launches, run <code>zerochat</code>.</p>
+      <div class="alert alert-info">
+        <strong>Windows execution:</strong> If the <code>zerochat</code> command is not recognized after running <code>pip</code> (because Python's <code>Scripts</code> directory is not in system <code>PATH</code>), run it directly with the Python launcher:
+        <p style="margin: 0.5rem 0 0 0;"><code style="font-size: 1rem; font-weight: 600;">py -m zerochat</code> (or <code>python -m zerochat</code> if <code>python</code> is on PATH).</p>
+      </div>
       <h3>Download the script</h3>
 <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
       <p>On subsequent launches, run <code>python3 zerochat.py</code> from the download folder. You can also <a href="../../zerochat.py" download>download the file</a> manually.</p>
       <p>Keep the process running and use the link it opens. Then go to <a href="mcp.html">Settings → MCP</a> to check the connection and enable tools.</p>
+
+      <h3>Tested environments and browser compatibility</h3>
+      <ul>
+        <li><strong>Tested environments:</strong>
+          <ul>
+            <li><strong>Linux:</strong> standard distributions (x86_64 and ARM) with Python 3.10+. Command execution uses an interactive persistent <code>bash</code> session.</li>
+            <li><strong>Windows:</strong> Windows 10 and Windows 11 with PowerShell and the <code>py</code> launcher. Command execution natively adapts to PowerShell preserving directory and environment variables.</li>
+            <li><strong>Android + Termux:</strong> Termux environment with the <code>python</code> package. Opens URLs with <code>termux-open-url</code>.</li>
+          </ul>
+        </li>
+        <li><strong>Browser compatibility:</strong>
+          <ul>
+            <li>ZeroChat <strong>does not work on Safari</strong> due to Private Network Access limitations and web storage restrictions.</li>
+            <li>On <strong>macOS, Google Chrome</strong> (or Chromium-based browsers) must be used to connect with the local server and execute tools.</li>
+          </ul>
+        </li>
+      </ul>
     </div>
 
     <div class="card">

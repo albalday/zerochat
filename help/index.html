@@ -45,10 +45,31 @@
       <h3>Instalar desde PyPI (recomendado)</h3>
 <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
       <p>En los siguientes arranques, ejecuta <code>zerochat</code>.</p>
+      <div class="alert alert-info">
+        <strong>Ejecución en Windows:</strong> Si tras instalar con <code>pip</code> el comando <code>zerochat</code> no se reconoce porque la carpeta <code>Scripts</code> de Python no está en el <code>PATH</code>, ejecútalo directamente con el lanzador de Python:
+        <p style="margin: 0.5rem 0 0 0;"><code style="font-size: 1rem; font-weight: 600;">py -m zerochat</code> (o <code>python -m zerochat</code> si está en el PATH).</p>
+      </div>
       <h3>Descargar el script</h3>
 <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
       <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>
       <p>Mantén el proceso en ejecución y utiliza el enlace que abre. Después ve a <a href="mcp.html">Ajustes → MCP</a> para comprobar la conexión y habilitar herramientas.</p>
+
+      <h3>Entornos probados y compatibilidad de navegador</h3>
+      <ul>
+        <li><strong>Entornos probados:</strong>
+          <ul>
+            <li><strong>Linux:</strong> distribuciones estándar (x86_64 y ARM) con Python 3.10+. Ejecución de comandos con sesión <code>bash</code> interactiva persistente.</li>
+            <li><strong>Windows:</strong> Windows 10 y Windows 11 con PowerShell y lanzador <code>py</code>. La ejecución de comandos se adapta nativamente a PowerShell manteniendo directorio y entorno.</li>
+            <li><strong>Android + Termux:</strong> Termux con el paquete <code>python</code>. Abre URLs con <code>termux-open-url</code>.</li>
+          </ul>
+        </li>
+        <li><strong>Compatibilidad de navegador:</strong>
+          <ul>
+            <li>ZeroChat <strong>no funciona en Safari</strong> debido a restricciones de red privada local (Private Network Access) y almacenamiento web.</li>
+            <li>En <strong>macOS es necesario utilizar Google Chrome</strong> (o navegadores basados en Chromium) para conectar con el servidor local y ejecutar herramientas.</li>
+          </ul>
+        </li>
+      </ul>
     </div>
 
     <div class="card">

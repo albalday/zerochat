@@ -98,7 +98,7 @@ TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)
 TOOL_AUTH_NONCES: dict[str, int] = {}
 TOOL_AUTH_NONCES_LOCK = threading.Lock()
 
-DETECTED_OS = "windows" if sys.platform.startswith("win") else ("android" if "ANDROID_ROOT" in os.environ else "linux")
+DETECTED_OS = "windows" if sys.platform.startswith("win") else ("macos" if sys.platform == "darwin" else ("android" if "ANDROID_ROOT" in os.environ else "linux"))
 
 
 def get_venv_python(venv_dir: Path) -> Path:

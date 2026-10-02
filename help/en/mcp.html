@@ -29,15 +29,21 @@
       <p>MCP connects the chat to computer tools and external services. You need the local ZeroChat server. Choose one installation method:</p>
       <h3>PyPI (recommended)</h3>
         <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
+        <div class="alert alert-info">
+          <strong>On Windows:</strong> If the <code>zerochat</code> executable is not on your <code>PATH</code>, run directly using <code>py -m zerochat</code> (or <code>python -m zerochat</code>).
+        </div>
       <h3>Direct download</h3>
         <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
-      <p>For subsequent launches, use <code>zerochat</code> or <code>python3 zerochat.py</code>, respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>
+      <p>For subsequent launches, use <code>zerochat</code> (or <code>py -m zerochat</code> on Windows) or <code>python3 zerochat.py</code>, respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>
       <ol>
         <li>Keep the server running and open the link it provides.</li>
         <li>Go to <strong>Settings → MCP</strong> and check the connection and discovered tools.</li>
         <li>Enable the tools you need and review their permissions.</li>
       </ol>
       <p>If disconnected, check that the process is running, reopen its link and review the browser's local network access permissions. There is no manual connection form. Do not share the startup link containing its token.</p>
+      <div class="alert alert-warning">
+        <strong>Browser compatibility:</strong> ZeroChat <strong>does not support Safari</strong>. On macOS you must use <strong>Google Chrome</strong> (or Chromium-based browsers) to connect to the local server. Tested environments: Linux, Windows (PowerShell) and Android (Termux).
+      </div>
       <p><a href="architecture.html">Usage modes, local data and updates →</a></p>
     </div>
 
@@ -45,9 +51,9 @@
       <h2>2. Use computer tools</h2>
       <ul>
         <li><strong>Files:</strong> <code>list_directory</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code> and <code>search_files</code>.</li>
-        <li><strong>Commands:</strong> <code>bash</code> and <code>execute_command</code>. The shell session may retain its directory and variables between calls.</li>
+        <li><strong>Commands:</strong> <code>bash</code> and <code>execute_command</code>. The shell session retains its working directory and environment variables across calls. On Linux/macOS/Android it uses <code>bash</code>/<code>sh</code>; on Windows it runs natively in <strong>PowerShell</strong> providing host OS context to the model.</li>
         <li><strong>Syntax checks:</strong> <code>get_diagnostics</code>; it does not replace project tests.</li>
-        <li><strong>Browser:</strong> <code>browser_action</code> requires Node.js, Playwright and Chromium. See the <a href="browser-action.html">setup guide</a>.</li>
+        <li><strong>Browser:</strong> <code>browser_action</code> requires Node.js and having Chrome or Edge on your system (or Chromium). To use it, start the Playwright service in Settings → MCP (it installs automatically). See the <a href="browser-action.html">setup guide</a>.</li>
       </ul>
       <p>Tool results become part of the conversation and may be sent to the selected model.</p>
     </div>

@@ -35,9 +35,8 @@ def main():
     browser_availability = browser_action_availability()
     if not browser_availability.get("available"):
         add_notice(
-            "browser_action no está disponible y permanecerá desactivada. "
-            "Instala Node.js, Playwright y Chromium: "
-            "https://albalday.github.io/zerochat/help/browser-action.html"
+            "browser_action desactivada: para usarla, inicia el servicio 'playwright' en Ajustes → MCP "
+            "(se instala solo). Requiere Node.js y disponer de Chrome o Edge en el sistema."
         )
 
     # 2. Detectar entorno de desarrollo y resolver URL de destino

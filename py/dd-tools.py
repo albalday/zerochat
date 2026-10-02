@@ -255,12 +255,13 @@ def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int =
     return head + warning + tail, True
 
 
-class PersistentBashSession:
+class PersistentShellSession:
     """Maintains working directory (cwd) and environment variables across successive calls."""
     def __init__(self):
-        self._dir = tempfile.mkdtemp(prefix="zerochat_bash_")
+        prefix = "zerochat_ps_" if DETECTED_OS == "windows" else "zerochat_bash_"
+        self._dir = tempfile.mkdtemp(prefix=prefix)
         self._cwd_file = Path(self._dir) / "cwd"
-        self._env_file = Path(self._dir) / "env.sh"
+        self._env_file = Path(self._dir) / ("env.txt" if DETECTED_OS == "windows" else "env.sh")
         self._cwd = str(Path.cwd().resolve())
         self._lock = threading.Lock()
         atexit.register(self.cleanup)
@@ -274,111 +275,237 @@ class PersistentBashSession:
     def run(self, command: str, timeout_seconds: int = 30) -> str:
         with self._lock:
             safe_timeout = max(1, min(int(timeout_seconds), 300))
-            runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
+            if DETECTED_OS == "windows":
+                return self._run_windows(command, safe_timeout)
+            return self._run_posix(command, safe_timeout)
 
-            script_content = (
-                "if [ -f " + shlex.quote(str(self._env_file)) + " ]; then\n"
-                "  . " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true\n"
-                "fi\n"
-                "cd " + shlex.quote(self._cwd) + " 2>/dev/null || true\n"
-                "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
-                + command + "\n"
+    def _run_windows(self, command: str, safe_timeout: int) -> str:
+        runner_script = Path(self._dir) / f"runner_{time.time_ns()}.ps1"
+        escaped_cwd = self._cwd.replace("'", "''")
+        escaped_env = str(self._env_file).replace("'", "''")
+        escaped_cwd_file = str(self._cwd_file).replace("'", "''")
+
+        script_content = (
+            "$ErrorActionPreference = 'Continue'\n"
+            f"if (Test-Path -LiteralPath '{escaped_env}') {{\n"
+            f"    Get-Content -LiteralPath '{escaped_env}' | ForEach-Object {{\n"
+            "        $parts = $_ -split '=', 2\n"
+            "        if ($parts.Count -eq 2) {\n"
+            "            [System.Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            f"Set-Location -LiteralPath '{escaped_cwd}'\n"
+            "$LASTEXITCODE = $null\n"
+            "$__ret = 0\n"
+            "try {\n"
+            "    . {\n"
+            f"{command}\n"
+            "    }\n"
+            "    if ($LASTEXITCODE -ne $null) {\n"
+            "        $__ret = $LASTEXITCODE\n"
+            "    } elseif (-not $?) {\n"
+            "        $__ret = 1\n"
+            "    }\n"
+            "} catch {\n"
+            "    $__ret = 1\n"
+            "    [Console]::Error.WriteLine($_)\n"
+            "} finally {\n"
+            f"    (Get-Location).Path | Set-Content -LiteralPath '{escaped_cwd_file}' -Encoding utf8\n"
+            f"    Get-ChildItem env: | ForEach-Object {{ \"$($_.Name)=$($_.Value)\" }} | Set-Content -LiteralPath '{escaped_env}' -Encoding utf8\n"
+            "    exit $__ret\n"
+            "}\n"
+        )
+
+        powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
+
+        try:
+            runner_script.write_text(script_content, encoding="utf-8")
+            proc = subprocess.Popen(
+                [
+                    powershell_bin,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", str(runner_script)
+                ],
+                cwd=self._cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace"
             )
 
             try:
-                with open(runner_script, "w", encoding="utf-8") as f:
-                    f.write(script_content)
-                runner_script.chmod(0o700)
-
-                proc = subprocess.Popen(
-                    ["bash", str(runner_script)],
-                    cwd=self._cwd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    start_new_session=True if hasattr(os, "setsid") else False
-                )
-
+                stdout, stderr = proc.communicate(timeout=safe_timeout)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
                 try:
-                    stdout, stderr = proc.communicate(timeout=safe_timeout)
-                    returncode = proc.returncode
-                except subprocess.TimeoutExpired:
-                    try:
-                        if hasattr(os, "killpg") and hasattr(os, "getpgid"):
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                        else:
-                            proc.kill()
-                    except Exception:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                    proc.communicate()
-                    return json.dumps({
-                        "success": False,
-                        "error": f"Command timed out after {timeout_seconds} seconds (terminated with SIGKILL).",
-                        "cwd": self._cwd
-                    }, ensure_ascii=False)
-
-                if self._cwd_file.is_file():
-                    try:
-                        saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                        if saved_cwd and Path(saved_cwd).is_dir():
-                            self._cwd = saved_cwd
-                    except Exception:
-                        pass
-
-                truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-                truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-
+                    proc.kill()
+                except Exception:
+                    pass
+                proc.communicate()
                 return json.dumps({
-                    "success": returncode == 0,
-                    "returncode": returncode,
-                    "stdout": truncated_out,
-                    "stderr": truncated_err,
+                    "success": False,
+                    "error": f"Command timed out after {safe_timeout} seconds (terminated).",
                     "cwd": self._cwd,
-                    "truncated": was_out_trunc or was_err_trunc
-                }, ensure_ascii=False, indent=2)
+                    "os": "windows"
+                }, ensure_ascii=False)
 
-            except Exception as e:
-                return json.dumps({"success": False, "error": str(e), "cwd": self._cwd}, ensure_ascii=False)
-            finally:
+            if self._cwd_file.is_file():
                 try:
-                    if runner_script.is_file():
-                        runner_script.unlink()
+                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
+                    if saved_cwd and Path(saved_cwd).is_dir():
+                        self._cwd = saved_cwd
                 except Exception:
                     pass
 
+            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
+            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
 
-BASH_SESSION = PersistentBashSession()
+            return json.dumps({
+                "success": returncode == 0,
+                "returncode": returncode,
+                "stdout": truncated_out,
+                "stderr": truncated_err,
+                "cwd": self._cwd,
+                "os": "windows",
+                "truncated": was_out_trunc or was_err_trunc
+            }, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": "windows"}, ensure_ascii=False)
+        finally:
+            try:
+                if runner_script.is_file():
+                    runner_script.unlink()
+            except Exception:
+                pass
+
+    def _run_posix(self, command: str, safe_timeout: int) -> str:
+        runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
+        script_content = (
+            "if [ -f " + shlex.quote(str(self._env_file)) + " ]; then\n"
+            "  . " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true\n"
+            "fi\n"
+            "cd " + shlex.quote(self._cwd) + " 2>/dev/null || true\n"
+            "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
+            + command + "\n"
+        )
+
+        shell_bin = shutil.which("bash") or shutil.which("sh") or "bash"
+
+        try:
+            with open(runner_script, "w", encoding="utf-8") as f:
+                f.write(script_content)
+            runner_script.chmod(0o700)
+
+            proc = subprocess.Popen(
+                [shell_bin, str(runner_script)],
+                cwd=self._cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=True if hasattr(os, "setsid") else False
+            )
+
+            try:
+                stdout, stderr = proc.communicate(timeout=safe_timeout)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
+                try:
+                    if hasattr(os, "killpg") and hasattr(os, "getpgid"):
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    else:
+                        proc.kill()
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                proc.communicate()
+                return json.dumps({
+                    "success": False,
+                    "error": f"Command timed out after {safe_timeout} seconds (terminated with SIGKILL).",
+                    "cwd": self._cwd,
+                    "os": DETECTED_OS
+                }, ensure_ascii=False)
+
+            if self._cwd_file.is_file():
+                try:
+                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
+                    if saved_cwd and Path(saved_cwd).is_dir():
+                        self._cwd = saved_cwd
+                except Exception:
+                    pass
+
+            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
+            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
+
+            return json.dumps({
+                "success": returncode == 0,
+                "returncode": returncode,
+                "stdout": truncated_out,
+                "stderr": truncated_err,
+                "cwd": self._cwd,
+                "os": DETECTED_OS,
+                "truncated": was_out_trunc or was_err_trunc
+            }, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": DETECTED_OS}, ensure_ascii=False)
+        finally:
+            try:
+                if runner_script.is_file():
+                    runner_script.unlink()
+            except Exception:
+                pass
+
+
+PersistentBashSession = PersistentShellSession
+SHELL_SESSION = PersistentShellSession()
+BASH_SESSION = SHELL_SESSION
 
 
 def bash(command: str, timeout_seconds: int = 30) -> str:
-    """Execute a command in an interactive persistent bash shell session."""
-    return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
+    """Execute a command in an interactive persistent shell session."""
+    return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
 
 
 def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> str:
     """Execute a command in the system shell and capture stdout and stderr."""
-    if cwd == "." or cwd == BASH_SESSION._cwd:
-        return BASH_SESSION.run(command, timeout_seconds=timeout_seconds)
+    if cwd == "." or cwd == SHELL_SESSION._cwd:
+        return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
     try:
         target_cwd = Path(cwd).expanduser().resolve()
         if not target_cwd.exists() or not target_cwd.is_dir():
             target_cwd = Path.cwd()
 
-        proc = subprocess.run(
-            command,
-            cwd=str(target_cwd),
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=max(1, min(int(timeout_seconds), 300)),
-            encoding="utf-8",
-            errors="replace"
-        )
+        if DETECTED_OS == "windows":
+            powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
+            proc = subprocess.run(
+                [powershell_bin, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
+                cwd=str(target_cwd),
+                capture_output=True,
+                text=True,
+                timeout=max(1, min(int(timeout_seconds), 300)),
+                encoding="utf-8",
+                errors="replace"
+            )
+        else:
+            proc = subprocess.run(
+                command,
+                cwd=str(target_cwd),
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=max(1, min(int(timeout_seconds), 300)),
+                encoding="utf-8",
+                errors="replace"
+            )
         trunc_out, was_out_trunc = truncate_terminal_output(proc.stdout)
         trunc_err, was_err_trunc = truncate_terminal_output(proc.stderr)
         return json.dumps({
@@ -387,12 +514,13 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
             "stdout": trunc_out,
             "stderr": trunc_err,
             "cwd": str(target_cwd),
+            "os": DETECTED_OS,
             "truncated": was_out_trunc or was_err_trunc
         }, ensure_ascii=False, indent=2)
     except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": f"Command timed out after {timeout_seconds} seconds."}, ensure_ascii=False)
+        return json.dumps({"success": False, "error": f"Command timed out after {timeout_seconds} seconds.", "os": DETECTED_OS}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return json.dumps({"success": False, "error": str(e), "os": DETECTED_OS}, ensure_ascii=False)
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
@@ -883,11 +1011,22 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "bash",
-        "description": "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls).",
+        "description": (
+            "Execute a command in an interactive persistent Windows PowerShell session (preserves cwd and environment variables across calls). Host OS: Windows."
+            if DETECTED_OS == "windows"
+            else "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls). Host OS: Linux/Unix (bash)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Shell command to execute (e.g. npm test, git status)"},
+                "command": {
+                    "type": "string",
+                    "description": (
+                        "PowerShell command to execute (e.g. dir, git status, python test.py)"
+                        if DETECTED_OS == "windows"
+                        else "Shell command to execute (e.g. npm test, git status)"
+                    )
+                },
                 "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 30)", "default": 30}
             },
             "required": ["command"]
@@ -908,11 +1047,22 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "execute_command",
-        "description": "Execute a shell command and capture stdout/stderr.",
+        "description": (
+            "Execute a command in the Windows system shell (PowerShell) and capture stdout/stderr. Host OS: Windows."
+            if DETECTED_OS == "windows"
+            else f"Execute a shell command and capture stdout/stderr. Host OS: {DETECTED_OS}."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Command to execute"},
+                "command": {
+                    "type": "string",
+                    "description": (
+                        "Command to execute in Windows PowerShell"
+                        if DETECTED_OS == "windows"
+                        else "Command to execute"
+                    )
+                },
                 "cwd": {"type": "string", "description": "Working directory (defaults to '.')"},
                 "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 60)", "default": 60}
             },

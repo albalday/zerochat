@@ -411,6 +411,11 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('bash'));
     assert.ok(toolNames.includes('search_files'));
     assert.ok(toolNames.includes('execute_command'));
+    assert.ok(typeof initJson.result?.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
+    const bashTool = tools.find(t => t.name === 'bash');
+    assert.ok(bashTool?.description?.includes('Host OS:'), 'bash debe declarar el SO anfitrión');
+    const execToolDef = tools.find(t => t.name === 'execute_command');
+    assert.ok(execToolDef?.description?.includes('Host OS:'), 'execute_command debe declarar el SO anfitrión');
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
     const browserAction = tools.find(t => t.name === 'browser_action');

@@ -506,7 +506,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     "serverInfo": {
                         "name": "ZeroChat Local Server",
                         "version": VERSION,
-                        "cwd": str(Path.cwd().resolve())
+                        "cwd": str(Path.cwd().resolve()),
+                        "os": DETECTED_OS
                     },
                     "capabilities": {
                         "tools": {"listChanged": True}

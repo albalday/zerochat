@@ -29,15 +29,21 @@
       <p>MCP conecta el chat con herramientas del equipo y servicios externos. Necesitas el servidor local de ZeroChat. Elige una forma de instalación:</p>
       <h3>PyPI (recomendado)</h3>
         <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
+        <div class="alert alert-info">
+          <strong>En Windows:</strong> Si el ejecutable <code>zerochat</code> no está en el <code>PATH</code>, arranca directamente con <code>py -m zerochat</code> (o <code>python -m zerochat</code>).
+        </div>
       <h3>Descarga directa</h3>
         <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
-      <p>Para los siguientes arranques, utiliza <code>zerochat</code> o <code>python3 zerochat.py</code>, respectivamente. Ambos abren GitHub Pages y guardan los datos locales en <code>~/zerochat/</code>.</p>
+      <p>Para los siguientes arranques, utiliza <code>zerochat</code> (o <code>py -m zerochat</code> en Windows) o <code>python3 zerochat.py</code>, respectivamente. Ambos abren GitHub Pages y guardan los datos locales en <code>~/zerochat/</code>.</p>
       <ol>
         <li>Mantén el servidor en ejecución y abre el enlace que proporciona.</li>
         <li>Ve a <strong>Ajustes → MCP</strong> y comprueba la conexión y las herramientas descubiertas.</li>
         <li>Habilita las herramientas que necesites y revisa sus permisos.</li>
       </ol>
       <p>Si aparece desconectado, comprueba que el proceso siga en ejecución, vuelve a abrir su enlace y revisa los permisos de red local del navegador. No hay formulario de conexión manual. No compartas el enlace de arranque que contiene el token.</p>
+      <div class="alert alert-warning">
+        <strong>Compatibilidad de navegador:</strong> ZeroChat <strong>no es compatible con Safari</strong>. En macOS es necesario usar <strong>Google Chrome</strong> (o navegadores Chromium) para conectar con el servidor local. Entornos probados: Linux, Windows (PowerShell) y Android (Termux).
+      </div>
       <p><a href="architecture.html">Modos de uso, datos locales y actualizaciones →</a></p>
     </div>
 
@@ -45,9 +51,9 @@
       <h2>2. Usa las herramientas del equipo</h2>
       <ul>
         <li><strong>Archivos:</strong> <code>list_directory</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code> y <code>search_files</code>.</li>
-        <li><strong>Comandos:</strong> <code>bash</code> y <code>execute_command</code>. La sesión shell puede conservar el directorio y las variables entre llamadas.</li>
+        <li><strong>Comandos:</strong> <code>bash</code> y <code>execute_command</code>. La sesión shell conserva el directorio de trabajo y las variables entre llamadas. En Linux/macOS/Android utiliza <code>bash</code>/<code>sh</code>; en Windows se ejecuta de forma nativa en <strong>PowerShell</strong> informando del sistema operativo al modelo.</li>
         <li><strong>Comprobaciones de sintaxis:</strong> <code>get_diagnostics</code>; no sustituye las pruebas del proyecto.</li>
-        <li><strong>Navegador:</strong> <code>browser_action</code> requiere Node.js, Playwright y Chromium. Consulta la <a href="browser-action.html">guía de preparación</a>.</li>
+        <li><strong>Navegador:</strong> <code>browser_action</code> requiere Node.js y disponer de Chrome o Edge en el sistema (o Chromium). Para usarla, inicia el servicio Playwright en Ajustes → MCP (se instala solo). Consulta la <a href="browser-action.html">guía de preparación</a>.</li>
       </ul>
       <p>Los resultados de herramientas forman parte de la conversación y pueden enviarse al modelo seleccionado.</p>
     </div>

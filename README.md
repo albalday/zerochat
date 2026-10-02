@@ -35,6 +35,7 @@ Para añadir herramientas del equipo, instala y ejecuta el backend con Python. /
 ```bash
 pip install zerochat
 zerochat
+# En Windows (si zerochat no está en PATH): py -m zerochat
 ```
 
 También puedes descargar el script y ejecutarlo. / You can also download and run the script:
@@ -43,6 +44,9 @@ También puedes descargar el script y ejecutarlo. / You can also download and ru
 curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
 python3 zerochat.py
 ```
+
+> **Entornos probados / Tested environments:** Linux (x86_64, ARM), Windows 10/11 (PowerShell, `py -m zerochat`), Android (Termux con `python`).  
+> **Navegadores / Browsers:** ZeroChat **no es compatible con Safari / does not work on Safari**. En macOS es necesario usar **Google Chrome** (o Chromium) / On macOS, use **Google Chrome** (or Chromium).
 
 Fuera del repositorio de desarrollo, ambos modos abren la interfaz de GitHub Pages. Crean `~/zerochat/` para configuración y servicios, con `.venv/` para dependencias MCP Python. Mantén el proceso abierto y usa su enlace de arranque para autenticar la conexión local. Revisa **Ajustes → MCP** y **Permisos** antes de habilitar herramientas: los comandos actúan con los permisos del proceso local y detenerlos no deshace cambios.
 
