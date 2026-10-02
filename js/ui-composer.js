@@ -240,18 +240,6 @@
       };
       els.userInput.addEventListener('paste', onPaste);
       activeCleanupFns.push(() => els.userInput.removeEventListener('paste', onPaste));
-
-      const onFocus = function () {
-        if (typeof window !== 'undefined' && window.visualViewport) {
-          setTimeout(() => {
-            if (els.userInput) {
-              els.userInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            }
-          }, 300);
-        }
-      };
-      els.userInput.addEventListener('focus', onFocus);
-      activeCleanupFns.push(() => els.userInput.removeEventListener('focus', onFocus));
     }
 
     if (els.btnStopStream) {

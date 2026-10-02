@@ -388,19 +388,6 @@
       activeCleanupFns.push(() => els.btnDeleteAllChats.removeEventListener('click', onDeleteAll));
     }
 
-    if (els.btnImportChatFile && els.importJsonInput) {
-      const onImportClick = () => els.importJsonInput.click();
-      els.btnImportChatFile.addEventListener('click', onImportClick);
-      activeCleanupFns.push(() => els.btnImportChatFile.removeEventListener('click', onImportClick));
-
-      const onImportChange = (e) => {
-        if (typeof callbacks.onImportFileSelected === 'function') {
-          callbacks.onImportFileSelected(e);
-        }
-      };
-      els.importJsonInput.addEventListener('change', onImportChange);
-      activeCleanupFns.push(() => els.importJsonInput.removeEventListener('change', onImportChange));
-    }
     if (els.btnOpenSettings) {
       const onOpenSettings = () => {
         setSidebarMode(els, 'settings');

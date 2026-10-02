@@ -698,11 +698,6 @@
     }
   }
 
-  async function processFiles(files) {
-    if (UIComposer.processFiles) {
-      return UIComposer.processFiles(elements, files);
-    }
-  }
 
 
   // ==========================================================================
@@ -944,12 +939,6 @@
     }
   }
 
-  function toggleSidebar() {
-    if (UISidebar.toggleSidebar) {
-      UISidebar.toggleSidebar(elements);
-    }
-  }
-
 
   function closeSidebar() {
     if (UISidebar.closeSidebar) {
@@ -1009,13 +998,22 @@
       getSession: async (id) => (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null,
       getConfig: () => appConfig,
       getModel: () => appConfig.model,
-      onSwitchSession: async (id) => await switchToSession(id)
+      onSwitchSession: async (id) => await switchToSession(id),
+      onImportSuccess: importConversationSession,
+      isBusy: () => blockSessionTransitionIfBusy('chat_import_blocked_generating'),
+      maxBytes: Attachments.MAX_FILE_SIZE
     };
   }
 
-  function getExportTargetSessionId() {
-    if (UITransfer.getExportTargetSessionId) return UITransfer.getExportTargetSessionId(elements, getCurrentSessionId());
-    return elements.exportModal?.dataset?.sessionId || getCurrentSessionId();
+  async function importConversationSession(newSession) {
+    Engine.ensureConversationDate(newSession.history, appConfig.language || 'es', newSession.createdAt);
+    if (State.importConversation) {
+      const res = State.importConversation(newSession, newSession.history);
+      if (!res.ok) throw new Error(res.reason);
+    }
+    renderSessionMessages(getChatHistory());
+    await saveCurrentSession();
+    ChatDialogs.alert(t('chat_imported_success'), { type: 'success' });
   }
 
   function openExportModal(targetSessionId = null) {
@@ -1030,182 +1028,6 @@
       } else {
         elements.exportModal.style.display = 'block';
       }
-    }
-  }
-
-  function closeExportModal() {
-    if (UITransfer.closeExportModal) {
-      UITransfer.closeExportModal(elements);
-      return;
-    }
-    if (elements.exportModal) {
-      delete elements.exportModal.dataset.sessionId;
-      if (typeof elements.exportModal.close === 'function') {
-        elements.exportModal.close();
-      } else {
-        elements.exportModal.style.display = 'none';
-      }
-    }
-  }
-
-  async function getSessionForExport() {
-    if (UITransfer.resolveSessionForExport) {
-      return await UITransfer.resolveSessionForExport(elements, getExportTransferOptions());
-    }
-    const id = getExportTargetSessionId();
-    if (id === getCurrentSessionId()) {
-      return { sess: getSavedSessions().find(s => s.id === id), history: getChatHistory() };
-    }
-    const conv = (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null;
-    return { sess: conv, history: conv?.history || [] };
-  }
-
-  async function exportConversationAsMarkdown() {
-    if (UITransfer.exportConversationAsMarkdown) {
-      await UITransfer.exportConversationAsMarkdown(elements, getExportTransferOptions());
-      return;
-    }
-    const { sess, history } = await getSessionForExport();
-    const title = (sess && sess.title) || 'ZeroChat_Conversation';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const md = Export.buildMarkdownExport ? Export.buildMarkdownExport(history, { title, model: appConfig.model }) : '';
-    if (Export.downloadFile) {
-      Export.downloadFile(md, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.md`, 'text/markdown');
-    }
-    closeExportModal();
-  }
-
-  async function exportConversationAsJson() {
-    if (UITransfer.exportConversationAsJson) {
-      await UITransfer.exportConversationAsJson(elements, getExportTransferOptions());
-      return;
-    }
-    const { sess, history } = await getSessionForExport();
-    const title = (sess && sess.title) || 'ZeroChat_Conversation';
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const jsonStr = Export.buildJsonExport ? Export.buildJsonExport(sess, history, appConfig) : '{}';
-    if (Export.downloadFile) {
-      Export.downloadFile(jsonStr, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.json`, 'application/json');
-    }
-    closeExportModal();
-  }
-
-  async function exportConversationAsPrint() {
-    if (UITransfer.exportConversationAsPrint) {
-      await UITransfer.exportConversationAsPrint(elements, getExportTransferOptions());
-      return;
-    }
-    const targetId = getExportTargetSessionId();
-    closeExportModal();
-    if (targetId && targetId !== getCurrentSessionId()) {
-      await switchToSession(targetId);
-    }
-    setTimeout(() => {
-      window.print();
-    }, 200);
-  }
-
-  async function handleImportFileSelected(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    if (blockSessionTransitionIfBusy('chat_import_blocked_generating')) {
-      if (elements.importJsonInput) elements.importJsonInput.value = '';
-      return;
-    }
-
-    const maxBytes = (typeof Attachments !== 'undefined' && Attachments?.MAX_FILE_SIZE) || (50 * 1024 * 1024);
-    if (file.size > maxBytes) {
-      await ChatDialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
-      if (elements.importJsonInput) elements.importJsonInput.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async function(evt) {
-      try {
-        const newSession = Export.parseImportedJson ? Export.parseImportedJson(evt.target.result, file.name.replace('.json', '')) : null;
-        if (!newSession) throw new Error('Error al procesar el archivo');
-
-        Engine.ensureConversationDate(newSession.history, appConfig.language || 'es', newSession.createdAt);
-
-        if (State.importConversation) {
-          const res = State.importConversation(newSession, newSession.history);
-          if (!res.ok) {
-            throw new Error(res.reason);
-          }
-        }
-
-        renderSessionMessages(getChatHistory());
-        await saveCurrentSession();
-        ChatDialogs.alert(t('chat_imported_success'), { type: 'success' });
-      } catch (err) {
-        ChatDialogs.alert(t('chat_import_json_err', { err: err.message || err }), { type: 'error' });
-      }
-      if (elements.importJsonInput) elements.importJsonInput.value = '';
-    };
-    reader.readAsText(file);
-  }
-
-  // ==========================================================================
-  // Pegado de Imágenes desde el Portapapeles (Ctrl + V)
-  // ==========================================================================
-
-  function handlePasteEvent(e) {
-    if (UIComposer.handlePasteEvent) {
-      return UIComposer.handlePasteEvent(e, elements);
-    }
-  }
-
-  // ==========================================================================
-  // Ajuste Dinámico de Altura de Viewport (Android / Tablets / iOS / Teclados)
-  // ==========================================================================
-
-  function updateViewportHeight() {
-    if (UIShell.updateViewportHeight) return UIShell.updateViewportHeight();
-    let vh = window.innerHeight;
-    if (window.visualViewport) {
-      vh = window.visualViewport.height;
-    }
-    document.documentElement.style.setProperty('--app-height', `${vh}px`);
-  }
-
-  function setupViewportListeners() {
-    if (UIShell.setupViewportListeners) {
-      return UIShell.setupViewportListeners(elements, {
-        onViewportChange: () => positionReasoningMenu()
-      });
-    }
-    updateViewportHeight();
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => {
-        updateViewportHeight();
-        positionReasoningMenu();
-      });
-      window.visualViewport.addEventListener('scroll', () => {
-        updateViewportHeight();
-        positionReasoningMenu();
-      });
-    }
-    window.addEventListener('resize', () => {
-      updateViewportHeight();
-      positionReasoningMenu();
-    });
-    window.addEventListener('orientationchange', () => {
-      setTimeout(() => { updateViewportHeight(); positionReasoningMenu(); }, 100);
-      setTimeout(() => { updateViewportHeight(); positionReasoningMenu(); }, 300);
-    });
-
-    if (elements.userInput) {
-      elements.userInput.addEventListener('focus', () => {
-        setTimeout(() => {
-          updateViewportHeight();
-          positionReasoningMenu();
-          if (elements.userInput) {
-            elements.userInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          }
-        }, 150);
-      });
     }
   }
 
@@ -1249,73 +1071,27 @@
   }
 
   // ==========================================================================
-  // Fase 6 — View Transitions y Light-Dismiss
-  // ==========================================================================
-
-  function setupLightDismissDialogs() {
-    if (UIShell.setupLightDismissDialogs) {
-      return UIShell.setupLightDismissDialogs(document, {
-        onDismissProfiles: () => UIProfiles.closeProfilesModal?.(elements, false, getProfilesHelperOptions())
-      });
-    }
-    // Fallback para navegadores sin soporte de closedby="any"
-    // Solo actúa si el atributo no está soportado nativamente
-    if ('closedBy' in HTMLDialogElement.prototype) return;
-    document.querySelectorAll('dialog[closedby="any"]:not(#notice-dialog)').forEach(dialog => {
-      dialog.addEventListener('click', e => {
-        // Si el clic fue directamente en el fondo del dialog (no en su contenido)
-        if (e.target === dialog) {
-          if (dialog.id === 'profiles-dialog') {
-            UIProfiles.closeProfilesModal?.(elements, false, getProfilesHelperOptions());
-            return;
-          }
-          dialog.close();
-        }
-      });
-    });
-  }
-
-  // ==========================================================================
   // Escuchadores de Eventos
   // ==========================================================================
 
   function setupEventListeners() {
-    setupViewportListeners();
+    UIShell.mount({
+      elements,
+      onViewportChange: () => positionReasoningMenu(),
+      onDismissProfiles: () => UIProfiles.closeProfilesModal?.(elements, false, getProfilesHelperOptions())
+    });
 
-    if (elements.btnOpenExecutionInfo) {
-      elements.btnOpenExecutionInfo.addEventListener('click', openExecutionInfo);
-    }
-    if (elements.btnCloseExecutionInfo) {
-      elements.btnCloseExecutionInfo.addEventListener('click', closeExecutionInfo);
-    }
-    if (elements.btnCloseExecutionInfoFooter) {
-      elements.btnCloseExecutionInfoFooter.addEventListener('click', closeExecutionInfo);
-    }
     if (elements.executionInfoDialog) {
       elements.executionInfoDialog.addEventListener('click', event => {
         if (event.target === elements.executionInfoDialog) closeExecutionInfo();
       });
     }
 
-    // Formulario de chat
-    elements.chatForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      handleSendMessage();
+    // Formulario de chat, adjuntos y arrastrar y soltar
+    UIComposer.mount(elements, {
+      onSendMessage: handleSendMessage,
+      onStopGeneration: handleStopGeneration
     });
-
-    // Tecla Enter y Pegado
-    elements.userInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSendMessage();
-      }
-    });
-
-    elements.userInput.addEventListener('input', autoResizeTextarea);
-    elements.userInput.addEventListener('paste', handlePasteEvent);
-
-    // Botones de acción
-    elements.btnStopStream.addEventListener('click', handleStopGeneration);
 
     // Parada ordenada ante cierre de página o recarga durante generación
     if (typeof window !== 'undefined' && window.addEventListener) {
@@ -1330,27 +1106,25 @@
 
 
 
-    if (elements.btnOpenSettings) {
-      elements.btnOpenSettings.addEventListener('click', () => {
-        closeEncryptionMenu();
-        closeRagMenu();
-        if (UISidebar.setSidebarMode) {
-          UISidebar.setSidebarMode(elements, 'settings');
+    // Barra Lateral de Chats y navegación de configuración
+    const closeSidebarMenus = () => {
+      closeEncryptionMenu();
+      closeRagMenu();
+    };
+    UISidebar.mount(elements, {
+      onNewSession: createNewSession,
+      onSearchInput: (query) => renderSidebarChats(query),
+      onDeleteAllSessions: deleteAllSessions,
+      onOpenSettingsMode: closeSidebarMenus,
+      onBackToChats: closeSidebarMenus,
+      onSelectSettingsSection: (sectionId) => {
+        openSettingsSection(sectionId);
+        if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile && UISidebar.isMobile()) {
+          closeSidebar();
         }
-      });
-    }
-    if (elements.btnSidebarBackToChats) {
-      elements.btnSidebarBackToChats.addEventListener('click', () => {
-        closeEncryptionMenu();
-        closeRagMenu();
-        if (UISidebar.setSidebarMode) {
-          UISidebar.setSidebarMode(elements, 'chat');
-        }
-      });
-    }
-    if (elements.btnCloseSidebarSettings) {
-      elements.btnCloseSidebarSettings.addEventListener('click', closeSidebar);
-    }
+      }
+    });
+
     if (elements.btnEncryptionBack) {
       elements.btnEncryptionBack.addEventListener('click', closeEncryptionMenu);
     }
@@ -1369,74 +1143,18 @@
     if (elements.btnRagActivate) {
       elements.btnRagActivate.addEventListener('click', () => window.ChatRagUI?.openActivationModal?.());
     }
-    if (elements.sidebarSettingsItems) {
-      elements.sidebarSettingsItems.forEach(item => {
-        const sectionId = item.dataset?.section || item.getAttribute('data-section');
-        if (!sectionId) return;
-        item.addEventListener('click', () => {
-          openSettingsSection(sectionId);
-          if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile && UISidebar.isMobile()) {
-            closeSidebar();
-          }
-        });
-      });
-    }
     window.addEventListener('zerochat:languagechange', () => {
       updateExecutionInfo();
     });
 
 
-    // Barra Lateral de Chats (Sidebar)
-    if (elements.btnToggleSidebar) {
-      elements.btnToggleSidebar.addEventListener('click', toggleSidebar);
-    }
-    if (elements.btnCloseSidebar) {
-      elements.btnCloseSidebar.addEventListener('click', closeSidebar);
-    }
-    if (elements.sidebarBackdrop) {
-      elements.sidebarBackdrop.addEventListener('click', closeSidebar);
-    }
-    if (elements.btnSidebarNewChat) {
-      elements.btnSidebarNewChat.addEventListener('click', createNewSession);
-    }
     if (elements.btnSidebarNewTab) {
       elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
       elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
     }
-    if (elements.sidebarSearchInput) {
-      elements.sidebarSearchInput.addEventListener('input', () => {
-        renderSidebarChats(elements.sidebarSearchInput.value);
-      });
-    }
-    if (elements.btnImportChatFile && elements.importJsonInput) {
-      elements.btnImportChatFile.addEventListener('click', () => elements.importJsonInput.click());
-      elements.importJsonInput.addEventListener('change', handleImportFileSelected);
-    }
-    if (elements.btnDeleteAllChats) {
-      elements.btnDeleteAllChats.addEventListener('click', deleteAllSessions);
-    }
 
-    // Modal de Exportación (disparado desde cada chat en la barra lateral)
-    if (elements.exportModal) {
-      elements.exportModal.addEventListener('close', () => {
-        delete elements.exportModal.dataset.sessionId;
-      });
-    }
-    if (elements.btnCloseExport) {
-      elements.btnCloseExport.addEventListener('click', closeExportModal);
-    }
-    if (elements.btnCancelExport) {
-      elements.btnCancelExport.addEventListener('click', closeExportModal);
-    }
-    if (elements.btnExportMarkdown) {
-      elements.btnExportMarkdown.addEventListener('click', exportConversationAsMarkdown);
-    }
-    if (elements.btnExportJson) {
-      elements.btnExportJson.addEventListener('click', exportConversationAsJson);
-    }
-    if (elements.btnExportPrint) {
-      elements.btnExportPrint.addEventListener('click', exportConversationAsPrint);
-    }
+    // Modal de Exportación (disparado desde cada chat en la barra lateral) e importación de conversaciones
+    UITransfer.mount({ elements, ...getExportTransferOptions() });
 
     // Razonamiento (Thinking)
     if (elements.btnReasoning) {
@@ -1501,35 +1219,6 @@
         syncDebugMessagesState(elements.chkEnableDebugMessages.checked);
       });
     }
-
-    // Adjuntos de archivos
-    elements.btnAttachFile.addEventListener('click', () => {
-      elements.fileInput.click();
-    });
-
-    elements.fileInput.addEventListener('change', (e) => {
-      if (e.target.files && e.target.files.length > 0) {
-        processFiles(Array.from(e.target.files));
-      }
-    });
-
-    // Soporte de Arrastrar y Soltar (Drag and Drop)
-    elements.chatForm.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      elements.chatForm.classList.add('drag-over');
-    });
-
-    elements.chatForm.addEventListener('dragleave', () => {
-      elements.chatForm.classList.remove('drag-over');
-    });
-
-    elements.chatForm.addEventListener('drop', (e) => {
-      e.preventDefault();
-      elements.chatForm.classList.remove('drag-over');
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        processFiles(Array.from(e.dataTransfer.files));
-      }
-    });
 
     // Modal de Configuración & Perfiles
     if (UISettings.mount) {
@@ -2130,9 +1819,6 @@
       startServerHeartbeat,
       stopServerHeartbeat
     };
-
-    // Fase 6: configurar light-dismiss fallback para navegadores sin closedby
-    setupLightDismissDialogs();
 
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
     void registerServiceWorker().then(async reloading => {

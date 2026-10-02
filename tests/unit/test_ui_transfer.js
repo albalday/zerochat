@@ -68,3 +68,37 @@ test('UITransfer - resolveSessionForExport returns active session when matching 
   assert.equal(session.id, 'chat_active');
   assert.deepEqual(session.messages, mockMessages);
 });
+
+test('UITransfer - mount limpia la sesión de destino al cerrar el modal y aplica maxBytes', async () => {
+  const listeners = {};
+  const makeTarget = (name, extra = {}) => ({
+    ...extra,
+    addEventListener: (evt, fn) => { listeners[`${name}:${evt}`] = fn; },
+    removeEventListener: (evt) => { delete listeners[`${name}:${evt}`]; }
+  });
+  const elements = {
+    exportModal: makeTarget('modal', { dataset: { sessionId: 'session_a' } }),
+    importJsonInput: makeTarget('input', { value: 'C:\\fakepath\\big.json' })
+  };
+  let imported = false;
+  const previousDialogs = globalThis.ChatDialogs;
+  const alerts = [];
+  globalThis.ChatDialogs = { alert: async (message, options) => { alerts.push(options?.type); } };
+  try {
+    UITransfer.mount({ elements, maxBytes: 10, onImportSuccess: () => { imported = true; } });
+
+    listeners['modal:close']();
+    assert.equal(elements.exportModal.dataset.sessionId, undefined);
+
+    await listeners['input:change']({ target: { files: [{ name: 'big.json', size: 11 }] } });
+    assert.equal(imported, false);
+    assert.deepEqual(alerts, ['error']);
+    assert.equal(elements.importJsonInput.value, '');
+
+    UITransfer.dispose();
+    assert.equal(listeners['modal:close'], undefined);
+    assert.equal(listeners['input:change'], undefined);
+  } finally {
+    globalThis.ChatDialogs = previousDialogs;
+  }
+});

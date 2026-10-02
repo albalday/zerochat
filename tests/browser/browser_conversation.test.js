@@ -476,6 +476,51 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
   }
 });
 
+test('Browser UI - importar un JSON desde la barra lateral crea una única conversación activa', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const sessionsBefore = await page.evaluate(() => window.ChatState.get('sessions').list.length);
+
+    const payload = JSON.stringify({
+      session: {
+        title: 'Conversación importada de prueba',
+        history: [
+          { id: 'imported_user', role: 'user', content: 'Pregunta importada' },
+          { id: 'imported_assistant', role: 'assistant', content: 'Respuesta importada' }
+        ]
+      }
+    });
+    await page.locator('#import-json-input').setInputFiles({
+      name: 'importada.json', mimeType: 'application/json', buffer: Buffer.from(payload)
+    });
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+
+    const result = await page.evaluate(() => {
+      const sessions = window.ChatState.get('sessions');
+      return {
+        noticeType: document.getElementById('notice-dialog').getAttribute('data-type'),
+        sessionCount: sessions.list.length,
+        activeTitle: sessions.list.find(session => session.id === sessions.activeId)?.title,
+        contents: window.ChatState.get('messages').map(message => message.content),
+        inputValue: document.getElementById('import-json-input').value
+      };
+    });
+    assert.equal(result.noticeType, 'success');
+    assert.equal(result.sessionCount, sessionsBefore + 1, 'La importación debe ejecutarse una sola vez');
+    assert.equal(result.activeTitle, 'Conversación importada de prueba');
+    assert.ok(result.contents.includes('Respuesta importada'));
+    assert.equal(result.inputValue, '');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - crear una rama conserva el origen y corta el nuevo historial en la respuesta seleccionada', async () => {
   const browser = await createTestBrowser();
   try {

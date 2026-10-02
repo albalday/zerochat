@@ -184,12 +184,18 @@
     }
   }
 
-  function mount({ elements, getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy } = {}) {
+  function mount({ elements, getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy, maxBytes } = {}) {
     dispose();
     cachedElements = elements || {};
-    cachedOptions = { getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy };
+    cachedOptions = { getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy, maxBytes };
 
     const els = cachedElements;
+
+    if (els.exportModal) {
+      const h = () => { if (els.exportModal.dataset) delete els.exportModal.dataset.sessionId; };
+      els.exportModal.addEventListener('close', h);
+      activeCleanupFns.push(() => els.exportModal.removeEventListener('close', h));
+    }
 
     if (els.btnCloseExport) {
       const h = () => closeExportModal(els);
