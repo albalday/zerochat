@@ -119,12 +119,12 @@ def ensure_virtual_environment():
 
     # 1. Crear el venv si no existe
     if not venv_py.exists():
-        console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Inicializando entorno virtual en {venv_dir}...", flush=True)
+        log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
         try:
             venv.create(venv_dir, with_pip=True, clear=False)
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Entorno virtual preparado con éxito.", flush=True)
+            log_event("[zerochat] Entorno virtual preparado con éxito.")
         except Exception as err:
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.", flush=True)
+            log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
             return
 
 def parse_version(ver: str) -> tuple[int, ...]:

@@ -22,10 +22,10 @@ def main():
     reset_notices()
 
     if args.test:
-        print(f"[{time.strftime('%H:%M:%S')}] TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST all local tools ready.")
+        print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
+        print(timestamp_message(f"TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}"))
+        print(timestamp_message(f"TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}"))
+        print(timestamp_message("TEST all local tools ready."))
         return
 
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
@@ -109,7 +109,7 @@ def main():
         ).start()
 
     def shutdown(*_):
-        console_log(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+        console_log("\n" + timestamp_message("Deteniendo servidor ZeroChat..."))
         stop_zerochat_server(server)
 
     signal.signal(signal.SIGINT, shutdown)

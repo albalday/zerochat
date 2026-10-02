@@ -77,7 +77,7 @@ class ConsoleControl:
         elif key == "i":
             self.show_notices()
         elif key == "x":
-            self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
             stop_zerochat_server(self.server)
 
     def _keyboard_loop(self):
@@ -94,3 +94,13 @@ def console_log(message: str, *, flush: bool = True):
         CONSOLE_CONTROL.log(message, flush=flush)
     else:
         print(message, flush=flush)
+
+
+def timestamp_message(message: str) -> str:
+    """Antepone la hora local con el formato común de la consola."""
+    return f"[{time.strftime('%H:%M:%S')}] {message}"
+
+
+def log_event(message: str):
+    """Registra en consola un evento con la hora local."""
+    console_log(timestamp_message(message))

@@ -77,16 +77,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         if max_length is not None and len(value) > max_length:
             return f"'{name}' excede el tamaño máximo permitido"
 
-    required = {
-        "read_file": ("path",),
-        "write_file": ("path", "content"),
-        "edit_file": ("path",),
-        "bash": ("command",),
-        "search_files": ("query",),
-        "execute_command": ("command",),
-        "browser_action": ("action",)
-    }
-    for name in required.get(tool_name, ()):
+    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), {})
+    for name in definition.get("inputSchema", {}).get("required", ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
 
@@ -97,7 +89,7 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
 
     if tool_name == "browser_action":
-        if arguments.get("action") not in ("navigate", "screenshot", "click", "fill"):
+        if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
 
     return None
@@ -335,7 +327,7 @@ class McpServiceManager:
 
     @staticmethod
     def _trace(server_id: str, message: str):
-        console_log(f"[{time.strftime('%H:%M:%S')}] [MCP {server_id}] {_mcp_trace_text(message)}", flush=True)
+        log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
 
     def _load_services(self) -> dict[str, dict]:
         servers = {}
@@ -427,28 +419,7 @@ class McpServiceManager:
                 if not shutil.which("node") or not shutil.which("npm"):
                     raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
 
-                requirements = installer.get("requirements", {})
-                node_requirement = requirements.get("node")
-                if node_requirement is None:
-                    # Compatibilidad con instaladores creados antes de requirements.node.
-                    required_node_major = int(product.get("nodeMajor", 18))
-                elif not isinstance(node_requirement, dict):
-                    raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
-                else:
-                    required_node_major = node_requirement.get("minimumMajor")
-                    if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
-                        raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
-                version_result = subprocess.run(
-                    [node, "--version"], capture_output=True, text=True, timeout=5
-                )
-                version_match = re.match(r"v(\d+)", version_result.stdout.strip())
-                if version_result.returncode != 0 or not version_match:
-                    raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
-                self._trace(server_id, f"Node.js detected: {version_result.stdout.strip()} (minimum {required_node_major})")
-                if int(version_match.group(1)) < required_node_major:
-                    raise RuntimeError(
-                        f"{server_id} requiere Node.js {required_node_major}+; se detectó {version_result.stdout.strip()}"
-                    )
+                self._check_node_requirement(server_id, installer, node)
 
                 package_dir = service_dir / "node_modules" / Path(*package.split("/"))
                 needs_install = not marker.exists() or not package_dir.is_dir()
@@ -489,11 +460,35 @@ class McpServiceManager:
                 else:
                     self._trace(server_id, f"npm package already installed: {package}@{version}")
 
+        venv_python = get_venv_python(get_venv_dir())
         return {
             "serviceDir": str(service_dir),
-            "pythonExecutable": str(get_venv_python(get_venv_dir())) if get_venv_python(get_venv_dir()).is_file() else sys.executable,
+            "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
             "nodeExecutable": node
         }
+
+    def _check_node_requirement(self, server_id: str, installer: dict, node: str):
+        """Comprueba la versión mínima de Node.js que declara el instalador."""
+        node_requirement = installer.get("requirements", {}).get("node")
+        if node_requirement is None:
+            # Compatibilidad con instaladores creados antes de requirements.node.
+            required_node_major = int(installer.get("product", {}).get("nodeMajor", 18))
+        elif not isinstance(node_requirement, dict):
+            raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
+        else:
+            required_node_major = node_requirement.get("minimumMajor")
+            if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
+                raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
+        version_result = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=5
+        )
+        detected = version_result.stdout.strip()
+        version_match = re.match(r"v(\d+)", detected)
+        if version_result.returncode != 0 or not version_match:
+            raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
+        self._trace(server_id, f"Node.js detected: {detected} (minimum {required_node_major})")
+        if int(version_match.group(1)) < required_node_major:
+            raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
     def start(self, server_id: str) -> list[dict]:
         with self._lock:
@@ -511,25 +506,20 @@ class McpServiceManager:
             try:
                 service_dir = server["_directory"]
                 values = self._prepare_service(server_id, server)
-                pref = self.preferences.get(server_id, {})
-                user_opts = pref.get("options", {})
-                for opt in server.get("options", []):
-                    opt_id = opt.get("id")
-                    if opt_id:
-                        val = user_opts.get(opt_id, opt.get("default"))
-                        values[f"option:{opt_id}"] = str(val)
-
-                launch = server.get("launch", {})
-                command = self._expand(launch.get("executable", sys.executable), values)
-                args = [self._expand(arg, values) for arg in launch.get("args", [])]
+                user_opts = self.preferences.get(server_id, {}).get("options", {})
+                option_args = []
                 for opt in server.get("options", []):
                     opt_id = opt.get("id")
                     if not opt_id:
                         continue
                     val = user_opts.get(opt_id, opt.get("default"))
+                    values[f"option:{opt_id}"] = str(val)
                     if opt.get("type") == "boolean":
-                        extra = opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", [])
-                        args.extend([self._expand(a, values) for a in extra])
+                        option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
+
+                launch = server.get("launch", {})
+                command = self._expand(launch.get("executable", sys.executable), values)
+                args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
 
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
@@ -539,12 +529,11 @@ class McpServiceManager:
                     command, args, str(service_dir), env,
                     trace=lambda message: self._trace(server_id, message)
                 )
+                # _prepare_service puede haber dejado el estado en "installing".
                 self.states[server_id] = "starting"
                 self.clients[server_id] = client
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.states[server_id] = "running"
-
-                self.errors.pop(server_id, None)
                 entry = self.preferences.setdefault(server_id, {})
                 entry["enabled"] = True
                 self._save_preferences()
@@ -607,14 +596,22 @@ class McpServiceManager:
         return aggregated
 
     def call(self, public_name: str, arguments: dict) -> dict:
+        target = None
         with self._lock:
             for server_id, client in self.clients.items():
                 if not client.running():
                     continue
                 for t in client.tools:
                     if public_tool_name(server_id, t["name"]) == public_name:
-                        return client.request("tools/call", {"name": t["name"], "arguments": arguments})
-        raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+                        target = (client, t["name"])
+                        break
+                if target:
+                    break
+        if not target:
+            raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+        # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
+        client, original_name = target
+        return client.request("tools/call", {"name": original_name, "arguments": arguments})
 
     def close(self):
         with self._lock:

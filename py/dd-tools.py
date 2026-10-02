@@ -2,14 +2,30 @@
 # Herramientas Locales Core
 # ==============================================================================
 
+BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
+
+
+def _tool_error(message: str, **extra) -> str:
+    """Serializa el resultado de error común de las herramientas locales."""
+    return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
+
+
+def _atomic_write_text(target: Path, text: str):
+    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
+    temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    temp_path.replace(target)
+
+
 def list_directory(path: str = ".", recursive: bool = False) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a directory.")
 
         max_depth = 3 if recursive else 1
         entries = []
@@ -54,7 +70,7 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
             "entries": entries
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000) -> str:
@@ -62,9 +78,9 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"File '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a regular file.")
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
@@ -129,7 +145,7 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
             "content": content
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def write_file(path: str, content: str) -> str:
@@ -137,10 +153,7 @@ def write_file(path: str, content: str) -> str:
     try:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        temp_path.replace(target)
+        _atomic_write_text(target, content)
         bytes_written = len(content.encode("utf-8"))
         return json.dumps({
             "success": True,
@@ -148,7 +161,7 @@ def write_file(path: str, content: str) -> str:
             "bytes_written": bytes_written
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def edit_file(path: str, old_str: str = None, new_str: str = None, content: str = None, mode: str = "surgical", target_content: str = None) -> str:
@@ -159,30 +172,21 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
         # Preferred surgical mode (old_str -> new_str)
         if old_str is not None and new_str is not None:
             if not target.exists():
-                return json.dumps({"success": False, "error": f"File '{path}' does not exist. Use read_file to verify existing paths."}, ensure_ascii=False)
+                return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
             if not target.is_file():
-                return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
+                return _tool_error(f"Path '{path}' is not a regular file.")
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 file_text = f.read()
 
             occurrences = file_text.count(old_str)
             if occurrences == 0:
-                return json.dumps({
-                    "success": False,
-                    "error": f"Target text was not found in '{path}'. Check exact file content with read_file."
-                }, ensure_ascii=False)
+                return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
             if occurrences > 1:
-                return json.dumps({
-                    "success": False,
-                    "error": f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match."
-                }, ensure_ascii=False)
+                return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match.")
 
             updated_text = file_text.replace(old_str, new_str, 1)
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(updated_text)
-            temp_path.replace(target)
+            _atomic_write_text(target, updated_text)
             return json.dumps({
                 "success": True,
                 "path": str(target),
@@ -193,7 +197,7 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
 
         # Legacy modes (write, append, replace_chunk)
         if content is None:
-            return json.dumps({"success": False, "error": "Must provide old_str and new_str for surgical edit, or content for compatible modes."}, ensure_ascii=False)
+            return _tool_error("Must provide old_str and new_str for surgical edit, or content for compatible modes.")
 
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == "append":
@@ -202,27 +206,21 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             bytes_written = len(content.encode("utf-8"))
         elif mode == "replace_chunk":
             if not target.exists():
-                return json.dumps({"success": False, "error": f"File '{path}' does not exist for replace_chunk."}, ensure_ascii=False)
+                return _tool_error(f"File '{path}' does not exist for replace_chunk.")
             if not target_content:
-                return json.dumps({"success": False, "error": "target_content is required in replace_chunk mode."}, ensure_ascii=False)
+                return _tool_error("target_content is required in replace_chunk mode.")
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 existing = f.read()
 
             if target_content not in existing:
-                return json.dumps({"success": False, "error": "target_content was not found in the file."}, ensure_ascii=False)
+                return _tool_error("target_content was not found in the file.")
 
             new_text = existing.replace(target_content, content, 1)
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(new_text)
-            temp_path.replace(target)
+            _atomic_write_text(target, new_text)
             bytes_written = len(new_text.encode("utf-8"))
         else:  # write
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            temp_path.replace(target)
+            _atomic_write_text(target, content)
             bytes_written = len(content.encode("utf-8"))
 
         return json.dumps({
@@ -232,7 +230,7 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             "bytes_written": bytes_written
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -253,6 +251,38 @@ def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int =
     tail = "".join(lines[-tail_lines:])
     warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
     return head + warning + tail, True
+
+
+def _powershell_executable() -> str:
+    return shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
+
+
+def _kill_process_tree(proc: subprocess.Popen):
+    """Termina el proceso y, en POSIX, todo su grupo para no dejar hijos huérfanos."""
+    try:
+        if DETECTED_OS != "windows" and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _command_result(returncode: int, stdout: str, stderr: str, cwd: str) -> str:
+    truncated_out, was_out_trunc = truncate_terminal_output(stdout)
+    truncated_err, was_err_trunc = truncate_terminal_output(stderr)
+    return json.dumps({
+        "success": returncode == 0,
+        "returncode": returncode,
+        "stdout": truncated_out,
+        "stderr": truncated_err,
+        "cwd": cwd,
+        "os": DETECTED_OS,
+        "truncated": was_out_trunc or was_err_trunc
+    }, ensure_ascii=False, indent=2)
 
 
 class PersistentShellSession:
@@ -316,72 +346,14 @@ class PersistentShellSession:
             "    exit $__ret\n"
             "}\n"
         )
-
-        powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-
-        try:
-            runner_script.write_text(script_content, encoding="utf-8")
-            proc = subprocess.Popen(
-                [
-                    powershell_bin,
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", str(runner_script)
-                ],
-                cwd=self._cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
-
-            try:
-                stdout, stderr = proc.communicate(timeout=safe_timeout)
-                returncode = proc.returncode
-            except subprocess.TimeoutExpired:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                proc.communicate()
-                return json.dumps({
-                    "success": False,
-                    "error": f"Command timed out after {safe_timeout} seconds (terminated).",
-                    "cwd": self._cwd,
-                    "os": "windows"
-                }, ensure_ascii=False)
-
-            if self._cwd_file.is_file():
-                try:
-                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                    if saved_cwd and Path(saved_cwd).is_dir():
-                        self._cwd = saved_cwd
-                except Exception:
-                    pass
-
-            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-
-            return json.dumps({
-                "success": returncode == 0,
-                "returncode": returncode,
-                "stdout": truncated_out,
-                "stderr": truncated_err,
-                "cwd": self._cwd,
-                "os": "windows",
-                "truncated": was_out_trunc or was_err_trunc
-            }, ensure_ascii=False, indent=2)
-
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": "windows"}, ensure_ascii=False)
-        finally:
-            try:
-                if runner_script.is_file():
-                    runner_script.unlink()
-            except Exception:
-                pass
+        argv = [
+            _powershell_executable(),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", str(runner_script)
+        ]
+        return self._run_runner(argv, runner_script, script_content, safe_timeout)
 
     def _run_posix(self, command: str, safe_timeout: int) -> str:
         runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
@@ -393,75 +365,44 @@ class PersistentShellSession:
             "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
             + command + "\n"
         )
-
         shell_bin = shutil.which("bash") or shutil.which("sh") or "bash"
+        return self._run_runner([shell_bin, str(runner_script)], runner_script, script_content, safe_timeout)
 
+    def _run_runner(self, argv: list[str], runner_script: Path, script_content: str, safe_timeout: int) -> str:
+        """Ejecuta el script de la sesión y conserva el cwd que deja al terminar."""
         try:
-            with open(runner_script, "w", encoding="utf-8") as f:
-                f.write(script_content)
+            runner_script.write_text(script_content, encoding="utf-8")
             runner_script.chmod(0o700)
-
             proc = subprocess.Popen(
-                [shell_bin, str(runner_script)],
+                argv,
                 cwd=self._cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                start_new_session=True if hasattr(os, "setsid") else False
+                start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
             )
-
             try:
                 stdout, stderr = proc.communicate(timeout=safe_timeout)
-                returncode = proc.returncode
             except subprocess.TimeoutExpired:
-                try:
-                    if hasattr(os, "killpg") and hasattr(os, "getpgid"):
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    else:
-                        proc.kill()
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                _kill_process_tree(proc)
                 proc.communicate()
-                return json.dumps({
-                    "success": False,
-                    "error": f"Command timed out after {safe_timeout} seconds (terminated with SIGKILL).",
-                    "cwd": self._cwd,
-                    "os": DETECTED_OS
-                }, ensure_ascii=False)
+                return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=self._cwd, os=DETECTED_OS)
 
-            if self._cwd_file.is_file():
-                try:
-                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                    if saved_cwd and Path(saved_cwd).is_dir():
-                        self._cwd = saved_cwd
-                except Exception:
-                    pass
-
-            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-
-            return json.dumps({
-                "success": returncode == 0,
-                "returncode": returncode,
-                "stdout": truncated_out,
-                "stderr": truncated_err,
-                "cwd": self._cwd,
-                "os": DETECTED_OS,
-                "truncated": was_out_trunc or was_err_trunc
-            }, ensure_ascii=False, indent=2)
-
+            try:
+                saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
+                if saved_cwd and Path(saved_cwd).is_dir():
+                    self._cwd = saved_cwd
+            except OSError:
+                pass
+            return _command_result(proc.returncode, stdout, stderr, self._cwd)
         except Exception as e:
-            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": DETECTED_OS}, ensure_ascii=False)
+            return _tool_error(str(e), cwd=self._cwd, os=DETECTED_OS)
         finally:
             try:
-                if runner_script.is_file():
-                    runner_script.unlink()
-            except Exception:
+                runner_script.unlink(missing_ok=True)
+            except OSError:
                 pass
 
 
@@ -479,48 +420,31 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
     """Execute a command in the system shell and capture stdout and stderr."""
     if cwd == "." or cwd == SHELL_SESSION._cwd:
         return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
+    safe_timeout = max(1, min(int(timeout_seconds), 300))
     try:
         target_cwd = Path(cwd).expanduser().resolve()
         if not target_cwd.exists() or not target_cwd.is_dir():
             target_cwd = Path.cwd()
 
         if DETECTED_OS == "windows":
-            powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-            proc = subprocess.run(
-                [powershell_bin, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
-                cwd=str(target_cwd),
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(int(timeout_seconds), 300)),
-                encoding="utf-8",
-                errors="replace"
-            )
+            argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
         else:
-            proc = subprocess.run(
-                command,
-                cwd=str(target_cwd),
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(int(timeout_seconds), 300)),
-                encoding="utf-8",
-                errors="replace"
-            )
-        trunc_out, was_out_trunc = truncate_terminal_output(proc.stdout)
-        trunc_err, was_err_trunc = truncate_terminal_output(proc.stderr)
-        return json.dumps({
-            "success": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "stdout": trunc_out,
-            "stderr": trunc_err,
-            "cwd": str(target_cwd),
-            "os": DETECTED_OS,
-            "truncated": was_out_trunc or was_err_trunc
-        }, ensure_ascii=False, indent=2)
+            argv = command
+        proc = subprocess.run(
+            argv,
+            cwd=str(target_cwd),
+            shell=DETECTED_OS != "windows",
+            capture_output=True,
+            text=True,
+            timeout=safe_timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
+        return _command_result(proc.returncode, proc.stdout, proc.stderr, str(target_cwd))
     except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": f"Command timed out after {timeout_seconds} seconds.", "os": DETECTED_OS}, ensure_ascii=False)
+        return _tool_error(f"Command timed out after {safe_timeout} seconds.", os=DETECTED_OS)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e), "os": DETECTED_OS}, ensure_ascii=False)
+        return _tool_error(str(e), os=DETECTED_OS)
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
@@ -528,9 +452,9 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a directory.")
 
         try:
             regex = re.compile(query, re.MULTILINE)
@@ -595,7 +519,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "matches": matches
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def get_diagnostics(path: str | None = None) -> str:
@@ -607,10 +531,7 @@ def get_diagnostics(path: str | None = None) -> str:
             target = Path.cwd().resolve()
 
         if not target.exists():
-            return json.dumps({
-                "success": False,
-                "error": f"Path '{path}' does not exist."
-            }, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
 
         diagnostics: list[dict] = []
         files_checked = 0
@@ -702,7 +623,7 @@ def get_diagnostics(path: str | None = None) -> str:
             "message": msg
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 class PersistentBrowserSession:
@@ -934,11 +855,8 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
     """Control a headless browser for UI testing and visual inspection."""
     try:
         act = (action or "").strip().lower()
-        if act not in ("navigate", "screenshot", "click", "fill"):
-            return json.dumps({
-                "success": False,
-                "error": f"Invalid browser action: '{action}'. Valid actions: navigate, screenshot, click, fill."
-            }, ensure_ascii=False)
+        if act not in BROWSER_ACTIONS:
+            return _tool_error(f"Invalid browser action: '{action}'. Valid actions: {', '.join(BROWSER_ACTIONS)}.")
 
         cmd = {"action": act}
         if url:
@@ -951,7 +869,7 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
         result = _BROWSER_SESSION.execute(cmd)
         return json.dumps(result, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 LOCAL_TOOLS_DEFINITIONS = [
@@ -1087,7 +1005,7 @@ LOCAL_TOOLS_DEFINITIONS = [
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["navigate", "screenshot", "click", "fill"],
+                    "enum": list(BROWSER_ACTIONS),
                     "description": "Action to perform in the browser"
                 },
                 "url": {"type": "string", "description": "Target URL for navigate or screenshot"},

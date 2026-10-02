@@ -130,14 +130,14 @@ def launch_browser(url: str) -> bool:
     """Abre el navegador en la URL de la sesión y muestra información o diagnóstico en consola."""
     termux_detected = is_termux_environment()
     if termux_detected:
-        console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
-    console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
+        log_event("Termux detectado; se abrirá mediante termux-open-url.")
+    log_event("Abriendo navegador en la interfaz configurada...")
     try:
         if not open_browser(url):
             raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
         return True
     except Exception as e:
-        console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+        log_event(f"No se pudo abrir el navegador automáticamente: {e}")
         console_log("  Traza de diagnóstico:", flush=True)
         traceback.print_exc()
         manual_command = get_manual_browser_command(url)

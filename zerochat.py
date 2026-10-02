@@ -181,7 +181,7 @@ class ConsoleControl:
         elif key == "i":
             self.show_notices()
         elif key == "x":
-            self.log(f"[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
             stop_zerochat_server(self.server)
 
     def _keyboard_loop(self):
@@ -198,6 +198,16 @@ def console_log(message: str, *, flush: bool = True):
         CONSOLE_CONTROL.log(message, flush=flush)
     else:
         print(message, flush=flush)
+
+
+def timestamp_message(message: str) -> str:
+    """Antepone la hora local con el formato común de la consola."""
+    return f"[{time.strftime('%H:%M:%S')}] {message}"
+
+
+def log_event(message: str):
+    """Registra en consola un evento con la hora local."""
+    console_log(timestamp_message(message))
 
 def get_dev_root() -> Path | None:
     """
@@ -319,12 +329,12 @@ def ensure_virtual_environment():
 
     # 1. Crear el venv si no existe
     if not venv_py.exists():
-        console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Inicializando entorno virtual en {venv_dir}...", flush=True)
+        log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
         try:
             venv.create(venv_dir, with_pip=True, clear=False)
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Entorno virtual preparado con éxito.", flush=True)
+            log_event("[zerochat] Entorno virtual preparado con éxito.")
         except Exception as err:
-            console_log(f"[{time.strftime('%H:%M:%S')}] [zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.", flush=True)
+            log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
             return
 
 def parse_version(ver: str) -> tuple[int, ...]:
@@ -409,14 +419,30 @@ def materialize_managed_services(services_root: Path | None = None) -> None:
 # Herramientas Locales Core
 # ==============================================================================
 
+BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
+
+
+def _tool_error(message: str, **extra) -> str:
+    """Serializa el resultado de error común de las herramientas locales."""
+    return json.dumps({"success": False, "error": message, **extra}, ensure_ascii=False)
+
+
+def _atomic_write_text(target: Path, text: str):
+    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
+    temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    temp_path.replace(target)
+
+
 def list_directory(path: str = ".", recursive: bool = False) -> str:
     """List files and directories in a local directory with safe bounded recursive traversal."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a directory.")
 
         max_depth = 3 if recursive else 1
         entries = []
@@ -461,7 +487,7 @@ def list_directory(path: str = ".", recursive: bool = False) -> str:
             "entries": entries
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000) -> str:
@@ -469,9 +495,9 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"File '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a regular file.")
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
@@ -536,7 +562,7 @@ def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: i
             "content": content
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def write_file(path: str, content: str) -> str:
@@ -544,10 +570,7 @@ def write_file(path: str, content: str) -> str:
     try:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        temp_path.replace(target)
+        _atomic_write_text(target, content)
         bytes_written = len(content.encode("utf-8"))
         return json.dumps({
             "success": True,
@@ -555,7 +578,7 @@ def write_file(path: str, content: str) -> str:
             "bytes_written": bytes_written
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def edit_file(path: str, old_str: str = None, new_str: str = None, content: str = None, mode: str = "surgical", target_content: str = None) -> str:
@@ -566,30 +589,21 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
         # Preferred surgical mode (old_str -> new_str)
         if old_str is not None and new_str is not None:
             if not target.exists():
-                return json.dumps({"success": False, "error": f"File '{path}' does not exist. Use read_file to verify existing paths."}, ensure_ascii=False)
+                return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
             if not target.is_file():
-                return json.dumps({"success": False, "error": f"Path '{path}' is not a regular file."}, ensure_ascii=False)
+                return _tool_error(f"Path '{path}' is not a regular file.")
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 file_text = f.read()
 
             occurrences = file_text.count(old_str)
             if occurrences == 0:
-                return json.dumps({
-                    "success": False,
-                    "error": f"Target text was not found in '{path}'. Check exact file content with read_file."
-                }, ensure_ascii=False)
+                return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
             if occurrences > 1:
-                return json.dumps({
-                    "success": False,
-                    "error": f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match."
-                }, ensure_ascii=False)
+                return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match.")
 
             updated_text = file_text.replace(old_str, new_str, 1)
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(updated_text)
-            temp_path.replace(target)
+            _atomic_write_text(target, updated_text)
             return json.dumps({
                 "success": True,
                 "path": str(target),
@@ -600,7 +614,7 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
 
         # Legacy modes (write, append, replace_chunk)
         if content is None:
-            return json.dumps({"success": False, "error": "Must provide old_str and new_str for surgical edit, or content for compatible modes."}, ensure_ascii=False)
+            return _tool_error("Must provide old_str and new_str for surgical edit, or content for compatible modes.")
 
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == "append":
@@ -609,27 +623,21 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             bytes_written = len(content.encode("utf-8"))
         elif mode == "replace_chunk":
             if not target.exists():
-                return json.dumps({"success": False, "error": f"File '{path}' does not exist for replace_chunk."}, ensure_ascii=False)
+                return _tool_error(f"File '{path}' does not exist for replace_chunk.")
             if not target_content:
-                return json.dumps({"success": False, "error": "target_content is required in replace_chunk mode."}, ensure_ascii=False)
+                return _tool_error("target_content is required in replace_chunk mode.")
 
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 existing = f.read()
 
             if target_content not in existing:
-                return json.dumps({"success": False, "error": "target_content was not found in the file."}, ensure_ascii=False)
+                return _tool_error("target_content was not found in the file.")
 
             new_text = existing.replace(target_content, content, 1)
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(new_text)
-            temp_path.replace(target)
+            _atomic_write_text(target, new_text)
             bytes_written = len(new_text.encode("utf-8"))
         else:  # write
-            temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            temp_path.replace(target)
+            _atomic_write_text(target, content)
             bytes_written = len(content.encode("utf-8"))
 
         return json.dumps({
@@ -639,7 +647,7 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
             "bytes_written": bytes_written
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -660,6 +668,38 @@ def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int =
     tail = "".join(lines[-tail_lines:])
     warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
     return head + warning + tail, True
+
+
+def _powershell_executable() -> str:
+    return shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
+
+
+def _kill_process_tree(proc: subprocess.Popen):
+    """Termina el proceso y, en POSIX, todo su grupo para no dejar hijos huérfanos."""
+    try:
+        if DETECTED_OS != "windows" and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        else:
+            proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _command_result(returncode: int, stdout: str, stderr: str, cwd: str) -> str:
+    truncated_out, was_out_trunc = truncate_terminal_output(stdout)
+    truncated_err, was_err_trunc = truncate_terminal_output(stderr)
+    return json.dumps({
+        "success": returncode == 0,
+        "returncode": returncode,
+        "stdout": truncated_out,
+        "stderr": truncated_err,
+        "cwd": cwd,
+        "os": DETECTED_OS,
+        "truncated": was_out_trunc or was_err_trunc
+    }, ensure_ascii=False, indent=2)
 
 
 class PersistentShellSession:
@@ -723,72 +763,14 @@ class PersistentShellSession:
             "    exit $__ret\n"
             "}\n"
         )
-
-        powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-
-        try:
-            runner_script.write_text(script_content, encoding="utf-8")
-            proc = subprocess.Popen(
-                [
-                    powershell_bin,
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", str(runner_script)
-                ],
-                cwd=self._cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
-
-            try:
-                stdout, stderr = proc.communicate(timeout=safe_timeout)
-                returncode = proc.returncode
-            except subprocess.TimeoutExpired:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                proc.communicate()
-                return json.dumps({
-                    "success": False,
-                    "error": f"Command timed out after {safe_timeout} seconds (terminated).",
-                    "cwd": self._cwd,
-                    "os": "windows"
-                }, ensure_ascii=False)
-
-            if self._cwd_file.is_file():
-                try:
-                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                    if saved_cwd and Path(saved_cwd).is_dir():
-                        self._cwd = saved_cwd
-                except Exception:
-                    pass
-
-            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-
-            return json.dumps({
-                "success": returncode == 0,
-                "returncode": returncode,
-                "stdout": truncated_out,
-                "stderr": truncated_err,
-                "cwd": self._cwd,
-                "os": "windows",
-                "truncated": was_out_trunc or was_err_trunc
-            }, ensure_ascii=False, indent=2)
-
-        except Exception as e:
-            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": "windows"}, ensure_ascii=False)
-        finally:
-            try:
-                if runner_script.is_file():
-                    runner_script.unlink()
-            except Exception:
-                pass
+        argv = [
+            _powershell_executable(),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", str(runner_script)
+        ]
+        return self._run_runner(argv, runner_script, script_content, safe_timeout)
 
     def _run_posix(self, command: str, safe_timeout: int) -> str:
         runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
@@ -800,75 +782,44 @@ class PersistentShellSession:
             "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
             + command + "\n"
         )
-
         shell_bin = shutil.which("bash") or shutil.which("sh") or "bash"
+        return self._run_runner([shell_bin, str(runner_script)], runner_script, script_content, safe_timeout)
 
+    def _run_runner(self, argv: list[str], runner_script: Path, script_content: str, safe_timeout: int) -> str:
+        """Ejecuta el script de la sesión y conserva el cwd que deja al terminar."""
         try:
-            with open(runner_script, "w", encoding="utf-8") as f:
-                f.write(script_content)
+            runner_script.write_text(script_content, encoding="utf-8")
             runner_script.chmod(0o700)
-
             proc = subprocess.Popen(
-                [shell_bin, str(runner_script)],
+                argv,
                 cwd=self._cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                start_new_session=True if hasattr(os, "setsid") else False
+                start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
             )
-
             try:
                 stdout, stderr = proc.communicate(timeout=safe_timeout)
-                returncode = proc.returncode
             except subprocess.TimeoutExpired:
-                try:
-                    if hasattr(os, "killpg") and hasattr(os, "getpgid"):
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    else:
-                        proc.kill()
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                _kill_process_tree(proc)
                 proc.communicate()
-                return json.dumps({
-                    "success": False,
-                    "error": f"Command timed out after {safe_timeout} seconds (terminated with SIGKILL).",
-                    "cwd": self._cwd,
-                    "os": DETECTED_OS
-                }, ensure_ascii=False)
+                return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=self._cwd, os=DETECTED_OS)
 
-            if self._cwd_file.is_file():
-                try:
-                    saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                    if saved_cwd and Path(saved_cwd).is_dir():
-                        self._cwd = saved_cwd
-                except Exception:
-                    pass
-
-            truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-            truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-
-            return json.dumps({
-                "success": returncode == 0,
-                "returncode": returncode,
-                "stdout": truncated_out,
-                "stderr": truncated_err,
-                "cwd": self._cwd,
-                "os": DETECTED_OS,
-                "truncated": was_out_trunc or was_err_trunc
-            }, ensure_ascii=False, indent=2)
-
+            try:
+                saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
+                if saved_cwd and Path(saved_cwd).is_dir():
+                    self._cwd = saved_cwd
+            except OSError:
+                pass
+            return _command_result(proc.returncode, stdout, stderr, self._cwd)
         except Exception as e:
-            return json.dumps({"success": False, "error": str(e), "cwd": self._cwd, "os": DETECTED_OS}, ensure_ascii=False)
+            return _tool_error(str(e), cwd=self._cwd, os=DETECTED_OS)
         finally:
             try:
-                if runner_script.is_file():
-                    runner_script.unlink()
-            except Exception:
+                runner_script.unlink(missing_ok=True)
+            except OSError:
                 pass
 
 
@@ -886,48 +837,31 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
     """Execute a command in the system shell and capture stdout and stderr."""
     if cwd == "." or cwd == SHELL_SESSION._cwd:
         return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
+    safe_timeout = max(1, min(int(timeout_seconds), 300))
     try:
         target_cwd = Path(cwd).expanduser().resolve()
         if not target_cwd.exists() or not target_cwd.is_dir():
             target_cwd = Path.cwd()
 
         if DETECTED_OS == "windows":
-            powershell_bin = shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-            proc = subprocess.run(
-                [powershell_bin, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
-                cwd=str(target_cwd),
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(int(timeout_seconds), 300)),
-                encoding="utf-8",
-                errors="replace"
-            )
+            argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
         else:
-            proc = subprocess.run(
-                command,
-                cwd=str(target_cwd),
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=max(1, min(int(timeout_seconds), 300)),
-                encoding="utf-8",
-                errors="replace"
-            )
-        trunc_out, was_out_trunc = truncate_terminal_output(proc.stdout)
-        trunc_err, was_err_trunc = truncate_terminal_output(proc.stderr)
-        return json.dumps({
-            "success": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "stdout": trunc_out,
-            "stderr": trunc_err,
-            "cwd": str(target_cwd),
-            "os": DETECTED_OS,
-            "truncated": was_out_trunc or was_err_trunc
-        }, ensure_ascii=False, indent=2)
+            argv = command
+        proc = subprocess.run(
+            argv,
+            cwd=str(target_cwd),
+            shell=DETECTED_OS != "windows",
+            capture_output=True,
+            text=True,
+            timeout=safe_timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
+        return _command_result(proc.returncode, proc.stdout, proc.stderr, str(target_cwd))
     except subprocess.TimeoutExpired:
-        return json.dumps({"success": False, "error": f"Command timed out after {timeout_seconds} seconds.", "os": DETECTED_OS}, ensure_ascii=False)
+        return _tool_error(f"Command timed out after {safe_timeout} seconds.", os=DETECTED_OS)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e), "os": DETECTED_OS}, ensure_ascii=False)
+        return _tool_error(str(e), os=DETECTED_OS)
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
@@ -935,9 +869,9 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
-            return json.dumps({"success": False, "error": f"Path '{path}' does not exist."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
         if not target.is_dir():
-            return json.dumps({"success": False, "error": f"Path '{path}' is not a directory."}, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' is not a directory.")
 
         try:
             regex = re.compile(query, re.MULTILINE)
@@ -1002,7 +936,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "matches": matches
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 def get_diagnostics(path: str | None = None) -> str:
@@ -1014,10 +948,7 @@ def get_diagnostics(path: str | None = None) -> str:
             target = Path.cwd().resolve()
 
         if not target.exists():
-            return json.dumps({
-                "success": False,
-                "error": f"Path '{path}' does not exist."
-            }, ensure_ascii=False)
+            return _tool_error(f"Path '{path}' does not exist.")
 
         diagnostics: list[dict] = []
         files_checked = 0
@@ -1109,7 +1040,7 @@ def get_diagnostics(path: str | None = None) -> str:
             "message": msg
         }, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 class PersistentBrowserSession:
@@ -1341,11 +1272,8 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
     """Control a headless browser for UI testing and visual inspection."""
     try:
         act = (action or "").strip().lower()
-        if act not in ("navigate", "screenshot", "click", "fill"):
-            return json.dumps({
-                "success": False,
-                "error": f"Invalid browser action: '{action}'. Valid actions: navigate, screenshot, click, fill."
-            }, ensure_ascii=False)
+        if act not in BROWSER_ACTIONS:
+            return _tool_error(f"Invalid browser action: '{action}'. Valid actions: {', '.join(BROWSER_ACTIONS)}.")
 
         cmd = {"action": act}
         if url:
@@ -1358,7 +1286,7 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
         result = _BROWSER_SESSION.execute(cmd)
         return json.dumps(result, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+        return _tool_error(str(e))
 
 
 LOCAL_TOOLS_DEFINITIONS = [
@@ -1494,7 +1422,7 @@ LOCAL_TOOLS_DEFINITIONS = [
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["navigate", "screenshot", "click", "fill"],
+                    "enum": list(BROWSER_ACTIONS),
                     "description": "Action to perform in the browser"
                 },
                 "url": {"type": "string", "description": "Target URL for navigate or screenshot"},
@@ -1596,16 +1524,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         if max_length is not None and len(value) > max_length:
             return f"'{name}' excede el tamaño máximo permitido"
 
-    required = {
-        "read_file": ("path",),
-        "write_file": ("path", "content"),
-        "edit_file": ("path",),
-        "bash": ("command",),
-        "search_files": ("query",),
-        "execute_command": ("command",),
-        "browser_action": ("action",)
-    }
-    for name in required.get(tool_name, ()):
+    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), {})
+    for name in definition.get("inputSchema", {}).get("required", ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
 
@@ -1616,7 +1536,7 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
 
     if tool_name == "browser_action":
-        if arguments.get("action") not in ("navigate", "screenshot", "click", "fill"):
+        if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
 
     return None
@@ -1854,7 +1774,7 @@ class McpServiceManager:
 
     @staticmethod
     def _trace(server_id: str, message: str):
-        console_log(f"[{time.strftime('%H:%M:%S')}] [MCP {server_id}] {_mcp_trace_text(message)}", flush=True)
+        log_event(f"[MCP {server_id}] {_mcp_trace_text(message)}")
 
     def _load_services(self) -> dict[str, dict]:
         servers = {}
@@ -1946,28 +1866,7 @@ class McpServiceManager:
                 if not shutil.which("node") or not shutil.which("npm"):
                     raise RuntimeError("Node.js y npm son necesarios para instalar este servicio MCP")
 
-                requirements = installer.get("requirements", {})
-                node_requirement = requirements.get("node")
-                if node_requirement is None:
-                    # Compatibilidad con instaladores creados antes de requirements.node.
-                    required_node_major = int(product.get("nodeMajor", 18))
-                elif not isinstance(node_requirement, dict):
-                    raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
-                else:
-                    required_node_major = node_requirement.get("minimumMajor")
-                    if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
-                        raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
-                version_result = subprocess.run(
-                    [node, "--version"], capture_output=True, text=True, timeout=5
-                )
-                version_match = re.match(r"v(\d+)", version_result.stdout.strip())
-                if version_result.returncode != 0 or not version_match:
-                    raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
-                self._trace(server_id, f"Node.js detected: {version_result.stdout.strip()} (minimum {required_node_major})")
-                if int(version_match.group(1)) < required_node_major:
-                    raise RuntimeError(
-                        f"{server_id} requiere Node.js {required_node_major}+; se detectó {version_result.stdout.strip()}"
-                    )
+                self._check_node_requirement(server_id, installer, node)
 
                 package_dir = service_dir / "node_modules" / Path(*package.split("/"))
                 needs_install = not marker.exists() or not package_dir.is_dir()
@@ -2008,11 +1907,35 @@ class McpServiceManager:
                 else:
                     self._trace(server_id, f"npm package already installed: {package}@{version}")
 
+        venv_python = get_venv_python(get_venv_dir())
         return {
             "serviceDir": str(service_dir),
-            "pythonExecutable": str(get_venv_python(get_venv_dir())) if get_venv_python(get_venv_dir()).is_file() else sys.executable,
+            "pythonExecutable": str(venv_python) if venv_python.is_file() else sys.executable,
             "nodeExecutable": node
         }
+
+    def _check_node_requirement(self, server_id: str, installer: dict, node: str):
+        """Comprueba la versión mínima de Node.js que declara el instalador."""
+        node_requirement = installer.get("requirements", {}).get("node")
+        if node_requirement is None:
+            # Compatibilidad con instaladores creados antes de requirements.node.
+            required_node_major = int(installer.get("product", {}).get("nodeMajor", 18))
+        elif not isinstance(node_requirement, dict):
+            raise RuntimeError("El requisito Node.js debe ser un objeto en installer.json")
+        else:
+            required_node_major = node_requirement.get("minimumMajor")
+            if not isinstance(required_node_major, int) or isinstance(required_node_major, bool) or required_node_major < 1:
+                raise RuntimeError("El requisito Node.js debe definir minimumMajor como un entero positivo")
+        version_result = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=5
+        )
+        detected = version_result.stdout.strip()
+        version_match = re.match(r"v(\d+)", detected)
+        if version_result.returncode != 0 or not version_match:
+            raise RuntimeError("No se pudo comprobar la versión de Node.js necesaria para este servicio MCP")
+        self._trace(server_id, f"Node.js detected: {detected} (minimum {required_node_major})")
+        if int(version_match.group(1)) < required_node_major:
+            raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
     def start(self, server_id: str) -> list[dict]:
         with self._lock:
@@ -2030,25 +1953,20 @@ class McpServiceManager:
             try:
                 service_dir = server["_directory"]
                 values = self._prepare_service(server_id, server)
-                pref = self.preferences.get(server_id, {})
-                user_opts = pref.get("options", {})
-                for opt in server.get("options", []):
-                    opt_id = opt.get("id")
-                    if opt_id:
-                        val = user_opts.get(opt_id, opt.get("default"))
-                        values[f"option:{opt_id}"] = str(val)
-
-                launch = server.get("launch", {})
-                command = self._expand(launch.get("executable", sys.executable), values)
-                args = [self._expand(arg, values) for arg in launch.get("args", [])]
+                user_opts = self.preferences.get(server_id, {}).get("options", {})
+                option_args = []
                 for opt in server.get("options", []):
                     opt_id = opt.get("id")
                     if not opt_id:
                         continue
                     val = user_opts.get(opt_id, opt.get("default"))
+                    values[f"option:{opt_id}"] = str(val)
                     if opt.get("type") == "boolean":
-                        extra = opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", [])
-                        args.extend([self._expand(a, values) for a in extra])
+                        option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
+
+                launch = server.get("launch", {})
+                command = self._expand(launch.get("executable", sys.executable), values)
+                args = [self._expand(arg, values) for arg in launch.get("args", []) + option_args]
 
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
@@ -2058,12 +1976,11 @@ class McpServiceManager:
                     command, args, str(service_dir), env,
                     trace=lambda message: self._trace(server_id, message)
                 )
+                # _prepare_service puede haber dejado el estado en "installing".
                 self.states[server_id] = "starting"
                 self.clients[server_id] = client
                 client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.states[server_id] = "running"
-
-                self.errors.pop(server_id, None)
                 entry = self.preferences.setdefault(server_id, {})
                 entry["enabled"] = True
                 self._save_preferences()
@@ -2126,14 +2043,22 @@ class McpServiceManager:
         return aggregated
 
     def call(self, public_name: str, arguments: dict) -> dict:
+        target = None
         with self._lock:
             for server_id, client in self.clients.items():
                 if not client.running():
                     continue
                 for t in client.tools:
                     if public_tool_name(server_id, t["name"]) == public_name:
-                        return client.request("tools/call", {"name": t["name"], "arguments": arguments})
-        raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+                        target = (client, t["name"])
+                        break
+                if target:
+                    break
+        if not target:
+            raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
+        # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
+        client, original_name = target
+        return client.request("tools/call", {"name": original_name, "arguments": arguments})
 
     def close(self):
         with self._lock:
@@ -2185,14 +2110,14 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
         # 1. Periodo de gracia inicial (solo si zerochat abrió el navegador)
         if not HEARTBEAT_INITIALIZED:
             if require_initial_connection and (now - start_time > initial_grace_seconds):
-                console_log(f"[{time.strftime('%H:%M:%S')}] Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...", flush=True)
+                log_event(f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat...")
                 stop_zerochat_server(server)
                 break
             continue
 
         # 2. Inactividad tras haber recibido latidos
         if now - HEARTBEAT_LAST_SEEN > inactivity_timeout_seconds:
-            console_log(f"[{time.strftime('%H:%M:%S')}] Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...", flush=True)
+            log_event("Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat...")
             stop_zerochat_server(server)
             break
 
@@ -2218,11 +2143,9 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
     server_version = f"ZeroChatServer/{VERSION}"
 
     def _log_req(self, method: str, detail: str):
-        now = time.strftime("%H:%M:%S")
-        console_log(f"[{now}] --> {method} {detail}", flush=True)
+        log_event(f"--> {method} {detail}")
 
     def _log_res(self, status: int, detail: str, duration_ms: float, error_info: str = ""):
-        now = time.strftime("%H:%M:%S")
         status_text = {
             200: "200 OK",
             204: "204 No Content",
@@ -2233,7 +2156,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             500: "500 Internal Server Error",
         }.get(status, str(status))
         err_suffix = f" - ERROR: {format_log_error(error_info)}" if error_info else ""
-        console_log(f"[{now}] <-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)", flush=True)
+        log_event(f"<-- {status_text} {detail}{err_suffix} ({duration_ms:.1f}ms)")
 
     def serve_static_file(self, rel_path: str) -> bool:
         """Sirve recursos estáticos solo desde el repositorio de desarrollo."""
@@ -2370,7 +2293,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if not is_heartbeat:
             self._log_res(204, safe_path, (time.monotonic() - t0) * 1000)
 
-    def _send_json_response(self, status: int, data: dict):
+    def _send_json_response(self, status: int, data: dict) -> bool:
+        """Envía JSON con cabeceras CORS; devuelve False si el cliente ya cerró la conexión."""
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2379,8 +2303,10 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(body)
+            return True
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+            return False
 
     def do_GET(self):
         t0 = time.monotonic()
@@ -2414,14 +2340,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("GET", safe_path)
 
         if not self.verify_token():
-            err_msg = json.dumps({"error": "Unauthorized: invalid or missing session token"}).encode("utf-8")
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(err_msg)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(err_msg)
-            self._log_res(401, safe_path, (time.monotonic() - t0) * 1000, "Token de sesión ausente o inválido")
+            self._reject(401, {"error": "Unauthorized: invalid or missing session token"}, safe_path, t0, "Token de sesión ausente o inválido")
             return
 
         if is_heartbeat:
@@ -2443,7 +2362,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(200, f"{safe_path} [SSE canal activo]", (time.monotonic() - t0) * 1000)
             return
 
-        res_data = json.dumps({
+        self._send_json_response(200, {
             "status": "active",
             "server": "ZeroChat Local Server",
             "version": VERSION,
@@ -2451,19 +2370,190 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             "tools_count": len(LOCAL_TOOLS_DEFINITIONS),
             "browser_action": browser_action_availability(),
             "os": DETECTED_OS
-        }, ensure_ascii=False, indent=2).encode("utf-8")
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(res_data)))
-        self.send_cors_headers()
-        self.end_headers()
-        self.wfile.write(res_data)
+        })
         self._log_res(200, safe_path, (time.monotonic() - t0) * 1000)
+
+    def _reject(self, status: int, data: dict, safe_path: str, t0: float, log_message: str):
+        self._send_json_response(status, data)
+        self._log_res(status, safe_path, (time.monotonic() - t0) * 1000, log_message)
+
+    def _read_rpc_request(self, safe_path: str, t0: float) -> tuple[dict, bytes] | None:
+        """Lee y valida el cuerpo JSON-RPC; si no es válido responde y devuelve None."""
+        try:
+            content_len = int(self.headers.get("Content-Length"))
+        except (TypeError, ValueError):
+            self._log_req("POST", safe_path)
+            self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length inválido")
+            return None
+        if content_len < 0:
+            self._log_req("POST", safe_path)
+            self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
+            return None
+        if content_len > MAX_HTTP_BODY_BYTES:
+            self._log_req("POST", safe_path)
+            if content_len <= MAX_HTTP_BODY_BYTES * 2:
+                try:
+                    self.rfile.read(content_len)
+                except Exception:
+                    pass
+            self.close_connection = True
+            self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
+            return None
+        post_data = self.rfile.read(content_len)
+
+        try:
+            req = json.loads(post_data.decode("utf-8"))
+        except Exception as err:
+            self._log_req("POST", safe_path)
+            self._reject(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {err}"}},
+                         safe_path, t0, f"Error parseando JSON: {err}")
+            return None
+
+        rpc_error = self._validate_rpc(req)
+        if rpc_error:
+            self._log_req("POST", safe_path)
+            self._reject(400, {"error": rpc_error[0]}, safe_path, t0, rpc_error[1])
+            return None
+        return req, post_data
+
+    @staticmethod
+    def _validate_rpc(req) -> tuple[str, str] | None:
+        """Devuelve (error público, detalle de log) si la petición no es JSON-RPC 2.0 válida."""
+        if not isinstance(req, dict):
+            return "Request must be a JSON object", "La solicitud JSON no es un objeto"
+        req_id = req.get("id")
+        method = req.get("method")
+        params = req.get("params", {})
+        if req.get("jsonrpc") != "2.0":
+            return "Invalid JSON-RPC version", "Versión JSON-RPC inválida"
+        if req_id is not None and (isinstance(req_id, bool) or not isinstance(req_id, (str, int, float))):
+            return "Invalid JSON-RPC id", "id JSON-RPC inválido"
+        if not isinstance(method, str) or not method or len(method) > MAX_RPC_METHOD_LENGTH:
+            return "Invalid JSON-RPC method", "Método JSON-RPC inválido"
+        if not isinstance(params, dict):
+            return "Invalid JSON-RPC params", "params JSON-RPC inválidos"
+        if method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > MAX_TOOL_NAME_LENGTH:
+                return "Invalid tool name", "Nombre de herramienta inválido"
+            if not isinstance(tool_args, dict):
+                return "Invalid tool arguments", "Argumentos de herramienta inválidos"
+            tool_args_error = validate_local_tool_arguments(tool_name, tool_args)
+            if tool_args_error:
+                return tool_args_error, tool_args_error
+        return None
+
+    @staticmethod
+    def _initialize_result(server_info: dict) -> dict:
+        return {
+            "protocolVersion": "2024-11-05",
+            "serverInfo": server_info,
+            "capabilities": {
+                "tools": {"listChanged": True}
+            },
+            "toolAuthorization": {
+                "version": TOOL_AUTH_VERSION,
+                "sessionId": TOOL_AUTH_SESSION_ID,
+                "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
+                "ttlMs": TOOL_AUTH_TTL_MS
+            }
+        }
+
+    @staticmethod
+    def _tool_exception_result(ex: Exception) -> dict:
+        return {"content": [{"type": "text", "text": _tool_error(str(ex))}], "isError": True}
+
+    def _dispatch_external(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Atiende /mcp/external. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
+        if method == "initialize":
+            return self._initialize_result({"name": "ZeroChat External MCP Host", "version": VERSION}), None, ""
+        if method == "tools/list":
+            return {"tools": GLOBAL_MCP_MANAGER.tools()}, None, ""
+        if method == "tools/call":
+            try:
+                result = GLOBAL_MCP_MANAGER.call(params["name"], params.get("arguments", {}))
+            except Exception as ex:
+                return self._tool_exception_result(ex), None, str(ex)
+            tool_error_info = ""
+            if isinstance(result, dict) and result.get("isError"):
+                c_list = result.get("content", [])
+                if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
+                    tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
+                else:
+                    tool_error_info = "Error en herramienta MCP externa"
+            return result, None, tool_error_info
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
+
+    def _dispatch_local(self, method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
+        """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
+        if method == "initialize":
+            server_info = {
+                "name": "ZeroChat Local Server",
+                "version": VERSION,
+                "cwd": str(Path.cwd().resolve()),
+                "os": DETECTED_OS
+            }
+            return self._initialize_result(server_info), None, ""
+        if method == "tools/list":
+            browser_availability = browser_action_availability()
+            tools = []
+            for definition in LOCAL_TOOLS_DEFINITIONS:
+                item = dict(definition)
+                if item.get("name") == "browser_action":
+                    item["availability"] = browser_availability
+                tools.append(item)
+            return {"tools": tools}, None, ""
+        if method == "tools/availability":
+            if params.get("name", "") != "browser_action":
+                return None, {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}, ""
+            return browser_action_availability(), None, ""
+        if method == "tools/call":
+            tool_name = params["name"]
+            handler = LOCAL_TOOL_HANDLERS.get(tool_name)
+            if not handler:
+                return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+            try:
+                tool_output_json = handler(**params.get("arguments", {}))
+            except Exception as ex:
+                return self._tool_exception_result(ex), None, str(ex)
+            tool_error_info = ""
+            try:
+                parsed_out = json.loads(tool_output_json)
+                if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
+                    tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
+            except Exception:
+                pass
+            return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+        if method == "zerochat/external/status":
+            return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
+        if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
+            return self._dispatch_server_control(method, params, req)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_server_control(method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
+        server_id = params.get("serverId") or req.get("serverId")
+        opts = params.get("options") or req.get("options", {})
+        if not isinstance(server_id, str) or not server_id:
+            return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
+        if not isinstance(opts, dict):
+            return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
+        try:
+            if method.endswith("/start"):
+                servers = GLOBAL_MCP_MANAGER.start(server_id)
+            elif method.endswith("/stop"):
+                servers = GLOBAL_MCP_MANAGER.stop(server_id)
+            else:
+                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+        except KeyError as exc:
+            return None, {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}, ""
+        return {"servers": servers}, None, ""
 
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
+        req_path = self.path.split("?", 1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin):
             self._log_req("POST", safe_path)
@@ -2474,290 +2564,66 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         if not self.verify_token():
             self._log_req("POST", safe_path)
-            err_msg = json.dumps({
+            self._reject(401, {
                 "jsonrpc": "2.0",
                 "id": None,
                 "error": {"code": -32000, "message": "Unauthorized: invalid or missing session token"}
-            }).encode("utf-8")
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(err_msg)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(err_msg)
-            self._log_res(401, safe_path, (time.monotonic() - t0) * 1000, "Token de sesión ausente o inválido")
+            }, safe_path, t0, "Token de sesión ausente o inválido")
             return
 
-        raw_content_len = self.headers.get("Content-Length")
-        try:
-            content_len = int(raw_content_len)
-        except (TypeError, ValueError):
-            self._log_req("POST", safe_path)
-            self._send_json_response(400, {"error": "Invalid Content-Length"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Content-Length inválido")
+        parsed = self._read_rpc_request(safe_path, t0)
+        if parsed is None:
             return
-        if content_len < 0:
-            self._log_req("POST", safe_path)
-            self._send_json_response(400, {"error": "Invalid Content-Length"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Content-Length negativo")
-            return
-        if content_len > MAX_HTTP_BODY_BYTES:
-            self._log_req("POST", safe_path)
-            if content_len <= MAX_HTTP_BODY_BYTES * 2:
-                try:
-                    self.rfile.read(content_len)
-                except Exception:
-                    pass
-            self.close_connection = True
-            self._send_json_response(413, {"error": "Request body too large"})
-            self._log_res(413, safe_path, (time.monotonic() - t0) * 1000, "Cuerpo HTTP excede el límite")
-            return
-        post_data = self.rfile.read(content_len)
-
-        try:
-            req = json.loads(post_data.decode("utf-8"))
-        except Exception as err:
-            self._log_req("POST", safe_path)
-            err_resp = json.dumps({
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": f"Parse error: {str(err)}"}
-            }).encode("utf-8")
-            self.send_response(400)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(err_resp)
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, f"Error parseando JSON: {err}")
-            return
-
-        if not isinstance(req, dict):
-            self._send_json_response(400, {"error": "Request must be a JSON object"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "La solicitud JSON no es un objeto")
-            return
-
+        req, post_data = parsed
         req_id = req.get("id")
-        method = req.get("method")
+        method = req["method"]
         params = req.get("params", {})
-        if req.get("jsonrpc") != "2.0":
-            self._send_json_response(400, {"error": "Invalid JSON-RPC version"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Versión JSON-RPC inválida")
-            return
-        if req_id is not None and (isinstance(req_id, bool) or not isinstance(req_id, (str, int, float))):
-            self._send_json_response(400, {"error": "Invalid JSON-RPC id"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "id JSON-RPC inválido")
-            return
-        if not isinstance(method, str) or not method or len(method) > MAX_RPC_METHOD_LENGTH:
-            self._send_json_response(400, {"error": "Invalid JSON-RPC method"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Método JSON-RPC inválido")
-            return
-        if not isinstance(params, dict):
-            self._send_json_response(400, {"error": "Invalid JSON-RPC params"})
-            self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "params JSON-RPC inválidos")
-            return
 
         if method == "tools/call":
-            tool_name = params.get("name")
-            tool_args = params.get("arguments", {})
-            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > MAX_TOOL_NAME_LENGTH:
-                self._send_json_response(400, {"error": "Invalid tool name"})
-                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Nombre de herramienta inválido")
-                return
-            if not isinstance(tool_args, dict):
-                self._send_json_response(400, {"error": "Invalid tool arguments"})
-                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, "Argumentos de herramienta inválidos")
-                return
-            tool_args_error = validate_local_tool_arguments(tool_name, tool_args)
-            if tool_args_error:
-                self._send_json_response(400, {"error": tool_args_error})
-                self._log_res(400, safe_path, (time.monotonic() - t0) * 1000, tool_args_error)
-                return
-            auth_error = self.verify_tool_authorization(post_data, self.path.split("?", 1)[0].rstrip("/") or "/")
+            auth_error = self.verify_tool_authorization(post_data, req_path or "/")
             if auth_error:
-                self._send_json_response(403, {"error": auth_error})
-                self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, auth_error)
+                self._log_req("POST", safe_path)
+                self._reject(403, {"error": auth_error}, safe_path, t0, auth_error)
                 return
 
-        req_path = self.path.split("?", 1)[0].rstrip("/")
-
-        # Determinar etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
-        tool_name = params.get("name", "") if isinstance(params, dict) else ""
-        if method == "tools/call" and tool_name:
-            action_tag = f"[tools/call: {tool_name}]"
+        # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
+        if method == "tools/call":
+            action_tag = f"[tools/call: {params['name']}]"
         elif method:
             action_tag = f"[rpc: {method}]"
         elif req_path.startswith("/zerochat/external/servers/"):
             action_tag = f"[REST: {req_path}]"
         else:
             action_tag = f"[{safe_path}]"
+        log_detail = f"{safe_path} {action_tag}"
+        self._log_req("POST", log_detail)
 
-        self._log_req("POST", f"{safe_path} {action_tag}")
-
-        if req_id is None and (method or "").startswith("notifications/"):
+        if req_id is None and method.startswith("notifications/"):
             self.send_response(204)
             self.send_cors_headers()
             self.end_headers()
-            self._log_res(204, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000)
+            self._log_res(204, log_detail, (time.monotonic() - t0) * 1000)
             return
 
-        result = None
-        error = None
-        tool_error_info = ""
-        is_external_endpoint = "/mcp/external" in req_path
-
-        if is_external_endpoint:
-            if method == "initialize":
-                result = {
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": "ZeroChat External MCP Host",
-                        "version": VERSION
-                    },
-                    "capabilities": {
-                        "tools": {"listChanged": True}
-                    },
-                    "toolAuthorization": {
-                        "version": TOOL_AUTH_VERSION,
-                        "sessionId": TOOL_AUTH_SESSION_ID,
-                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
-                        "ttlMs": TOOL_AUTH_TTL_MS
-                    }
-                }
-            elif method == "tools/list":
-                result = {"tools": GLOBAL_MCP_MANAGER.tools()}
-            elif method == "tools/call":
-                tool_name = params.get("name", "") if isinstance(params, dict) else ""
-                tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
-                try:
-                    result = GLOBAL_MCP_MANAGER.call(tool_name, tool_args)
-                    if isinstance(result, dict) and result.get("isError"):
-                        c_list = result.get("content", [])
-                        if c_list and isinstance(c_list, list) and isinstance(c_list[0], dict):
-                            tool_error_info = c_list[0].get("text", "Error en herramienta MCP externa")
-                        else:
-                            tool_error_info = "Error en herramienta MCP externa"
-                except Exception as ex:
-                    tool_error_info = str(ex)
-                    result = {
-                        "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
-                        "isError": True
-                    }
+        try:
+            if "/mcp/external" in req_path:
+                result, error, tool_error_info = self._dispatch_external(method, params)
             else:
-                error = {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}
-        else:
-            if method == "initialize":
-                result = {
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": "ZeroChat Local Server",
-                        "version": VERSION,
-                        "cwd": str(Path.cwd().resolve()),
-                        "os": DETECTED_OS
-                    },
-                    "capabilities": {
-                        "tools": {"listChanged": True}
-                    },
-                    "toolAuthorization": {
-                        "version": TOOL_AUTH_VERSION,
-                        "sessionId": TOOL_AUTH_SESSION_ID,
-                        "key": base64.urlsafe_b64encode(TOOL_AUTH_KEY).rstrip(b"=").decode("ascii"),
-                        "ttlMs": TOOL_AUTH_TTL_MS
-                    }
-                }
-            elif method == "tools/list":
-                browser_availability = browser_action_availability()
-                tools = []
-                for definition in LOCAL_TOOLS_DEFINITIONS:
-                    item = dict(definition)
-                    if item.get("name") == "browser_action":
-                        item["availability"] = browser_availability
-                    tools.append(item)
-                result = {"tools": tools}
-            elif method == "tools/availability":
-                requested_name = params.get("name", "") if isinstance(params, dict) else ""
-                if requested_name != "browser_action":
-                    error = {"code": -32602, "message": "Herramienta no compatible con comprobación de disponibilidad."}
-                else:
-                    result = browser_action_availability()
-            elif method == "tools/call":
-                tool_name = params.get("name", "") if isinstance(params, dict) else ""
-                tool_args = params.get("arguments", {}) if isinstance(params, dict) else {}
-
-                if tool_name in LOCAL_TOOL_HANDLERS:
-                    handler = LOCAL_TOOL_HANDLERS[tool_name]
-                    try:
-                        tool_output_json = handler(**tool_args)
-                        is_tool_err = False
-                        try:
-                            parsed_out = json.loads(tool_output_json)
-                            if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
-                                is_tool_err = True
-                                tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-                        except Exception:
-                            pass
-
-                        result = {
-                            "content": [{"type": "text", "text": tool_output_json}],
-                            "isError": is_tool_err
-                        }
-                    except Exception as ex:
-                        tool_error_info = str(ex)
-                        result = {
-                            "content": [{"type": "text", "text": json.dumps({"success": False, "error": str(ex)}, ensure_ascii=False)}],
-                            "isError": True
-                        }
-                else:
-                    error = {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}
-            elif method == "zerochat/external/status":
-                result = {
-                    "host": "running",
-                    "version": VERSION,
-                    "servers": GLOBAL_MCP_MANAGER.list_servers()
-                }
-            elif method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
-                server_id = params.get("serverId") or req.get("serverId")
-                opts = params.get("options") or req.get("options", {})
-                if not isinstance(server_id, str) or not server_id:
-                    error = {"code": -32602, "message": "serverId debe ser un texto no vacío."}
-                elif not isinstance(opts, dict):
-                    error = {"code": -32602, "message": "options debe ser un objeto."}
-                else:
-                    try:
-                        if method.endswith("/start"):
-                            servers = GLOBAL_MCP_MANAGER.start(server_id)
-                        elif method.endswith("/stop"):
-                            servers = GLOBAL_MCP_MANAGER.stop(server_id)
-                        else:
-                            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-                        result = {"servers": servers}
-                    except KeyError as exc:
-                        error = {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}
-            else:
-                error = {"code": -32601, "message": f"Método '{method}' no soportado."}
+                result, error, tool_error_info = self._dispatch_local(method, params, req)
+        except Exception as ex:
+            result, tool_error_info = None, ""
+            error = {"code": -32603, "message": f"Error interno: {ex}"}
 
         response_payload = {"jsonrpc": "2.0", "id": req_id}
-        error_info = ""
         if error:
             response_payload["error"] = error
             error_info = f"[{error.get('code')}] {error.get('message')}"
         else:
             response_payload["result"] = result
-            if tool_error_info:
-                error_info = tool_error_info
+            error_info = tool_error_info
 
-        resp_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(resp_bytes)))
-        self.send_cors_headers()
-        self.end_headers()
-        try:
-            self.wfile.write(resp_bytes)
-        except (BrokenPipeError, ConnectionResetError):
-            self.close_connection = True
-            return
-        self._log_res(200, f"{safe_path} {action_tag}", (time.monotonic() - t0) * 1000, error_info=error_info)
+        if self._send_json_response(200, response_payload):
+            self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     def log_message(self, format, *args):
         # Silenciar logs ruidosos por defecto
@@ -2894,14 +2760,14 @@ def launch_browser(url: str) -> bool:
     """Abre el navegador en la URL de la sesión y muestra información o diagnóstico en consola."""
     termux_detected = is_termux_environment()
     if termux_detected:
-        console_log(f"[{time.strftime('%H:%M:%S')}] Termux detectado; se abrirá mediante termux-open-url.", flush=True)
-    console_log(f"[{time.strftime('%H:%M:%S')}] Abriendo navegador en la interfaz configurada...", flush=True)
+        log_event("Termux detectado; se abrirá mediante termux-open-url.")
+    log_event("Abriendo navegador en la interfaz configurada...")
     try:
         if not open_browser(url):
             raise RuntimeError("El lanzador de navegador devolvió un resultado sin éxito.")
         return True
     except Exception as e:
-        console_log(f"[{time.strftime('%H:%M:%S')}] No se pudo abrir el navegador automáticamente: {e}", flush=True)
+        log_event(f"No se pudo abrir el navegador automáticamente: {e}")
         console_log("  Traza de diagnóstico:", flush=True)
         traceback.print_exc()
         manual_command = get_manual_browser_command(url)
@@ -2936,10 +2802,10 @@ def main():
     reset_notices()
 
     if args.test:
-        print(f"[{time.strftime('%H:%M:%S')}] TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}")
-        print(f"[{time.strftime('%H:%M:%S')}] TEST all local tools ready.")
+        print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
+        print(timestamp_message(f"TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}"))
+        print(timestamp_message(f"TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}"))
+        print(timestamp_message("TEST all local tools ready."))
         return
 
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
@@ -3023,7 +2889,7 @@ def main():
         ).start()
 
     def shutdown(*_):
-        console_log(f"\n[{time.strftime('%H:%M:%S')}] Deteniendo servidor ZeroChat...")
+        console_log("\n" + timestamp_message("Deteniendo servidor ZeroChat..."))
         stop_zerochat_server(server)
 
     signal.signal(signal.SIGINT, shutdown)

@@ -1530,3 +1530,36 @@ test('Servidor local zerochat.py: los métodos de control MCP responden con erro
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('zerochat.py: una llamada a herramienta MCP externa no bloquea al gestor mientras se ejecuta', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_call_lock_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    manager = module.McpServiceManager(Path(temp_dir) / "services")
+    client = Mock(tools=[{"name": "lookup"}])
+    client.running.return_value = True
+    def request(method, params):
+        assert not manager._lock.locked(), "El lock del gestor no debe mantenerse durante la llamada"
+        assert method == "tools/call" and params == {"name": "lookup", "arguments": {"q": 1}}
+        return {"content": []}
+    client.request.side_effect = request
+    manager.clients["demo"] = client
+    assert manager.call(module.public_tool_name("demo", "lookup"), {"q": 1}) == {"content": []}
+    try:
+        manager.call("demo_missing", {})
+        raise AssertionError("Debe rechazar herramientas inexistentes")
+    except ValueError:
+        pass
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
