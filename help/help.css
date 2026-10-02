@@ -211,6 +211,23 @@ li {
   margin-bottom: 0.45rem;
 }
 
+/* Subsecciones dentro de una tarjeta */
+.subsection {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.subsection h3 {
+  margin-top: 0;
+}
+
+.subsection > :last-child {
+  margin-bottom: 0;
+}
+
 /* Alertas y avisos */
 .alert {
   padding: 1rem 1.25rem;

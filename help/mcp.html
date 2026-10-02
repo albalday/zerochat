@@ -95,7 +95,8 @@
       <h2>5. Añade tu propio servicio</h2>
       <p>Crea una carpeta nueva dentro de <code>~/zerochat/services/</code> con nombre e <code>id</code> únicos. Usa <code>ejemplo</code> como plantilla: <code>service.json</code> es obligatorio; añade <code>installer.json</code> solo para paquetes npm. El <code>README.md</code> de la plantilla describe los campos, incluido el enlace opcional <code>help</code>.</p>
       <p>Puedes pedir al agente que cree la definición con uno de estos prompts. Sustituye los marcadores. El agente prepara los archivos; tú introduces las credenciales y arrancas el servicio.</p>
-      <details><summary>Prompt para un MCP local (stdio)</summary>
+      <div class="subsection">
+        <h3>Prompt para un MCP local (stdio)</h3>
         <div class="code-wrapper"><pre><code>Quiero crear el MCP local &lt;nombre-del-mcp&gt; para ZeroChat.
 Localiza el directorio personal del usuario y lee README.md,
 service.json e installer.json.example de zerochat/services/ejemplo
@@ -108,8 +109,9 @@ Yo sustituiré el marcador por mi clave a mano en ese service.json.
 No me pidas la clave ni crees un archivo launch.env o .env.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
-      </details>
-      <details id="crear-mcp-remoto"><summary>Prompt para un MCP remoto (HTTP/SSE)</summary>
+      </div>
+      <div class="subsection" id="crear-mcp-remoto">
+        <h3>Prompt para un MCP remoto (HTTP/SSE)</h3>
         <p>El proceso gestionado <code>mcp-remote</code> usa stdio con ZeroChat y HTTP/SSE con el proveedor. Toma Composio como ejemplo de puente y adapta la autenticación al nuevo proveedor.</p>
         <div class="code-wrapper"><pre><code>Quiero crear el MCP remoto &lt;nombre-del-mcp&gt; para ZeroChat.
 Su endpoint es &lt;url-del-mcp&gt;.
@@ -130,7 +132,7 @@ referencia a esa variable; mcp-remote resolverá la referencia.
 No me pidas la clave ni la escribas en los argumentos o en la URL.
 Indica la ruta absoluta del JSON y el campo que debo editar a mano.
 No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre></div>
-      </details>
+      </div>
       <p>Si la carpeta nueva no aparece en Ajustes → MCP, reinicia ZeroChat y vuelve a conectar. Tus carpetas se conservan al actualizar. Las definiciones incluidas (<code>ejemplo</code>, <code>composio</code>, <code>playwright</code>, <code>memory</code>) se restauran al arrancar; crea una copia con otro nombre e id en lugar de editarlas. No copies dependencias ni credenciales OAuth.</p>
     </div>
 
@@ -144,14 +146,16 @@ No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre>
         <li>Inicia el servicio desde <strong>Ajustes → MCP</strong>.</li>
       </ol>
       <p>La clave queda en texto plano: no compartas ni subas este archivo al repositorio. Borrar <code>~/zerochat/</code> también elimina los servicios y sus credenciales; conserva una copia privada si la necesitas.</p>
-      <details><summary>Ejemplo para un servicio local</summary>
+      <div class="subsection">
+        <h3>Ejemplo para un servicio local</h3>
         <p>Dentro de <code>launch</code>, utiliza el nombre de variable indicado por el MCP:</p>
         <div class="code-wrapper"><pre><code>"env": {
   "SERVICE_API_KEY": "PASTE_API_KEY_HERE"
 }</code></pre></div>
         <p>No necesitas <code>export</code>, un archivo <code>.env</code> ni otro JSON de credenciales. Escribe el valor real en <code>launch.env</code>; las referencias a variables de entorno en ese campo quedan como texto literal. ZeroChat sustituye rutas de servicio/intérpretes y referencias <code>${option:...}</code>.</p>
-      </details>
-      <details><summary>Ejemplo para un servicio remoto con cabecera Bearer</summary>
+      </div>
+      <div class="subsection">
+        <h3>Ejemplo para un servicio remoto con cabecera Bearer</h3>
         <p>Adapta los argumentos del puente y conserva el aislamiento existente de <code>HOME</code> y <code>USERPROFILE</code>:</p>
         <div class="code-wrapper"><pre><code>"args": [
   "${serviceDir}/node_modules/mcp-remote/dist/proxy.js",
@@ -165,7 +169,7 @@ No instales ni inicies el servicio; lo haré desde Ajustes → MCP.</code></pre>
   "REMOTE_API_KEY": "PASTE_API_KEY_HERE"
 }</code></pre></div>
         <p><code>mcp-remote</code> resuelve <code>${REMOTE_API_KEY}</code> en la cabecera. Usa la cabecera y el formato que exija el proveedor. <code>remote.authentication</code> es descriptivo; no configura la autenticación. Consulta la <a href="https://github.com/punkpeye/mcp-remote#custom-headers" target="_blank" rel="noopener noreferrer">documentación de cabeceras del puente</a>.</p>
-      </details>
+      </div>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">
