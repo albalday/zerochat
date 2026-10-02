@@ -24,7 +24,6 @@ const PRECACHE_ASSETS = [
   './css/components/debug.css',
   './css/theme-overrides.css',
   './css/print.css',
-  './css/styles.css',
   './js/vendor/orama.browser.js',
   './js/utils.js',
   './js/storage-db.js',

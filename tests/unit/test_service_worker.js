@@ -128,7 +128,7 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     'Debe interceptar js/app.js en subdirectorio de producción'
   );
   assert.equal(
-    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/css/styles.css'),
+    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/css/base.css'),
     true,
     'Debe interceptar CSS en subdirectorio de producción'
   );

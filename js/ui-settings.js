@@ -735,7 +735,7 @@
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
-                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-cpu"></use></svg>
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
                 </span>
                 <strong data-i18n="mcp_servers_section_title">Servidores MCP Disponibles</strong>
               </div>
