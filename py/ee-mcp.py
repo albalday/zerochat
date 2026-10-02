@@ -561,6 +561,9 @@ class McpServiceManager:
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
+            self.services = self._load_services()
+            if server_id not in self.services and server_id not in self.clients:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
             client = self.clients.pop(server_id, None)
             if client:
                 client.stop()

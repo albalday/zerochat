@@ -2080,6 +2080,9 @@ class McpServiceManager:
 
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
+            self.services = self._load_services()
+            if server_id not in self.services and server_id not in self.clients:
+                raise KeyError(f"Servidor MCP desconocido: {server_id}")
             client = self.clients.pop(server_id, None)
             if client:
                 client.stop()
@@ -2711,19 +2714,24 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                     "version": VERSION,
                     "servers": GLOBAL_MCP_MANAGER.list_servers()
                 }
-            elif method == "zerochat/external/servers/start":
-                server_id = params.get("serverId") or req.get("serverId")
-                servers = GLOBAL_MCP_MANAGER.start(server_id)
-                result = {"servers": servers}
-            elif method == "zerochat/external/servers/stop":
-                server_id = params.get("serverId") or req.get("serverId")
-                servers = GLOBAL_MCP_MANAGER.stop(server_id)
-                result = {"servers": servers}
-            elif method == "zerochat/external/servers/configure":
+            elif method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
                 server_id = params.get("serverId") or req.get("serverId")
                 opts = params.get("options") or req.get("options", {})
-                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
-                result = {"servers": servers}
+                if not isinstance(server_id, str) or not server_id:
+                    error = {"code": -32602, "message": "serverId debe ser un texto no vacío."}
+                elif not isinstance(opts, dict):
+                    error = {"code": -32602, "message": "options debe ser un objeto."}
+                else:
+                    try:
+                        if method.endswith("/start"):
+                            servers = GLOBAL_MCP_MANAGER.start(server_id)
+                        elif method.endswith("/stop"):
+                            servers = GLOBAL_MCP_MANAGER.stop(server_id)
+                        else:
+                            servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
+                        result = {"servers": servers}
+                    except KeyError as exc:
+                        error = {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}
             else:
                 error = {"code": -32601, "message": f"Método '{method}' no soportado."}
 

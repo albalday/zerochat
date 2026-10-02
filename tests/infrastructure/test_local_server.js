@@ -1485,3 +1485,48 @@ with tempfile.TemporaryDirectory() as temp_dir:
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
+
+test('Servidor local zerochat.py: los métodos de control MCP responden con error JSON-RPC ante entradas inválidas', async () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const serverPath = path.resolve(repoRoot, 'zerochat.py');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-control-'));
+  const port = 7600 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const testToken = 'control-errors-token-12345';
+
+  const serverProc = spawn('python3', [
+    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv', '--no-exit-on-close'
+  ], {
+    env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const rpc = async (method, params) => {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${testToken}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+    });
+    assert.equal(res.status, 200, method);
+    return res.json();
+  };
+
+  try {
+    await waitForServer(baseUrl, testToken, serverProc);
+    for (const action of ['start', 'stop', 'configure']) {
+      const method = `zerochat/external/servers/${action}`;
+      const unknown = await rpc(method, { serverId: 'no-existe', options: {} });
+      assert.equal(unknown.error?.code, -32602, `${method} con servidor desconocido`);
+      assert.match(unknown.error?.message, /no-existe/);
+      const invalidId = await rpc(method, { serverId: 42 });
+      assert.equal(invalidId.error?.code, -32602, `${method} con serverId no textual`);
+    }
+    const invalidOptions = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' });
+    assert.equal(invalidOptions.error?.code, -32602);
+    const status = await rpc('zerochat/external/status', {});
+    assert.equal(status.result.servers.some(server => server.id === 'no-existe'), false);
+  } finally {
+    try { serverProc.kill('SIGTERM'); } catch (_) {}
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
