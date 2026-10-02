@@ -532,21 +532,6 @@ class McpServiceManager:
                 env = os.environ.copy()
                 for k, v in launch.get("env", {}).items():
                     env[k] = self._expand(v, values)
-                if is_termux_environment():
-                    scripts_dir = str(self.services_root / "scripts")
-                    env["PATH"] = scripts_dir + (os.pathsep + env["PATH"] if env.get("PATH") else "")
-                    # Android 10+ bloquea el arranque de actividades desde apps en segundo plano.
-                    # zerochat-open-url combina termux-open-url (funciona con foco) con una
-                    # notificación del sistema (funciona sin foco) para cubrir ambos casos.
-                    # Si el wrapper aún no existe (primera ejecución antes de materialize),
-                    # cae al opener directo como garantía.
-                    wrapper = Path(self.services_root) / "scripts" / "zerochat-open-url"
-                    if wrapper.is_file():
-                        env.setdefault("BROWSER", str(wrapper))
-                    else:
-                        termux_opener = get_termux_open_url_executable()
-                        if termux_opener:
-                            env.setdefault("BROWSER", termux_opener)
 
                 client = StdioMcpClient(
                     command, args, str(service_dir), env,
