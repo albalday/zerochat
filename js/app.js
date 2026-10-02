@@ -60,17 +60,6 @@
     return key;
   }
 
-  function getMsgIcon(name, size = 12) {
-    if (typeof window !== 'undefined' && window.ChatIcons && window.ChatIcons.has(name)) {
-      return window.ChatIcons.get(name, { size });
-    }
-    try {
-      const icons = require('./icons.js');
-      if (icons && icons.has(name)) return icons.get(name, { size });
-    } catch (_) {}
-    return '';
-  }
-
   if (typeof Config?.initialize !== 'function' || typeof Config?.getActive !== 'function') {
     throw new Error('ZeroChat requires ChatConfig before application startup.');
   }
@@ -1489,10 +1478,7 @@
     }
 
     if (elements.btnToggleAutoscroll) {
-      elements.btnToggleAutoscroll.addEventListener('click', () => {
-        isDebugAutoscroll = !isDebugAutoscroll;
-        elements.btnToggleAutoscroll.classList.toggle('active', isDebugAutoscroll);
-      });
+      elements.btnToggleAutoscroll.addEventListener('click', () => Debug.toggleAutoscroll());
     }
 
     if (elements.debugTabs && elements.debugTabs.length > 0) {
@@ -2135,28 +2121,14 @@
     }
 
     window.ChatApp = {
-      toggleReasoningMenu,
-      updateReasoningUI,
-      toggleDebugPanel,
-      addDebugLog,
-      clearDebugLogs,
-      setDebugStatus,
       setGenerationStatus,
-      clearGenerationStatus,
       applyLanguage,
       switchToSession,
-      createNewSession,
       createConversationBranch,
       deleteSession,
-      renameSession,
       openExecutionInfo,
-      exportConversationAsMarkdown,
-      exportConversationAsJson,
-      exportConversationAsPrint,
       startServerHeartbeat,
-      stopServerHeartbeat,
-      getNewTabUrl,
-      updateNewTabLink
+      stopServerHeartbeat
     };
 
     // Fase 6: configurar light-dismiss fallback para navegadores sin closedby

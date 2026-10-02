@@ -37,15 +37,6 @@
     if (!child && parent) parent.textContent = `${parent.textContent || ''}${value == null ? '' : String(value)}`;
     return child;
   }
-  function appendTrustedIcon(parent, icon) {
-    if (!parent || !icon || typeof document === 'undefined') return;
-    const host = document.createElement('span');
-    host.setAttribute('aria-hidden', 'true');
-    const utils = getUtils();
-    if (utils?.setTrustedHtml) utils.setTrustedHtml(host, icon);
-    else host.innerHTML = icon;
-    parent.appendChild(host);
-  }
   function sanitizePort(port) {
     const parsed = parseInt(port, 10);
     return Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535 ? parsed : DEFAULT_PORT;

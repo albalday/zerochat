@@ -21,7 +21,6 @@
   }
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getStorage = () => resolveDep('ChatStorage', './cookies.js') || (typeof globalThis !== 'undefined' ? globalThis.Storage : null);
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');

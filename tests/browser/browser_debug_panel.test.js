@@ -39,6 +39,28 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     }
   });
 
+  test('el botón de autoscroll alterna el estado del panel sin errores', async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      const pageErrors = [];
+      page.on('pageerror', error => pageErrors.push(error.message));
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+
+      await page.click('#btn-toggle-debug');
+      const isActive = () => page.evaluate(() => document.getElementById('btn-toggle-autoscroll').classList.contains('active'));
+      assert.equal(await isActive(), true);
+      await page.click('#btn-toggle-autoscroll');
+      assert.equal(await isActive(), false);
+      await page.click('#btn-toggle-autoscroll');
+      assert.equal(await isActive(), true);
+      assert.deepEqual(pageErrors, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
   test('el editor de mensaje saliente sitúa las acciones de envío en la cabecera', async () => {
     const browser = await createTestBrowser();
     try {

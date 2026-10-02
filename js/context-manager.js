@@ -48,14 +48,6 @@
   // 2. Abstracción de Estimación de Tokens (Token Estimator)
   // ==========================================================================
 
-  const customEstimators = new Map();
-
-  function registerEstimator(pattern, estimatorFn) {
-    if (typeof estimatorFn === 'function') {
-      customEstimators.set(String(pattern).toLowerCase(), estimatorFn);
-    }
-  }
-
   /**
    * Estimador genérico y tolerante para cadenas de texto.
    * Aplica coeficientes según naturaleza del contenido (texto vs código/JSON).
@@ -77,18 +69,6 @@
    */
   function estimateMessageTokens(message, model = '') {
     if (!message || typeof message !== 'object') return 0;
-
-    // Comprobar si existe un estimador específico registrado para este modelo
-    const cleanModel = String(model || '').toLowerCase();
-    for (const [pattern, estimatorFn] of customEstimators.entries()) {
-      if (cleanModel.includes(pattern)) {
-        try {
-          return estimatorFn(message);
-        } catch (e) {
-          // Fallback silencioso
-        }
-      }
-    }
 
     let tokens = 4; // Overhead por mensaje (role, estructura)
 
@@ -572,7 +552,6 @@
     estimateTextTokens,
     estimateMessageTokens,
     estimateHistoryTokens,
-    registerEstimator,
     truncateToolContent,
     pruneHistoricalToolMessage,
     groupIntoAtomicBlocks,

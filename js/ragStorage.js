@@ -63,15 +63,6 @@
     });
   }
 
-  async function requestPersistentStorage() {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.persist === 'function') {
-        return navigator.storage.persist();
-      }
-    } catch (_) {}
-    return false;
-  }
-
   function validateBranch(input) {
     const data = typeof input === 'string' ? { name: input } : input;
     if (!data || typeof data !== 'object' || !String(data.name || '').trim()) {
@@ -667,7 +658,7 @@
     saveDocument, replaceDocument, findDocumentByPath, getDocumentsByBranch, getDocumentById,
     getChunksByBranch, getChunksByDocument, getChunkById, deleteDocument,
     getDocumentImages, getDocumentImage,
-    getStorageEstimate, requestPersistentStorage, clearAllData, exportBranch, exportBranchBlob, importBranch, openDatabase,
+    getStorageEstimate, clearAllData, exportBranch, exportBranchBlob, importBranch, openDatabase,
     RagStorageError, ValidationError, QuotaExceededError, NotFoundError,
     DB_NAME: Database?.DB_NAME || 'ZeroChatDB', DB_VERSION: Database?.DB_VERSION || 2,
     STORE_BRANCHES: STORES.ragBranches, STORE_DOCUMENTS: STORES.ragDocuments,

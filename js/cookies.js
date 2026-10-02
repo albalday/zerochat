@@ -173,14 +173,6 @@
     }
   }
 
-  function deleteBackendSession() {
-    if (typeof document === 'undefined' || location.protocol === 'file:') return;
-    try {
-      const secure = location.protocol === 'https:' ? ';Secure' : '';
-      document.cookie = `${encodeURIComponent(BACKEND_SESSION_COOKIE)}=;Max-Age=0;Path=/;SameSite=Strict${secure}`;
-    } catch (_) {}
-  }
-
   function loadRuntimeConfigV2() {
     const raw = getStorageItem('runtime_config_v2');
     if (!raw) return null;
@@ -663,7 +655,6 @@
     normalizeBackendSession,
     setBackendSession,
     getBackendSession,
-    deleteBackendSession,
     loadRuntimeConfigV2,
     saveRuntimeConfigV2,
     clearAllStorage,

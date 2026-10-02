@@ -1615,13 +1615,6 @@
     }
   }
 
-  function getAvailableLanguages() {
-    return [
-      { code: 'es', label: 'Español', flag: '🇪🇸' },
-      { code: 'en', label: 'English', flag: '🇬🇧' }
-    ];
-  }
-
   // Inicialización automática de idioma
   currentLang = detectInitialLanguage();
 
@@ -1633,7 +1626,6 @@
     onChange,
     detectInitialLanguage,
     applyTranslations,
-    getAvailableLanguages,
     TRANSLATIONS
   };
 });

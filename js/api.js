@@ -208,15 +208,6 @@
     custom: { type: 'custom', label: 'Personalizado', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Personalizado' }
   };
 
-  function getStandardReasoningOptions(explicitType, rawUrl) {
-    if (registry) {
-      const adapter = registry.resolve(rawUrl, explicitType);
-      return adapter.getReasoningConfig();
-    }
-    const type = detectApiType(rawUrl, explicitType);
-    return STANDARD_REASONING_MODES[type] || STANDARD_REASONING_MODES.openai;
-  }
-
   /**
    * Consulta los modelos disponibles en el servidor delegando en el adaptador.
    */
@@ -836,7 +827,6 @@
     downloadLocalModel,
     deleteLocalModel,
     cancelLocalModelOperation,
-    getStandardReasoningOptions,
     STANDARD_REASONING_MODES,
     streamChatCompletion,
     estimateTokens,

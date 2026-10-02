@@ -26,7 +26,6 @@
   function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
   function getFileParser() { return resolveDep('ChatFileParser', './file-parser.js'); }
   function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
-  function getState() { return resolveDep('ChatState', './state.js'); }
 
   function t(key, params) {
     const I18n = getI18n();

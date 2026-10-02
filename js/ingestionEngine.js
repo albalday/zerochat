@@ -129,13 +129,6 @@
     return 'El archivo está comprimido en un formato no compatible. Extrae su contenido antes de indexarlo.';
   }
 
-  async function extractTextFromPDF(file) {
-    const bytes = await toArrayBuffer(file);
-    const parser = getFileParser();
-    if (!parser?.extractTextFromPdf) throw new Error('El extractor de PDF no está disponible.');
-    return normalizeExtractedText(await parser.extractTextFromPdf(bytes));
-  }
-
   async function extractDocumentContent(file, fileType) {
     const archiveFormat = await getArchiveFormat(file);
     if (archiveFormat && archiveFormat !== 'gzip') throw new Error(unsupportedArchiveMessage(archiveFormat));
@@ -432,5 +425,5 @@
     return result;
   }
 
-  return { normalizeExtractedText, extractTextFromPlainText, extractTextFromPDF, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue, MAX_DOCUMENT_SIZE };
+  return { normalizeExtractedText, extractTextFromPlainText, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue, MAX_DOCUMENT_SIZE };
 });

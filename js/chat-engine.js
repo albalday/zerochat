@@ -34,12 +34,6 @@
       : (typeof require !== 'undefined' ? (() => { try { return require('./markdown.js'); } catch (e) { return {}; } })() : {});
   }
 
-  function getI18n() {
-    return (typeof window !== 'undefined' && window.ChatI18n)
-      ? window.ChatI18n
-      : (typeof require !== 'undefined' ? (() => { try { return require('./i18n.js'); } catch (e) { return {}; } })() : {});
-  }
-
   function getContextManager() {
     return (typeof window !== 'undefined' && window.ChatContextManager)
       ? window.ChatContextManager

@@ -197,10 +197,6 @@
     return discoveredModels;
   }
 
-  function getCachedModels() {
-    return discoveredModels;
-  }
-
   function findModelInCatalog(models, targetModel) {
     if (!Array.isArray(models) || !targetModel) return null;
     const target = String(targetModel).trim().toLowerCase();
@@ -957,7 +953,6 @@
     loadCachedModels,
     saveCachedModels,
     getConnectionCacheKey,
-    getCachedModels,
     getModelContextLimit,
     findModelInCatalog,
     populateModelList,

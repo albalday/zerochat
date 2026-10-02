@@ -29,27 +29,6 @@
            charCode === 62 || charCode === 91 || charCode === 93 || charCode === 47 || charCode === 37;
   }
 
-  function decodePdfHexString(hex) {
-    if (!hex) return '';
-    let cleanHex = hex.replace(/\s+/g, '');
-    if (cleanHex.length % 2 !== 0) cleanHex += '0';
-    let str = '';
-
-    if (cleanHex.toUpperCase().startsWith('FEFF')) {
-      for (let i = 4; i < cleanHex.length; i += 4) {
-        const code = parseInt(cleanHex.slice(i, i + 4), 16);
-        if (!isNaN(code) && code > 0) str += String.fromCharCode(code);
-      }
-      return str;
-    }
-
-    for (let i = 0; i < cleanHex.length; i += 2) {
-      const code = parseInt(cleanHex.slice(i, i + 2), 16);
-      if (!isNaN(code) && code >= 32) str += String.fromCharCode(code);
-    }
-    return str;
-  }
-
   function decodePdfEscapes(str) {
     if (!str) return '';
     return str.replace(/\\([0-7]{1,3})/g, (m, oct) => {
@@ -229,20 +208,6 @@
     cmap.byFontName = byFontName;
 
     return cmap;
-  }
-
-  function isReadablePdfText(str) {
-    if (!str || str.length < 3) return false;
-    let printable = 0;
-    for (let i = 0; i < str.length; i++) {
-      const code = str.charCodeAt(i);
-      if ((code >= 32 && code <= 126) || (code >= 160 && code <= 255) || code === 10 || code === 13 || code === 9) {
-        printable++;
-      }
-    }
-    const ratio = printable / str.length;
-    if (/SF\d{6}|afii\d+|upblock|dnblock|triagup|dmacron/.test(str)) return false;
-    return ratio >= 0.70;
   }
 
   function mapPdfLiteralString(lit, cmap) {
