@@ -112,7 +112,6 @@ select:focus-visible {
 
 /* pulseStop: mantener para btn-stop-stream */
 
-
 /* La interfaz responde inmediatamente: no se aplican animaciones ni transiciones. */
 *,
 *::before,
@@ -147,8 +146,6 @@ select:focus-visible {
 .btn-stop-stream,
 .btn-reasoning,
 .btn-query-server,
-.btn-profile-action,
-.btn-mcp-action,
 .btn-debug-action,
 .btn-danger-outline,
 .modal-btn-action,
@@ -162,8 +159,6 @@ select:focus-visible {
 .btn-secondary,
 .btn-close,
 .btn-query-server,
-.btn-profile-action,
-.btn-mcp-action,
 .btn-danger-outline {
   display: inline-flex;
   align-items: center;
@@ -173,12 +168,12 @@ select:focus-visible {
   transition: all 0.15s ease;
 }
 
-.chat-chart-card,
-.inspector-intro-card,
-.connection-active-card {
+.chat-chart-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
 }
 
 /* Superficie común de los paneles de configuración: fondo suave y sin borde. */
@@ -192,9 +187,3 @@ select:focus-visible {
   border-radius: var(--radius-md);
 }
 
-.chat-chart-card,
-.inspector-intro-card {
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  box-shadow: var(--shadow-sm);
-}

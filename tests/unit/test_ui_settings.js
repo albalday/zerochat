@@ -162,8 +162,7 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
     settingTemperature: { value: '' },
     temperatureVal: { textContent: '' },
     settingMaxAgentTurns: { value: '' },
-    maxAgentTurnsVal: { textContent: '' },
-    settingEnableRawLogs: { checked: false }
+    maxAgentTurnsVal: { textContent: '' }
   };
 
   const profileData = {
@@ -173,8 +172,7 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
     systemPrompt: 'Eres un asistente experto.',
     systemDataPrompt: 'Formato ZeroChat.',
     temperature: '0.2',
-    maxAgentTurns: 22,
-    enableRawLogs: true
+    maxAgentTurns: 22
   };
 
   UISettings.applyProfileToForm(elements, profileData);
@@ -189,7 +187,6 @@ test('UISettings - applyProfileToForm rellena los inputs de configuración', () 
   assert.equal(elements.temperatureVal.textContent, '0.2');
   assert.equal(elements.settingMaxAgentTurns.value, 22);
   assert.equal(elements.maxAgentTurnsVal.textContent, 22);
-  assert.equal(elements.settingEnableRawLogs.checked, true);
 });
 
 test('UISettings - applyProfileToForm asigna endpoint por defecto y placeholder si apiUrl está vacío', () => {

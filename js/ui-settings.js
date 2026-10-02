@@ -214,12 +214,6 @@
     if (elements.agentToolsContainer) {
       renderAgentToolsUI(elements.agentToolsContainer, profileData.enabledTools || {});
     }
-    if (elements.settingEnableRawLogs && profileData.enableRawLogs !== undefined) {
-      elements.settingEnableRawLogs.checked = profileData.enableRawLogs === true;
-    }
-    if (elements.settingEnableContextCache && profileData.enableContextCache !== undefined) {
-      elements.settingEnableContextCache.checked = profileData.enableContextCache !== false;
-    }
     const webllmCfg = profileData.webllmConfig || {};
     const setParamSelect = (el, val) => {
       if (!el) return;
@@ -337,9 +331,9 @@
         ...gatherEnabledToolsFromUI(elements?.agentToolsContainer),
         ...gatherEnabledToolsFromUI(elements?.mcpToolsContainer)
       },
-      enableRawLogs: elements?.settingEnableRawLogs ? elements.settingEnableRawLogs.checked : Boolean(appConfig?.enableRawLogs),
+      enableRawLogs: Boolean(appConfig?.enableRawLogs),
       enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
-      enableContextCache: elements?.settingEnableContextCache ? elements.settingEnableContextCache.checked : (appConfig?.enableContextCache !== false),
+      enableContextCache: appConfig?.enableContextCache !== false,
       activeRagBranchId: appConfig?.activeRagBranchId || '',
       activeRagBranchIds: Array.isArray(appConfig?.activeRagBranchIds) ? [...appConfig.activeRagBranchIds] : []
     };
@@ -373,9 +367,6 @@
     ensureDialogMarkup();
     if (!elements || !elements.settingsDialog) return;
     const preservePendingChanges = elements.settingsDialog.open && isSettingsFormDirty(elements);
-    if (elements.settingsActiveProfileName) {
-      elements.settingsActiveProfileName.textContent = appConfig?.activeProfile?.name || 'Espejo';
-    }
     if (!preservePendingChanges && elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
 
     if (!preservePendingChanges) {
@@ -385,23 +376,11 @@
       if (elements.agentToolsContainer) {
         renderAgentToolsUI(elements.agentToolsContainer, appConfig?.enabledTools || {});
       }
-      if (elements.settingEnableRawLogs) {
-        elements.settingEnableRawLogs.checked = appConfig?.enableRawLogs === true;
-      }
       if (elements.settingMaxAgentTurns) {
         elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 40;
       }
       if (elements.maxAgentTurnsVal) {
         elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 40;
-      }
-      if (elements.settingEnableContextCache) {
-        elements.settingEnableContextCache.checked = appConfig?.enableContextCache !== false;
-      }
-      if (elements.mcpHostInput) {
-        elements.mcpHostInput.value = appConfig?.mcpHost || '127.0.0.1';
-      }
-      if (elements.mcpPortInput) {
-        elements.mcpPortInput.value = appConfig?.mcpPort || 6388;
       }
     }
 
@@ -416,9 +395,7 @@
     const targetId = normalizeSectionId(sectionId);
     const doc = elements.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
 
-    const settingsSections = elements.settingsDialog?.querySelectorAll
-      ? elements.settingsDialog.querySelectorAll('.settings-section-pane')
-      : elements.settingsSections;
+    const settingsSections = elements.settingsDialog?.querySelectorAll?.('.settings-section-pane');
 
     if (settingsSections && settingsSections.length > 0) {
       settingsSections.forEach(section => section.classList.remove('active'));
@@ -461,8 +438,9 @@
   function saveDirectoryRulesFromSettings(elements) {
     const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
     const root = elements?.settingsDialog || doc;
-    const input = root ? (root.querySelector ? root.querySelector('#mcp-directory-rules') : doc?.getElementById('mcp-directory-rules')) : null;
-    const errorMessage = root ? (root.querySelector ? root.querySelector('#mcp-directory-rules-error') : doc?.getElementById('mcp-directory-rules-error')) : null;
+    const find = id => root?.querySelector?.(`#${id}`) || doc?.getElementById?.(id) || null;
+    const input = find('mcp-directory-rules');
+    const errorMessage = find('mcp-directory-rules-error');
     const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
     if (!input || typeof ToolSecurity?.manager?.setDirectoryRules !== 'function') return true;
 

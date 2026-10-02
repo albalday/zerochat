@@ -124,8 +124,6 @@
   border-color: var(--border-color);
 }
 
-
-
 [data-theme="dark"] .reasoning-option:hover {
   background-color: #1e293b;
 }
@@ -161,7 +159,6 @@
   border-color: var(--border-color);
   color: var(--text-main);
 }
-
 
 [data-theme="dark"] .btn-secondary {
   background-color: #182238;
@@ -213,7 +210,6 @@
   border-color: var(--border-color);
 }
 
-
 /* Modo Oscuro: Tarjeta de consulta web */
 
 [data-theme="dark"] .web-card-section.web-request-section {
@@ -240,7 +236,6 @@
 }
 
 /* Modo Oscuro: Tarjeta de búsqueda web */
-
 
 [data-theme="dark"] .search-query-section,
 [data-theme="dark"] .search-results-section {

@@ -237,7 +237,6 @@
 
       // Modal de Configuración
       settingsDialog: document.getElementById('settings-dialog'),
-      settingsActiveProfileName: document.getElementById('settings-active-profile-name'),
       settingsForm: document.getElementById('settings-form'),
       settingsSectionTitle: document.getElementById('settings-section-title'),
       btnCloseSettings: document.getElementById('btn-close-settings'),
@@ -605,11 +604,6 @@
       let profileList = [];
       try { profileList = Profiles.list ? Profiles.list() : []; } catch (_) {}
       UISettings.renderProfileMenu(elements, profileList, config.activeProfile?.id);
-    }
-    if (elements.settingsActiveProfileName) {
-      let mirrorName = 'Espejo';
-      try { mirrorName = Profiles.get?.(Profiles.READONLY_PROFILE_ID)?.name || 'Espejo'; } catch (_) {}
-      elements.settingsActiveProfileName.textContent = config.activeProfile?.name || mirrorName;
     }
     if (!profileEditorOpen) {
       if (elements.settingApiType) {

@@ -134,15 +134,10 @@
   box-shadow: 0 0 6px var(--success);
 }
 
-
-
 /* ==========================================================================
    Responsive
    ========================================================================== */
 @media (max-width: 640px) {
-
-
-
 
   .messages-list {
     padding: 0.5rem;
@@ -160,12 +155,5 @@
     flex-direction: column-reverse;
     align-items: stretch;
     gap: 0.75rem;
-  }
-
-  .footer-actions-left,
-  .footer-actions-right {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
   }
 }
