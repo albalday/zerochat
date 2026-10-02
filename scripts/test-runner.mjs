@@ -30,6 +30,7 @@ export const GROUPS = {
     'tests/unit/test_ui_composer.js',
     'tests/unit/test_attachments.js',
     'tests/unit/test_file_parser.js',
+    'tests/browser/browser_file_parser.test.js',
     'tests/browser/browser_composer.test.js'
   ],
   generation: [

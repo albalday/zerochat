@@ -2011,28 +2011,53 @@
     });
   }
 
+  /** Devuelve el número de componentes declarado en la cabecera SOF de un JPEG, o 0 si no se encuentra. */
+  function getJpegComponentCount(bytes) {
+    if (!bytes || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return 0;
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset] !== 0xFF) return 0;
+      const marker = bytes[offset + 1];
+      if (marker === 0xFF) { offset++; continue; }
+      if (marker === 0x01 || (marker >= 0xD0 && marker <= 0xD8)) { offset += 2; continue; }
+      if (marker === 0xD9 || marker === 0xDA) return 0;
+      const isSof = marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+      if (isSof) return offset + 9 < bytes.length ? bytes[offset + 9] : 0;
+      offset += 2 + ((bytes[offset + 2] << 8) | bytes[offset + 3]);
+    }
+    return 0;
+  }
+
   /**
    * Convierte un Data URL JPEG en espacio de color CMYK / YCCK a un Data URL JPEG sRGB bajo demanda.
+   * La decodificación la hace el navegador; sin canvas (Node) el Data URL se devuelve sin cambios.
    */
-  function convertCmykDataUrlToRgb(dataUrl) {
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/jpeg;base64,')) {
+  async function convertCmykDataUrlToRgb(dataUrl) {
+    const prefix = 'data:image/jpeg;base64,';
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith(prefix)) return dataUrl;
+    if (typeof document === 'undefined' || typeof createImageBitmap !== 'function' || typeof atob !== 'function') {
       return dataUrl;
     }
     try {
-      const b64 = dataUrl.substring('data:image/jpeg;base64,'.length);
-      let bytes;
-      if (typeof Buffer !== 'undefined') {
-        bytes = new Uint8Array(Buffer.from(b64, 'base64'));
-      } else if (typeof atob === 'function') {
-        const bin = atob(b64);
-        bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      } else {
-        return dataUrl;
+      const bin = atob(dataUrl.substring(prefix.length));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (getJpegComponentCount(bytes) !== 4) return dataUrl;
+
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return dataUrl;
+        ctx.drawImage(bitmap, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.85);
+      } finally {
+        bitmap.close();
       }
-      const converted = convertCmykJpegToRgbDataUrl(bytes);
-      return converted || dataUrl;
-    } catch (_) {
+    } catch (error) {
+      console.warn('No se pudo convertir la imagen CMYK a RGB:', error);
       return dataUrl;
     }
   }

@@ -381,9 +381,12 @@ trailer
 test('IngestionEngine - Conversión CMYK bajo demanda y preservación de isCmyk', async () => {
   const FileParser = require('../../js/file-parser.js');
   assert.strictEqual(typeof FileParser.convertCmykDataUrlToRgb, 'function');
-  assert.strictEqual(typeof FileParser.convertCmykJpegToRgbDataUrl, 'function');
 
   // Verificar que convertCmykDataUrlToRgb maneja entradas seguras
-  assert.strictEqual(FileParser.convertCmykDataUrlToRgb(null), null);
-  assert.strictEqual(FileParser.convertCmykDataUrlToRgb('data:image/png;base64,123'), 'data:image/png;base64,123');
+  assert.strictEqual(await FileParser.convertCmykDataUrlToRgb(null), null);
+  assert.strictEqual(await FileParser.convertCmykDataUrlToRgb('data:image/png;base64,123'), 'data:image/png;base64,123');
+
+  // Sin canvas (Node) la conversión nativa no está disponible y se conserva el original
+  const cmykJpeg = 'data:image/jpeg;base64,/9j/wAAUCAAQABAEAREAAhEBAxEBBBEA/9k=';
+  assert.strictEqual(await FileParser.convertCmykDataUrlToRgb(cmykJpeg), cmykJpeg);
 });

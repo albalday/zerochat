@@ -526,7 +526,7 @@
                 ? window.ChatFileParser
                 : (typeof require !== 'undefined' ? (() => { try { return require('./file-parser.js'); } catch (e) { return null; } })() : null);
               if (fileParser && typeof fileParser.convertCmykDataUrlToRgb === 'function') {
-                finalUrl = fileParser.convertCmykDataUrlToRgb(finalUrl);
+                finalUrl = await fileParser.convertCmykDataUrlToRgb(finalUrl);
                 imageRecord.dataUrl = finalUrl;
                 imageRecord.isCmyk = false;
               }

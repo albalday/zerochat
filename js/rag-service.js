@@ -503,7 +503,7 @@
 
       const fileParser = getFileParser();
       const dataUrl = image.isCmyk && fileParser?.convertCmykDataUrlToRgb
-        ? fileParser.convertCmykDataUrlToRgb(image.dataUrl)
+        ? await fileParser.convertCmykDataUrlToRgb(image.dataUrl)
         : image.dataUrl;
       return {
         success: true,
