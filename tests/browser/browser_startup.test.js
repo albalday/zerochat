@@ -43,6 +43,49 @@ describe('Browser UI - startup', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
+const webkitUserAgents = {
+  'Safari macOS': ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15', 0, 'es-ES', 'help/index.html'],
+  'Chrome iOS': ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.6367.88 Mobile/15E148 Safari/604.1', 5, 'en-US', 'help/en/index.html'],
+  'Safari iPadOS': ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15', 5, 'en-GB', 'help/en/index.html']
+};
+
+for (const [name, [userAgent, maxTouchPoints, locale, helpPage]] of Object.entries(webkitUserAgents)) {
+  test(`Browser UI - redirige WebKit (${name}) a la ayuda de compatibilidad`, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const context = await browser.newContext({ userAgent, locale });
+      await context.addInitScript(points => {
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => points });
+      }, maxTouchPoints);
+      const page = await context.newPage();
+      await page.goto(getIndexUrl());
+      await page.waitForURL(url => url.href.endsWith(`${helpPage}#browser-compatibility`));
+      assert.equal(await page.locator('#browser-compatibility').count(), 1);
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+const supportedUserAgents = {
+  'Firefox macOS': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0',
+  'Chrome macOS': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+};
+
+for (const [name, userAgent] of Object.entries(supportedUserAgents)) {
+  test(`Browser UI - no redirige navegadores soportados (${name})`, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage({ userAgent });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await page.waitForFunction(() => !!window.ChatApp);
+      assert.match(page.url(), /zerochat\.html$/);
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
 test('Browser UI - informa del alcance de almacenamiento en HTTP', async () => {
   const server = await startStaticServer();
   const { port } = server.address();

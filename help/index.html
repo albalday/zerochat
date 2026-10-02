@@ -54,7 +54,7 @@
       <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>
       <p>Mantén el proceso en ejecución y utiliza el enlace que abre. Después ve a <a href="mcp.html">Ajustes → MCP</a> para comprobar la conexión y habilitar herramientas.</p>
 
-      <h3>Entornos probados y compatibilidad de navegador</h3>
+      <h3 id="browser-compatibility">Entornos probados y compatibilidad de navegador</h3>
       <ul>
         <li><strong>Entornos probados:</strong>
           <ul>
@@ -65,8 +65,9 @@
         </li>
         <li><strong>Compatibilidad de navegador:</strong>
           <ul>
-            <li>ZeroChat <strong>no funciona en Safari</strong> debido a restricciones de red privada local (Private Network Access) y almacenamiento web.</li>
-            <li>En <strong>macOS es necesario utilizar Google Chrome</strong> (o navegadores basados en Chromium) para conectar con el servidor local y ejecutar herramientas.</li>
+            <li>ZeroChat <strong>no funciona con el motor WebKit</strong> debido a sus restricciones de acceso a red local (Private Network Access) y de almacenamiento web. Si abres ZeroChat con WebKit se te redirige a esta sección.</li>
+            <li>Están afectados <strong>Safari</strong> (macOS) y <strong>todos los navegadores de iPhone y iPad</strong>, incluidos Chrome, Firefox y Edge para iOS/iPadOS, porque Apple obliga a usar WebKit en esos sistemas.</li>
+            <li>En <strong>macOS, Linux y Windows</strong> funciona con Firefox o con navegadores basados en Chromium (Chrome, Edge, Brave…).</li>
           </ul>
         </li>
       </ul>

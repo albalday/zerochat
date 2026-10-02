@@ -7,6 +7,18 @@
 <html lang="es" data-theme="dark">
 <head>
   <meta charset="UTF-8">
+  <script>
+    // WebKit (Safari y todos los navegadores de iOS/iPadOS) no soporta el acceso a red local ni el almacenamiento que requiere ZeroChat.
+    (function () {
+      var ua = navigator.userAgent || '';
+      var isAppleMobile = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      var isDesktopWebKit = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|Edg|OPR|Android/.test(ua);
+      if (!isAppleMobile && !isDesktopWebKit) return;
+      var helpDir = /^es\b/i.test(navigator.language || '') ? 'help/' : 'help/en/';
+      document.documentElement.style.display = 'none';
+      location.replace(helpDir + 'index.html#browser-compatibility');
+    })();
+  </script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'self' blob:; manifest-src 'self'; media-src 'self' data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
