@@ -1,0 +1,33 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# zerochat-open-url — Abre una URL en Android desde Termux de forma fiable.
+#
+# Problema: Android 10+ bloquea el arranque de actividades desde apps en segundo
+# plano (background activity start restriction). termux-open-url falla cuando
+# Termux no tiene el foco, aunque el ejecutable exista y el PATH sea correcto.
+#
+# Solución dual:
+#   1. Intento directo con termux-open-url (funciona si Termux está en primer plano).
+#   2. Notificación del sistema como respaldo garantizado: el gestor de notificaciones
+#      de Android puede arrancar actividades aunque la app esté en segundo plano.
+#      El usuario ve la notificación en cualquier app y la toca para completar el OAuth.
+
+URL="$1"
+[ -z "$URL" ] && exit 1
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+OPEN_CMD="$PREFIX/bin/termux-open-url"
+NOTIFY_CMD="$PREFIX/bin/termux-notification"
+
+# 1. Intento directo (rápido si Termux está en primer plano)
+"$OPEN_CMD" "$URL" 2>/dev/null &
+
+# 2. Notificación de respaldo — siempre se envía para cubrir el caso de segundo plano.
+#    ID fijo 7380 para que los reintentos reemplacen la notificación anterior.
+if [ -x "$NOTIFY_CMD" ]; then
+  "$NOTIFY_CMD" \
+    --id 7380 \
+    --title "ZeroChat — Autorización OAuth" \
+    --content "Toca para abrir el navegador y completar la autorización" \
+    --action "$OPEN_CMD '$URL'" \
+    --ongoing 2>/dev/null &
+fi

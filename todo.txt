@@ -20,3 +20,6 @@ arranque comtosio en termux cad vez peor
 
 el chat si no está al final no deberia ir al final por ir sacando nuevas lineas. 
 molesta sobre el desaplazamiento que ha hecho el usuario
+
+descargar pdf no extrae imagenes
+
