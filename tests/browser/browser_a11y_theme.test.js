@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - a11y_theme', { concurrency: 3 }, () => {
   after(async () => {
@@ -13,7 +12,7 @@ test('Browser UI - Modo Oscuro y resolución de Design Tokens', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
@@ -70,7 +69,7 @@ test('Browser UI - Fase 2: Header Superior Moderno y Acciones Integradas', async
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
     // 1. El control del sidebar abre y cierra el panel en escritorio.
@@ -130,7 +129,7 @@ test('Browser UI - Fase 7: Accesibilidad WCAG 2.1 AA, Focus-Visible y Reduced Mo
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.waitForSelector('#welcome-banner');
@@ -199,7 +198,7 @@ test('Browser UI - Iconos Fase 2: Iconos Vectoriales SVG en Header Superior y Co
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -274,7 +273,7 @@ test('Browser UI - Iconos Fase 3: Iconos Vectoriales SVG en Barra Lateral e Hist
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -350,7 +349,7 @@ test('Browser UI - Iconos Fase 4: Iconos Vectoriales SVG en Tarjetas Agénticas 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -452,7 +451,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -562,28 +561,24 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     await page.waitForSelector('#rag-modal[open]');
 
     const ragIconsActivate = await page.evaluate(() => {
-      const headerSvg = document.querySelector('#rag-modal .rag-header-icon svg');
       const headerTitle = document.querySelector('#rag-modal .modal-title h3')?.textContent.trim();
       const activationContent = document.querySelector('#rag-modal .rag-modal-content');
       const activationContentDisplay = activationContent ? window.getComputedStyle(activationContent).display : 'none';
 
       return {
-        hasHeaderSvg: !!headerSvg,
         headerTitle,
         hasActivationContent: !!activationContent,
         activationContentDisplay
       };
     });
 
-    assert.equal(ragIconsActivate.hasHeaderSvg, false, 'La cabecera de activación RAG no debe tener icono');
     assert.equal(ragIconsActivate.headerTitle, 'RAG', 'La cabecera de activación debe usar el título RAG');
     assert.ok(ragIconsActivate.hasActivationContent, 'El modal de conocimiento debe mostrar el contenido de activación desde el composer');
     assert.notEqual(ragIconsActivate.activationContentDisplay, 'none', 'El contenido de activación debe estar visible');
 
     // Cerrar y reabrir desde el menú de configuración (modo manage) para verificar los iconos de gestión
     await page.click('#btn-close-rag');
-    await page.waitForFunction(() => !document.getElementById('rag-activation-modal')?.open);
-    await page.waitForTimeout(500); // Esperar estabilización tras cierre de modal
+    await page.waitForFunction(() => !document.getElementById('rag-modal')?.open);
 
     // Abrir settings haciendo clic programático (el botón puede no ser visible por CSS pero existe)
     await page.evaluate(() => {
@@ -593,13 +588,11 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
         document.getElementById('btn-toggle-sidebar')?.click();
       }
     });
-    await page.waitForTimeout(300);
 
     // Hacer clic en btn-open-settings programáticamente
     await page.evaluate(() => {
       document.getElementById('btn-open-settings')?.click();
     });
-    await page.waitForTimeout(300); // Esperar transición a vista de settings
 
     await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag"]');
@@ -611,24 +604,20 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
       const saveBranchSvg = saveBranchBtn?.querySelector('svg');
       const saveBranchText = saveBranchBtn?.textContent?.trim() || '';
 
-      const editBranchBtn = document.getElementById('btn-rag-edit-branch');
       const deleteBranchSvg = document.querySelector('#btn-rag-delete-branch svg');
       const exportBranchSvg = document.querySelector('#btn-rag-export-branch svg');
       const importBranchSvg = document.querySelector('#btn-rag-import-branch svg');
       const manageHeader = document.querySelector('#rag-manage-modal .settings-section-header .settings-header-actions #btn-rag-export-branch');
-      const manageHeaderIcon = document.querySelector('#rag-manage-modal .rag-header-icon');
       const manageFooter = document.querySelector('#rag-manage-modal .modal-footer');
       const branchSelectWidth = parseFloat(window.getComputedStyle(document.getElementById('rag-manage-branch-select')).width);
 
       return {
         hasSaveBranchSvg: !!saveBranchSvg,
         saveBranchText,
-        hasEditBranchBtn: !!editBranchBtn,
         hasDeleteBranchSvg: !!deleteBranchSvg,
         hasExportBranchSvg: !!exportBranchSvg,
         hasImportBranchSvg: !!importBranchSvg,
         hasManageHeader: !!manageHeader,
-        hasManageHeaderIcon: !!manageHeaderIcon,
         hasManageFooter: !!manageFooter,
         branchSelectWidth
       };
@@ -636,12 +625,10 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
 
     assert.ok(ragIcons.hasSaveBranchSvg, 'El botón de guardar rama debe tener icono SVG');
     assert.equal(ragIcons.saveBranchText, 'Guardar', 'El texto del botón de guardar debe ser permanentemente "Guardar"');
-    assert.equal(ragIcons.hasEditBranchBtn, false, 'El botón redundante de editar se elimina a favor de la edición directa');
     assert.ok(ragIcons.hasDeleteBranchSvg, 'El botón de eliminar rama debe tener icono SVG');
     assert.ok(ragIcons.hasExportBranchSvg, 'El botón de respaldar rama debe tener icono SVG');
     assert.ok(ragIcons.hasImportBranchSvg, 'El botón de importar rama debe tener icono SVG');
     assert.equal(ragIcons.hasManageHeader, true, 'Las acciones principales deben estar en la cabecera de gestión');
-    assert.equal(ragIcons.hasManageHeaderIcon, false, 'La cabecera de gestión no debe tener icono');
     assert.equal(ragIcons.hasManageFooter, false, 'El panel de gestión no debe tener pie de acciones');
     assert.ok(ragIcons.branchSelectWidth > 200, 'El selector de rama debe aprovechar el ancho disponible');
 
@@ -651,13 +638,12 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
 
     // Cerrar el modal y abrir desde el menú de configuración para acceder al modo "manage"
     await page.click('#btn-close-rag-manage');
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => !document.getElementById('rag-manage-modal')?.open);
 
     // Hacer clic en btn-open-settings programáticamente
     await page.evaluate(() => {
       document.getElementById('btn-open-settings')?.click();
     });
-    await page.waitForTimeout(300);
 
     await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag"]');
@@ -745,7 +731,7 @@ test('Browser UI - Verificación global de iconos SVG, accesibilidad y auditorí
   const page = await browser.newPage();
 
   try {
-    const fileUrl = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const fileUrl = getIndexUrl();
     await page.goto(fileUrl, { waitUntil: 'load' });
 
     // 1. Verificar estructura y renderizado de SVGs

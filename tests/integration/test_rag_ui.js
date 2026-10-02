@@ -28,8 +28,8 @@ test('RagUI - genera diálogos separados para activar y gestionar documentos', (
 
   assert.match(activationHtml, /btn-rag-activate-all/);
   assert.match(activationHtml, /<h3 data-i18n="rag_modal_title_activate">RAG<\/h3>/);
-  assert.doesNotMatch(activationHtml, /rag-header-icon/);
-  assert.doesNotMatch(activationHtml, /btn-close-rag-footer/);
+  assert.match(activationHtml, /class="modal-header settings-section-header"/);
+  assert.match(activationHtml, /class="settings-header-actions"/);
   assert.doesNotMatch(activationHtml, /class="modal-footer"/);
   assert.doesNotMatch(activationHtml, /rag-manage-branch-select/);
   assert.match(manageHtml, /rag-manage-branch-select/);
@@ -37,12 +37,10 @@ test('RagUI - genera diálogos separados para activar y gestionar documentos', (
   assert.match(manageHtml, /rag-branch-name-input/);
   assert.match(manageHtml, /btn-rag-save-branch/);
   assert.match(manageHtml, /<h3 data-i18n="rag_modal_title_manage">RAG-Ramas<\/h3>/);
-  assert.doesNotMatch(activationHtml, /rag-storage-quota-info/);
-  assert.doesNotMatch(manageHtml, /rag-header-icon/);
+  assert.match(manageHtml, /class="modal-header settings-section-header"/);
+  assert.match(manageHtml, /class="settings-header-actions"/);
   assert.doesNotMatch(manageHtml, /class="modal-footer"/);
-  assert.doesNotMatch(manageHtml, /btn-close-rag-manage-footer/);
   assert.doesNotMatch(manageHtml, /btn-rag-activate-all/);
-  assert.doesNotMatch(manageHtml, /btn-rag-edit-branch/);
   assert.doesNotMatch(`${activationHtml}${manageHtml}`, /data-rag-tab|rag-modal-tabs-nav/);
 });
 

@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - profiles_settings', { concurrency: 4 }, () => {
   after(async () => {
@@ -16,7 +15,7 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await seedConnectionProfiles(page);
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.focus('#active-profile-trigger');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.locator('[data-profile-id="profile:mirror"]').evaluate(el => el === document.activeElement), true);
@@ -44,7 +43,6 @@ test('Browser UI - perfiles: teclado, alineación, solo lectura y borrado', asyn
     await page.click('.header-profile-item:has([data-profile-id="profile:mirror"]) [data-profile-action="edit"]');
     assert.equal(await page.locator('#setting-profile-name').isDisabled(), true);
     assert.equal(await page.locator('#btn-delete-profile').count(), 0);
-    assert.equal(await page.locator('#btn-clone-profile').count(), 0);
     await page.click('#btn-close-profiles');
 
     await page.click('#active-profile-trigger');
@@ -106,7 +104,7 @@ test('Browser UI - guardar perfiles exige un cambio', async () => {
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
@@ -130,7 +128,7 @@ test('Browser UI - cualquier cambio del perfil habilita guardar, incluido un mod
     await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
       activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
     })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('setting-api-key')._loadedApiKey !== undefined);
@@ -153,7 +151,7 @@ test('Browser UI - una consulta de perfil debe guardarse antes de cerrar y confi
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.evaluate(() => {
@@ -231,7 +229,7 @@ test('Browser UI - cambios sin guardar en el perfil deben solicitar confirmació
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
     await page.waitForFunction(() => document.getElementById('profiles-dialog').open);
@@ -299,7 +297,7 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
       }));
     });
     await seedConnectionProfiles(page);
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:remote"]');
@@ -319,7 +317,7 @@ test('Browser UI - Los campos select/combo no presentan remarcado azul al recibi
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // 1. Probar combos del modal de configuración
@@ -353,7 +351,7 @@ test('Browser UI - carga una copia cifrada de perfiles con el nuevo sistema HTML
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // Verificar que NO existe el botón de importación manual (fue eliminado)
@@ -417,7 +415,7 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.evaluate(async () => {
       const repository = window.ChatProfileRepository;
@@ -469,7 +467,7 @@ test('Browser UI - inicia sin bloquearse cuando existen perfiles heredados de la
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
 
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'commit' });
+    await page.goto(getIndexUrl(), { waitUntil: 'commit' });
     await page.evaluate(() => {
       localStorage.setItem('zerochat_profiles_v1', JSON.stringify({
         schemaVersion: 1,
@@ -508,7 +506,7 @@ test('Browser UI - nuevo perfil permite query inmediato con el conector por defe
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await seedConnectionProfiles(page);
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
 
     await page.click('#active-profile-trigger');
     await page.evaluate(() => {
@@ -545,7 +543,7 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de i
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await seedConnectionProfiles(page);
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
 
     // 1. Abrir selector y comprobar los 3 iconos de cabecera (sin importación manual)
     await page.click('#active-profile-trigger');

@@ -1,7 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - debug panel', { concurrency: 2 }, () => {
   after(async () => {
@@ -12,7 +11,7 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
       await page.click('#btn-toggle-debug');
@@ -44,7 +43,7 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
       await page.evaluate(() => {
         window.__debugInterceptorResult = window.ChatDebug.openInterceptorModal({

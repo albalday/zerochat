@@ -1,7 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - profile trigger', { concurrency: 2 }, () => {
   after(async () => {
@@ -12,7 +11,7 @@ describe('Browser UI - profile trigger', { concurrency: 2 }, () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
       const layout = await page.evaluate(() => {

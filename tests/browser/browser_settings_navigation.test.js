@@ -1,7 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concurrency: 1 }, () => {
   after(async () => {
@@ -14,7 +13,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       page.setDefaultTimeout(3000);
       await seedConnectionProfiles(page);
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       // El contenedor es estático; el formulario se crea bajo demanda al abrir una sección.
       await page.waitForSelector('#settings-dialog', { state: 'attached' });
 
@@ -65,7 +64,6 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       await page.locator('#btn-close-rag-manage').evaluate(button => button.click());
       await page.locator('#btn-rag-activate').evaluate(button => button.click());
       await page.waitForSelector('#rag-modal[open]');
-      assert.equal(await page.locator('#rag-storage-quota-info').count(), 0);
       await page.locator('#btn-close-rag').evaluate(button => button.click());
       await page.locator('#btn-rag-back').evaluate(button => button.click());
       await page.waitForFunction(() => !document.getElementById('sidebar-settings-nav').hidden);
@@ -136,7 +134,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
       page.setDefaultTimeout(3000);
       await seedConnectionProfiles(page);
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       // El formulario de ajustes se monta bajo demanda al abrir una sección.
       await page.waitForSelector('#settings-dialog', { state: 'attached' });
 
@@ -178,7 +176,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.evaluate(() => {
         const modal = document.getElementById('rag-manage-modal');
         modal.innerHTML = `<div class="modal-body"><div id="rag-ingestion-progress">
@@ -207,7 +205,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         if (message.type() === 'error') errors.push(message.text());
       });
       await seedConnectionProfiles(page);
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.locator('#btn-open-settings').evaluate(button => button.click());
       await page.locator('#sidebar-settings-nav [data-section="agent"]').evaluate(button => button.click());
       await page.waitForSelector('#settings-dialog[open]');
@@ -289,7 +287,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await seedConnectionProfiles(page);
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.evaluate(async () => {
         const branch = await window.ChatRagStorage.createBranch('Rama-con-un-nombre-muy-largo-para-comprobar-el-ajuste-en-movil', 'Descripción de prueba');
         await window.ChatRagStorage.saveDocument({

@@ -27,7 +27,7 @@ test('Browser UI - usar clave predeterminada informa cuando no hay API keys', { 
     await page.locator('#btn-encryption-default').evaluate(button => button.click());
     await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     await page.locator('#notice-accept').evaluate(button => button.click());
-    await page.waitForTimeout(100);
+    await page.waitForFunction(() => /No hay API keys guardadas/.test(document.getElementById('notice-message').textContent));
     const notice = await page.evaluate(() => ({
       open: document.getElementById('notice-dialog').open,
       message: document.getElementById('notice-message').textContent,

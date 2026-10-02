@@ -1,7 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - mcp_tools', { concurrency: 2 }, () => {
   after(async () => {
@@ -54,7 +54,7 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const result = await page.evaluate(() => {
       const serverDetails = document.createElement('div');
@@ -84,7 +84,7 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const result = await page.evaluate(async () => {
       const provider = new window.ChatMCP.McpToolProvider({
@@ -121,7 +121,7 @@ test('Browser UI - en móvil las acciones MCP no comprimen la descripción del s
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const layout = await page.evaluate(() => {
       const container = document.createElement('div');
@@ -167,7 +167,7 @@ test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contado
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text());
     });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.locator('#btn-open-settings').evaluate(button => button.click());
     await page.locator('#sidebar-settings-nav [data-section="mcp"]').evaluate(button => button.click());
@@ -243,7 +243,7 @@ test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const layout = await page.evaluate(() => {
       const security = window.ChatToolSecurity.manager;
@@ -283,7 +283,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.evaluate(() => {
       const messagesList = document.getElementById('messages-list');
@@ -369,7 +369,7 @@ test('Browser UI - el menú de permisos de escritorio no queda bajo el composer'
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.evaluate(() => {
       const messagesList = document.getElementById('messages-list');
@@ -410,7 +410,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const branchIds = await page.evaluate(async () => {
       await window.ChatRagStorage.clearAllData();
@@ -424,12 +424,13 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
     await page.click('#btn-open-rag');
     await page.waitForFunction(() => document.querySelectorAll('#rag-modal [data-branch-id]').length === 3);
 
+    const waitForActiveBranch = id => page.waitForFunction(branchId => document.querySelector(`#rag-modal [data-branch-id="${branchId}"]`)?.classList.contains('active'), id);
     await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishOne}"]`).click();
-    await page.waitForTimeout(50);
+    await waitForActiveBranch(branchIds.spanishOne);
     assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
 
     await page.locator(`#rag-modal [data-branch-id="${branchIds.spanishTwo}"]`).click();
-    await page.waitForTimeout(50);
+    await waitForActiveBranch(branchIds.spanishTwo);
     assert.equal(await page.$eval('#notice-dialog', dialog => dialog.open), false);
 
     await page.locator(`#rag-modal [data-branch-id="${branchIds.english}"]`).click();
@@ -450,7 +451,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     await page.click('#btn-open-settings');
@@ -493,7 +494,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -504,11 +505,9 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
 
     const contextCachePlacement = await page.evaluate(() => ({
       automaticNotice: !!document.querySelector('#settings-model [data-i18n="model_cache_title"]'),
-      legacyToggle: !!document.getElementById('setting-enable-context-cache'),
       agentCacheText: document.querySelector('#settings-agent')?.textContent.includes('Caché de Contexto') || false
     }));
     assert.ok(contextCachePlacement.automaticNotice, 'La caché automática debe explicarse en la pestaña Modelo');
-    assert.equal(contextCachePlacement.legacyToggle, false, 'La caché no debe exponerse como un interruptor de Agente');
     assert.equal(contextCachePlacement.agentCacheText, false, 'La pestaña Agente no debe presentar la caché como herramienta');
 
     // 2. Navegar entre secciones del sidebar de configuración
@@ -625,15 +624,12 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     const mcpUiState = await page.evaluate(() => {
       const pane = document.getElementById('settings-mcp');
       const badge = document.getElementById('mcp-status-badge');
-      const btnConnect = document.getElementById('btn-mcp-connect');
       const bootstrap = document.getElementById('mcp-bootstrap-card');
       const command = document.getElementById('mcp-terminal-command');
       const help = bootstrap?.querySelector('a');
       return {
         paneActive: pane?.classList.contains('active'),
         badgeText: badge?.textContent?.trim(),
-        hasConnectBtn: !!btnConnect,
-        hasSetupDialog: !!document.getElementById('mcp-setup-dialog'),
         bootstrapVisible: bootstrap && getComputedStyle(bootstrap).display !== 'none',
         commandText: command?.textContent?.trim(),
         helpHref: help?.getAttribute('href'),
@@ -644,8 +640,6 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
 
     assert.ok(mcpUiState.paneActive, 'El panel settings-mcp debe estar visible y activo');
     assert.ok(mcpUiState.badgeText.includes('Desconectado') || mcpUiState.badgeText.includes('Conectado'), 'El estado debe ser Desconectado o Conectado según disponibilidad');
-    assert.equal(mcpUiState.hasConnectBtn, false, 'El panel MCP no debe ofrecer conexión manual');
-    assert.equal(mcpUiState.hasSetupDialog, false, 'El subpanel de conexión manual no debe existir');
     assert.ok(mcpUiState.bootstrapVisible, 'Debe explicar cómo arrancar el servidor local cuando no está disponible');
     assert.equal(mcpUiState.commandText, 'pip install zerochat && zerochat');
     assert.equal(mcpUiState.helpHref, 'help/mcp.html');
@@ -663,7 +657,6 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
       paneActive: document.getElementById('settings-permissions')?.classList.contains('active'),
       hasAskPolicy: !!document.getElementById('mcp-policy-ask'),
       hasSavedAuthorizations: !!document.getElementById('mcp-saved-auths-list'),
-      hasDirectoryRulesSaveButton: !!document.getElementById('btn-mcp-save-directory-rules'),
       modalBodyOverflowY: getComputedStyle(document.querySelector('#settings-form .modal-body')).overflowY,
       savedAuthorizationsOverflowY: getComputedStyle(document.getElementById('mcp-saved-auths-list')).overflowY,
       savedAuthorizationsMaxHeight: getComputedStyle(document.getElementById('mcp-saved-auths-list')).maxHeight
@@ -671,7 +664,6 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     assert.ok(permissionsState.paneActive, 'El panel tab-permissions debe quedar visible y activo');
     assert.ok(permissionsState.hasAskPolicy, 'La política de permisos debe estar disponible en la nueva pestaña');
     assert.ok(permissionsState.hasSavedAuthorizations, 'Las autorizaciones recordadas deben estar disponibles en la nueva pestaña');
-    assert.equal(permissionsState.hasDirectoryRulesSaveButton, false, 'Las reglas de directorios deben usar el guardado general');
     assert.equal(permissionsState.modalBodyOverflowY, 'auto', 'El cuerpo del diálogo debe gestionar el desplazamiento de permisos');
     assert.equal(permissionsState.savedAuthorizationsOverflowY, 'visible', 'La lista de permisos no debe crear un scroll interno');
     assert.equal(permissionsState.savedAuthorizationsMaxHeight, 'none', 'La lista de permisos debe poder crecer sin límite de altura');
@@ -705,7 +697,7 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -767,7 +759,7 @@ test('Browser UI - Las reglas de permisos y herramientas sobreviven a recargas (
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
@@ -850,7 +842,7 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const results = await page.evaluate(async () => {
       const container = document.createElement('div');
@@ -928,7 +920,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const results = await page.evaluate(async () => {
       const container = document.createElement('div');

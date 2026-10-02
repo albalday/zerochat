@@ -2,7 +2,7 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - dialogs_notices', { concurrency: 2 }, () => {
   after(async () => {
@@ -20,7 +20,7 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('dialog', dialog => { errors.push('Native dialog: ' + dialog.type()); dialog.dismiss(); });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'));
+    await page.goto(getIndexUrl());
     await page.waitForFunction(() => window.ChatState?.get('messages').length > 0);
     await page.evaluate(() => {
       const settings = document.getElementById('settings-dialog');
@@ -104,13 +104,11 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
         document.getElementById('btn-toggle-sidebar')?.click();
       }
     });
-    await page.waitForTimeout(300);
 
     // Abrir el modal de RAG en modo "manage" - hacer clic programático en btn-open-settings
     await page.evaluate(() => {
       document.getElementById('btn-open-settings')?.click();
     });
-    await page.waitForTimeout(300);
 
     await page.waitForSelector('.sidebar-settings-item[data-section="rag"]', { state: 'visible', timeout: 5000 });
     await page.click('.sidebar-settings-item[data-section="rag"]');

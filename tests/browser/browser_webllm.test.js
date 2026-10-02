@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - webllm', { concurrency: 2 }, () => {
   after(async () => {
@@ -13,7 +12,7 @@ test('Browser UI - WebLLM mantiene la intensidad de razonamiento en cero', async
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.evaluate(() => window.ChatConfig.updateRuntime({
       apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none', reasoningTransport: 'auto'
@@ -31,7 +30,7 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
@@ -70,7 +69,7 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     const page = await browser.newPage();
     await seedConnectionProfiles(page);
     await page.addInitScript(() => localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
@@ -117,7 +116,7 @@ test('Browser UI - WebLLM con modelo descargado permite guardar sin consulta y m
       localStorage.setItem("zerochat_webllm_completed_models_v1", JSON.stringify(["test-downloaded-model"]));
       localStorage.setItem("zerochat_runtime_config_v2", JSON.stringify({ activeProfile: { id: "profile:local", name: "Local chat" }, apiType: "openai", apiUrl: "http://localhost:1234/v1", model: "test" }));
     });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
@@ -186,7 +185,7 @@ test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los par
         webllmConfig: { context_window_size: 'default', prefill_chunk_size: 'default' }
       }));
     });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // 1. Con 'default', el límite publicado se sincroniza a 4096 y el badge muestra 4.1k (no 1M)
@@ -212,7 +211,7 @@ test('Browser UI - WebLLM arranca Web Worker modular', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 

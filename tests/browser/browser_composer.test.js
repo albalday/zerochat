@@ -1,7 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - composer', { concurrency: 2 }, () => {
   after(async () => {
@@ -16,7 +15,7 @@ test('Browser UI - el fallback de contexto no invalida el formulario de envío',
     await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
       activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
     })));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:remote"]');
@@ -40,7 +39,7 @@ test('Browser UI - composer se expande y mantiene controles de generación y raz
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
@@ -102,7 +101,7 @@ test('Browser UI - Rediseño Composer: dos partes lógicas, barra inferior con c
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -177,7 +176,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
     const page = await browser.newPage({ viewport: { width: 320, height: 700 }, isMobile: true });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     for (const language of ['es', 'en']) {
@@ -245,7 +244,7 @@ test('Browser UI - el panel de métricas se ancla al borde derecho del composer'
   try {
     for (const viewport of [{ width: 320, height: 700, isMobile: true }, { width: 1280, height: 800 }]) {
       const page = await browser.newPage({ viewport, isMobile: Boolean(viewport.isMobile) });
-      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
       const layout = await page.evaluate(() => {
@@ -279,7 +278,7 @@ test('Browser UI - en móvil los pies de respuesta y confirmación permanecen en
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 320, height: 700 }, isMobile: true });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     const responseLayout = await page.evaluate(() => {
@@ -342,7 +341,7 @@ test('UI - Indicador de progreso de generación es invisible sin ciclo activo y 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 
     // 1. En reposo (sin generar), el elemento debe estar invisible

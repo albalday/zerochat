@@ -1,8 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - sidebar', { concurrency: 2 }, () => {
   after(async () => {
@@ -13,7 +12,7 @@ test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Dra
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -115,7 +114,7 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 800 }, isMobile: true });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     await page.click('#btn-toggle-sidebar');
     await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
@@ -154,7 +153,7 @@ test('Browser UI - el drawer lateral comienza cerrado en móvil y se abre desde 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 500, height: 800 }, isMobile: true });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 
@@ -171,7 +170,7 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
       const suffix = Date.now().toString();
@@ -232,7 +231,7 @@ test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y ses
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
 
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
     await page.waitForSelector('#welcome-banner');
 

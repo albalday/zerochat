@@ -55,10 +55,6 @@ async function seedConnectionProfiles(page) {
   });
 }
 
-function getBundleUrl() {
-  return 'file://' + path.resolve(__dirname, '../../zerochat.html');
-}
-
 function getIndexUrl() {
   return 'file://' + path.resolve(__dirname, '../../zerochat.html');
 }
@@ -68,6 +64,5 @@ module.exports = {
   closeGlobalBrowser,
   createTestBrowser,
   seedConnectionProfiles,
-  getBundleUrl,
   getIndexUrl
 };

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { version } = require('../../package.json');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 const bundleTitle = `ZeroChat v${version}`;
 
 async function startStaticServer() {
@@ -70,7 +70,7 @@ test('Browser UI - informa del alcance de almacenamiento en file://', async () =
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.ChatApp);
     await page.evaluate(() => window.ChatApp.openExecutionInfo());
     const state = await page.evaluate(() => ({
@@ -149,7 +149,7 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForSelector('#welcome-help-link');
 
     const statusBox = await page.locator('.welcome-status-badge:not(.welcome-help-link)').boundingBox();
@@ -234,7 +234,7 @@ test('Browser UI - zerochat.html declara el mismo runtime que se distribuye', as
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
 
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     assert.equal(await page.title(), `ZeroChat v${version}`, 'El título de zerochat.html debe coincidir con la versión del proyecto');
@@ -264,7 +264,7 @@ test('Browser UI - Carga limpia del bundle zerochat.html sin errores de consola'
     });
     page.on('pageerror', err => consoleErrors.push(err.message));
 
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
@@ -343,7 +343,7 @@ test('Browser PWA - no ofrece instalación al abrir directamente ni desde la ayu
         await page.goto('file://' + path.resolve(__dirname, '../../', helpPath), { waitUntil: 'load' });
         await page.click('#btn-open-app');
       } else {
-        await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+        await page.goto(getIndexUrl(), { waitUntil: 'load' });
       }
       await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
 

@@ -2,7 +2,7 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getBundleUrl, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
 
 describe('Browser UI - conversation', { concurrency: 2 }, () => {
   after(async () => {
@@ -15,7 +15,7 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const result = await page.evaluate(async () => {
       const ui = window.ChatUIConversation;
@@ -60,7 +60,7 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const result = await page.evaluate(() => {
       const ToolCards = window.ChatToolCards;
@@ -109,7 +109,7 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -177,7 +177,7 @@ test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const layout = await page.evaluate(() => {
       const card = window.ChatToolCards.createLiveToolCard('composio_COMPOSIO_MULTI_EXECUTE_TOOL', { value: 1 });
@@ -207,7 +207,7 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -286,7 +286,7 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
     // Esperar a que la inicialización asíncrona de sesión en IndexedDB concluya
@@ -480,7 +480,7 @@ test('Browser UI - crear una rama conserva el origen y corta el nuevo historial 
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.ChatApp && !!window.ChatState && !!window.ChatStorage);
     await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -529,7 +529,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
@@ -630,7 +630,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = 'file://' + path.resolve(__dirname, '../../zerochat.html');
+    const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
     const result = await page.evaluate(async () => {
