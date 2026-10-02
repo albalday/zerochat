@@ -215,8 +215,7 @@ test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contado
               descriptionWidth: rect('.mcp-server-desc').width,
               actionsBelow: rect('.mcp-server-actions').top >= rect('.mcp-server-info').bottom,
               toggleHeight: toggle.getBoundingClientRect().height,
-              stopColor: getComputedStyle(toggle).color,
-              stopBorderColor: getComputedStyle(toggle).borderColor
+              stopUsesSharedDangerStyle: toggle.classList.contains('btn-danger-outline')
             };
           }, { language, theme });
           const context = `${width}px ${language} ${theme}`;
@@ -227,7 +226,7 @@ test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contado
           assert.equal(layout.innerBorder, '0px', context);
           assert.notEqual(layout.itemBackground, layout.panelBackground, context);
           assert.ok(layout.toggleHeight >= 36, context);
-          assert.equal(layout.stopColor, layout.stopBorderColor, context);
+          assert.equal(layout.stopUsesSharedDangerStyle, true, context);
           if (width <= 640) {
             assert.ok(layout.descriptionWidth >= width - 70, context);
             assert.equal(layout.actionsBelow, true, context);

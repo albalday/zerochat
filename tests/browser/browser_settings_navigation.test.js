@@ -280,4 +280,108 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.deepEqual(errors, []);
     } finally { await browser.close(); }
   });
+
+  test('MCP y RAG comparten cabecera, superficies suaves y botones de peligro con el resto de paneles', { timeout: 30000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(3000);
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await seedConnectionProfiles(page);
+      await page.goto('file://' + path.resolve(__dirname, '../../zerochat.html'), { waitUntil: 'load' });
+      await page.evaluate(async () => {
+        const branch = await window.ChatRagStorage.createBranch('Rama-con-un-nombre-muy-largo-para-comprobar-el-ajuste-en-movil', 'Descripción de prueba');
+        await window.ChatRagStorage.saveDocument({
+          branchId: branch.id,
+          title: 'documento-con-un-nombre-muy-largo-sin-espacios-para-comprobar-el-ajuste.md',
+          fileType: 'md',
+          chunks: [{ content: 'Contenido de prueba' }]
+        });
+      });
+
+      const panels = [
+        {
+          name: 'mcp',
+          open: async () => {
+            await page.locator('#btn-open-settings').evaluate(button => button.click());
+            await page.locator('#sidebar-settings-nav [data-section="mcp"]').evaluate(button => button.click());
+            await page.waitForSelector('#settings-dialog[open]');
+            await page.evaluate(() => window.ChatUIMcp.renderExternalServers(document.getElementById('mcp-servers-list'), [
+              { id: 'servidor-largo', displayName: 'Servidor-MCP-con-un-nombre-muy-largo-sin-espacios', status: 'running', description: 'Descripción' }
+            ]));
+          },
+          dialog: '#settings-dialog',
+          surfaces: '#mcp-bootstrap-card, .mcp-server-item',
+          danger: '.btn-mcp-server-toggle[data-action="stop"]',
+          close: () => page.evaluate(() => document.getElementById('settings-dialog').close())
+        },
+        {
+          name: 'rag-activate',
+          open: async () => {
+            await page.evaluate(() => window.ChatRagUI.openActivationModal());
+            await page.waitForSelector('#rag-active-branch-list .rag-branch-select-card');
+          },
+          dialog: '#rag-modal',
+          surfaces: '.setting-toggle-card, .rag-help-link-card, .rag-active-tip-card',
+          danger: null,
+          close: () => page.locator('#btn-close-rag').click()
+        },
+        {
+          name: 'rag-manage',
+          open: async () => {
+            await page.evaluate(() => window.ChatRagUI.openManageModal());
+            await page.waitForSelector('#rag-manage-workspace .rag-document-card');
+          },
+          dialog: '#rag-manage-modal',
+          surfaces: '.rag-branch-details-card, .rag-document-card',
+          danger: '#btn-rag-delete-branch, .btn-rag-delete-document',
+          close: () => page.locator('#btn-close-rag-manage').click()
+        }
+      ];
+
+      for (const panel of panels) {
+        await panel.open();
+        for (const width of [320, 390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 844 });
+          for (const theme of ['light', 'dark']) {
+            const layout = await page.evaluate(({ dialogSelector, surfaces, danger, theme }) => {
+              document.documentElement.setAttribute('data-theme', theme);
+              const dialog = document.querySelector(dialogSelector);
+              const header = dialog.querySelector('.modal-header');
+              const body = dialog.querySelector('.modal-body');
+              const dialogBackground = getComputedStyle(dialog).backgroundColor;
+              const surfaceElements = Array.from(dialog.querySelectorAll(surfaces));
+              const dangerElements = danger ? Array.from(dialog.querySelectorAll(danger)) : [];
+              const fits = element => element.scrollWidth <= element.clientWidth + 1;
+              return {
+                sharedHeader: header.classList.contains('settings-section-header') && !!header.querySelector(':scope > .settings-header-actions'),
+                headerFits: fits(header),
+                bodyFits: fits(body),
+                fullScreenOnMobile: window.innerWidth > 768 || Math.abs(dialog.getBoundingClientRect().height - window.innerHeight) < 1,
+                surfaceCount: surfaceElements.length,
+                softSurfaces: surfaceElements.every(element => {
+                  const style = getComputedStyle(element);
+                  return style.borderLeftWidth === '0px' && style.backgroundColor !== dialogBackground;
+                }),
+                dangerCount: dangerElements.length,
+                dangerUnified: dangerElements.every(element => element.classList.contains('btn-danger-outline'))
+              };
+            }, { dialogSelector: panel.dialog, surfaces: panel.surfaces, danger: panel.danger, theme });
+            const context = `${panel.name} ${width}px ${theme}`;
+            assert.equal(layout.sharedHeader, true, context);
+            assert.equal(layout.headerFits, true, context);
+            assert.equal(layout.bodyFits, true, context);
+            assert.equal(layout.fullScreenOnMobile, true, context);
+            assert.ok(layout.surfaceCount > 0, context);
+            assert.equal(layout.softSurfaces, true, context);
+            if (panel.danger) assert.ok(layout.dangerCount > 0, context);
+            assert.equal(layout.dangerUnified, true, context);
+          }
+        }
+        await panel.close();
+      }
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+  });
 });

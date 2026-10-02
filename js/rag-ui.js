@@ -229,8 +229,8 @@
       const langLabel = formatBranchLanguage(branch.language);
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
-        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline" style="display:inline-flex; align-items:center; gap:0.25rem;">${getIcon('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
-        <span class="rag-branch-badge-status" style="display:inline-flex; align-items:center; gap:0.25rem;">${badgeIcon} <span>${escapeHtml(badgeText)}</span></span>
+        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline">${getIcon('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
+        <span class="rag-branch-badge-status">${badgeIcon} <span>${escapeHtml(badgeText)}</span></span>
       </button>`;
     }).join('');
     list.querySelectorAll('[data-branch-id]').forEach(button => button.addEventListener('click', async () => {
@@ -268,10 +268,10 @@
     const header = t('rag_ingestion_global', { finished, total }) || `Carga global: ${finished} de ${total}`;
     const stopIcon = '<svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
     const stopBtn = isRunning
-      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-secondary btn-danger-hover rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}</span></button>`
+      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-danger-outline rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}</span></button>`
       : '';
 
-    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div style="display:inline-flex; align-items:center; gap:0.5rem;"><span>${overallPercent}%</span>${stopBtn}</div></div>`;
+    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div class="rag-ingestion-global-actions"><span>${overallPercent}%</span>${stopBtn}</div></div>`;
   }
 
   function ingestionResultMarkup(result) {
@@ -318,9 +318,9 @@
     const langLabel = formatBranchLanguage(branch?.language);
 
     workspace.innerHTML = `
-      <div class="rag-workspace-header-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+      <div class="rag-workspace-header-bar">
         <span>${escapeHtml(t('rag_branch_label') || 'Rama:')} <strong>${escapeHtml(branch?.name || '')}</strong></span>
-        <span style="display:inline-flex; align-items:center; gap:0.35rem;">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang') || 'Idioma de la documentación:')} <strong>${escapeHtml(langLabel)}</strong></span>
+        <span class="rag-workspace-lang">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang') || 'Idioma de la documentación:')} <strong>${escapeHtml(langLabel)}</strong></span>
       </div>
       <label class="rag-dropzone" id="rag-dropzone">
         <strong>${escapeHtml(dropzoneTitle)}</strong>
@@ -331,7 +331,7 @@
       <div class="rag-documents-list">${documents.length ? documents.map(document => `
         <div class="rag-document-card" data-document-id="${escapeHtml(document.id)}">
           <div><strong>${escapeHtml(document.title)}</strong><div class="toggle-card-desc">${formatDocumentMetrics(document)}</div></div>
-          <button type="button" class="btn-secondary btn-danger-hover" data-delete-document="${escapeHtml(document.id)}" title="${escapeHtml(deleteDocTitle)}"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+          <button type="button" class="btn-danger-outline btn-rag-delete-document" data-delete-document="${escapeHtml(document.id)}" title="${escapeHtml(deleteDocTitle)}" aria-label="${escapeHtml(deleteDocTitle)}">${getIcon('trash', { size: 13 })}</button>
         </div>`).join('') : `<div class="rag-empty-state">${escapeHtml(emptyDocsText)}</div>`}</div>`;
 
     const input = document.getElementById('rag-file-input');
@@ -907,15 +907,15 @@
   }
 
   function getRagActivationModalHTML() {
-    return `<div class="modal-header">
+    return `<div class="modal-header settings-section-header">
       <div class="modal-title">
         <h3 data-i18n="rag_modal_title_activate">RAG</h3>
       </div>
-      <div class="rag-activation-header-actions">
+      <div class="settings-header-actions">
         <button type="button" id="btn-rag-activate-all" class="btn-secondary" data-i18n="rag_activate_all">Activar todas</button>
         <button type="button" id="btn-rag-toggle-master" class="btn-secondary" data-i18n="rag_disable_all">Desactivar todas</button>
         <button type="button" id="btn-close-rag" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
-          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
         </button>
       </div>
     </div>
@@ -937,7 +937,7 @@
           <a href="help/rag.html" target="_blank" rel="noopener noreferrer" class="rag-help-external-link" data-i18n="rag_help_link_label">Ver guía completa</a>
         </div>
         <div class="rag-active-tip-card">
-          <span class="rag-active-tip-icon" style="color: var(--accent, #f59e0b); display: inline-flex; align-items: center;">${getIcon('lightbulb', { size: 18 })}</span>
+          <span class="rag-active-tip-icon">${getIcon('lightbulb', { size: 18 })}</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
             <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y mantener un plan de investigación claro.</span>
@@ -948,11 +948,11 @@
   }
 
   function getRagManageModalHTML() {
-    return `<div class="modal-header">
+    return `<div class="modal-header settings-section-header">
       <div class="modal-title">
         <h3 data-i18n="rag_modal_title_manage">RAG-Ramas</h3>
       </div>
-      <div class="rag-manage-header-actions">
+      <div class="settings-header-actions">
         <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch" title="Respaldo">
           <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
           <span class="btn-text-responsive" data-i18n="rag_export_branch">Respaldo</span>
@@ -963,7 +963,7 @@
         </button>
         <input id="rag-import-input" type="file" accept="application/json,.json,.gz,.json.gz,application/gzip" hidden>
         <button type="button" id="btn-close-rag-manage" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
-          <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
+          <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>
         </button>
       </div>
     </div>
@@ -982,7 +982,7 @@
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
               <span data-i18n="rag_btn_save">Guardar</span>
             </button>
-            <button type="button" id="btn-rag-delete-branch" class="btn-secondary btn-danger-hover" data-i18n-title="rag_delete_branch" title="Eliminar">
+            <button type="button" id="btn-rag-delete-branch" class="btn-danger-outline" data-i18n-title="rag_delete_branch" title="Eliminar">
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
               <span class="btn-text-responsive" data-i18n="rag_delete_branch">Eliminar</span>
             </button>
@@ -990,7 +990,7 @@
         </div>
         <div class="rag-branch-details-card" id="rag-branch-details-card">
           <div class="rag-branch-fields-grid">
-            <div class="form-field" style="margin-bottom: 0;">
+            <div class="form-field">
               <label for="rag-branch-lang-select"><strong data-i18n="rag_branch_lang">Idioma de la documentación:</strong></label>
               <select id="rag-branch-lang-select" class="combobox-select-helper">
                 <option value="spanish" selected data-i18n="rag_lang_spanish">Español</option>
@@ -1001,12 +1001,12 @@
                 <option value="portuguese" data-i18n="rag_lang_portuguese">Portugués</option>
               </select>
             </div>
-            <div class="form-field" style="margin-bottom: 0;">
+            <div class="form-field">
               <label for="rag-branch-desc-input"><strong data-i18n="rag_branch_desc">Descripción (opcional):</strong></label>
               <input type="text" id="rag-branch-desc-input" data-i18n-placeholder="rag_branch_desc_placeholder" placeholder="Descripción sobre el contenido de esta rama" autocomplete="off">
             </div>
           </div>
-          <div id="rag-branch-feedback" class="server-query-status" style="display: none; margin-top: 0.5rem;"></div>
+          <div id="rag-branch-feedback" class="server-query-status" style="display: none;"></div>
         </div>
         <div id="rag-manage-workspace" class="rag-manage-workspace"></div>
       </div>

@@ -120,7 +120,7 @@
 }
 
 .sidebar-settings-item:active {
-  background-color: var(--bg-active, rgba(0, 0, 0, 0.08));
+  background-color: var(--bg-hover);
   transform: scale(0.99);
 }
 
@@ -195,7 +195,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  background: var(--bg-surface-soft, rgba(0, 0, 0, 0.05));
+  background: var(--bg-surface-subtle);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
   border-radius: var(--radius-md, 8px);
   padding: 2px;

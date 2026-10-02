@@ -720,16 +720,14 @@
           </div>
 
           <div class="form-field">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-              <label for="setting-max-agent-turns" style="margin-bottom: 0;">
+            <div class="range-field-header">
+              <label for="setting-max-agent-turns">
                 <strong data-i18n="field_max_agent_turns">Límite de turnos agénticos</strong>
               </label>
-              <span id="max-agent-turns-val" style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary, #2563eb);">40</span>
+              <span id="max-agent-turns-val" class="range-field-value">40</span>
             </div>
             <span class="label-hint" data-i18n="field_max_agent_turns_hint">Número máximo de pasos de herramientas antes de forzar la síntesis final (entre 5 y 200).</span>
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.4rem;">
-              <input type="range" id="setting-max-agent-turns" min="5" max="200" step="1" value="40" style="flex: 1;">
-            </div>
+            <input type="range" id="setting-max-agent-turns" min="5" max="200" step="1" value="40">
           </div>
 
           <!-- Contenedor dinámico de herramientas agénticas registradas -->
@@ -846,7 +844,7 @@
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y RW: para ambas operaciones. Usa * para un segmento y ** para subdirectorios.</p>
             <div class="form-field">
-              <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos" style="resize: vertical;"></textarea>
+              <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos"></textarea>
             </div>
             <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
           </div>
@@ -861,12 +859,12 @@
                 <strong data-i18n="mcp_security_saved_auths_title">Herramientas y Servidores Autorizados</strong>
               </div>
               <button type="button" id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths" data-i18n-title="mcp_security_btn_clear_all" data-i18n-aria="mcp_security_btn_clear_all" title="Restablecer todas" aria-label="Restablecer todas">
-                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-trash"></use></svg>
                 <span data-i18n="mcp_security_btn_clear_all">Restablecer todas</span>
               </button>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_security_saved_auths_desc">Decisiones recordadas en esta sesión o de forma permanente, y servidores MCP de confianza.</p>
-            <div id="mcp-saved-auths-list" class="mcp-saved-auths-list" style="margin-top: 0.5rem;"></div>
+            <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
           </div>
         </div>
 

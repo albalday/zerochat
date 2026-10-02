@@ -108,7 +108,8 @@
   flex-shrink: 0;
 }
 
-.btn-save-header {
+.btn-save-header,
+.settings-header-actions .btn-secondary {
   height: 36px;
   min-height: 36px;
   padding: 0 0.85rem;
@@ -123,6 +124,27 @@
   white-space: nowrap;
   line-height: 1;
   box-sizing: border-box;
+}
+
+.settings-header-actions .btn-secondary {
+  font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+  .settings-header-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .settings-header-actions .btn-secondary {
+    padding: 0 0.6rem;
+  }
+
+  .settings-header-actions .btn-text-responsive {
+    display: none;
+  }
 }
 
 .settings-form-wrapper {
@@ -167,16 +189,19 @@
   justify-content: space-between;
   gap: 0.85rem;
   padding: 0.65rem 0.85rem;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease;
-}
-
-.setting-toggle-card:hover {
-  border-color: #cbd5e1;
+  white-space: normal;
 }
 
 .toggle-card-info {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .setting-toggle-card {
+    padding: 0.75rem;
+  }
 }
 
 .toggle-card-title {
@@ -221,23 +246,18 @@
   gap: 0.65rem;
 }
 
-#settings-agent .setting-toggle-card {
-  background: var(--bg-surface-subtle);
-  border: 0;
-  border-radius: var(--radius-md);
-  box-shadow: none;
-  white-space: normal;
+/* Valor numérico alineado a la derecha de la etiqueta de un control range. */
+.range-field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-#settings-agent .toggle-card-info {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 640px) {
-  #settings-agent .setting-toggle-card {
-    padding: 0.75rem;
-  }
+.range-field-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary);
 }
 
 /* Switch Toggle */
@@ -523,7 +543,7 @@ input:checked + .slider:before {
 .btn-webllm-params.active {
   border-color: var(--primary);
   color: var(--primary);
-  background-color: var(--primary-subtle, rgba(59, 130, 246, 0.08));
+  background-color: var(--primary-light);
 }
 
 .btn-webllm-params[hidden] {
@@ -533,7 +553,7 @@ input:checked + .slider:before {
 .webllm-params-panel {
   margin-top: 0.6rem;
   padding: 0.75rem;
-  background-color: var(--bg-subtle, rgba(0, 0, 0, 0.02));
+  background-color: var(--bg-surface-subtle);
   border: 1px solid var(--input-border);
   border-radius: var(--radius-md);
 }
@@ -816,6 +836,7 @@ input.form-input,
 
 .form-field textarea {
   min-height: auto;
+  resize: vertical;
 }
 
 .form-field input[type="text"]:hover,
@@ -1065,44 +1086,42 @@ input.form-input:focus-visible,
   background: var(--primary-light);
 }
 
-.rag-modal {
-  width: min(900px, 96vw);
-  max-width: 900px;
-  max-height: 90vh;
+@media (min-width: 769px) {
+  .rag-modal {
+    width: min(900px, 96vw);
+    max-width: 900px;
+  }
 }
 
 .rag-modal-body { min-height: 420px; }
+.rag-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
 .rag-active-branch-list, .rag-documents-list { display: grid; gap: 0.65rem; }
-.rag-master-toggle-card { margin-bottom: 1rem; }
-.rag-activation-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.rag-manage-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.rag-activation-header-actions .btn-secondary,
-.rag-manage-header-actions .btn-secondary,
-.rag-manage-header-actions .btn-primary {
-  padding: 0.4rem 0.65rem;
-  font-size: 0.78rem;
-}
 
 .rag-branch-select-card {
   width: 100%;
   cursor: pointer;
   text-align: left;
   color: var(--text-main);
+  font: inherit;
 }
-.rag-branch-select-card.active { border-color: var(--primary-color); background: var(--primary-light); }
+.rag-branch-select-card.active { background: var(--primary-light); box-shadow: inset 0 0 0 1px var(--primary); }
 .rag-branch-select-card .toggle-card-info { display: grid; gap: 0.2rem; }
 .rag-branch-metrics { color: var(--text-muted); font-size: 0.78rem; }
+.rag-branch-lang-inline,
+.rag-branch-badge-status,
+.rag-workspace-lang,
+.rag-ingestion-global-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.rag-ingestion-global-actions { gap: 0.5rem; }
 
 .rag-active-tip-card {
-  margin-top: 1.1rem;
   padding: 0.75rem 0.9rem;
   font-size: 0.82rem;
   color: var(--text-secondary);
@@ -1112,10 +1131,12 @@ input.form-input:focus-visible,
   line-height: 1.45;
 }
 .rag-active-tip-icon {
-  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
   line-height: 1;
   flex-shrink: 0;
   margin-top: 0.1rem;
+  color: var(--warning);
 }
 .rag-active-tip-content {
   display: flex;
@@ -1132,18 +1153,15 @@ input.form-input:focus-visible,
   align-items: center;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
-  margin-top: 1rem;
   font-size: 0.82rem;
   color: var(--text-secondary);
-  background: var(--bg-secondary, #f6f8fa);
-  border-radius: 6px;
 }
 .rag-help-link-card .ui-icon {
   flex-shrink: 0;
-  color: var(--color-primary, #2563eb);
+  color: var(--primary);
 }
 .rag-help-external-link {
-  color: var(--color-primary, #2563eb);
+  color: var(--primary);
   text-decoration: none;
   font-weight: 500;
   margin-left: auto;
@@ -1151,16 +1169,12 @@ input.form-input:focus-visible,
 .rag-help-external-link:hover {
   text-decoration: underline;
 }
-[data-theme="dark"] .rag-help-link-card {
-  background: var(--bg-tertiary, #1c1e21);
-}
 
 .rag-manage-toolbar {
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
 }
 .rag-manage-branch-field { flex: 1; min-width: 0; margin: 0; }
 .rag-branch-combobox {
@@ -1206,7 +1220,6 @@ input.form-input:focus-visible,
   display: grid;
   gap: 0.75rem;
   padding: 0.85rem;
-  margin-bottom: 1rem;
 }
 .rag-branch-fields-grid {
   display: grid;
@@ -1219,7 +1232,16 @@ input.form-input:focus-visible,
   }
 }
 
-.rag-manage-workspace { display: grid; gap: 1rem; }
+.rag-manage-workspace { display: grid; gap: 0.85rem; }
+.rag-workspace-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
 
 .rag-dropzone {
   display: grid;
@@ -1239,11 +1261,20 @@ input.form-input:focus-visible,
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem;
+}
+.rag-document-card > div { min-width: 0; overflow-wrap: anywhere; }
+.rag-ingestion-progress-item {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }
+.btn-rag-delete-document {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
 .rag-ingestion-progress-item { display: grid; grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr) minmax(0, 0.4fr); }
-.rag-ingestion-progress-item.error { border-color: var(--danger-color, #dc2626); }
+.rag-ingestion-progress-item.error { border-color: var(--danger); }
 .rag-ingestion-progress-item > *, .rag-ingestion-global-progress > * { min-width: 0; }
 .rag-ingestion-progress-item strong, .rag-ingestion-progress-item span, .rag-ingestion-global-progress strong, .rag-ingestion-global-progress span { overflow-wrap: anywhere; }
 .rag-ingestion-progress-item progress { width: 100%; max-width: 100%; }
@@ -1273,13 +1304,6 @@ input.form-input:focus-visible,
 }
 
 @media (max-width: 768px) {
-  .rag-modal .modal-header { align-items: center; gap: 0.5rem; }
-  .rag-activation-header-actions { justify-content: flex-end; flex-wrap: wrap; }
-  .rag-manage-header-actions { justify-content: flex-end; flex-wrap: nowrap; align-items: center; }
-  .rag-activation-header-actions .btn-secondary,
-  .rag-manage-header-actions .btn-secondary,
-  .rag-manage-header-actions .btn-primary { padding: 0.35rem 0.5rem; }
-  .rag-manage-header-actions .btn-text-responsive,
   .rag-manage-toolbar-actions .btn-text-responsive { display: none; }
   .rag-manage-toolbar { align-items: stretch; flex-direction: column; gap: 0.6rem; }
   .rag-manage-toolbar-actions { justify-content: flex-end; }
@@ -1386,14 +1410,6 @@ input.form-input:focus-visible,
     border-radius: 0;
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
-  }
-
-  .rag-modal {
-    width: 100vw;
-    width: 100dvw;
-    max-width: 100vw;
-    max-width: 100dvw;
-    height: 94vh;
   }
 
   .notice-dialog {

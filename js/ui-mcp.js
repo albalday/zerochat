@@ -375,7 +375,7 @@
             <button type="button" class="${trustBtnClass}" data-server-id="${escapeHtml(server.id)}" title="${escapeHtml(trustBtnText)}">
               ${shieldIcon} <span>${escapeHtml(trustBtnText)}</span>
             </button>
-            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled aria-busy="true"' : ''}>
+            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger-outline' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled aria-busy="true"' : ''}>
               ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : startLabel)}
             </button>
           </div>

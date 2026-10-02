@@ -175,12 +175,20 @@ select:focus-visible {
 
 .chat-chart-card,
 .inspector-intro-card,
-.setting-toggle-card,
-.connection-active-card,
-.rag-branch-details-card,
-.rag-active-tip-card {
+.connection-active-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+/* Superficie común de los paneles de configuración: fondo suave y sin borde. */
+.setting-toggle-card,
+.rag-branch-details-card,
+.rag-active-tip-card,
+.rag-help-link-card,
+.rag-document-card {
+  background-color: var(--bg-surface-subtle);
+  border: 0;
   border-radius: var(--radius-md);
 }
 

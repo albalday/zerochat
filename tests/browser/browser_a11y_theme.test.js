@@ -615,7 +615,7 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
       const deleteBranchSvg = document.querySelector('#btn-rag-delete-branch svg');
       const exportBranchSvg = document.querySelector('#btn-rag-export-branch svg');
       const importBranchSvg = document.querySelector('#btn-rag-import-branch svg');
-      const manageHeader = document.querySelector('#rag-manage-modal .rag-manage-header-actions');
+      const manageHeader = document.querySelector('#rag-manage-modal .settings-section-header .settings-header-actions #btn-rag-export-branch');
       const manageHeaderIcon = document.querySelector('#rag-manage-modal .rag-header-icon');
       const manageFooter = document.querySelector('#rag-manage-modal .modal-footer');
       const branchSelectWidth = parseFloat(window.getComputedStyle(document.getElementById('rag-manage-branch-select')).width);

@@ -265,15 +265,6 @@
   color: #99f6e4;
 }
 
-[data-theme="dark"] .setting-toggle-card {
-  background-color: #0c1829;
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .setting-toggle-card:hover {
-  border-color: #334155;
-}
-
 [data-theme="dark"] .toggle-card-desc code {
   background-color: #1e293b;
   color: #93c5fd;
