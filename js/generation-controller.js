@@ -56,6 +56,11 @@
     }
   }
 
+  function isCoarsePointer() {
+    const mq = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)');
+    return Boolean(mq && mq.matches);
+  }
+
   function finishGeneration(options = {}) {
     const { skipSave = false, error = null, elements = {} } = options;
     const State = getState();
@@ -84,7 +89,8 @@
 
     currentAbortController = null;
 
-    if (elements.userInput) {
+    // En táctiles, enfocar el composer despliega el teclado virtual sin que el usuario lo pida.
+    if (elements.userInput && !isCoarsePointer()) {
       try { elements.userInput.focus(); } catch (_) {}
     }
 

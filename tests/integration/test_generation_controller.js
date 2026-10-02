@@ -70,6 +70,27 @@ test('GenerationController - finishGeneration resets state and calls saveCurrent
   assert.equal(GenerationController.isGenerating(), false);
 });
 
+test('GenerationController - finishGeneration focuses composer only with fine pointer', t => {
+  const hadWindow = 'window' in global;
+  const previousWindow = global.window;
+  t.after(() => {
+    if (hadWindow) global.window = previousWindow;
+    else delete global.window;
+  });
+  const run = (coarse) => {
+    global.window = { matchMedia: (q) => ({ matches: q === '(pointer: coarse)' && coarse }) };
+    let focused = false;
+    GenerationController.finishGeneration({
+      skipSave: true,
+      elements: { userInput: { focus: () => { focused = true; } } },
+      removeTypingIndicator: () => {}
+    });
+    return focused;
+  };
+  assert.equal(run(false), true);
+  assert.equal(run(true), false);
+});
+
 test('GenerationController - handleSendMessage ignores empty input with no files', async () => {
   let appendCalled = false;
   await GenerationController.handleSendMessage({
