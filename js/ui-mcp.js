@@ -348,6 +348,12 @@
       const playwrightReplacementNotice = server.id === 'playwright' ? `
         <p class="mcp-server-replacement-notice">${escapeHtml(translator(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : '';
 
+      const oauthHtml = server.oauthUrl ? `
+        <div class="mcp-server-oauth-banner">
+          <p class="mcp-server-oauth-msg">${escapeHtml(translator('mcp_btn_oauth_authorize'))}</p>
+          <a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${escapeHtml(server.id)}">${escapeHtml(translator('mcp_btn_oauth_authorize'))}</a>
+        </div>` : '';
+
       return `
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
           <div class="mcp-server-info">
@@ -361,6 +367,7 @@
             ${helpHtml}
             ${playwrightReplacementNotice}
             ${err}
+            ${oauthHtml}
             ${optionsHtml}
           </div>
           <div class="mcp-server-actions">
@@ -372,6 +379,7 @@
             </button>
           </div>
         </div>`;
+
     }).join('');
 
     container.querySelectorAll?.('.btn-mcp-server-trust').forEach(btn => {

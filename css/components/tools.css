@@ -1355,6 +1355,31 @@
   font-weight: 600;
 }
 
+.mcp-server-oauth-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.mcp-server-oauth-msg {
+  font-size: 0.75rem;
+  margin: 0;
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.btn-mcp-oauth-open {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .mcp-server-actions {
   flex-shrink: 0;
 }

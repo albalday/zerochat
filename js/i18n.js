@@ -427,6 +427,8 @@
       mcp_external_help: 'Consultar ayuda de dependencias MCP',
       mcp_btn_start_server: 'Iniciar',
       mcp_btn_stop_server: 'Detener',
+      mcp_btn_oauth_authorize: 'Autorizar en el navegador',
+
       mcp_tool_badge: 'MCP',
       tool_auth_title: 'Autorización de Ejecución',
       tool_auth_desc: 'Esta herramienta MCP requiere tu confirmación antes de interactuar con el sistema:',
@@ -1140,6 +1142,8 @@
       mcp_external_help: 'Open MCP dependency help',
       mcp_btn_start_server: 'Start',
       mcp_btn_stop_server: 'Stop',
+      mcp_btn_oauth_authorize: 'Authorize in browser',
+
       mcp_tool_badge: 'MCP',
       tool_auth_title: 'Execution Authorization',
       tool_auth_desc: 'This MCP tool requires your confirmation before interacting with the system:',

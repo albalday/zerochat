@@ -171,6 +171,7 @@ class StdioMcpClient:
         self._lock = threading.Lock()
         self._alive = False
         self.tools: list[dict] = []
+        self.oauth_url: str | None = None
         self._trace = trace or (lambda _message: None)
 
     def running(self) -> bool:
@@ -203,14 +204,36 @@ class StdioMcpClient:
         self.notify("notifications/initialized")
         tools_resp = self.request("tools/list", {}, timeout=10)
         self.tools = tools_resp.get("tools", [])
+        self.oauth_url = None  # OAuth completado si llegamos aquí
         self._trace(f"handshake completed; {len(self.tools)} tool(s) available")
 
+    # Patrón que mcp-remote imprime justo antes de la URL OAuth:
+    # "Please authorize this client by visiting:\n<url>"
+    _OAUTH_URL_RE = re.compile(r'https?://\S{20,}', re.IGNORECASE)
+    _OAUTH_HINT_RE = re.compile(r'visiting|authorize|authorization', re.IGNORECASE)
+
     def _drain_stderr(self):
-        if self.process and self.process.stderr:
-            for line in self.process.stderr:
-                line = _mcp_trace_text(line)
-                if line:
-                    self._trace(f"stderr: {line}")
+        if not self.process or not self.process.stderr:
+            return
+        pending_oauth = False
+        for raw_line in self.process.stderr:
+            line = _mcp_trace_text(raw_line)
+            if not line:
+                continue
+            self._trace(f"stderr: {line}")
+            # Detectar la URL OAuth en el flujo de stderr de mcp-remote.
+            # La secuencia típica es: "visiting:\n<url>" en líneas consecutivas.
+            if self._OAUTH_HINT_RE.search(line):
+                pending_oauth = True
+            if pending_oauth:
+                m = self._OAUTH_URL_RE.search(line)
+                if m:
+                    url = m.group(0).rstrip('.,;)')
+                    self.oauth_url = url
+                    self._trace(f"oauth_url detected for frontend: {_mcp_trace_text(url)}")
+                    pending_oauth = False
+
+
 
     def _read_stdout(self):
         try:
@@ -366,8 +389,10 @@ class McpServiceManager:
                 "toolCount": len(client.tools) if running else 0,
                 "error": self.errors.get(server_id),
                 "options": server.get("options", []),
-                "userOptions": pref.get("options", {})
+                "userOptions": pref.get("options", {}),
+                "oauthUrl": client.oauth_url if client else None,
             })
+
         return result
 
     def _expand(self, value: str, values: dict[str, str]) -> str:
