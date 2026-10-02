@@ -15,6 +15,23 @@ const assert = require('node:assert/strict');
 // Importar ChatEngine y dependencias
 const ChatEngine = require('../../js/chat-engine.js');
 
+test('ChatEngine - no inventa turnos assistant para resultados de llamadas paralelas', () => {
+  const messages = ChatEngine.buildEffectiveMessages([
+    { role: 'user', content: 'Busca dos cosas' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
+      { id: 'call_b', type: 'function', function: { name: 'search_b', arguments: '{}' } }
+    ] },
+    { role: 'tool', tool_call_id: 'call_a', name: 'search_a', content: 'A' },
+    { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' },
+    { role: 'tool', tool_call_id: 'call_orphan', name: 'orphan', content: 'C' }
+  ], {}, { enableTools: false });
+
+  const tail = messages.slice(messages.findIndex(message => message.role === 'assistant'));
+  assert.deepEqual(tail.map(message => message.role), ['assistant', 'tool', 'tool', 'assistant', 'tool']);
+  assert.deepEqual(tail[3].tool_calls.map(call => call.id), ['call_orphan']);
+});
+
 test('ChatEngine - adjunta una imagen RAG como evidencia multimodal tras su resultado', () => {
   const messages = ChatEngine.buildEffectiveMessages([
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_image', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }] },

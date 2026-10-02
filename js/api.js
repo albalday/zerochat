@@ -185,15 +185,21 @@
     return `${url}/v1/chat/completions`;
   }
 
+  function getContextManager() {
+    if (typeof window !== 'undefined' && window.ChatContextManager) return window.ChatContextManager;
+    if (typeof require !== 'undefined') {
+      try { return require('./context-manager.js'); } catch (_) {}
+    }
+    return null;
+  }
+
   /**
-   * Estimación aproximada de tokens para textos.
+   * Estimación aproximada de tokens para textos, delegada en ChatContextManager.
    */
   function estimateTokens(text, chunkCount) {
     if (!text) return 0;
-    if (chunkCount && chunkCount > 0) {
-      return Math.max(chunkCount, Math.ceil(text.length / 3.8));
-    }
-    return Math.ceil(text.length / 3.8);
+    const estimated = getContextManager().estimateTextTokens(text);
+    return chunkCount > 0 ? Math.max(chunkCount, estimated) : estimated;
   }
 
   /**

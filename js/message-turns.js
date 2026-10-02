@@ -22,6 +22,29 @@
       content.startsWith('Current date and time:');
   }
 
+  // A tool result belongs to the assistant turn that opened the current run of tool results.
+  function hasMatchingToolCall(messages, toolMessage) {
+    if (!Array.isArray(messages) || !toolMessage) return false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role === 'tool') continue;
+      return message?.role === 'assistant' && Array.isArray(message.tool_calls) &&
+        message.tool_calls.some(call => call && (call.id === toolMessage.tool_call_id ||
+          (call.function && call.function.name === toolMessage.name)));
+    }
+    return false;
+  }
+
+  function dropOrphanToolMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+    const sanitized = [];
+    for (const message of messages) {
+      if (message?.role === 'tool' && !hasMatchingToolCall(sanitized, message)) continue;
+      sanitized.push(message);
+    }
+    return sanitized;
+  }
+
   // Callers normalize their public selection contracts before reaching this rule.
   function removeSelectedTurn(history, { msgId = '', baseId = '', explicitIds = [] } = {}) {
     if (!Array.isArray(history)) return [];
@@ -44,19 +67,8 @@
     }
     const remaining = history.filter(message => message && !isTarget(message) &&
       !(message.role === 'tool' && message.tool_call_id && deletedCalls.has(message.tool_call_id)));
-    const sanitized = [];
-    for (const message of remaining) {
-      if (message.role === 'tool') {
-        const previous = sanitized[sanitized.length - 1];
-        const matches = previous?.role === 'assistant' && Array.isArray(previous.tool_calls) &&
-          previous.tool_calls.some(call => call && (call.id === message.tool_call_id ||
-            (call.function && call.function.name === message.name)));
-        if (!matches) continue;
-      }
-      sanitized.push(message);
-    }
-    return sanitized;
+    return dropOrphanToolMessages(remaining);
   }
 
-  return { extractBaseId, isDateTimeInitialTurn, removeSelectedTurn };
+  return { extractBaseId, isDateTimeInitialTurn, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn };
 });

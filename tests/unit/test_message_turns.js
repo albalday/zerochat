@@ -80,3 +80,36 @@ test('Turns.removeSelectedTurn - preserva compatibilidad por nombre y distingue 
   assert.deepEqual(Turns.removeSelectedTurn([], { baseId: 'a1' }), []);
   assert.deepEqual(Turns.removeSelectedTurn(null, { baseId: 'a1' }), []);
 });
+
+test('Turns.hasMatchingToolCall - acepta resultados paralelos del mismo turno assistant', () => {
+  const assistant = { role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] };
+  const toolA = { role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' };
+  assert.equal(Turns.hasMatchingToolCall([assistant], toolA), true);
+  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_b', name: 'b' }), true);
+  assert.equal(Turns.hasMatchingToolCall([assistant, toolA], { tool_call_id: 'call_x', name: 'x' }), false);
+  assert.equal(Turns.hasMatchingToolCall([{ role: 'user', content: 'Hola' }, toolA], toolA), false);
+  assert.equal(Turns.hasMatchingToolCall([], toolA), false);
+});
+
+test('Turns.removeSelectedTurn - conserva todos los resultados de llamadas paralelas ajenas al turno borrado', () => {
+  const history = [
+    { id: 'u1', role: 'user', content: 'Primera' },
+    { id: 'u1_turn_0_assistant', role: 'assistant', content: null, tool_calls: [{ id: 'call_a', function: { name: 'a' } }, { id: 'call_b', function: { name: 'b' } }] },
+    { id: 'u1_turn_0_tool_a', role: 'tool', tool_call_id: 'call_a', name: 'a', content: 'A' },
+    { id: 'u1_turn_0_tool_b', role: 'tool', tool_call_id: 'call_b', name: 'b', content: 'B' },
+    { id: 'u1_final', role: 'assistant', content: 'Respuesta' },
+    { id: 'u2', role: 'user', content: 'Segunda' },
+    { id: 'u2_final', role: 'assistant', content: 'Otra' }
+  ];
+  const result = Turns.removeSelectedTurn(history, { baseId: 'u2' });
+  assert.deepEqual(result.map(message => message.id), ['u1', 'u1_turn_0_assistant', 'u1_turn_0_tool_a', 'u1_turn_0_tool_b', 'u1_final']);
+});
+
+test('Turns.dropOrphanToolMessages - descarta resultados sin turno assistant que los declare', () => {
+  const result = Turns.dropOrphanToolMessages([
+    { role: 'user', content: 'Hola' },
+    { role: 'tool', tool_call_id: 'call_x', name: 'x', content: 'huérfano' },
+    { role: 'assistant', content: 'Fin' }
+  ]);
+  assert.deepEqual(result.map(message => message.role), ['user', 'assistant']);
+});

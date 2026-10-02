@@ -246,3 +246,13 @@ test('ChatAPI - streamChatCompletion no duplica tokens de razonamiento en onLog 
     global.fetch = originalFetch;
   }
 });
+
+test('Api - estimateTokens delega en el estimador de ChatContextManager', () => {
+  const ContextManager = require('../../js/context-manager.js');
+  const prose = 'Texto de prueba en prosa para estimar tokens de salida.';
+  const code = 'const value = { answer: 42 };';
+  assert.equal(Api.estimateTokens(prose), ContextManager.estimateTextTokens(prose));
+  assert.equal(Api.estimateTokens(code), ContextManager.estimateTextTokens(code));
+  assert.equal(Api.estimateTokens('abc', 50), 50);
+  assert.equal(Api.estimateTokens(''), 0);
+});

@@ -7,11 +7,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./message-turns.js'));
   } else {
-    root.ChatProviders = factory();
+    root.ChatProviders = factory(root.ChatMessageTurns);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
   'use strict';
 
   /**
@@ -1211,12 +1211,8 @@
           const toolName = m.name || 'tool';
           const toolContent = serializeContent(m.content);
 
-          // Validar que el mensaje previo sea un assistant con la llamada correspondiente
-          let prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
-          const hasMatchingToolCall = prevMsg && prevMsg.role === 'assistant' && Array.isArray(prevMsg.tool_calls) &&
-            prevMsg.tool_calls.some(tc => tc.id === toolCallId || (tc.function && tc.function.name === toolName));
-
-          if (!hasMatchingToolCall) {
+          if (!MessageTurns.hasMatchingToolCall(formatted, { tool_call_id: toolCallId, name: toolName })) {
+            const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;
             // Si el mensaje anterior a este asistente autogenerado es system, insertar user primero
             if (!prevMsg || prevMsg.role === 'system') {
               formatted.push({ role: 'user', content: 'Continue' });
