@@ -350,9 +350,10 @@
 
       const oauthHtml = server.oauthUrl ? `
         <div class="mcp-server-oauth-banner">
-          <p class="mcp-server-oauth-msg">${escapeHtml(translator('mcp_btn_oauth_authorize'))}</p>
+          <p class="mcp-server-oauth-msg">${escapeHtml(translator('mcp_oauth_required_msg'))}</p>
           <a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${escapeHtml(server.id)}">${escapeHtml(translator('mcp_btn_oauth_authorize'))}</a>
         </div>` : '';
+
 
       return `
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
@@ -461,10 +462,21 @@
         const pendingStatus = action === 'start' ? 'starting' : 'stopped';
         const pendingLabel = translator(`mcp_external_status_${pendingStatus}`);
         btn.textContent = pendingLabel;
-        updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null });
+        updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
         const MCP = getMCP();
-        const reportStartWait = (attempt, total, status = 'starting') => {
-          updateExternalServerState(sid, { status, error: null, startWait: { attempt, total } });
+        let didAutoOpenOAuth = false;
+        const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
+          const oauthUrl = serverData?.oauthUrl || null;
+          if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined') {
+            didAutoOpenOAuth = true;
+            try { window.open(oauthUrl, '_blank'); } catch (_) {}
+          }
+          updateExternalServerState(sid, {
+            status,
+            ...(oauthUrl ? { oauthUrl } : {}),
+            error: null,
+            startWait: { attempt, total }
+          });
         };
         try {
           if (action === 'start') {
@@ -481,8 +493,10 @@
           updateExternalServerState(sid, {
             status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
             startWait: null,
-            error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error')
+            error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
+            ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
           });
+
           if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
         } finally {
           btn.disabled = false;

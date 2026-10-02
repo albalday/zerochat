@@ -905,3 +905,29 @@ test('ChatMCP - start: un timeout de respuesta SSE también consulta el estado',
   assert.equal((await manager.startExternalServer('ejemplo')).servers[0].status, 'running');
   assert.equal(sync.mock.callCount(), 1);
 });
+
+test('ChatMCP - start: propaga el objeto servidor con oauthUrl durante el arranque', async (t) => {
+  const manager = require('../../js/mcp.js').manager;
+  t.mock.method(manager, 'requestExternalControl', async () => {
+    const error = new Error('request aborted');
+    error.name = 'AbortError';
+    throw error;
+  });
+  let checks = 0;
+  t.mock.method(manager, 'fetchExternalServers', async () => ({
+    servers: [{
+      id: 'composio',
+      status: ++checks === 2 ? 'running' : 'starting',
+      oauthUrl: checks === 1 ? 'https://example.com/oauth' : null
+    }]
+  }));
+  const receivedServers = [];
+  t.mock.method(manager, 'syncExternalServers', async () => {});
+  const pending = manager.startExternalServer('composio', null, (attempt, total, status, server) => {
+    receivedServers.push(server);
+  });
+  assert.equal((await pending).servers[0].status, 'running');
+  assert.equal(receivedServers.length, 1);
+  assert.equal(receivedServers[0].oauthUrl, 'https://example.com/oauth');
+});
+

@@ -1745,7 +1745,8 @@ class McpServiceManager:
         result = []
         for server_id, server in self.services.items():
             client = self.clients.get(server_id)
-            running = bool(client and client.running())
+            state = self.states.get(server_id, "stopped")
+            running = bool(client and client.running() and state == "running")
             pref = self.preferences.get(server_id, {})
             result.append({
                 "id": server_id,
@@ -1754,7 +1755,7 @@ class McpServiceManager:
                 "help": server.get("help"),
                 "remote": server.get("remote"),
                 "enabled": pref.get("enabled", server.get("enabledByDefault", False)),
-                "status": "running" if running else self.states.get(server_id, "stopped"),
+                "status": "running" if running else state,
                 "toolCount": len(client.tools) if running else 0,
                 "error": self.errors.get(server_id),
                 "options": server.get("options", []),
@@ -1763,6 +1764,7 @@ class McpServiceManager:
             })
 
         return result
+
 
     def _expand(self, value: str, values: dict[str, str]) -> str:
         if not isinstance(value, str):
@@ -1907,9 +1909,10 @@ class McpServiceManager:
                     trace=lambda message: self._trace(server_id, message)
                 )
                 self.states[server_id] = "starting"
-                client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.clients[server_id] = client
+                client.start(int(launch.get("handshakeTimeoutSeconds", 15)))
                 self.states[server_id] = "running"
+
                 self.errors.pop(server_id, None)
                 entry = self.preferences.setdefault(server_id, {})
                 entry["enabled"] = True

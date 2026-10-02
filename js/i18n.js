@@ -428,6 +428,8 @@
       mcp_btn_start_server: 'Iniciar',
       mcp_btn_stop_server: 'Detener',
       mcp_btn_oauth_authorize: 'Autorizar en el navegador',
+      mcp_oauth_required_msg: 'Se requiere autorización para continuar:',
+
 
       mcp_tool_badge: 'MCP',
       tool_auth_title: 'Autorización de Ejecución',
@@ -1143,6 +1145,8 @@
       mcp_btn_start_server: 'Start',
       mcp_btn_stop_server: 'Stop',
       mcp_btn_oauth_authorize: 'Authorize in browser',
+      mcp_oauth_required_msg: 'Authorization required to continue:',
+
 
       mcp_tool_badge: 'MCP',
       tool_auth_title: 'Execution Authorization',

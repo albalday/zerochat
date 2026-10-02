@@ -1456,14 +1456,16 @@
           error.externalServer = server;
           throw error;
         }
-        if (attempt === EXTERNAL_START_POLL_ATTEMPTS) {
-          const error = new Error(`MCP server '${serverId}' is still starting after ${EXTERNAL_START_POLL_ATTEMPTS} waits.`);
+        const maxAttempts = server?.oauthUrl ? 80 : EXTERNAL_START_POLL_ATTEMPTS;
+        if (attempt >= maxAttempts) {
+          const error = new Error(`MCP server '${serverId}' is still starting after ${maxAttempts} waits.`);
           error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
           error.externalServer = server;
           throw error;
         }
-        if (typeof onWait === 'function') onWait(attempt + 1, EXTERNAL_START_POLL_ATTEMPTS, server.status);
+        if (typeof onWait === 'function') onWait(attempt + 1, maxAttempts, server.status, server);
         await new Promise(resolve => setTimeout(resolve, EXTERNAL_START_POLL_INTERVAL_MS));
+
       }
     }
 
