@@ -607,12 +607,11 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     await page.waitForSelector('#rag-manage-modal[open]');
 
     const ragIcons = await page.evaluate(() => {
-      const newBranchBtn = document.getElementById('btn-rag-new-branch');
-      const newBranchSvg = newBranchBtn?.querySelector('svg');
-      const newBranchHasPlusInText = (newBranchBtn?.textContent || '').includes('+');
-      const newBranchText = newBranchBtn?.textContent?.trim() || '';
+      const saveBranchBtn = document.getElementById('btn-rag-save-branch');
+      const saveBranchSvg = saveBranchBtn?.querySelector('svg');
+      const saveBranchText = saveBranchBtn?.textContent?.trim() || '';
 
-      const editBranchSvg = document.querySelector('#btn-rag-edit-branch svg');
+      const editBranchBtn = document.getElementById('btn-rag-edit-branch');
       const deleteBranchSvg = document.querySelector('#btn-rag-delete-branch svg');
       const exportBranchSvg = document.querySelector('#btn-rag-export-branch svg');
       const importBranchSvg = document.querySelector('#btn-rag-import-branch svg');
@@ -622,10 +621,9 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
       const branchSelectWidth = parseFloat(window.getComputedStyle(document.getElementById('rag-manage-branch-select')).width);
 
       return {
-        hasNewBranchSvg: !!newBranchSvg,
-        newBranchHasPlusInText,
-        newBranchText,
-        hasEditBranchSvg: !!editBranchSvg,
+        hasSaveBranchSvg: !!saveBranchSvg,
+        saveBranchText,
+        hasEditBranchBtn: !!editBranchBtn,
         hasDeleteBranchSvg: !!deleteBranchSvg,
         hasExportBranchSvg: !!exportBranchSvg,
         hasImportBranchSvg: !!importBranchSvg,
@@ -636,10 +634,9 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
       };
     });
 
-    assert.ok(ragIcons.hasNewBranchSvg, 'El botón de nueva rama debe tener icono SVG');
-    assert.equal(ragIcons.newBranchHasPlusInText, false, 'El botón de nueva rama no debe tener símbolo + en el texto');
-    assert.equal(ragIcons.newBranchText, 'Nueva rama', 'El texto del botón de nueva rama debe ser exactamente "Nueva rama"');
-    assert.ok(ragIcons.hasEditBranchSvg, 'El botón de editar rama debe tener icono SVG');
+    assert.ok(ragIcons.hasSaveBranchSvg, 'El botón de guardar rama debe tener icono SVG');
+    assert.equal(ragIcons.saveBranchText, 'Guardar', 'El texto del botón de guardar debe ser permanentemente "Guardar"');
+    assert.equal(ragIcons.hasEditBranchBtn, false, 'El botón redundante de editar se elimina a favor de la edición directa');
     assert.ok(ragIcons.hasDeleteBranchSvg, 'El botón de eliminar rama debe tener icono SVG');
     assert.ok(ragIcons.hasExportBranchSvg, 'El botón de respaldar rama debe tener icono SVG');
     assert.ok(ragIcons.hasImportBranchSvg, 'El botón de importar rama debe tener icono SVG');
@@ -666,31 +663,37 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     await page.click('.sidebar-settings-item[data-section="rag"]');
     await page.click('#btn-rag-branches');
     await page.waitForSelector('#rag-branch-details-card');
+    await page.waitForFunction(() => {
+      const sel = document.getElementById('rag-manage-branch-select');
+      return sel && sel.options.length > 0 && Array.from(sel.options).some(o => o.value === '__new__');
+    });
 
     // Verificar que el textbox en la pestaña de documentos fue eliminado para ganar espacio
     const workspaceHasTextbox = await page.$eval('#rag-manage-workspace', el => !!el.querySelector('.rag-workspace-summary'));
     assert.equal(workspaceHasTextbox, false, 'El workspace de documentos no debe tener el textbox de resumen para ganar espacio');
 
-    // Pulsar Nueva rama y rellenar campos en pantalla
-    await page.click('#btn-rag-new-branch');
+    // Seleccionar "+ Nueva rama..." en el combo para iniciar la creación
+    await page.selectOption('#rag-manage-branch-select', '__new__');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), true, 'El botón Guardar debe estar desactivado con nombre vacío');
+
     await page.fill('#rag-branch-name-input', 'Rama de navegador');
     await page.fill('#rag-branch-desc-input', 'Descripción de prueba de navegador');
 
-    // Verificar que el botón cambia a Guardar
-    const saveBtnTextAfterType = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
-    assert.equal(saveBtnTextAfterType, 'Guardar', 'Al detectar cambios el botón de nueva rama debe cambiar a Guardar');
+    // Verificar que al escribir un nombre el botón Guardar se habilita y mantiene el texto "Guardar"
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), false, 'Al escribir un nombre el botón Guardar se activa');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.textContent.trim()), 'Guardar');
 
     // Pulsar el botón Guardar
-    await page.click('#btn-rag-new-branch');
+    await page.click('#btn-rag-save-branch');
 
     await page.waitForFunction(() => {
       const select = document.getElementById('rag-manage-branch-select');
       return select && Array.from(select.options).some(opt => opt.text.includes('Rama de navegador'));
     });
 
-    // Verificar que tras guardar vuelve a ser "Nueva rama"
-    const btnTextAfterSave = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
-    assert.equal(btnTextAfterSave, 'Nueva rama', 'Tras guardar el botón debe volver a ser "Nueva rama"');
+    // Verificar que tras guardar el botón queda desactivado pero sigue siendo "Guardar"
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), true, 'Tras guardar el botón queda desactivado');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.textContent.trim()), 'Guardar');
 
     const createdBranch = await page.evaluate(async () => {
       const branches = await window.ChatRagStorage.getBranches();
@@ -701,12 +704,12 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     assert.equal(createdBranch.description, 'Descripción de prueba de navegador', 'La descripción debe haberse guardado');
     assert.equal(dialogTriggered, false, 'No debe haberse disparado ningún diálogo prompt() nativo');
 
-    // Modificar descripción en pantalla y verificar que cambia a Guardar
+    // Modificar descripción en pantalla y verificar que se activa el botón Guardar
     await page.fill('#rag-branch-desc-input', 'Descripción editada sin prompts');
-    const editBtnText = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
-    assert.equal(editBtnText, 'Guardar', 'Al modificar la descripción el botón debe cambiar a Guardar');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), false, 'Al modificar la descripción el botón Guardar se activa');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.textContent.trim()), 'Guardar');
 
-    await page.click('#btn-rag-new-branch');
+    await page.click('#btn-rag-save-branch');
 
     await page.waitForFunction(async (branchId) => {
       const b = await window.ChatRagStorage.getBranchById(branchId);
@@ -720,8 +723,8 @@ test('Browser UI - Iconos Fase 5: Iconos Vectoriales SVG en Modales, Secciones, 
     assert.equal(updatedBranch.description, 'Descripción editada sin prompts', 'La modificación debe haberse guardado');
     assert.equal(dialogTriggered, false, 'No debe haberse mostrado ningún diálogo emergente bloqueante');
 
-    const btnTextFinal = await page.$eval('#btn-rag-new-branch', el => el.textContent.trim());
-    assert.equal(btnTextFinal, 'Nueva rama', 'Tras guardar la modificación el botón debe volver a Nueva rama');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.disabled), true, 'Tras guardar la modificación el botón Guardar vuelve a desactivarse');
+    assert.equal(await page.$eval('#btn-rag-save-branch', el => el.textContent.trim()), 'Guardar');
     // Verificar que el diálogo de activación también muestra el resumen de cada rama
     await page.click('#btn-close-rag-manage');
     await page.click('#btn-open-rag');

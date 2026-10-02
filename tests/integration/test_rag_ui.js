@@ -33,12 +33,16 @@ test('RagUI - genera diálogos separados para activar y gestionar documentos', (
   assert.doesNotMatch(activationHtml, /class="modal-footer"/);
   assert.doesNotMatch(activationHtml, /rag-manage-branch-select/);
   assert.match(manageHtml, /rag-manage-branch-select/);
+  assert.match(manageHtml, /rag-branch-combobox/);
+  assert.match(manageHtml, /rag-branch-name-input/);
+  assert.match(manageHtml, /btn-rag-save-branch/);
   assert.match(manageHtml, /<h3 data-i18n="rag_modal_title_manage">RAG-Ramas<\/h3>/);
   assert.doesNotMatch(activationHtml, /rag-storage-quota-info/);
   assert.doesNotMatch(manageHtml, /rag-header-icon/);
   assert.doesNotMatch(manageHtml, /class="modal-footer"/);
   assert.doesNotMatch(manageHtml, /btn-close-rag-manage-footer/);
   assert.doesNotMatch(manageHtml, /btn-rag-activate-all/);
+  assert.doesNotMatch(manageHtml, /btn-rag-edit-branch/);
   assert.doesNotMatch(`${activationHtml}${manageHtml}`, /data-rag-tab|rag-modal-tabs-nav/);
 });
 

@@ -10,8 +10,6 @@ analizar nuvos codigo de paneles.
 ver codigo comun, viejo y
 ver si normalziar barra de botones
 
-Probar sutomatico safari
-
 dialogos rag
 
 el chat si no está al final no deberia ir al final por ir sacando nuevas lineas. 

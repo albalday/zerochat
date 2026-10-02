@@ -41,6 +41,14 @@
     return '';
   }
 
+  function uiText(key, fallback, params) {
+    if (typeof window !== 'undefined' && window.ChatI18n?.uiText) {
+      return window.ChatI18n.uiText(key, fallback, params);
+    }
+    const val = t(key, params);
+    return (val && val !== key) ? val : (fallback || key);
+  }
+
   function getIcon(name, options) {
     if (typeof window !== 'undefined' && window.ChatIcons?.get) {
       return window.ChatIcons.get(name, options);
@@ -444,62 +452,51 @@
     }
   }
 
+  let manageDialogSeq = 0;
   async function renderManageDialog(preferredBranchId) {
     if (typeof document === 'undefined') return;
+    const seq = ++manageDialogSeq;
     const branches = await storage().getBranches();
+    if (seq !== manageDialogSeq) return;
     const branchMetrics = await getBranchMetrics(branches);
+    if (seq !== manageDialogSeq) return;
     const select = document.getElementById('rag-manage-branch-select');
     if (!select) return;
-    const selected = preferredBranchId || select.value || branches[0]?.id || '';
-    select.innerHTML = branches.map(branch => `<option value="${escapeHtml(branch.id)}"${branch.id === selected ? ' selected' : ''}>${escapeHtml(branch.name)} (${escapeHtml(formatBranchMetrics(branchMetrics.get(branch.id)))})</option>`).join('');
-    select.disabled = !branches.length;
-    await renderWorkspace(selected);
+    const selected = preferredBranchId || (isCreatingBranch ? '__new__' : select.value) || branches[0]?.id || '__new__';
+    const newBranchLabel = uiText('rag_opt_new_branch', '+ Nueva rama...');
+    const options = branches.map(branch => `<option value="${escapeHtml(branch.id)}"${branch.id === selected ? ' selected' : ''}>${escapeHtml(branch.name)} (${escapeHtml(formatBranchMetrics(branchMetrics.get(branch.id)))})</option>`);
+    options.push(`<option value="__new__"${selected === '__new__' ? ' selected' : ''}>${escapeHtml(newBranchLabel)}</option>`);
+    select.innerHTML = options.join('');
+    select.disabled = false;
+    if (seq !== manageDialogSeq) return;
+    if (selected === '__new__' || !branches.length) {
+      prepareNewBranch();
+    } else {
+      await renderWorkspace(selected);
+    }
   }
 
-  const SVG_PLUS = `<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-  const SVG_SAVE = `<svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>`;
-
   let isCreatingBranch = false;
+  let loadedBranchId = '';
   let loadedBranchName = '';
   let loadedBranchDesc = '';
   let loadedBranchLang = 'spanish';
-  let currentButtonMode = 'new';
 
-  function setNewBranchButtonMode(mode) {
-    currentButtonMode = mode;
-    const btn = document.getElementById('btn-rag-new-branch');
-    const icon = document.getElementById('rag-new-branch-icon');
-    const text = document.getElementById('rag-new-branch-text');
-    if (!btn || !text) return;
-
-    if (mode === 'save') {
-      if (icon) icon.innerHTML = SVG_SAVE;
-      text.textContent = t('rag_btn_save') || 'Guardar';
-      btn.setAttribute('title', t('rag_btn_save') || 'Guardar');
-    } else {
-      if (icon) icon.innerHTML = SVG_PLUS;
-      text.textContent = t('rag_new_branch') || 'Nueva rama';
-      btn.setAttribute('title', t('rag_new_branch') || 'Nueva rama');
-    }
+  function getSaveButton() {
+    return document.getElementById('btn-rag-save-branch') || document.getElementById('btn-rag-new-branch');
   }
 
-  function checkBranchInputsChanged() {
-    const nameInput = document.getElementById('rag-branch-name-input');
-    const descInput = document.getElementById('rag-branch-desc-input');
-    const langSelect = document.getElementById('rag-branch-lang-select');
-    const currentName = nameInput?.value?.trim() || '';
-    const currentDesc = descInput?.value?.trim() || '';
-    const currentLang = (langSelect?.value || 'spanish').trim().toLowerCase();
+  function canSaveBranch() {
+    const name = document.getElementById('rag-branch-name-input')?.value?.trim() || '';
+    if (!name) return false;
+    if (isCreatingBranch) return true;
+    return hasPendingBranchChanges();
+  }
 
-    if (isCreatingBranch) {
-      setNewBranchButtonMode('save');
-      return;
-    }
-
-    const hasChanged = currentName !== loadedBranchName.trim() ||
-      currentDesc !== (loadedBranchDesc || '').trim() ||
-      currentLang !== (loadedBranchLang || 'spanish').trim().toLowerCase();
-    setNewBranchButtonMode(hasChanged ? 'save' : 'new');
+  function updateSaveButtonState() {
+    const btn = getSaveButton();
+    if (!btn) return;
+    btn.disabled = !canSaveBranch();
   }
 
   function hasPendingBranchChanges() {
@@ -528,58 +525,68 @@
     const nameInput = document.getElementById('rag-branch-name-input');
     const descInput = document.getElementById('rag-branch-desc-input');
     const langSelect = document.getElementById('rag-branch-lang-select');
+    const select = document.getElementById('rag-manage-branch-select');
+    const btnDelete = document.getElementById('btn-rag-delete-branch');
     const feedback = document.getElementById('rag-branch-feedback');
     if (feedback) feedback.style.display = 'none';
 
-    if (!branchId) {
+    if (!branchId || branchId === '__new__') {
       isCreatingBranch = true;
+      loadedBranchId = '';
       loadedBranchName = '';
       loadedBranchDesc = '';
       loadedBranchLang = 'spanish';
+      if (select) select.value = '__new__';
       if (nameInput) nameInput.value = '';
       if (descInput) descInput.value = '';
       if (langSelect) langSelect.value = 'spanish';
-      setNewBranchButtonMode('new');
+      if (btnDelete) btnDelete.disabled = true;
+      updateSaveButtonState();
       return;
     }
 
     isCreatingBranch = false;
+    loadedBranchId = branchId;
     const branch = await storage().getBranchById(branchId);
+    if (select && select.value !== branchId) return;
     loadedBranchName = branch?.name || '';
     loadedBranchDesc = branch?.description || '';
     loadedBranchLang = branch?.language || 'spanish';
+    if (select) select.value = branchId;
     if (nameInput) nameInput.value = loadedBranchName;
     if (descInput) descInput.value = loadedBranchDesc;
     if (langSelect) langSelect.value = loadedBranchLang;
-    setNewBranchButtonMode('new');
-  }
-
-  async function handleNewBranchButtonClick() {
-    if (currentButtonMode === 'save') {
-      await saveOrUpdateBranch();
-    } else {
-      prepareNewBranch();
-    }
+    if (btnDelete) btnDelete.disabled = false;
+    updateSaveButtonState();
   }
 
   function prepareNewBranch() {
     isCreatingBranch = true;
+    loadedBranchId = '';
     loadedBranchName = '';
     loadedBranchDesc = '';
     loadedBranchLang = 'spanish';
     const nameInput = document.getElementById('rag-branch-name-input');
     const descInput = document.getElementById('rag-branch-desc-input');
     const langSelect = document.getElementById('rag-branch-lang-select');
+    const select = document.getElementById('rag-manage-branch-select');
+    const btnDelete = document.getElementById('btn-rag-delete-branch');
     const feedback = document.getElementById('rag-branch-feedback');
     if (feedback) feedback.style.display = 'none';
 
+    if (select) select.value = '__new__';
+    if (btnDelete) btnDelete.disabled = true;
     if (nameInput) {
       nameInput.value = '';
       nameInput.focus();
     }
     if (descInput) descInput.value = '';
     if (langSelect) langSelect.value = 'spanish';
-    setNewBranchButtonMode('save');
+    updateSaveButtonState();
+    const workspace = document.getElementById('rag-manage-workspace');
+    if (workspace) {
+      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty') || 'Escribe un nombre arriba y pulsa "Guardar" para empezar.'}</div>`;
+    }
   }
 
   function showBranchFeedback(msg, type = 'success') {
@@ -610,42 +617,43 @@
     if (isCreatingBranch) {
       const branch = await storage().createBranch({ name, description, language });
       isCreatingBranch = false;
+      loadedBranchId = branch.id;
+      loadedBranchName = name;
+      loadedBranchDesc = description;
+      loadedBranchLang = language;
       await renderManageDialog(branch.id);
       await syncActivationIfOpen();
       await updateToolbarStatus();
-      setNewBranchButtonMode('new');
+      updateSaveButtonState();
       showBranchFeedback(t('rag_branch_created', { name }) || `Rama "${name}" creada con éxito.`, 'success');
     } else {
       const select = document.getElementById('rag-manage-branch-select');
       const id = select?.value;
-      if (!id) {
+      if (!id || id === '__new__') {
         const branch = await storage().createBranch({ name, description, language });
         isCreatingBranch = false;
+        loadedBranchId = branch.id;
+        loadedBranchName = name;
+        loadedBranchDesc = description;
+        loadedBranchLang = language;
         await renderManageDialog(branch.id);
         await syncActivationIfOpen();
         await updateToolbarStatus();
-        setNewBranchButtonMode('new');
+        updateSaveButtonState();
         showBranchFeedback(t('rag_branch_created', { name }) || `Rama "${name}" creada con éxito.`, 'success');
         return;
       }
       await storage().updateBranch(id, { name, description, language });
       indexer()?.invalidateBranch(id);
+      loadedBranchId = id;
       loadedBranchName = name;
       loadedBranchDesc = description;
       loadedBranchLang = language;
       await renderManageDialog(id);
       await syncActivationIfOpen();
       await updateToolbarStatus();
-      setNewBranchButtonMode('new');
+      updateSaveButtonState();
       showBranchFeedback(t('rag_branch_updated', { name }) || `Rama "${name}" guardada con éxito.`, 'success');
-    }
-  }
-
-  function editBranch() {
-    const nameInput = document.getElementById('rag-branch-name-input');
-    if (nameInput) {
-      nameInput.focus();
-      nameInput.select();
     }
   }
 
@@ -653,7 +661,7 @@
     const select = document.getElementById('rag-manage-branch-select');
     const id = select?.value;
     const confirmMsg = t('rag_delete_branch_confirm') || '¿Eliminar la rama y todos sus documentos?';
-    if (!id || !await ChatDialogs.confirm(confirmMsg)) return;
+    if (!id || id === '__new__' || !await ChatDialogs.confirm(confirmMsg)) return;
     if (!(await storage().getBranchById(id))) return;
     await storage().deleteBranch(id);
     indexer()?.invalidateBranch(id);
@@ -819,17 +827,21 @@
       event.preventDefault();
       closeManageDialog();
     });
-    document.getElementById('btn-rag-new-branch')?.addEventListener('click', handleNewBranchButtonClick);
-    document.getElementById('btn-rag-edit-branch')?.addEventListener('click', editBranch);
+    const handleSave = () => {
+      if (!canSaveBranch()) return;
+      saveOrUpdateBranch();
+    };
+    document.getElementById('btn-rag-save-branch')?.addEventListener('click', handleSave);
+    document.getElementById('btn-rag-new-branch')?.addEventListener('click', handleSave);
 
-    document.getElementById('rag-branch-name-input')?.addEventListener('input', checkBranchInputsChanged);
-    document.getElementById('rag-branch-desc-input')?.addEventListener('input', checkBranchInputsChanged);
-    document.getElementById('rag-branch-lang-select')?.addEventListener('change', checkBranchInputsChanged);
+    document.getElementById('rag-branch-name-input')?.addEventListener('input', updateSaveButtonState);
+    document.getElementById('rag-branch-desc-input')?.addEventListener('input', updateSaveButtonState);
+    document.getElementById('rag-branch-lang-select')?.addEventListener('change', updateSaveButtonState);
 
     const handleBranchKeyEnter = (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        saveOrUpdateBranch();
+        handleSave();
       }
     };
     document.getElementById('rag-branch-name-input')?.addEventListener('keydown', handleBranchKeyEnter);
@@ -844,7 +856,22 @@
       catch (error) { ChatDialogs.alert(t('notice_import_error', { err: error.message || error }), { type: 'error' }); }
       finally { importInput.value = ''; }
     });
-    document.getElementById('rag-manage-branch-select')?.addEventListener('change', event => renderWorkspace(event.target.value));
+    document.getElementById('rag-manage-branch-select')?.addEventListener('change', async event => {
+      const val = event.target.value;
+      if (hasPendingBranchChanges()) {
+        const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+        if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes') || 'Hay cambios sin guardar en la rama. ¿Deseas descartarlos?')) {
+          const select = document.getElementById('rag-manage-branch-select');
+          if (select) select.value = isCreatingBranch ? '__new__' : (loadedBranchId || '');
+          return;
+        }
+      }
+      if (val === '__new__') {
+        prepareNewBranch();
+      } else {
+        await renderWorkspace(val);
+      }
+    });
   }
 
   function initRagUI() {
@@ -926,17 +953,13 @@
         <h3 data-i18n="rag_modal_title_manage">RAG-Ramas</h3>
       </div>
       <div class="rag-manage-header-actions">
-        <button type="button" id="btn-rag-new-branch" class="btn-primary">
-          <span id="rag-new-branch-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-plus"></use></svg></span>
-          <span id="rag-new-branch-text" data-i18n="rag_new_branch">Nueva rama</span>
-        </button>
-        <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch">
+        <button type="button" id="btn-rag-export-branch" class="btn-secondary" data-i18n-title="rag_export_branch" title="Respaldo">
           <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-download"></use></svg>
-          <span data-i18n="rag_export_branch">Respaldo</span>
+          <span class="btn-text-responsive" data-i18n="rag_export_branch">Respaldo</span>
         </button>
-        <button type="button" id="btn-rag-import-branch" class="btn-secondary" data-i18n-title="rag_import_branch">
+        <button type="button" id="btn-rag-import-branch" class="btn-secondary" data-i18n-title="rag_import_branch" title="Restaurar">
           <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
-          <span data-i18n="rag_import_branch">Restaurar</span>
+          <span class="btn-text-responsive" data-i18n="rag_import_branch">Restaurar</span>
         </button>
         <input id="rag-import-input" type="file" accept="application/json,.json,.gz,.json.gz,application/gzip" hidden>
         <button type="button" id="btn-close-rag-manage" class="btn-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar modal">
@@ -948,26 +971,25 @@
       <div class="rag-modal-content">
         <div class="rag-manage-toolbar">
           <div class="form-field rag-manage-branch-field">
-            <label for="rag-manage-branch-select"><strong data-i18n="rag_branch_label">Rama:</strong></label>
-            <select id="rag-manage-branch-select" class="combobox-select-helper"></select>
+            <label for="rag-branch-name-input"><strong data-i18n="rag_branch_label">Rama:</strong></label>
+            <div class="combobox-wrapper rag-branch-combobox">
+              <input type="text" id="rag-branch-name-input" data-i18n-placeholder="rag_branch_name_placeholder" placeholder="Nombre de la rama (ej: Manuales)" autocomplete="off">
+              <select id="rag-manage-branch-select" class="combobox-select-helper" aria-label="Seleccionar rama"></select>
+            </div>
           </div>
           <div class="rag-manage-toolbar-actions">
-            <button type="button" id="btn-rag-edit-branch" class="btn-secondary" data-i18n-title="rag_edit_branch">
-              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>
-              <span data-i18n="rag_edit_branch">Editar</span>
+            <button type="button" id="btn-rag-save-branch" class="btn-primary" data-i18n-title="rag_btn_save" title="Guardar" disabled>
+              <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-save"></use></svg>
+              <span data-i18n="rag_btn_save">Guardar</span>
             </button>
-            <button type="button" id="btn-rag-delete-branch" class="btn-secondary btn-danger-hover" data-i18n-title="rag_delete_branch">
+            <button type="button" id="btn-rag-delete-branch" class="btn-secondary btn-danger-hover" data-i18n-title="rag_delete_branch" title="Eliminar">
               <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
-              <span data-i18n="rag_delete_branch">Eliminar</span>
+              <span class="btn-text-responsive" data-i18n="rag_delete_branch">Eliminar</span>
             </button>
           </div>
         </div>
         <div class="rag-branch-details-card" id="rag-branch-details-card">
           <div class="rag-branch-fields-grid">
-            <div class="form-field" style="margin-bottom: 0;">
-              <label for="rag-branch-name-input"><strong data-i18n="rag_branch_name">Nombre de la rama:</strong></label>
-              <input type="text" id="rag-branch-name-input" data-i18n-placeholder="rag_branch_name_placeholder" placeholder="Nombre de la rama (ej: Manuales)" autocomplete="off">
-            </div>
             <div class="form-field" style="margin-bottom: 0;">
               <label for="rag-branch-lang-select"><strong data-i18n="rag_branch_lang">Idioma de la documentación:</strong></label>
               <select id="rag-branch-lang-select" class="combobox-select-helper">
