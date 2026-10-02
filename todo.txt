@@ -6,9 +6,6 @@ sub agente (mismo-otro)
 
 webllm lista de modelos mejorar para movil
 
-analizar nuvos codigo de paneles. 
-ver codigo comun, viejo y
-ver si normalziar barra de botones
 
 el chat si no está al final no deberia ir al final por ir sacando nuevas lineas. 
 molesta sobre el desaplazamiento que ha hecho el usuario
