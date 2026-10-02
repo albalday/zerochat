@@ -12,7 +12,6 @@ Proporciona:
 from __future__ import annotations
 
 import argparse
-import ast
 import atexit
 import base64
 import datetime
@@ -94,10 +93,6 @@ DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
-# Las versiones remotas se consultan en las dos distribuciones que consume el
-# usuario: la interfaz publicada en GitHub Pages y el ejecutable en GitHub.
-REMOTE_UI_VERSION_URL = DEFAULT_UI_URL
-REMOTE_BACKEND_VERSION_URL = REMOTE_SCRIPT_URL
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
 NOTICES: list[str] = []

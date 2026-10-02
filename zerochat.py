@@ -12,7 +12,6 @@ Proporciona:
 from __future__ import annotations
 
 import argparse
-import ast
 import atexit
 import base64
 import datetime
@@ -94,10 +93,6 @@ DEFAULT_PORT = 6388
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_UI_URL = "https://albalday.github.io/zerochat/zerochat.html"
 REMOTE_SCRIPT_URL = "https://raw.githubusercontent.com/albalday/zerochat/master/zerochat.py"
-# Las versiones remotas se consultan en las dos distribuciones que consume el
-# usuario: la interfaz publicada en GitHub Pages y el ejecutable en GitHub.
-REMOTE_UI_VERSION_URL = DEFAULT_UI_URL
-REMOTE_BACKEND_VERSION_URL = REMOTE_SCRIPT_URL
 CONSOLE_STATUS_IDLE_SECONDS = 8.0
 CONSOLE_CONTROL = None
 NOTICES: list[str] = []
@@ -325,17 +320,14 @@ def ensure_virtual_environment():
     exclusivamente al lanzar procesos MCP Python.
     """
     venv_dir = get_venv_dir()
-    venv_py = get_venv_python(venv_dir)
-
-    # 1. Crear el venv si no existe
-    if not venv_py.exists():
-        log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
-        try:
-            venv.create(venv_dir, with_pip=True, clear=False)
-            log_event("[zerochat] Entorno virtual preparado con éxito.")
-        except Exception as err:
-            log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
-            return
+    if get_venv_python(venv_dir).exists():
+        return
+    log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
+    try:
+        venv.create(venv_dir, with_pip=True, clear=False)
+        log_event("[zerochat] Entorno virtual preparado con éxito.")
+    except Exception as err:
+        log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
 
 def parse_version(ver: str) -> tuple[int, ...]:
     """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
@@ -356,14 +348,14 @@ def _read_remote_content(url: str) -> str:
 
 def _read_remote_ui_version() -> str | None:
     """Extrae la versión del título de la interfaz servida por GitHub Pages."""
-    content = _read_remote_content(REMOTE_UI_VERSION_URL)
+    content = _read_remote_content(DEFAULT_UI_URL)
     match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
     return match.group(1) if match else None
 
 
 def _read_remote_backend_version() -> str | None:
     """Extrae la versión estática del ejecutable publicado en GitHub."""
-    content = _read_remote_content(REMOTE_BACKEND_VERSION_URL)
+    content = _read_remote_content(REMOTE_SCRIPT_URL)
     match = re.search(r'^SOURCE_BACKEND_VERSION\s*=\s*["\'](\d+\.\d+\.\d+)["\']', content, re.MULTILINE)
     return match.group(1) if match else None
 
@@ -823,9 +815,7 @@ class PersistentShellSession:
                 pass
 
 
-PersistentBashSession = PersistentShellSession
 SHELL_SESSION = PersistentShellSession()
-BASH_SESSION = SHELL_SESSION
 
 
 def bash(command: str, timeout_seconds: int = 30) -> str:
@@ -1026,16 +1016,13 @@ def get_diagnostics(path: str | None = None) -> str:
                 if files_checked >= max_scan:
                     break
 
-        error_count = sum(1 for d in diagnostics if d.get("severity") == "error")
-        warning_count = sum(1 for d in diagnostics if d.get("severity") == "warning")
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 
         return json.dumps({
             "success": True,
             "path": str(target),
             "files_checked": files_checked,
-            "error_count": error_count,
-            "warning_count": warning_count,
+            "error_count": len(diagnostics),
             "diagnostics": diagnostics,
             "message": msg
         }, ensure_ascii=False, indent=2)
@@ -2485,7 +2472,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return result, None, tool_error_info
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
 
-    def _dispatch_local(self, method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
+    def _dispatch_local(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
             server_info = {
@@ -2528,13 +2515,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
-            return self._dispatch_server_control(method, params, req)
+            return self._dispatch_server_control(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
-    def _dispatch_server_control(method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
-        server_id = params.get("serverId") or req.get("serverId")
-        opts = params.get("options") or req.get("options", {})
+    def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        server_id = params.get("serverId")
+        opts = params.get("options", {})
         if not isinstance(server_id, str) or not server_id:
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
@@ -2587,14 +2574,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return
 
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
-        if method == "tools/call":
-            action_tag = f"[tools/call: {params['name']}]"
-        elif method:
-            action_tag = f"[rpc: {method}]"
-        elif req_path.startswith("/zerochat/external/servers/"):
-            action_tag = f"[REST: {req_path}]"
-        else:
-            action_tag = f"[{safe_path}]"
+        action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"
         log_detail = f"{safe_path} {action_tag}"
         self._log_req("POST", log_detail)
 
@@ -2609,7 +2589,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if "/mcp/external" in req_path:
                 result, error, tool_error_info = self._dispatch_external(method, params)
             else:
-                result, error, tool_error_info = self._dispatch_local(method, params, req)
+                result, error, tool_error_info = self._dispatch_local(method, params)
         except Exception as ex:
             result, tool_error_info = None, ""
             error = {"code": -32603, "message": f"Error interno: {ex}"}

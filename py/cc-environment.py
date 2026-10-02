@@ -115,17 +115,14 @@ def ensure_virtual_environment():
     exclusivamente al lanzar procesos MCP Python.
     """
     venv_dir = get_venv_dir()
-    venv_py = get_venv_python(venv_dir)
-
-    # 1. Crear el venv si no existe
-    if not venv_py.exists():
-        log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
-        try:
-            venv.create(venv_dir, with_pip=True, clear=False)
-            log_event("[zerochat] Entorno virtual preparado con éxito.")
-        except Exception as err:
-            log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
-            return
+    if get_venv_python(venv_dir).exists():
+        return
+    log_event(f"[zerochat] Inicializando entorno virtual en {venv_dir}...")
+    try:
+        venv.create(venv_dir, with_pip=True, clear=False)
+        log_event("[zerochat] Entorno virtual preparado con éxito.")
+    except Exception as err:
+        log_event(f"[zerochat] Advertencia al crear venv: {err}. Continuando con intérprete actual.")
 
 def parse_version(ver: str) -> tuple[int, ...]:
     """Convierte una cadena de versión semántica en tupla de enteros para comparación."""
@@ -146,14 +143,14 @@ def _read_remote_content(url: str) -> str:
 
 def _read_remote_ui_version() -> str | None:
     """Extrae la versión del título de la interfaz servida por GitHub Pages."""
-    content = _read_remote_content(REMOTE_UI_VERSION_URL)
+    content = _read_remote_content(DEFAULT_UI_URL)
     match = re.search(r"<title>\s*ZeroChat\s+v(\d+\.\d+\.\d+)\s*</title>", content, re.IGNORECASE)
     return match.group(1) if match else None
 
 
 def _read_remote_backend_version() -> str | None:
     """Extrae la versión estática del ejecutable publicado en GitHub."""
-    content = _read_remote_content(REMOTE_BACKEND_VERSION_URL)
+    content = _read_remote_content(REMOTE_SCRIPT_URL)
     match = re.search(r'^SOURCE_BACKEND_VERSION\s*=\s*["\'](\d+\.\d+\.\d+)["\']', content, re.MULTILINE)
     return match.group(1) if match else None
 

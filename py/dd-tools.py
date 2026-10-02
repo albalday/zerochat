@@ -406,9 +406,7 @@ class PersistentShellSession:
                 pass
 
 
-PersistentBashSession = PersistentShellSession
 SHELL_SESSION = PersistentShellSession()
-BASH_SESSION = SHELL_SESSION
 
 
 def bash(command: str, timeout_seconds: int = 30) -> str:
@@ -609,16 +607,13 @@ def get_diagnostics(path: str | None = None) -> str:
                 if files_checked >= max_scan:
                     break
 
-        error_count = sum(1 for d in diagnostics if d.get("severity") == "error")
-        warning_count = sum(1 for d in diagnostics if d.get("severity") == "warning")
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
 
         return json.dumps({
             "success": True,
             "path": str(target),
             "files_checked": files_checked,
-            "error_count": error_count,
-            "warning_count": warning_count,
+            "error_count": len(diagnostics),
             "diagnostics": diagnostics,
             "message": msg
         }, ensure_ascii=False, indent=2)

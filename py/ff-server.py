@@ -415,7 +415,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return result, None, tool_error_info
         return None, {"code": -32601, "message": f"Método '{method}' no soportado en /mcp/external."}, ""
 
-    def _dispatch_local(self, method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
+    def _dispatch_local(self, method: str, params: dict) -> tuple[dict | None, dict | None, str]:
         """Atiende el endpoint local. Devuelve (result, error JSON-RPC, detalle de error de herramienta)."""
         if method == "initialize":
             server_info = {
@@ -458,13 +458,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
-            return self._dispatch_server_control(method, params, req)
+            return self._dispatch_server_control(method, params)
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod
-    def _dispatch_server_control(method: str, params: dict, req: dict) -> tuple[dict | None, dict | None, str]:
-        server_id = params.get("serverId") or req.get("serverId")
-        opts = params.get("options") or req.get("options", {})
+    def _dispatch_server_control(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        server_id = params.get("serverId")
+        opts = params.get("options", {})
         if not isinstance(server_id, str) or not server_id:
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
@@ -517,14 +517,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return
 
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
-        if method == "tools/call":
-            action_tag = f"[tools/call: {params['name']}]"
-        elif method:
-            action_tag = f"[rpc: {method}]"
-        elif req_path.startswith("/zerochat/external/servers/"):
-            action_tag = f"[REST: {req_path}]"
-        else:
-            action_tag = f"[{safe_path}]"
+        action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"
         log_detail = f"{safe_path} {action_tag}"
         self._log_req("POST", log_detail)
 
@@ -539,7 +532,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if "/mcp/external" in req_path:
                 result, error, tool_error_info = self._dispatch_external(method, params)
             else:
-                result, error, tool_error_info = self._dispatch_local(method, params, req)
+                result, error, tool_error_info = self._dispatch_local(method, params)
         except Exception as ex:
             result, tool_error_info = None, ""
             error = {"code": -32603, "message": f"Error interno: {ex}"}

@@ -692,7 +692,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
         method: 'tools/call',
         params: {
           name: 'search_files',
-          arguments: { query: 'PersistentBashSession', path: '.', file_pattern: '*.py' }
+          arguments: { query: 'PersistentShellSession', path: '.', file_pattern: '*.py' }
         }
       })
     });
