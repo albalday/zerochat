@@ -1243,6 +1243,7 @@
           if (!prevMsg || prevMsg.role === 'system') {
             formatted.push({ role: 'user', content: 'Continue' });
           }
+          formatted.push(m);
         } else if (m.role === 'user') {
           // Regla Gemini: Un turno 'user' NUNCA puede ir inmediatamente después de un turno 'tool'
           const prevMsg = formatted.length > 0 ? formatted[formatted.length - 1] : null;

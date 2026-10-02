@@ -362,3 +362,22 @@ test('GeminiAdapter - formatMessages conserva los resultados de llamadas paralel
   ]);
   assert.deepEqual(formatted.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool']);
 });
+
+test('GeminiAdapter - formatMessages conserva las respuestas de texto del asistente', () => {
+  const adapter = new GeminiProviderAdapter();
+  const formatted = adapter.formatMessages([
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Hola' },
+    { role: 'assistant', content: 'Respuesta previa' },
+    { role: 'user', content: 'Sigue' }
+  ]);
+  assert.deepEqual(formatted.map(message => [message.role, message.content]), [
+    ['system', 'Sistema'], ['user', 'Hola'], ['assistant', 'Respuesta previa'], ['user', 'Sigue']
+  ]);
+
+  const afterSystem = adapter.formatMessages([
+    { role: 'system', content: 'Sistema' },
+    { role: 'assistant', content: 'Saludo inicial' }
+  ]);
+  assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
+});
