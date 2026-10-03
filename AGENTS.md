@@ -121,6 +121,15 @@ El backend escucha por defecto en `127.0.0.1`. Un `--host`/`ZEROCHAT_HOST` que n
 bucle local se admite como decisión explícita del usuario, pero el arranque debe avisar de que
 expone la ejecución de comandos a la red sin cifrar.
 
+La autorización del backend se basa en el token, no en el origen. `is_allowed_origin` solo
+gobierna CORS: la cabecera `Origin` no incluye la ruta y `Referer` puede suprimirse, así que
+restringirlos más no añade protección. La interfaz se sirve desde `https://albalday.github.io`,
+origen compartido con las demás páginas de GitHub Pages del mismo usuario, que pueden leer la
+cookie del token, `localStorage` e IndexedDB de ZeroChat; limitar la cookie con `Path` no lo
+impide, porque una página del mismo origen puede cargar `/zerochat/` en un `iframe`. Este riesgo
+se acepta mientras ese origen solo publique páginas de confianza del propio autor; la única
+mitigación real es servir la interfaz desde un origen dedicado.
+
 
 ## 5. Pruebas y validación
 

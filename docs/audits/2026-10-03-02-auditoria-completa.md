@@ -32,7 +32,6 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | ID | Hallazgo | Riesgo | Prioridad |
 | --- | --- | --- | --- |
 | S2 | Cifrado de perfiles y API keys con clave pública por defecto y derivación débil | Seguridad | **Alta** |
-| S3 | Cookies, almacenamiento y CORS compartidos con todo `albalday.github.io` | Seguridad | **Alta** |
 | E1 | El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth | Estabilidad | **Alta** |
 | S1 | `apiUrl` y campos de perfiles importados sin validar | Seguridad | Media |
 | S4 | El token del backend se genera al importar y se pasa por línea de comandos | Seguridad | Media |
@@ -44,6 +43,7 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | E5 | `ChatState` pierde notificaciones anidadas y comparte referencias | Estabilidad | Media |
 | A1 | `app.js` concentra lógica de dominio (modo importación, latido, telemetría) | Deuda técnica | Media |
 | P1 | Texto visible fuera de `ChatI18n` | Presentación | Media |
+| S3 | «Borrar datos» elimina cachés y Service Workers ajenos a ZeroChat | Estabilidad | Baja |
 | E6 | El Service Worker puede mezclar versiones | Estabilidad | Baja |
 | P2 | Emojis crudos en controles y cabeceras interactivas | Presentación | Baja |
 | A3 | 17 envoltorios `t()` locales y 165 textos de respaldo en español | Deuda técnica | Baja |
@@ -75,8 +75,7 @@ No se encontraron infracciones en estas áreas:
   acceso a `localStorage` obtiene las API keys.
 - Con contraseña, la ausencia de sal y de coste permite ataques de diccionario masivos a los
   paquetes exportados.
-- Con la clave cacheada, cualquier script del origen (por ejemplo, vía S3) descifra las claves sin conocer
-  la contraseña.
+- Con la clave cacheada, cualquier script del origen descifra las claves sin conocer la contraseña.
 
 **Alcance y alternativa**
 - Derivar la clave con PBKDF2-SHA-256 (WebCrypto, ≥ 600 000 iteraciones) y una sal aleatoria
@@ -90,40 +89,6 @@ No se encontraron infracciones en estas áreas:
 - Unitaria: dos cifrados con la misma contraseña producen sobres con sal distinta.
 - Unitaria: un archivo v1 se migra.
 - Unitaria: `localStorage` no contiene material de clave tras `cacheKeyMaterial`.
-
-### S3 — Cookies, almacenamiento y CORS compartidos con todo `albalday.github.io` · Alta
-
-**Evidencia**
-- `js/cookies.js:159`: la cookie de sesión del backend (`token`, `host`, `port`) se crea con `Path=/`.
-- `js/cookies.js:61`: las preferencias se crean con `path=/`.
-- `py/ee-mcp.py:116-127` (`is_allowed_origin`): acepta cualquier página de `https://albalday.github.io`.
-- `localStorage` e IndexedDB pertenecen al origen completo. Lo comparten todos los
-  repositorios publicados en GitHub Pages bajo ese usuario.
-- `js/cookies.js` (`clearAllStorage`): borra todas las cachés de Cache Storage y anula todos los
-  Service Workers del origen.
-
-**Riesgo**
-Cualquier página de otro repositorio del mismo usuario en GitHub Pages puede:
-- leer el token del backend local y llamar a `http://127.0.0.1:<puerto>` con un origen permitido;
-- leer las API keys cifradas y la clave cacheada (S2).
-
-Una vulnerabilidad o dependencia de terceros en cualquiera de esas páginas compromete ZeroChat.
-Además, «Borrar datos» en ZeroChat borra las cachés y los Service Workers de las demás aplicaciones del origen.
-
-**Alcance y alternativa**
-1. A corto plazo:
-   - limitar las cookies a `Path=/zerochat/`;
-   - restringir `is_allowed_origin` a `https://albalday.github.io` y validar además el
-     `Referer` o una cabecera propia (el `Origin` no incluye la ruta);
-   - limitar en `clearAllStorage` el borrado de Cache Storage y de Service Workers a los de ZeroChat
-     (prefijo de caché y `scope` del registro).
-2. A medio plazo: servir la interfaz desde un origen dedicado (dominio propio o subdominio) y
-   documentar el riesgo como aceptado mientras tanto.
-
-**Prueba**
-- Unitaria (`test_cookies.js`): la cookie del backend se escribe con `Path=/zerochat/`.
-- Unitaria: `clearAllStorage` conserva cachés y registros de Service Worker ajenos.
-- Infraestructura: tabla de orígenes aceptados y rechazados.
 
 ### E1 — El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth · Alta
 
@@ -163,7 +128,7 @@ que `call()` de otro servidor responda en menos de 1 s.
 **Riesgo**
 Un perfil compartido introduce valores arbitrarios en la configuración. Hoy no hay un punto
 conocido que los interprete como HTML, pero cualquier consumidor nuevo que no escape abriría un
-XSS en el origen de la aplicación, con acceso al token del backend (S3) y a `tools/call`.
+XSS en el origen de la aplicación, con acceso al token del backend y a `tools/call`.
 
 **Alcance y alternativa**
 1. Validar `apiUrl` en `ConfigStore.normalize` y en `normalizeSettings`. Admitir solo `http:`,
@@ -348,6 +313,19 @@ Las pruebas existentes de arranque e importación (`test_app_startup.js`,
 - Unitaria: con `setLanguage('en')`, los errores de perfiles y el banner de importación no
   contienen palabras en español.
 
+### S3 — «Borrar datos» elimina cachés y Service Workers ajenos a ZeroChat · Baja
+
+**Evidencia**
+- `js/cookies.js` (`clearAllStorage`): borra todas las cachés de Cache Storage y anula todos los
+  Service Workers del origen `albalday.github.io`, que comparten las demás páginas de GitHub Pages
+  del mismo usuario.
+
+**Alcance y alternativa**
+Limitar el borrado a las cachés con prefijo de ZeroChat y a los registros cuyo `scope` sea el de ZeroChat.
+
+**Prueba**
+Unitaria: `clearAllStorage` conserva cachés y registros de Service Worker ajenos.
+
 ### E6 — El Service Worker puede mezclar versiones · Baja
 
 **Evidencia** (`sw.js`, manejador `fetch`)
@@ -397,8 +375,6 @@ Mantener el README como contrato y corregir el código en S8.
 
 - **Formato `zerochat-profile-backup` v1 y sobre de API key** (`profile-backup.js`): S2 exige
   un formato v2 con migración de lectura v1.
-- **Cookie `zerochat_backend_session_v1`** (`cookies.js`): cambiar `Path` (S3) requiere borrar
-  la cookie antigua con `Path=/`.
 - **Nombres públicos de herramientas MCP** (`publicToolName` en JS y Python) y permisos
   persistidos por identificador canónico en `localStorage` (`tool-security.js`). Cambiar la
   codificación (S8) invalida las autorizaciones guardadas. `js/tools/README.md` descarta migrar
@@ -419,7 +395,7 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | --- | --- | --- | --- |
 | 1 | `fix:` validar URL y tipos en configuración y perfiles importados | S1 | `test:unit`, `test:integration`, `test:browser` |
 | 2 | `fix:` escapar parámetros en las plantillas HTML de `ChatI18n` | S6 | `test:unit` |
-| 3 | `fix:` cookies con `Path=/zerochat/`, origen y `Referer` en backend, borrado limitado de cachés y Service Workers | S3 | `test:unit`, `test:infrastructure`, `test:browser` |
+| 3 | `fix:` borrado limitado a las cachés y Service Workers de ZeroChat | S3 | `test:unit`, `test:browser` |
 | 4 | `feat:` formato de cifrado v2 (PBKDF2 + sal) con migración v1 y caché no extraíble | S2 | `test:unit`, `test:integration`, `test:browser` |
 | 5 | `fix:` generación del token en `main()` y token por variable de entorno | S4 | `test:infrastructure` |
 | 6 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
@@ -445,6 +421,6 @@ Pruebas de arquitectura nuevas que se proponen, para impedir que se reintroduzca
 
 Esta versión no es mayor (`8.10.3`), así que el procedimiento no bloquea la promoción. Aun
 así, antes del próximo `X.0.0` deben quedar resueltos o aceptados explícitamente los hallazgos
-**S2, S3 y E1**. Después hay que repetir `npm test`, `npm run test:browser` y
+**S2 y E1**. Después hay que repetir `npm test`, `npm run test:browser` y
 `npm run build`, comprobar que el árbol queda limpio y actualizar este informe con el estado de
 cada hallazgo antes de considerarlo cerrado.
