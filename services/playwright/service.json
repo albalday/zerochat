@@ -16,7 +16,8 @@
     "args": ["${serviceDir}/node_modules/@playwright/mcp/cli.js", "--browser=chromium"],
     "cwd": "${serviceDir}",
     "env": {},
-    "handshakeTimeoutSeconds": 30
+    "handshakeTimeoutSeconds": 30,
+    "callTimeoutSeconds": 120
   },
   "options": [
     {

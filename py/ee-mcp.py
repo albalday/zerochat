@@ -7,6 +7,10 @@ MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
 MAX_PATH_LENGTH = 4096
 MAX_COMMAND_LENGTH = 16384
+# Un mensaje MCP admite imágenes en base64, pero no puede agotar la memoria del backend.
+MAX_MCP_MESSAGE_CHARS = 16 * 1024 * 1024
+MAX_MCP_STDERR_LINE_CHARS = 64 * 1024
+DEFAULT_MCP_CALL_TIMEOUT_SECONDS = 30
 
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
@@ -151,16 +155,50 @@ def _mcp_trace_text(value: object, max_len: int = 1000) -> str:
     return text[:max_len - 3] + "..." if len(text) > max_len else text
 
 
+def _read_bounded_line(stream, limit: int) -> tuple[str, str | None]:
+    """Lee una línea de como mucho limit caracteres.
+
+    Si la línea es más larga, consume y descarta el resto sin retenerlo en memoria y
+    devuelve el comienzo junto con el último fragmento leído (para diagnóstico).
+    """
+    line = stream.readline(limit + 1)
+    if len(line) <= limit or line.endswith("\n"):
+        return line, None
+    tail = line
+    while True:
+        chunk = stream.readline(limit)
+        if not chunk:
+            break
+        tail = chunk
+        if chunk.endswith("\n"):
+            break
+    return line[:limit], tail
+
+
+def _positive_seconds(value, default: float) -> float:
+    """Normaliza un plazo en segundos declarado en service.json."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return default
+    return float(value)
+
+
 class StdioMcpClient:
-    def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None):
+    max_message_chars = MAX_MCP_MESSAGE_CHARS
+
+    def __init__(self, command: str, args: list[str], cwd: str, env: dict[str, str], trace=None,
+                 call_timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS):
         self.command = command
         self.args = args
         self.cwd = cwd
         self.env = env
+        self.call_timeout = call_timeout
         self.process: subprocess.Popen | None = None
         self._pending: dict[int, queue.Queue] = {}
         self._next = 0
         self._lock = threading.Lock()
+        # Escribir en stdin puede bloquear si el hijo no lee: nunca con _lock tomado,
+        # porque el lector de stdout lo necesita para entregar respuestas.
+        self._write_lock = threading.Lock()
         self._alive = False
         self.tools: list[dict] = []
         self.oauth_url: str | None = None
@@ -182,7 +220,9 @@ class StdioMcpClient:
             text=True,
             encoding="utf-8",
             errors="replace",
-            bufsize=1
+            bufsize=1,
+            # Grupo propio para terminar también npm, node o navegadores lanzados por el MCP.
+            start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         self._alive = True
         threading.Thread(target=self._drain_stderr, daemon=True).start()
@@ -208,7 +248,11 @@ class StdioMcpClient:
         if not self.process or not self.process.stderr:
             return
         pending_oauth = False
-        for raw_line in self.process.stderr:
+        stderr = self.process.stderr
+        while True:
+            raw_line, _ = _read_bounded_line(stderr, MAX_MCP_STDERR_LINE_CHARS)
+            if not raw_line:
+                break
             line = _mcp_trace_text(raw_line)
             if not line:
                 continue
@@ -231,7 +275,14 @@ class StdioMcpClient:
         try:
             if not self.process or not self.process.stdout:
                 return
-            for line in self.process.stdout:
+            stdout = self.process.stdout
+            while True:
+                line, tail = _read_bounded_line(stdout, self.max_message_chars)
+                if not line:
+                    break
+                if tail is not None:
+                    self._reject_oversized(line, tail)
+                    continue
                 line = line.strip()
                 if not line:
                     continue
@@ -257,7 +308,31 @@ class StdioMcpClient:
             for waiter in pending:
                 waiter.put({"error": {"message": "MCP process ended unexpectedly"}})
 
-    def request(self, method: str, params: dict, timeout: int = 30) -> dict:
+    _HEAD_ID_RE = re.compile(r'^\s*\{\s*"jsonrpc"\s*:\s*"2\.0"\s*,\s*"id"\s*:\s*(\d+)')
+    _TAIL_ID_RE = re.compile(r'"id"\s*:\s*(\d+)\s*\}\s*$')
+
+    def _reject_oversized(self, head: str, tail: str):
+        """Responde con error a la petición cuya respuesta supera el límite de tamaño."""
+        message = f"MCP response exceeds {self.max_message_chars} characters"
+        self._trace(f"discarded oversized message: {message}")
+        match = self._HEAD_ID_RE.match(head) or self._TAIL_ID_RE.search(tail)
+        with self._lock:
+            if match:
+                waiter = self._pending.pop(int(match.group(1)), None)
+                waiters = [waiter] if waiter else []
+            else:
+                # Sin identificador no se sabe a quién pertenece: falla todo lo pendiente.
+                waiters = list(self._pending.values())
+                self._pending.clear()
+        for waiter in waiters:
+            waiter.put({"error": {"message": message}})
+
+    def _write(self, payload: str):
+        with self._write_lock:
+            self.process.stdin.write(payload)
+            self.process.stdin.flush()
+
+    def request(self, method: str, params: dict, timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS) -> dict:
         if not self.running():
             raise RuntimeError("MCP process is not running")
         with self._lock:
@@ -265,14 +340,14 @@ class StdioMcpClient:
             req_id = self._next
             waiter = queue.Queue(maxsize=1)
             self._pending[req_id] = waiter
-            payload = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}) + "\n"
-            try:
-                self.process.stdin.write(payload)
-                self.process.stdin.flush()
-            except Exception as exc:
-                self._alive = False
+        payload = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}) + "\n"
+        try:
+            self._write(payload)
+        except Exception as exc:
+            self._alive = False
+            with self._lock:
                 self._pending.pop(req_id, None)
-                raise RuntimeError(f"Failed writing to MCP process: {exc}") from exc
+            raise RuntimeError(f"Failed writing to MCP process: {exc}") from exc
         try:
             response = waiter.get(timeout=timeout)
         except queue.Empty as exc:
@@ -285,21 +360,35 @@ class StdioMcpClient:
 
     def notify(self, method: str):
         if self.running():
-            with self._lock:
-                try:
-                    self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
-                    self.process.stdin.flush()
-                except Exception:
-                    self._alive = False
+            try:
+                self._write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
+            except Exception:
+                self._alive = False
+
+    def _signal_group(self, sig) -> bool:
+        """Envía la señal al grupo del MCP; devuelve False si no hay grupo propio."""
+        if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
+            return False
+        try:
+            os.killpg(self.process.pid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return False
+        return True
 
     def stop(self):
         self._alive = False
         if not self.process:
             return
         try:
-            self.process.terminate()
+            if not self._signal_group(signal.SIGTERM):
+                self.process.terminate()
             self.process.wait(timeout=2)
         except (OSError, subprocess.TimeoutExpired):
+            pass
+        # Los descendientes que sigan vivos se eliminan aunque el proceso principal ya terminara.
+        if not self._signal_group(signal.SIGKILL):
             try:
                 self.process.kill()
             except OSError:
@@ -527,7 +616,8 @@ class McpServiceManager:
 
                 client = StdioMcpClient(
                     command, args, str(service_dir), env,
-                    trace=lambda message: self._trace(server_id, message)
+                    trace=lambda message: self._trace(server_id, message),
+                    call_timeout=_positive_seconds(launch.get("callTimeoutSeconds"), DEFAULT_MCP_CALL_TIMEOUT_SECONDS)
                 )
                 # _prepare_service puede haber dejado el estado en "installing".
                 self.states[server_id] = "starting"
@@ -611,7 +701,7 @@ class McpServiceManager:
             raise ValueError(f"Herramienta externa '{public_name}' no disponible o servidor detenido.")
         # La llamada puede durar decenas de segundos: no debe bloquear al resto de servidores.
         client, original_name = target
-        return client.request("tools/call", {"name": original_name, "arguments": arguments})
+        return client.request("tools/call", {"name": original_name, "arguments": arguments}, timeout=client.call_timeout)
 
     def close(self):
         with self._lock:

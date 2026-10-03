@@ -1659,8 +1659,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     manager = module.McpServiceManager(Path(temp_dir) / "services")
     client = Mock(tools=[{"name": "lookup"}])
     client.running.return_value = True
-    def request(method, params):
+    client.call_timeout = 30
+    def request(method, params, timeout):
         assert not manager._lock.locked(), "El lock del gestor no debe mantenerse durante la llamada"
+        assert timeout == client.call_timeout
         assert method == "tools/call" and params == {"name": "lookup", "arguments": {"q": 1}}
         return {"content": []}
     client.request.side_effect = request
@@ -1673,4 +1675,125 @@ with tempfile.TemporaryDirectory() as temp_dir:
         pass
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+const LIMITS_MCP_FIXTURE = `import json, subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+with open(sys.argv[1], "w") as pid_file:
+    pid_file.write(str(child.pid))
+
+def send(payload):
+    sys.stdout.write(payload + "\\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    request = json.loads(line)
+    method, req_id = request.get("method"), request.get("id")
+    if method == "initialize":
+        result = {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "limits", "version": "1"}}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "big_head"}, {"name": "big_tail"}, {"name": "slow"}, {"name": "echo"}]}
+    elif method == "tools/call":
+        name = request["params"]["name"]
+        content = {"content": [{"type": "text", "text": "x" * (5 * 1024 * 1024)}]}
+        if name == "big_head":
+            send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": content}))
+            continue
+        if name == "big_tail":
+            send(json.dumps({"result": content, "jsonrpc": "2.0", "id": req_id}))
+            continue
+        if name == "slow":
+            time.sleep(3)
+        result = {"content": [{"type": "text", "text": "ok"}]}
+    else:
+        continue
+    send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
+`;
+
+test('zerochat.py: el cliente MCP stdio acota los mensajes, aplica el plazo del servicio y termina sus descendientes', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-mcp-limits-'));
+  const fixturePath = path.join(fixtureDir, 'server.py');
+  fs.writeFileSync(fixturePath, LIMITS_MCP_FIXTURE);
+  const script = `
+import importlib.util
+import json
+import os
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_stdio_limits_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    root = Path(temp_dir) / "services"
+    service_dir = root / "limits"
+    service_dir.mkdir(parents=True)
+    child_pid_file = Path(temp_dir) / "child.pid"
+    (service_dir / "service.json").write_text(json.dumps({
+        "id": "limits",
+        "launch": {
+            "executable": sys.executable,
+            "args": [${JSON.stringify(fixturePath)}, str(child_pid_file)],
+            "cwd": str(service_dir),
+            "env": {},
+            "handshakeTimeoutSeconds": 5,
+            "callTimeoutSeconds": 0.5
+        }
+    }), encoding="utf-8")
+
+    zerochat.StdioMcpClient.max_message_chars = 1024 * 1024
+    manager = zerochat.McpServiceManager(root)
+    try:
+        assert next(item for item in manager.start("limits") if item["id"] == "limits")["status"] == "running"
+        client = manager.clients["limits"]
+        assert client.call_timeout == 0.5
+
+        original_write = client._write
+        def write_without_lock(payload):
+            assert not client._lock.locked(), "No se debe escribir en stdin con el cerrojo de peticiones tomado"
+            original_write(payload)
+        client._write = write_without_lock
+
+        # Respuestas de 5 MB con el id al principio (SDK Python) o al final (SDK Node).
+        for tool in ("big_head", "big_tail"):
+            try:
+                manager.call(zerochat.public_tool_name("limits", tool), {})
+                raise AssertionError("Una respuesta demasiado grande debe fallar")
+            except RuntimeError as exc:
+                assert "exceeds" in str(exc), exc
+        # El flujo sigue sincronizado tras descartar los mensajes grandes.
+        assert manager.call(zerochat.public_tool_name("limits", "echo"), {})["content"][0]["text"] == "ok"
+
+        started = time.monotonic()
+        try:
+            manager.call(zerochat.public_tool_name("limits", "slow"), {})
+            raise AssertionError("La llamada lenta debe agotar el plazo del servicio")
+        except TimeoutError:
+            pass
+        assert time.monotonic() - started < 2
+
+        child_pid = int(child_pid_file.read_text())
+        os.kill(child_pid, 0)
+        manager.stop("limits")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("stop() debe terminar los procesos hijos del MCP")
+    finally:
+        manager.close()
+`;
+  try {
+    assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+  } finally {
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
 });
