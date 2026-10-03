@@ -53,6 +53,7 @@ test('AgentRuntime - compacta con el límite de contexto configurado y conserva 
   }
 
   let summaryCalls = 0;
+  const events = [];
   const runtime = new AgentRuntime({ registry: new ToolRegistry() });
   const result = await runtime.execute({
     api: {
@@ -67,12 +68,18 @@ test('AgentRuntime - compacta con el límite de contexto configurado y conserva 
     contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
     summarizeHistory: async ({ messages }) => {
       summaryCalls++;
+      events.push('summarize');
       assert.equal(messages.length, history.length);
       return 'Checkpoint acumulativo.';
+    },
+    callbacks: {
+      onCompactionStart: stepIndex => events.push(`start:${stepIndex}`),
+      onCompactionEnd: (compacted, stepIndex) => events.push(`end:${stepIndex}:${compacted.compressed}`)
     }
   });
 
   assert.equal(summaryCalls, 1);
+  assert.deepEqual(events, ['start:0', 'summarize', 'end:0:true']);
   assert.equal(result.history[0]._isSummaryBlock, true);
   assert.equal(result.history[1].content, 'Respuesta final.');
 });

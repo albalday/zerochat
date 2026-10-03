@@ -38,6 +38,7 @@
       <li><strong>Warning:</strong> from 60% to below 85%.</li>
       <li><strong>Critical:</strong> 85% and above.</li></ul>
       <p>These are UI guidance thresholds. Context includes instructions, history, tools and results, not just the last message. If it grows too large, reduce attachments or start a conversation with a checked summary. Branching while retaining all history does not free that context.</p>
+      <p>When the history reaches 70% of the input budget, ZeroChat automatically compacts it into a summary before the next request and shows the line “Compacting context.....” in the chat. The model itself writes the summary, which may leave out details.</p>
     </div>
 
     <div class="card">

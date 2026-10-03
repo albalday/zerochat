@@ -453,6 +453,17 @@
             if (typeof onTurnStart === 'function') onTurnStart({ turnIndex, turnBlock: block });
           }
         },
+        onCompactionStart: turnIndex => {
+          // The notice occupies the block already opened for this step, so it
+          // stays above the response, which continues in a fresh block.
+          const block = turnBlocks.get(turnIndex);
+          if (!block || !container) return;
+          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
+          const noticeText = i18n?.t ? i18n.t('chat_context_compacting') : 'Compactando contexto.....';
+          UIConversation.renderAssistantBlock(block, noticeText, { attachListeners: attachEvts });
+          turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
+          scrollFn();
+        },
         onChunk: (text, delta, stats, turnIndex) => {
           const block = turnBlocks.get(turnIndex) || synthesisBlock;
           if (block) {

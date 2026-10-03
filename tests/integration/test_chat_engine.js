@@ -423,6 +423,49 @@ test('ChatEngine - executeAgentTurnLoop limpia el cursor inicial del contenedor 
   delete global.document;
 });
 
+test('ChatEngine - executeAgentTurnLoop muestra una línea de compactación antes de la respuesta', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  const history = [];
+  for (let index = 0; index < 4; index++) {
+    history.push(
+      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(60)}` },
+      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(60)}` }
+    );
+  }
+
+  ChatAPI.streamChatCompletion = async (params) => {
+    if (params.toolChoice === 'none') return { accumulatedText: 'Checkpoint acumulativo.' };
+    params.onChunk?.('Respuesta final', 'Respuesta final', null);
+    return { accumulatedText: 'Respuesta final', toolCalls: null, stats: null };
+  };
+
+  const fakeContainer = {
+    innerHTML: '',
+    children: [],
+    appendChild: child => fakeContainer.children.push(child)
+  };
+  global.document = {
+    createElement: tag => ({ tagName: tag, className: '', innerHTML: '', querySelectorAll: () => [], ownerDocument: global.document })
+  };
+
+  try {
+    const res = await ChatEngine.executeAgentTurnLoop({
+      chatHistory: history,
+      appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300 },
+      container: fakeContainer
+    });
+
+    assert.equal(res.success, true);
+    assert.equal(fakeContainer.children.length, 2);
+    assert.match(fakeContainer.children[0].innerHTML, /Compactando contexto\.\.\.\.\./);
+    assert.match(fakeContainer.children[1].innerHTML, /Respuesta final/);
+    assert.equal(history[0]._isSummaryBlock, true);
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+    delete global.document;
+  }
+});
+
 test('ChatEngine - extractBaseId extrae limpiamente el id base eliminando sufijos de turnos internos y final', () => {
   assert.equal(ChatEngine.extractBaseId('msg_ast_123_turn_0_assistant'), 'msg_ast_123');
   assert.equal(ChatEngine.extractBaseId('msg_ast_123_turn_0_tool_call_1'), 'msg_ast_123');

@@ -1120,11 +1120,13 @@
           typeof ContextManager.compressHistory === 'function' &&
           typeof summarizeHistory === 'function' &&
           ContextManager.shouldCompress(workingMessages, { ...safeContextOptions, model, providerType: apiType })) {
+          if (callbacks.onCompactionStart) callbacks.onCompactionStart(stepIndex);
           const compacted = await ContextManager.compressHistory({
             messages: workingMessages,
             summarizeFn: summarizeHistory,
             options: { ...safeContextOptions, model, providerType: apiType }
           });
+          if (callbacks.onCompactionEnd) callbacks.onCompactionEnd(compacted, stepIndex);
           if (compacted.compressed) {
             workingMessages = compacted.messages;
           } else {
