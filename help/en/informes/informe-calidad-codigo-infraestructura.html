@@ -58,7 +58,8 @@ footer p:last-child{margin-bottom:0}
 <h1>Technical audit of ZeroChat</h1>
 <p>Full audit of ZeroChat <strong>8.10.1</strong> (compatible backend <strong>8.10</strong>). It replaces the 7.12.0 audit of 27 September 2026: earlier findings were rechecked against the current code and only those that remain open and relevant are kept.</p>
 <p>Date: 2 October 2026. Branch: <code>dev</code>. Reference commit: <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code>.</p>
-<p>Status: report complete; findings remain open. The audit does not modify or fix the product. Recommendations are not implemented features or a committed roadmap.</p>
+<p>Status: report complete. The audit does not modify or fix the product. Recommendations are not implemented features or a committed roadmap.</p>
+<p><strong>Follow-up at 8.11.2 (3 October 2026):</strong> T01 and T02 were fixed in 8.10.3 with regression tests; T05 (0600/0700 token permissions) and T07 (process group and bounded output in <code>execute_command</code>) in 8.11.0. T03, T04, T06, T08, T09 and T10 remain open. The startup URL carrying the token is still passed to the browser launcher.</p>
 <p>Related reports: <a href="informe-funcionalidades-madurez.html">functional audit</a> and <a href="informe-comparativa-herramientas.html">tool comparison</a>.</p>
 <nav aria-label="Help navigation">
 <a href="../index.html">Help center</a>
@@ -85,7 +86,7 @@ footer p:last-child{margin-bottom:0}
 </nav>
 <section>
 <h2 id="section-1">1. Verdict</h2>
-<p><strong>The technical foundation remains solid for a supervised personal tool, but the permission system for local tools does not currently provide the boundaries its interface promises.</strong> Two reproduced defects let the model read or write outside authorised folders and run arbitrary commands after an apparently narrow approval. They are the most relevant risk in the product because they turn a careful user decision into a much broader grant.</p>
+<p><strong>The technical foundation remains solid for a supervised personal tool, but in 8.10.1 the permission system for local tools did not provide the boundaries its interface promised (fixed in 8.10.3).</strong> Two reproduced defects let the model read or write outside authorised folders and run arbitrary commands after an apparently narrow approval. They are the most relevant risk in the product because they turn a careful user decision into a much broader grant.</p>
 <p>Since 7.12.0 the backend has been simplified, managed MCP services have been added (Playwright, Memory, Composio with OAuth), native PowerShell support has arrived and dead code has been removed. The full suite passes (744 tests) and the privacy and RAG documentation has been corrected. The automated-browser deadlock, token permissions and static-file allowlist bypass remain open, and a new blocking issue appears in the MCP manager.</p>
 <p>A rewrite is not justified. Fix T01–T04 before expanding tools or recommending the “Always allow” and “Trust workspace” policies. This result is not a certification or a coverage measurement.</p>
 </section>
@@ -148,12 +149,12 @@ footer p:last-child{margin-bottom:0}
 </section>
 <section>
 <h2 id="section-5">5. Findings and actions</h2>
-<h3 id="t01">T01. Folder rules treat <code>~</code> as a relative path — high, P1, R</h3>
+<h3 id="t01">T01. Folder rules treat <code>~</code> as a relative path — high, P1, R — fixed in 8.10.3</h3>
 <p><strong>Evidence:</strong> <code>normalizeDirectoryPath</code> and <code>evaluateDirectoryRule</code> in <a href="../../../js/tool-security.js">tool-security.js</a> treat any path not starting with <code>/</code> as relative and resolve it against the startup folder. The backend applies <code>Path(path).expanduser()</code> in <a href="../../../py/dd-tools.py">dd-tools.py</a>. <code>~/.ssh/id_rsa</code> is evaluated as <code>&lt;startup&gt;/~/.ssh/id_rsa</code>, matches the rule and is read from the home directory.</p>
 <p><strong>Impact:</strong> with the default configuration (empty list → <code>R:&lt;startup folder&gt;</code>) the model can read any user file without confirmation (SSH keys, tokens, <code>~/zerochat/config/token.json</code>, MCP service credentials). With a <code>W:</code> or <code>RW:</code> rule it can write <code>~/.bashrc</code> and gain persistent execution. The check is lexical: a symlink inside the authorised folder also leads outside it.</p>
 <p><strong>Action and acceptance:</strong> resolve paths with the same semantics as the backend (<code>~</code> expansion, real cwd and, preferably, a final server-side check after <code>resolve()</code>). Reject or ask for <code>~</code>, variables and non-normalisable paths. Tests: <code>~/x</code>, <code>~user/x</code>, an outgoing symlink and the equivalent absolute path must prompt under the default rule.</p>
 
-<h3 id="t02">T02. Command approvals broader than they state — high, P1, R</h3>
+<h3 id="t02">T02. Command approvals broader than they state — high, P1, R — fixed in 8.10.3</h3>
 <p><strong>Evidence:</strong> the “Always allow "git *"” button (<a href="../../../js/tool-cards.js">tool-cards.js</a>) stores <code>allowedPrefixes: ["git"]</code> with <code>allowChaining: true</code> and <code>allowPipes: true</code>, although its description says “only commands starting with "git"”. <code>evaluateCommandConstraint</code> only compares the start of the string, so <code>git status; rm -rf ~/project</code>, <code>git log &amp;&amp; curl … | sh</code> or <code>git $(…)</code> run without asking. The rule is copied to <code>bash</code> and <code>execute_command</code>.</p>
 <p>The “Trust workspace” policy promises to ask for “external access or global commands”, but only detects <code>sudo</code>, a few system directories and <code>../</code>: <code>rm -rf ~</code>, <code>cat ~/.ssh/id_rsa</code>, <code>cp x /home/u/.bashrc</code> and <code>curl … | sh</code> are allowed.</p>
 <p><strong>Impact:</strong> a manipulated response (for example through a web page or a RAG document) can run any command with the user's permissions after an approval that looked narrow.</p>
@@ -169,7 +170,7 @@ footer p:last-child{margin-bottom:0}
 <p><strong>Impact:</strong> a Node or Chromium crash hangs that thread indefinitely and blocks every later <code>browser_action</code> call until the server restarts.</p>
 <p><strong>Action and acceptance:</strong> separate internal cleanup (no lock) from public close or use <code>RLock</code>, and add an IPC deadline. Test EOF, invalid JSON, broken pipe, silent process and later recovery.</p>
 
-<h3 id="t05">T05. Daily session token readable by other local users — medium if local access exists, P2, R/C</h3>
+<h3 id="t05">T05. Daily session token readable by other local users — medium if local access exists, P2, R/C — permissions fixed in 8.11.0</h3>
 <p><strong>Evidence:</strong> <code>get_daily_token</code> in <a href="../../../py/cc-environment.py">cc-environment.py</a> creates <code>config/token.json</code> without setting permissions (0644 with <code>umask 022</code>) and reuses it all day. The launch URL with <code>#token=…</code> is also passed as an argument to the browser launcher, visible in the process list while it runs.</p>
 <p><strong>Impact:</strong> another local user who can traverse the home directory obtains the token, initialises the API, receives the HMAC key and can run tools. It depends on home permissions (700 on the audited machine; 750 or 755 on other distributions).</p>
 <p><strong>Action and acceptance:</strong> create the directory with 0700 and the file with 0600 (fixing existing ones); consider a per-start token. Test with a permissive <code>umask</code> and a pre-existing file.</p>
@@ -179,7 +180,7 @@ footer p:last-child{margin-bottom:0}
 <p><strong>Impact:</strong> token-less reading of non-hidden files in the development repository. PyPI and curl installations, which serve no files, are not affected, and the root cannot be escaped.</p>
 <p><strong>Action and acceptance:</strong> apply the allowlist to the canonical relative path. Test with <code>http.client</code> or <code>curl --path-as-is</code>.</p>
 
-<h3 id="t07">T07. <code>execute_command</code> timeout with another folder does not stop the work — medium, P2, R</h3>
+<h3 id="t07">T07. <code>execute_command</code> timeout with another folder does not stop the work — medium, P2, R — fixed in 8.11.0</h3>
 <p><strong>Evidence:</strong> when <code>cwd</code> differs from the session, <code>execute_command</code> uses <code>subprocess.run(shell=True, capture_output=True)</code> without a process group. On timeout the shell is killed but the child keeps running (reproduced with <code>sleep</code>). Output is fully buffered in memory before truncation. The persistent-session branch does terminate the group.</p>
 <p><strong>Impact:</strong> the model and the user are told “terminated” while the command keeps changing files or consuming resources.</p>
 <p><strong>Action and acceptance:</strong> reuse the persistent session mechanism (<code>start_new_session</code> and <code>_kill_process_tree</code>) and bound output while reading. Test: no process from the command may remain after the timeout.</p>
@@ -206,9 +207,9 @@ footer p:last-child{margin-bottom:0}
 <tr><th>Order</th><th>Work</th><th>Closing criterion</th></tr>
 </thead>
 <tbody>
-<tr><td>1</td><td>T01 and T02</td><td>Reproductions turned into regressions; approval texts that state exactly what is granted (ES/EN)</td></tr>
+<tr><td>1</td><td>T01 and T02</td><td><strong>Closed in 8.10.3</strong>: reproductions turned into regressions; approval texts that state exactly what is granted (ES/EN)</td></tr>
 <tr><td>2</td><td>T03 and T04</td><td>External process startups and crashes no longer block other tools; cancellation verified</td></tr>
-<tr><td>3</td><td>T05–T07</td><td>0600/0700 permissions, canonical static allowlist and timeouts without orphan processes</td></tr>
+<tr><td>3</td><td>T05–T07</td><td>0600/0700 permissions and timeouts without orphan processes (<strong>closed in 8.11.0</strong>); the canonical static allowlist (T06) remains</td></tr>
 <tr><td>Ongoing</td><td>T08–T10</td><td>Small changes with tests, no general refactoring</td></tr>
 </tbody>
 </table>
@@ -225,8 +226,8 @@ node scripts/test-runner.mjs --list
 <p>Backend (T03–T07): import <code>zerochat.py</code> with a temporary <code>ZEROCHAT_DATA_DIR</code> and <code>umask 022</code>; check the token's <code>stat</code> without printing it; start <code>ThreadingHTTPServer</code> on an ephemeral port and request <code>/js/../package.json</code> with <code>http.client</code>; create a <code>McpServiceManager</code> with a service that never answers <code>initialize</code> and time <code>tools()</code>; replace <code>_ensure_running</code> with a simulated process whose stdout is empty and run <code>execute</code> in a thread with a deadline; call <code>execute_command('sleep N; …', cwd='/tmp', timeout_seconds=1)</code> and look for the process with <code>pgrep</code>.</p>
 </section>
 <footer>
-<p>Summary: modular foundation backed by 744 passing tests; 10 prioritised findings remain. The first fixes should address folder rules and command approvals, which currently allow unconfirmed actions beyond the scope shown to the user.</p>
-<p>Point-in-time audit of 2 October 2026 on 8.10.1. It replaces the 7.12.0 report. Recommendations do not imply implemented fixes.</p>
+<p>Summary: modular foundation backed by 744 passing tests in 8.10.1; of the 10 findings, T01, T02, T05 and T07 are fixed in 8.11.2. The next priority is the MCP and automated-browser blocking issues (T03, T04).</p>
+<p>Point-in-time audit of 2 October 2026 on 8.10.1, with fixes followed up to 8.11.2. It replaces the 7.12.0 report.</p>
 </footer>
 </main>
 </body>

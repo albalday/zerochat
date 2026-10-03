@@ -58,6 +58,7 @@ footer p:last-child{margin-bottom:0}
 <h1>Functional audit of ZeroChat for occasional personal use</h1>
 <p>Assessment of how well ZeroChat <strong>8.10.1</strong> suits personal, occasional use: testing models, endpoints, tools and small projects. It replaces the 7.12.0 functional audit.</p>
 <p>Date: 2 October 2026. Branch <code>dev</code>, commit <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code>.</p>
+<p><strong>Follow-up at 8.11.2 (3 October 2026):</strong> permissions (T01, T02) were fixed in 8.10.3, and RAG was tuned against FinanceBench and work did not stop until a local model such as Qwen solved the first two and the last two tests. T03 and T04 remain open.</p>
 <p>Status: report complete, no functional changes. It complements the <a href="informe-calidad-codigo-infraestructura.html">technical audit</a> and the <a href="informe-comparativa-herramientas.html">tool comparison</a>.</p>
 <nav aria-label="Help navigation">
 <a href="../index.html">Help center</a>
@@ -85,7 +86,7 @@ footer p:last-child{margin-bottom:0}
 <section>
 <h2 id="section-1">1. Verdict and evaluation criteria</h2>
 <p>ZeroChat fits well as a personal test bench for models, endpoints and tools. The 8.x series mainly strengthened tools: managed MCP services installed from the interface, OAuth authorisation for remote services, native PowerShell execution and grouped tool cards. Functional breadth is already sufficient for the goal.</p>
-<p>What most limits local tool use today is trust in permissions: “Always allow” and “Trust workspace” grant more than they say, and the default read rule lets the model read the home directory (T01 and T02 in the technical report). For a user returning after weeks away, a guided connection diagnosis and a single view of what is stored and how to restore it are still missing.</p>
+<p>In 8.10.1, what most limited local tool use was trust in permissions: “Always allow” and “Trust workspace” granted more than they said, and the default read rule let the model read the home directory (T01 and T02 in the technical report, fixed in 8.10.3). For a user returning after weeks away, a guided connection diagnosis and a single view of what is stored and how to restore it are still missing.</p>
 <p>The evaluated user is a technical person on their own machine, working under supervision on bounded tasks. Lack of team features, SSO, high availability or a full IDE is not penalised. Usability judgements are heuristic: no user sessions or paid providers were used.</p>
 </section>
 <section>
@@ -105,7 +106,7 @@ footer p:last-child{margin-bottom:0}
 <tr><td>Web search and reading</td><td>Available</td><td>Useful</td><td>Uses external services (Jina, AllOrigins); documented</td></tr>
 <tr><td>Isolated JavaScript and charts</td><td>Available</td><td>High</td><td>Temporary, restricted environment</td></tr>
 <tr><td>Agent loop, plan and checkpoints</td><td>Available</td><td>Useful</td><td>Configurable turn limit (5–200); not a cost limit</td></tr>
-<tr><td>Local files, shell and diagnostics (Linux, Windows, Termux)</td><td>Available with backend</td><td>Very high</td><td>Permissions do not confine as stated (T01, T02)</td></tr>
+<tr><td>Local files, shell and diagnostics (Linux, Windows, Termux)</td><td>Available with backend</td><td>Very high</td><td>In 8.10.1 permissions did not confine as stated (T01, T02; fixed in 8.10.3)</td></tr>
 <tr><td>Managed MCP services: Playwright, Memory, Composio (OAuth)</td><td>New in 8.x</td><td>Very high</td><td>Requires Node.js 18+; a slow startup blocks the rest (T03)</td></tr>
 <tr><td>Custom MCP services with template and agent prompt</td><td>New in 8.x</td><td>High</td><td>Keys in plain text in <code>service.json</code>; documented</td></tr>
 <tr><td>Automated browsing <code>browser_action</code></td><td>Conditional</td><td>Useful</td><td>A browser crash blocks the tool (T04)</td></tr>
@@ -126,10 +127,10 @@ footer p:last-child{margin-bottom:0}
 <p>Medium-high fit for manual comparison. An exportable experiment sheet (model, endpoint without secrets, effective parameters, enabled tools, metrics and date) is missing for repeating runs and explaining differences. A full evaluation lab is not recommended.</p>
 
 <h3>C. “I want to query some manuals or personal notes”</h3>
-<p>High fit for small material with recognisable vocabulary. The help now describes lexical search accurately. Quality is not quantified: a small set of exact, paraphrased and unanswerable questions should come before considering embeddings.</p>
+<p>High fit for small material with recognisable vocabulary. The help now describes lexical search accurately. Quality was not quantified in 8.10.1. Since then, RAG was tuned against FinanceBench and work did not stop until a local model such as Qwen solved the first two and the last two tests.</p>
 
 <h3>D. “I want to read and change a small project”</h3>
-<p>High fit under supervision, with an important caveat: “Always allow” for commands and “Trust workspace” should not be used today, because they authorise chained commands and home-directory paths without asking. With the “Ask” policy and a review of each call, the flow is adequate.</p>
+<p>High fit under supervision. In 8.10.1 there was an important caveat (fixed in 8.10.3): “Always allow” for commands and “Trust workspace” should not be used, because they authorised chained commands and home-directory paths without asking. With the “Ask” policy and a review of each call, the flow is adequate.</p>
 <p>Proposed improvement: make each approval text state exactly what it grants and make folder rules truly confine. Acceptance: complete a task in a temporary folder with no operation outside it running without confirmation.</p>
 
 <h3>E. “I want to use an MCP service or a remote app”</h3>
@@ -164,12 +165,12 @@ footer p:last-child{margin-bottom:0}
 <tr><th>Priority</th><th>Gap</th><th>Minimal proposal</th><th>Evidence of success</th></tr>
 </thead>
 <tbody>
-<tr><td>P1</td><td>Permissions that do not confine (T01, T02)</td><td>Fix folder rules and command approvals; exact texts</td><td>No action beyond the shown scope runs without confirmation</td></tr>
+<tr><td>P1</td><td>Permissions that do not confine (T01, T02) — <strong>fixed in 8.10.3</strong></td><td>Fix folder rules and command approvals; exact texts</td><td>No action beyond the shown scope runs without confirmation</td></tr>
 <tr><td>P1</td><td>Blocking MCP startup and hung browser (T03, T04)</td><td>Startup without a global lock, cancellable; browser recovery</td><td>Use one service while another waits for OAuth; recover <code>browser_action</code> after a crash</td></tr>
 <tr><td>P2</td><td>Scattered connection diagnosis</td><td>“Test connection” flow on top of the inspector</td><td>Understand a failure without technical documentation</td></tr>
 <tr><td>P2</td><td>Restore spread across panels</td><td>Backup summary and recovery test</td><td>Recover profiles, a conversation and RAG in a clean browser</td></tr>
 <tr><td>P3</td><td>Hard-to-reproduce experiments</td><td>Exportable sheet without credentials</td><td>Explain what changed between two runs</td></tr>
-<tr><td>P3</td><td>Unquantified RAG quality</td><td>Small evaluation corpus</td><td>Correct sources and unsupported questions identified</td></tr>
+<tr><td>P3</td><td>Unquantified RAG quality — <strong>evaluated with FinanceBench</strong></td><td>Small evaluation corpus</td><td>Correct sources and unsupported questions identified</td></tr>
 </tbody>
 </table>
 </div>
@@ -192,8 +193,8 @@ footer p:last-child{margin-bottom:0}
 <p>The maturity needed now depends less on new features and more on approvals meaning exactly what they say and on slow or crashed external processes not blocking everything else.</p>
 </section>
 <footer>
-<p>Summary: good fit for personal testing, strengthened in 8.x by managed MCP services. The priority is for permissions to truly confine and for external services not to block the application.</p>
-<p>Point-in-time audit of 2 October 2026 on 8.10.1. It replaces the 7.12.0 report. Recommendations do not imply implemented fixes.</p>
+<p>Summary: good fit for personal testing, strengthened in 8.x by managed MCP services. With permissions fixed in 8.10.3, the priority is for external services not to block the application.</p>
+<p>Point-in-time audit of 2 October 2026 on 8.10.1, with fixes followed up to 8.11.2. It replaces the 7.12.0 report.</p>
 </footer>
 </main>
 </body>

@@ -58,7 +58,8 @@ footer p:last-child{margin-bottom:0}
 <h1>Auditoría técnica de ZeroChat</h1>
 <p>Auditoría completa de ZeroChat <strong>8.10.1</strong> (backend compatible <strong>8.10</strong>). Sustituye a la auditoría de 7.12.0 del 27 de septiembre de 2026: los hallazgos anteriores se han vuelto a comprobar sobre el código actual y solo se conservan los que siguen abiertos y son relevantes.</p>
 <p>Fecha: 2 de octubre de 2026. Rama: <code>dev</code>. Commit de referencia: <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code>.</p>
-<p>Estado: informe cerrado; los hallazgos quedan abiertos. La auditoría no modifica ni corrige el producto. Las recomendaciones no son funcionalidades implementadas ni una hoja de ruta comprometida.</p>
+<p>Estado: informe cerrado. La auditoría no modifica ni corrige el producto. Las recomendaciones no son funcionalidades implementadas ni una hoja de ruta comprometida.</p>
+<p><strong>Seguimiento a 8.11.2 (3 de octubre de 2026):</strong> T01 y T02 se corrigieron en 8.10.3 con pruebas de regresión; T05 (permisos 0600/0700 del token) y T07 (grupo de procesos y salida acotada en <code>execute_command</code>) en 8.11.0. Siguen abiertos T03, T04, T06, T08, T09 y T10. La URL de arranque con el token sigue pasándose al lanzador del navegador.</p>
 <p>Informes relacionados: <a href="informe-funcionalidades-madurez.html">auditoría funcional</a> y <a href="informe-comparativa-herramientas.html">comparación de herramientas</a>.</p>
 <nav aria-label="Navegación de ayuda">
 <a href="../index.html">Centro de ayuda</a>
@@ -85,7 +86,7 @@ footer p:last-child{margin-bottom:0}
 </nav>
 <section>
 <h2 id="section-1">1. Dictamen</h2>
-<p><strong>La base técnica sigue siendo sólida para una herramienta personal supervisada, pero el sistema de permisos de herramientas locales no ofrece hoy los límites que su interfaz promete.</strong> Dos defectos reproducidos permiten que el modelo lea o escriba fuera de las carpetas autorizadas y ejecute comandos arbitrarios tras una autorización aparentemente acotada. Son el riesgo más relevante del producto porque convierten una decisión prudente del usuario en una autorización mucho más amplia.</p>
+<p><strong>La base técnica sigue siendo sólida para una herramienta personal supervisada, pero en 8.10.1 el sistema de permisos de herramientas locales no ofrecía los límites que su interfaz prometía (corregido en 8.10.3).</strong> Dos defectos reproducidos permiten que el modelo lea o escriba fuera de las carpetas autorizadas y ejecute comandos arbitrarios tras una autorización aparentemente acotada. Son el riesgo más relevante del producto porque convierten una decisión prudente del usuario en una autorización mucho más amplia.</p>
 <p>Desde 7.12.0 se ha simplificado el backend, se han añadido servicios MCP gestionados (Playwright, Memory, Composio con OAuth), soporte nativo de PowerShell y una limpieza de código muerto. La suite completa pasa (744 pruebas) y la documentación de privacidad y RAG se ha corregido. En cambio, siguen abiertos el interbloqueo del navegador automatizado, los permisos del token y la elusión de la lista de archivos estáticos, y aparece un bloqueo nuevo en el gestor MCP.</p>
 <p>No se justifica una reescritura. Se recomienda corregir T01–T04 antes de ampliar herramientas o recomendar las políticas «Permitir siempre» y «Confiar en el espacio de trabajo». El resultado no equivale a una certificación ni a una medición de cobertura.</p>
 </section>
@@ -148,12 +149,12 @@ footer p:last-child{margin-bottom:0}
 </section>
 <section>
 <h2 id="section-5">5. Hallazgos y acciones</h2>
-<h3 id="t01">T01. Las reglas de carpetas tratan <code>~</code> como ruta relativa — alta, P1, R</h3>
+<h3 id="t01">T01. Las reglas de carpetas tratan <code>~</code> como ruta relativa — alta, P1, R — corregido en 8.10.3</h3>
 <p><strong>Evidencia:</strong> <code>normalizeDirectoryPath</code> y <code>evaluateDirectoryRule</code> en <a href="../../js/tool-security.js">tool-security.js</a> consideran relativa cualquier ruta que no empiece por <code>/</code> y la resuelven contra la carpeta de arranque. El backend, en cambio, aplica <code>Path(path).expanduser()</code> en <a href="../../py/dd-tools.py">dd-tools.py</a>. <code>~/.ssh/id_rsa</code> se evalúa como <code>&lt;arranque&gt;/~/.ssh/id_rsa</code>, coincide con la regla y se lee del directorio personal.</p>
 <p><strong>Impacto:</strong> con la configuración por defecto (lista vacía → <code>R:&lt;carpeta de arranque&gt;</code>), el modelo puede leer cualquier archivo del usuario sin confirmación (claves SSH, tokens, <code>~/zerochat/config/token.json</code>, credenciales de servicios MCP). Con una regla <code>W:</code> o <code>RW:</code> puede escribir <code>~/.bashrc</code> y obtener ejecución persistente. La comprobación es léxica: un enlace simbólico dentro de la carpeta autorizada también lleva fuera de ella.</p>
 <p><strong>Acción y aceptación:</strong> resolver la ruta con la misma semántica que el backend (expansión de <code>~</code>, cwd real y, preferiblemente, comprobación final en el servidor tras <code>resolve()</code>). Rechazar o preguntar ante <code>~</code>, variables y rutas no normalizables. Pruebas: <code>~/x</code>, <code>~usuario/x</code>, symlink saliente y ruta absoluta equivalente deben pedir confirmación con la regla por defecto.</p>
 
-<h3 id="t02">T02. Autorizaciones de comandos más amplias de lo que indican — alta, P1, R</h3>
+<h3 id="t02">T02. Autorizaciones de comandos más amplias de lo que indican — alta, P1, R — corregido en 8.10.3</h3>
 <p><strong>Evidencia:</strong> el botón «Permitir siempre "git *"» (<a href="../../js/tool-cards.js">tool-cards.js</a>) guarda <code>allowedPrefixes: ["git"]</code> con <code>allowChaining: true</code> y <code>allowPipes: true</code>, aunque su descripción dice «solo comandos que comiencen por "git"». <code>evaluateCommandConstraint</code> solo compara el inicio de la cadena, de modo que <code>git status; rm -rf ~/proyecto</code>, <code>git log &amp;&amp; curl … | sh</code> o <code>git $(…)</code> se ejecutan sin preguntar. La regla se replica a <code>bash</code> y <code>execute_command</code>.</p>
 <p>La política «Confiar en el espacio de trabajo» promete preguntar ante «accesos externos o comandos globales», pero solo detecta <code>sudo</code>, algunos directorios del sistema y <code>../</code>: <code>rm -rf ~</code>, <code>cat ~/.ssh/id_rsa</code>, <code>cp x /home/u/.bashrc</code> y <code>curl … | sh</code> se permiten.</p>
 <p><strong>Impacto:</strong> una respuesta manipulada (por ejemplo, mediante una página web o un documento RAG) puede ejecutar cualquier comando con los permisos del usuario después de una autorización que parecía acotada.</p>
@@ -169,7 +170,7 @@ footer p:last-child{margin-bottom:0}
 <p><strong>Impacto:</strong> una caída de Node o Chromium deja colgado ese hilo de forma indefinida y bloquea todas las llamadas posteriores a <code>browser_action</code> hasta reiniciar el servidor.</p>
 <p><strong>Acción y aceptación:</strong> separar la limpieza interna (sin lock) del cierre público o usar <code>RLock</code>, y añadir un deadline de IPC. Probar EOF, JSON inválido, tubería rota, proceso silencioso y recuperación posterior.</p>
 
-<h3 id="t05">T05. Token de sesión diario legible por otros usuarios locales — media condicionada, P2, R/C</h3>
+<h3 id="t05">T05. Token de sesión diario legible por otros usuarios locales — media condicionada, P2, R/C — permisos corregidos en 8.11.0</h3>
 <p><strong>Evidencia:</strong> <code>get_daily_token</code> en <a href="../../py/cc-environment.py">cc-environment.py</a> crea <code>config/token.json</code> sin fijar permisos (0644 con <code>umask 022</code>) y lo reutiliza todo el día. Además, la URL de arranque con <code>#token=…</code> se pasa como argumento al lanzador del navegador, visible en la lista de procesos mientras este vive.</p>
 <p><strong>Impacto:</strong> otro usuario local que pueda atravesar el directorio personal obtiene el token, inicializa la API, recibe la clave HMAC y puede ejecutar herramientas. Depende de los permisos del hogar (700 en el equipo auditado; 750 o 755 en otras distribuciones).</p>
 <p><strong>Acción y aceptación:</strong> crear el directorio con 0700 y el archivo con 0600 (corrigiendo los existentes); valorar un token por arranque. Pruebas con <code>umask</code> permisiva y archivo previo.</p>
@@ -179,7 +180,7 @@ footer p:last-child{margin-bottom:0}
 <p><strong>Impacto:</strong> lectura sin token de archivos no ocultos del repositorio de desarrollo. No afecta a las instalaciones PyPI o curl, que no sirven archivos, ni permite salir de la raíz.</p>
 <p><strong>Acción y aceptación:</strong> aplicar la lista a la ruta relativa canónica. Prueba con <code>http.client</code> o <code>curl --path-as-is</code>.</p>
 
-<h3 id="t07">T07. El timeout de <code>execute_command</code> con otra carpeta no termina el trabajo — media, P2, R</h3>
+<h3 id="t07">T07. El timeout de <code>execute_command</code> con otra carpeta no termina el trabajo — media, P2, R — corregido en 8.11.0</h3>
 <p><strong>Evidencia:</strong> si <code>cwd</code> difiere de la sesión, <code>execute_command</code> usa <code>subprocess.run(shell=True, capture_output=True)</code> sin grupo de procesos. Al vencer el plazo se mata el shell, pero el proceso hijo continúa (reproducido con <code>sleep</code>). La salida se acumula completa en memoria antes de truncarse. La rama de sesión persistente sí termina el grupo.</p>
 <p><strong>Impacto:</strong> el modelo y el usuario reciben «terminado» mientras el comando sigue modificando archivos o consumiendo recursos.</p>
 <p><strong>Acción y aceptación:</strong> reutilizar el mecanismo de la sesión persistente (<code>start_new_session</code> y <code>_kill_process_tree</code>) y acotar la salida durante la lectura. Prueba: tras el timeout no debe quedar ningún proceso del comando.</p>
@@ -206,9 +207,9 @@ footer p:last-child{margin-bottom:0}
 <tr><th>Orden</th><th>Trabajo</th><th>Criterio de cierre</th></tr>
 </thead>
 <tbody>
-<tr><td>1</td><td>T01 y T02</td><td>Reproducciones convertidas en regresiones; textos de autorización que describen exactamente lo permitido (ES/EN)</td></tr>
+<tr><td>1</td><td>T01 y T02</td><td><strong>Cerrado en 8.10.3</strong>: reproducciones convertidas en regresiones; textos de autorización que describen exactamente lo permitido (ES/EN)</td></tr>
 <tr><td>2</td><td>T03 y T04</td><td>Arranques y caídas de procesos externos sin bloquear otras herramientas; cancelación verificada</td></tr>
-<tr><td>3</td><td>T05–T07</td><td>Permisos 0600/0700, lista estática canónica y timeouts sin procesos huérfanos</td></tr>
+<tr><td>3</td><td>T05–T07</td><td>Permisos 0600/0700 y timeouts sin procesos huérfanos (<strong>cerrados en 8.11.0</strong>); queda la lista estática canónica (T06)</td></tr>
 <tr><td>Continuo</td><td>T08–T10</td><td>Cambios pequeños con pruebas, sin refactorización general</td></tr>
 </tbody>
 </table>
@@ -225,8 +226,8 @@ node scripts/test-runner.mjs --list
 <p>Backend (T03–T07): importar <code>zerochat.py</code> con <code>ZEROCHAT_DATA_DIR</code> temporal y <code>umask 022</code>; consultar <code>stat</code> del token sin mostrarlo; levantar <code>ThreadingHTTPServer</code> en un puerto efímero y pedir <code>/js/../package.json</code> con <code>http.client</code>; crear un <code>McpServiceManager</code> con un servicio que no responde al <code>initialize</code> y medir <code>tools()</code>; sustituir <code>_ensure_running</code> por un proceso simulado con stdout vacío y ejecutar <code>execute</code> en un hilo con deadline; llamar a <code>execute_command('sleep N; …', cwd='/tmp', timeout_seconds=1)</code> y buscar el proceso con <code>pgrep</code>.</p>
 </section>
 <footer>
-<p>Síntesis: base modular respaldada por 744 pruebas aprobadas; quedan 10 hallazgos priorizados. Las primeras correcciones deben abordar las reglas de carpetas y las autorizaciones de comandos, que hoy permiten acciones no confirmadas fuera del alcance indicado al usuario.</p>
-<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1. Sustituye al informe de 7.12.0. Las recomendaciones no implican correcciones implementadas.</p>
+<p>Síntesis: base modular respaldada por 744 pruebas aprobadas en 8.10.1; de los 10 hallazgos, T01, T02, T05 y T07 están corregidos en 8.11.2. La siguiente prioridad son los bloqueos de MCP y del navegador automatizado (T03, T04).</p>
+<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1, con seguimiento de correcciones a 8.11.2. Sustituye al informe de 7.12.0.</p>
 </footer>
 </main>
 </body>

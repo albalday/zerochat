@@ -58,6 +58,7 @@ footer p:last-child{margin-bottom:0}
 <h1>ZeroChat: orientación y funcionalidades frente a la competencia</h1>
 <p>Comparación de la orientación y las funciones de ZeroChat <strong>8.10.1</strong> con siete alternativas. Sustituye a la comparación de 7.12.0.</p>
 <p>Fecha de consulta: 2 de octubre de 2026. ZeroChat evaluado: 8.10.1, commit <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code> en <code>dev</code>.</p>
+<p><strong>Seguimiento a 8.11.2 (3 de octubre de 2026):</strong> los permisos (T01, T02) se corrigieron en 8.10.3 y el RAG se ha ajustado con FinanceBench y no se dio por terminado hasta que un modelo local como Qwen resolvió las dos primeras y las dos últimas pruebas.</p>
 <p>Estado: informe cerrado. Véanse la <a href="informe-calidad-codigo-infraestructura.html">auditoría técnica</a> y la <a href="informe-funcionalidades-madurez.html">auditoría funcional</a>.</p>
 <nav aria-label="Navegación de ayuda">
 <a href="../index.html">Centro de ayuda</a>
@@ -86,7 +87,7 @@ footer p:last-child{margin-bottom:0}
 <section>
 <h2 id="section-1">1. Conclusión</h2>
 <p>ZeroChat mantiene un espacio defendible como cliente web de experimentación personal con backend opcional y observabilidad de las peticiones. Chat multiproveedor, RAG y también MCP son ya habituales en las alternativas: Msty Studio, Open WebUI y LM Studio documentan ahora soporte MCP propio, por lo que MCP ha dejado de ser un rasgo diferenciador por sí solo.</p>
-<p>Lo que sigue siendo distintivo es la combinación de acceso web directo, modo Espejo, inspector y telemetría, junto a un backend local que instala y arranca servidores MCP stdio y puentes remotos con OAuth sin configurar archivos a mano. Esa ventaja solo se sostiene si los permisos de las herramientas locales son fiables; hoy no lo son (T01 y T02 del informe técnico).</p>
+<p>Lo que sigue siendo distintivo es la combinación de acceso web directo, modo Espejo, inspector y telemetría, junto a un backend local que instala y arranca servidores MCP stdio y puentes remotos con OAuth sin configurar archivos a mano. Esa ventaja solo se sostiene si los permisos de las herramientas locales son fiables; en 8.10.1 no lo eran (T01 y T02 del informe técnico, corregidos en 8.10.3).</p>
 </section>
 <section>
 <h2 id="section-2">2. Método y selección</h2>
@@ -163,7 +164,7 @@ footer p:last-child{margin-bottom:0}
 <h3>MCP gestionado desde la web</h3>
 <p>Servicios incluidos que se instalan solos, puente remoto con OAuth también en Android/Termux y una plantilla para que el agente cree servicios propios. Es la novedad competitiva más clara de 8.x, condicionada a resolver T03 (un arranque bloquea a los demás).</p>
 <h3>Conocimiento pequeño sin embeddings</h3>
-<p>El índice léxico local puede bastar para identificadores, errores y manuales cortos, sin un servicio adicional. No demuestra mejor recuperación que las alternativas vectoriales.</p>
+<p>El índice léxico local puede bastar para identificadores, errores y manuales cortos, sin un servicio adicional. No demuestra mejor recuperación que las alternativas vectoriales, pero se ha validado con FinanceBench hasta que un modelo local como Qwen resolvió las dos primeras y las dos últimas pruebas.</p>
 </section>
 <section>
 <h2 id="section-6">6. Dónde una alternativa puede encajar mejor</h2>
@@ -178,7 +179,7 @@ footer p:last-child{margin-bottom:0}
 <tr><td>Conocimiento y documentos como actividad central</td><td>AnythingLLM; Msty Studio</td><td>Medir recuperación antes de prometer equivalencia</td></tr>
 <tr><td>Plataforma autohospedada para varias personas</td><td>Open WebUI; LibreChat</td><td>Conservar un alcance personal</td></tr>
 <tr><td>Cambios frecuentes en repositorios con Git y tests</td><td>Aider</td><td>Resolver tareas pequeñas; no prometer el flujo de una herramienta de código</td></tr>
-<tr><td>Ejecutar acciones locales con autorización fina</td><td>Herramientas dedicadas con sandbox</td><td>Corregir T01/T02 antes de presentarlo como entorno controlado</td></tr>
+<tr><td>Ejecutar acciones locales con autorización fina</td><td>Herramientas dedicadas con sandbox</td><td>T01/T02 corregidos en 8.10.3; sigue siendo supervisado, no un sandbox</td></tr>
 <tr><td>Prueba rápida de endpoint, petición y herramientas desde el navegador</td><td>ZeroChat</td><td>Concentrar el producto en ese recorrido</td></tr>
 </tbody>
 </table>
@@ -189,16 +190,16 @@ footer p:last-child{margin-bottom:0}
 <h2 id="section-7">7. Posicionamiento y prioridades</h2>
 <p>Mensaje recomendado:</p>
 <blockquote>Banco de pruebas personal de IA: conecta modelos, inspecciona peticiones, consulta documentos pequeños y prueba herramientas y servicios MCP desde una interfaz web.</blockquote>
-<p>Evitar como promesas centrales «privacidad absoluta», «RAG semántico», «sustituto de un IDE» o un control de permisos que hoy no confina.</p>
+<p>Evitar como promesas centrales «privacidad absoluta», «RAG semántico», «sustituto de un IDE» o un sandbox completo: los permisos son reglas de autorización, no aislamiento.</p>
 <div class="table-wrap" role="region" aria-label="Tabla del informe" tabindex="0">
 <table>
 <thead>
 <tr><th>Horizonte</th><th>Prioridad</th><th>Razón competitiva</th></tr>
 </thead>
 <tbody>
-<tr><td>Consolidación inmediata</td><td>Permisos fiables (T01, T02) y MCP sin bloqueos (T03, T04)</td><td>MCP ya no diferencia; la confianza al usarlo sí</td></tr>
+<tr><td>Consolidación inmediata</td><td>Permisos fiables (T01, T02, <strong>corregidos en 8.10.3</strong>) y MCP sin bloqueos (T03, T04)</td><td>MCP ya no diferencia; la confianza al usarlo sí</td></tr>
 <tr><td>Siguiente bloque</td><td>Recorrido de diagnóstico y resumen de copias</td><td>Facilita volver a usar la aplicación</td></tr>
-<tr><td>Después de medir</td><td>Evaluación pequeña de RAG</td><td>Evita complejidad sin beneficio comprobado</td></tr>
+<tr><td>Después de medir</td><td>Evaluación pequeña de RAG (<strong>hecha con FinanceBench</strong>)</td><td>Evita complejidad sin beneficio comprobado</td></tr>
 <tr><td>Fuera de prioridad</td><td>Funciones corporativas, infraestructura distribuida o IDE completo</td><td>Diluirían el objetivo personal</td></tr>
 </tbody>
 </table>
@@ -210,8 +211,8 @@ footer p:last-child{margin-bottom:0}
 <p>Medir tiempo hasta el primer resultado correcto, configuraciones manuales, claridad del error, recuperación tras fallo y mantenimiento tras un mes sin uso. Hasta ejecutar ese ensayo, la conclusión es de encaje estratégico, no de superioridad demostrada.</p>
 </section>
 <footer>
-<p>Síntesis: MCP ya es común en las alternativas; ZeroChat se diferencia por el acceso web, el modo Espejo, el inspector y los servicios MCP gestionados desde la web. Esa ventaja depende de corregir los permisos y los bloqueos detectados en la auditoría técnica.</p>
-<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1. Sustituye al informe de 7.12.0. Las recomendaciones no implican correcciones implementadas.</p>
+<p>Síntesis: MCP ya es común en las alternativas; ZeroChat se diferencia por el acceso web, el modo Espejo, el inspector y los servicios MCP gestionados desde la web. Corregidos los permisos en 8.10.3, esa ventaja depende de resolver los bloqueos de MCP y del navegador detectados en la auditoría técnica.</p>
+<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1, con seguimiento de correcciones a 8.11.2. Sustituye al informe de 7.12.0.</p>
 </footer>
 </main>
 </body>

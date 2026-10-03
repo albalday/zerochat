@@ -58,6 +58,7 @@ footer p:last-child{margin-bottom:0}
 <h1>Auditoría funcional de ZeroChat para uso personal puntual</h1>
 <p>Evaluación de la adecuación de ZeroChat <strong>8.10.1</strong> para un uso personal y puntual: probar modelos, endpoints, herramientas y proyectos pequeños. Sustituye a la auditoría funcional de 7.12.0.</p>
 <p>Fecha: 2 de octubre de 2026. Rama <code>dev</code>, commit <code>8edb0d73cd2007e4331b57b802b66c0e1e223df3</code>.</p>
+<p><strong>Seguimiento a 8.11.2 (3 de octubre de 2026):</strong> los permisos (T01, T02) se corrigieron en 8.10.3 y el RAG se ha ajustado con FinanceBench y no se dio por terminado hasta que un modelo local como Qwen resolvió las dos primeras y las dos últimas pruebas. Siguen pendientes T03 y T04.</p>
 <p>Estado: informe cerrado, sin cambios funcionales. Complementa la <a href="informe-calidad-codigo-infraestructura.html">auditoría técnica</a> y la <a href="informe-comparativa-herramientas.html">comparación de herramientas</a>.</p>
 <nav aria-label="Navegación de ayuda">
 <a href="../index.html">Centro de ayuda</a>
@@ -85,7 +86,7 @@ footer p:last-child{margin-bottom:0}
 <section>
 <h2 id="section-1">1. Dictamen y criterio de evaluación</h2>
 <p>ZeroChat encaja bien como banco de pruebas personal de modelos, endpoints y herramientas. La serie 8.x ha reforzado sobre todo la parte de herramientas: servicios MCP gestionados que se instalan desde la interfaz, autorización OAuth para servicios remotos, ejecución nativa en PowerShell y tarjetas de herramientas agrupadas. La amplitud funcional ya es suficiente para el objetivo.</p>
-<p>Lo que más limita hoy el uso con herramientas locales es la confianza en los permisos: las opciones «Permitir siempre» y «Confiar en el espacio de trabajo» autorizan más de lo que dicen, y la regla de lectura por defecto deja leer el directorio personal (T01 y T02 del informe técnico). Para un usuario que vuelve tras semanas sin usar la aplicación, también siguen pendientes un diagnóstico guiado de conexión y una visión unificada de qué está guardado y cómo restaurarlo.</p>
+<p>En 8.10.1, lo que más limitaba el uso con herramientas locales era la confianza en los permisos: las opciones «Permitir siempre» y «Confiar en el espacio de trabajo» autorizaban más de lo que decían, y la regla de lectura por defecto dejaba leer el directorio personal (T01 y T02 del informe técnico, corregidos en 8.10.3). Para un usuario que vuelve tras semanas sin usar la aplicación, también siguen pendientes un diagnóstico guiado de conexión y una visión unificada de qué está guardado y cómo restaurarlo.</p>
 <p>Se evalúa a una persona técnica que usa su propio equipo, trabaja de forma supervisada y resuelve tareas acotadas. No se penaliza la ausencia de funciones de equipo, SSO, alta disponibilidad ni IDE completo. La valoración de facilidad de uso es heurística: no hubo sesiones con usuarios ni proveedores de pago.</p>
 </section>
 <section>
@@ -105,7 +106,7 @@ footer p:last-child{margin-bottom:0}
 <tr><td>Búsqueda y lectura web</td><td>Disponible</td><td>Útil</td><td>Usa servicios externos (Jina, AllOrigins); documentado</td></tr>
 <tr><td>JavaScript aislado y gráficos</td><td>Disponible</td><td>Alto</td><td>Entorno temporal y restringido</td></tr>
 <tr><td>Bucle agéntico, plan y checkpoints</td><td>Disponible</td><td>Útil</td><td>Límite de turnos configurable (5–200); no es un límite de coste</td></tr>
-<tr><td>Archivos, shell y diagnósticos locales (Linux, Windows, Termux)</td><td>Disponible con backend</td><td>Muy alto</td><td>Los permisos no confinan como indican (T01, T02)</td></tr>
+<tr><td>Archivos, shell y diagnósticos locales (Linux, Windows, Termux)</td><td>Disponible con backend</td><td>Muy alto</td><td>En 8.10.1 los permisos no confinaban como indicaban (T01, T02; corregido en 8.10.3)</td></tr>
 <tr><td>Servicios MCP gestionados: Playwright, Memory, Composio (OAuth)</td><td>Nuevo en 8.x</td><td>Muy alto</td><td>Requiere Node.js 18+; un arranque lento bloquea el resto (T03)</td></tr>
 <tr><td>Servicios MCP propios con plantilla y prompt para el agente</td><td>Nuevo en 8.x</td><td>Alto</td><td>Claves en texto plano en <code>service.json</code>; documentado</td></tr>
 <tr><td>Navegación automatizada <code>browser_action</code></td><td>Condicional</td><td>Útil</td><td>Una caída del navegador bloquea la herramienta (T04)</td></tr>
@@ -126,10 +127,10 @@ footer p:last-child{margin-bottom:0}
 <p>Encaje medio-alto para comparación manual. Falta una ficha exportable del experimento (modelo, endpoint sin secretos, parámetros efectivos, herramientas activas, métricas y fecha) para repetir y explicar diferencias. No se recomienda un laboratorio de evaluación completo.</p>
 
 <h3>C. «Quiero consultar unos manuales o notas personales»</h3>
-<p>Encaje alto para material pequeño y vocabulario reconocible. La ayuda ya describe con precisión la búsqueda léxica. La calidad no está cuantificada: conviene un corpus pequeño de preguntas exactas, paráfrasis y sin respuesta antes de plantear embeddings.</p>
+<p>Encaje alto para material pequeño y vocabulario reconocible. La ayuda ya describe con precisión la búsqueda léxica. La calidad no estaba cuantificada en 8.10.1. Desde entonces, el RAG se ha ajustado con FinanceBench y no se dio por terminado hasta que un modelo local como Qwen resolvió las dos primeras y las dos últimas pruebas.</p>
 
 <h3>D. «Quiero leer y cambiar un proyecto pequeño»</h3>
-<p>Encaje alto con supervisión, pero con una reserva importante: hoy no conviene usar «Permitir siempre» para comandos ni «Confiar en el espacio de trabajo», porque autorizan comandos encadenados y rutas del directorio personal sin preguntar. Con la política «Preguntar» y revisión de cada llamada, el flujo es adecuado.</p>
+<p>Encaje alto con supervisión. En 8.10.1 había una reserva importante (corregida en 8.10.3): no convenía usar «Permitir siempre» para comandos ni «Confiar en el espacio de trabajo», porque autorizaban comandos encadenados y rutas del directorio personal sin preguntar. Con la política «Preguntar» y revisión de cada llamada, el flujo es adecuado.</p>
 <p>Mejora propuesta: que el texto de cada autorización describa exactamente lo que permite y que las reglas de carpeta confinen de verdad. Aceptación: completar una tarea en una carpeta temporal sin que ninguna operación fuera de ella se ejecute sin confirmación.</p>
 
 <h3>E. «Quiero usar un servicio MCP o una aplicación remota»</h3>
@@ -164,12 +165,12 @@ footer p:last-child{margin-bottom:0}
 <tr><th>Prioridad</th><th>Brecha</th><th>Propuesta mínima</th><th>Evidencia de éxito</th></tr>
 </thead>
 <tbody>
-<tr><td>P1</td><td>Permisos que no confinan (T01, T02)</td><td>Corregir reglas de carpeta y autorizaciones de comandos; textos exactos</td><td>Ninguna acción fuera del alcance mostrado se ejecuta sin confirmación</td></tr>
+<tr><td>P1</td><td>Permisos que no confinan (T01, T02) — <strong>corregido en 8.10.3</strong></td><td>Corregir reglas de carpeta y autorizaciones de comandos; textos exactos</td><td>Ninguna acción fuera del alcance mostrado se ejecuta sin confirmación</td></tr>
 <tr><td>P1</td><td>Arranque MCP bloqueante y navegador colgado (T03, T04)</td><td>Arranque sin lock global, cancelable; recuperación del navegador</td><td>Usar un servicio mientras otro espera OAuth; recuperar <code>browser_action</code> tras una caída</td></tr>
 <tr><td>P2</td><td>Diagnóstico de conexión disperso</td><td>Recorrido «probar conexión» sobre el inspector</td><td>Entender un fallo sin consultar documentación técnica</td></tr>
 <tr><td>P2</td><td>Restauración repartida</td><td>Resumen de copias y prueba de recuperación</td><td>Recuperar perfiles, conversación y RAG en un navegador limpio</td></tr>
 <tr><td>P3</td><td>Experimentos difíciles de reproducir</td><td>Ficha exportable sin credenciales</td><td>Explicar qué cambió entre dos ejecuciones</td></tr>
-<tr><td>P3</td><td>Calidad RAG no cuantificada</td><td>Corpus pequeño de evaluación</td><td>Fuentes correctas y preguntas sin respaldo identificadas</td></tr>
+<tr><td>P3</td><td>Calidad RAG no cuantificada — <strong>evaluada con FinanceBench</strong></td><td>Corpus pequeño de evaluación</td><td>Fuentes correctas y preguntas sin respaldo identificadas</td></tr>
 </tbody>
 </table>
 </div>
@@ -192,8 +193,8 @@ footer p:last-child{margin-bottom:0}
 <p>La madurez necesaria depende ahora menos de nuevas funciones y más de que las autorizaciones signifiquen exactamente lo que dicen y de que un proceso externo lento o caído no bloquee el resto.</p>
 </section>
 <footer>
-<p>Síntesis: buen encaje para pruebas personales, reforzado en 8.x por los servicios MCP gestionados. La prioridad es que los permisos confinen de verdad y que los servicios externos no bloqueen la aplicación.</p>
-<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1. Sustituye al informe de 7.12.0. Las recomendaciones no implican correcciones implementadas.</p>
+<p>Síntesis: buen encaje para pruebas personales, reforzado en 8.x por los servicios MCP gestionados. Corregidos los permisos en 8.10.3, la prioridad es que los servicios externos no bloqueen la aplicación.</p>
+<p>Auditoría puntual del 2 de octubre de 2026 sobre 8.10.1, con seguimiento de correcciones a 8.11.2. Sustituye al informe de 7.12.0.</p>
 </footer>
 </main>
 </body>
