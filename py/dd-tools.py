@@ -271,6 +271,82 @@ def _kill_process_tree(proc: subprocess.Popen):
             pass
 
 
+# Cada flujo conserva solo su comienzo y su final; la salida visible se trunca después a 8000.
+MAX_CAPTURE_HEAD_CHARS = 64 * 1024
+MAX_CAPTURE_TAIL_CHARS = 64 * 1024
+
+
+class _BoundedCapture:
+    """Lee un flujo hasta su cierre reteniendo como mucho su comienzo y su final."""
+
+    def __init__(self, stream):
+        self._head: list[str] = []
+        self._head_len = 0
+        self._tail: collections.deque[str] = collections.deque()
+        self._tail_len = 0
+        self._dropped = 0
+        self._thread = threading.Thread(target=self._read, args=(stream,), daemon=True)
+        self._thread.start()
+
+    def _read(self, stream):
+        try:
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    break
+                room = MAX_CAPTURE_HEAD_CHARS - self._head_len
+                if room > 0:
+                    self._head.append(chunk[:room])
+                    self._head_len += len(chunk[:room])
+                    chunk = chunk[room:]
+                if chunk:
+                    self._tail.append(chunk)
+                    self._tail_len += len(chunk)
+                    while self._tail_len - len(self._tail[0]) >= MAX_CAPTURE_TAIL_CHARS:
+                        self._dropped += len(self._tail[0])
+                        self._tail_len -= len(self._tail.popleft())
+        except (OSError, ValueError):
+            pass
+
+    def text(self, timeout: float) -> str:
+        # Un descendiente que escape del grupo puede mantener el pipe abierto: no esperar sin límite.
+        self._thread.join(timeout)
+        tail = "".join(self._tail)
+        if self._dropped:
+            tail = f"\n[... {self._dropped} characters discarded while capturing ...]\n" + tail
+        return "".join(self._head) + tail
+
+
+def _run_process(argv, cwd: str, timeout_seconds: int, shell: bool = False) -> tuple[int | None, str, str]:
+    """Ejecuta un proceso en su propio grupo con salida acotada.
+
+    Devuelve returncode None si se agotó el plazo; en ese caso termina también sus descendientes.
+    """
+    proc = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        shell=shell,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
+    )
+    stdout = _BoundedCapture(proc.stdout)
+    stderr = _BoundedCapture(proc.stderr)
+    try:
+        proc.wait(timeout=timeout_seconds)
+        returncode = proc.returncode
+    except subprocess.TimeoutExpired:
+        # Termina el grupo entero para no dejar vivos los procesos que lanzó el comando.
+        _kill_process_tree(proc)
+        proc.wait()
+        returncode = None
+    return returncode, stdout.text(2), stderr.text(2)
+
+
 def _command_result(returncode: int, stdout: str, stderr: str, cwd: str) -> str:
     truncated_out, was_out_trunc = truncate_terminal_output(stdout)
     truncated_err, was_err_trunc = truncate_terminal_output(stderr)
@@ -373,21 +449,8 @@ class PersistentShellSession:
         try:
             runner_script.write_text(script_content, encoding="utf-8")
             runner_script.chmod(0o700)
-            proc = subprocess.Popen(
-                argv,
-                cwd=self._cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
-            )
-            try:
-                stdout, stderr = proc.communicate(timeout=safe_timeout)
-            except subprocess.TimeoutExpired:
-                _kill_process_tree(proc)
-                proc.communicate()
+            returncode, stdout, stderr = _run_process(argv, self._cwd, safe_timeout)
+            if returncode is None:
                 return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=self._cwd, os=DETECTED_OS)
 
             try:
@@ -396,7 +459,7 @@ class PersistentShellSession:
                     self._cwd = saved_cwd
             except OSError:
                 pass
-            return _command_result(proc.returncode, stdout, stderr, self._cwd)
+            return _command_result(returncode, stdout, stderr, self._cwd)
         except Exception as e:
             return _tool_error(str(e), cwd=self._cwd, os=DETECTED_OS)
         finally:
@@ -428,19 +491,10 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
             argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
         else:
             argv = command
-        proc = subprocess.run(
-            argv,
-            cwd=str(target_cwd),
-            shell=DETECTED_OS != "windows",
-            capture_output=True,
-            text=True,
-            timeout=safe_timeout,
-            encoding="utf-8",
-            errors="replace"
-        )
-        return _command_result(proc.returncode, proc.stdout, proc.stderr, str(target_cwd))
-    except subprocess.TimeoutExpired:
-        return _tool_error(f"Command timed out after {safe_timeout} seconds.", os=DETECTED_OS)
+        returncode, stdout, stderr = _run_process(argv, str(target_cwd), safe_timeout, shell=DETECTED_OS != "windows")
+        if returncode is None:
+            return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=str(target_cwd), os=DETECTED_OS)
+        return _command_result(returncode, stdout, stderr, str(target_cwd))
     except Exception as e:
         return _tool_error(str(e), os=DETECTED_OS)
 
