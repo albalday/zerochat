@@ -244,6 +244,11 @@
     return `<div class="rag-ingestion-progress-item ${itemClass}"><strong>${escapeHtml(event.fileName)}</strong><span>${escapeHtml(event.message)}</span><progress max="100" value="${Number(event.percent) || 0}"></progress></div>`;
   }
 
+  /** Traduce los contadores distintos de cero de una lista de pares [clave, valor]. */
+  function countParts(counts) {
+    return counts.filter(([, count]) => count > 0).map(([key, count]) => t(key, { count }));
+  }
+
   function globalProgressMarkup(event, isRunning = true) {
     const total = Number(event.totalFiles) || 0;
     const finished = Number(event.finishedFiles) || 0;
@@ -253,14 +258,13 @@
     const failed = Number(event.failedFiles) || 0;
     const overallPercent = Math.round(Number(event.overallPercent) || 0);
 
-    const parts = [];
-    if (processed > 0) parts.push(`${processed} nuevos`);
-    if (replaced > 0) parts.push(`${replaced} reemplazados`);
-    if (skipped > 0) parts.push(`${skipped} omitidos`);
-    if (failed > 0) parts.push(`${failed} con error`);
-    const status = parts.length
-      ? parts.join(' · ')
-      : (t('rag_ingestion_status', { processed }) || `${processed} indexados`);
+    const parts = countParts([
+      ['rag_count_new', processed],
+      ['rag_count_replaced', replaced],
+      ['rag_count_skipped', skipped],
+      ['rag_count_failed', failed]
+    ]);
+    const status = parts.length ? parts.join(' · ') : t('rag_ingestion_status', { processed });
 
     const header = t('rag_ingestion_global', { finished, total }) || `Carga global: ${finished} de ${total}`;
     const stopIcon = '<svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
@@ -280,18 +284,17 @@
     const total = Number(result?.total) || 0;
     const totalIndexed = processed + replaced;
 
-    let summaryText = `${totalIndexed} indexados · ${failed} no indexados`;
-    if (replaced > 0 || skipped > 0 || cancelled > 0) {
-      const extra = [];
-      if (replaced > 0) extra.push(`${replaced} reemplazados`);
-      if (skipped > 0) extra.push(`${skipped} omitidos`);
-      if (cancelled > 0) extra.push(`${cancelled} cancelados`);
-      summaryText += ` (${extra.join(', ')})`;
+    let header = t('rag_ingestion_complete', { processed: totalIndexed, failed, total });
+    if (cancelled > 0) {
+      let summaryText = `${t('rag_ingestion_status', { processed: totalIndexed })} · ${t('rag_count_not_indexed', { count: failed })}`;
+      const extra = countParts([
+        ['rag_count_replaced', replaced],
+        ['rag_count_skipped', skipped],
+        ['rag_count_cancelled', cancelled]
+      ]);
+      if (extra.length) summaryText += ` (${extra.join(', ')})`;
+      header = `${t('rag_ingestion_cancelled')}: ${summaryText}`;
     }
-
-    const header = cancelled > 0
-      ? (t('rag_ingestion_cancelled') || 'Ingesta detenida por el usuario') + `: ${summaryText}`
-      : (t('rag_ingestion_complete', { processed: totalIndexed, failed, total }) || `Ingesta completada: ${summaryText}`);
 
     const errors = Array.isArray(result?.errors) ? result.errors : [];
     return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errors.length ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>` : ''}</div>`;

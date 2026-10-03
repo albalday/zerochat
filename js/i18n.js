@@ -173,8 +173,12 @@
       rag_btn_replace: 'Reemplazar',
       rag_btn_ignore: 'Ignorar',
       rag_duplicate_apply_all: 'Aplicar a todos los duplicados restantes de esta carga',
-      rag_ingestion_status_detail: '{processed} nuevos · {replaced} reemplazados · {skipped} omitidos',
-      rag_ingestion_complete_detail: 'Ingesta finalizada: {processed} nuevos · {replaced} reemplazados · {skipped} omitidos{errors}',
+      rag_count_new: '{count} nuevos',
+      rag_count_replaced: '{count} reemplazados',
+      rag_count_skipped: '{count} omitidos',
+      rag_count_failed: '{count} con error',
+      rag_count_cancelled: '{count} cancelados',
+      rag_count_not_indexed: '{count} no indexados',
 
       // Barra de entrada y formulario
       btn_attach_title: 'Adjuntar archivos (PDF, código, texto, imágenes)',
@@ -849,8 +853,12 @@
       rag_btn_replace: 'Replace',
       rag_btn_ignore: 'Ignore',
       rag_duplicate_apply_all: 'Apply to all remaining duplicates in this load',
-      rag_ingestion_status_detail: '{processed} new · {replaced} replaced · {skipped} skipped',
-      rag_ingestion_complete_detail: 'Ingestion complete: {processed} new · {replaced} replaced · {skipped} skipped{errors}',
+      rag_count_new: '{count} new',
+      rag_count_replaced: '{count} replaced',
+      rag_count_skipped: '{count} skipped',
+      rag_count_failed: '{count} failed',
+      rag_count_cancelled: '{count} cancelled',
+      rag_count_not_indexed: '{count} not indexed',
 
       // Barra de entrada y formulario
       btn_attach_title: 'Attach files (PDF, code, text, images)',
