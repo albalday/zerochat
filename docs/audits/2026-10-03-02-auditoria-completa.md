@@ -35,9 +35,6 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | E1 | El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth | Estabilidad | **Alta** |
 | S1 | `apiUrl` y campos de perfiles importados sin validar | Seguridad | Media |
 | S6 | `ChatI18n.t` no escapa los parámetros de plantillas con HTML | Seguridad / presentación | Media |
-| S8 | La codificación de nombres MCP no es inyectiva | Seguridad / estabilidad | Media |
-| E2 | `StdioMcpClient` sin límites de tamaño ni cierre del árbol de procesos | Estabilidad | Media |
-| E3 | `execute_command` con `cwd` explícito no termina subprocesos ni acota la salida | Estabilidad | Media |
 | E4 | La cancelación no llega a las herramientas web; hay dos `fetchWithTimeout` incompatibles | Estabilidad | Media |
 | E5 | `ChatState` pierde notificaciones anidadas y comparte referencias | Estabilidad | Media |
 | A1 | `app.js` concentra lógica de dominio (modo importación, latido, telemetría) | Deuda técnica | Media |
@@ -46,7 +43,6 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | E6 | El Service Worker puede mezclar versiones | Estabilidad | Baja |
 | P2 | Emojis crudos en controles y cabeceras interactivas | Presentación | Baja |
 | A3 | 17 envoltorios `t()` locales y 165 textos de respaldo en español | Deuda técnica | Baja |
-| R1 | Documentación normativa desalineada con el código | Deuda técnica | Baja |
 
 No se encontraron infracciones en estas áreas:
 
@@ -92,11 +88,11 @@ No se encontraron infracciones en estas áreas:
 ### E1 — El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth · Alta
 
 **Evidencia** (`py/ee-mcp.py`)
-- `start()` (`:493-549`) mantiene `self._lock` durante todo este trabajo:
+- `start()` (`:582-639`) mantiene `self._lock` durante todo este trabajo:
   - `_prepare_service`: `npm install` (`timeout=600`) y `playwright install` (`timeout=600`);
   - el handshake, que puede durar hasta `handshakeTimeoutSeconds` (150 s en Composio, a la
     espera de la autorización OAuth del usuario).
-- `tools()` (`:578-596`), `call()` (`:598-614`), `stop()`, `configure()` y `close()` adquieren el mismo cerrojo.
+- `tools()` (`:668-693`), `call()` (`:695-715`), `stop()`, `configure()` y `close()` adquieren el mismo cerrojo.
 
 **Riesgo**
 Mientras un servicio se instala o espera OAuth (hasta unos 22 minutos en el peor caso), las
@@ -150,65 +146,6 @@ XSS en el origen de la aplicación, con acceso al token del backend y a `tools/c
 
 **Prueba**
 - Unitaria (`test_i18n.js`): un parámetro con `<` en una plantilla HTML se inserta escapado.
-
-### S8 — La codificación de nombres MCP no es inyectiva · Media
-
-**Evidencia**
-- `js/mcp.js:35-49` y `py/ee-mcp.py:130-142` conservan `[a-zA-Z0-9]`, incluida la `z`.
-- `js/tools/README.md` afirma que solo se conservan `a-y` y `0-9` y que `z` y las mayúsculas se escapan.
-- Reproducido en Python: `public_tool_name('_', 'x') == public_tool_name('z5fz', 'x') == 'z5fz_x'`.
-- `py/ee-mcp.py:598-614` (`call`): ante una colisión ejecuta la primera coincidencia.
-- `tools()` (`:592-594`) descarta en silencio los nombres que fallan.
-
-**Riesgo**
-Un servicio con un identificador elegido puede ocultar herramientas de otro o recibir sus
-llamadas, y los permisos persistidos por identificador canónico se aplican a la herramienta
-equivocada.
-
-**Alcance y alternativa**
-- Restablecer la codificación documentada: escapar `z` y las mayúsculas en JS y Python a la vez.
-- Rechazar los duplicados también en `McpServiceManager.tools()`.
-- Registrar los descartes.
-
-**Prueba**
-- Unitaria cruzada JS/Python con la misma tabla de casos: `_`↔`z5fz`, mayúsculas y límite de 64 caracteres.
-
-### E2 — `StdioMcpClient` sin límites de tamaño ni cierre del árbol de procesos · Media
-
-**Evidencia** (`py/ee-mcp.py`)
-- `_read_stdout` (`:230-258`) lee líneas sin límite. Una respuesta enorme o sin salto de línea
-  agota la memoria y se reenvía al navegador sin tope.
-- `stop()` (`:295-310`) termina solo el proceso directo. `Popen` (`:175`) no crea grupo de
-  procesos, así que los hijos (`npm`, `node`, navegadores de Playwright) quedan huérfanos.
-- `request()` (`:260-284`) escribe en `stdin` mientras retiene `self._lock`. Si el hijo no lee,
-  se bloquean todas las peticiones.
-- `call()` usa el `timeout=30` por defecto para `tools/call`, que es insuficiente para
-  automatización de navegador.
-
-**Alcance y alternativa**
-- Limitar el tamaño de línea y de resultado; por ejemplo, devolver un error por encima de `MAX_HTTP_BODY_BYTES`.
-- Usar `start_new_session=True` y terminar el grupo, como ya hace `_kill_process_tree` en `dd-tools.py`.
-- Escribir fuera del cerrojo.
-- Hacer configurable el tiempo de `tools/call` por servicio.
-
-**Prueba**
-- Infraestructura: un MCP simulado que emite 5 MB en una línea produce un error controlado.
-- Infraestructura: `stop()` no deja procesos hijos.
-
-### E3 — `execute_command` con `cwd` explícito no termina subprocesos ni acota la salida · Media
-
-**Evidencia** (`py/dd-tools.py`, `execute_command` y `PersistentShellSession._run_runner`)
-- Con un `cwd` distinto del de la sesión, se usa `subprocess.run(..., shell=True,
-  timeout=…)`. Al vencer el plazo solo se mata el shell; los nietos siguen vivos. La sesión
-  persistente sí usa `_kill_process_tree`.
-- `communicate`/`capture_output` acumulan toda la salida en memoria antes de truncarla.
-
-**Alcance y alternativa**
-- Reutilizar `_run_runner` o `Popen` con grupo de procesos para ambos caminos.
-- Leer la salida con un límite y descartar el exceso.
-
-**Prueba**
-- Infraestructura: `sleep 100 & sleep 100` con tiempo de 1 s no deja procesos.
 
 ### E4 — La cancelación no llega a las herramientas web; hay dos `fetchWithTimeout` incompatibles · Media
 
@@ -348,22 +285,10 @@ Ampliar `test_ui_modernization.js` para cubrir la página generada por `profile-
 
 No se recomienda un cambio masivo.
 
-### R1 — Documentación normativa desalineada con el código · Baja
-
-**Evidencia**
-- `js/tools/README.md` describe una codificación de nombres distinta de la implementada (S8).
-
-**Alternativa**
-Mantener el README como contrato y corregir el código en S8.
-
 ## 4. Interfaces públicas que no pueden cambiarse sin migración
 
 - **Formato `zerochat-profile-backup` v1 y sobre de API key** (`profile-backup.js`): S2 exige
   un formato v2 con migración de lectura v1.
-- **Nombres públicos de herramientas MCP** (`publicToolName` en JS y Python) y permisos
-  persistidos por identificador canónico en `localStorage` (`tool-security.js`). Cambiar la
-  codificación (S8) invalida las autorizaciones guardadas. `js/tools/README.md` descarta migrar
-  nombres antiguos, así que hay que documentarlo y avisar.
 - **Mensajes `postMessage` `zerochat_import_ready`, `import_profiles` e `import_result`**
   (`app.js` ↔ `profile-export-bundle.js`): los paquetes ya exportados dependen de ellos (A1).
 - **`ChatState` y sus mutadores**, consumidos por todos los módulos de UI (E5).
@@ -383,15 +308,12 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | 3 | `fix:` borrado limitado a las cachés y Service Workers de ZeroChat | S3 | `test:unit`, `test:browser` |
 | 4 | `feat:` formato de cifrado v2 (PBKDF2 + sal) con migración v1 y caché no extraíble | S2 | `test:unit`, `test:integration`, `test:browser` |
 | 5 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
-| 6 | `fix:` límites de tamaño, grupo de procesos y tiempo configurable en MCP stdio | E2 | `test:infrastructure` |
-| 7 | `fix:` `execute_command` con grupo de procesos y salida acotada | E3 | `test:infrastructure` |
-| 8 | `fix:` codificación inyectiva de nombres MCP (JS y Python) y rechazo de duplicados | S8, R1 | `test:unit`, `test:integration`, `test:infrastructure` |
-| 9 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
-| 10 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
-| 11 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
-| 12 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
-| 13 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
-| 14 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
+| 6 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
+| 7 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
+| 8 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
+| 9 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
+| 10 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
+| 11 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
 
 Pruebas de arquitectura nuevas que se proponen, para impedir que se reintroduzcan los problemas:
 
