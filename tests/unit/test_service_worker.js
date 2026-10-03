@@ -201,3 +201,44 @@ test('PWA Manifest - manifest.webmanifest es válido y define propiedades obliga
   assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'Debe definir iconos');
 });
 
+
+test('Service Worker - install falla si algún recurso del precache no se descarga', async () => {
+  const vm = require('node:vm');
+  const swCode = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf8');
+
+  async function runInstall(addAll) {
+    const listeners = {};
+    let skipped = false;
+    const context = {
+      self: {
+        location: { origin: 'https://albalday.github.io' },
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        skipWaiting: () => { skipped = true; },
+        clients: { claim: () => {} }
+      },
+      URL,
+      Request: class { constructor(url, init) { this.url = url; this.cache = init?.cache; } },
+      caches: { open: () => Promise.resolve({ addAll }) },
+      fetch: () => Promise.reject(new Error('fetch no esperado'))
+    };
+    vm.createContext(context);
+    vm.runInContext(swCode, context);
+    let installPromise;
+    listeners.install({ waitUntil: (promise) => { installPromise = promise; } });
+    await installPromise.catch(() => {});
+    return { installPromise, skipped };
+  }
+
+  let requested = [];
+  const ok = await runInstall(async (requests) => { requested = requests; });
+  await ok.installPromise;
+  assert.equal(ok.skipped, true);
+  assert.ok(requested.length > 1);
+  assert.ok(requested.every(req => req.cache === 'no-cache'));
+  // La raíz no es la aplicación y el servidor local la protege con token: rompería la instalación.
+  assert.ok(!requested.some(req => req.url === './'));
+
+  const failed = await runInstall(async () => { throw new TypeError('Request failed'); });
+  await assert.rejects(failed.installPromise, /Request failed/);
+  assert.equal(failed.skipped, false);
+});

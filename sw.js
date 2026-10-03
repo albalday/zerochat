@@ -7,7 +7,6 @@
 const CACHE_NAME = 'zerochat-v8.10.4';
 
 const PRECACHE_ASSETS = [
-  './',
   './zerochat.html',
   './manifest.webmanifest',
   './css/tokens.css',
@@ -96,16 +95,9 @@ const PRECACHE_ASSETS = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
+    // addAll es atómico: si falta un recurso, la instalación falla y sigue activa la versión anterior.
     caches.open(CACHE_NAME).then(cache => {
-      return Promise.allSettled(
-        PRECACHE_ASSETS.map(asset =>
-          fetch(asset, { cache: 'no-cache' })
-            .then(res => {
-              if (res.ok) return cache.put(asset, res);
-            })
-            .catch(() => {})
-        )
-      );
+      return cache.addAll(PRECACHE_ASSETS.map(asset => new Request(asset, { cache: 'no-cache' })));
     }).then(() => self.skipWaiting())
   );
 });
