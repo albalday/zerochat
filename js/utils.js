@@ -39,13 +39,16 @@
     return '#';
   }
 
-  /** Normaliza una URL no confiable para usarla como origen de una imagen. */
+  /**
+   * Valida una URL no confiable como origen de imagen y la devuelve sin
+   * escapar; quien la interpole en HTML debe escaparla en ese punto.
+   */
   function sanitizeImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
-    if (/^https?:\/\/[^\s"'<>]+/i.test(trimmed)) return escapeHtml(trimmed);
+    if (/^https?:\/\/[^\s"'<>]+$/i.test(trimmed)) return trimmed;
     if (/^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\s.]+$/i.test(trimmed)) return trimmed.replace(/\s+/g, '');
-    if (/^blob:[^\s"'<>]+/i.test(trimmed) || /^rag-image:\/\/[a-zA-Z0-9_\-:]+/i.test(trimmed)) return escapeHtml(trimmed);
+    if (/^blob:[^\s"'<>]+$/i.test(trimmed) || /^rag-image:\/\/[a-zA-Z0-9_\-:]+$/i.test(trimmed)) return trimmed;
     return '';
   }
 

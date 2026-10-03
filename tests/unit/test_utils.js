@@ -18,6 +18,9 @@ test('ChatUtils - centraliza la sanitización de URL y origen de imagen no confi
   assert.equal(ChatUtils.sanitizeImageUrl('data:image/png;base64,AAAA\n BBBB=='), 'data:image/png;base64,AAAABBBB==');
   assert.equal(ChatUtils.sanitizeImageUrl('data:image/png;base64,AAAA" onerror="alert(1)'), '');
   assert.equal(ChatUtils.sanitizeImageUrl('data:image/png;base64,AAAA<script>'), '');
+  assert.equal(ChatUtils.sanitizeImageUrl('https://example.test/a.png?w=1&h=2'), 'https://example.test/a.png?w=1&h=2');
+  assert.equal(ChatUtils.sanitizeImageUrl('https://example.test/a.png" onerror="alert(1)'), '');
+  assert.equal(ChatUtils.sanitizeImageUrl('blob:https://example.test/1234 onerror=alert(1)'), '');
 });
 
 test('ChatUtils - primitivas de DOM separan texto no confiable de HTML interno', () => {

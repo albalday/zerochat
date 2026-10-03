@@ -67,3 +67,16 @@ test('Markdown - Renderizado seguro de rag-image con data-rag-src y resolución 
 });
 
 
+
+test('Markdown - URL de imagen con parámetros se escapa una sola vez', () => {
+  const html = Markdown.parseMarkdown('![a](https://example.test/i.png?w=1&h=2)');
+  assert.ok(html.includes('src="https://example.test/i.png?w=1&amp;h=2"'));
+  const tableHtml = Markdown.parseMarkdown('| c |\n|---|\n| ![a](https://example.test/i.png?w=1&h=2) |');
+  assert.ok(tableHtml.includes('src="https://example.test/i.png?w=1&amp;h=2"'));
+  assert.ok(!html.includes('&amp;amp;') && !tableHtml.includes('&amp;amp;'));
+});
+
+test('Markdown - URL de imagen con comillas no inyecta atributos', () => {
+  const html = Markdown.parseMarkdown('![a](https://example.test/i.png"onerror="alert(1))');
+  assert.ok(!html.includes('"onerror') && !html.includes(' onerror='));
+});

@@ -27,6 +27,8 @@
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
   const { escapeHtml, sanitizeUrl, sanitizeImageUrl } = Utils;
+  // Las URL de imagen se validan sobre texto ya escapado (parseTextMarkdown), así que
+  // el valor de sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
 
   function parseInlineMarkdown(text) {
     if (!text) return '';
