@@ -286,7 +286,7 @@
     }
 
     const chartIconSvg = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>';
-    const chevronSvg = '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+    const chevronSvg = Utils.resolveDep('ChatIcons', './icons.js').get('chevron-down', { size: 12 });
 
     return `
       <div class="chat-chart-card">

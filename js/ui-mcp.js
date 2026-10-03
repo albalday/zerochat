@@ -123,7 +123,7 @@
     if (!Array.isArray(tools) || tools.length === 0) {
       const isConnected = getState()?.get ? getState().get('mcp')?.status === 'connected' : false;
       const msg = isConnected ? translator('mcp_tools_empty_connected') : translator('mcp_tools_empty_disconnected');
-      const plug = Icons?.get ? Icons.get('plug', { size: 24 }) : '<svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a6 6 0 0 1-12 0V8z"></path></svg>';
+      const plug = Icons.get('plug', { size: 24 });
       container.innerHTML = `<div class="mcp-tools-empty">${plug}<p>${msg}</p></div>`;
       return;
     }

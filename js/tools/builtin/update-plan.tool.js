@@ -38,10 +38,11 @@
   };
 
   const PLAN_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>';
-  const TASK_COMPLETED_SVG = '<svg class="ui-icon status-icon-completed" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success-color, #22c55e)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-  const TASK_IN_PROGRESS_SVG = '<svg class="ui-icon status-icon-progress" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color, #3b82f6)" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-  const TASK_PENDING_SVG = '<svg class="ui-icon status-icon-pending" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted, #94a3b8)" stroke-width="2"><circle cx="12" cy="12" r="9"></circle></svg>';
-  const TASK_FAILED_SVG = '<svg class="ui-icon status-icon-failed" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--error-color, #ef4444)" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const TASK_COMPLETED_SVG = Icons.get('check', { size: 13, strokeWidth: 2.5, className: 'status-icon-completed' });
+  const TASK_IN_PROGRESS_SVG = Icons.get('clock', { size: 13, strokeWidth: 2.5, className: 'status-icon-progress' });
+  const TASK_PENDING_SVG = Icons.get('circle', { size: 13, className: 'status-icon-pending' });
+  const TASK_FAILED_SVG = Icons.get('x-circle', { size: 13, strokeWidth: 2.5, className: 'status-icon-failed' });
 
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

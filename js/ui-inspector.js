@@ -668,14 +668,14 @@
 
     const icons = getIcons();
     const capIcons = {
-      streaming: icons?.get?.('radio', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.93 19.07a10 10 0 0 1 0-14.14"></path><path d="M7.76 16.24a6 6 0 0 1 0-8.48"></path><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.48"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
-      tools: icons?.get?.('settings', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
-      vision: icons?.get?.('eye', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
-      reasoning: icons?.get?.('brain', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04zm5 0a2.5 2.5 0 0 0-2.5 2.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04z"></path></svg>',
-      jsonMode: icons?.get?.('code', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>',
-      promptCaching: icons?.get?.('zap', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>',
-      embeddings: icons?.get?.('hash', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>',
-      modelListing: icons?.get?.('bot', { size: 14 }) || '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="10" rx="2"></rect><circle cx="12" cy="4" r="2"></circle><line x1="12" y1="6" x2="12" y2="10"></line><circle cx="8" cy="15" r="1"></circle><circle cx="16" cy="15" r="1"></circle></svg>'
+      streaming: icons.get('radio', { size: 14 }),
+      tools: icons.get('settings', { size: 14 }),
+      vision: icons.get('eye', { size: 14 }),
+      reasoning: icons.get('brain', { size: 14 }),
+      jsonMode: icons.get('code', { size: 14 }),
+      promptCaching: icons.get('zap', { size: 14 }),
+      embeddings: icons.get('hash', { size: 14 }),
+      modelListing: icons.get('bot', { size: 14 })
     };
 
     const capKeys = [
@@ -788,7 +788,7 @@
     elements.inspectorResults.style.display = 'block';
     elements.inspectorResults.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
-        <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;"><svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>
+        <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${getIcons().get('spinner', { size: 24 })}</span>
         <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_querying_model', { model }))}</p>
       </div>
     `;
@@ -873,7 +873,7 @@
         <div class="inspector-model-section">
           <div class="inspector-model-header">
             <div class="inspector-model-title">
-              <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              ${getIcons().get('check-circle', { size: 16 })}
               <span>${escapeHtml(t('inspector_model_title'))}: <strong>${escapeHtml(modelDisplayName)}</strong></span>
             </div>
             <span class="cap-badge cap-badge-confirmed">✓ ${escapeHtml(t('inspector_status_confirmed'))}</span>
@@ -894,7 +894,7 @@
       elements.inspectorResults.innerHTML = `
         ${modelSectionHtml}
         <div id="inspector-endpoint-loading" style="padding: 1.25rem; text-align: center; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 0.75rem;">
-          <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg></span>
+          <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${getIcons().get('spinner', { size: 20 })}</span>
           <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_diagnosing_endpoint'))}</p>
         </div>
       `;

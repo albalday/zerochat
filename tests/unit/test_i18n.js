@@ -31,13 +31,13 @@ test('I18n - uiText centraliza textos visibles con fallback local', () => {
 test('I18n - Traducciones del conocimiento local', () => {
   I18n.setLanguage('es', false);
   assert.equal(I18n.t('rag_modal_title'), 'Conocimiento local');
-  assert.ok(I18n.t('rag_help_storage_desc').includes('IndexedDB'));
-  assert.match(I18n.t('rag_help_llm_desc'), /temperatura baja/);
+  assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
+  assert.match(I18n.t('rag_status_desc_single'), /mediante Orama/);
 
   I18n.setLanguage('en', false);
   assert.equal(I18n.t('rag_modal_title'), 'Local knowledge');
-  assert.ok(I18n.t('rag_help_storage_desc').includes('Orama'));
-  assert.match(I18n.t('rag_help_llm_desc'), /low temperature/);
+  assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
+  assert.match(I18n.t('rag_status_desc_single'), /using Orama/);
 });
 
 test('I18n - Título de la aplicación solo contiene ZeroChat y la versión', () => {

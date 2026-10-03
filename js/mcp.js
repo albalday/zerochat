@@ -713,11 +713,8 @@
   }
 
   function getMcpIconSvg(size = 14) {
-    const Icons = (typeof window !== 'undefined' && window.ChatIcons) || (typeof require !== 'undefined' ? (() => { try { return require('./icons.js'); } catch (e) { return null; } })() : null);
-    if (Icons && typeof Icons.get === 'function') {
-      return Icons.get('plug', { size });
-    }
-    return `<svg class="ui-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a6 6 0 0 1-12 0V8z"></path></svg>`;
+    const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('./icons.js');
+    return Icons.get('plug', { size });
   }
 
   function formatMcpMarkdown(toolName, args, result, outcome, serverName) {

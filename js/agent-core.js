@@ -1646,28 +1646,9 @@
     }
   }
 
-  /**
-   * Orquestador Agéntico del Ciclo de Vida de Conversación (AgentCore).
-   * Mantiene compatibilidad total con la API previa extendiendo AgentRuntime.
-   */
-  class AgentCore extends AgentRuntime {
-    constructor(options = {}) {
-      super(options);
-      this.maxTurns = this.maxSteps;
-    }
-
-    /**
-     * Alias compatible con la firma previa runConversationLoop.
-     */
-    async runConversationLoop(params = {}) {
-      return this.execute(params);
-    }
-  }
-
   const globalRegistry = new ToolRegistry();
   const globalExecutor = new ToolExecutor(globalRegistry);
   const globalRuntime = new AgentRuntime({ registry: globalRegistry, executor: globalExecutor });
-  const globalAgent = new AgentCore({ registry: globalRegistry, executor: globalExecutor });
 
   return {
     TOOL_CONTRACT_VERSION,
@@ -1679,11 +1660,9 @@
     ToolRegistry,
     ToolExecutor,
     AgentRuntime,
-    AgentCore,
     registry: globalRegistry,
     executor: globalExecutor,
     runtime: globalRuntime,
-    agent: globalAgent,
     dispatchToolCall: (toolCall, options) => globalExecutor.dispatchToolCall(toolCall, options),
     executeToolCall: (toolCall, context) => globalExecutor.executeToolCall(toolCall, context)
   };

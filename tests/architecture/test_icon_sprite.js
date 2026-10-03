@@ -38,3 +38,25 @@ test('Sprite de iconos - el sprite no declara símbolos sin uso', () => {
   const unused = [...symbols].filter(id => !uses.has(id));
   assert.deepEqual(unused, [], `Símbolos del sprite sin uso: ${unused.join(', ')}`);
 });
+
+const Icons = require(path.join(ROOT, 'js/icons.js'));
+const normalizeSvg = markup => markup.replace(/\s+/g, ' ').replace(/> </g, '><').trim();
+const consumerSources = [path.join(ROOT, 'zerochat.html'), ...listJsFiles(path.join(ROOT, 'js'))]
+  .filter(filePath => filePath !== path.join(ROOT, 'js/icons.js'))
+  .map(filePath => ({ file: path.relative(ROOT, filePath), content: fs.readFileSync(filePath, 'utf8') }));
+
+test('ChatIcons - cada glifo del catálogo tiene al menos un consumidor', () => {
+  const unused = Icons.list().filter(name => !consumerSources.some(({ content }) =>
+    content.includes(`'${name}'`) || content.includes(`"icon-${name}"`) || content.includes(`#icon-${name}"`)));
+  assert.deepEqual(unused, [], `Glifos de ChatIcons sin uso: ${unused.join(', ')}`);
+});
+
+test('ChatIcons - no se duplican glifos del catálogo como SVG en línea', () => {
+  const glyphs = new Map(Object.entries(Icons.GLYPHS).map(([name, glyph]) => [normalizeSvg(glyph), name]));
+  const duplicates = consumerSources
+    .filter(({ file }) => file.startsWith('js/'))
+    .flatMap(({ file, content }) => [...content.matchAll(/<svg[^>]*>([\s\S]*?)<\/svg>/g)]
+      .filter(match => glyphs.has(normalizeSvg(match[1])))
+      .map(match => `${file}: ${glyphs.get(normalizeSvg(match[1]))}`));
+  assert.deepEqual(duplicates, [], `Usa ChatIcons.get en lugar de SVG en línea: ${duplicates.join(', ')}`);
+});

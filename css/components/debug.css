@@ -160,7 +160,6 @@
   padding: 0;
 }
 
-
 .debug-tabs {
   display: flex;
   gap: 0.3rem;
@@ -473,55 +472,6 @@
   flex: 1;
   height: 100%;
   max-height: none;
-}
-
-.btn-secondary-action {
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  color: #fbbf24;
-  padding: 0.55rem 0.95rem;
-  border-radius: var(--radius-md);
-  font-weight: 500;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-secondary-action:hover {
-  background: rgba(245, 158, 11, 0.25);
-  border-color: #f59e0b;
-  color: #fde68a;
-}
-
-.debug-raw-toggle-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #cbd5e1;
-}
-
-.raw-toggle-label {
-  font-weight: 500;
-  font-size: 0.78rem;
-  color: #cbd5e1;
-}
-
-.raw-status-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--radius-full);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: #1e293b;
-  color: #64748b;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.raw-status-badge.active {
-  background: rgba(6, 182, 212, 0.2);
-  color: #22d3ee;
-  border-color: rgba(6, 182, 212, 0.4);
 }
 
 .switch.switch-sm {

@@ -361,7 +361,10 @@
     });
   }
 
-  const BaseProviderAdapter = Providers?.BaseProviderAdapter || class {};
+  const BaseProviderAdapter = Providers?.BaseProviderAdapter;
+  if (typeof BaseProviderAdapter !== 'function') {
+    throw new Error('ChatWebLLM requires ChatProviders.BaseProviderAdapter (load js/providers.js first).');
+  }
   class WebLLMProviderAdapter extends BaseProviderAdapter {
     constructor(options = {}) {
       super({
@@ -464,7 +467,7 @@
   }
 
   const adapter = new WebLLMProviderAdapter();
-  Providers?.registry?.register(adapter);
+  Providers.registry?.register(adapter);
   return {
     WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,

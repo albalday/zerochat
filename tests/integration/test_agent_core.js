@@ -176,7 +176,7 @@ test('AgentCore - Cancelación de ejecución de herramientas mediante AbortSigna
 });
 
 test('AgentCore - Detección y detención de bucles infinitos en el agente', () => {
-  const agent = new AgentCoreModule.AgentCore();
+  const agent = new AgentCoreModule.AgentRuntime();
 
   const tc1 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
   const tc2 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };

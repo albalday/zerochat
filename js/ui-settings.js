@@ -792,7 +792,7 @@
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
-                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                  ${resolveDep('ChatIcons', './icons.js').get('folder', { size: 20 })}
                 </span>
                 <strong data-i18n="mcp_directory_rules_title">Directorios permitidos</strong>
               </div>
@@ -809,7 +809,7 @@
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
-                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  ${resolveDep('ChatIcons', './icons.js').get('check', { size: 20 })}
                 </span>
                 <strong data-i18n="mcp_security_saved_auths_title">Herramientas y Servidores Autorizados</strong>
               </div>

@@ -465,18 +465,13 @@
 
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent, selectReasoningTransport);
+      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
     }
   }
 
   function selectReasoningLevel(level) {
     if (UIReasoning.updateReasoningUI) UIReasoning.updateReasoningUI(elements, level);
     if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort: level });
-  }
-
-  function selectReasoningTransport(reasoningTransport) {
-    if (Config.updateRuntime) Config.updateRuntime({ reasoningTransport });
-    closeReasoningMenu();
   }
 
   function updateReasoningUI(level) {

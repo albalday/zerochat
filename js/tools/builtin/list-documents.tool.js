@@ -36,7 +36,8 @@
     return null;
   }
 
-  const LAYERS_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>';
+  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const LAYERS_ICON_SVG = Icons.get('layers', { size: 14 });
 
 
   function createLiveCard(_args, ui) {

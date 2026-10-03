@@ -34,7 +34,8 @@
     }
   };
 
-  const CHECKPOINT_ICON_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h13l4-3.5L18 6Z"></path><line x1="12" y1="13" x2="12" y2="21"></line></svg>';
+  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const CHECKPOINT_ICON_SVG = Icons.get('milestone', { size: 14 });
 
 
   const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
