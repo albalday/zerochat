@@ -830,8 +830,8 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
     safe_timeout = max(1, min(int(timeout_seconds), 300))
     try:
         target_cwd = Path(cwd).expanduser().resolve()
-        if not target_cwd.exists() or not target_cwd.is_dir():
-            target_cwd = Path.cwd()
+        if not target_cwd.is_dir():
+            return _tool_error(f"Working directory '{cwd}' does not exist or is not a directory. The command was not executed.", os=DETECTED_OS)
 
         if DETECTED_OS == "windows":
             argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]

@@ -854,6 +854,36 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 });
 
 
+test('zerochat.py: execute_command con cwd inexistente devuelve error sin ejecutar el comando', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_execute_cwd_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    marker = Path(temp_dir) / "marker.txt"
+    missing = Path(temp_dir) / "missing"
+    result = json.loads(zerochat.execute_command(f"touch {marker}", cwd=str(missing)))
+    assert result["success"] is False
+    assert "does not exist" in result["error"]
+    assert not marker.exists()
+    a_file = Path(temp_dir) / "file.txt"
+    a_file.write_text("x", encoding="utf-8")
+    result = json.loads(zerochat.execute_command("pwd", cwd=str(a_file)))
+    assert result["success"] is False
+    ok = json.loads(zerochat.execute_command("pwd", cwd=temp_dir))
+    assert ok["success"] is True
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('Generación y persistencia de token diario en zerochat.py', async () => {
   const code = `
 import zerochat
