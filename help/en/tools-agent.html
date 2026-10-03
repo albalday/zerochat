@@ -45,7 +45,7 @@
       <tr><td><code>agent_checkpoint</code></td><td>Records findings and the next step.</td></tr>
       <tr><td><code>update_plan</code></td><td>Displays tasks and their status as declared by the model.</td></tr>
       <tr><td><code>finish_task</code></td><td>Signals completion with a summary; it does not independently check the result.</td></tr></tbody></table></div>
-      <p>Web tools send queries and URLs to external services. Retrieval may use Jina Reader or AllOrigins; do not assume a direct connection without intermediaries or send them private URLs or credentials.</p>
+      <p>Web tools send queries and URLs to third-party services. <code>search_web</code> queries DuckDuckGo, first through Jina Reader (<code>r.jina.ai</code>) and then directly, or the configured SearXNG instance. <code>fetch_web_page</code> and <code>download_pdf</code> try Jina Reader first and, if it fails, a direct connection and the AllOrigins proxy (<code>api.allorigins.win</code>). Local network URLs are always requested directly. Do not assume a connection without intermediaries or send these tools private URLs or credentials.</p>
       <p>File, terminal and browser automation tools need the <a href="mcp.html">local server</a>. Their calls include authorization and a temporary single-use signature; this does not protect against a compromised interface with session access.</p>
     </div>
 
