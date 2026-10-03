@@ -717,8 +717,17 @@
     return Icons.get('plug', { size });
   }
 
+  function getNoOutputText() {
+    let i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
+    if (!i18n && typeof require !== 'undefined') {
+      try { i18n = require('./i18n.js'); } catch (_) {}
+    }
+    const value = i18n?.t?.('tool_no_output');
+    return value && value !== 'tool_no_output' ? value : 'No output';
+  }
+
   function formatMcpMarkdown(toolName, args, result, outcome, serverName) {
-    const raw = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : outcome?.error || result?.error || 'Sin salida');
+    const raw = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : outcome?.error || result?.error || getNoOutputText());
     const argStr = args && typeof args === 'object' && Object.keys(args).length ? JSON.stringify(args, null, 2) : '';
     const parts = [`> 🔌 **${toolName}** (*${serverName || 'MCP'}*)`];
     if (argStr) parts.push(`> \`\`\`json\n> ${argStr.split('\n').join('\n> ')}\n> \`\`\``);
@@ -798,11 +807,11 @@
         const badge = cardDiv.querySelector('.tool-card-badge');
         if (badge) {
           badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
-          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || ''} <span>Error (${elapsedMs}ms)</span>`;
+          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || ''} <span>${t('tool_status_error', { ms: elapsedMs })}</span>`;
         }
         const resEl = cardDiv.querySelector('.tool-card-result');
         if (resEl) {
-          const out = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : (result?.error || 'Sin salida'));
+          const out = result?.content || (result?.rawResult ? (typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2)) : (result?.error || getNoOutputText()));
           resEl.innerHTML = `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`;
         }
         const screenshot = getSafeMcpImageDataUrl(result);

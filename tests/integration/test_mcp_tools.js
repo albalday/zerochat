@@ -299,6 +299,20 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     assert.ok(mdSql.includes('🔌'));
     assert.ok(mdSql.includes('execute_sql_query'));
     assert.ok(mdSql.includes('Alice'));
+
+    // Un resultado vacío se describe en el idioma activo de la interfaz
+    const I18n = require('../../js/i18n.js');
+    const previousLanguage = I18n.getLanguage();
+    try {
+      I18n.setLanguage('en', false);
+      const mdEmptyEn = sqlTool.formatter({ sql: 'SELECT 1' }, {});
+      assert.ok(mdEmptyEn.includes('No output'));
+      assert.ok(!mdEmptyEn.includes('Sin salida'));
+      I18n.setLanguage('es', false);
+      assert.ok(sqlTool.formatter({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
+    } finally {
+      I18n.setLanguage(previousLanguage, false);
+    }
   } finally {
     global.fetch = originalFetch;
   }

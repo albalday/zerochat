@@ -319,6 +319,7 @@
       tool_err_query: 'Error al consultar',
       tool_status_success: 'Completado',
       tool_status_error: 'Error ({ms}ms)',
+      tool_no_output: 'Sin salida',
       tool_agent_checkpoint_title: 'Punto de control agéntico',
       tool_agent_checkpoint_loading: 'Consolidando hallazgos...',
       tool_agent_checkpoint_ready: 'Listo para responder',
@@ -647,6 +648,9 @@
       md_copy_code_title: 'Copiar código',
       md_copy_code_btn: 'Copiar',
       md_output_title: 'Salida (Consola / Retorno):',
+      md_output_console: 'Consola:',
+      md_output_return: 'Retorno:',
+      md_output_error: 'Error ({ms}ms)',
       md_clear_output: 'Limpiar salida',
 
       // Barra lateral e Historial de Conversaciones (Sidebar)
@@ -999,6 +1003,7 @@
       tool_err_query: 'Query error',
       tool_status_success: 'Completed',
       tool_status_error: 'Error ({ms}ms)',
+      tool_no_output: 'No output',
       tool_agent_checkpoint_title: 'Agent Checkpoint',
       tool_agent_checkpoint_loading: 'Consolidating findings...',
       tool_agent_checkpoint_ready: 'Ready to respond',
@@ -1327,6 +1332,9 @@
       md_copy_code_title: 'Copy code',
       md_copy_code_btn: 'Copy',
       md_output_title: 'Output (Console / Return):',
+      md_output_console: 'Console:',
+      md_output_return: 'Return:',
+      md_output_error: 'Error ({ms}ms)',
       md_clear_output: 'Clear output',
 
       // Sidebar & Conversation History

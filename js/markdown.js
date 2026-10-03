@@ -439,14 +439,14 @@
         if (sandboxRunner && sandboxRunner.execute) {
           const res = await sandboxRunner.execute(rawCode);
           const statusClass = res.success ? 'success' : 'error';
-          const headerTitle = res.success ? `${getI18n().uiText('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : `Error (${res.executionTimeMs}ms)`;
+          const headerTitle = res.success ? `${getI18n().uiText('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : getI18n().uiText('md_output_error', `Error (${res.executionTimeMs}ms)`, { ms: res.executionTimeMs });
 
           let outputContent = '';
           if (res.logs && res.logs.length > 0) {
-            outputContent += `<div class="output-logs"><strong>Console:</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`;
+            outputContent += `<div class="output-logs"><strong>${getI18n().uiText('md_output_console', 'Consola:')}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`;
           }
           if (res.result && res.result !== 'undefined') {
-            outputContent += `<div class="output-return"><strong>Retorno:</strong> ${escapeHtml(res.result)}</div>`;
+            outputContent += `<div class="output-return"><strong>${getI18n().uiText('md_output_return', 'Retorno:')}</strong> ${escapeHtml(res.result)}</div>`;
           }
           if (res.error) {
             outputContent += `<div class="output-error">${escapeHtml(res.error)}</div>`;
