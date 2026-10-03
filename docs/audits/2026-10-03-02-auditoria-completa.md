@@ -35,18 +35,17 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | S3 | Cookies, almacenamiento y CORS compartidos con todo `albalday.github.io` | Seguridad | **Alta** |
 | E1 | El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth | Estabilidad | **Alta** |
 | S1 | `apiUrl` y campos de perfiles importados sin validar | Seguridad | Media |
-| S4 | El token del backend es diario, se guarda sin permisos restrictivos y `--host` no se valida | Seguridad | Media |
+| S4 | El token del backend se genera al importar, se pasa por línea de comandos y `--host` no se valida | Seguridad | Media |
 | S6 | `ChatI18n.t` no escapa los parámetros de plantillas con HTML | Seguridad / presentación | Media |
-| S7 | `ToolExecutor` adivina argumentos que no son JSON válido | Seguridad | Media |
 | S8 | La codificación de nombres MCP no es inyectiva | Seguridad / estabilidad | Media |
 | E2 | `StdioMcpClient` sin límites de tamaño ni cierre del árbol de procesos | Estabilidad | Media |
-| E3 | `execute_command` con `cwd` explícito no termina subprocesos y oculta errores | Estabilidad | Media |
+| E3 | `execute_command` con `cwd` explícito no termina subprocesos ni acota la salida | Estabilidad | Media |
 | E4 | La cancelación no llega a las herramientas web; hay dos `fetchWithTimeout` incompatibles | Estabilidad | Media |
 | E5 | `ChatState` pierde notificaciones anidadas y comparte referencias | Estabilidad | Media |
 | A1 | `app.js` concentra lógica de dominio (modo importación, latido, telemetría) | Deuda técnica | Media |
 | A2 | Lógica de estado de generación triplicada, con escrituras directas en `ui` | Deuda técnica | Media |
 | P1 | Texto visible fuera de `ChatI18n` | Presentación | Media |
-| E6 | El Service Worker puede activar una caché incompleta o mezclar versiones | Estabilidad | Baja |
+| E6 | El Service Worker puede mezclar versiones | Estabilidad | Baja |
 | P2 | Emojis crudos en controles y cabeceras interactivas | Presentación | Baja |
 | A3 | 17 envoltorios `t()` locales y 165 textos de respaldo en español | Deuda técnica | Baja |
 | R1 | Documentación normativa desalineada con el código | Deuda técnica | Baja |
@@ -175,32 +174,21 @@ XSS en el origen de la aplicación, con acceso al token del backend (S3) y a `to
 **Prueba**
 - Integración: `ChatProfileRepository.mergeImported` rechaza `apiUrl` no HTTP(S) y tipos inválidos.
 
-### S4 — El token del backend es diario, se guarda sin permisos restrictivos y `--host` no se valida · Media
+### S4 — El token del backend se genera al importar, se pasa por línea de comandos y `--host` no se valida · Media
 
 **Evidencia**
-- `py/cc-environment.py:61-84`: `get_daily_token` reutiliza el mismo token todo el día y lo
-  guarda en `~/zerochat/config/token.json` con los permisos por defecto (umask, normalmente 0644).
-  `get_data_dir` crea los directorios sin `0o700`.
-- `py/cc-environment.py:87`: el token se genera y escribe al importar el módulo, antes de
+- `py/cc-environment.py`: el token diario se genera y escribe al importar el módulo, antes de
   procesar los argumentos.
 - `py/zz-main.py:12`: `--token` en la línea de comandos queda visible en `ps`.
 - `py/zz-main.py:11` y `:64`: `--host`/`ZEROCHAT_HOST` aceptan `0.0.0.0` sin aviso, lo que
   expone ejecución de comandos a la red local con un token que dura todo el día.
 
-**Riesgo**
-`AGENTS.md` exige un «token efímero de sesión», pero el token dura un día. En sistemas
-multiusuario o con copias de seguridad del directorio personal, el token es legible por otros.
-
 **Alcance y alternativa**
-- Crear `config/` con `0o700` y `token.json` con `0o600` (escritura atómica con `os.open`).
 - Mover la generación a `main()`.
 - Aceptar el token también por variable de entorno.
 - Rechazar `--host` distinto de bucle local salvo con un indicador explícito (`--allow-remote`) y aviso.
-- Si el token diario es una decisión de producto (pestañas nuevas tras reinicio), documentarla
-  en `AGENTS.md`.
 
 **Prueba**
-- Infraestructura: los permisos de `token.json` son `0o600`.
 - Infraestructura: `--host 0.0.0.0` sin `--allow-remote` termina con error.
 
 ### S6 — `ChatI18n.t` no escapa los parámetros de plantillas con HTML · Media
@@ -215,22 +203,6 @@ multiusuario o con copias de seguridad del directorio personal, el token es legi
 
 **Prueba**
 - Unitaria (`test_i18n.js`): un parámetro con `<` en una plantilla HTML se inserta escapado.
-
-### S7 — `ToolExecutor` adivina argumentos que no son JSON válido · Media
-
-**Evidencia** (`js/agent-core.js`)
-- `:557-576`: si los argumentos no son JSON válido, `parseArguments` extrae `url`, `query` o
-  `code` con expresiones regulares y ejecuta la herramienta con valores adivinados (por ejemplo,
-  código truncado para `execute_javascript`).
-
-**Riesgo**
-Una herramienta ejecuta argumentos que el modelo no emitió.
-
-**Alcance y alternativa**
-- Devolver al modelo un error explícito de argumentos inválidos en lugar de adivinarlos.
-
-**Prueba**
-- Integración: argumentos no JSON producen `ToolOutcome` de error sin llamar a `execute`.
 
 ### S8 — La codificación de nombres MCP no es inyectiva · Media
 
@@ -276,24 +248,20 @@ equivocada.
 - Infraestructura: un MCP simulado que emite 5 MB en una línea produce un error controlado.
 - Infraestructura: `stop()` no deja procesos hijos.
 
-### E3 — `execute_command` con `cwd` explícito no termina subprocesos y oculta errores · Media
+### E3 — `execute_command` con `cwd` explícito no termina subprocesos ni acota la salida · Media
 
-**Evidencia** (`py/dd-tools.py`)
-- `:417-446`: con un `cwd` distinto del de la sesión, se usa `subprocess.run(..., shell=True,
+**Evidencia** (`py/dd-tools.py`, `execute_command` y `PersistentShellSession._run_runner`)
+- Con un `cwd` distinto del de la sesión, se usa `subprocess.run(..., shell=True,
   timeout=…)`. Al vencer el plazo solo se mata el shell; los nietos siguen vivos. La sesión
   persistente sí usa `_kill_process_tree`.
-- `:423-425`: un `cwd` inexistente se sustituye en silencio por `Path.cwd()`. El comando se
-  ejecuta en otro directorio del que autorizó el usuario.
-- `:387` y `:431`: `communicate`/`capture_output` acumulan toda la salida en memoria antes de truncarla.
+- `communicate`/`capture_output` acumulan toda la salida en memoria antes de truncarla.
 
 **Alcance y alternativa**
 - Reutilizar `_run_runner` o `Popen` con grupo de procesos para ambos caminos.
-- Devolver un error si `cwd` no existe.
 - Leer la salida con un límite y descartar el exceso.
 
 **Prueba**
 - Infraestructura: `sleep 100 & sleep 100` con tiempo de 1 s no deja procesos.
-- Infraestructura: `cwd` inexistente → error.
 
 ### E4 — La cancelación no llega a las herramientas web; hay dos `fetchWithTimeout` incompatibles · Media
 
@@ -405,19 +373,17 @@ Las pruebas de `test_ui_generation_status.js`, `test_attachments.js` y la nueva 
 - Unitaria: con `setLanguage('en')`, los resultados de `execute_javascript` en `markdown.js` y
   de MCP en `mcp.js` no contienen palabras en español.
 
-### E6 — El Service Worker puede activar una caché incompleta o mezclar versiones · Baja
+### E6 — El Service Worker puede mezclar versiones · Baja
 
-**Evidencia** (`sw.js:95-168`)
-- La instalación usa `Promise.allSettled` y descarta fallos, y después llama a `skipWaiting()`.
+**Evidencia** (`sw.js`, manejador `fetch`)
 - La estrategia stale-while-revalidate actualiza archivos individuales en la caché activa, de
   modo que una pestaña puede combinar `zerochat.html` de una versión con módulos de otra.
 
 **Alcance y alternativa**
-- Fallar la instalación si falta algún recurso del precache.
 - Servir `zerochat.html` y `js/` con caché por versión, sin actualización parcial.
 
 **Prueba**
-Unitaria (`test_service_worker.js`): un recurso que falla aborta `install`.
+Unitaria (`test_service_worker.js`): una respuesta de red de otra versión no sustituye un recurso de la caché activa.
 
 ### P2 — Emojis crudos en controles y cabeceras interactivas · Baja
 
@@ -447,13 +413,10 @@ No se recomienda un cambio masivo.
 ### R1 — Documentación normativa desalineada con el código · Baja
 
 **Evidencia**
-- `AGENTS.md` §4 habla de «token efímero de sesión», pero el token es diario (S4).
 - `js/tools/README.md` describe una codificación de nombres distinta de la implementada (S8).
-- `AGENTS.md` §9 reserva `docs/audits/` para informes cerrados, pero guarda ahí el procedimiento `AuditFull.md`.
 
 **Alternativa**
-Corregir los textos en un único cambio `docs:`. Valorar si `AuditFull.md` debe trasladarse
-junto a las normas (por ejemplo, como sección o anexo de `AGENTS.md`).
+Mantener el README como contrato y corregir el código en S8.
 
 ### Observación — fuentes externas de las herramientas web
 
@@ -489,20 +452,19 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | 2 | `fix:` escapar parámetros en las plantillas HTML de `ChatI18n` | S6 | `test:unit` |
 | 3 | `fix:` cookies con `Path=/zerochat/`, origen y `Referer` en backend, limpieza por prefijo | S3 | `test:unit`, `test:infrastructure`, `test:browser` |
 | 4 | `feat:` formato de cifrado v2 (PBKDF2 + sal) con migración v1 y caché no extraíble | S2 | `test:unit`, `test:integration`, `test:browser` |
-| 5 | `fix:` permisos de token y datos, generación en `main()`, control de `--host` | S4 | `test:infrastructure` |
+| 5 | `fix:` generación del token en `main()`, token por variable de entorno, control de `--host` | S4 | `test:infrastructure` |
 | 6 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
 | 7 | `fix:` límites de tamaño, grupo de procesos y tiempo configurable en MCP stdio | E2 | `test:infrastructure` |
-| 8 | `fix:` `execute_command` con grupo de procesos, error por `cwd` inválido y salida acotada | E3 | `test:infrastructure` |
-| 9 | `fix:` codificación inyectiva de nombres MCP (JS y Python) y rechazo de duplicados | S8 | `test:unit`, `test:integration`, `test:infrastructure` |
-| 10 | `fix:` sin argumentos adivinados en `ToolExecutor` | S7 | `test:integration` |
-| 11 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
-| 12 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
-| 13 | `fix:` precache estricto en el Service Worker | E6 | `test:unit`, `test:browser` |
-| 14 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
-| 15 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
-| 16 | `refactor:` eliminar ramas alternativas de estado de generación y adjuntos, con prueba de arquitectura | A2 | `test:architecture`, `test:unit` |
-| 17 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
-| 18 | `docs:` alinear `AGENTS.md` (token), `js/tools/README.md`, ubicación de `AuditFull.md` y `/help` (ES/EN) | R1, observación | — |
+| 8 | `fix:` `execute_command` con grupo de procesos y salida acotada | E3 | `test:infrastructure` |
+| 9 | `fix:` codificación inyectiva de nombres MCP (JS y Python) y rechazo de duplicados | S8, R1 | `test:unit`, `test:integration`, `test:infrastructure` |
+| 10 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
+| 11 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
+| 12 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
+| 13 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
+| 14 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
+| 15 | `refactor:` eliminar ramas alternativas de estado de generación y adjuntos, con prueba de arquitectura | A2 | `test:architecture`, `test:unit` |
+| 16 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
+| 17 | `docs:` fuentes externas de las herramientas web en `/help` (ES/EN) | Observación | — |
 
 Pruebas de arquitectura nuevas que se proponen, para impedir que se reintroduzcan los problemas:
 
