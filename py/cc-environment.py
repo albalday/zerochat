@@ -96,8 +96,8 @@ def get_daily_token() -> str:
     return token
 
 
-# Estado de sesión en memoria (generación diaria por defecto)
-SESSION_TOKEN = get_daily_token()
+# Token de sesión en memoria; main() lo carga o genera al arrancar el servidor.
+SESSION_TOKEN = ""
 ACTIVE_PORT = DEFAULT_PORT
 ACTIVE_HOST = DEFAULT_HOST
 

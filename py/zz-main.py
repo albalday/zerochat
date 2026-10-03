@@ -30,7 +30,6 @@ def main():
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT)), help=f"Puerto de escucha (default: {DEFAULT_PORT})")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
-    parser.add_argument("--token", default=None, help="Fijar un token de sesión específico (opcional)")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--no-exit-on-close", action="store_true", help="No detener el servidor automáticamente al cerrar el navegador")
@@ -72,10 +71,7 @@ def main():
 
     ACTIVE_PORT = args.port
     ACTIVE_HOST = args.host
-    if args.token:
-        SESSION_TOKEN = args.token
-    else:
-        SESSION_TOKEN = get_daily_token()
+    SESSION_TOKEN = get_daily_token()
     # A restart deliberately invalidates every browser-side signing credential.
     TOOL_AUTH_KEY = secrets.token_bytes(32)
     TOOL_AUTH_SESSION_ID = secrets.token_urlsafe(18)

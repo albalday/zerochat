@@ -7,6 +7,23 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const pkg = require('../../package.json');
 
+// El backend no admite fijar el token por argumentos: las pruebas lo dejan
+// preparado como token diario en un directorio de datos temporal.
+const tokenDataDirs = [];
+function tokenDataDir(token) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-token-'));
+  const now = new Date();
+  const today = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+    .map((part, index) => String(part).padStart(index ? 2 : 4, '0')).join('-');
+  fs.mkdirSync(path.join(dataDir, 'config'), { mode: 0o700 });
+  fs.writeFileSync(path.join(dataDir, 'config', 'token.json'), JSON.stringify({ token, date: today }), { mode: 0o600 });
+  tokenDataDirs.push(dataDir);
+  return dataDir;
+}
+test.after(() => {
+  for (const dataDir of tokenDataDirs) fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
 test('zerochat.py: la consola interactiva expone estado, ayuda y cierre ordenado', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
@@ -269,8 +286,8 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
   global.fetch = signedFetch;
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    serverPath, '--port', String(port), '--no-browser', '--no-venv'
+  ], { env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let serverError = '';
   let serverOutput = '';
@@ -893,11 +910,17 @@ assert token1 == token2, "El token diario debe ser idempotente en el mismo día"
 assert len(token1) > 20, "El token debe ser de longitud segura"
 print("DAILY_TOKEN_OK")
 `;
-  const output = execFileSync('python3', ['-c', code], {
-    cwd: path.resolve(__dirname, '../..'),
-    encoding: 'utf8'
-  });
-  assert.ok(output.includes('DAILY_TOKEN_OK'));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-daily-token-'));
+  try {
+    const output = execFileSync('python3', ['-c', code], {
+      cwd: path.resolve(__dirname, '../..'),
+      env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir },
+      encoding: 'utf8'
+    });
+    assert.ok(output.includes('DAILY_TOKEN_OK'));
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('zerochat.py: el token diario y su directorio se crean solo legibles por el usuario', { skip: process.platform === 'win32' }, () => {
@@ -922,15 +945,19 @@ with tempfile.TemporaryDirectory() as temp_dir:
     zerochat = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zerochat)
     token_file = config_dir / "token.json"
+    # Importar el módulo no genera ni modifica el token: solo lo hace main().
+    assert zerochat.SESSION_TOKEN == ""
+    assert json.loads(token_file.read_text(encoding="utf-8"))["token"] == "x" * 43
+    token = zerochat.get_daily_token()
     assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
-    assert json.loads(token_file.read_text(encoding="utf-8"))["token"] == zerochat.SESSION_TOKEN
-    assert zerochat.SESSION_TOKEN != "x" * 43
+    assert json.loads(token_file.read_text(encoding="utf-8"))["token"] == token
+    assert token != "x" * 43
     assert not (config_dir / "token.json.tmp").exists()
 
     # Un token vigente creado con la umask por una versión anterior también se corrige.
     token_file.chmod(0o644)
-    assert zerochat.get_daily_token() == zerochat.SESSION_TOKEN
+    assert zerochat.get_daily_token() == token
     assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
@@ -956,8 +983,8 @@ test('Detección de entorno de desarrollo y servicio de zerochat.html y estátic
 
   // Iniciar sin --ui-url para verificar auto-detección
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
-  ], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+    serverPath, '--port', String(port), '--no-browser', '--no-venv'
+  ], { cwd: repoRoot, env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let serverOutput = '';
   serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
@@ -1127,8 +1154,8 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
   const testToken = 'super-secret-token-xyz-987';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    serverPath, '--port', String(port), '--no-browser', '--no-venv'
+  ], { env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let serverOutput = '';
   serverProc.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
@@ -1246,9 +1273,9 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
 
   // Iniciar servidor con timeout de heartbeat de 0.2 segundos para prueba ágil
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
+    serverPath, '--port', String(port), '--no-browser', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -1306,9 +1333,9 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
   const testToken = 'no-exit-token-99999';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-exit-on-close', '--no-venv'
+    serverPath, '--port', String(port), '--no-browser', '--no-exit-on-close', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -1342,9 +1369,9 @@ test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) in
   const testToken = 'rpc-watchdog-token-12345';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv'
+    serverPath, '--port', String(port), '--no-browser', '--no-venv'
   ], {
-    env: { ...process.env, ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
+    env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken), ZEROCHAT_HEARTBEAT_TIMEOUT: '0.2', ZEROCHAT_HEARTBEAT_POLL: '0.05' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -1573,13 +1600,13 @@ with tempfile.TemporaryDirectory() as temp_dir:
 test('Servidor local zerochat.py: los métodos de control MCP responden con error JSON-RPC ante entradas inválidas', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-control-'));
+  const testToken = 'control-errors-token-12345';
+  const dataDir = tokenDataDir(testToken);
   const port = 7600 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const testToken = 'control-errors-token-12345';
 
   const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--token', testToken, '--no-browser', '--no-venv', '--no-exit-on-close'
+    serverPath, '--port', String(port), '--no-browser', '--no-venv', '--no-exit-on-close'
   ], {
     env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import shutil
 import socket
@@ -43,13 +45,19 @@ def main() -> None:
             port = sock.getsockname()[1]
         home_dir = temp_dir / "home"
         session_token = "packaging-test-token"
+        config_dir = home_dir / "zerochat" / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "token.json").write_text(
+            json.dumps({"token": session_token, "date": datetime.date.today().isoformat()}),
+            encoding="utf-8",
+        )
         env = os.environ.copy()
         if sys.platform.startswith("win"):
             env["USERPROFILE"] = str(home_dir)
         else:
             env["HOME"] = str(home_dir)
         process = subprocess.Popen(
-            [str(executable), "--port", str(port), "--token", session_token, "--no-browser", "--no-exit-on-close"],
+            [str(executable), "--port", str(port), "--no-browser", "--no-exit-on-close"],
             cwd=temp_dir,
             env=env,
             stdout=subprocess.PIPE,

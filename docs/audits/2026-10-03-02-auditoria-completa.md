@@ -34,7 +34,6 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | S2 | Cifrado de perfiles y API keys con clave pública por defecto y derivación débil | Seguridad | **Alta** |
 | E1 | El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth | Estabilidad | **Alta** |
 | S1 | `apiUrl` y campos de perfiles importados sin validar | Seguridad | Media |
-| S4 | El token del backend se genera al importar y se pasa por línea de comandos | Seguridad | Media |
 | S6 | `ChatI18n.t` no escapa los parámetros de plantillas con HTML | Seguridad / presentación | Media |
 | S8 | La codificación de nombres MCP no es inyectiva | Seguridad / estabilidad | Media |
 | E2 | `StdioMcpClient` sin límites de tamaño ni cierre del árbol de procesos | Estabilidad | Media |
@@ -138,20 +137,6 @@ XSS en el origen de la aplicación, con acceso al token del backend y a `tools/c
 
 **Prueba**
 - Integración: `ChatProfileRepository.mergeImported` rechaza `apiUrl` no HTTP(S) y tipos inválidos.
-
-### S4 — El token del backend se genera al importar y se pasa por línea de comandos · Media
-
-**Evidencia**
-- `py/cc-environment.py`: el token diario se genera y escribe al importar el módulo, antes de
-  procesar los argumentos.
-- `py/zz-main.py`: `--token` en la línea de comandos queda visible en `ps`.
-
-**Alcance y alternativa**
-- Mover la generación a `main()`.
-- Aceptar el token también por variable de entorno.
-
-**Prueba**
-- Infraestructura: el token por variable de entorno se usa y no aparece en los argumentos del proceso.
 
 ### S6 — `ChatI18n.t` no escapa los parámetros de plantillas con HTML · Media
 
@@ -397,17 +382,16 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | 2 | `fix:` escapar parámetros en las plantillas HTML de `ChatI18n` | S6 | `test:unit` |
 | 3 | `fix:` borrado limitado a las cachés y Service Workers de ZeroChat | S3 | `test:unit`, `test:browser` |
 | 4 | `feat:` formato de cifrado v2 (PBKDF2 + sal) con migración v1 y caché no extraíble | S2 | `test:unit`, `test:integration`, `test:browser` |
-| 5 | `fix:` generación del token en `main()` y token por variable de entorno | S4 | `test:infrastructure` |
-| 6 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
-| 7 | `fix:` límites de tamaño, grupo de procesos y tiempo configurable en MCP stdio | E2 | `test:infrastructure` |
-| 8 | `fix:` `execute_command` con grupo de procesos y salida acotada | E3 | `test:infrastructure` |
-| 9 | `fix:` codificación inyectiva de nombres MCP (JS y Python) y rechazo de duplicados | S8, R1 | `test:unit`, `test:integration`, `test:infrastructure` |
-| 10 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
-| 11 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
-| 12 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
-| 13 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
-| 14 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
-| 15 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
+| 5 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
+| 6 | `fix:` límites de tamaño, grupo de procesos y tiempo configurable en MCP stdio | E2 | `test:infrastructure` |
+| 7 | `fix:` `execute_command` con grupo de procesos y salida acotada | E3 | `test:infrastructure` |
+| 8 | `fix:` codificación inyectiva de nombres MCP (JS y Python) y rechazo de duplicados | S8, R1 | `test:unit`, `test:integration`, `test:infrastructure` |
+| 9 | `refactor:` `fetchWithTimeout` único y `signal` en herramientas web | E4 | `test:unit`, `test:integration` |
+| 10 | `fix:` notificaciones anidadas y clonado en `ChatState` | E5 | `test:unit`, `test:integration` |
+| 11 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
+| 12 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
+| 13 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
+| 14 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
 
 Pruebas de arquitectura nuevas que se proponen, para impedir que se reintroduzcan los problemas:
 
