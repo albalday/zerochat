@@ -1487,6 +1487,24 @@ with tempfile.TemporaryDirectory() as temp_dir:
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
 
+test('zerochat.py: avisa al escuchar en un host que no es de bucle local', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const checkPyCode = `
+import zerochat
+
+for host in ("127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]"):
+    assert zerochat.is_loopback_host(host), host
+    assert zerochat.remote_exposure_warning(host) is None, host
+
+for host in ("0.0.0.0", "::", "192.168.1.10", "mi-equipo.local", ""):
+    assert not zerochat.is_loopback_host(host), host
+    warning = zerochat.remote_exposure_warning(host)
+    assert warning and "ejecutar comandos" in warning and "sin cifrar" in warning, host
+`;
+
+  execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
+});
+
 test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ mediante sort | cat', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const pyDir = path.join(repoRoot, 'py');

@@ -117,6 +117,9 @@ Las comunicaciones con `zerochat.py` requieren obligatoriamente el token de sesi
 suministrado en el arranque. El token es diario: se reutiliza durante el mismo día para que
 las pestañas no se desconecten al recargar o reiniciar el backend, y se guarda en
 `~/zerochat/config/token.json` con permisos solo para el usuario (`0600`, directorio `0700`).
+El backend escucha por defecto en `127.0.0.1`. Un `--host`/`ZEROCHAT_HOST` que no sea de
+bucle local se admite como decisión explícita del usuario, pero el arranque debe avisar de que
+expone la ejecución de comandos a la red sin cifrar.
 
 
 ## 5. Pruebas y validación

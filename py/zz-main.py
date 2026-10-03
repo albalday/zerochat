@@ -2,6 +2,27 @@
 # Punto de Entrada Principal (CLI)
 # ==============================================================================
 
+def is_loopback_host(host: str) -> bool:
+    """Indica si el host de escucha solo acepta conexiones del propio equipo."""
+    value = (host or "").strip().strip("[]").lower()
+    if value == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def remote_exposure_warning(host: str) -> str | None:
+    """Devuelve el aviso de exposición en red si el host no es de bucle local."""
+    if is_loopback_host(host):
+        return None
+    return (
+        f"Escuchando en {host}: cualquiera en la red con el token puede ejecutar comandos "
+        "en este equipo y el tráfico HTTP va sin cifrar."
+    )
+
+
 def main():
     global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL
     global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
@@ -62,6 +83,9 @@ def main():
         TOOL_AUTH_NONCES = {}
 
     server = ThreadingHTTPServer((ACTIVE_HOST, ACTIVE_PORT), ZeroChatServerHandler)
+    exposure_warning = remote_exposure_warning(ACTIVE_HOST)
+    if exposure_warning:
+        add_notice(exposure_warning)
 
     if args.ui_url:
         ui_url = args.ui_url
@@ -86,6 +110,8 @@ def main():
     else:
         print(f"  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
+    if exposure_warning:
+        print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
     print(f"  Destino Web           : {ui_url}")
     if exit_on_close:
