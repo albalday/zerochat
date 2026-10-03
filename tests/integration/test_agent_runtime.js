@@ -21,7 +21,7 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
   });
 
   assert.equal(result.success, false);
-  assert.match(result.error, /autorización explícita/i);
+  assert.match(result.error, /explicit user authorization/i);
   assert.equal(executions, 0);
 });
 

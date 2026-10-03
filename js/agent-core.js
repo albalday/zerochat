@@ -587,9 +587,7 @@
       const t = (key, fallback) => (I18n?.t ? I18n.t(key) : fallback);
       const authEval = ToolSecurity?.manager?.evaluateAuthorization
         ? ToolSecurity.manager.evaluateAuthorization(tool, args, context)
-        : (tool.category === 'mcp'
-          ? { status: 'deny', requiresApproval: true }
-          : { status: 'allow', requiresApproval: false });
+        : { status: 'deny', requiresApproval: true };
 
       if (authEval.status === 'deny') {
         return { allowed: false, error: t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.') };
@@ -600,7 +598,7 @@
       }
 
       if (typeof context.requestToolAuthorization !== 'function') {
-        return { allowed: false, error: 'La herramienta requiere autorización explícita del usuario.' };
+        return { allowed: false, error: 'The tool requires explicit user authorization.' };
       }
 
       const decision = await context.requestToolAuthorization(toolCall, {
