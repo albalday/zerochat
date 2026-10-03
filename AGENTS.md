@@ -113,8 +113,10 @@ credenciales o contenido HTML debe incluir pruebas específicas y revisar:
 - comportamiento ante errores y cancelación.
 
 No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
-Las comunicaciones con `zerochat.py` requieren obligatoriamente el token efímero de sesión
-suministrado en el arranque.
+Las comunicaciones con `zerochat.py` requieren obligatoriamente el token de sesión
+suministrado en el arranque. El token es diario: se reutiliza durante el mismo día para que
+las pestañas no se desconecten al recargar o reiniciar el backend, y se guarda en
+`~/zerochat/config/token.json` con permisos solo para el usuario (`0600`, directorio `0700`).
 
 
 ## 5. Pruebas y validación
@@ -236,4 +238,4 @@ La documentación se organiza de forma canónica en los siguientes niveles:
 - **Documentación de usuario final (`help/`)**:
   Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
 - **Histórico y archivo (`docs/`)**:
-  Reservado exclusivamente para informes de auditoría cerrados (`docs/audits/`) y propuestas técnicas de diseño en borrador (`docs/proposals/`).
+  Reservado exclusivamente para informes de auditoría cerrados y el procedimiento de auditoría `AuditFull.md` (`docs/audits/`), y para propuestas técnicas de diseño en borrador (`docs/proposals/`).
