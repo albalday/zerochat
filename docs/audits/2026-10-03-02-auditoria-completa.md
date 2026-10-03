@@ -35,7 +35,7 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | S3 | Cookies, almacenamiento y CORS compartidos con todo `albalday.github.io` | Seguridad | **Alta** |
 | E1 | El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth | Estabilidad | **Alta** |
 | S1 | `apiUrl` y campos de perfiles importados sin validar | Seguridad | Media |
-| S4 | El token del backend se genera al importar, se pasa por línea de comandos y `--host` no se valida | Seguridad | Media |
+| S4 | El token del backend se genera al importar y se pasa por línea de comandos | Seguridad | Media |
 | S6 | `ChatI18n.t` no escapa los parámetros de plantillas con HTML | Seguridad / presentación | Media |
 | S8 | La codificación de nombres MCP no es inyectiva | Seguridad / estabilidad | Media |
 | E2 | `StdioMcpClient` sin límites de tamaño ni cierre del árbol de procesos | Estabilidad | Media |
@@ -43,7 +43,6 @@ Limitaciones del entorno: Linux, Node 24 y Chromium de Playwright. No se ha prob
 | E4 | La cancelación no llega a las herramientas web; hay dos `fetchWithTimeout` incompatibles | Estabilidad | Media |
 | E5 | `ChatState` pierde notificaciones anidadas y comparte referencias | Estabilidad | Media |
 | A1 | `app.js` concentra lógica de dominio (modo importación, latido, telemetría) | Deuda técnica | Media |
-| A2 | Lógica de estado de generación triplicada, con escrituras directas en `ui` | Deuda técnica | Media |
 | P1 | Texto visible fuera de `ChatI18n` | Presentación | Media |
 | E6 | El Service Worker puede mezclar versiones | Estabilidad | Baja |
 | P2 | Emojis crudos en controles y cabeceras interactivas | Presentación | Baja |
@@ -100,8 +99,8 @@ No se encontraron infracciones en estas áreas:
 - `py/ee-mcp.py:116-127` (`is_allowed_origin`): acepta cualquier página de `https://albalday.github.io`.
 - `localStorage` e IndexedDB pertenecen al origen completo. Lo comparten todos los
   repositorios publicados en GitHub Pages bajo ese usuario.
-- `js/cookies.js:197-225` (`clearAllStorage`): ejecuta `localStorage.clear()` y
-  `sessionStorage.clear()`, y borra todas las cookies del origen.
+- `js/cookies.js` (`clearAllStorage`): borra todas las cachés de Cache Storage y anula todos los
+  Service Workers del origen.
 
 **Riesgo**
 Cualquier página de otro repositorio del mismo usuario en GitHub Pages puede:
@@ -109,20 +108,21 @@ Cualquier página de otro repositorio del mismo usuario en GitHub Pages puede:
 - leer las API keys cifradas y la clave cacheada (S2).
 
 Una vulnerabilidad o dependencia de terceros en cualquiera de esas páginas compromete ZeroChat.
-Además, «Borrar datos» en ZeroChat borra los datos de las demás aplicaciones del origen.
+Además, «Borrar datos» en ZeroChat borra las cachés y los Service Workers de las demás aplicaciones del origen.
 
 **Alcance y alternativa**
 1. A corto plazo:
    - limitar las cookies a `Path=/zerochat/`;
    - restringir `is_allowed_origin` a `https://albalday.github.io` y validar además el
      `Referer` o una cabecera propia (el `Origin` no incluye la ruta);
-   - limpiar solo las claves con prefijo `zerochat_` en `clearAllStorage`.
+   - limitar en `clearAllStorage` el borrado de Cache Storage y de Service Workers a los de ZeroChat
+     (prefijo de caché y `scope` del registro).
 2. A medio plazo: servir la interfaz desde un origen dedicado (dominio propio o subdominio) y
    documentar el riesgo como aceptado mientras tanto.
 
 **Prueba**
 - Unitaria (`test_cookies.js`): la cookie del backend se escribe con `Path=/zerochat/`.
-- Unitaria: `clearAllStorage` conserva claves ajenas a `zerochat_`.
+- Unitaria: `clearAllStorage` conserva cachés y registros de Service Worker ajenos.
 - Infraestructura: tabla de orígenes aceptados y rechazados.
 
 ### E1 — El gestor MCP bloquea todas las herramientas durante instalaciones y OAuth · Alta
@@ -174,22 +174,19 @@ XSS en el origen de la aplicación, con acceso al token del backend (S3) y a `to
 **Prueba**
 - Integración: `ChatProfileRepository.mergeImported` rechaza `apiUrl` no HTTP(S) y tipos inválidos.
 
-### S4 — El token del backend se genera al importar, se pasa por línea de comandos y `--host` no se valida · Media
+### S4 — El token del backend se genera al importar y se pasa por línea de comandos · Media
 
 **Evidencia**
 - `py/cc-environment.py`: el token diario se genera y escribe al importar el módulo, antes de
   procesar los argumentos.
-- `py/zz-main.py:12`: `--token` en la línea de comandos queda visible en `ps`.
-- `py/zz-main.py:11` y `:64`: `--host`/`ZEROCHAT_HOST` aceptan `0.0.0.0` sin aviso, lo que
-  expone ejecución de comandos a la red local con un token que dura todo el día.
+- `py/zz-main.py`: `--token` en la línea de comandos queda visible en `ps`.
 
 **Alcance y alternativa**
 - Mover la generación a `main()`.
 - Aceptar el token también por variable de entorno.
-- Rechazar `--host` distinto de bucle local salvo con un indicador explícito (`--allow-remote`) y aviso.
 
 **Prueba**
-- Infraestructura: `--host 0.0.0.0` sin `--allow-remote` termina con error.
+- Infraestructura: el token por variable de entorno se usa y no aparece en los argumentos del proceso.
 
 ### S6 — `ChatI18n.t` no escapa los parámetros de plantillas con HTML · Media
 
@@ -319,8 +316,7 @@ aparecer desincronizaciones difíciles de reproducir entre interfaz y estado.
 - el modo de importación de perfiles por `postMessage`: descifrado, confirmación, fusión,
   respuesta al opener y banner (`:1484-1745`);
 - el latido del backend (`buildHeartbeatUrl`, `sendHeartbeatPing`, `startServerHeartbeat`);
-- la telemetría (`State.set('telemetry', …)` en `:628-655`);
-- una copia del estado de generación (A2).
+- la telemetría (`State.set('telemetry', …)` en `:628-655`).
 
 `AGENTS.md` §3 dice que `app.js` solo coordina y que la lógica específica vive en su módulo.
 
@@ -335,30 +331,9 @@ No hace falta cambiar comportamiento.
 Las pruebas existentes de arranque e importación (`test_app_startup.js`,
 `browser_profiles_settings.test.js`) más una unitaria del nuevo servicio con `postMessage` simulado.
 
-### A2 — Lógica de estado de generación triplicada · Media
-
-**Evidencia**
-Aparece la misma máquina de fases (`phaseChanged`, `startedAt`) en:
-- `js/state.js:620-660` (`setGenerationStatus`, `clearGenerationStatus`);
-- `js/ui-generation-status.js:85-117` (rama alternativa con `State.set('ui', …)`);
-- `js/app.js:519-556` (rama alternativa con `State.set('ui', …)`).
-
-Las dos ramas alternativas solo se ejecutan si falta un módulo que `zerochat.html` carga
-siempre, y escriben el slice `ui` saltándose los mutadores. Lo mismo ocurre en
-`js/attachments.js:53-56` (alternativa a `setAttachments`).
-
-**Alcance y alternativa**
-- Eliminar las ramas alternativas y delegar en `ChatState.setGenerationStatus` y `setAttachments`.
-- Añadir una prueba de arquitectura que prohíba `State.set('ui'` fuera de `state.js` e `ui-inspector.js`.
-
-**Prueba**
-Las pruebas de `test_ui_generation_status.js`, `test_attachments.js` y la nueva regla de arquitectura.
-
 ### P1 — Texto visible fuera de `ChatI18n` · Media
 
 **Evidencia**
-- `js/markdown.js:446-458`: «Console:», «Retorno:», «Error».
-- `js/mcp.js:804-808`: «Sin salida», «Error».
 - `js/app.js:1726-1732`: banner «Importando perfiles…», solo en español.
 - `js/profile-repository.js` y `js/profile-backup.js` lanzan errores en español
   (`'Los cambios de este perfil están bloqueados.'`, `'La contraseña de cifrado no es válida.'`…)
@@ -370,8 +345,8 @@ Las pruebas de `test_ui_generation_status.js`, `test_attachments.js` y la nueva 
 - Usar errores con código (`error.code`) traducidos en la capa de UI.
 
 **Prueba**
-- Unitaria: con `setLanguage('en')`, los resultados de `execute_javascript` en `markdown.js` y
-  de MCP en `mcp.js` no contienen palabras en español.
+- Unitaria: con `setLanguage('en')`, los errores de perfiles y el banner de importación no
+  contienen palabras en español.
 
 ### E6 — El Service Worker puede mezclar versiones · Baja
 
@@ -418,12 +393,6 @@ No se recomienda un cambio masivo.
 **Alternativa**
 Mantener el README como contrato y corregir el código en S8.
 
-### Observación — fuentes externas de las herramientas web
-
-`js/web-browser.js:223` y `:304` y `js/web-search.js:263` envían las URL y consultas del
-usuario a servicios de terceros: `r.jina.ai`, `api.allorigins.win` y DuckDuckGo. No es un
-defecto, pero debe constar en la ayuda (`/help`) como tratamiento de datos. No se clasifica como hallazgo.
-
 ## 4. Interfaces públicas que no pueden cambiarse sin migración
 
 - **Formato `zerochat-profile-backup` v1 y sobre de API key** (`profile-backup.js`): S2 exige
@@ -450,9 +419,9 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | --- | --- | --- | --- |
 | 1 | `fix:` validar URL y tipos en configuración y perfiles importados | S1 | `test:unit`, `test:integration`, `test:browser` |
 | 2 | `fix:` escapar parámetros en las plantillas HTML de `ChatI18n` | S6 | `test:unit` |
-| 3 | `fix:` cookies con `Path=/zerochat/`, origen y `Referer` en backend, limpieza por prefijo | S3 | `test:unit`, `test:infrastructure`, `test:browser` |
+| 3 | `fix:` cookies con `Path=/zerochat/`, origen y `Referer` en backend, borrado limitado de cachés y Service Workers | S3 | `test:unit`, `test:infrastructure`, `test:browser` |
 | 4 | `feat:` formato de cifrado v2 (PBKDF2 + sal) con migración v1 y caché no extraíble | S2 | `test:unit`, `test:integration`, `test:browser` |
-| 5 | `fix:` generación del token en `main()`, token por variable de entorno, control de `--host` | S4 | `test:infrastructure` |
+| 5 | `fix:` generación del token en `main()` y token por variable de entorno | S4 | `test:infrastructure` |
 | 6 | `fix:` arranque MCP sin cerrojo durante instalación y handshake | E1 | `test:infrastructure` |
 | 7 | `fix:` límites de tamaño, grupo de procesos y tiempo configurable en MCP stdio | E2 | `test:infrastructure` |
 | 8 | `fix:` `execute_command` con grupo de procesos y salida acotada | E3 | `test:infrastructure` |
@@ -462,13 +431,11 @@ cuando toque `py/`. No se mezclan limpieza, funciones nuevas y refactorización.
 | 12 | `fix:` caché por versión en el Service Worker | E6 | `test:unit`, `test:browser` |
 | 13 | `fix:` textos a `ChatI18n` | P1, P2 | `test:unit`, `test:browser` |
 | 14 | `refactor:` extraer importación de perfiles y latido de `app.js` | A1 | `test:integration`, `test:browser` |
-| 15 | `refactor:` eliminar ramas alternativas de estado de generación y adjuntos, con prueba de arquitectura | A2 | `test:architecture`, `test:unit` |
-| 16 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
-| 17 | `docs:` fuentes externas de las herramientas web en `/help` (ES/EN) | Observación | — |
+| 15 | `chore:` unificar envoltorios `t()` y retirar textos de respaldo por módulo | A3 | Todas las aplicables |
 
 Pruebas de arquitectura nuevas que se proponen, para impedir que se reintroduzcan los problemas:
 
-- `State.set('ui'|'sessions'|'messages'` prohibido fuera de `state.js` y de una lista explícita de excepciones;
+- `State.set('sessions'|'messages'` prohibido fuera de `state.js` y de una lista explícita de excepciones;
 - `t(` con parámetros dentro de una plantilla `innerHTML` sin `escapeHtml`, con una lista
   blanca de parámetros numéricos;
 - emojis en `button`, `summary` y `[role=button]`;
