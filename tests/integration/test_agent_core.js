@@ -167,12 +167,36 @@ test('AgentCore - ToolExecutor parseo tolerante de argumentos y captura de error
   assert.equal(notFoundRes.success, false);
   assert.match(notFoundRes.error, /no encontrada/i);
 
-  // 3. Parseo tolerante de argumentos con sintaxis no estricta
-  const parsed1 = executor.parseArguments('url: "https://example.com"');
-  assert.equal(parsed1.url, 'https://example.com');
+  // 3. Los argumentos que no son un objeto JSON no se adivinan
+  assert.equal(executor.parseArguments('url: "https://example.com"'), null);
+  assert.equal(executor.parseArguments('code = "console.log(123)"'), null);
+  assert.equal(executor.parseArguments('[1, 2]'), null);
+  assert.equal(executor.parseArguments('"texto"'), null);
+  assert.deepEqual(executor.parseArguments(''), {});
+  assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
+});
 
-  const parsed2 = executor.parseArguments('code = "console.log(123)"');
-  assert.equal(parsed2.code, 'console.log(123)');
+test('AgentCore - Argumentos no JSON devuelven error sin ejecutar la herramienta', async () => {
+  let executed = false;
+  const registry = new AgentCoreModule.ToolRegistry();
+  registry.registerTool(new AgentCoreModule.Tool({
+    name: 'guarded_tool',
+    execute: async () => {
+      executed = true;
+      return { success: true };
+    }
+  }));
+  const executor = new AgentCoreModule.ToolExecutor(registry);
+
+  const res = await executor.executeToolCall({
+    id: 'call_bad_args',
+    function: { name: 'guarded_tool', arguments: 'code = "alert(1)' }
+  });
+
+  assert.equal(executed, false);
+  assert.equal(res.success, false);
+  assert.match(res.error, /Invalid tool arguments/);
+  assert.equal(res.outcome.ok, false);
 });
 
 test('AgentCore - Cancelación de ejecución de herramientas mediante AbortSignal', async () => {

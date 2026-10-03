@@ -552,26 +552,20 @@
     }
 
     /**
-     * Parsea tolerante y seguramente los argumentos de una llamada a herramienta.
+     * Parsea los argumentos de una llamada a herramienta. Devuelve `null` si no
+     * son un objeto JSON válido: nunca se adivinan argumentos que el modelo no emitió.
      */
     parseArguments(rawArgs) {
-      if (!rawArgs) return {};
-      if (typeof rawArgs === 'object' && rawArgs !== null) return rawArgs;
+      if (rawArgs === undefined || rawArgs === null || rawArgs === '') return {};
+      if (typeof rawArgs === 'object') return Array.isArray(rawArgs) ? null : rawArgs;
 
       const str = String(rawArgs).trim();
+      if (!str) return {};
       try {
-        return JSON.parse(str);
+        const parsed = JSON.parse(str);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
       } catch (e) {
-        // Fallback tolerante para formato clave: valor o texto plano
-        const urlMatch = str.match(/(?:url|link|href)\s*[:=]\s*["']?([^"'\s,}]+)/i);
-        const queryMatch = str.match(/(?:query|q|search)\s*[:=]\s*["']?([^"'\r\n,}]+)/i);
-        const codeMatch = str.match(/(?:code|js|javascript)\s*[:=]\s*["']?([^"'\r\n]+)/i);
-
-        if (urlMatch) return { url: urlMatch[1] };
-        if (queryMatch) return { query: queryMatch[1].trim() };
-        if (codeMatch) return { code: codeMatch[1].trim().replace(/["']$/, '') };
-
-        return { input: str };
+        return null;
       }
     }
 
@@ -729,6 +723,26 @@
       }
 
       const displayMode = tool.displayMode || tool.view?.displayMode || 'collapsed';
+      if (!parsedArgs) {
+        const error = 'Invalid tool arguments: expected a JSON object. The tool was not executed.';
+        return {
+          success: false,
+          tool,
+          toolName: tool.name,
+          displayMode,
+          args: null,
+          error,
+          executionTimeMs: 0,
+          result: null,
+          outcome: ToolOutcome.fromError(error, {
+            toolId: tool.id,
+            toolName: tool.name,
+            contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
+            executionTimeMs: 0
+          })
+        };
+      }
+
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       try {
@@ -825,7 +839,7 @@
       } = options;
 
       const rawFuncName = toolCall?.function?.name || '';
-      const parsedArgs = this.parseArguments(toolCall?.function?.arguments);
+      const parsedArgs = this.parseArguments(toolCall?.function?.arguments) || {};
       const ToolCards = getToolCards();
 
       // 1. Crear e insertar la tarjeta DOM en vivo con estado de carga

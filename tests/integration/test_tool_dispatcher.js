@@ -26,7 +26,7 @@ test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente',
   assert.equal(logs[0].type, 'tool');
 });
 
-test('ToolDispatcher - dispatchToolCall maneja JSON corrupto o texto plano en argumentos', async () => {
+test('ToolDispatcher - dispatchToolCall rechaza JSON corrupto o texto plano en argumentos', async () => {
   const toolCall = {
     id: 'call_js_raw',
     type: 'function',
@@ -37,8 +37,10 @@ test('ToolDispatcher - dispatchToolCall maneja JSON corrupto o texto plano en ar
   };
 
   const res = await AgentCore.dispatchToolCall(toolCall);
-  assert.ok(res.success);
-  assert.equal(res.resultText, '25');
+  assert.equal(res.success, false);
+  assert.match(res.error, /Invalid tool arguments/);
+  assert.deepEqual(res.args, {});
+  assert.notEqual(res.resultText, '25');
 });
 
 test('ToolDispatcher - dispatchToolCall ejecuta search_web con alias searchweb', async () => {
