@@ -265,11 +265,26 @@ def get_notices() -> tuple[str, ...]:
         return tuple(NOTICES)
 
 
+def _write_private_text(target: Path, text: str):
+    """Escribe un secreto con permisos 0o600 desde su creación y lo sustituye de una vez."""
+    tmp_file = target.with_suffix(target.suffix + ".tmp")
+    tmp_file.unlink(missing_ok=True)
+    fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    tmp_file.replace(target)
+
+
 def get_daily_token() -> str:
     """Devuelve un token de sesión diario persistido en ~/zerochat/config/token.json."""
     config_dir = get_data_dir() / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_file = config_dir / "token.json"
+    if os.name != "nt":
+        # Corrige también directorios y tokens creados por versiones anteriores con la umask.
+        config_dir.chmod(0o700)
+        if token_file.exists():
+            token_file.chmod(0o600)
     today = datetime.date.today().isoformat()
     if token_file.exists():
         try:
@@ -280,9 +295,7 @@ def get_daily_token() -> str:
             pass
     token = secrets.token_urlsafe(32)
     try:
-        tmp_file = token_file.with_suffix(".tmp")
-        tmp_file.write_text(json.dumps({"token": token, "date": today}, indent=2), encoding="utf-8")
-        tmp_file.replace(token_file)
+        _write_private_text(token_file, json.dumps({"token": token, "date": today}, indent=2))
     except Exception:
         pass
     return token

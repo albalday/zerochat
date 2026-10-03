@@ -900,6 +900,42 @@ print("DAILY_TOKEN_OK")
   assert.ok(output.includes('DAILY_TOKEN_OK'));
 });
 
+test('zerochat.py: el token diario y su directorio se crean solo legibles por el usuario', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import stat
+import tempfile
+from pathlib import Path
+
+os.umask(0o022)
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    config_dir = Path(temp_dir) / "config"
+    config_dir.mkdir(mode=0o755)
+    stale = config_dir / "token.json"
+    stale.write_text(json.dumps({"token": "x" * 43, "date": "2000-01-01"}), encoding="utf-8")
+    stale.chmod(0o644)
+    spec = importlib.util.spec_from_file_location("zerochat_token_perms_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    token_file = config_dir / "token.json"
+    assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
+    assert json.loads(token_file.read_text(encoding="utf-8"))["token"] == zerochat.SESSION_TOKEN
+    assert zerochat.SESSION_TOKEN != "x" * 43
+    assert not (config_dir / "token.json.tmp").exists()
+
+    # Un token vigente creado con la umask por una versión anterior también se corrige.
+    token_file.chmod(0o644)
+    assert zerochat.get_daily_token() == zerochat.SESSION_TOKEN
+    assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('Versionado: el backend usa major.minor y la interfaz conserva el parche', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const output = execFileSync('python3', ['-c', `
