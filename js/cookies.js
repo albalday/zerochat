@@ -194,18 +194,34 @@
     return true;
   }
 
+  // El origen (albalday.github.io) es compartido con otras aplicaciones: el borrado
+  // completo solo toca las claves propias de ZeroChat.
+  const OWNED_KEY_PREFIXES = [STORAGE_PREFIX, 'zc_'];
+  const OWNED_LEGACY_KEYS = new Set(['chat_mcp_servers']);
+
+  function isOwnedStorageKey(key) {
+    if (typeof key !== 'string') return false;
+    return OWNED_LEGACY_KEYS.has(key) || OWNED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+  }
+
+  function removeOwnedStorageKeys(storage) {
+    const keys = [];
+    for (let i = 0; i < storage.length; i++) keys.push(storage.key(i));
+    keys.filter(isOwnedStorageKey).forEach(key => storage.removeItem(key));
+  }
+
   async function clearAllStorage() {
     const failures = [];
     lastClearAllStorageError = '';
     if (hasLocalStorage) {
       try {
-        localStorage.clear();
+        removeOwnedStorageKeys(localStorage);
       } catch (e) { failures.push(e); }
     }
 
     try {
       if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.clear();
+        removeOwnedStorageKeys(sessionStorage);
       }
     } catch (e) { failures.push(e); }
 
@@ -216,7 +232,9 @@
           const cookie = cookies[i];
           const eqPos = cookie.indexOf('=');
           const name = eqPos > -1 ? cookie.slice(0, eqPos).trim() : cookie.trim();
-          if (name) {
+          let decodedName = name;
+          try { decodedName = decodeURIComponent(name); } catch (_) {}
+          if (name && isOwnedStorageKey(decodedName)) {
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=;SameSite=Lax`;
           }
@@ -658,6 +676,8 @@
     loadRuntimeConfigV2,
     saveRuntimeConfigV2,
     clearAllStorage,
+    isOwnedStorageKey,
+    removeOwnedStorageKeys,
     getLastClearAllStorageError,
 
     // Persistencia Asíncrona en IndexedDB (Conversaciones & Mensajes)

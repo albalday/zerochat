@@ -39,3 +39,53 @@ test('Storage - valida el contrato restrictivo de la sesión del backend local',
   assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 0 }), null);
   assert.equal(Storage.normalizeBackendSession({ token: 'token', host: '127.0.0.1', port: 65536 }), null);
 });
+
+function createMemoryWebStorage(entries) {
+  const data = new Map(Object.entries(entries));
+  return {
+    get length() { return data.size; },
+    key: index => [...data.keys()][index] ?? null,
+    getItem: key => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => data.set(key, String(value)),
+    removeItem: key => data.delete(key),
+    clear: () => data.clear(),
+    keys: () => [...data.keys()].sort()
+  };
+}
+
+test('Storage - el borrado completo solo elimina claves y cookies propias de ZeroChat', async () => {
+  assert.equal(Storage.isOwnedStorageKey('zerochat_profiles_v1'), true);
+  assert.equal(Storage.isOwnedStorageKey('zc_tool_security_v3'), true);
+  assert.equal(Storage.isOwnedStorageKey('chat_mcp_servers'), true);
+  assert.equal(Storage.isOwnedStorageKey('otra_app_token'), false);
+
+  const local = createMemoryWebStorage({ zerochat_language: 'es', zc_tool_security_v3: '{}', chat_mcp_servers: '[]', otra_app_token: 'x' });
+  Storage.removeOwnedStorageKeys(local);
+  assert.deepEqual(local.keys(), ['otra_app_token']);
+
+  const session = createMemoryWebStorage({ zerochat_tmp: '1', otra_app_estado: '2' });
+  const writtenCookies = [];
+  const descriptors = {
+    sessionStorage: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'),
+    document: Object.getOwnPropertyDescriptor(globalThis, 'document')
+  };
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: session });
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      get cookie() { return 'zerochat_backend_session_v1=abc; otra_app_sesion=def'; },
+      set cookie(value) { writtenCookies.push(value); }
+    }
+  });
+  try {
+    await Storage.clearAllStorage();
+    assert.deepEqual(session.keys(), ['otra_app_estado']);
+    assert.ok(writtenCookies.length > 0);
+    assert.ok(writtenCookies.every(value => value.startsWith('zerochat_backend_session_v1=;')), writtenCookies.join('\n'));
+  } finally {
+    for (const [name, descriptor] of Object.entries(descriptors)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+});
