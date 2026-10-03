@@ -342,3 +342,72 @@ test('UIConversation - renderiza imágenes adjuntas de forma segura sanitizando 
   const unsafeImg2 = unsafeItem2.children.find(c => c.tagName === 'IMG');
   assert.equal(unsafeImg2, undefined, 'La URL data:text/html no debe generar elemento IMG');
 });
+
+function createScrollContainer({ scrollHeight = 1000, clientHeight = 200 } = {}) {
+  const listeners = {};
+  const container = {
+    scrollHeight,
+    clientHeight,
+    scrollTop: scrollHeight - clientHeight,
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    emit(type, event = {}) { (listeners[type] || []).forEach(fn => fn(event)); },
+    userScrollTo(top) { container.scrollTop = top; container.emit('scroll'); }
+  };
+  return container;
+}
+
+test('UIConversation - scrollToBottom sigue el final mientras el usuario no se desplaza', () => {
+  const container = createScrollContainer();
+  UIConversation.scrollToBottom(container);
+  container.scrollHeight = 1400;
+  UIConversation.scrollToBottom(container);
+  assert.equal(container.scrollTop, 1400);
+});
+
+test('UIConversation - scrollToBottom respeta la posición tras un gesto hacia arriba', () => {
+  const container = createScrollContainer();
+  UIConversation.scrollToBottom(container);
+  container.emit('wheel', { deltaY: -100 });
+  container.scrollTop = 300;
+  container.scrollHeight = 1400;
+  UIConversation.scrollToBottom(container);
+  assert.equal(container.scrollTop, 300);
+});
+
+test('UIConversation - scrollToBottom detecta arrastre ascendente, teclas y toque', () => {
+  const dragged = createScrollContainer();
+  UIConversation.scrollToBottom(dragged);
+  dragged.userScrollTo(500);
+  UIConversation.scrollToBottom(dragged);
+  assert.equal(dragged.scrollTop, 500);
+
+  const keyed = createScrollContainer();
+  UIConversation.scrollToBottom(keyed);
+  keyed.emit('keydown', { key: 'PageUp' });
+  keyed.scrollTop = 100;
+  UIConversation.scrollToBottom(keyed);
+  assert.equal(keyed.scrollTop, 100);
+
+  const touched = createScrollContainer();
+  UIConversation.scrollToBottom(touched);
+  touched.emit('touchstart', { touches: [{ clientY: 100 }] });
+  touched.emit('touchmove', { touches: [{ clientY: 180 }] });
+  touched.scrollTop = 50;
+  UIConversation.scrollToBottom(touched);
+  assert.equal(touched.scrollTop, 50);
+});
+
+test('UIConversation - scrollToBottom vuelve a seguir el final al regresar abajo o con force', () => {
+  const container = createScrollContainer();
+  UIConversation.scrollToBottom(container);
+  container.emit('wheel', { deltaY: -100 });
+  container.userScrollTo(790);
+  container.scrollHeight = 1400;
+  UIConversation.scrollToBottom(container);
+  assert.equal(container.scrollTop, 1400);
+
+  container.emit('wheel', { deltaY: -100 });
+  container.scrollTop = 200;
+  UIConversation.scrollToBottom(container, { force: true });
+  assert.equal(container.scrollTop, 1400);
+});

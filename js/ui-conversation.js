@@ -124,9 +124,63 @@
     attachListeners?.(block);
   }
 
-  function scrollToBottom(container) {
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+  const SCROLL_STICK_THRESHOLD_PX = 40;
+  const SCROLL_UP_KEYS = new Set(['PageUp', 'ArrowUp', 'Home']);
+  // Estado efímero de vista ligado a cada contenedor DOM; no se comparte entre subsistemas.
+  const scrollStates = new WeakMap();
+
+  function distanceFromBottom(container) {
+    return container.scrollHeight - container.scrollTop - container.clientHeight;
+  }
+
+  // Los gestos hacia arriba despegan la vista al instante: el siguiente chunk podría
+  // devolverla al final antes de que llegue el evento scroll correspondiente.
+  function getScrollState(container) {
+    let state = scrollStates.get(container);
+    if (state) return state;
+    state = { stick: true, lastTop: container.scrollTop || 0, touchY: null };
+    scrollStates.set(container, state);
+    if (typeof container.addEventListener !== 'function') return state;
+
+    const release = () => { state.stick = false; };
+    container.addEventListener('wheel', event => {
+      if (event.deltaY < 0) release();
+    }, { passive: true });
+    container.addEventListener('keydown', event => {
+      if (SCROLL_UP_KEYS.has(event.key)) release();
+    });
+    container.addEventListener('touchstart', event => {
+      state.touchY = event.touches?.[0]?.clientY ?? null;
+    }, { passive: true });
+    container.addEventListener('touchmove', event => {
+      const y = event.touches?.[0]?.clientY;
+      if (state.touchY !== null && typeof y === 'number' && y > state.touchY) release();
+      state.touchY = y ?? state.touchY;
+    }, { passive: true });
+    container.addEventListener('scroll', () => {
+      const top = container.scrollTop;
+      if (distanceFromBottom(container) <= SCROLL_STICK_THRESHOLD_PX) {
+        state.stick = true;
+      } else if (top < state.lastTop) {
+        // Arrastre de la barra u otro desplazamiento ascendente sin gesto previo detectado.
+        release();
+      }
+      state.lastTop = top;
+    }, { passive: true });
+    return state;
+  }
+
+  function scrollToBottom(container, { force = false } = {}) {
+    if (!container) return;
+    const state = getScrollState(container);
+    if (force) state.stick = true;
+    if (!state.stick) return;
+    const top = container.scrollHeight;
+    if (typeof container.scrollTo === 'function') {
+      // 'instant' evita que el scroll-behavior: smooth del CSS compita con el gesto del usuario.
+      container.scrollTo({ top, behavior: 'instant' });
+    } else {
+      container.scrollTop = top;
     }
   }
 
@@ -368,7 +422,7 @@
         wrapper.classList.add('is-new-message');
         wrapper.addEventListener?.('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
       }
-      scrollToBottom(container);
+      scrollToBottom(container, { force: true });
     }
 
     return msgId;
@@ -624,7 +678,7 @@
       }
     }
 
-    scrollToBottom(messagesList);
+    scrollToBottom(messagesList, { force: true });
     if (typeof options.updateTelemetry === 'function') {
       options.updateTelemetry();
     }

@@ -746,4 +746,45 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta', 
     await browser.close();
   }
 });
+test('Browser UI - el autoscroll respeta al usuario que sube durante la generación', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(() => {
+      const ui = window.ChatUIConversation;
+      const container = document.createElement('div');
+      container.style.cssText = 'position:fixed;top:0;left:0;width:300px;height:200px;overflow-y:auto;scroll-behavior:smooth';
+      document.body.appendChild(container);
+      const addLines = n => {
+        for (let i = 0; i < n; i++) {
+          const line = document.createElement('p');
+          line.style.cssText = 'height:40px;margin:0';
+          container.appendChild(line);
+        }
+      };
+      const atBottom = () => container.scrollHeight - container.scrollTop - container.clientHeight <= 1;
+      addLines(20);
+      ui.scrollToBottom(container);
+      const followed = atBottom();
+      container.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      container.scrollTo({ top: 100, behavior: 'instant' });
+      addLines(10);
+      ui.scrollToBottom(container);
+      const kept = container.scrollTop;
+      ui.scrollToBottom(container, { force: true });
+      const forced = atBottom();
+      container.remove();
+      return { followed, kept, forced };
+    });
+    assert.equal(result.followed, true);
+    assert.equal(result.kept, 100);
+    assert.equal(result.forced, true);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 });
