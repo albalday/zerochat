@@ -513,41 +513,12 @@
 
   function setGenerationStatus(update = {}) {
     const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
-    if (genStatus?.setStatus) {
-      return genStatus.setStatus(elements.generationStatus, update);
-    }
-    const raw = typeof update === 'string' ? { text: update } : (update || {});
-    const isGenerating = Boolean(State.get?.('streaming')?.isGenerating);
-    const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
-    if (!isGenerating && phase !== 'idle') return;
-
-    let next;
-    if (State.setGenerationStatus) {
-      next = State.setGenerationStatus(raw);
-    } else {
-      const ui = State.get?.('ui') || {};
-      const current = ui.generationStatus || { phase: 'idle', percent: null, startedAt: null };
-      const phaseChanged = phase !== current.phase;
-      next = phaseChanged
-        ? { text: '', message: '', detail: '', percent: null, ...raw, phase, startedAt: Date.now() }
-        : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
-      State.set('ui', { ...ui, generationStatus: next });
-    }
-    genStatus.render?.(elements.generationStatus, next);
+    return genStatus.setStatus?.(elements.generationStatus, update);
   }
 
   function clearGenerationStatus() {
     const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
-    if (genStatus?.clearStatus) {
-      return genStatus.clearStatus(elements.generationStatus);
-    }
-    if (State.clearGenerationStatus) {
-      State.clearGenerationStatus();
-    } else {
-      const ui = State.get?.('ui') || {};
-      State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
-    }
-    genStatus.render?.(elements.generationStatus, { phase: 'idle' });
+    return genStatus.clearStatus?.(elements.generationStatus);
   }
 
   function filterDebugLogs(tabId) {

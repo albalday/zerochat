@@ -52,8 +52,6 @@
     const cleanFiles = Array.isArray(files) ? [...files] : [];
     if (State && typeof State.setAttachments === 'function') {
       State.setAttachments(cleanFiles);
-    } else if (State && typeof State.set === 'function') {
-      State.set('ui', { attachedFiles: cleanFiles });
     }
   }
 

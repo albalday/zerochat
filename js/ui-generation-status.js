@@ -89,14 +89,6 @@
     let next;
     if (State?.setGenerationStatus) {
       next = State.setGenerationStatus(raw);
-    } else if (State?.get && State?.set) {
-      const ui = State.get('ui') || {};
-      const current = ui.generationStatus || { phase: 'idle', percent: null, startedAt: null };
-      const phaseChanged = phase !== current.phase;
-      next = phaseChanged
-        ? { text: '', message: '', detail: '', percent: null, ...raw, phase, startedAt: Date.now() }
-        : { ...current, ...raw, phase, startedAt: current.startedAt || Date.now() };
-      State.set('ui', { ...ui, generationStatus: next });
     } else {
       next = { ...raw, phase, startedAt: Date.now() };
     }
@@ -106,12 +98,7 @@
 
   function clearStatus(element) {
     const State = resolveState();
-    if (State?.clearGenerationStatus) {
-      State.clearGenerationStatus();
-    } else if (State?.get && State?.set) {
-      const ui = State.get('ui') || {};
-      State.set('ui', { ...ui, generationStatus: { phase: 'idle', percent: null, text: '', message: '', detail: '', startedAt: null } });
-    }
+    State?.clearGenerationStatus?.();
     render(element, { phase: 'idle' });
   }
 
