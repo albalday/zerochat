@@ -137,8 +137,8 @@ def public_tool_name(server_id: str, original: str) -> str:
         if not isinstance(value, str) or not value or len(value) > 256:
             raise ValueError("Componente de nombre MCP no válido")
         # MCP function names preserve ASCII case, which keeps remote tool
-        # names readable while still escaping unsupported characters.
-        return "".join(ch if ("a" <= ch <= "z" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
+        # names readable. The lowercase z opens every escape, so it is escaped too.
+        return "".join(ch if ("a" <= ch <= "y" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
                        else f"z{ord(ch):x}z" for ch in value)
     name = f"{encode(server_id)}_{encode(original, True)}"
     if len(name) > 64:
@@ -667,22 +667,29 @@ class McpServiceManager:
 
     def tools(self) -> list[dict]:
         aggregated = []
+        seen: set[str] = set()
         with self._lock:
             for server_id, client in self.clients.items():
                 if not client.running():
                     continue
                 for t in client.tools:
+                    original = t.get("name") if isinstance(t, dict) else None
                     try:
-                        pname = public_tool_name(server_id, t["name"])
-                        tcopy = dict(t)
-                        tcopy["name"] = pname
-                        tcopy["metadata"] = {
-                            "mcpServerId": server_id,
-                            "originalName": t["name"]
-                        }
-                        aggregated.append(tcopy)
-                    except Exception:
+                        pname = public_tool_name(server_id, original)
+                    except Exception as exc:
+                        self._trace(server_id, f"tool discarded ({original!r}): {exc}")
                         continue
+                    if pname in seen:
+                        self._trace(server_id, f"tool discarded ({original!r}): duplicate public name {pname}")
+                        continue
+                    seen.add(pname)
+                    tcopy = dict(t)
+                    tcopy["name"] = pname
+                    tcopy["metadata"] = {
+                        "mcpServerId": server_id,
+                        "originalName": original
+                    }
+                    aggregated.append(tcopy)
         return aggregated
 
     def call(self, public_name: str, arguments: dict) -> dict:
@@ -692,7 +699,11 @@ class McpServiceManager:
                 if not client.running():
                     continue
                 for t in client.tools:
-                    if public_tool_name(server_id, t["name"]) == public_name:
+                    try:
+                        matches = public_tool_name(server_id, t.get("name")) == public_name
+                    except Exception:
+                        continue
+                    if matches:
                         target = (client, t["name"])
                         break
                 if target:

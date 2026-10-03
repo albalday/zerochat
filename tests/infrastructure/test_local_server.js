@@ -1844,3 +1844,32 @@ with tempfile.TemporaryDirectory() as temp_dir:
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
+
+test('zerochat.py: el gestor MCP descarta y registra nombres públicos inválidos o duplicados', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_duplicate_names_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    traces = []
+    module.console_log = lambda message, **_kwargs: traces.append(message)
+    manager = module.McpServiceManager(Path(temp_dir) / "services")
+    client = Mock(tools=[{"name": "lookup"}, {"name": "lookup"}, {"name": "x" * 80}, {"name": ""}])
+    client.running.return_value = True
+    manager.clients["demo"] = client
+    names = [tool["name"] for tool in manager.tools()]
+    assert names == ["demo_lookup"], names
+    joined = "\\n".join(traces)
+    assert "duplicate public name demo_lookup" in joined, joined
+    assert joined.count("tool discarded") == 3, joined
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});

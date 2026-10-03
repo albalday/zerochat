@@ -30,8 +30,9 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Shared wire contract with bootstrap.py: escape z and non-lowercase
-  // characters as z<hex code point>z; only tool components retain underscores.
+  // Shared wire contract with public_tool_name in zerochat.py: keep a-y, A-Z
+  // and 0-9, and escape anything else as z<hex code point>z. The lowercase z is
+  // escaped too because it opens every escape; tool components keep underscores.
   function publicToolName(serverId, originalName) {
     const encode = (value, tool = false) => {
       if (typeof value !== 'string' || !value || value.length > 256) {
@@ -39,7 +40,7 @@
       }
       // MCP function names and the registry preserve ASCII case.  Keeping it
       // makes names supplied by a remote service readable to people and models.
-      return Array.from(value, ch => /^[a-zA-Z0-9]$/.test(ch) || (tool && ch === '_')
+      return Array.from(value, ch => /^[a-yA-Z0-9]$/.test(ch) || (tool && ch === '_')
         ? ch : `z${ch.codePointAt(0).toString(16)}z`).join('');
     };
     const name = serverId === null ? encode(originalName, true)
@@ -1498,6 +1499,7 @@
     McpToolProvider,
     McpManager,
     probeConnection,
+    publicToolName,
     manager
   };
 });

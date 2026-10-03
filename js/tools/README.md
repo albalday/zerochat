@@ -49,12 +49,17 @@ Los archivos de los servicios gestionados tienen como fuente de verdad `services
 `npm run build:backend` ejecuta primero `scripts/build-managed-services.mjs`, que
 genera `py/dd-managed-services.py` para integrarlos en `zerochat.py`.
 
-Los componentes se codifican sin pérdida: se conservan `a-y` y `0-9`;
+Los componentes se codifican sin pérdida: se conservan `a-y`, `A-Z` y `0-9`;
 solo en la herramienta se conserva también `_`. Cualquier otro carácter,
-incluida `z`, se representa como `z<hexadecimal del punto de código>z`.
-Esto distingue mayúsculas, puntuación y límites entre servicio y herramienta
-sin depender del orden de descubrimiento. Los componentes vacíos, los nombres
-públicos de más de 64 caracteres y los duplicados se rechazan explícitamente.
+incluida la `z` minúscula, que abre cada escape, se representa como
+`z<hexadecimal del punto de código>z`. Las mayúsculas se conservan para que los
+nombres remotos (como `composio_COMPOSIO_SEARCH_TOOLS`) sigan siendo legibles y
+quepan en 64 caracteres. Así se distinguen mayúsculas, puntuación y límites entre
+servicio y herramienta sin depender del orden de descubrimiento. Los componentes
+vacíos, los nombres públicos de más de 64 caracteres y los duplicados se rechazan
+explícitamente; el host registra en consola cada herramienta descartada.
+`publicToolName` en `js/mcp.js` y `public_tool_name` en `zerochat.py` deben
+cambiar a la vez y se prueban con la misma tabla de casos.
 
 El registro no genera alias MCP ni elimina sus guiones bajos para resolverlos.
 Los permisos persistidos se consultan exclusivamente por identificador canónico,

@@ -695,23 +695,57 @@ test('MCP - connectProxy soporta silentOnFailure para arranque y fallo explícit
   }
 });
 
+test('MCP - publicToolName codifica igual en JS y Python y es inyectiva', () => {
+  const { execFileSync } = require('node:child_process');
+  const path = require('node:path');
+  const cases = [
+    ['_', 'x', 'z5fz_x'],
+    ['z5fz', 'x', 'z7az5fz7az_x'],
+    ['composio', 'COMPOSIO_SEARCH_TOOLS', 'composio_COMPOSIO_SEARCH_TOOLS'],
+    ['Z', 'zip', 'Z_z7azip'],
+    ['a-b', 'read_file', 'az2dzb_read_file'],
+    ['srv', 'ñ', 'srv_zf1z'],
+    ['s', 'x'.repeat(62), `s_${'x'.repeat(62)}`],
+    ['s', 'x'.repeat(63), null],
+    ['', 'x', null]
+  ];
+  const python = JSON.parse(execFileSync('python3', ['-c', `
+import importlib.util, json, os, sys, tempfile
+with tempfile.TemporaryDirectory() as data_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = data_dir
+    spec = importlib.util.spec_from_file_location("zerochat_public_name_table", "zerochat.py")
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+result = []
+for server, tool in json.load(sys.stdin):
+    try:
+        result.append(zerochat.public_tool_name(server, tool))
+    except ValueError:
+        result.append(None)
+print(json.dumps(result))
+`], { cwd: path.resolve(__dirname, '../..'), input: JSON.stringify(cases.map(([s, t]) => [s, t])), encoding: 'utf8' }));
+  cases.forEach(([server, tool, expected], index) => {
+    let js = null;
+    try { js = MCP.publicToolName(server, tool); } catch (_) {}
+    assert.equal(js, expected, `JS ${server}/${tool}`);
+    assert.equal(python[index], expected, `Python ${server}/${tool}`);
+  });
+});
+
 test('MCP - host Python, proveedor, registro y permisos aíslan herramientas homónimas', async () => {
   const { execFileSync } = require('node:child_process');
   const path = require('node:path');
   const Security = require('../../js/tool-security.js');
   const hostScript = `
-import json, sys
+import importlib.util, json, os, sys, tempfile
 
-def public_tool_name(server_id, original):
-    def encode(value, tool=False):
-        if not isinstance(value, str) or not value or len(value) > 256:
-            raise ValueError("Invalid MCP name component")
-        return "".join(ch if ("a" <= ch <= "z" or "A" <= ch <= "Z" or "0" <= ch <= "9" or (tool and ch == "_"))
-                       else f"z{ord(ch):x}z" for ch in value)
-    name = f"{encode(server_id)}_{encode(original, True)}"
-    if len(name) > 64:
-        raise ValueError("MCP public name exceeds 64 characters")
-    return name
+# Codificador real del backend, para que JS y Python se prueben contra el mismo contrato.
+with tempfile.TemporaryDirectory() as data_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = data_dir
+    spec = importlib.util.spec_from_file_location("zerochat_public_names", "zerochat.py")
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+public_tool_name = zerochat.public_tool_name
 
 class ExternalHost:
     def __init__(self):
@@ -759,6 +793,8 @@ else:
     second: ['browser_navigate', 'read_file'],
     'a-b': ['read_file'], a_b: ['read_file'],
     a: ['b_read_file'], A: ['read_file'], az: ['read_file'],
+    // Antes 'z5fz' se conservaba literal y colisionaba con '_' codificado.
+    _: ['x'], z5fz: ['x'], Z: ['zip', 'z7az'],
     edge: ['read_file', 'readfile', 'Read_file', 'read-file', 'ñ'],
     composio: ['COMPOSIO_SEARCH_TOOLS']
   };
