@@ -293,10 +293,14 @@
     const isWritePathTool = /(?:^|_)edit_file$/.test(toolName);
     const isDirectoryTool = /(?:^|_)list_directory$/.test(toolName);
 
+    const ToolSecurity = typeof window !== 'undefined' ? window.ChatToolSecurity : null;
     let contextualButtonsHtml = '';
     let baseCmd = '';
     if (typeof cmdArg === 'string' && cmdArg.trim()) {
-      baseCmd = cmdArg.trim().split(/\s+/)[0];
+      // Con "cd <dir> && git status" se ofrece autorizar git, no cd.
+      baseCmd = ToolSecurity?.getCommandBaseName
+        ? ToolSecurity.getCommandBaseName(cmdArg)
+        : cmdArg.trim().split(/\s+/)[0];
       if (baseCmd && !requestedDirectoryAccess) {
         contextualButtonsHtml = `
           <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${esc(tFn('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
@@ -307,7 +311,9 @@
           <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access: requestedDirectoryAccess }))}</span></button>
         `;
       }
-    } else if (typeof pathArg === 'string' && pathArg.trim()) {
+    } else if (typeof pathArg === 'string' && pathArg.trim() &&
+      ToolSecurity?.canBuildDirectoryRule?.(pathArg) !== false) {
+      // Sin botón para ~, variables o ".." fuera de la raíz: la regla resultante sería inválida.
       const access = isWritePathTool ? 'W' : 'R';
       contextualButtonsHtml = `
         <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access }))}</span></button>
@@ -441,8 +447,8 @@
           constraints: {
             command: {
               allowedPrefixes: [baseNameOnly],
-              allowChaining: true,
-              allowPipes: true
+              allowChaining: false,
+              allowPipes: false
             }
           }
         });
@@ -450,15 +456,12 @@
 
       btnAllowPath?.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (requestedDirectoryAccess && requestedDirectoryPath) {
-          handleDecision({ decision: 'allow_always', directoryRule: `${requestedDirectoryAccess}:${requestedDirectoryPath}` });
-          return;
-        }
-        const cleanPath = (pathArg || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+        // La regla cubre la carpeta (la del archivo, o la propia en list_directory), no un único archivo.
+        const cleanPath = (requestedDirectoryPath || pathArg || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
         const parent = isDirectoryTool
           ? cleanPath
           : (cleanPath.includes('/') ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '.');
-        const access = isWritePathTool ? 'W' : 'R';
+        const access = requestedDirectoryAccess || (isWritePathTool ? 'W' : 'R');
         handleDecision({
           decision: 'allow_always',
           directoryRule: `${access}:${parent || '/'}${parent === '/' ? '' : '/**'}`

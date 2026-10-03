@@ -674,31 +674,24 @@
           }
         }
 
-        const shouldAllowChaining = requestedConstraints?.command?.allowChaining === true ||
-          existingConstraints?.command?.allowChaining === true ||
-          (mergedPrefixes && mergedPrefixes.some(p => String(p).replace(/\*+$/, '').trim() === 'cd'));
+        // Encadenamiento y tuberías solo se conservan si la nueva autorización y la existente
+        // los conceden explícitamente; al fusionar prevalece siempre la opción más restrictiva.
+        const grantsSyntax = (key) => requestedConstraints.command[key] === true &&
+          (!existingConstraints?.command || existingConstraints.command[key] === true);
 
-        const constraints = requestedConstraints?.command && existingConstraints?.command
+        const constraints = requestedConstraints?.command
           ? {
-            ...existingConstraints,
+            ...(existingConstraints?.command ? existingConstraints : {}),
             ...requestedConstraints,
             command: {
-              ...existingConstraints.command,
+              ...(existingConstraints?.command || {}),
               ...requestedConstraints.command,
               ...(mergedPrefixes ? { allowedPrefixes: mergedPrefixes } : {}),
-              allowChaining: shouldAllowChaining || (requestedConstraints.command.allowChaining !== false && existingConstraints.command.allowChaining !== false),
-              allowPipes: (requestedConstraints.command.allowPipes !== false && existingConstraints.command.allowPipes !== false)
+              allowChaining: grantsSyntax('allowChaining'),
+              allowPipes: grantsSyntax('allowPipes')
             }
           }
-          : (requestedConstraints?.command
-            ? {
-              ...requestedConstraints,
-              command: {
-                ...requestedConstraints.command,
-                allowChaining: shouldAllowChaining || requestedConstraints.command.allowChaining !== false
-              }
-            }
-            : requestedConstraints);
+          : requestedConstraints;
 
         ToolSecurity.manager.setToolPolicy(targetToolId, 'allow', {
           scope: 'permanent',

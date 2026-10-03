@@ -117,6 +117,54 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
   } finally { await browser.close(); }
 });
 
+test('Browser UI - la autorización de carpeta solo se ofrece para rutas que pueden ser una regla', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    const result = await page.evaluate(async () => {
+      const manager = new window.ChatToolSecurity.ToolSecurityManager({
+        storageKey: 'browser_path_rule_button',
+        startupDirectory: '/home/user/proj'
+      });
+      const tool = { id: 'read_file', name: 'read_file', category: 'mcp' };
+      const render = (path) => {
+        const args = { path };
+        const auth = manager.evaluateAuthorization(tool, args);
+        const call = { function: { name: 'read_file', arguments: JSON.stringify(args) } };
+        const card = window.ChatToolCards.createLiveToolCard('read_file', args);
+        document.body.appendChild(card);
+        const pending = window.ChatToolCards.promptToolAuthorization(card, call, { ...auth, args });
+        return { card, pending };
+      };
+
+      const unresolved = {};
+      for (const path of ['~/.ssh/id_rsa', '$HOME/.ssh/id_rsa', '../../etc/passwd']) {
+        const { card, pending } = render(path);
+        unresolved[path] = Boolean(card.querySelector('.btn-auth-allow-path'));
+        card.querySelector('.btn-auth-deny').click();
+        await pending;
+        card.remove();
+      }
+
+      const { card, pending } = render('/home/user/other/a.txt');
+      const button = card.querySelector('.btn-auth-allow-path');
+      button.click();
+      const decision = await pending;
+      card.remove();
+      return { unresolved, decision };
+    });
+    assert.deepEqual(result.unresolved, {
+      '~/.ssh/id_rsa': false,
+      '$HOME/.ssh/id_rsa': false,
+      '../../etc/passwd': false
+    });
+    assert.equal(result.decision.decision, 'allow_always');
+    assert.equal(result.decision.directoryRule, 'R:/home/user/other/**');
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - en móvil las acciones MCP no comprimen la descripción del servidor', async () => {
   const browser = await createTestBrowser();
   try {

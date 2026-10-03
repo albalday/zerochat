@@ -19,6 +19,7 @@
   'use strict';
 
   const STORAGE_KEY = 'zc_tool_security_v3';
+  const STORAGE_VERSION = 4;
 
   const GLOBAL_POLICIES = Object.freeze({
     ASK: 'ask',
@@ -45,8 +46,19 @@
 
   const DIRECTORY_RULE_PATTERN = /^(R|W|RW):(.+)$/;
 
+  function containsUnresolvedReference(value) {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('~')) return true;
+    return /\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)/.test(trimmed);
+  }
+
   function normalizeDirectoryPath(value) {
     if (typeof value !== 'string' || !value.trim() || value.includes('\0')) return '';
+    // ~, ~usuario y $VAR no se resuelven en el navegador: devolver '' para que nunca encajen
+    // contra una regla y la evaluación pida confirmación (T01).
+    if (containsUnresolvedReference(value)) return '';
     const isAbsolute = /^[\\/]/.test(value.trim());
     const parts = [];
     for (const part of value.trim().replace(/\\/g, '/').split('/')) {
@@ -59,6 +71,12 @@
       }
     }
     return `${isAbsolute ? '/' : ''}${parts.join('/')}` || (isAbsolute ? '/' : '.');
+  }
+
+  // Solo se puede crear una regla para rutas que el navegador resuelve: sin ~, variables
+  // ni ".." por encima de la raíz.
+  function canBuildDirectoryRule(path) {
+    return Boolean(normalizeDirectoryPath(path));
   }
 
   function parseDirectoryRule(rawRule) {
@@ -95,6 +113,48 @@
   }
 
   const COMMAND_TOOLS = new Set(['execute_command', 'bash']);
+
+  // Sintaxis de shell que ejecuta otro comando: ; && || & ` $( <( >( y saltos de línea (T02).
+  function hasCommandChaining(cmd) {
+    return /[;\n\r`]|&&|\|\||\$\(|[<>]\(/.test(cmd) || /(?<!>|\d)&(?!\d|>)/.test(cmd);
+  }
+
+  // Redirecciones a ficheros; solo se admiten las que duplican descriptores o descartan salida.
+  const SAFE_REDIRECTION_PATTERN = /&>\s*\/dev\/null|\d?>>?\s*\/dev\/null|\d?>&\d/g;
+
+  function hasFileRedirection(cmd) {
+    return /[<>]/.test(cmd.replace(SAFE_REDIRECTION_PATTERN, ' '));
+  }
+
+  // "cd <dir> && <cmd>": separa la navegación inicial para validar el directorio y el comando
+  // por separado. Un directorio con variables, sustituciones u otros separadores no encaja.
+  function splitLeadingCd(cmd) {
+    const match = /^cd\s+("[^"$`\\]*"|'[^']*'|[^\s;&|<>`$()'"\\]+)\s*&&\s*(\S[\s\S]*)$/.exec(cmd);
+    if (!match) return null;
+    return { directory: match[1].replace(/^(["'])(.*)\1$/, '$2'), command: match[2].trim() };
+  }
+
+  // Programa que ejecuta realmente el comando, omitiendo un "cd <dir> &&" inicial.
+  function getCommandBaseName(cmd) {
+    const trimmed = String(cmd || '').trim();
+    const leadingCd = splitLeadingCd(trimmed);
+    return (leadingCd ? leadingCd.command : trimmed).split(/\s+/)[0] || '';
+  }
+
+  // workspace_trust solo confía en comandos simples: sin encadenar, redirigir ni sustituir, sin
+  // rutas absolutas, ~, variables ni "..", y con tuberías únicamente hacia filtros de texto (T02).
+  const WORKSPACE_TRUST_PIPE_FILTERS = new Set([
+    'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'wc', 'sort', 'uniq', 'cut', 'tr', 'column', 'nl', 'cat', 'jq'
+  ]);
+  const WORKSPACE_TRUST_GLOBAL_COMMANDS = /(?:^|\s)(?:sudo|su|doas|mkfs|reboot|shutdown|systemctl)\b/;
+  const WORKSPACE_TRUST_OUTSIDE_REFERENCE = /(?:^|[\s=:'"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'"\\/])\.\.(?=[\s\\/'"]|$)/;
+
+  function isWorkspaceLocalCommand(cmd) {
+    if (!cmd || hasCommandChaining(cmd) || hasFileRedirection(cmd)) return false;
+    const pipedStages = cmd.split('|').slice(1);
+    if (pipedStages.some(stage => !WORKSPACE_TRUST_PIPE_FILTERS.has(stage.trim().split(/\s+/)[0]))) return false;
+    return !WORKSPACE_TRUST_GLOBAL_COMMANDS.test(cmd) && !WORKSPACE_TRUST_OUTSIDE_REFERENCE.test(cmd);
+  }
 
   const { resolveDep } = Utils;
 
@@ -220,20 +280,15 @@
     if (!commandConstraints || typeof commandConstraints !== 'object') return { allowed: true };
 
     const trimmed = cmdVal.trim();
+    // Un "cd <dir> &&" inicial no cuenta como encadenamiento: se valida el comando que le sigue.
+    // El directorio lo comprueba evaluateCommandDirectories contra las reglas de directorio.
+    const leadingCd = splitLeadingCd(trimmed);
+    const command = leadingCd ? leadingCd.command : trimmed;
 
-    // cd es intrínsecamente una instrucción de navegación que requiere encadenar (cd <dir> && <cmd>).
-    // Si la lista de prefijos autorizados incluye 'cd', el encadenamiento está implícitamente habilitado.
-    const hasCdPrefix = Array.isArray(commandConstraints.allowedPrefixes) &&
-      commandConstraints.allowedPrefixes.some(p => String(p).replace(/\*+$/, '').trim() === 'cd');
+    if (commandConstraints.allowChaining !== true) {
+      const hasUnauthorizedPipe = commandConstraints.allowPipes !== true && command.includes('|');
 
-    const allowChaining = commandConstraints.allowChaining !== false || hasCdPrefix;
-
-    if (!allowChaining) {
-      const isSequentialOrCond = /(?:;|&&|\|\||`|\$\()/.test(trimmed);
-      const isBackgroundAmp = /(?<!>|\d)&(?!\d|>)/.test(trimmed);
-      const hasUnauthorizedPipe = commandConstraints.allowPipes === false && trimmed.includes('|');
-
-      if (isSequentialOrCond || isBackgroundAmp || hasUnauthorizedPipe) {
+      if (hasCommandChaining(command) || hasFileRedirection(command) || hasUnauthorizedPipe) {
         return {
           allowed: false,
           denied: false,
@@ -259,24 +314,9 @@
     if (Array.isArray(commandConstraints.allowedPrefixes) && commandConstraints.allowedPrefixes.length > 0) {
       let matched = false;
       for (const prefix of commandConstraints.allowedPrefixes) {
-        if (matchesCommandPrefix(trimmed, prefix)) {
+        if (matchesCommandPrefix(command, prefix)) {
           matched = true;
           break;
-        }
-      }
-
-      // Si no coincide directamente con el comando completo, comprobar si navega con cd a una carpeta
-      // y luego ejecuta un comando con prefijo autorizado (e.g. "cd /repo && git status")
-      if (!matched) {
-        const cdChainedMatch = trimmed.match(/^cd\s+[^;&|]+(?:\s*&&\s*|\s*;\s*)(.+)$/s);
-        if (cdChainedMatch && cdChainedMatch[1]) {
-          const subCmd = cdChainedMatch[1].trim();
-          for (const prefix of commandConstraints.allowedPrefixes) {
-            if (matchesCommandPrefix(subCmd, prefix)) {
-              matched = true;
-              break;
-            }
-          }
         }
       }
 
@@ -399,10 +439,13 @@
               Object.entries(parsed.tools).forEach(([id, item]) => {
                 if (item && typeof item === 'object') {
                   const constraints = item.constraints ? { ...item.constraints } : null;
-                  if (constraints?.command?.allowedPrefixes?.some(p => String(p).replace(/\*+$/, '').trim() === 'cd')) {
+                  // Hasta la versión 3, "Permitir siempre <cmd>" y el prefijo cd guardaban
+                  // encadenamiento y tuberías sin que el usuario lo pidiera (T02).
+                  if (constraints?.command && !(parsed.version >= STORAGE_VERSION)) {
                     constraints.command = {
                       ...constraints.command,
-                      allowChaining: true
+                      allowChaining: false,
+                      allowPipes: false
                     };
                   }
                   this.tools.set(id, {
@@ -480,7 +523,7 @@
         });
 
         const payload = {
-          version: 3,
+          version: STORAGE_VERSION,
           globalMcpPolicy: this.globalMcpPolicy,
           tools: permanentTools,
           servers: permanentServers,
@@ -586,8 +629,17 @@
 
     setDirectoryRules(rules) {
       if (!Array.isArray(rules)) throw new Error('Las reglas de directorio deben ser una lista.');
+      const hasUnresolvedRule = rules.some(raw => {
+        if (typeof raw !== 'string') return false;
+        const match = raw.trim().match(DIRECTORY_RULE_PATTERN);
+        return Boolean(match && containsUnresolvedReference(match[2]));
+      });
       const normalized = rules.map(parseDirectoryRule);
-      if (normalized.some(rule => !rule)) throw new Error('Regla de directorio inválida. Usa R:, W: o RW: seguido de una ruta.');
+      if (normalized.some(rule => !rule)) {
+        throw new Error(hasUnresolvedRule
+          ? 'Regla de directorio inválida: ~ y variables no se resuelven en el navegador. Usa una ruta absoluta.'
+          : 'Regla de directorio inválida. Usa R:, W: o RW: seguido de una ruta.');
+      }
       let uniqueRules = [...new Set(normalized.map(rule => rule.rule))];
       if (uniqueRules.length === 0) {
         uniqueRules = [this.getDefaultDirectoryRule()];
@@ -602,6 +654,10 @@
     }
 
     evaluateDirectoryRule(access, path) {
+      if (containsUnresolvedReference(path)) {
+        // El navegador no puede resolver ~ ni variables: nunca encajarlas contra una regla (T01).
+        return { allowed: false, rule: null };
+      }
       const normalizedPath = normalizeDirectoryPath(path);
       if (!normalizedPath) return { allowed: false, rule: null };
       const startupDir = this.getStartupDirectory();
@@ -616,6 +672,24 @@
         return false;
       });
       return { allowed: Boolean(match), rule: match?.rule || null, path: normalizedPath };
+    }
+
+    /**
+     * Comprueba los directorios en que se ejecutará un comando (argumento cwd y "cd <dir> &&"
+     * inicial): cada uno debe estar cubierto por alguna regla de directorio (T01/T02).
+     */
+    evaluateCommandDirectories(args = {}) {
+      const cmdVal = String(args.command || args.cmd || args.script || '').trim();
+      const cwd = typeof args.cwd === 'string' && args.cwd.trim() !== '.' ? args.cwd.trim() : '';
+      const leadingCd = splitLeadingCd(cmdVal);
+      const directories = cwd ? [cwd] : [];
+      if (leadingCd) {
+        const isRelative = !/^[\\/~$]/.test(leadingCd.directory);
+        directories.push(cwd && isRelative ? `${cwd}/${leadingCd.directory}` : leadingCd.directory);
+      }
+      const outside = directories.find(dir =>
+        !this.evaluateDirectoryRule('R', dir).allowed && !this.evaluateDirectoryRule('W', dir).allowed);
+      return outside ? { allowed: false, directory: outside } : { allowed: true };
     }
 
     findToolEntry(toolIdOrName, tool = null) {
@@ -673,16 +747,7 @@
       const targetId = found ? found.toolId : toolId;
       const existing = found ? found.entry : (this.tools.get(targetId) || {});
 
-      let constraints = meta.constraints !== undefined ? meta.constraints : (existing.constraints || null);
-      if (constraints?.command?.allowedPrefixes?.some(p => String(p).replace(/\*+$/, '').trim() === 'cd')) {
-        constraints = {
-          ...constraints,
-          command: {
-            ...constraints.command,
-            allowChaining: true
-          }
-        };
-      }
+      const constraints = meta.constraints !== undefined ? meta.constraints : (existing.constraints || null);
 
       const entry = {
         policy: cleanPolicy,
@@ -952,6 +1017,21 @@
               details: constraintEval.details
             };
           }
+          if (rule.constraints.command) {
+            const directoryEval = this.evaluateCommandDirectories(args);
+            if (!directoryEval.allowed) {
+              return {
+                requiresApproval: true,
+                status: TOOL_POLICIES.ASK,
+                reason: 'command_directory_outside_rules',
+                toolId: resolvedToolId,
+                serverName,
+                serverId,
+                originalName,
+                details: `El comando se ejecuta fuera de las reglas de directorio: ${directoryEval.directory}`
+              };
+            }
+          }
         }
 
         rule.lastUsedAt = Date.now();
@@ -1008,8 +1088,11 @@
 
         // Si workspace_trust está activo y no es escape traversal
         if (this.globalMcpPolicy === GLOBAL_POLICIES.WORKSPACE_TRUST) {
-          const norm = normalizePath(path);
-          if (!isPathTraversal(norm) && (!norm.startsWith('/') || norm.startsWith('/workspace'))) {
+          // Resolver ".." antes de comparar: "/workspace/../home" no es el espacio de trabajo.
+          const resolved = normalizeDirectoryPath(path);
+          const isInsideWorkspace = Boolean(resolved) && !/^[A-Za-z]:/.test(path) &&
+            (!resolved.startsWith('/') || resolved === '/workspace' || resolved.startsWith('/workspace/'));
+          if (isInsideWorkspace) {
             return {
               requiresApproval: false,
               status: TOOL_POLICIES.ALLOW,
@@ -1031,20 +1114,19 @@
           serverId,
           originalName,
           details: `La ruta no coincide con una regla ${pathAccess}: ${path}`,
-          directoryAccess: pathAccess,
-          directoryPath: directoryEval.path || path
+          directoryAccess: directoryEval.path ? pathAccess : '',
+          directoryPath: directoryEval.path || ''
         };
       }
 
       if ((toolName === 'execute_command' || toolName === 'bash' || originalName === 'execute_command' || originalName === 'bash')
           && this.globalMcpPolicy === GLOBAL_POLICIES.WORKSPACE_TRUST) {
         const cmdVal = String(args.command || args.cmd || args.script || '').trim();
-        const isGlobalOrExternal =
-          /(?:^|\s)(?:sudo|su|mkfs|reboot|shutdown|systemctl)\b/.test(cmdVal) ||
-          /(?:^|\s)(?:\/etc\/|\/var\/|\/usr\/|\/root\/|\/boot\/)/.test(cmdVal) ||
-          /\.\.\//.test(cmdVal);
+        const leadingCd = splitLeadingCd(cmdVal);
+        const isLocal = isWorkspaceLocalCommand(leadingCd ? leadingCd.command : cmdVal) &&
+          this.evaluateCommandDirectories(args).allowed;
 
-        if (!isGlobalOrExternal) {
+        if (isLocal) {
           return {
             requiresApproval: false,
             status: TOOL_POLICIES.ALLOW,
@@ -1093,6 +1175,8 @@
     evaluatePathConstraint,
     evaluateCommandConstraint,
     evaluateConstraints,
+    getCommandBaseName,
+    canBuildDirectoryRule,
     manager
   };
 });

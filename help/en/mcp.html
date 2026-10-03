@@ -83,11 +83,12 @@
       <p>In <strong>Settings → Permissions</strong>, choose the global policy and review saved authorizations. In the MCP panel, choose Ask, Allow or Deny for each tool.</p>
       <ul>
         <li><strong>Ask for authorization:</strong> prompts when existing rules do not resolve the call.</li>
-        <li><strong>Trust the workspace:</strong> allows operations matching directory rules.</li>
+        <li><strong>Trust the workspace:</strong> besides directory rules, allows files with relative paths inside the project and simple commands: no chaining (<code>;</code>, <code>&amp;&amp;</code>, <code>$()</code>), no redirection to files, no absolute paths, <code>~</code>, variables or <code>..</code>, and pipes only into filters such as <code>head</code>, <code>grep</code> or <code>wc</code>. Anything else asks for confirmation. It is not isolation: a simple command such as <code>python3 script.py</code> acts with your permissions.</li>
         <li><strong>Allow everything:</strong> runs without confirmation, except for explicit blocks that take precedence.</li>
       </ul>
       <p>Decisions may apply to one call, the backend session or permanently. External tools are named <code>&lt;service&gt;_&lt;tool&gt;</code>: trusting <code>composio</code> authorizes its tools, not those of other services. Allowing one tool does not authorize the whole service.</p>
-      <p><strong>Allowed directories:</strong> one rule per line, with <code>R:</code> (read), <code>W:</code> (write) or <code>RW:</code> (both). Use <code>*</code> for one segment and <code>**</code> for subdirectories. An empty list adds a read rule for the startup directory. Commands also have prefix rules and additional checks.</p>
+      <p><strong>Allowed directories:</strong> one rule per line, with <code>R:</code> (read), <code>W:</code> (write) or <code>RW:</code> (both). Use <code>*</code> for one segment and <code>**</code> for subdirectories. An empty list adds a read rule for the startup directory. Paths with <code>~</code> or variables are not resolved in the browser and always ask for confirmation: use absolute paths. Commands also have prefix rules and additional checks.</p>
+      <p><strong>Always allow a command:</strong> authorizes only that program, without chaining, pipes or redirection to files. A leading <code>cd &lt;folder&gt; &amp;&amp;</code> is accepted when a directory rule covers the folder, as is the command working directory. Authorizing a program trusts all of its options: <code>git</code> can run other commands through its configuration or aliases.</p>
       <p>These rules are not an operating system sandbox. Authorized commands and services act with the local process's permissions. Stopping a call does not undo its changes.</p>
     </div>
 
