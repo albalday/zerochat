@@ -1,7 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - webllm', { concurrency: 2 }, () => {
   after(async () => {
@@ -13,7 +13,7 @@ test('Browser UI - WebLLM mantiene la intensidad de razonamiento en cero', async
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     await page.evaluate(() => window.ChatConfig.updateRuntime({
       apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none', reasoningTransport: 'auto'
     }));
@@ -186,7 +186,7 @@ test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los par
       }));
     });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
 
     // 1. Con 'default', el límite publicado se sincroniza a 4096 y el badge muestra 4.1k (no 1M)
     const defaultContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
@@ -213,7 +213,7 @@ test('Browser UI - WebLLM arranca Web Worker modular', async () => {
     const page = await browser.newPage();
     const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
       try {

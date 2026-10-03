@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITelemetry = require('../../js/ui-telemetry.js');
 
-test('UITelemetry - formatTokenCount formatea de forma compacta y legible', () => {
+test('UITelemetry - formatea y parsea recuentos de tokens y capacidades de contexto', () => {
   assert.equal(UITelemetry.formatTokenCount(0), '0');
   assert.equal(UITelemetry.formatTokenCount(null), '0');
   assert.equal(UITelemetry.formatTokenCount(undefined), '0');
@@ -19,14 +19,10 @@ test('UITelemetry - formatTokenCount formatea de forma compacta y legible', () =
   assert.equal(UITelemetry.formatTokenCount(1000000), '1M');
   assert.equal(UITelemetry.formatTokenCount(1500000), '1.5M');
   assert.equal(UITelemetry.formatTokenCount(2000000), '2M');
-});
 
-test('UITelemetry - formatContextCapacity usa K para capacidades de contexto', () => {
   assert.equal(UITelemetry.formatContextCapacity(90112), '90.112K');
   assert.equal(UITelemetry.formatContextCapacity(1000000), '1000K');
-});
 
-test('UITelemetry - parseContextCapacity acepta capacidad compacta sin perder precisión', () => {
   assert.equal(UITelemetry.parseContextCapacity('90.112K'), 90112);
   assert.equal(UITelemetry.parseContextCapacity('1M'), 1000000);
   assert.equal(UITelemetry.parseContextCapacity('64000'), 64000);

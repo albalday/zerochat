@@ -315,76 +315,78 @@ test('MCP - McpManager administración de servidores y sincronización', async (
   assert.equal(manager.getServers().some(s => s.id === server.id), false);
 });
 
-test('MCP - probeConnection sondea exitosamente un endpoint activo', async () => {
-  const originalFetch = global.fetch;
+test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexión, URL vacía y respuestas HTTP fallidas', async () => {
+  {
+    const originalFetch = global.fetch;
 
-  try {
-    global.fetch = async (url, options) => {
-      const body = JSON.parse(options.body || '{}');
-      if (body.method === 'initialize') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            jsonrpc: '2.0',
-            id: body.id,
-            result: {
-              protocolVersion: '2024-11-05',
-              serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
-              capabilities: {}
-            }
-          })
-        };
-      }
-      return { ok: false, status: 404 };
-    };
+    try {
+      global.fetch = async (url, options) => {
+        const body = JSON.parse(options.body || '{}');
+        if (body.method === 'initialize') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              jsonrpc: '2.0',
+              id: body.id,
+              result: {
+                protocolVersion: '2024-11-05',
+                serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
+                capabilities: {}
+              }
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      };
 
-    const res = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 1000 });
-    assert.equal(res.success, true);
-    assert.equal(res.serverInfo.name, 'mcp-proxy');
-    assert.equal(res.serverInfo.version, '0.4.0');
-    assert.ok(typeof res.latencyMs === 'number');
-  } finally {
-    global.fetch = originalFetch;
+      const res = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 1000 });
+      assert.equal(res.success, true);
+      assert.equal(res.serverInfo.name, 'mcp-proxy');
+      assert.equal(res.serverInfo.version, '0.4.0');
+      assert.ok(typeof res.latencyMs === 'number');
+    } finally {
+      global.fetch = originalFetch;
+    }
   }
-});
 
-test('MCP - probeConnection maneja fallo de conexión y URL vacía', async () => {
-  const emptyRes = await MCP.probeConnection('');
-  assert.equal(emptyRes.success, false);
-  assert.ok(emptyRes.error.includes('no válida'));
+  {
+    const emptyRes = await MCP.probeConnection('');
+    assert.equal(emptyRes.success, false);
+    assert.ok(emptyRes.error.includes('no válida'));
 
-  const originalFetch = global.fetch;
-  try {
-    global.fetch = async () => {
-      throw new Error('connect ECONNREFUSED 127.0.0.1:6388');
-    };
+    const originalFetch = global.fetch;
+    try {
+      global.fetch = async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:6388');
+      };
 
-    const failRes = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
-    assert.equal(failRes.success, false);
-    assert.ok(failRes.error.includes('No se puede conectar al proxy'));
-  } finally {
-    global.fetch = originalFetch;
+      const failRes = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+      assert.equal(failRes.success, false);
+      assert.ok(failRes.error.includes('No se puede conectar al proxy'));
+    } finally {
+      global.fetch = originalFetch;
+    }
   }
-});
 
-test('MCP - probeConnection no acepta respuestas HTTP fallidas como conexión activa', async () => {
-  const originalFetch = global.fetch;
-  try {
-    global.fetch = async (_url, options = {}) => {
-      if (options.method === 'POST') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'initialize unavailable' } })
-        };
-      }
-      return { ok: false, status: 503, text: async () => 'Service unavailable' };
-    };
-    const result = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
-    assert.equal(result.success, false);
-  } finally {
-    global.fetch = originalFetch;
+  {
+    const originalFetch = global.fetch;
+    try {
+      global.fetch = async (_url, options = {}) => {
+        if (options.method === 'POST') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ jsonrpc: '2.0', error: { code: -32601, message: 'initialize unavailable' } })
+          };
+        }
+        return { ok: false, status: 503, text: async () => 'Service unavailable' };
+      };
+      const result = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
+      assert.equal(result.success, false);
+    } finally {
+      global.fetch = originalFetch;
+    }
   }
 });
 

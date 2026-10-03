@@ -1,7 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - profiles_settings', { concurrency: 4 }, () => {
   after(async () => {
@@ -298,7 +298,7 @@ test('Browser UI - al volver a LM Studio recupera el límite publicado', async (
     });
     await seedConnectionProfiles(page);
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:remote"]');
     const remoteContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
@@ -318,7 +318,7 @@ test('Browser UI - Los campos select/combo no presentan remarcado azul al recibi
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
 
     // 1. Probar combos del modal de configuración
     await page.evaluate(() => {
@@ -352,7 +352,7 @@ test('Browser UI - carga una copia cifrada de perfiles con el nuevo sistema HTML
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
 
     // Verificar que NO existe el botón de importación manual (fue eliminado)
     const importButtonExists = await page.evaluate(() => {
@@ -416,7 +416,7 @@ test('Browser UI - el bloqueo cargado afecta a todas las pestañas y el borrador
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     await page.evaluate(async () => {
       const repository = window.ChatProfileRepository;
       await repository.saveEditable({ id: 'profile:unlocked-test', name: 'Unlocked test', settings: { apiType: 'openai', model: 'test', apiKey: '' } });
@@ -491,7 +491,7 @@ test('Browser UI - inicia sin bloquearse cuando existen perfiles heredados de la
     });
 
     await page.reload({ waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
     assert.equal(await page.locator('#chat-form').isVisible(), true, 'El formulario de chat debe ser visible');
   } finally {
@@ -544,6 +544,14 @@ test('Browser UI - selector de perfiles con 3 iconos de cabecera y acciones de i
     page.on('pageerror', error => errors.push(error.message));
     await seedConnectionProfiles(page);
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+
+    await waitForAppReady(page);
+    const triggerLayout = await page.evaluate(() => ({
+      triggerWidth: document.getElementById('active-profile-trigger').getBoundingClientRect().width,
+      nameWidth: document.getElementById('active-profile-name').getBoundingClientRect().width
+    }));
+    assert.ok(triggerLayout.triggerWidth >= 136, `El selector no debe colapsar en la cabecera (${triggerLayout.triggerWidth}px)`);
+    assert.ok(triggerLayout.nameWidth > 0, 'El nombre activo debe conservar espacio visible');
 
     // 1. Abrir selector y comprobar los 3 iconos de cabecera (sin importación manual)
     await page.click('#active-profile-trigger');

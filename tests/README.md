@@ -99,9 +99,18 @@ Los cambios en el runner requieren actualizar esta guía solo si cambian sus com
 1. Selecciona el nivel adecuado según la sección 1.
 2. Crea el archivo con el patrón `test_<área>.js` o `<área>.test.js` dentro del nivel elegido.
 3. Aísla efectos compartidos en `beforeEach` y `afterEach`; restaura mocks, temporizadores y estado global al terminar cada caso.
-4. Para pruebas de navegador, usa los helpers de `tests/helpers/` y garantiza el cierre de páginas y contextos en `finally`.
-5. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
-6. Ejecuta primero el nivel afectado y, cuando proceda, el grupo funcional y las validaciones exigidas por `AGENTS.md`.
+4. Para pruebas de navegador, usa los helpers de `tests/helpers/` y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
+5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque.
+6. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.
+7. Ejecuta primero el nivel afectado y, cuando proceda, el grupo funcional y las validaciones exigidas por `AGENTS.md`.
+
+### Qué no merece un test propio
+
+- Un caso más de una función ya probada: añádelo como aserción o fila al test existente de esa función.
+- La mera existencia de métodos (`typeof x === 'function'`) o la ausencia de elementos ya retirados.
+- Las funciones reexportadas por fachadas: se prueban una vez en su módulo de origen.
+- Lo que solo lee ficheros sin ejecutar nada no va en `browser/`, sino en `architecture/` o `unit/`.
+- Las esperas reales a temporizadores: usa `t.mock.timers`.
 
 ## 7. Validación obligatoria
 

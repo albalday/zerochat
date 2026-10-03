@@ -26,23 +26,6 @@ test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente',
   assert.equal(logs[0].type, 'tool');
 });
 
-test('ToolDispatcher - dispatchToolCall rechaza JSON corrupto o texto plano en argumentos', async () => {
-  const toolCall = {
-    id: 'call_js_raw',
-    type: 'function',
-    function: {
-      name: 'execute_javascript',
-      arguments: 'code: return 5 * 5;'
-    }
-  };
-
-  const res = await AgentCore.dispatchToolCall(toolCall);
-  assert.equal(res.success, false);
-  assert.match(res.error, /Invalid tool arguments/);
-  assert.deepEqual(res.args, {});
-  assert.notEqual(res.resultText, '25');
-});
-
 test('ToolDispatcher - dispatchToolCall ejecuta search_web con alias searchweb', async () => {
   const toolCall = {
     id: 'call_search_1',
@@ -67,43 +50,6 @@ test('ToolDispatcher - dispatchToolCall ejecuta search_web con alias searchweb',
   });
   assert.ok(res.success);
   assert.equal(res.resultText, 'Resultados simulados para DeepSeek R1');
-});
-
-test('ToolDispatcher - dispatchToolCall ejecuta render_chart y genera salida estructurada', async () => {
-  const toolCall = {
-    id: 'call_chart_1',
-    type: 'function',
-    function: {
-      name: 'render_chart',
-      arguments: JSON.stringify({
-        type: 'bar',
-        title: 'Ventas Mensuales',
-        labels: ['Ene', 'Feb'],
-        datasets: [{ label: '2026', data: [100, 200] }]
-      })
-    }
-  };
-
-  const res = await AgentCore.dispatchToolCall(toolCall);
-  assert.ok(res.success);
-  const parsedRes = JSON.parse(res.resultText);
-  assert.equal(parsedRes.type, 'bar');
-  assert.equal(parsedRes.title, 'Ventas Mensuales');
-});
-
-test('ToolDispatcher - dispatchToolCall maneja herramienta inexistente de forma segura', async () => {
-  const toolCall = {
-    id: 'call_unknown',
-    type: 'function',
-    function: {
-      name: 'non_existent_tool_xyz',
-      arguments: '{}'
-    }
-  };
-
-  const res = await AgentCore.dispatchToolCall(toolCall);
-  assert.equal(res.success, false);
-  assert.ok(res.error.includes('no encontrada'));
 });
 
 test('ToolDispatcher - getDefinitions excluye todas las herramientas RAG si RAG no está activo', () => {

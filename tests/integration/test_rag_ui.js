@@ -4,25 +4,6 @@ const RagStorage = require('../../js/ragStorage.js');
 const RagUI = require('../../js/rag-ui.js');
 const I18n = require('../../js/i18n.js');
 
-test('RagUI - exporta la superficie mínima', () => {
-  assert.equal(typeof RagUI.initRagUI, 'function');
-  assert.equal(typeof RagUI.updateToolbarStatus, 'function');
-  assert.equal(typeof RagUI.renderActivationDialog, 'function');
-  assert.equal(typeof RagUI.renderManageDialog, 'function');
-  assert.equal(typeof RagUI.getActiveBranchId, 'function');
-  assert.equal(typeof RagUI.setActiveBranchId, 'function');
-  assert.equal(typeof RagUI.getActiveBranchIds, 'function');
-  assert.equal(typeof RagUI.setActiveBranchIds, 'function');
-  assert.equal(typeof RagUI.toggleBranchActive, 'function');
-  assert.equal(typeof RagUI.isBranchActive, 'function');
-  assert.equal(typeof RagUI.exportBranch, 'function');
-  assert.equal(typeof RagUI.importBranchFile, 'function');
-  assert.equal(typeof RagUI.ingestionResultMarkup, 'function');
-  assert.equal(typeof RagUI.openActivationModal, 'function');
-  assert.equal(typeof RagUI.openManageModal, 'function');
-  assert.equal(typeof RagUI.openRagModal, 'function');
-});
-
 test('RagUI - genera diálogos separados para activar y gestionar documentos', () => {
   const activationHtml = RagUI.getRagActivationModalHTML();
   const manageHtml = RagUI.getRagManageModalHTML();

@@ -136,67 +136,69 @@ test('AgentCore - ToolExecutor deniega herramientas no MCP si falta la política
   }
 });
 
-test('AgentCore - ToolExecutor parseo tolerante de argumentos y captura de errores', async () => {
-  const registry = new AgentCoreModule.ToolRegistry();
+test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argumentos no JSON sin ejecutar la herramienta', async () => {
+  {
+    const registry = new AgentCoreModule.ToolRegistry();
 
-  // Registrar herramienta con error forzado
-  registry.registerTool(new AgentCoreModule.Tool({
-    name: 'failing_tool',
-    description: 'Herramienta que lanza un error deliberado',
-    execute: async () => {
-      throw new Error('Fallo crítico simulado');
-    }
-  }));
+    // Registrar herramienta con error forzado
+    registry.registerTool(new AgentCoreModule.Tool({
+      name: 'failing_tool',
+      description: 'Herramienta que lanza un error deliberado',
+      execute: async () => {
+        throw new Error('Fallo crítico simulado');
+      }
+    }));
 
-  const executor = new AgentCoreModule.ToolExecutor(registry);
+    const executor = new AgentCoreModule.ToolExecutor(registry);
 
-  // 1. Herramienta que falla -> no debe romper el proceso, debe devolver error capturado
-  const failRes = await executor.executeToolCall({
-    id: 'call_fail',
-    function: { name: 'failing_tool', arguments: '{}' }
-  });
-  assert.equal(failRes.success, false);
-  assert.equal(failRes.error, 'Fallo crítico simulado');
-  assert.ok(failRes.executionTimeMs >= 0);
+    // 1. Herramienta que falla -> no debe romper el proceso, debe devolver error capturado
+    const failRes = await executor.executeToolCall({
+      id: 'call_fail',
+      function: { name: 'failing_tool', arguments: '{}' }
+    });
+    assert.equal(failRes.success, false);
+    assert.equal(failRes.error, 'Fallo crítico simulado');
+    assert.ok(failRes.executionTimeMs >= 0);
 
-  // 2. Herramienta no existente
-  const notFoundRes = await executor.executeToolCall({
-    id: 'call_unknown',
-    function: { name: 'non_existent_tool', arguments: '{}' }
-  });
-  assert.equal(notFoundRes.success, false);
-  assert.match(notFoundRes.error, /no encontrada/i);
+    // 2. Herramienta no existente
+    const notFoundRes = await executor.executeToolCall({
+      id: 'call_unknown',
+      function: { name: 'non_existent_tool', arguments: '{}' }
+    });
+    assert.equal(notFoundRes.success, false);
+    assert.match(notFoundRes.error, /no encontrada/i);
 
-  // 3. Los argumentos que no son un objeto JSON no se adivinan
-  assert.equal(executor.parseArguments('url: "https://example.com"'), null);
-  assert.equal(executor.parseArguments('code = "console.log(123)"'), null);
-  assert.equal(executor.parseArguments('[1, 2]'), null);
-  assert.equal(executor.parseArguments('"texto"'), null);
-  assert.deepEqual(executor.parseArguments(''), {});
-  assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
-});
+    // 3. Los argumentos que no son un objeto JSON no se adivinan
+    assert.equal(executor.parseArguments('url: "https://example.com"'), null);
+    assert.equal(executor.parseArguments('code = "console.log(123)"'), null);
+    assert.equal(executor.parseArguments('[1, 2]'), null);
+    assert.equal(executor.parseArguments('"texto"'), null);
+    assert.deepEqual(executor.parseArguments(''), {});
+    assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
+  }
 
-test('AgentCore - Argumentos no JSON devuelven error sin ejecutar la herramienta', async () => {
-  let executed = false;
-  const registry = new AgentCoreModule.ToolRegistry();
-  registry.registerTool(new AgentCoreModule.Tool({
-    name: 'guarded_tool',
-    execute: async () => {
-      executed = true;
-      return { success: true };
-    }
-  }));
-  const executor = new AgentCoreModule.ToolExecutor(registry);
+  {
+    let executed = false;
+    const registry = new AgentCoreModule.ToolRegistry();
+    registry.registerTool(new AgentCoreModule.Tool({
+      name: 'guarded_tool',
+      execute: async () => {
+        executed = true;
+        return { success: true };
+      }
+    }));
+    const executor = new AgentCoreModule.ToolExecutor(registry);
 
-  const res = await executor.executeToolCall({
-    id: 'call_bad_args',
-    function: { name: 'guarded_tool', arguments: 'code = "alert(1)' }
-  });
+    const res = await executor.executeToolCall({
+      id: 'call_bad_args',
+      function: { name: 'guarded_tool', arguments: 'code = "alert(1)' }
+    });
 
-  assert.equal(executed, false);
-  assert.equal(res.success, false);
-  assert.match(res.error, /Invalid tool arguments/);
-  assert.equal(res.outcome.ok, false);
+    assert.equal(executed, false);
+    assert.equal(res.success, false);
+    assert.match(res.error, /Invalid tool arguments/);
+    assert.equal(res.outcome.ok, false);
+  }
 });
 
 test('AgentCore - Cancelación de ejecución de herramientas mediante AbortSignal', async () => {

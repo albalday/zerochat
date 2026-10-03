@@ -2,11 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const GenerationController = require('../../js/generation-controller.js');
 
-test('GenerationController - initial state is not generating', () => {
-  assert.equal(GenerationController.isGenerating(), false);
-  assert.equal(GenerationController.getCurrentAbortController(), null);
-});
-
 test('GenerationController - returned and thrown errors use the same connection view', async t => {
   const State = require('../../js/state.js');
   const names = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments'];

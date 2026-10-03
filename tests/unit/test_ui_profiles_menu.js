@@ -95,71 +95,73 @@ test('UISettings.renderProfileMenu - renderiza lista con acciones de inspecciona
   assert.equal(customDelete.dataset.targetId, 'profile:custom1');
 });
 
-test('UIProfiles - handleDeleteProfileById rechaza borrar perfil de solo lectura', async () => {
-  const result = await UIProfiles.handleDeleteProfileById('profile:mirror', {}, {});
-  assert.equal(result, false, 'No se debe permitir borrar el perfil Espejo');
-});
+test('UIProfiles - handleDeleteProfileById rechaza solo lectura, pide confirmación y respeta la cancelación', async () => {
+  {
+    const result = await UIProfiles.handleDeleteProfileById('profile:mirror', {}, {});
+    assert.equal(result, false, 'No se debe permitir borrar el perfil Espejo');
+  }
 
-test('UIProfiles - handleDeleteProfileById pide confirmación y elimina perfil si se acepta', async () => {
-  let confirmPromptMessage = '';
-  let removedId = null;
-  let composerRefreshes = 0;
+  {
+    let confirmPromptMessage = '';
+    let removedId = null;
+    let composerRefreshes = 0;
 
-  global.ChatDialogs = {
-    confirm: async (msg) => {
-      confirmPromptMessage = msg;
-      return true;
-    }
-  };
+    global.ChatDialogs = {
+      confirm: async (msg) => {
+        confirmPromptMessage = msg;
+        return true;
+      }
+    };
 
-  const mockProfiles = {
-    READONLY_PROFILE_ID: 'profile:mirror',
-    get: (id) => (id === 'prof_1' ? { id: 'prof_1', name: 'Perfil Borrable' } : null),
-    remove: (id) => {
-      removedId = id;
-      return true;
-    },
-    list: () => []
-  };
+    const mockProfiles = {
+      READONLY_PROFILE_ID: 'profile:mirror',
+      get: (id) => (id === 'prof_1' ? { id: 'prof_1', name: 'Perfil Borrable' } : null),
+      remove: (id) => {
+        removedId = id;
+        return true;
+      },
+      list: () => []
+    };
 
-  global.ChatProfileRepository = mockProfiles;
-  global.ChatConfig = {
-    getActive: () => ({ activeProfile: { id: 'prof_1' } }),
-    activateFallbackProfile: () => {}
-  };
+    global.ChatProfileRepository = mockProfiles;
+    global.ChatConfig = {
+      getActive: () => ({ activeProfile: { id: 'prof_1' } }),
+      activateFallbackProfile: () => {}
+    };
 
-  const elements = {
-    profilesDialog: { dataset: {}, querySelectorAll: () => [] },
-    profileSelectHelper: { innerHTML: '', appendChild: () => {}, value: 'prof_1' },
-    activeProfileList: { replaceChildren: () => {}, appendChild: () => {}, ownerDocument: { createElement: createMockElement } }
-  };
+    const elements = {
+      profilesDialog: { dataset: {}, querySelectorAll: () => [] },
+      profileSelectHelper: { innerHTML: '', appendChild: () => {}, value: 'prof_1' },
+      activeProfileList: { replaceChildren: () => {}, appendChild: () => {}, ownerDocument: { createElement: createMockElement } }
+    };
 
-  const result = await UIProfiles.handleDeleteProfileById('prof_1', elements, {
-    updateUIFromConfig: () => { composerRefreshes += 1; }
-  });
-  assert.equal(result, true, 'Debe devolver true al completar el borrado');
-  assert.match(confirmPromptMessage, /Perfil Borrable/, 'Debe pedir confirmación incluyendo el nombre');
-  assert.equal(removedId, 'prof_1', 'Debe haber llamado a remove con el id del perfil');
-  assert.equal(composerRefreshes, 1, 'Debe refrescar los controles que muestran el perfil activo');
-});
+    const result = await UIProfiles.handleDeleteProfileById('prof_1', elements, {
+      updateUIFromConfig: () => { composerRefreshes += 1; }
+    });
+    assert.equal(result, true, 'Debe devolver true al completar el borrado');
+    assert.match(confirmPromptMessage, /Perfil Borrable/, 'Debe pedir confirmación incluyendo el nombre');
+    assert.equal(removedId, 'prof_1', 'Debe haber llamado a remove con el id del perfil');
+    assert.equal(composerRefreshes, 1, 'Debe refrescar los controles que muestran el perfil activo');
+  }
 
-test('UIProfiles - handleDeleteProfileById no elimina si se cancela la confirmación', async () => {
-  let removed = false;
+  {
+    let removed = false;
 
-  global.ChatDialogs = {
-    confirm: async () => false
-  };
+    global.ChatDialogs = {
+      confirm: async () => false
+    };
 
-  global.ChatProfileRepository = {
-    READONLY_PROFILE_ID: 'profile:mirror',
-    get: (id) => ({ id, name: 'Perfil Seguro' }),
-    remove: () => { removed = true; return true; },
-    list: () => []
-  };
+    global.ChatProfileRepository = {
+      READONLY_PROFILE_ID: 'profile:mirror',
+      get: (id) => ({ id, name: 'Perfil Seguro' }),
+      remove: () => { removed = true; return true; },
+      list: () => []
+    };
 
-  const result = await UIProfiles.handleDeleteProfileById('prof_2', {}, {});
-  assert.equal(result, false, 'Debe devolver false si la confirmación se cancela');
-  assert.equal(removed, false, 'No debe llamar a remove al cancelar');
+    const result = await UIProfiles.handleDeleteProfileById('prof_2', {}, {});
+    assert.equal(result, false, 'Debe devolver false si la confirmación se cancela');
+    assert.equal(removed, false, 'No debe llamar a remove al cancelar');
+  }
 });
 
 test('UIProfiles - usar clave predeterminada informa si no hay API keys', async () => {

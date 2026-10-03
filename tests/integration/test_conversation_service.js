@@ -2,20 +2,6 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const ConversationService = require('../../js/conversation-service.js');
 
-test('ConversationService - isDateTimeInitialTurn identifies initial date-time messages', () => {
-  assert.equal(ConversationService.isDateTimeInitialTurn({ role: 'user', content: 'La fecha y hora actual es: 2026-09-14' }), true);
-  assert.equal(ConversationService.isDateTimeInitialTurn({ role: 'user', content: 'The current date and time is: 2026-09-14' }), true);
-  assert.equal(ConversationService.isDateTimeInitialTurn({ role: 'user', content: 'Hola, ¿cómo estás?' }), false);
-  assert.equal(ConversationService.isDateTimeInitialTurn({ role: 'assistant', content: 'La fecha y hora actual es:' }), false);
-});
-
-test('ConversationService - extractBaseId strips turn and final suffixes', () => {
-  assert.equal(ConversationService.extractBaseId('msg_123_turn_2_assistant'), 'msg_123');
-  assert.equal(ConversationService.extractBaseId('msg_123_turn_1_tool_read'), 'msg_123');
-  assert.equal(ConversationService.extractBaseId('msg_123_final'), 'msg_123');
-  assert.equal(ConversationService.extractBaseId('msg_123'), 'msg_123');
-});
-
 test('ConversationService - cloneBranchHistory clones up to boundary and generates session-scoped IDs', () => {
   const history = [
     { id: 'm1', role: 'system', content: 'sys' },

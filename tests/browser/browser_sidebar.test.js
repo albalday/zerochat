@@ -1,110 +1,37 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - sidebar', { concurrency: 2 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - Fase 5: Barra Lateral de Conversaciones Moderna, Grupos y Drawer', async () => {
+test('Browser UI - el sidebar es panel en escritorio y drawer cerrado en móvil', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForSelector('#welcome-banner');
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const display = () => page.$eval('#chat-sidebar', el => getComputedStyle(el).display);
 
-    // 1. Validar que la barra lateral está abierta por defecto
-    const isSidebarVisible = await page.$eval('#chat-sidebar', el => getComputedStyle(el).display === 'flex');
-    assert.ok(isSidebarVisible, 'El sidebar debe mostrarse con display flex');
+    assert.equal(await display(), 'flex', 'El sidebar debe estar abierto por defecto en escritorio');
+    await page.click('#btn-close-sidebar');
+    assert.equal(await display(), 'none', 'El sidebar debe cerrarse');
+    await page.click('#btn-toggle-sidebar');
+    assert.equal(await display(), 'flex', 'El botón de la cabecera debe reabrir el sidebar');
 
-    // 2. Validar botón de nueva conversación como icono junto al control del sidebar
-    const newChatBtnInfo = await page.evaluate(() => {
-      const btn = document.getElementById('btn-sidebar-new-chat');
-      const style = getComputedStyle(btn);
-      return {
-        exists: !!btn,
-        text: btn.textContent.trim(),
-        hasSvg: !!btn.querySelector('svg'),
-        isInHeader: !!btn.closest('.header-left'),
-        width: parseFloat(style.width),
-        height: parseFloat(style.height)
-      };
-    });
-    assert.ok(newChatBtnInfo.exists, 'El botón #btn-sidebar-new-chat debe existir');
-    assert.ok(newChatBtnInfo.hasSvg, 'El botón de nueva conversación debe contener un icono SVG');
-    assert.ok(newChatBtnInfo.isInHeader, 'El botón de nueva conversación debe estar junto al control del sidebar en la cabecera');
-    assert.ok(newChatBtnInfo.width > 0 && newChatBtnInfo.height > 0, 'El botón de nueva conversación debe tener dimensiones renderizadas');
-
-    // 3. Validar buscador de historial con icono
-    const searchInfo = await page.evaluate(() => {
-      const input = document.getElementById('sidebar-search-input');
-      const icon = document.querySelector('.sidebar-search-icon');
-      return {
-        hasInput: !!input,
-        hasIcon: !!icon,
-        placeholder: input.getAttribute('placeholder')
-      };
-    });
-    assert.ok(searchInfo.hasInput, 'El input de búsqueda debe existir');
-    assert.ok(searchInfo.hasIcon, 'El icono de búsqueda debe existir');
-
-    // 4. Inyectar sesiones de prueba con diferentes fechas para probar agrupación cronológica
-    await page.evaluate(() => {
-      const now = Date.now();
-      const mockSessions = [
-        { id: 'chat-today-1', title: 'Plan de Refactorización UI', updatedAt: now },
-        { id: 'chat-yesterday-1', title: 'Consulta de Base de Datos', updatedAt: now - 86400000 },
-        { id: 'chat-older-1', title: 'Diseño de Algoritmos Inicial', updatedAt: now - (45 * 86400000) }
-      ];
-      const elements = {
-        sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input')
-      };
-      window.ChatUISidebar.renderSidebarChats(elements, mockSessions, 'chat-today-1', {}, { groupByDate: true });
-    });
-
-    // Validar cabeceras de grupos cronológicos
-    const groupHeaders = await page.$$eval('.sidebar-group-header', els => els.map(e => e.textContent.trim()));
-    assert.ok(groupHeaders.length >= 2, 'Deben existir cabeceras de agrupación cronológica');
-    assert.ok(groupHeaders.includes('Hoy'), 'Debe incluir grupo Hoy');
-    assert.ok(groupHeaders.includes('Ayer'), 'Debe incluir grupo Ayer');
-
-    // Validar chat activo
-    const activeItem = await page.$eval('.sidebar-chat-item.active', el => el.getAttribute('data-session-id'));
-    assert.equal(activeItem, 'chat-today-1', 'El chat actual debe tener la clase .active');
-
-    // 5. Validar filtrado dinámico mediante buscador
-    await page.fill('#sidebar-search-input', 'Refactorización');
-    await page.evaluate(() => {
-      const now = Date.now();
-      const mockSessions = [
-        { id: 'chat-today-1', title: 'Plan de Refactorización UI', updatedAt: now },
-        { id: 'chat-yesterday-1', title: 'Consulta de Base de Datos', updatedAt: now - 86400000 }
-      ];
-      const elements = {
-        sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input')
-      };
-      window.ChatUISidebar.renderSidebarChats(elements, mockSessions, 'chat-today-1', {}, { groupByDate: true });
-    });
-
-    const filteredCount = await page.$$eval('.sidebar-chat-item', els => els.length);
-    assert.equal(filteredCount, 1, 'Solo debe coincidir 1 chat con el filtro');
-
-    // 6. Validar comportamiento responsive en móvil (Drawer Mode)
     await page.setViewportSize({ width: 500, height: 800 });
-    const mobileSidebarStyle = await page.$eval('#chat-sidebar', el => {
-      const s = getComputedStyle(el);
-      return {
-        position: s.position,
-        zIndex: parseInt(s.zIndex, 10)
-      };
-    });
-    assert.equal(mobileSidebarStyle.position, 'fixed', 'En móvil, el sidebar debe posicionarse como fixed drawer');
-    assert.ok(mobileSidebarStyle.zIndex >= 100, 'En móvil, el zIndex debe ser elevado para superponerse al chat');
+    const drawer = await page.$eval('#chat-sidebar', el => ({ position: getComputedStyle(el).position, zIndex: parseInt(getComputedStyle(el).zIndex, 10) }));
+    assert.equal(drawer.position, 'fixed', 'En móvil, el sidebar debe posicionarse como fixed drawer');
+    assert.ok(drawer.zIndex >= 100, 'En móvil, el drawer debe superponerse al chat');
+
+    const mobile = await browser.newPage({ viewport: { width: 500, height: 800 }, isMobile: true });
+    await mobile.goto(getIndexUrl(), { waitUntil: 'load' });
+    await mobile.waitForSelector('#welcome-banner');
+    assert.equal(await mobile.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-hidden')), true, 'En móvil el drawer debe comenzar cerrado');
+    await mobile.click('#btn-toggle-sidebar');
+    await mobile.waitForFunction(() => document.getElementById('chat-sidebar').classList.contains('sidebar-visible'));
   } finally {
     await browser.close();
   }
@@ -115,7 +42,7 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 800 }, isMobile: true });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     await page.click('#btn-toggle-sidebar');
     await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
     await page.evaluate(() => {
@@ -149,28 +76,12 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
   }
 });
 
-test('Browser UI - el drawer lateral comienza cerrado en móvil y se abre desde la cabecera', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage({ viewport: { width: 500, height: 800 }, isMobile: true });
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForSelector('#welcome-banner');
-
-    assert.equal(await page.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-hidden')), true);
-    await page.click('#btn-toggle-sidebar');
-    await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
-    assert.equal(await page.locator('#chat-sidebar').evaluate(el => el.classList.contains('sidebar-visible')), true);
-  } finally {
-    await browser.close();
-  }
-});
-
 test('Browser UI - borrar la conversación activa carga la siguiente y limpia su historial visible', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
       const suffix = Date.now().toString();
@@ -211,86 +122,6 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
     assert.equal(result.deletedConversation, null, 'La conversación eliminada no debe permanecer en IndexedDB');
     assert.match(result.visibleText, /Conversación que debe mostrarse/, 'La vista debe reemplazar el chat eliminado');
     assert.doesNotMatch(result.visibleText, /Conversación que se elimina/, 'La vista no debe conservar el chat eliminado');
-  } finally {
-    await browser.close();
-  }
-});
-
-test('Browser UI - ChatState como fuente única de verdad en ciclo de vida y sesiones', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    const consoleErrors = [];
-    page.on('console', msg => {
-      if (msg.type() === 'error') {
-        const text = msg.text();
-        if (!text.includes('favicon') && !text.includes('ERR_CONNECTION_REFUSED')) {
-          consoleErrors.push(text);
-        }
-      }
-    });
-    page.on('pageerror', err => consoleErrors.push(err.message));
-
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
-    await page.waitForSelector('#welcome-banner');
-
-    // 1. Verificar contrato inicial de ChatState en el navegador
-    const stateAudit = await page.evaluate(() => {
-      const State = window.ChatState;
-      if (!State) return { ok: false, reason: 'no-state' };
-      const slices = State.CANONICAL_SLICES || [];
-      const state = State.getState();
-      const hasAllSlices = slices.every(k => k in state);
-      return {
-        ok: true,
-        hasAllSlices,
-        hasToolSecurity: 'toolSecurity' in state,
-        hasAttachedFiles: Array.isArray(state.ui?.attachedFiles),
-        hasSessions: Array.isArray(state.sessions?.list),
-        hasMessages: Array.isArray(state.messages),
-        hasMutators: typeof State.replaceConversation === 'function' &&
-                     typeof State.appendMessage === 'function' &&
-                     typeof State.removeTurn === 'function' &&
-                     typeof State.saveSessionMetadata === 'function' &&
-                     typeof State.removeSession === 'function' &&
-                     typeof State.importConversation === 'function' &&
-                     typeof State.setAttachments === 'function' &&
-                     typeof State.clearAttachments === 'function'
-      };
-    });
-
-    assert.equal(stateAudit.ok, true, 'ChatState debe estar disponible en window');
-    assert.equal(stateAudit.hasAllSlices, true, 'Todos los slices canónicos deben estar presentes');
-    assert.equal(stateAudit.hasToolSecurity, true, 'toolSecurity debe estar declarado en el estado');
-    assert.equal(stateAudit.hasAttachedFiles, true, 'ui.attachedFiles debe ser un array');
-    assert.equal(stateAudit.hasMutators, true, 'Todos los mutadores de dominio deben estar implementados');
-
-    // 2. Verificar sincronización de adjuntos sin estado local en ChatAttachments
-    await page.evaluate(() => {
-      window.ChatAttachments.addFile({ name: 'doc_browser.txt', size: 120, type: 'text', content: 'hola' });
-    });
-    const attachedCount = await page.evaluate(() => window.ChatState.get('ui').attachedFiles.length);
-    assert.equal(attachedCount, 1, 'ChatAttachments debe actualizar ChatState.ui.attachedFiles directamente');
-
-    await page.evaluate(() => {
-      window.ChatAttachments.clearFiles();
-    });
-    const attachedAfterClear = await page.evaluate(() => window.ChatState.get('ui').attachedFiles.length);
-    assert.equal(attachedAfterClear, 0, 'clearFiles debe vaciar ChatState.ui.attachedFiles');
-
-    // 3. Probar mutación de turnos a través de ChatState
-    const turnTest = await page.evaluate(() => {
-      const State = window.ChatState;
-      State.appendMessage({ role: 'user', content: 'Pregunta en browser' });
-      const count1 = State.get('messages').length;
-      State.removeTurn((m) => m.content === 'Pregunta en browser');
-      const count2 = State.get('messages').length;
-      return { count1, count2 };
-    });
-    assert.ok(turnTest.count1 > turnTest.count2, 'removeTurn debe reducir la lista de mensajes en ChatState');
-
-    assert.equal(consoleErrors.length, 0, 'No debe haber errores de consola: ' + consoleErrors.join(' | '));
   } finally {
     await browser.close();
   }

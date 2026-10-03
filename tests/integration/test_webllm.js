@@ -153,29 +153,31 @@ test('WebLLM - la ejecución incompleta falla antes de crear un motor', async ()
   }
 });
 
-test('WebLLM - omite parámetros de razonamiento no garantizados, incluido none', () => {
-  const adapter = new WebLLM.WebLLMProviderAdapter();
-  const payload = adapter.buildPayload({
-    model: 'test-model', messages: [{ role: 'user', content: 'hello' }], reasoningEffort: 'high',
-    toolsList: [{ type: 'function', function: { name: 'tool' } }]
-  });
-  assert.equal(adapter.normalizeEndpoint(), 'webllm://local');
-  assert.equal(adapter.getCapabilities().tools, false);
-  assert.equal(payload.reasoning_effort, undefined);
-  assert.equal(payload.tools, undefined);
-  assert.equal(payload.stream_options, undefined);
-  const minimumPayload = adapter.buildPayload({
-    model: 'test-model', messages: [], reasoningEffort: 'none', reasoningTransport: 'send-none'
-  });
-  assert.equal(minimumPayload.reasoning_effort, undefined);
-});
+test('WebLLM - omite parámetros de razonamiento no garantizados (incluido none) y no fuerza otros valores', () => {
+  {
+    const adapter = new WebLLM.WebLLMProviderAdapter();
+    const payload = adapter.buildPayload({
+      model: 'test-model', messages: [{ role: 'user', content: 'hello' }], reasoningEffort: 'high',
+      toolsList: [{ type: 'function', function: { name: 'tool' } }]
+    });
+    assert.equal(adapter.normalizeEndpoint(), 'webllm://local');
+    assert.equal(adapter.getCapabilities().tools, false);
+    assert.equal(payload.reasoning_effort, undefined);
+    assert.equal(payload.tools, undefined);
+    assert.equal(payload.stream_options, undefined);
+    const minimumPayload = adapter.buildPayload({
+      model: 'test-model', messages: [], reasoningEffort: 'none', reasoningTransport: 'send-none'
+    });
+    assert.equal(minimumPayload.reasoning_effort, undefined);
+  }
 
-test('WebLLM - no fuerza valores de razonamiento distintos de none', () => {
-  const adapter = new WebLLM.WebLLMProviderAdapter();
-  const payload = adapter.buildPayload({
-    model: 'test-model', messages: [], reasoningEffort: 'high', reasoningTransport: 'send-none'
-  });
-  assert.equal(payload.reasoning_effort, undefined);
+  {
+    const adapter = new WebLLM.WebLLMProviderAdapter();
+    const payload = adapter.buildPayload({
+      model: 'test-model', messages: [], reasoningEffort: 'high', reasoningTransport: 'send-none'
+    });
+    assert.equal(payload.reasoning_effort, undefined);
+  }
 });
 
 test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', async () => {
@@ -336,155 +338,159 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
   }
 });
 
-test('WebLLM - createWorkerEngine incluye type: module en el Worker para carga nativa de módulos', async () => {
-  const originalWorker = global.Worker;
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
+test('WebLLM - createWorkerEngine crea un Worker de módulo, pasa chatOpts y genera errores descriptivos', async () => {
+  {
+    const originalWorker = global.Worker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
 
-  let workerConstructorOptions = 'UNSET';
-  global.Worker = class {
-    constructor(url, options) {
-      workerConstructorOptions = options;
-      this.listeners = new Map();
+    let workerConstructorOptions = 'UNSET';
+    global.Worker = class {
+      constructor(url, options) {
+        workerConstructorOptions = options;
+        this.listeners = new Map();
+      }
+      addEventListener(type, handler) { this.listeners.set(type, handler); }
+      removeEventListener(type) { this.listeners.delete(type); }
+      terminate() {}
+    };
+    URL.createObjectURL = () => 'blob:test-module-worker';
+    URL.revokeObjectURL = () => {};
+
+    try {
+      let engineCreated = false;
+      await WebLLM.createWorkerEngine({
+        CreateWebWorkerMLCEngine: async () => {
+          engineCreated = true;
+          return { unload: async () => {} };
+        }
+      }, 'test-model', {}, () => {});
+
+      assert.equal(engineCreated, true);
+      assert.deepEqual(workerConstructorOptions, { type: 'module' }, 'El worker debe pasar { type: "module" }');
+    } finally {
+      global.Worker = originalWorker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
     }
-    addEventListener(type, handler) { this.listeners.set(type, handler); }
-    removeEventListener(type) { this.listeners.delete(type); }
-    terminate() {}
-  };
-  URL.createObjectURL = () => 'blob:test-module-worker';
-  URL.revokeObjectURL = () => {};
+  }
 
-  try {
-    let engineCreated = false;
-    await WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => {
-        engineCreated = true;
+  {
+    const originalWorker = global.Worker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    global.Worker = class {
+      addEventListener() {}
+      removeEventListener() {}
+      terminate() {}
+    };
+    URL.createObjectURL = () => 'blob:test-webllm-worker';
+    URL.revokeObjectURL = () => {};
+
+    let receivedChatOpts = null;
+    const mockWebLLM = {
+      CreateWebWorkerMLCEngine: async (worker, modelId, engineConfig, chatOpts) => {
+        receivedChatOpts = chatOpts;
         return { unload: async () => {} };
       }
-    }, 'test-model', {}, () => {});
+    };
 
-    assert.equal(engineCreated, true);
-    assert.deepEqual(workerConstructorOptions, { type: 'module' }, 'El worker debe pasar { type: "module" }');
-  } finally {
-    global.Worker = originalWorker;
-    URL.createObjectURL = originalCreateObjectURL;
-    URL.revokeObjectURL = originalRevokeObjectURL;
-  }
-});
-
-test('WebLLM - createWorkerEngine no propaga [object Object] y genera mensaje descriptivo', async () => {
-  const originalWorker = global.Worker;
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
-  global.Worker = class {
-    addEventListener() {}
-    removeEventListener() {}
-    terminate() {}
-  };
-  URL.createObjectURL = () => 'blob:test-webllm-worker';
-  URL.revokeObjectURL = () => {};
-
-  try {
-    // 1. Error con cadena '[object Object]'
-    await assert.rejects(WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => { throw '[object Object]'; }
-    }, 'test-model', {}, () => {}), error => {
-      assert.notEqual(error.message, '[object Object]');
-      assert.match(error.message, /WebLLM model preparation failed/i);
-      return true;
-    });
-
-    // 2. Error con Error('[object Object]')
-    await assert.rejects(WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => { throw new Error('[object Object]'); }
-    }, 'test-model', {}, () => {}), error => {
-      assert.notEqual(error.message, '[object Object]');
-      assert.match(error.message, /WebLLM model preparation failed/i);
-      return true;
-    });
-
-    // 3. Error con objeto anidado { error: { message: 'WebGPU compilation error' } }
-    await assert.rejects(WebLLM.createWorkerEngine({
-      CreateWebWorkerMLCEngine: async () => { throw { error: { message: 'WebGPU compilation error' } }; }
-    }, 'test-model', {}, () => {}), error => {
-      assert.equal(error.message, 'WebGPU compilation error');
-      return true;
-    });
-  } finally {
-    global.Worker = originalWorker;
-    URL.createObjectURL = originalCreateObjectURL;
-    URL.revokeObjectURL = originalRevokeObjectURL;
-  }
-});
-
-test('WebLLM - extractOverrides extrae números e ignora default, vacíos o no numéricos', () => {
-  assert.equal(WebLLM.extractOverrides(null), null);
-  assert.equal(WebLLM.extractOverrides({}), null);
-  assert.equal(WebLLM.extractOverrides({
-    context_window_size: 'default',
-    prefill_chunk_size: null
-  }), null);
-
-  const overrides = WebLLM.extractOverrides({
-    context_window_size: '8192',
-    prefill_chunk_size: '2048'
-  });
-  assert.deepEqual(overrides, {
-    context_window_size: 8192,
-    prefill_chunk_size: 2048
-  });
-});
-
-test('WebLLM - applyModelOverrides clona appConfig e inyecta overrides en el modelo seleccionado', () => {
-  const originalAppConfig = {
-    model_list: [
-      { model_id: 'model-a', overrides: { existing: 1 } },
-      { model_id: 'model-b' }
-    ]
-  };
-  const overrides = { context_window_size: 16384, prefill_chunk_size: 2048 };
-  const updated = WebLLM.applyModelOverrides(originalAppConfig, 'model-a', overrides);
-
-  // No debe mutar el original
-  assert.equal(originalAppConfig.model_list[0].overrides.context_window_size, undefined);
-
-  // Debe inyectar en el clon
-  assert.deepEqual(updated.model_list[0].overrides, {
-    existing: 1,
-    context_window_size: 16384,
-    prefill_chunk_size: 2048
-  });
-  assert.equal(updated.model_list[1].overrides, undefined);
-});
-
-test('WebLLM - createWorkerEngine pasa chatOpts a CreateWebWorkerMLCEngine', async () => {
-  const originalWorker = global.Worker;
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
-  global.Worker = class {
-    addEventListener() {}
-    removeEventListener() {}
-    terminate() {}
-  };
-  URL.createObjectURL = () => 'blob:test-webllm-worker';
-  URL.revokeObjectURL = () => {};
-
-  let receivedChatOpts = null;
-  const mockWebLLM = {
-    CreateWebWorkerMLCEngine: async (worker, modelId, engineConfig, chatOpts) => {
-      receivedChatOpts = chatOpts;
-      return { unload: async () => {} };
+    try {
+      const chatOpts = { context_window_size: 8192 };
+      await WebLLM.createWorkerEngine(mockWebLLM, 'test-model', {}, () => {}, null, chatOpts);
+      assert.deepEqual(receivedChatOpts, { context_window_size: 8192 });
+    } finally {
+      global.Worker = originalWorker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
     }
-  };
+  }
 
-  try {
-    const chatOpts = { context_window_size: 8192 };
-    await WebLLM.createWorkerEngine(mockWebLLM, 'test-model', {}, () => {}, null, chatOpts);
-    assert.deepEqual(receivedChatOpts, { context_window_size: 8192 });
-  } finally {
-    global.Worker = originalWorker;
-    URL.createObjectURL = originalCreateObjectURL;
-    URL.revokeObjectURL = originalRevokeObjectURL;
+  {
+    const originalWorker = global.Worker;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    global.Worker = class {
+      addEventListener() {}
+      removeEventListener() {}
+      terminate() {}
+    };
+    URL.createObjectURL = () => 'blob:test-webllm-worker';
+    URL.revokeObjectURL = () => {};
+
+    try {
+      // 1. Error con cadena '[object Object]'
+      await assert.rejects(WebLLM.createWorkerEngine({
+        CreateWebWorkerMLCEngine: async () => { throw '[object Object]'; }
+      }, 'test-model', {}, () => {}), error => {
+        assert.notEqual(error.message, '[object Object]');
+        assert.match(error.message, /WebLLM model preparation failed/i);
+        return true;
+      });
+
+      // 2. Error con Error('[object Object]')
+      await assert.rejects(WebLLM.createWorkerEngine({
+        CreateWebWorkerMLCEngine: async () => { throw new Error('[object Object]'); }
+      }, 'test-model', {}, () => {}), error => {
+        assert.notEqual(error.message, '[object Object]');
+        assert.match(error.message, /WebLLM model preparation failed/i);
+        return true;
+      });
+
+      // 3. Error con objeto anidado { error: { message: 'WebGPU compilation error' } }
+      await assert.rejects(WebLLM.createWorkerEngine({
+        CreateWebWorkerMLCEngine: async () => { throw { error: { message: 'WebGPU compilation error' } }; }
+      }, 'test-model', {}, () => {}), error => {
+        assert.equal(error.message, 'WebGPU compilation error');
+        return true;
+      });
+    } finally {
+      global.Worker = originalWorker;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+    }
+  }
+});
+
+test('WebLLM - extractOverrides y applyModelOverrides solo inyectan valores numéricos en el modelo seleccionado', () => {
+  {
+    assert.equal(WebLLM.extractOverrides(null), null);
+    assert.equal(WebLLM.extractOverrides({}), null);
+    assert.equal(WebLLM.extractOverrides({
+      context_window_size: 'default',
+      prefill_chunk_size: null
+    }), null);
+
+    const overrides = WebLLM.extractOverrides({
+      context_window_size: '8192',
+      prefill_chunk_size: '2048'
+    });
+    assert.deepEqual(overrides, {
+      context_window_size: 8192,
+      prefill_chunk_size: 2048
+    });
+  }
+
+  {
+    const originalAppConfig = {
+      model_list: [
+        { model_id: 'model-a', overrides: { existing: 1 } },
+        { model_id: 'model-b' }
+      ]
+    };
+    const overrides = { context_window_size: 16384, prefill_chunk_size: 2048 };
+    const updated = WebLLM.applyModelOverrides(originalAppConfig, 'model-a', overrides);
+
+    // No debe mutar el original
+    assert.equal(originalAppConfig.model_list[0].overrides.context_window_size, undefined);
+
+    // Debe inyectar en el clon
+    assert.deepEqual(updated.model_list[0].overrides, {
+      existing: 1,
+      context_window_size: 16384,
+      prefill_chunk_size: 2048
+    });
+    assert.equal(updated.model_list[1].overrides, undefined);
   }
 });
 

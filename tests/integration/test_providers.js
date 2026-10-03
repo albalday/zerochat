@@ -348,36 +348,38 @@ test('ChatAPI.getProviderCapabilities - Consulta a través de ChatAPI', () => {
   assert.equal(geminiCaps.promptCaching, true);
 });
 
-test('GeminiAdapter - formatMessages conserva los resultados de llamadas paralelas sin turnos sintéticos', () => {
-  const adapter = new GeminiProviderAdapter();
-  const formatted = adapter.formatMessages([
-    { role: 'system', content: 'Sistema' },
-    { role: 'user', content: 'Busca dos cosas' },
-    { role: 'assistant', content: null, tool_calls: [
-      { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
-      { id: 'call_b', type: 'function', function: { name: 'search_b', arguments: '{}' } }
-    ] },
-    { role: 'tool', tool_call_id: 'call_a', name: 'search_a', content: 'A' },
-    { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' }
-  ]);
-  assert.deepEqual(formatted.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool']);
-});
+test('GeminiAdapter - formatMessages conserva resultados de llamadas paralelas y respuestas de texto sin turnos sintéticos', () => {
+  {
+    const adapter = new GeminiProviderAdapter();
+    const formatted = adapter.formatMessages([
+      { role: 'system', content: 'Sistema' },
+      { role: 'user', content: 'Busca dos cosas' },
+      { role: 'assistant', content: null, tool_calls: [
+        { id: 'call_a', type: 'function', function: { name: 'search_a', arguments: '{}' } },
+        { id: 'call_b', type: 'function', function: { name: 'search_b', arguments: '{}' } }
+      ] },
+      { role: 'tool', tool_call_id: 'call_a', name: 'search_a', content: 'A' },
+      { role: 'tool', tool_call_id: 'call_b', name: 'search_b', content: 'B' }
+    ]);
+    assert.deepEqual(formatted.map(message => message.role), ['system', 'user', 'assistant', 'tool', 'tool']);
+  }
 
-test('GeminiAdapter - formatMessages conserva las respuestas de texto del asistente', () => {
-  const adapter = new GeminiProviderAdapter();
-  const formatted = adapter.formatMessages([
-    { role: 'system', content: 'Sistema' },
-    { role: 'user', content: 'Hola' },
-    { role: 'assistant', content: 'Respuesta previa' },
-    { role: 'user', content: 'Sigue' }
-  ]);
-  assert.deepEqual(formatted.map(message => [message.role, message.content]), [
-    ['system', 'Sistema'], ['user', 'Hola'], ['assistant', 'Respuesta previa'], ['user', 'Sigue']
-  ]);
+  {
+    const adapter = new GeminiProviderAdapter();
+    const formatted = adapter.formatMessages([
+      { role: 'system', content: 'Sistema' },
+      { role: 'user', content: 'Hola' },
+      { role: 'assistant', content: 'Respuesta previa' },
+      { role: 'user', content: 'Sigue' }
+    ]);
+    assert.deepEqual(formatted.map(message => [message.role, message.content]), [
+      ['system', 'Sistema'], ['user', 'Hola'], ['assistant', 'Respuesta previa'], ['user', 'Sigue']
+    ]);
 
-  const afterSystem = adapter.formatMessages([
-    { role: 'system', content: 'Sistema' },
-    { role: 'assistant', content: 'Saludo inicial' }
-  ]);
-  assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
+    const afterSystem = adapter.formatMessages([
+      { role: 'system', content: 'Sistema' },
+      { role: 'assistant', content: 'Saludo inicial' }
+    ]);
+    assert.deepEqual(afterSystem.map(message => message.role), ['system', 'user', 'assistant']);
+  }
 });

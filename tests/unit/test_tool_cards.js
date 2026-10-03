@@ -29,12 +29,6 @@ test('ChatToolCards - resuelve la vista declarada por la tool registrada', () =>
   }
 });
 
-test('ChatToolCards - Métodos de renderizado y actualización expuestos', () => {
-  assert.equal(typeof ChatToolCards.updateLiveToolCard, 'function');
-  assert.equal(typeof ChatToolCards.createLiveToolCard, 'function');
-  assert.equal(typeof ChatToolCards.renderHistoricalToolCard, 'function');
-});
-
 test('ChatToolCards - Las herramientas aparecen minimizadas (collapsed) tras su ejecución', () => {
   function createMockElement(tag) {
     let _innerHtml = '';

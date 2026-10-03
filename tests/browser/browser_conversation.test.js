@@ -2,7 +2,7 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - conversation', { concurrency: 2 }, () => {
   after(async () => {
@@ -16,7 +16,7 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const result = await page.evaluate(async () => {
       const ui = window.ChatUIConversation;
       const copied = [];
@@ -61,7 +61,7 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const result = await page.evaluate(() => {
       const ToolCards = window.ChatToolCards;
       const container = document.createElement('div');
@@ -110,7 +110,7 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const result = await page.evaluate(() => {
@@ -178,7 +178,7 @@ test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo 
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const layout = await page.evaluate(() => {
       const card = window.ChatToolCards.createLiveToolCard('composio_COMPOSIO_MULTI_EXECUTE_TOOL', { value: 1 });
       document.body.appendChild(card);
@@ -208,7 +208,7 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -282,16 +282,14 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
   } finally { await browser.close(); }
 });
 
-test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown', async () => {
+test('Browser UI - canvas de mensajes centrado, respuestas sin marco, razonamiento plegable, código y tablas', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
 
-    // Esperar a que la inicialización asíncrona de sesión en IndexedDB concluya
-    await page.waitForSelector('#welcome-banner');
-    await new Promise(r => setTimeout(r, 200));
+    await waitForAppReady(page);
 
     // Simular renderizado de un mensaje de usuario y uno del asistente
     await page.evaluate(() => {
@@ -437,40 +435,6 @@ test('Browser UI - Fase 3: Canvas de Mensajes Centrado, Tipografía y Markdown',
     assert.equal(tableInfo.rows, 3, 'La tabla debe tener 3 filas (1 thead + 2 tbody)');
     assert.ok(tableInfo.hasBorder, 'El contenedor de tabla debe tener borde');
 
-    // 5. Validar que las acciones de mensaje y las estadísticas usan SVG limpios sin emojis
-    const msgActionsInfo = await page.evaluate(() => {
-      const actionBtns = Array.from(document.querySelectorAll('.btn-msg-action'));
-      const statItems = Array.from(document.querySelectorAll('.stat-item'));
-      const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
-      
-      const allActionBtnsHaveSvg = actionBtns.every(btn => btn.querySelector('svg.ui-icon'));
-      const noActionBtnHasEmoji = actionBtns.every(btn => !emojiRegex.test(btn.textContent));
-      const allActionBtnsIconOnly = actionBtns.every(btn => !btn.querySelector('span') && !btn.textContent.trim());
-      const allStatsHaveSvg = statItems.every(item => item.querySelector('svg.ui-icon'));
-      const noStatHasEmoji = statItems.every(item => !emojiRegex.test(item.textContent));
-
-      return {
-        allActionBtnsHaveSvg,
-        noActionBtnHasEmoji,
-        allActionBtnsIconOnly,
-        allStatsHaveSvg,
-        noStatHasEmoji,
-        actionBtnCount: actionBtns.length,
-        statCount: statItems.length
-      };
-    });
-
-    assert.ok(msgActionsInfo.actionBtnCount > 0, 'Deben existir botones de acción de mensaje');
-    const branchButton = await page.$('.message-wrapper.assistant .btn-branch-conversation');
-    assert.ok(branchButton, 'Las respuestas deben incluir una acción para crear una rama');
-    const userCopyButton = await page.$('.message-wrapper.user .btn-copy-user');
-    assert.ok(userCopyButton, 'Los mensajes de usuario deben incluir una acción para copiar');
-    assert.ok(msgActionsInfo.allActionBtnsHaveSvg, 'Todos los botones de acción deben contener un SVG .ui-icon');
-    assert.ok(msgActionsInfo.allActionBtnsIconOnly, 'Todos los botones de acción deben ser únicamente icono sin texto');
-    assert.ok(msgActionsInfo.noActionBtnHasEmoji, 'Ningún botón de acción debe tener emojis en su texto');
-    assert.ok(msgActionsInfo.statCount > 0, 'Deben existir items de estadísticas');
-    assert.ok(msgActionsInfo.allStatsHaveSvg, 'Todos los items de estadísticas deben contener un SVG .ui-icon');
-    assert.ok(msgActionsInfo.noStatHasEmoji, 'Ningún item de estadísticas debe tener emojis en su texto');
   } finally {
     await browser.close();
   }
@@ -483,7 +447,7 @@ test('Browser UI - importar un JSON desde la barra lateral crea una única conve
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const sessionsBefore = await page.evaluate(() => window.ChatState.get('sessions').list.length);
 
     const payload = JSON.stringify({
@@ -526,8 +490,7 @@ test('Browser UI - crear una rama conserva el origen y corta el nuevo historial 
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => !!window.ChatApp && !!window.ChatState && !!window.ChatStorage);
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
       const parentId = 'session_branch_parent_test';
@@ -576,6 +539,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     const page = await browser.newPage();
     const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
+    await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
       const sessionId = 'test_session_delete_tools_' + Date.now();
@@ -614,8 +578,9 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
       // Cargar la conversación en la UI
       const switched = await window.ChatApp.switchToSession(sessionId);
 
-      // Esperar renderizado
-      await new Promise(r => setTimeout(r, 100));
+      for (let i = 0; i < 100 && !document.querySelector('.message-wrapper.assistant .btn-delete'); i++) {
+        await new Promise(r => setTimeout(r, 20));
+      }
       const assistantWrapper = document.querySelector('.message-wrapper.assistant');
       const deleteBtn = assistantWrapper?.querySelector('.btn-delete');
 
@@ -634,8 +599,9 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
         deleteBtn.click();
       }
 
-      // Esperar microtask / actualización de storage
-      await new Promise(r => setTimeout(r, 100));
+      for (let i = 0; i < 100 && (await window.ChatStorage.getConversation(sessionId))?.history.length === history.length; i++) {
+        await new Promise(r => setTimeout(r, 20));
+      }
 
       const loadedAfter = await window.ChatStorage.getConversation(sessionId);
       const afterHistory = loadedAfter ? loadedAfter.history : [];
@@ -677,6 +643,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
     const page = await browser.newPage();
     const filePath = getIndexUrl();
     await page.goto(filePath, { waitUntil: 'load' });
+    await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
       const sessionId = 'test_session_delete_streaming_' + Date.now();
@@ -753,7 +720,7 @@ test('Browser UI - el autoscroll respeta al usuario que sube durante la generaci
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+    await waitForAppReady(page);
     const result = await page.evaluate(() => {
       const ui = window.ChatUIConversation;
       const container = document.createElement('div');

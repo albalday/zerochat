@@ -21,22 +21,47 @@ test('UISidebar - filterSessions filtra por título ignorando mayúsculas/minús
   assert.equal(resNone.length, 0);
 });
 
-test('UISidebar - toggleSidebar, openSidebar y closeSidebar gestionan visibilidad', () => {
-  const fakeSidebar = { style: { display: 'none' } };
-  const fakeToggleBtn = { style: { display: 'inline-flex' } };
-  const elements = { chatSidebar: fakeSidebar, btnToggleSidebar: fakeToggleBtn };
+test('UISidebar - toggleSidebar, openSidebar y closeSidebar gestionan visibilidad y backdrop', () => {
+  {
+    const fakeSidebar = { style: { display: 'none' } };
+    const fakeToggleBtn = { style: { display: 'inline-flex' } };
+    const elements = { chatSidebar: fakeSidebar, btnToggleSidebar: fakeToggleBtn };
 
-  UISidebar.openSidebar(elements);
-  assert.equal(fakeSidebar.style.display, 'flex');
-  assert.equal(fakeToggleBtn.style.display, 'none');
+    UISidebar.openSidebar(elements);
+    assert.equal(fakeSidebar.style.display, 'flex');
+    assert.equal(fakeToggleBtn.style.display, 'none');
 
-  UISidebar.closeSidebar(elements);
-  assert.equal(fakeSidebar.style.display, 'none');
-  assert.equal(fakeToggleBtn.style.display, 'inline-flex');
+    UISidebar.closeSidebar(elements);
+    assert.equal(fakeSidebar.style.display, 'none');
+    assert.equal(fakeToggleBtn.style.display, 'inline-flex');
 
-  UISidebar.toggleSidebar(elements);
-  assert.equal(fakeSidebar.style.display, 'flex');
-  assert.equal(fakeToggleBtn.style.display, 'none');
+    UISidebar.toggleSidebar(elements);
+    assert.equal(fakeSidebar.style.display, 'flex');
+    assert.equal(fakeToggleBtn.style.display, 'none');
+  }
+
+  {
+    const backdropClasses = new Set();
+    const fakeBackdrop = {
+      classList: {
+        add: (c) => backdropClasses.add(c),
+        remove: (c) => backdropClasses.delete(c),
+        contains: (c) => backdropClasses.has(c)
+      }
+    };
+    const fakeSidebar = {
+      classList: { add() {}, remove() {}, contains: () => false },
+      style: { display: 'none' }
+    };
+    const elements = {
+      chatSidebar: fakeSidebar,
+      sidebarBackdrop: fakeBackdrop
+    };
+
+    // closeSidebar debe retirar visible
+    UISidebar.closeSidebar(elements);
+    assert.equal(backdropClasses.has('visible'), false);
+  }
 });
 
 test('UISidebar - renderSidebarChats renderiza items y marca la sesión activa', () => {
@@ -84,50 +109,52 @@ test('UISidebar - renderSidebarChats renderiza items y marca la sesión activa',
   assert.equal(switchedTo, 'sess_1');
 });
 
-test('UISidebar - getChronologicalCategory clasifica correctamente según fecha', () => {
-  const now = Date.now();
-  assert.equal(UISidebar.getChronologicalCategory(now), 'today');
-  assert.equal(UISidebar.getChronologicalCategory(now - 86400000), 'yesterday');
-  assert.equal(UISidebar.getChronologicalCategory(now - (3 * 86400000)), 'last7days');
-  assert.equal(UISidebar.getChronologicalCategory(now - (15 * 86400000)), 'last30days');
-  assert.equal(UISidebar.getChronologicalCategory(now - (60 * 86400000)), 'older');
-});
+test('UISidebar - clasifica por fecha y agrupa con cabeceras', () => {
+  {
+    const now = Date.now();
+    assert.equal(UISidebar.getChronologicalCategory(now), 'today');
+    assert.equal(UISidebar.getChronologicalCategory(now - 86400000), 'yesterday');
+    assert.equal(UISidebar.getChronologicalCategory(now - (3 * 86400000)), 'last7days');
+    assert.equal(UISidebar.getChronologicalCategory(now - (15 * 86400000)), 'last30days');
+    assert.equal(UISidebar.getChronologicalCategory(now - (60 * 86400000)), 'older');
+  }
 
-test('UISidebar - renderSidebarChats con groupByDate añade cabeceras de grupo', () => {
-  const appendedItems = [];
-  const fakeList = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: (tag) => ({
-        tagName: tag,
-        className: '',
-        attributes: {},
-        innerHTML: '',
-        textContent: '',
-        setAttribute: () => {},
-        querySelector: () => ({ addEventListener: () => {} }),
-        addEventListener: () => {}
-      })
-    },
-    appendChild: (item) => appendedItems.push(item)
-  };
+  {
+    const appendedItems = [];
+    const fakeList = {
+      innerHTML: '',
+      ownerDocument: {
+        createElement: (tag) => ({
+          tagName: tag,
+          className: '',
+          attributes: {},
+          innerHTML: '',
+          textContent: '',
+          setAttribute: () => {},
+          querySelector: () => ({ addEventListener: () => {} }),
+          addEventListener: () => {}
+        })
+      },
+      appendChild: (item) => appendedItems.push(item)
+    };
 
-  const elements = { sidebarChatsList: fakeList };
-  const now = Date.now();
-  const sessions = [
-    { id: 'sess_1', title: 'Hoy Chat', updatedAt: now },
-    { id: 'sess_2', title: 'Ayer Chat', updatedAt: now - 86400000 },
-    { id: 'sess_3', title: 'Viejo Chat', updatedAt: now - (60 * 86400000) }
-  ];
+    const elements = { sidebarChatsList: fakeList };
+    const now = Date.now();
+    const sessions = [
+      { id: 'sess_1', title: 'Hoy Chat', updatedAt: now },
+      { id: 'sess_2', title: 'Ayer Chat', updatedAt: now - 86400000 },
+      { id: 'sess_3', title: 'Viejo Chat', updatedAt: now - (60 * 86400000) }
+    ];
 
-  UISidebar.renderSidebarChats(elements, sessions, 'sess_1', {}, { groupByDate: true });
+    UISidebar.renderSidebarChats(elements, sessions, 'sess_1', {}, { groupByDate: true });
 
-  // Deben haberse añadido cabeceras de grupo intercaladas
-  const headers = appendedItems.filter(i => i.className === 'sidebar-group-header');
-  assert.equal(headers.length, 3, 'Debe haber 3 cabeceras de grupo');
-  assert.equal(headers[0].textContent, 'Hoy');
-  assert.equal(headers[1].textContent, 'Ayer');
-  assert.equal(headers[2].textContent, 'Anteriores');
+    // Deben haberse añadido cabeceras de grupo intercaladas
+    const headers = appendedItems.filter(i => i.className === 'sidebar-group-header');
+    assert.equal(headers.length, 3, 'Debe haber 3 cabeceras de grupo');
+    assert.equal(headers[0].textContent, 'Hoy');
+    assert.equal(headers[1].textContent, 'Ayer');
+    assert.equal(headers[2].textContent, 'Anteriores');
+  }
 });
 
 test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por chat y dispara callback', () => {
@@ -172,29 +199,6 @@ test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por cha
   // Disparar click en btn-export
   appendedItems[0]['_.btn-export']({ stopPropagation: () => {} });
   assert.equal(exportedSessionId, 'sess_export_1', 'Debe invocar onExportSession con el id correspondiente');
-});
-
-test('UISidebar - openSidebar and closeSidebar toggle sidebarBackdrop when provided', () => {
-  const backdropClasses = new Set();
-  const fakeBackdrop = {
-    classList: {
-      add: (c) => backdropClasses.add(c),
-      remove: (c) => backdropClasses.delete(c),
-      contains: (c) => backdropClasses.has(c)
-    }
-  };
-  const fakeSidebar = {
-    classList: { add() {}, remove() {}, contains: () => false },
-    style: { display: 'none' }
-  };
-  const elements = {
-    chatSidebar: fakeSidebar,
-    sidebarBackdrop: fakeBackdrop
-  };
-
-  // closeSidebar debe retirar visible
-  UISidebar.closeSidebar(elements);
-  assert.equal(backdropClasses.has('visible'), false);
 });
 
 test('UISidebar - mount attaches events and dispose cleans them up', () => {

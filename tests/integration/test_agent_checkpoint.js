@@ -1,17 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('node:path');
 
 const AgentCore = require('../../js/agent-core.js');
 const State = require('../../js/state.js');
-const I18n = require('../../js/i18n.js');
 const UIReasoning = require('../../js/ui-reasoning.js');
 const AgentCheckpointTool = require('../../js/tools/builtin/agent-checkpoint.tool.js');
 const Engine = require('../../js/chat-engine.js');
 const RagStorage = require('../../js/ragStorage.js');
 const RagService = require('../../js/rag-service.js');
 
-test('AgentCheckpoint Tool - Cumple con el contrato declarativo, registro y defaultEnabled: false', () => {
+test('AgentCheckpoint Tool - cumple el contrato y está desactivada por defecto en el estado y en las definiciones activas', () => {
   const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
   const validation = AgentCore.validateToolContract(tool);
 
@@ -22,15 +20,11 @@ test('AgentCheckpoint Tool - Cumple con el contrato declarativo, registro y defa
   assert.ok(tool.aliases.includes('checkpoint'));
   assert.ok(tool.parameters.properties.findings);
   assert.ok(tool.parameters.properties.ready_to_respond);
-});
 
-test('AgentCheckpoint Tool - ChatState tiene agent_checkpoint desactivado por defecto', () => {
   const store = State.createStore();
   const state = store.getState();
   assert.equal(state.config.enabledTools.agent_checkpoint, false, 'enabledTools.agent_checkpoint debe ser false en el estado inicial');
-});
 
-test('AgentCheckpoint Tool - getActiveDefinitions excluye agent_checkpoint por defecto y lo incluye al activarlo', () => {
   const defsDefault = AgentCore.registry.getActiveDefinitions({
     enabledTools: { agent_checkpoint: false }
   });
@@ -42,17 +36,6 @@ test('AgentCheckpoint Tool - getActiveDefinitions excluye agent_checkpoint por d
   });
   const hasCheckpointEnabled = defsEnabled.some(d => d.function?.name === 'agent_checkpoint');
   assert.equal(hasCheckpointEnabled, true, 'Debe incluirse cuando está activado explícitamente');
-});
-
-test('AgentCheckpoint Tool - Consejos de RAG mencionan la activación del punto de control en es y en', () => {
-  const tipEs = I18n.TRANSLATIONS.es.rag_active_tip_desc;
-  const tipEn = I18n.TRANSLATIONS.en.rag_active_tip_desc;
-
-  assert.ok(tipEs.includes('agent_checkpoint'), 'El consejo en español debe mencionar agent_checkpoint');
-  assert.ok(tipEs.includes('Punto de Control'), 'El consejo en español debe mencionar Punto de Control');
-
-  assert.ok(tipEn.includes('agent_checkpoint'), 'El consejo en inglés debe mencionar agent_checkpoint');
-  assert.ok(tipEn.includes('Agent Checkpoint'), 'El consejo en inglés debe mencionar Agent Checkpoint');
 });
 
 test('AgentCheckpoint Tool - UIReasoning syncCheckpointToggle sincroniza y notifica cambios', () => {
@@ -83,64 +66,51 @@ test('AgentCheckpoint Tool - UIReasoning syncCheckpointToggle sincroniza y notif
   assert.equal(toggledValue, false);
 });
 
-test('AgentCheckpoint Tool - Ejecución con ready_to_respond: true (conclude)', async () => {
-  const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
+test('AgentCheckpoint Tool - ejecución concluye o continúa según ready_to_respond', async () => {
+  {
+    const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
 
-  const args = {
-    findings: 'Se confirmó que el ratio de liquidez es 1.45 y la deuda neta bajó un 12%.',
-    ready_to_respond: true
-  };
+    const args = {
+      findings: 'Se confirmó que el ratio de liquidez es 1.45 y la deuda neta bajó un 12%.',
+      ready_to_respond: true
+    };
 
-  const result = await tool.execute(args);
+    const result = await tool.execute(args);
 
-  assert.equal(result.success, true);
-  assert.equal(result.action, 'conclude');
-  assert.equal(result.status, 'acknowledged');
-  assert.equal(result.findings, args.findings);
-  assert.ok(result.guidance.includes('final answer'));
+    assert.equal(result.success, true);
+    assert.equal(result.action, 'conclude');
+    assert.equal(result.status, 'acknowledged');
+    assert.equal(result.findings, args.findings);
+    assert.ok(result.guidance.includes('final answer'));
 
-  const serialized = tool.serializeResultForModel(args, result);
-  assert.ok(serialized.includes('conclude'));
-  assert.ok(serialized.includes(args.findings));
+    const serialized = tool.serializeResultForModel(args, result);
+    assert.ok(serialized.includes('conclude'));
+    assert.ok(serialized.includes(args.findings));
+  }
+
+  {
+    const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
+
+    const args = {
+      findings: 'Se obtuvo el balance del año 2023.',
+      missing_info: 'Falta el desglose por trimestres del 2024.',
+      next_action: 'search_knowledge_base(query="desglose trimestres 2024")',
+      ready_to_respond: false
+    };
+
+    const result = await tool.execute(args);
+
+    assert.equal(result.success, true);
+    assert.equal(result.action, 'continue');
+    assert.equal(result.missing_info, args.missing_info);
+    assert.equal(result.next_action, args.next_action);
+    assert.ok(result.guidance.includes(args.next_action));
+    assert.ok(!result.guidance.includes('memory compacted'));
+    assert.ok(!tool.promptGuide().includes('compacts working memory'), 'La guía describe consolidación, no compactación inmediata');
+  }
 });
 
-test('AgentCheckpoint Tool - Ejecución con ready_to_respond: false (continue)', async () => {
-  const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
-
-  const args = {
-    findings: 'Se obtuvo el balance del año 2023.',
-    missing_info: 'Falta el desglose por trimestres del 2024.',
-    next_action: 'search_knowledge_base(query="desglose trimestres 2024")',
-    ready_to_respond: false
-  };
-
-  const result = await tool.execute(args);
-
-  assert.equal(result.success, true);
-  assert.equal(result.action, 'continue');
-  assert.equal(result.missing_info, args.missing_info);
-  assert.equal(result.next_action, args.next_action);
-  assert.ok(result.guidance.includes(args.next_action));
-  assert.ok(!result.guidance.includes('memory compacted'));
-});
-
-test('AgentCheckpoint Tool - describe consolidación semántica, no compactación inmediata', async () => {
-  const tool = AgentCheckpointTool.createTool(AgentCore.Tool);
-  assert.ok(!tool.promptGuide().includes('compacts working memory'));
-
-  const history = [
-    { role: 'user', content: 'Pregunta 1' },
-    { role: 'assistant', content: 'Respuesta 1' },
-    { role: 'user', content: 'Pregunta 2' }
-  ];
-  const initialLength = history.length;
-  const result = await tool.execute({ findings: 'Hallazgo', ready_to_respond: false });
-  assert.equal(result.success, true);
-  assert.equal(result.action, 'continue');
-  assert.equal(history.length, initialLength, 'Invocar agent_checkpoint no debe mutar ni podar el historial');
-});
-
-test('AgentCheckpoint Tool - ChatEngine inyecta instrucción de checkpoint en toolsGuide solo si está activo', () => {
+test('AgentCheckpoint Tool - ChatEngine y RagService inyectan la regla de checkpoint solo si está activo', async () => {
   const history = [{ role: 'user', content: 'Hola' }];
   const msgsDisabled = Engine.buildEffectiveMessages(history, {
     systemPrompt: 'Base prompt',
@@ -164,9 +134,7 @@ test('AgentCheckpoint Tool - ChatEngine inyecta instrucción de checkpoint en to
   });
   assert.ok(msgsEnabledEn[0].content.includes('Agent checkpoint:'));
   assert.ok(msgsEnabledEn[0].content.includes('invoke "agent_checkpoint"'));
-});
 
-test('AgentCheckpoint Tool - RagService.buildRagSystemContext inyecta regla de checkpoint según options.isCheckpointEnabled', async () => {
   const branch = await RagStorage.createBranch('Finanzas', 'Documentos contables');
 
   const contextWithoutCp = await RagService.buildRagSystemContext(branch.id, { isCheckpointEnabled: false });

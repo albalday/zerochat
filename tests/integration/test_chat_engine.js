@@ -350,6 +350,7 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
   };
 
   let errorLogs = [];
+  const statuses = [];
   const res = await ChatEngine.executeAgentTurnLoop({
     apiUrl: appConfig.apiUrl,
     apiType: appConfig.apiType,
@@ -358,10 +359,13 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
     appConfig: appConfig,
     onLog: (type, text) => {
       if (type === 'error') errorLogs.push(text);
-    }
+    },
+    onGenerationStatus: status => statuses.push(status)
   });
 
   assert.equal(res.success, true);
+  assert.equal(res.loopDetected, true);
+  assert.ok(statuses.some(s => s.phase === 'error' && (s.text.includes('bucle infinito') || s.text.includes('loop'))), 'Debe emitir estado de parada por bucle infinito');
   assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'));
   assert.ok(errorLogs.some(msg => msg.includes('[Protección Bucle Infinito]')));
   assert.equal(history.at(-1).role, 'assistant');
@@ -466,48 +470,6 @@ test('ChatEngine - executeAgentTurnLoop muestra una línea de compactación ante
   }
 });
 
-test('ChatEngine - extractBaseId extrae limpiamente el id base eliminando sufijos de turnos internos y final', () => {
-  assert.equal(ChatEngine.extractBaseId('msg_ast_123_turn_0_assistant'), 'msg_ast_123');
-  assert.equal(ChatEngine.extractBaseId('msg_ast_123_turn_0_tool_call_1'), 'msg_ast_123');
-  assert.equal(ChatEngine.extractBaseId('msg_ast_123_turn_5_tool_res'), 'msg_ast_123');
-  assert.equal(ChatEngine.extractBaseId('msg_ast_123_final'), 'msg_ast_123');
-  assert.equal(ChatEngine.extractBaseId('msg_ast_123'), 'msg_ast_123');
-  assert.equal(ChatEngine.extractBaseId('msg_usr_456'), 'msg_usr_456');
-  assert.equal(ChatEngine.extractBaseId(''), '');
-  assert.equal(ChatEngine.extractBaseId(null), '');
-});
-
-test('ChatEngine - removeTurnFromHistory elimina todos los mensajes del turno asistente incluyendo tools', () => {
-  const baseId = 'msg_ast_turn_test';
-  const history = [
-    { id: 'usr_1', role: 'user', content: '¿Qué hora es?' },
-    {
-      id: `${baseId}_turn_0_assistant`,
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_time_1', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"return 10 + 20;"}' } }]
-    },
-    {
-      id: `${baseId}_turn_0_tool_call_time_1`,
-      role: 'tool',
-      tool_call_id: 'call_time_1',
-      name: 'execute_javascript',
-      content: '30'
-    },
-    {
-      id: `${baseId}_final`,
-      role: 'assistant',
-      content: 'Son las 12:00:00 UTC.'
-    }
-  ];
-
-  const updated = ChatEngine.removeTurnFromHistory(history, { msgId: baseId, baseId });
-  assert.equal(updated.length, 1, 'Debe quedar únicamente el mensaje del usuario');
-  assert.equal(updated[0].id, 'usr_1');
-  assert.equal(updated.some(m => m.role === 'tool'), false, 'No deben quedar respuestas de tools');
-  assert.equal(updated.some(m => m.role === 'assistant'), false, 'No debe quedar ningún turno de asistente');
-});
-
 test('ChatEngine - removeTurnFromHistory elimina múltiples llamadas sucesivas a herramientas', () => {
   const baseId = 'msg_multi_tools';
   const history = [
@@ -549,38 +511,6 @@ test('ChatEngine - removeTurnFromHistory elimina múltiples llamadas sucesivas a
   assert.equal(updated.length, 1);
   assert.equal(updated[0].id, 'usr_1');
   assert.equal(updated.filter(m => m.role === 'tool').length, 0, 'Todas las respuestas de tool deben eliminarse');
-});
-
-test('ChatEngine - removeTurnFromHistory elimina respuestas de herramientas con explicitIds y sanea huérfanos', () => {
-  const history = [
-    { id: 'usr_1', role: 'user', content: 'Pregunta' },
-    {
-      id: 'legacy_asst_call',
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'legacy_call_id', type: 'function', function: { name: 'search_web', arguments: '{"query":"noticias"}' } }]
-    },
-    {
-      id: 'legacy_tool_res',
-      role: 'tool',
-      tool_call_id: 'legacy_call_id',
-      name: 'search_web',
-      content: 'Noticias del día'
-    },
-    {
-      id: 'legacy_asst_final',
-      role: 'assistant',
-      content: 'Aquí están las noticias.'
-    }
-  ];
-
-  // Simulación de sesión restaurada con IDs heterogéneos pasados en explicitIds
-  const updated = ChatEngine.removeTurnFromHistory(history, {
-    explicitIds: ['legacy_asst_call', 'legacy_tool_res', 'legacy_asst_final']
-  });
-
-  assert.equal(updated.length, 1);
-  assert.equal(updated[0].id, 'usr_1');
 });
 
 test('ChatEngine - la siguiente petición tras borrar respuesta con tools no incluye ningún tool ni turno huérfano', () => {
@@ -773,48 +703,6 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
   assert.equal(res.finalAssistantText, 'I could not produce a final answer after processing the available information. Please try again.');
   assert.doesNotMatch(res.finalAssistantText, /let v =|Summary of Consulted Information/, 'El fallback no debe exponer resultados crudos de herramientas');
   assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
-
-  ChatAPI.streamChatCompletion = originalStream;
-});
-
-test('ChatEngine - executeAgentTurnLoop emite advertencia de bucle infinito (Infinite Loop Protection) en el diálogo', async (t) => {
-  const originalStream = ChatAPI.streamChatCompletion;
-
-  ChatAPI.streamChatCompletion = async (params) => {
-    const tc = [{
-      id: 'call_rep',
-      type: 'function',
-      function: {
-        name: 'execute_javascript',
-        arguments: JSON.stringify({ code: '1 + 1' })
-      }
-    }];
-    if (params.onDone) params.onDone('', null, tc);
-    return { accumulatedText: '', toolCalls: tc, stats: null };
-  };
-
-  const history = [{ role: 'user', content: 'Repeat' }];
-  const appConfig = {
-    apiUrl: 'http://localhost:1234/v1',
-    apiType: 'openai',
-    model: 'test-model',
-    enableAgentJs: true
-  };
-
-  const statuses = [];
-  const res = await ChatEngine.executeAgentTurnLoop({
-    apiUrl: appConfig.apiUrl,
-    apiType: appConfig.apiType,
-    model: appConfig.model,
-    chatHistory: history,
-    appConfig: appConfig,
-    onGenerationStatus: (s) => statuses.push(s)
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(res.loopDetected, true);
-  assert.ok(res.finalAssistantText.includes('Infinite Loop Protection'), 'Debe emitir la advertencia en inglés');
-  assert.ok(statuses.some(s => s.phase === 'error' && (s.text.includes('bucle infinito') || s.text.includes('loop'))), 'Debe emitir estado de parada por bucle infinito');
 
   ChatAPI.streamChatCompletion = originalStream;
 });

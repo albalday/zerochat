@@ -3,124 +3,71 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-test('UI Modernization - CSS tokens y glassmorphism tokens definidos', () => {
-  const tokensCss = fs.readFileSync(path.resolve(__dirname, '../../css/tokens.css'), 'utf8');
+const ROOT = path.resolve(__dirname, '../..');
+const read = relPath => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+
+test('UI Modernization - los tokens de tema y de formularios están definidos en claro y oscuro', () => {
+  const tokensCss = read('css/tokens.css');
   assert.ok(tokensCss.includes('--bg-surface-rgb: 255, 255, 255'), 'Debe definir --bg-surface-rgb para modo claro');
   assert.ok(tokensCss.includes('--bg-surface-rgb: 19, 27, 46'), 'Debe definir --bg-surface-rgb para modo oscuro');
-  assert.ok(tokensCss.includes('--header-bg-alpha'), 'Debe definir --header-bg-alpha');
-});
-
-test('UI Modernization - Composer textarea usa field-sizing: content', () => {
-  const composerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/composer.css'), 'utf8');
-  assert.ok(composerCss.includes('field-sizing: content'), 'El textarea debe declarar field-sizing: content');
+  for (const token of ['--header-bg-alpha', '--input-bg:', '--input-border-focus:', '--input-focus-ring:']) {
+    assert.ok(tokensCss.includes(token), token);
+  }
+  assert.ok(read('css/components/modals.css').includes('var(--input-focus-ring)'), 'Los campos deben aplicar el anillo de foco accesible');
 });
 
 test('UI Modernization - La interfaz desactiva transiciones y animaciones decorativas', () => {
-  const baseCss = fs.readFileSync(path.resolve(__dirname, '../../css/base.css'), 'utf8');
+  const baseCss = read('css/base.css');
   assert.match(baseCss, /animation:\s*none\s*!important/, 'base.css debe desactivar animaciones');
   assert.match(baseCss, /transition:\s*none\s*!important/, 'base.css debe desactivar transiciones');
-
-  const modalsCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/modals.css'), 'utf8');
-  assert.equal(modalsCss.includes('@starting-style'), false, 'modals.css no debe animar la apertura de diálogos');
-
-  const composerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/composer.css'), 'utf8');
-  assert.equal(composerCss.includes('@starting-style'), false, 'composer.css no debe animar el menú de razonamiento');
-
-  const messagesCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/messages.css'), 'utf8');
-  assert.ok(messagesCss.includes('.typing-indicator'), 'messages.css debe declarar el typing indicator');
-  assert.ok(messagesCss.includes('interpolate-size: allow-keywords'), 'messages.css debe soportar interpolate-size');
+  assert.equal(read('css/components/modals.css').includes('@starting-style'), false, 'modals.css no debe animar la apertura de diálogos');
+  assert.equal(read('css/components/composer.css').includes('@starting-style'), false, 'composer.css no debe animar el menú de razonamiento');
 });
 
-test('UI Modernization - Header incluye acciones superiores limpias y safe-area', () => {
-  const headerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/header.css'), 'utf8');
-  assert.ok(headerCss.includes('env(safe-area-inset-top'), 'header.css debe soportar safe-area-inset-top');
-
-  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
-  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
-  assert.match(indexHtml, /src="js\/defaults\.js"[\s\S]*src="js\/state\.js"/, 'index.html debe cargar los valores predeterminados antes del estado');
-  assert.ok(!indexHtml.includes('id="btn-quick-export"'), 'index.html no debe incluir #btn-quick-export en la barra superior');
-  assert.ok(!indexHtml.includes('id="btn-clear-chat"'), 'index.html no debe incluir #btn-clear-chat');
-  assert.ok(indexHtml.includes('id="btn-toggle-debug"'), 'index.html debe incluir #btn-toggle-debug en la barra superior');
-  assert.ok(!indexHtml.includes('input-toolbar-top'), 'index.html no debe incluir la barra superior obsoleta del compositor');
-  assert.ok(!indexHtml.includes('class="sidebar-header-title"'), 'index.html no debe incluir un título textual en la cabecera del sidebar');
-  assert.ok(indexHtml.includes('.sidebar-header #btn-open-settings') || indexHtml.includes('id="btn-open-settings" class="btn-sidebar-icon"'), 'index.html debe incluir #btn-open-settings en la cabecera del sidebar');
-  assert.ok(!indexHtml.includes('id="btn-open-export-modal"'), 'index.html no debe incluir #btn-open-export-modal en el pie de la barra lateral');
-  assert.match(indexHtml, /class="header-left"[\s\S]*id="btn-sidebar-new-chat"/, 'index.html debe incluir #btn-sidebar-new-chat junto al control del sidebar en la cabecera');
-  assert.match(indexHtml, /id="btn-sidebar-new-tab"[^>]*target="_blank"/, 'index.html debe incluir un enlace seguro para abrir ZeroChat en una pestaña nueva');
-  assert.ok(indexHtml.includes('href="#icon-external-link"'), 'El enlace de nueva pestaña debe usar un icono SVG vectorial');
-  assert.match(indexHtml, /id="btn-toggle-sidebar"[\s\S]*href="#icon-menu"/, 'el control del sidebar debe usar el icono de menú SVG');
-  assert.match(indexHtml, /id="btn-toggle-debug"[\s\S]*href="#icon-search"/, 'el control de logs debe usar el icono SVG de búsqueda');
-  assert.ok(!indexHtml.includes('app-brand-title'), 'index.html no debe incluir título en la barra superior');
-});
-
-test('UI Modernization - Pantalla de bienvenida limpia sin sugerencias intrusivas', () => {
-  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
-  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
-  assert.ok(indexHtml.includes('class="welcome-banner"'), 'index.html debe incluir .welcome-banner');
-  assert.ok(indexHtml.includes('class="welcome-icon"'), 'index.html debe incluir .welcome-icon');
-  assert.ok(!indexHtml.includes('id="welcome-suggestions"'), 'index.html no debe incluir sugerencias de bienvenida');
-});
-
-
-test('UI Modernization - Modales soportan atributo closedby="any"', () => {
-  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
-  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
+test('UI Modernization - zerochat.html declara orden de carga, diálogos descartables y enlaces seguros', () => {
+  const indexHtml = read('zerochat.html');
+  assert.match(indexHtml, /src="js\/defaults\.js"[\s\S]*src="js\/state\.js"/, 'Debe cargar los valores predeterminados antes del estado');
   assert.match(indexHtml, /id="settings-dialog"[^>]*closedby="any"/, 'settings-dialog debe tener closedby="any"');
   assert.match(indexHtml, /id="profiles-dialog"[^>]*closedby="any"/, 'profiles-dialog debe tener closedby="any"');
-});
-
-test('UI Modernization - Sidebar incluye backdrop accesible para móvil', () => {
-  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
-  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
-  assert.ok(indexHtml.includes('id="sidebar-backdrop"'), 'index.html debe incluir #sidebar-backdrop');
+  assert.match(indexHtml, /id="btn-sidebar-new-tab"[^>]*target="_blank"/, 'Debe incluir un enlace para abrir ZeroChat en una pestaña nueva');
+  assert.match(indexHtml, /id="notice-input"[^>]*class="form-input"/, 'notice-input debe usar el estilo unificado de formularios');
 });
 
 test('UI Modernization - Imágenes en chat redimensionadas como máximo al ancho del chat', () => {
-  const baseCss = fs.readFileSync(path.resolve(__dirname, '../../css/base.css'), 'utf8');
+  const baseCss = read('css/base.css');
   assert.match(baseCss, /img\s*\{[^}]*max-width:\s*100%/);
 
-  const messagesCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/messages.css'), 'utf8');
+  const messagesCss = read('css/components/messages.css');
   assert.ok(messagesCss.includes('.message-content img'), 'messages.css debe definir selector para imágenes en mensaje');
   assert.ok(messagesCss.includes('.message-image-thumb'), 'messages.css debe definir selector para miniaturas adjuntas');
   assert.match(messagesCss, /\.message-image-thumb\s*\{[^}]*max-width:\s*100%/);
 
-  const markdownCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/markdown.css'), 'utf8');
+  const markdownCss = read('css/components/markdown.css');
   assert.match(markdownCss, /\.chat-embedded-image\s*\{[^}]*max-width:\s*100%/);
   assert.match(markdownCss, /\.chat-image-figure\s*\{[^}]*max-width:\s*100%/);
 });
 
-test('UI Modernization - Estándar unificado de UI para textboxes y combos', () => {
-  const tokensCss = fs.readFileSync(path.resolve(__dirname, '../../css/tokens.css'), 'utf8');
-  assert.ok(tokensCss.includes('--input-bg:'), 'tokens.css debe definir --input-bg');
-  assert.ok(tokensCss.includes('--input-border-focus:'), 'tokens.css debe definir --input-border-focus');
-  assert.ok(tokensCss.includes('--input-focus-ring:'), 'tokens.css debe definir --input-focus-ring');
-
-  const modalsCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/modals.css'), 'utf8');
-  assert.ok(modalsCss.includes('#notice-input'), 'modals.css debe incluir #notice-input en la regla unificada');
-  assert.ok(modalsCss.includes('input[type="number"]'), 'modals.css debe incluir input[type="number"]');
-  assert.ok(modalsCss.includes('.combobox-select-helper'), 'modals.css debe estilizar .combobox-select-helper');
-  assert.ok(modalsCss.includes('var(--input-focus-ring)'), 'modals.css debe aplicar el anillo de foco accesible');
-  assert.ok(modalsCss.includes("background-image: url(\"data:image/svg+xml"), 'modals.css debe aplicar chevron SVG en selects');
-
-  const htmlPath = path.resolve(__dirname, '../../zerochat.html');
-  const indexHtml = fs.readFileSync(htmlPath, 'utf8');
-  assert.match(indexHtml, /id="notice-input"[^>]*class="form-input"/, 'index.html debe declarar class="form-input" en notice-input');
-
-  const composerCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/composer.css'), 'utf8');
-  assert.ok(composerCss.includes('.context-limit-control input:focus'), 'composer.css debe definir foco accesible en context-limit input');
-
-  const sidebarCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/sidebar.css'), 'utf8');
-  assert.ok(sidebarCss.includes('.sidebar-search-input:focus'), 'sidebar.css debe definir foco accesible en búsqueda de sidebar');
-});
-
 test('UI Modernization - El banner de importación y el resumen de razonamiento no usan emojis', () => {
   const emoji = /\p{Extended_Pictographic}/u;
-  const markdownJs = fs.readFileSync(path.resolve(__dirname, '../../js/markdown.js'), 'utf8');
+  const markdownJs = read('js/markdown.js');
   assert.equal(emoji.test(markdownJs), false, 'markdown.js no debe contener emojis (summary de razonamiento)');
 
-  const appJs = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
+  const appJs = read('js/app.js');
   const banner = appJs.match(/banner\.innerHTML = `([\s\S]*?)`;/);
   assert.ok(banner, 'app.js debe construir el banner de importación');
   assert.equal(emoji.test(banner[1]), false, 'El banner de importación no debe contener emojis');
   assert.ok(banner[1].includes("ChatIcons.get('download'"), 'El banner de importación debe usar ChatIcons');
+});
+
+test('UI Modernization - zerochat.html optimiza carga con defer y CSS paralelos', () => {
+  const htmlContent = read('zerochat.html');
+  assert.match(htmlContent, /<link rel="manifest" href="manifest\.webmanifest">/, 'Debe declarar manifest.webmanifest');
+  assert.match(htmlContent, /<meta name="theme-color" content="#0d1117">/, 'Debe declarar theme-color');
+  assert.ok(!htmlContent.includes('<link rel="stylesheet" href="css/styles.css">'), 'No debe usar la cascada de styles.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/tokens\.css">/, 'Debe enlazar tokens.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/base\.css">/, 'Debe enlazar base.css');
+  assert.match(htmlContent, /<link rel="stylesheet" href="css\/print\.css" media="print">/, 'print.css debe tener media="print"');
+  assert.equal([...htmlContent.matchAll(/<script\s+src="js\/([^"]+)"/g)].length, 0, 'Todos los scripts de la aplicación deben declarar defer');
+  assert.match(htmlContent, /<script defer src="js\/app\.js"><\/script>/, 'js/app.js debe declarar defer');
+
 });

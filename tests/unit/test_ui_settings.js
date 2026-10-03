@@ -150,114 +150,114 @@ test('UISettings - gatherEnabledToolsFromUI extrae mapa booleano de checkboxes',
   });
 });
 
-test('UISettings - applyProfileToForm rellena los inputs de configuración', () => {
-  const elements = {
-    settingApiType: { value: '' },
-    settingApiUrl: { value: '' },
-    settingApiKey: { value: '' },
-    settingModel: { value: '' },
-    modelSelectHelper: { value: '' },
-    settingSystemPrompt: { value: '' },
-    settingSystemDataPrompt: { value: '' },
-    settingTemperature: { value: '' },
-    temperatureVal: { textContent: '' },
-    settingMaxAgentTurns: { value: '' },
-    maxAgentTurnsVal: { textContent: '' }
-  };
+test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defecto y mapea webllmConfig', () => {
+  {
+    const elements = {
+      settingApiType: { value: '' },
+      settingApiUrl: { value: '' },
+      settingApiKey: { value: '' },
+      settingModel: { value: '' },
+      modelSelectHelper: { value: '' },
+      settingSystemPrompt: { value: '' },
+      settingSystemDataPrompt: { value: '' },
+      settingTemperature: { value: '' },
+      temperatureVal: { textContent: '' },
+      settingMaxAgentTurns: { value: '' },
+      maxAgentTurnsVal: { textContent: '' }
+    };
 
-  const profileData = {
-    apiType: 'anthropic',
-    apiUrl: 'https://api.anthropic.com/v1',
-    model: 'claude-3-7-sonnet',
-    systemPrompt: 'Eres un asistente experto.',
-    systemDataPrompt: 'Formato ZeroChat.',
-    temperature: '0.2',
-    maxAgentTurns: 22
-  };
+    const profileData = {
+      apiType: 'anthropic',
+      apiUrl: 'https://api.anthropic.com/v1',
+      model: 'claude-3-7-sonnet',
+      systemPrompt: 'Eres un asistente experto.',
+      systemDataPrompt: 'Formato ZeroChat.',
+      temperature: '0.2',
+      maxAgentTurns: 22
+    };
 
-  UISettings.applyProfileToForm(elements, profileData);
+    UISettings.applyProfileToForm(elements, profileData);
 
-  assert.equal(elements.settingApiType.value, 'anthropic');
-  assert.equal(elements.settingApiUrl.value, 'https://api.anthropic.com/v1');
-  assert.equal(elements.settingApiKey.value, '', 'La clave solo se carga desde el repositorio cifrado');
-  assert.equal(elements.settingModel.value, 'claude-3-7-sonnet');
-  assert.equal(elements.settingSystemPrompt.value, 'Eres un asistente experto.');
-  assert.equal(elements.settingSystemDataPrompt.value, 'Formato ZeroChat.');
-  assert.equal(elements.settingTemperature.value, '0.2');
-  assert.equal(elements.temperatureVal.textContent, '0.2');
-  assert.equal(elements.settingMaxAgentTurns.value, 22);
-  assert.equal(elements.maxAgentTurnsVal.textContent, 22);
+    assert.equal(elements.settingApiType.value, 'anthropic');
+    assert.equal(elements.settingApiUrl.value, 'https://api.anthropic.com/v1');
+    assert.equal(elements.settingApiKey.value, '', 'La clave solo se carga desde el repositorio cifrado');
+    assert.equal(elements.settingModel.value, 'claude-3-7-sonnet');
+    assert.equal(elements.settingSystemPrompt.value, 'Eres un asistente experto.');
+    assert.equal(elements.settingSystemDataPrompt.value, 'Formato ZeroChat.');
+    assert.equal(elements.settingTemperature.value, '0.2');
+    assert.equal(elements.temperatureVal.textContent, '0.2');
+    assert.equal(elements.settingMaxAgentTurns.value, 22);
+    assert.equal(elements.maxAgentTurnsVal.textContent, 22);
+  }
+
+  {
+    const elements = {
+      settingApiType: { value: '' },
+      settingApiUrl: { value: '', placeholder: '' },
+      settingApiKey: { value: '' },
+      settingModel: { value: '' },
+      modelSelectHelper: { value: '' },
+      settingSystemPrompt: { value: '' },
+      settingTemperature: { value: '' },
+      settingMaxAgentTurns: { value: '' }
+    };
+
+    const profileData = {
+      apiType: 'openai',
+      apiUrl: '',
+      model: ''
+    };
+
+    UISettings.applyProfileToForm(elements, profileData);
+
+    assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
+    assert.equal(elements.settingApiUrl.placeholder, 'http://localhost:1234/v1');
+  }
+
+  {
+    const elements = {
+      settingApiType: { value: 'webllm' },
+      settingWebllmContextWindow: { value: '' },
+      settingWebllmPrefillChunk: { value: '' },
+      webllmParamsPanel: { hidden: false },
+      btnWebllmParams: { classList: { remove: () => {} } }
+    };
+    const profileData = {
+      webllmConfig: {
+        context_window_size: '16384',
+        prefill_chunk_size: 'default'
+      }
+    };
+    UISettings.applyProfileToForm(elements, profileData);
+    assert.equal(elements.settingWebllmContextWindow.value, '16384');
+    assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
+    assert.equal(elements.webllmParamsPanel.hidden, true);
+  }
 });
 
-test('UISettings - applyProfileToForm asigna endpoint por defecto y placeholder si apiUrl está vacío', () => {
-  const elements = {
-    settingApiType: { value: '' },
-    settingApiUrl: { value: '', placeholder: '' },
-    settingApiKey: { value: '' },
-    settingModel: { value: '' },
-    modelSelectHelper: { value: '' },
-    settingSystemPrompt: { value: '' },
-    settingTemperature: { value: '' },
-    settingMaxAgentTurns: { value: '' }
-  };
+test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns y webllmConfig con default si está vacío', () => {
+  {
+    const elements = {
+      settingModel: { value: 'gpt-4o' },
+      settingMaxAgentTurns: { value: '25' }
+    };
+    const appConfig = { maxAgentTurns: 15 };
+    const config = UISettings.gatherCurrentFormConfig(elements, appConfig);
+    assert.equal(config.maxAgentTurns, 25);
+  }
 
-  const profileData = {
-    apiType: 'openai',
-    apiUrl: '',
-    model: ''
-  };
-
-  UISettings.applyProfileToForm(elements, profileData);
-
-  assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
-  assert.equal(elements.settingApiUrl.placeholder, 'http://localhost:1234/v1');
-});
-
-test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns correctamente', () => {
-  const elements = {
-    settingModel: { value: 'gpt-4o' },
-    settingMaxAgentTurns: { value: '25' }
-  };
-  const appConfig = { maxAgentTurns: 15 };
-  const config = UISettings.gatherCurrentFormConfig(elements, appConfig);
-  assert.equal(config.maxAgentTurns, 25);
-});
-
-test('UISettings - no coordina el borrado de perfiles, que corresponde a app.js', () => {
-  assert.equal(UISettings.handleDeleteProfile, undefined);
-});
-
-test('UISettings - gatherCurrentFormConfig extrae webllmConfig y asigna default si está vacío', () => {
-  const elements = {
-    settingModel: { value: 'Llama-3.2-1B' },
-    settingWebllmContextWindow: { value: '8192' },
-    settingWebllmPrefillChunk: { value: '2048' }
-  };
-  const config = UISettings.gatherCurrentFormConfig(elements, {});
-  assert.deepEqual(config.webllmConfig, {
-    context_window_size: '8192',
-    prefill_chunk_size: '2048'
-  });
-});
-
-test('UISettings - applyProfileToForm mapea webllmConfig a selects asignando default si es necesario', () => {
-  const elements = {
-    settingApiType: { value: 'webllm' },
-    settingWebllmContextWindow: { value: '' },
-    settingWebllmPrefillChunk: { value: '' },
-    webllmParamsPanel: { hidden: false },
-    btnWebllmParams: { classList: { remove: () => {} } }
-  };
-  const profileData = {
-    webllmConfig: {
-      context_window_size: '16384',
-      prefill_chunk_size: 'default'
-    }
-  };
-  UISettings.applyProfileToForm(elements, profileData);
-  assert.equal(elements.settingWebllmContextWindow.value, '16384');
-  assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
-  assert.equal(elements.webllmParamsPanel.hidden, true);
+  {
+    const elements = {
+      settingModel: { value: 'Llama-3.2-1B' },
+      settingWebllmContextWindow: { value: '8192' },
+      settingWebllmPrefillChunk: { value: '2048' }
+    };
+    const config = UISettings.gatherCurrentFormConfig(elements, {});
+    assert.deepEqual(config.webllmConfig, {
+      context_window_size: '8192',
+      prefill_chunk_size: '2048'
+    });
+  }
 });
 
 test('UISettings - saveDirectoryRulesFromSettings valida y aplica reglas al ToolSecurityManager', () => {

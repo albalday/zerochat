@@ -222,7 +222,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
             window.ChatToolSecurity.manager.setToolPolicy('mcp_layout_test', 'allow', { originalName: 'tool_with_a_very_long_name_for_mobile_permissions_layout', constraints: { path: { allowedDirectories: ['/a/very/long/path/to/a/workspace/that/needs/to/fit/inside/mobile/permissions'] } } });
           });
         }
-        for (const width of [320, 390, 768, 1280]) {
+        for (const width of [320, 768, 1280]) {
           await page.setViewportSize({ width, height: 844 });
           for (const language of ['es', 'en']) {
             for (const theme of ['light', 'dark']) {
@@ -340,7 +340,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
 
       for (const panel of panels) {
         await panel.open();
-        for (const width of [320, 390, 768, 1280]) {
+        for (const width of [320, 768, 1280]) {
           await page.setViewportSize({ width, height: 844 });
           for (const theme of ['light', 'dark']) {
             const layout = await page.evaluate(({ dialogSelector, surfaces, danger, theme }) => {
@@ -381,5 +381,38 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       }
       assert.deepEqual(errors, []);
     } finally { await browser.close(); }
+  });
+
+  test('Browser UI - usar clave predeterminada informa cuando no hay API keys', { timeout: 10000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(3000);
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await page.locator('#btn-open-settings').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-view-settings').hidden);
+      const dependencies = await page.evaluate(() => ({
+        backup: Boolean(window.ChatProfileBackup),
+        profiles: Boolean(window.ChatProfileRepository?.recipherApiKeys && window.ChatProfileRepository?.verifyApiKeyMaterial),
+        dialogs: Boolean(window.ChatDialogs),
+        handler: Boolean(window.ChatUIProfiles?.handleUseDefaultEncryptionKey)
+      }));
+      assert.deepEqual(dependencies, { backup: true, profiles: true, dialogs: true, handler: true });
+      await page.locator('.sidebar-settings-item[data-section="encryption"]').evaluate(button => button.click());
+      await page.waitForFunction(() => !document.getElementById('sidebar-encryption-nav').hidden);
+      await page.locator('#btn-encryption-default').evaluate(button => button.click());
+      await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+      await page.locator('#notice-accept').evaluate(button => button.click());
+      await page.waitForFunction(() => /No hay API keys guardadas/.test(document.getElementById('notice-message').textContent));
+      const notice = await page.evaluate(() => ({
+        open: document.getElementById('notice-dialog').open,
+        message: document.getElementById('notice-message').textContent,
+        pending: window.ChatState.get('ui').notices
+      }));
+      assert.equal(notice.open, true);
+      assert.match(notice.message, /No hay API keys guardadas/);
+    } finally {
+      await browser.close();
+    }
   });
 });

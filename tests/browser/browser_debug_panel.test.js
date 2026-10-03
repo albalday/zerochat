@@ -1,18 +1,20 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, getIndexUrl } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - debug panel', { concurrency: 2 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
 
-  test('el panel de depuración usa superficie temática y filtros accesibles', async () => {
+  test('el panel de depuración expone filtros accesibles y alterna el autoscroll sin errores', async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
+      const pageErrors = [];
+      page.on('pageerror', error => pageErrors.push(error.message));
       await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+      await waitForAppReady(page);
 
       await page.click('#btn-toggle-debug');
       const opened = await page.evaluate(() => ({
@@ -34,21 +36,7 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
       })));
       assert.deepEqual(selected.find(tab => tab.filter === 'network'), { filter: 'network', pressed: 'true', active: true });
       assert.equal(selected.filter(tab => tab.pressed === 'true').length, 1);
-    } finally {
-      await browser.close();
-    }
-  });
 
-  test('el botón de autoscroll alterna el estado del panel sin errores', async () => {
-    const browser = await createTestBrowser();
-    try {
-      const page = await browser.newPage();
-      const pageErrors = [];
-      page.on('pageerror', error => pageErrors.push(error.message));
-      await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
-
-      await page.click('#btn-toggle-debug');
       const isActive = () => page.evaluate(() => document.getElementById('btn-toggle-autoscroll').classList.contains('active'));
       assert.equal(await isActive(), true);
       await page.click('#btn-toggle-autoscroll');
@@ -66,7 +54,7 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     try {
       const page = await browser.newPage();
       await page.goto(getIndexUrl(), { waitUntil: 'load' });
-      await page.waitForFunction(() => document.documentElement.classList.contains('zerochat-ready'));
+      await waitForAppReady(page);
       await page.evaluate(() => {
         window.__debugInterceptorResult = window.ChatDebug.openInterceptorModal({
           endpoint: '/v1/chat/completions', headers: {}, payload: { model: 'test', messages: [] }

@@ -42,18 +42,34 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(getPersisted().activeProfileName, undefined);
 });
 
-test('ChatConfig - usa razonamiento medio por defecto y conserva una elección explícita', () => {
-  const { store } = createFixture();
-  store.initialize();
-  assert.equal(store.updateRuntime({ reasoningEffort: undefined }).reasoningEffort, 'medium');
-  assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
-});
+test('ChatConfig - valores por defecto: razonamiento medio, 40 turnos acotados entre 5 y 200 y mcpAutoConnect desactivado', () => {
+  {
+    const { store } = createFixture();
+    store.initialize();
+    assert.equal(store.updateRuntime({ reasoningEffort: undefined }).reasoningEffort, 'medium');
+    assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
+  }
 
-test('ChatConfig - usa 40 turnos por defecto y limita la configuración entre 5 y 200', () => {
-  const { store } = createFixture();
-  assert.equal(store.initialize().maxAgentTurns, 40);
-  assert.equal(store.updateRuntime({ maxAgentTurns: 1 }).maxAgentTurns, 5);
-  assert.equal(store.updateRuntime({ maxAgentTurns: 300 }).maxAgentTurns, 200);
+  {
+    const { store } = createFixture();
+    assert.equal(store.initialize().maxAgentTurns, 40);
+    assert.equal(store.updateRuntime({ maxAgentTurns: 1 }).maxAgentTurns, 5);
+    assert.equal(store.updateRuntime({ maxAgentTurns: 300 }).maxAgentTurns, 200);
+  }
+
+  {
+    const { store, getPersisted } = createFixture();
+    const config = store.initialize();
+    assert.equal(config.mcpAutoConnect, false);
+
+    const updated = store.updateRuntime({ mcpAutoConnect: true, mcpHost: '127.0.0.1', mcpPort: 6388 });
+    assert.equal(updated.mcpAutoConnect, true);
+    assert.equal(getPersisted().mcpAutoConnect, true);
+
+    const disabled = store.updateRuntime({ mcpAutoConnect: false });
+    assert.equal(disabled.mcpAutoConnect, false);
+    assert.equal(getPersisted().mcpAutoConnect, false);
+  }
 });
 
 test('ChatConfig - migra el valor predeterminado heredado de 15 turnos a 40 una sola vez', () => {
@@ -103,28 +119,30 @@ test('ChatConfig - snapshots no permiten mutar el estado interno', () => {
   assert.equal(store.getActive().enabledTools.search_web, false);
 });
 
-test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil', () => {
-  const { store, getPersisted } = createFixture();
-  store.initialize();
-  store.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
+test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {
+  {
+    const { store, getPersisted } = createFixture();
+    store.initialize();
+    store.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
 
-  assert.equal(store.getActive().modelContextLimit, 90112);
-  assert.equal(getPersisted().modelContextLimit, null);
+    assert.equal(store.getActive().modelContextLimit, 90112);
+    assert.equal(getPersisted().modelContextLimit, null);
 
-  const config = store.activateProfile('office');
+    const config = store.activateProfile('office');
 
-  assert.equal(config.modelContextLimit, null);
-  assert.equal(config.contextLimitOverride, null);
-});
+    assert.equal(config.modelContextLimit, null);
+    assert.equal(config.contextLimitOverride, null);
+  }
 
-test('ChatConfig - cambiar de conexión descarta el límite detectado anterior', () => {
-  const { store } = createFixture();
-  store.initialize();
-  store.updateRuntime({ modelContextLimit: 90112 });
+  {
+    const { store } = createFixture();
+    store.initialize();
+    store.updateRuntime({ modelContextLimit: 90112 });
 
-  const config = store.updateRuntime({ apiUrl: 'https://api.example.test/v1' });
+    const config = store.updateRuntime({ apiUrl: 'https://api.example.test/v1' });
 
-  assert.equal(config.modelContextLimit, null);
+    assert.equal(config.modelContextLimit, null);
+  }
 });
 
 test('ChatConfig - el perfil de respaldo sustituye una selección ausente', () => {
@@ -162,18 +180,4 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
   assert.equal(fallback.activeProfile.id, Profiles.READONLY_PROFILE_ID);
   assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
-});
-
-test('ChatConfig - mcpAutoConnect es false por defecto y se actualiza mediante updateRuntime', () => {
-  const { store, getPersisted } = createFixture();
-  const config = store.initialize();
-  assert.equal(config.mcpAutoConnect, false);
-
-  const updated = store.updateRuntime({ mcpAutoConnect: true, mcpHost: '127.0.0.1', mcpPort: 6388 });
-  assert.equal(updated.mcpAutoConnect, true);
-  assert.equal(getPersisted().mcpAutoConnect, true);
-
-  const disabled = store.updateRuntime({ mcpAutoConnect: false });
-  assert.equal(disabled.mcpAutoConnect, false);
-  assert.equal(getPersisted().mcpAutoConnect, false);
 });

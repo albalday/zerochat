@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Status = require('../../js/ui-generation-status.js');
 
-test('GenerationStatus - presenta progreso cuantificable y pensamiento sin contenido', () => {
+test('GenerationStatus - getViewModel presenta progreso, pensamiento, herramientas y textos libres sin estado inactivo', () => {
   const loading = Status.getViewModel({ phase: 'loading', percent: 42 });
   assert.equal(loading.active, true);
   assert.equal(loading.percent, 42);
@@ -12,21 +12,15 @@ test('GenerationStatus - presenta progreso cuantificable y pensamiento sin conte
   assert.equal(thinking.percent, null);
   assert.match(thinking.text, /18/);
   assert.equal(thinking.text.includes('secret reasoning'), false);
-});
 
-test('GenerationStatus - no presenta estado inactivo', () => {
   assert.equal(Status.getViewModel({ phase: 'idle' }).active, false);
-});
 
-test('GenerationStatus - infraestructura general acepta string simple de cualquier módulo', () => {
   const model = Status.getViewModel('Recuperando contexto semántico...');
   assert.equal(model.active, true);
   assert.equal(model.text, 'Recuperando contexto semántico...');
   assert.equal(model.phase, 'custom');
   assert.equal(model.percent, null);
-});
 
-test('GenerationStatus - infraestructura general acepta mensajes de herramientas y fases personalizadas', () => {
   const toolStatus = Status.getViewModel({ phase: 'tool', text: 'Ejecutando calculator...' });
   assert.equal(toolStatus.active, true);
   assert.equal(toolStatus.phase, 'tool');
@@ -41,24 +35,7 @@ test('GenerationStatus - infraestructura general acepta mensajes de herramientas
   assert.equal(customStatus.text, 'Compilando código en sandbox...');
 });
 
-test('GenerationStatus - oculta el elemento al finalizar el ciclo', () => {
-  const text = { textContent: '' };
-  const progress = { hidden: true, value: 0 };
-  const element = {
-    hidden: false,
-    dataset: {},
-    querySelector(selector) {
-      return selector === '.generation-status-text' ? text : progress;
-    }
-  };
-
-  Status.render(element, { phase: 'thinking', startedAt: Date.now() });
-  assert.equal(element.hidden, false);
-  Status.render(element, { phase: 'idle' });
-  assert.equal(element.hidden, true);
-});
-
-test('GenerationStatus - renderiza texto arbitrario directamente de cualquier módulo', () => {
+test('GenerationStatus - render, setStatus y clearStatus muestran texto, progreso y ocultan al terminar', () => {
   const text = { textContent: '' };
   const progress = { hidden: true, value: 0 };
   const element = {
@@ -74,10 +51,27 @@ test('GenerationStatus - renderiza texto arbitrario directamente de cualquier m�
   assert.equal(text.textContent, 'Analizando dependencias...');
 
   Status.render(element, { text: 'Descargando paquete...', percent: 75 });
-  assert.equal(element.hidden, false);
   assert.equal(text.textContent, 'Descargando paquete... · 75 %');
   assert.equal(progress.hidden, false);
   assert.equal(progress.value, 75);
+
+  Status.render(element, { phase: 'idle' });
+  assert.equal(element.hidden, true);
+
+  globalThis.ChatState = {
+    get: (k) => k === 'streaming' ? { isGenerating: true } : {},
+    setGenerationStatus: (raw) => ({ phase: raw.phase || 'custom', text: raw.text || '', startedAt: Date.now() }),
+    clearGenerationStatus: () => ({ phase: 'idle' })
+  };
+  try {
+    Status.setStatus(element, { phase: 'tool', text: 'Ejecutando herramienta...' });
+    assert.equal(element.hidden, false);
+    assert.equal(element.dataset.phase, 'tool');
+    Status.clearStatus(element);
+    assert.equal(element.hidden, true);
+  } finally {
+    delete globalThis.ChatState;
+  }
 });
 
 test('GenerationStatus - integración con ChatState mutators', () => {
@@ -124,34 +118,4 @@ test('GenerationStatus - integración con ChatState mutators', () => {
   assert.equal(cleared.phase, 'idle');
   assert.equal(cleared.text, '');
   assert.equal(store.get('ui').generationStatus.phase, 'idle');
-});
-
-test('GenerationStatus - setStatus y clearStatus gestionan el elemento DOM y el estado', () => {
-  const textEl = { textContent: '' };
-  const progressEl = { hidden: true, value: 0 };
-  const element = {
-    hidden: true,
-    dataset: {},
-    querySelector(selector) {
-      return selector === '.generation-status-text' ? textEl : progressEl;
-    }
-  };
-
-  // Simular streaming activo
-  globalThis.ChatState = {
-    get: (k) => k === 'streaming' ? { isGenerating: true } : {},
-    setGenerationStatus: (raw) => ({ phase: raw.phase || 'custom', text: raw.text || '', startedAt: Date.now() }),
-    clearGenerationStatus: () => ({ phase: 'idle' })
-  };
-
-  try {
-    Status.setStatus(element, { phase: 'tool', text: 'Ejecutando herramienta...' });
-    assert.equal(element.hidden, false);
-    assert.equal(element.dataset.phase, 'tool');
-
-    Status.clearStatus(element);
-    assert.equal(element.hidden, true);
-  } finally {
-    delete globalThis.ChatState;
-  }
 });

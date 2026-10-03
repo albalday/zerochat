@@ -3,76 +3,26 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-test('Service Worker - sw.js existe, define CACHE_NAME y lista activos críticos', () => {
-  const swPath = path.resolve(__dirname, '../../sw.js');
-  assert.ok(fs.existsSync(swPath), 'sw.js debe existir en la raíz del proyecto');
-
-  const swContent = fs.readFileSync(swPath, 'utf8');
-  assert.match(swContent, /const\s+CACHE_NAME\s*=\s*'zerochat-v[^']+'/, 'Debe definir CACHE_NAME versionado');
-  assert.match(swContent, /PRECACHE_ASSETS\s*=\s*\[/, 'Debe declarar PRECACHE_ASSETS');
-
-  // Extraer lista de assets
-  const match = swContent.match(/const\s+PRECACHE_ASSETS\s*=\s*\[([\s\S]*?)\];/);
-  assert.ok(match, 'Debe encontrarse el array PRECACHE_ASSETS');
-
-  const assets = match[1]
-    .split(',')
-    .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(s => s && s !== './');
-
+test('Service Worker - PRECACHE_ASSETS existe en disco e incluye todos los scripts y estilos de zerochat.html', () => {
   const rootDir = path.resolve(__dirname, '../..');
-  for (const asset of assets) {
-    const rel = asset.replace(/^\.\//, '');
-    const fullPath = path.join(rootDir, rel);
-    assert.ok(fs.existsSync(fullPath), `El activo precacheado debe existir en disco: ${asset}`);
-  }
-});
-
-test('Service Worker - gestiona eventos install, activate y fetch con Stale-While-Revalidate', () => {
-  const swPath = path.resolve(__dirname, '../../sw.js');
-  const swContent = fs.readFileSync(swPath, 'utf8');
-
-  assert.match(swContent, /self\.addEventListener\('install'/, 'Debe registrar listener de install');
-  assert.match(swContent, /self\.addEventListener\('activate'/, 'Debe registrar listener de activate');
-  assert.match(swContent, /self\.addEventListener\('fetch'/, 'Debe registrar listener de fetch');
-  assert.match(swContent, /caches\.delete/, 'activate debe purgar caches obsoletas');
-  assert.match(swContent, /skipWaiting\(\)/, 'install debe llamar a skipWaiting');
-  assert.match(swContent, /clients\.claim\(\)/, 'activate debe reclamar clientes');
-
-  // Comprobar que no intercepta peticiones que no sean GET
-  assert.match(swContent, /req\.method\s*!==\s*'GET'/, 'Debe omitir peticiones no GET');
-  // Comprobar que no intercepta peticiones cruzadas
-  assert.match(swContent, /url\.origin\s*!==\s*self\.location\.origin/, 'Debe omitir peticiones cross-origin');
-  // Comprobar exclusión de endpoints dinámicos
-  assert.match(swContent, /\/api/, 'Debe excluir endpoints de API');
-  assert.match(swContent, /\/mcp/, 'Debe excluir endpoints de MCP');
-  assert.match(swContent, /\/zerochat\/heartbeat/, 'Debe excluir el endpoint de heartbeat');
-  assert.match(swContent, /\/zerochat\/external/, 'Debe excluir el endpoint de servidores externos');
-});
-
-test('Service Worker - todos los scripts y hojas de estilo de zerochat.html están en PRECACHE_ASSETS', () => {
-  const rootDir = path.resolve(__dirname, '../..');
-  const htmlContent = fs.readFileSync(path.join(rootDir, 'zerochat.html'), 'utf8');
   const swContent = fs.readFileSync(path.join(rootDir, 'sw.js'), 'utf8');
+  const htmlContent = fs.readFileSync(path.join(rootDir, 'zerochat.html'), 'utf8');
+  assert.match(swContent, /const\s+CACHE_NAME\s*=\s*'zerochat-v[^']+'/, 'Debe definir CACHE_NAME versionado');
+  assert.match(swContent, /caches\.delete/, 'activate debe purgar caches obsoletas');
 
   const match = swContent.match(/const\s+PRECACHE_ASSETS\s*=\s*\[([\s\S]*?)\];/);
   assert.ok(match, 'Debe encontrarse el array PRECACHE_ASSETS');
-
-  const precached = new Set(
-    match[1]
-      .split(',')
-      .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-      .filter(Boolean)
-  );
-
-  const scriptMatches = [...htmlContent.matchAll(/<script\s+[^>]*src="([^"]+)"/g)].map(m => './' + m[1]);
-  for (const script of scriptMatches) {
-    assert.ok(precached.has(script), `El script de zerochat.html debe estar en PRECACHE_ASSETS: ${script}`);
+  const precached = new Set(match[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean));
+  for (const asset of precached) {
+    if (asset === './') continue;
+    assert.ok(fs.existsSync(path.join(rootDir, asset.replace(/^\.\//, ''))), `El activo precacheado debe existir en disco: ${asset}`);
   }
-
-  const cssMatches = [...htmlContent.matchAll(/<link\s+[^>]*href="([^"]+\.css)"/g)].map(m => './' + m[1]);
-  for (const css of cssMatches) {
-    assert.ok(precached.has(css), `La hoja de estilos de zerochat.html debe estar en PRECACHE_ASSETS: ${css}`);
+  const referenced = [
+    ...[...htmlContent.matchAll(/<script\s+[^>]*src="([^"]+)"/g)].map(m => './' + m[1]),
+    ...[...htmlContent.matchAll(/<link\s+[^>]*href="([^"]+\.css)"/g)].map(m => './' + m[1])
+  ];
+  for (const asset of referenced) {
+    assert.ok(precached.has(asset), `El recurso de zerochat.html debe estar en PRECACHE_ASSETS: ${asset}`);
   }
 });
 

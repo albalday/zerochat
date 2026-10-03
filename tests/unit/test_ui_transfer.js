@@ -2,39 +2,41 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITransfer = require('../../js/ui-transfer.js');
 
-test('UITransfer - parseConversationJson parses object with messages array', () => {
-  const jsonStr = JSON.stringify({
-    title: 'Chat Test',
-    messages: [
-      { role: 'user', content: 'Hola' },
-      { role: 'assistant', content: 'Mundo' }
-    ]
-  });
+test('UITransfer - parseConversationJson acepta objetos y arrays y rechaza estructuras inválidas', () => {
+  {
+    const jsonStr = JSON.stringify({
+      title: 'Chat Test',
+      messages: [
+        { role: 'user', content: 'Hola' },
+        { role: 'assistant', content: 'Mundo' }
+      ]
+    });
 
-  const parsed = UITransfer.parseConversationJson(jsonStr);
-  assert.equal(parsed.messages.length, 2);
-  assert.equal(parsed.messages[0].content, 'Hola');
-  assert.equal(parsed.messages[1].content, 'Mundo');
-});
+    const parsed = UITransfer.parseConversationJson(jsonStr);
+    assert.equal(parsed.messages.length, 2);
+    assert.equal(parsed.messages[0].content, 'Hola');
+    assert.equal(parsed.messages[1].content, 'Mundo');
+  }
 
-test('UITransfer - parseConversationJson parses raw array format', () => {
-  const jsonStr = JSON.stringify([
-    { role: 'user', content: 'Solo array' }
-  ]);
+  {
+    const jsonStr = JSON.stringify([
+      { role: 'user', content: 'Solo array' }
+    ]);
 
-  const parsed = UITransfer.parseConversationJson(jsonStr);
-  assert.equal(parsed.messages.length, 1);
-  assert.equal(parsed.messages[0].content, 'Solo array');
-});
+    const parsed = UITransfer.parseConversationJson(jsonStr);
+    assert.equal(parsed.messages.length, 1);
+    assert.equal(parsed.messages[0].content, 'Solo array');
+  }
 
-test('UITransfer - parseConversationJson rejects invalid payload structure', () => {
-  assert.throws(() => {
-    UITransfer.parseConversationJson('{"invalid": true}');
-  }, /Estructura de conversación no válida/);
+  {
+    assert.throws(() => {
+      UITransfer.parseConversationJson('{"invalid": true}');
+    }, /Estructura de conversación no válida/);
 
-  assert.throws(() => {
-    UITransfer.parseConversationJson('null');
-  });
+    assert.throws(() => {
+      UITransfer.parseConversationJson('null');
+    });
+  }
 });
 
 test('UITransfer - openExportModal and closeExportModal manage dialog open state', () => {

@@ -2,15 +2,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UIShell = require('../../js/ui-shell.js');
 
-test('UIShell - isHttpExecution detects http/https protocols correctly', () => {
+test('UIShell - detecta HTTP, ajusta --app-height y abre/cierra la información de ejecución', () => {
   assert.equal(UIShell.isHttpExecution({ location: { protocol: 'http:' } }), true);
   assert.equal(UIShell.isHttpExecution({ location: { protocol: 'https:' } }), true);
   assert.equal(UIShell.isHttpExecution({ location: { protocol: 'file:' } }), false);
   assert.equal(UIShell.isHttpExecution({ location: { protocol: 'blob:' } }), false);
   assert.equal(UIShell.isHttpExecution(null), false);
-});
 
-test('UIShell - updateViewportHeight sets CSS custom property --app-height', () => {
   let propertyName = '';
   let propertyValue = '';
   const mockDoc = {
@@ -35,9 +33,7 @@ test('UIShell - updateViewportHeight sets CSS custom property --app-height', () 
   // Fallback to innerHeight when visualViewport is not available
   UIShell.updateViewportHeight(mockDoc, { innerHeight: 900 });
   assert.equal(propertyValue, '900px');
-});
 
-test('UIShell - openExecutionInfo and closeExecutionInfo handle dialog methods safely', () => {
   let shown = false;
   let closed = false;
   let textScope = '';

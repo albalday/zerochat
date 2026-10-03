@@ -375,42 +375,6 @@ test('AgentRuntime - Cancelación manual mediante AbortSignal', async () => {
   assert.match(result.error.message, /cancelada/);
 });
 
-test('AgentRuntime - Detección de bucles infinitos (Loop Detection)', async () => {
-  const registry = new ToolRegistry();
-  registry.registerTool(new Tool({
-    name: 'same_search',
-    execute: async () => ({ results: ['noticia 1'] })
-  }));
-
-  let loopDetectedEventFired = false;
-  const mockApi = {
-    streamChatCompletion: async (params) => {
-      if (params.enableTools === false) {
-        return { accumulatedText: 'Resumen final tras detección de bucle.', toolCalls: [] };
-      }
-      // El modelo insiste en emitir exactamente la misma llamada
-      const tc = { id: 'call_loop', function: { name: 'same_search', arguments: '{"q":"mismo_termino"}' } };
-      return { accumulatedText: '', toolCalls: [tc], stats: { tokens: 10 } };
-    }
-  };
-
-  const runtime = new AgentRuntime({ registry, loopThreshold: 2, maxSteps: 8 });
-  const result = await runtime.execute({
-    api: mockApi,
-    messages: [{ role: 'user', content: 'Busca noticias' }],
-    callbacks: {
-      onLoopDetected: () => {
-        loopDetectedEventFired = true;
-      }
-    }
-  });
-
-  assert.equal(result.status, 'loop_detected');
-  assert.equal(result.loopDetected, true);
-  assert.equal(loopDetectedEventFired, true);
-  assert.match(result.finalText, /Infinite Loop Protection/);
-});
-
 test('AgentRuntime - permite ciclos de programación cuando los lotes de herramientas alternan', async () => {
   const registry = new ToolRegistry();
   let testRuns = 0;
@@ -448,14 +412,19 @@ test('AgentRuntime - bloquea la sexta repetición consecutiva del mismo lote', a
   let executions = 0;
   registry.registerTool(new Tool({ name: 'repeat', execute: async () => { executions++; return { ok: true }; } }));
   const toolCall = { function: { name: 'repeat', arguments: '{"value":1}' } };
+  let loopDetectedEventFired = false;
   const result = await new AgentRuntime({ registry, maxSteps: 8 }).execute({
     api: { streamChatCompletion: async params => params.enableTools === false
       ? { accumulatedText: 'Resumen.', toolCalls: [] }
       : { accumulatedText: '', toolCalls: [{ ...toolCall, id: `call_${executions}` }] } },
-    messages: [{ role: 'user', content: 'Repite.' }]
+    messages: [{ role: 'user', content: 'Repite.' }],
+    callbacks: { onLoopDetected: () => { loopDetectedEventFired = true; } }
   });
 
   assert.equal(result.status, 'loop_detected');
+  assert.equal(result.loopDetected, true);
+  assert.equal(loopDetectedEventFired, true);
+  assert.match(result.finalText, /Infinite Loop Protection/);
   assert.equal(executions, 5);
 });
 

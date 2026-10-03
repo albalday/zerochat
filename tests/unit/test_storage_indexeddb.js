@@ -66,7 +66,7 @@ test('Storage IndexedDB - Renombrar conversación', async () => {
   assert.equal(conv.title, 'Título Actualizado');
 });
 
-test('Storage IndexedDB - Borrado individual y borrado total', async () => {
+test('Storage IndexedDB - borra conversaciones individuales, todas y el almacenamiento completo', async () => {
   const s1 = 'conv_delete_1';
   const s2 = 'conv_delete_2';
 
@@ -87,9 +87,7 @@ test('Storage IndexedDB - Borrado individual y borrado total', async () => {
   await Storage.deleteAllConversations();
   const emptyList = await Storage.getConversationsList();
   assert.equal(emptyList.length, 0);
-});
 
-test('Storage IndexedDB - Borrar todos los datos elimina el historial de chats', async () => {
   const sessionId = 'conv_clear_all_storage';
   await Storage.saveConversation(
     { id: sessionId, title: 'Chat que debe borrarse' },
@@ -102,63 +100,65 @@ test('Storage IndexedDB - Borrar todos los datos elimina el historial de chats',
   assert.equal((await Storage.getConversationsList()).length, 0);
 });
 
-test('Storage IndexedDB - Preservación íntegra de turnos del asistente y herramientas', async () => {
-  const sessionId = 'test_agentic_turn_session';
-  const sessionMeta = { id: sessionId, title: 'Chat con herramientas' };
+test('Storage IndexedDB - preserva íntegros turnos del asistente, herramientas, sistema y contexto', async () => {
+  {
+    const sessionId = 'test_agentic_turn_session';
+    const sessionMeta = { id: sessionId, title: 'Chat con herramientas' };
 
-  const history = [
-    { id: 'u1', role: 'user', content: 'Grafica esto' },
-    {
-      id: 'a1_turn_0_assistant',
-      role: 'assistant',
-      content: null,
-      tool_calls: [{ id: 'call_123', type: 'function', function: { name: 'render_chart', arguments: '{"type":"bar"}' } }]
-    },
-    {
-      id: 'a1_turn_0_tool_call_123',
-      role: 'tool',
-      tool_call_id: 'call_123',
-      name: 'render_chart',
-      content: '{"success":true}'
-    },
-    {
-      id: 'a1_final',
-      role: 'assistant',
-      content: 'Aquí tienes el gráfico generado.'
-    }
-  ];
+    const history = [
+      { id: 'u1', role: 'user', content: 'Grafica esto' },
+      {
+        id: 'a1_turn_0_assistant',
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'call_123', type: 'function', function: { name: 'render_chart', arguments: '{"type":"bar"}' } }]
+      },
+      {
+        id: 'a1_turn_0_tool_call_123',
+        role: 'tool',
+        tool_call_id: 'call_123',
+        name: 'render_chart',
+        content: '{"success":true}'
+      },
+      {
+        id: 'a1_final',
+        role: 'assistant',
+        content: 'Aquí tienes el gráfico generado.'
+      }
+    ];
 
-  await Storage.saveConversation(sessionMeta, history);
-  const loaded = await Storage.getConversation(sessionId);
+    await Storage.saveConversation(sessionMeta, history);
+    const loaded = await Storage.getConversation(sessionId);
 
-  assert.ok(loaded);
-  assert.equal(loaded.history.length, 4, 'No debe sobreescribir ningún mensaje de turno');
-  assert.equal(loaded.history[0].role, 'user');
-  assert.equal(loaded.history[1].role, 'assistant');
-  assert.ok(Array.isArray(loaded.history[1].tool_calls));
-  assert.equal(loaded.history[2].role, 'tool');
-  assert.equal(loaded.history[3].role, 'assistant');
-  assert.equal(loaded.history[3].content, 'Aquí tienes el gráfico generado.');
-});
+    assert.ok(loaded);
+    assert.equal(loaded.history.length, 4, 'No debe sobreescribir ningún mensaje de turno');
+    assert.equal(loaded.history[0].role, 'user');
+    assert.equal(loaded.history[1].role, 'assistant');
+    assert.ok(Array.isArray(loaded.history[1].tool_calls));
+    assert.equal(loaded.history[2].role, 'tool');
+    assert.equal(loaded.history[3].role, 'assistant');
+    assert.equal(loaded.history[3].content, 'Aquí tienes el gráfico generado.');
+  }
 
-test('Storage IndexedDB - Preservación íntegra de conversaciones multi-turno con mensajes de sistema y contexto', async () => {
-  const sessionId = 'session_test_multiturn_' + Date.now();
-  const sessionMeta = { id: sessionId, title: 'Consulta multi-turno' };
+  {
+    const sessionId = 'session_test_multiturn_' + Date.now();
+    const sessionMeta = { id: sessionId, title: 'Consulta multi-turno' };
 
-  const history = [
-    { id: 'msg_sys', role: 'system', content: '[Fecha actual: 2026-09-02, Zona: UTC]' },
-    { id: 'msg_user_1', role: 'user', content: 'Hola' },
-    { id: 'msg_ast_1', role: 'assistant', content: '¡Hola! ¿En qué puedo ayudarte?' },
-    { id: 'msg_user_2', role: 'user', content: '¿Qué día es hoy?' },
-    { id: 'msg_ast_2', role: 'assistant', content: 'Hoy es 2 de septiembre de 2026.' }
-  ];
+    const history = [
+      { id: 'msg_sys', role: 'system', content: '[Fecha actual: 2026-09-02, Zona: UTC]' },
+      { id: 'msg_user_1', role: 'user', content: 'Hola' },
+      { id: 'msg_ast_1', role: 'assistant', content: '¡Hola! ¿En qué puedo ayudarte?' },
+      { id: 'msg_user_2', role: 'user', content: '¿Qué día es hoy?' },
+      { id: 'msg_ast_2', role: 'assistant', content: 'Hoy es 2 de septiembre de 2026.' }
+    ];
 
-  await Storage.saveConversation(sessionMeta, history);
-  const loaded = await Storage.getConversation(sessionId);
+    await Storage.saveConversation(sessionMeta, history);
+    const loaded = await Storage.getConversation(sessionId);
 
-  assert.ok(loaded);
-  assert.equal(loaded.history.length, 5);
-  assert.equal(loaded.history[0].role, 'system');
-  assert.equal(loaded.history[1].role, 'user');
-  assert.equal(loaded.history[4].content, 'Hoy es 2 de septiembre de 2026.');
+    assert.ok(loaded);
+    assert.equal(loaded.history.length, 5);
+    assert.equal(loaded.history[0].role, 'system');
+    assert.equal(loaded.history[1].role, 'user');
+    assert.equal(loaded.history[4].content, 'Hoy es 2 de septiembre de 2026.');
+  }
 });
