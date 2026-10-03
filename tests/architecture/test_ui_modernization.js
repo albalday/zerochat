@@ -112,3 +112,15 @@ test('UI Modernization - Estándar unificado de UI para textboxes y combos', () 
   const sidebarCss = fs.readFileSync(path.resolve(__dirname, '../../css/components/sidebar.css'), 'utf8');
   assert.ok(sidebarCss.includes('.sidebar-search-input:focus'), 'sidebar.css debe definir foco accesible en búsqueda de sidebar');
 });
+
+test('UI Modernization - El banner de importación y el resumen de razonamiento no usan emojis', () => {
+  const emoji = /\p{Extended_Pictographic}/u;
+  const markdownJs = fs.readFileSync(path.resolve(__dirname, '../../js/markdown.js'), 'utf8');
+  assert.equal(emoji.test(markdownJs), false, 'markdown.js no debe contener emojis (summary de razonamiento)');
+
+  const appJs = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
+  const banner = appJs.match(/banner\.innerHTML = `([\s\S]*?)`;/);
+  assert.ok(banner, 'app.js debe construir el banner de importación');
+  assert.equal(emoji.test(banner[1]), false, 'El banner de importación no debe contener emojis');
+  assert.ok(banner[1].includes("ChatIcons.get('download'"), 'El banner de importación debe usar ChatIcons');
+});

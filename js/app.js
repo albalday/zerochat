@@ -1720,7 +1720,7 @@
         `;
         banner.innerHTML = `
           <div style="text-align: center; max-width: 400px; padding: 40px;">
-            <div style="font-size: 64px; margin-bottom: 20px;">📥</div>
+            <div style="margin-bottom: 20px; color: var(--color-text-secondary);">${window.ChatIcons?.get ? window.ChatIcons.get('download', { size: 64, className: 'ui-icon' }) : ''}</div>
             <h2 style="margin: 0 0 10px 0; font-size: 24px;">Importando perfiles...</h2>
             <p style="color: var(--color-text-secondary); margin: 0;">Esperando datos cifrados desde la ventana de exportación</p>
           </div>

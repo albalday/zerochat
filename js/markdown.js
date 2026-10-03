@@ -184,8 +184,8 @@
     // Reglas horizontales (---, ***, ___)
     p = p.replace(/^[ \t]*(?:---|\*\*\*|___)[ \t]*$/gm, '<hr>');
 
-  const thoughtTitle = getI18n().uiText('md_thought_title', '💭 Proceso de razonamiento');
-  const thoughtReasoning = getI18n().uiText('md_thought_reasoning', '💭 Razonando...');
+  const thoughtTitle = getI18n().uiText('md_thought_title', 'Proceso de razonamiento');
+  const thoughtReasoning = getI18n().uiText('md_thought_reasoning', 'Razonando...');
 
     // 1. Bloques de pensamiento <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>
     p = p.replace(/&lt;(think|thought|reasoning)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, function (match, tag, thought) {
