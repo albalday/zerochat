@@ -44,7 +44,7 @@
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
     if (/^https?:\/\/[^\s"'<>]+/i.test(trimmed)) return escapeHtml(trimmed);
-    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\s.]+/i.test(trimmed)) return trimmed.replace(/\s+/g, '');
+    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\s.]+$/i.test(trimmed)) return trimmed.replace(/\s+/g, '');
     if (/^blob:[^\s"'<>]+/i.test(trimmed) || /^rag-image:\/\/[a-zA-Z0-9_\-:]+/i.test(trimmed)) return escapeHtml(trimmed);
     return '';
   }

@@ -1473,9 +1473,11 @@
     }
 
     if (params && typeof params === 'object') {
-      Object.keys(params).forEach(k => {
+      // Sustituto funcional: los valores se insertan literalmente, sin patrones `$&`, `$1`…
+      str = str.replace(/\{(\w+)\}/g, (match, k) => {
+        if (!Object.prototype.hasOwnProperty.call(params, k)) return match;
         const val = params[k];
-        str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), val !== undefined && val !== null ? val : '');
+        return val !== undefined && val !== null ? String(val) : '';
       });
     }
 

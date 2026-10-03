@@ -163,6 +163,24 @@ test('GenerationController - handleSendMessage rejects empty model configuration
   assert.ok(mockContent.innerHTML.includes('No hay ningún modelo seleccionado') || mockContent.innerHTML.includes('err_no_model_title'));
 });
 
+test('GenerationController - el aviso de modelo vacío escapa apiUrl', async () => {
+  const content = { innerHTML: '' };
+  await GenerationController.handleSendMessage({
+    elements: { userInput: { value: 'Hola' } },
+    api: { streamChatCompletion: () => {} },
+    getRuntimeConfig: () => ({ model: '', apiUrl: '<img src=x onerror="bad()">' }),
+    appendUserMessage: () => 'msg_usr_test',
+    createAssistantMessagePlaceholder: () => ({
+      wrapper: {}, row: { classList: { add() {} } }, content, actions: { style: {} },
+      btnCopy: {}, statsContainer: { style: {} }, msgId: 'msg_ast_test'
+    }),
+    finishGeneration: () => {}
+  });
+
+  assert.ok(!content.innerHTML.includes('<img'), 'apiUrl no debe interpretarse como HTML');
+  assert.ok(content.innerHTML.includes('&lt;img src=x onerror=&quot;bad()&quot;&gt;'));
+});
+
 test('GenerationController - loopDetected sets agent.loopWarning, reports error status and stops cleanly', async t => {
   const State = require('../../js/state.js');
   const store = State.createStore();

@@ -23,6 +23,15 @@ test('I18n - Reemplazo dinámico de parámetros en t()', () => {
   assert.match(msg, /0\.85/);
 });
 
+test('I18n - t() inserta los valores literalmente, sin patrones especiales de replace', () => {
+  const t = I18n.t;
+  const template = t('field_temperature');
+  const value = 'precio $& y $` fin $1 $$';
+  assert.equal(t('field_temperature', { val: value }), template.replace('{val}', () => value));
+  assert.equal(t('field_temperature', { val: 0 }), template.replace('{val}', '0'));
+  assert.equal(t('field_temperature', { other: 'x' }), template);
+});
+
 test('I18n - uiText centraliza textos visibles con fallback local', () => {
   assert.equal(I18n.uiText('rag_modal_title'), I18n.t('rag_modal_title'));
   assert.equal(I18n.uiText('__missing_ui_key__', 'Fallback visible'), 'Fallback visible');

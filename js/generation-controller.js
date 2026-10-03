@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, escapeHtml } = Utils;
 
   function getState() { return resolveDep('ChatState', './state.js'); }
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
@@ -233,7 +233,7 @@
             <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
             <div>
               <strong>${t('err_no_model_title')}</strong>
-              <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: runtimeConfig.apiUrl })}</p>
+              <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: escapeHtml(runtimeConfig.apiUrl) })}</p>
             </div>
           </div>
         `;
