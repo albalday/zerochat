@@ -8,7 +8,7 @@ estabilidad, la coherencia arquitectónica y la capacidad de evolución de ZeroC
 Debe ejecutarse y documentarse antes de cualquier incremento de versión mayor
 (`X.0.0`). También puede solicitarse explícitamente con la instrucción:
 
-> Ejecuta la auditoría completa definida en `docs/AuditFull.md`.
+> Ejecuta la auditoría completa definida en `docs/audits/AuditFull.md`.
 
 No sustituye las validaciones ordinarias de un cambio. Su objetivo es revisar el
 proyecto completo y producir un plan de corrección verificable; no autoriza por
@@ -40,9 +40,10 @@ Buscar y confirmar con referencias estáticas y dinámicas:
 - adaptadores o herramientas no registrados;
 - listeners, temporizadores, workers o recursos que no se limpien.
 
-Una referencia dinámica, una API pública o una carga desde `index.html` impide
+Una referencia dinámica, una API pública o una carga desde `zerochat.html` impide
 considerar un elemento como muerto hasta demostrar lo contrario. Cada eliminación
-debe incluir búsqueda global, prueba pertinente y regeneración del bundle.
+debe incluir búsqueda global y prueba pertinente, y regenerar `zerochat.py`
+(`npm run build:backend`) si afecta a `py/`.
 
 ### Duplicación
 
@@ -116,6 +117,7 @@ npm run test:browser
 npm run build
 ```
 
-Confirmar que `zerochat.html` está actualizado, que no hay cambios inesperados y
+Confirmar que los archivos generados (`zerochat.py`, `py/dd-managed-services.py` y
+`js/vendor/orama.browser.js`) están sincronizados, que no hay cambios inesperados y
 que el informe refleja el estado final. La promoción a `master` sigue las reglas
 de `AGENTS.md` y requiere el incremento de versión validado previamente en `dev`.

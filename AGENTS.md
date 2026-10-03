@@ -52,7 +52,7 @@ permanecer en su módulo correspondiente.
 
 El estado compartido, persistente o necesario para coordinar subsistemas debe pasar
 por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messages`,
-`streaming`, `agent`, `telemetry`, `ui`, `toolSecurity`). Está prohibido usar variables globales de
+`streaming`, `agent`, `telemetry`, `ui`, `mcp`, `toolSecurity`). Está prohibido usar variables globales de
 módulo que provoquen fugas de estado entre conversaciones.
 
 El mantenimiento y las modificaciones de `ChatState` deben realizarse exclusivamente
