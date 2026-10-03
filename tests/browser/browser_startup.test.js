@@ -227,6 +227,10 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
 
     assert.equal(stateEn.href, 'file://' + path.resolve(__dirname, '../../help/en/index.html'));
     assert.match(stateEn.text, /Help & Documentation/);
+
+    assert.equal(await page.$eval('#welcome-version', el => el.textContent.trim()), `(v${version})`);
+    assert.ok(stateEs.text.includes(`(v${version})`), 'El enlace de ayuda debe mostrar la versión en español');
+    assert.ok(stateEn.text.includes(`(v${version})`), 'El enlace de ayuda debe mostrar la versión en inglés');
   } finally {
     await browser.close();
   }

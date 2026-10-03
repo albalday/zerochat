@@ -114,6 +114,7 @@ const htmlPath = path.join(ROOT_DIR, 'zerochat.html');
 if (fs.existsSync(htmlPath)) {
   let htmlContent = fs.readFileSync(htmlPath, 'utf8');
   htmlContent = htmlContent.replace(/<title>ZeroChat\s+v[0-9]+\.[0-9]+\.[0-9]+[^<]*<\/title>/i, `<title>ZeroChat v${newVersion}</title>`);
+  htmlContent = htmlContent.replace(/(<span id="welcome-version"[^>]*>)\(v[^)<]*\)(<\/span>)/, `$1(v${newVersion})$2`);
   fs.writeFileSync(htmlPath, htmlContent, 'utf8');
   console.log(`✔ zerochat.html actualizado a ZeroChat v${newVersion}`);
 }

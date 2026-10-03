@@ -20,6 +20,9 @@ test('bump-version: los parches web no cambian PyPI y minor actualiza ambos', ()
     execFileSync('node', ['scripts/bump-version.mjs', 'patch'], { cwd: fixture });
     assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, `${major}.${minor}.${patch + 1}`);
     assert.equal(fs.readFileSync(path.join(fixture, 'pyproject.toml'), 'utf8'), initialPyproject);
+    const patchedHtml = fs.readFileSync(path.join(fixture, 'zerochat.html'), 'utf8');
+    assert.match(patchedHtml, new RegExp(`<title>ZeroChat v${major}\\.${minor}\\.${patch + 1}</title>`));
+    assert.match(patchedHtml, new RegExp(`<span id="welcome-version"[^>]*>\\(v${major}\\.${minor}\\.${patch + 1}\\)</span>`));
 
     execFileSync('node', ['scripts/bump-version.mjs', 'minor'], { cwd: fixture });
     assert.equal(JSON.parse(fs.readFileSync(path.join(fixture, 'package.json'), 'utf8')).version, `${major}.${minor + 1}.0`);
