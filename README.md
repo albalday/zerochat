@@ -61,9 +61,9 @@ Deleting `~/zerochat/` removes that state and managed MCP services, not the exec
 - [Ayuda de ZeroChat 8.x — Español](https://albalday.github.io/zerochat/help/index.html)
 - [ZeroChat 8.x help — English](https://albalday.github.io/zerochat/help/en/index.html)
 
-Las guías explican configuración, uso y límites. Los informes conservan su versión y fecha de revisión originales; no son una certificación de 8.x ni una promesa de nuevas funcionalidades.
+Las guías explican configuración, uso y límites.
 
-*English:* The guides explain setup, usage and limits. Reports retain their original reviewed version and date; they are not an 8.x certification or a promise of new features.
+*English:* The guides explain setup, usage and limits.
 
 ## Desarrollo / Development
 
