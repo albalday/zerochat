@@ -91,7 +91,7 @@
     if (!text) return false;
     let ok = false;
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* se prueba el siguiente método de copia */ }
     }
     if (!ok && typeof document !== 'undefined' && document.body) {
       const textarea = document.createElement('textarea');
@@ -101,7 +101,7 @@
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
-      try { ok = document.execCommand('copy'); } catch (e) {}
+      try { ok = document.execCommand('copy'); } catch (e) { /* execCommand no disponible: se informa del fallo con ok = false */ }
       textarea.remove();
     }
     if (btnElement && ok) {
@@ -252,7 +252,7 @@
           let availability = { available: false };
           try {
             availability = await client?.request?.('tools/availability', { name: 'browser_action' }) || availability;
-          } catch (error) {}
+          } catch (error) { /* sin respuesta del servidor: se considera no disponible */ }
           if (!availability.available) {
             cb.checked = false;
             await getDialogs()?.alert?.(t('browser_action_requirements_notice'), { type: 'info' });
@@ -296,7 +296,7 @@
         try {
           const endpoint = new URL(remote.url);
           remoteEndpoint = endpoint.protocol === 'https:' ? endpoint.host : '';
-        } catch (_) {}
+        } catch (_) { /* URL remota inválida: no se muestra el endpoint */ }
       }
       const remoteHtml = remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(translator('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : '';
       const err = server.error ? `
@@ -456,7 +456,7 @@
           const oauthUrl = serverData?.oauthUrl || null;
           if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined') {
             didAutoOpenOAuth = true;
-            try { window.open(oauthUrl, '_blank'); } catch (_) {}
+            try { window.open(oauthUrl, '_blank'); } catch (_) { /* ventana emergente bloqueada: el enlace OAuth sigue visible en el panel */ }
           }
           updateExternalServerState(sid, {
             status,
