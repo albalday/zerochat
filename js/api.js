@@ -508,9 +508,9 @@
     // interpretan como llamadas si el proveedor no devolvió llamadas nativas.
     const parsesTextToolCalls = Boolean(TextToolCalls) && toolsList.length > 0;
     let textToolCalls = null;
+    let lastVisibleText = '';
 
     function emitText(piece) {
-      const previousVisible = parsesTextToolCalls ? TextToolCalls.visibleText(accumulatedText) : accumulatedText;
       accumulatedText += piece;
       chunkCount++;
       if (!onChunk) return;
@@ -518,9 +518,10 @@
         onChunk(accumulatedText, piece, getStats());
         return;
       }
-      const visible = TextToolCalls.visibleText(accumulatedText);
-      if (visible === previousVisible) return;
-      onChunk(visible, visible.startsWith(previousVisible) ? visible.slice(previousVisible.length) : visible, getStats());
+      const previousVisible = lastVisibleText;
+      lastVisibleText = TextToolCalls.visibleText(accumulatedText);
+      if (lastVisibleText === previousVisible) return;
+      onChunk(lastVisibleText, lastVisibleText.startsWith(previousVisible) ? lastVisibleText.slice(previousVisible.length) : lastVisibleText, getStats());
     }
 
     function getFinalToolCalls() {
@@ -544,6 +545,13 @@
             function: { ...call.function, name: normalizeToolName(call.function.name) || call.function.name }
           }));
           if (onLog) onLog({ type: 'info', text: `Llamadas a herramientas extraídas del texto: ${textToolCalls.map(call => call.function.name).join(', ')}` });
+        } else {
+          // Igual que durante el streaming: un bloque <tool_call> inválido o sin cerrar no se muestra.
+          const visible = TextToolCalls.visibleText(accumulatedText).trim();
+          if (visible !== accumulatedText.trim() && onLog) {
+            onLog({ type: 'warning', text: 'Bloque <tool_call> no válido descartado de la respuesta.' });
+          }
+          accumulatedText = visible;
         }
         return textToolCalls;
       }
@@ -808,7 +816,6 @@
         console.log('Petición cancelada por el usuario.');
         const finalStats = getStats();
         const finalToolCalls = getFinalToolCalls();
-        if (parsesTextToolCalls && !finalToolCalls) accumulatedText = TextToolCalls.visibleText(accumulatedText);
         if (onDone) await onDone(accumulatedText || '(Generación detenida)', finalStats, finalToolCalls);
         return;
       }

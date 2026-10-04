@@ -98,13 +98,10 @@
   function sortWebLLMModels(models) {
     if (!Array.isArray(models)) return [];
     const completed = new Set(getWebLLMCompletedModelIds());
-    return [...models].sort((a, b) => {
-      const aId = typeof a === 'string' ? a : (a?.id || a?.name || '');
-      const bId = typeof b === 'string' ? b : (b?.id || b?.name || '');
-      const aCached = (a?.details?.webllmCache === 'cached' || completed.has(aId)) ? 1 : 0;
-      const bCached = (b?.details?.webllmCache === 'cached' || completed.has(bId)) ? 1 : 0;
-      return (bCached - aCached) || (Number(b?.details?.webllmToolsRecommended === true) - Number(a?.details?.webllmToolsRecommended === true));
-    });
+    const isCached = model => model?.details?.webllmCache === 'cached'
+      || completed.has(typeof model === 'string' ? model : (model?.id || model?.name || ''));
+    const WebLLM = (typeof globalThis !== 'undefined' && globalThis.ChatWebLLM) || resolveDep('ChatWebLLM', './providers-webllm.js');
+    return [...models].sort((a, b) => WebLLM.compareCatalogModels(a, b, isCached));
   }
 
   function loadCachedModels(elements, appConfig) {

@@ -31,6 +31,12 @@
     return TOOLS_RECOMMENDED_MODEL_PATTERN.test(String(modelId || ''));
   }
 
+  // Orden del catálogo: modelos descargados primero y, dentro de cada grupo, los recomendados para herramientas.
+  function compareCatalogModels(a, b, isCached = model => model?.details?.webllmCache === 'cached') {
+    const cachedOrder = Number(isCached(b)) - Number(isCached(a));
+    return cachedOrder || (Number(b?.details?.webllmToolsRecommended === true) - Number(a?.details?.webllmToolsRecommended === true));
+  }
+
   function getAppConfig(webllm) {
     const base = webllm.prebuiltAppConfig;
     if (!base || !Array.isArray(base.model_list)) throw new Error('WebLLM did not provide a valid model catalog.');
@@ -143,7 +149,8 @@
   }
 
   function gpuLossError(error) {
-    return new Error('The WebGPU device was lost during local inference, usually because the GPU ran out of memory. Reduce the context window in the WebLLM profile settings or choose a smaller model.', { cause: error });
+    const I18n = (typeof globalThis !== 'undefined' && globalThis.ChatI18n) || (typeof require !== 'undefined' ? require('./i18n.js') : null);
+    return new Error(I18n?.t?.('webllm_gpu_lost') || 'The WebGPU device was lost during local inference.', { cause: error });
   }
 
   function extractOverrides(config) {
@@ -345,11 +352,7 @@
         }
       };
     }));
-    models.sort((a, b) => {
-      const aCached = a?.details?.webllmCache === 'cached' ? 1 : 0;
-      const bCached = b?.details?.webllmCache === 'cached' ? 1 : 0;
-      return (bCached - aCached) || (Number(b?.details?.webllmToolsRecommended === true) - Number(a?.details?.webllmToolsRecommended === true));
-    });
+    models.sort((a, b) => compareCatalogModels(a, b));
     return { success: true, models, count: models.length, endpoint: 'webllm://local' };
   }
 
@@ -430,7 +433,9 @@
       const finishStream = () => signal?.removeEventListener('abort', interrupt);
       const recover = async error => {
         if (!isGpuLossError(error)) return error;
-        await this.engines.dispose(payload.model).catch(() => {});
+        await this.engines.dispose(payload.model).catch(disposeError => {
+          console.warn('[WebLLM] Could not release the engine after losing the GPU:', disposeError);
+        });
         return gpuLossError(error);
       };
       try {
@@ -494,7 +499,7 @@
     WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,
     isToolsRecommendedModel,
-    isGpuLossError,
+    compareCatalogModels,
     WebLLMEngineManager,
     WebLLMProviderAdapter,
     adapter,

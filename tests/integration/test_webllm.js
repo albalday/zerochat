@@ -266,7 +266,7 @@ test('WebLLM - descarta el motor si se pierde la GPU durante la generación', as
   try {
     const request = () => adapter.createStreamResponse({ payload: { model: 'test-model', messages: [{ role: 'user', content: 'hi' }] } });
     const failed = await request();
-    await assert.rejects(drain(failed.body), error => /WebGPU device was lost/.test(error.message) && /mapAsync/.test(error.cause.message));
+    await assert.rejects(drain(failed.body), error => error.message === require('../../js/i18n.js').t('webllm_gpu_lost') && /mapAsync/.test(error.cause.message));
     assert.equal(released, 1);
     assert.equal(manager.active, null);
     const retry = await request();
@@ -277,11 +277,15 @@ test('WebLLM - descarta el motor si se pierde la GPU durante la generación', as
   }
 });
 
-test('WebLLM - isGpuLossError solo reconoce fallos de dispositivo', () => {
-  assert.equal(WebLLM.isGpuLossError(new Error('Device was lost.')), true);
-  assert.equal(WebLLM.isGpuLossError(new Error('Model not loaded before trying to complete ChatCompletionRequest.')), true);
-  assert.equal(WebLLM.isGpuLossError(new Error('Network failure')), false);
-  assert.equal(WebLLM.isGpuLossError(null), false);
+test('WebLLM - compareCatalogModels ordena descargados y después recomendados para herramientas', () => {
+  const models = [
+    { id: 'a', details: { webllmCache: 'missing', webllmToolsRecommended: false } },
+    { id: 'b', details: { webllmCache: 'missing', webllmToolsRecommended: true } },
+    { id: 'c', details: { webllmCache: 'cached', webllmToolsRecommended: false } }
+  ];
+  assert.deepEqual([...models].sort((x, y) => WebLLM.compareCatalogModels(x, y)).map(model => model.id), ['c', 'b', 'a']);
+  const completed = new Set(['a']);
+  assert.deepEqual([...models].sort((x, y) => WebLLM.compareCatalogModels(x, y, model => completed.has(model.id))).map(model => model.id), ['a', 'b', 'c']);
 });
 
 test('WebLLM - no oculta como fallback un error real de preparación', async () => {

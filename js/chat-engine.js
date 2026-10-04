@@ -233,20 +233,20 @@
       ? Boolean(options.enableTools)
       : Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false));
 
-    // Consultar si el modelo soporta llamadas a herramientas nativas
+    // Consultar si el adaptador envía las firmas de herramientas (nativas o como <tool_call> en texto)
     const API = getAPI();
-    let isNativeToolsSupported = true;
+    let providerReceivesToolSignatures = true;
     if (API && API.getProviderCapabilities) {
       const caps = API.getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);
       // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
-      isNativeToolsSupported = caps ? (caps.tools !== false || caps.textTools === true) : true;
+      providerReceivesToolSignatures = caps ? (caps.tools !== false || caps.textTools === true) : true;
     }
 
     // 2. Instrucción de flujo para herramientas (estable)
     const lang = appConfig.language || 'es';
     let toolsGuide = '';
     if (isToolsEnabled) {
-      if (!isNativeToolsSupported || options.forceSystemPromptGuide) {
+      if (!providerReceivesToolSignatures || options.forceSystemPromptGuide) {
         toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
       } else {
         const isCheckpointActive = !!(appConfig?.enabledTools?.agent_checkpoint);

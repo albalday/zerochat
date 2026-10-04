@@ -293,6 +293,34 @@ test('ChatAPI - streamChatCompletion interpreta <tool_call> en texto sin mostrar
   }
 });
 
+test('ChatAPI - streamChatCompletion descarta al terminar un <tool_call> inválido igual que en el streaming', async () => {
+  const originalFetch = global.fetch;
+  const pieces = ['Respuesta. ', '<tool_call>\n{"name": "search_web", "arguments": '];
+  const sseData = pieces.map(content => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`).join('') + 'data: [DONE]\n\n';
+  const encoder = new TextEncoder();
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sseData)); controller.close(); } })
+  });
+  const logs = [];
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1',
+      apiType: 'openai',
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }],
+      tools: [{ type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } }],
+      onLog: entry => logs.push(entry)
+    });
+    assert.equal(res.toolCalls, null);
+    assert.equal(res.accumulatedText, 'Respuesta.');
+    assert.ok(logs.some(entry => entry.type === 'warning' && entry.text.includes('<tool_call>')));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('ChatAPI - streamChatCompletion no interpreta <tool_call> si la petición no lleva herramientas', async () => {
   const originalFetch = global.fetch;
   const content = 'Ejemplo: <tool_call>{"name": "search_web", "arguments": {}}</tool_call>';

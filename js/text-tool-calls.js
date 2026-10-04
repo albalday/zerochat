@@ -171,5 +171,5 @@
     return visible;
   }
 
-  return { OPEN_TAG, CLOSE_TAG, buildToolsPrompt, toTextMessages, prepareMessages, extractToolCalls, visibleText };
+  return { toTextMessages, prepareMessages, extractToolCalls, visibleText };
 });
