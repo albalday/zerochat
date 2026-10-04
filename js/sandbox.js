@@ -89,7 +89,7 @@
                 configurable: false
               });
             } catch (err) {
-              try { currentProto[name] = undefined; } catch (_) {}
+              try { currentProto[name] = undefined; } catch (_) { /* propiedad no anulable: la API queda como esté */ }
             }
           });
           currentProto = Object.getPrototypeOf(currentProto);
@@ -102,7 +102,7 @@
         if (typeof WorkerGlobalScope !== 'undefined') {
           delete WorkerGlobalScope.prototype.importScripts;
         }
-      } catch (_) {}
+      } catch (_) { /* importScripts puede no ser eliminable en este entorno */ }
 
       const paramNames = ['console', ...blockedGlobals];
       const paramValues = [customConsole, ...blockedGlobals.map(() => undefined)];
@@ -135,7 +135,7 @@
         };
         rawResult = runner.apply(null, paramValues);
       } finally {
-        try { Function.prototype.constructor = origFunctionConstructor; } catch (_) {}
+        try { Function.prototype.constructor = origFunctionConstructor; } catch (_) { /* restauración del constructor: mejor esfuerzo */ }
       }
 
       Promise.resolve(rawResult).then(function(resolvedResult) {
@@ -191,13 +191,13 @@
         if (worker) {
           try {
             worker.terminate();
-          } catch (e) {}
+          } catch (e) { /* limpieza: el recurso puede estar ya liberado */ }
           worker = null;
         }
         if (workerUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
           try {
             URL.revokeObjectURL(workerUrl);
-          } catch (e) {}
+          } catch (e) { /* limpieza: el recurso puede estar ya liberado */ }
           workerUrl = null;
         }
       }
@@ -539,8 +539,8 @@
 
             activeWorker.onmessage = function(wEvt) {
               window.parent.postMessage(wEvt.data, '*');
-              if (activeWorker) { try { activeWorker.terminate(); } catch(_) {} activeWorker = null; }
-              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch(_) {} workerUrl = null; }
+              if (activeWorker) { try { activeWorker.terminate(); } catch (_) { /* limpieza: el recurso puede estar ya liberado */ } activeWorker = null; }
+              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch (_) { /* limpieza: el recurso puede estar ya liberado */ } workerUrl = null; }
             };
 
             activeWorker.onerror = function(wErr) {
@@ -551,8 +551,8 @@
                 logs: [],
                 error: (wErr && wErr.message) || String(wErr)
               }, '*');
-              if (activeWorker) { try { activeWorker.terminate(); } catch(_) {} activeWorker = null; }
-              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch(_) {} workerUrl = null; }
+              if (activeWorker) { try { activeWorker.terminate(); } catch (_) { /* limpieza: el recurso puede estar ya liberado */ } activeWorker = null; }
+              if (workerUrl) { try { URL.revokeObjectURL(workerUrl); } catch (_) { /* limpieza: el recurso puede estar ya liberado */ } workerUrl = null; }
             };
 
             activeWorker.postMessage(payload);
@@ -578,7 +578,7 @@
           onMessage = null;
         }
         if (iframe) {
-          try { iframe.remove(); } catch (_) {}
+          try { iframe.remove(); } catch (_) { /* limpieza: el recurso puede estar ya liberado */ }
           iframe = null;
         }
       }
