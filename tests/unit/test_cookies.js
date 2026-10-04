@@ -89,3 +89,27 @@ test('Storage - el borrado completo solo elimina claves y cookies propias de Zer
     }
   }
 });
+
+test('Storage - avisa si localStorage rechaza la escritura y conserva el valor en memoria', (t) => {
+  const modulePath = require.resolve('../../js/cookies.js');
+  const originalLocalStorage = global.localStorage;
+  global.localStorage = {
+    setItem: key => { if (key !== '__zerochat_test__') throw new Error('QuotaExceededError'); },
+    removeItem: () => {},
+    getItem: () => null
+  };
+  delete require.cache[modulePath];
+  t.mock.method(console, 'warn', () => {});
+  try {
+    const FreshStorage = require('../../js/cookies.js');
+    FreshStorage.setStorageItem('quota_key', 'value');
+
+    assert.equal(console.warn.mock.callCount(), 1);
+    assert.match(String(console.warn.mock.calls[0].arguments[0]), /quota_key/);
+    assert.equal(FreshStorage.getStorageItem('quota_key'), 'value');
+  } finally {
+    if (originalLocalStorage === undefined) delete global.localStorage;
+    else global.localStorage = originalLocalStorage;
+    delete require.cache[modulePath];
+  }
+});

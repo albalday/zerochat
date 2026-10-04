@@ -50,7 +50,9 @@
     if (hasLocalStorage) {
       try {
         localStorage.setItem(key, String(strVal));
-      } catch (e) {}
+      } catch (e) {
+        console.warn(`[ChatStorage] Could not save ${name} in localStorage:`, e);
+      }
     }
 
     if (typeof document !== 'undefined' && location.protocol !== 'file:') {
@@ -59,7 +61,7 @@
         d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
         const expires = 'expires=' + d.toUTCString();
         document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(strVal)};${expires};path=/;SameSite=Lax`;
-      } catch (e) {}
+      } catch (e) { /* respaldo secundario: la cookie es opcional */ }
     }
 
     memoryStorage.set(key, String(strVal));
@@ -72,7 +74,7 @@
       try {
         const item = localStorage.getItem(key);
         if (item !== null) return item;
-      } catch (e) {}
+      } catch (e) { /* se prueba la siguiente capa de almacenamiento */ }
     }
 
     if (typeof document !== 'undefined' && location.protocol !== 'file:') {
@@ -86,7 +88,7 @@
             return decodeURIComponent(c.substring(nameEQ.length, c.length));
           }
         }
-      } catch (e) {}
+      } catch (e) { /* se prueba la siguiente capa de almacenamiento */ }
     }
 
     if (memoryStorage.has(key)) {
@@ -101,12 +103,12 @@
     if (hasLocalStorage) {
       try {
         localStorage.removeItem(key);
-      } catch (e) {}
+      } catch (e) { /* el elemento puede no existir o el almacenamiento estar bloqueado */ }
     }
     if (typeof document !== 'undefined' && location.protocol !== 'file:') {
       try {
         document.cookie = `${encodeURIComponent(key)}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
-      } catch (e) {}
+      } catch (e) { /* respaldo secundario: la cookie es opcional */ }
     }
     memoryStorage.delete(key);
   }
@@ -233,7 +235,7 @@
           const eqPos = cookie.indexOf('=');
           const name = eqPos > -1 ? cookie.slice(0, eqPos).trim() : cookie.trim();
           let decodedName = name;
-          try { decodedName = decodeURIComponent(name); } catch (_) {}
+          try { decodedName = decodeURIComponent(name); } catch (_) { /* nombre no codificado: se usa tal cual */ }
           if (name && isOwnedStorageKey(decodedName)) {
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=;SameSite=Lax`;
