@@ -27,6 +27,7 @@
     <div class="card">
       <h2>1. How the agent works</h2>
       <p>With a model that supports tools, ZeroChat can alternate model requests and executions: the model requests a tool, receives its result and decides the next step. A tool may run in the browser, on the local server or in an MCP service.</p>
+      <p>When the provider has no native tool calling, as with WebLLM, tools are described in the prompt and the model requests them with <code>&lt;tool_call&gt;</code> blocks in its text. ZeroChat also interprets those blocks when a provider returns them as text instead of native calls.</p>
       <p>Enable the tools you need in Settings and review their permissions. The agent turn limit is configurable from 5 to 200 and defaults to 40. It limits iterations, without guaranteeing completion or setting a maximum cost. You can stop generation; completed actions are not undone.</p>
       <p>In <strong>Settings → Agent</strong>, the turn limit appears in an open section and each tool uses a soft background without nested frames. Descriptions adapt to the available width and each switch stays beside its tool.</p>
     </div>

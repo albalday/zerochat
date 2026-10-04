@@ -101,6 +101,12 @@
     </div>
 
     <div class="card">
+      <h2>Herramientas con WebLLM</h2>
+      <p>WebLLM no ofrece llamadas a herramientas nativas para la mayoría de modelos. ZeroChat describe las herramientas activas en el prompt de sistema y el modelo las solicita escribiendo un bloque <code>&lt;tool_call&gt;{"name": ..., "arguments": {...}}&lt;/tool_call&gt;</code>. ZeroChat oculta ese bloque, ejecuta la herramienta y devuelve el resultado en <code>&lt;tool_response&gt;</code>.</p>
+      <p>El catálogo marca como <strong>Recomendado para herramientas</strong> los modelos entrenados con este formato y con tamaño suficiente para encadenar pasos: Qwen3 4B/8B, Qwen3.5 4B/9B, Hermes 3 (Llama 3.1 8B) y Hermes 2 Pro. Los modelos menores pueden intentarlo, pero suelen equivocarse en los argumentos o no concluir. Las definiciones de herramientas ocupan contexto: activa solo las necesarias.</p>
+    </div>
+
+    <div class="card">
       <h2>Parámetros de rendimiento</h2>
       <p>El engranaje del perfil WebLLM permite ajustar <code>context_window_size</code> (ventana de contexto) y <code>prefill_chunk_size</code> (bloque de procesamiento del prompt).</p>
       <p>La ventana de contexto admite 16K, 32K, 64K (predeterminada) y 128K. En el prefill, <strong>Por defecto del modelo</strong> conserva su configuración. Aumentar el contexto consume más memoria. Cambiar el prefill puede afectar velocidad y memoria, sin asegurar una mejora. Si falla la preparación, vuelve a los valores predeterminados o prueba un modelo menor.</p>
@@ -123,7 +129,7 @@
       <li><strong>Falta de memoria:</strong> cierra otras cargas de GPU, reduce contexto o selecciona un modelo menor.</li>
       <li><strong>Error de descarga o preparación:</strong> lee el error completo de la fila del modelo, comprueba red y espacio y vuelve a intentarlo.</li>
       <li><strong>Caché ausente:</strong> la navegación privada, la limpieza del sitio o las cuotas del navegador pueden eliminar recursos. La caché no es una copia permanente garantizada.</li></ul>
-      <p>La compatibilidad debe comprobarse en el dispositivo concreto. Un modelo puede conversar y aun así no admitir visión, herramientas o los ajustes de razonamiento de otro proveedor.</p>
+      <p>La compatibilidad debe comprobarse en el dispositivo concreto. Un modelo puede conversar y aun así no admitir visión ni los ajustes de razonamiento de otro proveedor, o usar mal las herramientas.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">

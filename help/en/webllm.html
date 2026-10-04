@@ -101,6 +101,12 @@
     </div>
 
     <div class="card">
+      <h2>Tools with WebLLM</h2>
+      <p>WebLLM offers no native tool calling for most models. ZeroChat describes the enabled tools in the system prompt and the model requests them by writing a <code>&lt;tool_call&gt;{"name": ..., "arguments": {...}}&lt;/tool_call&gt;</code> block. ZeroChat hides that block, runs the tool and returns the result inside <code>&lt;tool_response&gt;</code>.</p>
+      <p>The catalogue labels as <strong>Recommended for tools</strong> the models trained on this format and large enough to chain steps: Qwen3 4B/8B, Qwen3.5 4B/9B, Hermes 3 (Llama 3.1 8B) and Hermes 2 Pro. Smaller models may try, but they often get arguments wrong or fail to conclude. Tool definitions consume context: enable only the ones you need.</p>
+    </div>
+
+    <div class="card">
       <h2>Performance parameters</h2>
       <p>The WebLLM profile gear control lets you adjust <code>context_window_size</code> and <code>prefill_chunk_size</code> (the prompt processing block size).</p>
       <p>The context window accepts 16K, 32K, 64K (default) and 128K. For prefill, <strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
@@ -123,7 +129,7 @@
       <li><strong>Out of memory:</strong> close other GPU workloads, reduce context or choose a smaller model.</li>
       <li><strong>Download or preparation error:</strong> read the complete error in the model row, check network and space, and retry.</li>
       <li><strong>Missing cache:</strong> private browsing, site cleanup or browser quotas may remove resources. Cache is not guaranteed permanent storage.</li></ul>
-      <p>Compatibility must be checked on the actual device. A model may support chat without supporting vision, tools or another provider's reasoning settings.</p>
+      <p>Compatibility must be checked on the actual device. A model may support chat without supporting vision or another provider's reasoning settings, or may use tools poorly.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
