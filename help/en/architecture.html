@@ -40,7 +40,7 @@
       <p><a href="index.html#servidor-local">Install and start the local server →</a> · <a href="mcp.html">Configure tools and MCP →</a></p>
       <p>If supported, install the web app as a PWA from your browser's options. Cached resources do not guarantee that every feature works offline.</p>
       <div class="alert alert-info" style="margin-top:1rem;">
-        <strong>Tested environments:</strong> Linux (x86_64 and ARM), Windows 10/11 (PowerShell and <code>py -m zerochat</code> launcher), and Android (Termux with the <code>python</code> package).
+        <strong>Tested environments:</strong> Linux (x86_64 and ARM), Windows 10/11 (PowerShell and <code>py -m zerochat</code> launcher), and Android (Termux with the <code>python</code> package). Playwright cannot currently be used on Termux, so <code>browser_action</code> and Playwright MCP are not available.
       </div>
       <div class="alert alert-warning">
         <strong>Browser compatibility:</strong> ZeroChat <strong>is not compatible with Safari</strong> due to Private Network Access limitations and web storage policies. On <strong>macOS, Google Chrome</strong> (or Chromium-based browsers) must be used.
@@ -87,7 +87,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
           <div class="feature-title">1. Infrastructure and code</div>
-          <div class="feature-desc">Tests, AGENTS.md contracts, backend security, accepted risks and open findings.</div>
+          <div class="feature-desc">Tests, AGENTS.md contracts, backend security, accepted risks and findings, with H-01 to H-03 fixed in 8.12.5.</div>
           <div class="feature-link">View infrastructure audit →</div>
         </a>
         <a href="audit-functionalities.html" class="feature-card">

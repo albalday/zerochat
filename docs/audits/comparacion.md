@@ -52,7 +52,7 @@ Los datos de ZeroChat se han comprobado en su código. Los datos de las demás h
 * **Despliegue**: ambos son servidores con base de datos pensados para dar servicio a varios usuarios. ZeroChat no necesita servidor para chatear: la interfaz es estática y el backend local solo hace falta para MCP, comandos y navegador automatizado.
 * **Persistencia**: en ZeroChat las conversaciones viven en el IndexedDB del navegador y la configuración del backend en `~/zerochat/`. No hay servidor intermedio de ZeroChat que guarde historiales. Los mensajes sí llegan al proveedor remoto elegido.
 * **Dónde ganan**: multiusuario, permisos por rol, RAG vectorial, voz integrada y administración centralizada.
-* **Dónde gana ZeroChat**: arranque sin Docker ni privilegios de administrador, funcionamiento en Android con Termux y transparencia de la petición enviada.
+* **Dónde gana ZeroChat**: arranque sin Docker ni privilegios de administrador, funcionamiento en Android con Termux (sin automatización de navegador: Playwright no se puede usar actualmente en Termux) y transparencia de la petición enviada.
 
 ### 3.2. Frente a Chatbox y Jan
 * **Runtime**: Chatbox y Jan son aplicaciones de escritorio con su propio runtime. ZeroChat usa el navegador ya instalado (también como PWA).
@@ -72,7 +72,7 @@ Los datos de ZeroChat se han comprobado en su código. Los datos de las demás h
 2. **`<tool_call>` en texto**: permite experimentar con herramientas en modelos de WebLLM sin tool calling nativo. Es una función reciente (4 de octubre de 2026).
 3. **Contexto visible**: tokens de entrada, salida y caché; aviso al 60 %, estado crítico al 85 % y compactación automática al 70 % del presupuesto.
 4. **Razonamiento separado**: el bloque de razonamiento se muestra aparte de la respuesta durante el streaming.
-5. **Portabilidad**: Linux, Windows, macOS (con Chrome) y Android (Termux), sin Docker.
+5. **Portabilidad**: Linux, Windows, macOS (con Chrome) y Android (Termux), sin Docker. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles.
 
 ---
 

@@ -58,7 +58,7 @@ ZeroChat expone buena parte de lo que los clientes comerciales ocultan: la petic
 
 ### Afirmaciones de la ayuda comprobadas
 1. `help/rag.html` indica que la búsqueda es léxica, sin embeddings ni índice vectorial, y que puede no encontrar sinónimos o traducciones. Coincide con el código.
-2. `help/architecture.html` declara la incompatibilidad con Safari (restricciones de Private Network Access y almacenamiento) y que en macOS hay que usar Google Chrome. Los entornos documentados son Linux (x86_64 y ARM), Windows 10/11 y Android con Termux.
+2. `help/architecture.html` declara la incompatibilidad con Safari (restricciones de Private Network Access y almacenamiento) y que en macOS hay que usar Google Chrome. Los entornos documentados son Linux (x86_64 y ARM), Windows 10/11 y Android con Termux. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles en Android.
 3. `help/tools-agent.html` describe Jina Reader, la conexión directa y el proxy AllOrigins como estrategias de las herramientas web, y DuckDuckGo como buscador.
 4. `help/reasoning-telemetry.html` describe la compactación al 70 % y el aviso «Compactando contexto» en el chat.
 5. `help/learning.html` presenta ZeroChat como proyecto personal de aprendizaje sobre clientes de IA y ejecución agéntica.
@@ -99,7 +99,8 @@ ZeroChat expone buena parte de lo que los clientes comerciales ocultan: la petic
 3. **Origen compartido**: la interfaz se sirve desde `albalday.github.io`, origen compartido con otras páginas del autor (riesgo aceptado en `AGENTS.md` §4).
 4. **RAG léxico**: sin búsqueda semántica ni traducción entre idiomas.
 5. **Navegadores**: Chromium y Firefox funcionan; Safari/WebKit no está soportado. WebLLM requiere WebGPU.
-6. **Privacidad condicionada**: con proveedores remotos los mensajes salen del navegador, y las herramientas web usan servicios de terceros.
+6. **Termux**: el backend funciona en Android con Termux, pero Playwright no se puede usar actualmente, así que no hay automatización de navegador (`browser_action`, Playwright MCP).
+7. **Privacidad condicionada**: con proveedores remotos los mensajes salen del navegador, y las herramientas web usan servicios de terceros.
 
 ---
 

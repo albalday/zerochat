@@ -4,7 +4,8 @@
 **Versión evaluada**: Web v8.12.4 / Backend v8.12  
 **Commit base del código**: `aff1019` (`master`; `dev` solo añade cambios de `/help` y de este informe)  
 **Alcance**: Backend local (`py/`, `zerochat.py`), frontend (`js/`, `js/tools/`), interfaz (`zerochat.html`), estilos (`css/`), scripts (`scripts/`) y pruebas (`tests/`).  
-**Procedimiento de referencia**: [`AuditFull.md`](AuditFull.md)
+**Procedimiento de referencia**: [`AuditFull.md`](AuditFull.md)  
+**Seguimiento**: H-01, H-02 y H-03 corregidos en la versión **8.12.5**; H-04 pendiente (ver [§6](#6-hallazgos)).
 
 ### Autoría
 
@@ -48,6 +49,8 @@ Los tiempos de ejecución varían entre máquinas y no se consideran evidencia.
 * **Textos fuera de `ChatI18n`** (hallazgo H-03): existen literales visibles sin traducir, contrarios a `AGENTS.md`:
   * `js/debug.js:336` → `'Copiado'`.
   * `js/rag-ui.js:722` → `'¡Exportado!'`.
+
+  **Corregido en 8.12.5**: estos literales, el resto de textos de exportación e importación de ramas RAG y el título del botón de gráficos usan claves de `ChatI18n`; la prueba `tests/architecture/test_i18n_literals.js` lo protege.
   
   La paridad de claves no garantiza que todo texto visible use claves; no existe prueba que lo impida. [cmd]
 
@@ -77,7 +80,7 @@ Los tiempos de ejecución varían entre máquinas y no se consideran evidencia.
 | **Herramientas** | Cumple. 12 herramientas integradas en `js/tools/builtin/` sin las propiedades obsoletas `ui` ni `handler`. | [test] `test_tool_contract.js` |
 | **Mensajes inyectados en inglés** | Cumple en los casos revisados (`Continue`, mensajes de evidencia visual y capturas). | [lectura] |
 | **Ciclo de vida de listeners** | `ui-composer.js`, `ui-settings.js` y `ui-sidebar.js` exponen `dispose()`. No se ha comprobado de forma exhaustiva que liberen todos los listeners. | [lectura] |
-| **Errores explícitos** | **No cumple de forma general**: 116 bloques `catch` vacíos en `js/` (hallazgo H-01). | [cmd] |
+| **Errores explícitos** | En 8.12.4 **no cumplía de forma general**: 116 bloques `catch` vacíos en `js/` (hallazgo H-01). **Corregido en 8.12.5**. | [cmd]; desde 8.12.5 [test] `test_error_handling.js` |
 
 ---
 
@@ -141,13 +144,13 @@ Los tiempos de ejecución varían entre máquinas y no se consideran evidencia.
 
 ## 6. Hallazgos
 
-| ID | Prioridad | Riesgo | Evidencia | Propuesta | Prueba de cierre |
-|---|---|---|---|---|---|
-| **H-01** | Media | Estabilidad / diagnóstico | 116 `catch {}` vacíos en `js/`. Caso crítico: `js/agent-core.js:1347`, donde falla en silencio la respuesta final tras agotar `maxAgentTurns`. | Clasificarlos: los de carga opcional de módulos (`require` en UMD) pueden quedar justificados con un comentario; el resto debe registrar en `Debug`/`console.warn` o propagar. | Prueba de arquitectura que rechace `catch` vacíos fuera de una lista permitida. |
-| **H-02** | Baja | Mantenibilidad | `js/sandbox.js:641-650`: `execute()` acepta `timeoutMs` como número u objeto. | Normalizar a número en la próxima versión mayor. | Prueba unitaria del contrato de `execute`. |
-| **H-03** | Baja | Presentación / i18n | Literales visibles sin `ChatI18n`: `js/debug.js:336`, `js/rag-ui.js:722`. | Crear claves en ambos diccionarios. | Prueba de arquitectura que detecte asignaciones de texto literal a `textContent`. |
-| **H-04** | Baja | Seguridad (documental) | La ayuda y los informes previos presentaban el sandbox JS como frontera de seguridad. | Alinear la documentación con el aviso de `js/sandbox.js:11-14`. | Revisión de `/help`. |
-| **I-01** | Informativa | — | `py/ff-server.py:113` sirve `help/` en modo local. | Comportamiento previsto. | — |
+| ID | Prioridad | Riesgo | Evidencia (8.12.4) | Propuesta | Prueba de cierre | Estado |
+|---|---|---|---|---|---|---|
+| **H-01** | Media | Estabilidad / diagnóstico | 116 `catch {}` vacíos en `js/`. Caso crítico: `js/agent-core.js:1347`, donde fallaba en silencio la síntesis tras detectar un bucle de herramientas (el borrador lo atribuía al límite de turnos). | Clasificarlos: los de carga opcional de módulos pueden quedar justificados con un comentario; el resto debe registrar el error o propagarlo. | Prueba de arquitectura que rechace `catch` vacíos. | **Corregido en 8.12.5**: los errores con efecto real se registran (síntesis tras bucle, fragmentos SSE ilegibles, JSON-RPC malformado, configuración MCP y política de seguridad no guardadas, escrituras rechazadas por `localStorage`, `update_plan`, búsqueda de respaldo y limpieza de paneles); el resto documenta por qué se ignora. Pruebas: `test_error_handling.js` y 8 pruebas de comportamiento. |
+| **H-02** | Baja | Mantenibilidad | `js/sandbox.js:641-650`: `execute()` acepta `timeoutMs` como número u objeto. | Normalizar a número. | Prueba unitaria del contrato de `execute`. | **Corregido en 8.12.5**: solo admite números finitos positivos; ningún llamador usaba la forma de objeto. Prueba en `test_sandbox.js`. |
+| **H-03** | Baja | Presentación / i18n | Literales visibles sin `ChatI18n`: `js/debug.js:336`, `js/rag-ui.js:722` (y, al corregirlo, 7 más en `rag-ui.js` y uno en `charts.js`). | Crear claves en ambos diccionarios. | Prueba de arquitectura que detecte asignaciones de texto literal. | **Corregido en 8.12.5**. Prueba: `test_i18n_literals.js`. Quedan textos de respaldo dentro de plantillas HTML (`js/charts.js`, `js/tool-cards.js`) que esa prueba no cubre. |
+| **H-04** | Baja | Seguridad (documental) | La ayuda y los informes previos presentaban el sandbox JS como frontera de seguridad. | Alinear la documentación con el aviso de `js/sandbox.js:11-14`. | Revisión de `/help`. | Pendiente. |
+| **I-01** | Informativa | — | `py/ff-server.py:113` sirve `help/` en modo local. | Comportamiento previsto. | — | — |
 
 ---
 
@@ -155,4 +158,4 @@ Los tiempos de ejecución varían entre máquinas y no se consideran evidencia.
 
 Las suites de prueba pasan íntegramente y los contratos de `AGENTS.md` protegidos por pruebas (estado, diálogos, herramientas, iconos) se cumplen. La seguridad del backend (token diario, firmas HMAC con nonce, terminación de procesos) está implementada como se describe.
 
-Quedan deudas que el borrador anterior no detectó: el patrón sistemático de `catch` vacíos (H-01) y textos fuera de i18n (H-03). Varias afirmaciones de "cero defectos" (CSS, emojis fuera de los casos probados, `innerHTML`) no tienen hoy un método reproducible; deberían convertirse en pruebas de arquitectura antes de afirmarse.
+En 8.12.4 quedaban deudas que el borrador anterior no detectó: el patrón sistemático de `catch` vacíos (H-01) y textos fuera de i18n (H-03). Ambas, junto con H-02, están corregidas en 8.12.5 y protegidas por pruebas. Varias afirmaciones de "cero defectos" (CSS, emojis fuera de los casos probados, `innerHTML`) no tienen hoy un método reproducible; deberían convertirse en pruebas de arquitectura antes de afirmarse.

@@ -40,7 +40,7 @@
       <p><a href="index.html#servidor-local">Instalar y arrancar el servidor local →</a> · <a href="mcp.html">Configurar herramientas y MCP →</a></p>
       <p>Si el navegador lo permite, instala la web como PWA desde sus opciones. La caché no garantiza que todas las funciones estén disponibles sin conexión.</p>
       <div class="alert alert-info" style="margin-top:1rem;">
-        <strong>Entornos probados:</strong> Linux (x86_64 y ARM), Windows 10/11 (PowerShell y lanzador <code>py -m zerochat</code>) y Android (Termux con paquete <code>python</code>).
+        <strong>Entornos probados:</strong> Linux (x86_64 y ARM), Windows 10/11 (PowerShell y lanzador <code>py -m zerochat</code>) y Android (Termux con paquete <code>python</code>). En Termux no es posible usar Playwright actualmente, así que <code>browser_action</code> y Playwright MCP no están disponibles.
       </div>
       <div class="alert alert-warning">
         <strong>Compatibilidad de navegadores:</strong> ZeroChat <strong>no es compatible con Safari</strong> debido a restricciones de red privada local (Private Network Access) y almacenamiento web. En <strong>macOS es necesario usar Google Chrome</strong> (o navegadores basados en Chromium).
@@ -87,7 +87,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
           <div class="feature-title">1. Infraestructura y código</div>
-          <div class="feature-desc">Pruebas, contratos de AGENTS.md, seguridad del backend, riesgos aceptados y hallazgos pendientes.</div>
+          <div class="feature-desc">Pruebas, contratos de AGENTS.md, seguridad del backend, riesgos aceptados y hallazgos, con H-01 a H-03 corregidos en 8.12.5.</div>
           <div class="feature-link">Ver auditoría de infraestructura →</div>
         </a>
         <a href="audit-functionalities.html" class="feature-card">

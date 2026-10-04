@@ -57,7 +57,7 @@
         <div class="subsection">
           <h3>Versus Open WebUI and LibreChat</h3>
           <p>Both are database-backed servers designed for several users. ZeroChat needs no server to chat; the local backend is only needed for MCP, commands and browser automation. No ZeroChat server stores history, but messages do reach the chosen provider.</p>
-          <p><strong>They win</strong> on multi-user, roles, vector RAG, voice and central administration. <strong>ZeroChat wins</strong> on startup without Docker, use on Android with Termux and request transparency.</p>
+          <p><strong>They win</strong> on multi-user, roles, vector RAG, voice and central administration. <strong>ZeroChat wins</strong> on startup without Docker, use on Android with Termux (without browser automation: Playwright cannot currently be used on Termux) and request transparency.</p>
         </div>
         <div class="subsection">
           <h3>Versus Chatbox and Jan</h3>
@@ -76,7 +76,7 @@
           <li><strong>Text <code>&lt;tool_call&gt;</code></strong> for WebLLM models without native tool calling (recent feature).</li>
           <li><strong>Visible context:</strong> input, output and cache; warning at 60 %, critical at 85 %, compaction at 70 %.</li>
           <li><strong>Reasoning separated</strong> from the answer while streaming.</li>
-          <li><strong>Portability without Docker:</strong> Linux, Windows, macOS (with Chrome) and Android (Termux).</li>
+          <li><strong>Portability without Docker:</strong> Linux, Windows, macOS (with Chrome) and Android (Termux). Playwright cannot currently be used on Termux, so <code>browser_action</code> and Playwright MCP are not available.</li>
         </ul>
       </div>
 

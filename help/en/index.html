@@ -60,7 +60,7 @@
           <ul>
             <li><strong>Linux:</strong> standard distributions (x86_64 and ARM) with Python 3.10+. Command execution uses an interactive persistent <code>bash</code> session.</li>
             <li><strong>Windows:</strong> Windows 10 and Windows 11 with PowerShell and the <code>py</code> launcher. Command execution natively adapts to PowerShell preserving directory and environment variables.</li>
-            <li><strong>Android + Termux:</strong> Termux environment with the <code>python</code> package. Opens URLs with <code>termux-open-url</code>.</li>
+            <li><strong>Android + Termux:</strong> Termux environment with the <code>python</code> package. Opens URLs with <code>termux-open-url</code>. Playwright cannot currently be used on Termux, so <code>browser_action</code> and Playwright MCP are not available.</li>
           </ul>
         </li>
         <li><strong>Browser compatibility:</strong>

@@ -28,6 +28,7 @@
       <div class="card">
         <h2>Alcance y método</h2>
         <p>Versión <strong>8.12.4</strong> (web) y <strong>8.12</strong> (backend), código en el commit <code>aff1019</code>. Procedimiento de referencia: <code>docs/audits/AuditFull.md</code>.</p>
+        <div class="alert alert-success"><p><strong>Seguimiento:</strong> los hallazgos H-01, H-02 y H-03 están <strong>corregidos en la versión 8.12.5</strong>. H-04 sigue pendiente. Los hallazgos se conservan tal como se detectaron en 8.12.4.</p></div>
         <p>Cada afirmación indica su procedencia: <strong>[test]</strong> prueba automatizada, <strong>[cmd]</strong> comando reproducible, <strong>[lectura]</strong> revisión del código sin prueba que lo proteja, <strong>[no verificado]</strong> hipótesis del borrador sin demostrar.</p>
       </div>
 
@@ -53,7 +54,7 @@
         <h2>2. Código muerto, i18n y recursos</h2>
         <ul>
           <li><strong>Diccionarios:</strong> 649 claves en español y 649 en inglés, con el mismo conjunto. [cmd]</li>
-          <li><strong>Textos fuera de <code>ChatI18n</code>:</strong> <code>'Copiado'</code> en <code>js/debug.js:336</code> y <code>'¡Exportado!'</code> en <code>js/rag-ui.js:722</code>. La paridad de claves no garantiza que todo texto visible use claves. [cmd]</li>
+          <li><strong>Textos fuera de <code>ChatI18n</code>:</strong> <code>'Copiado'</code> en <code>js/debug.js:336</code> y <code>'¡Exportado!'</code> en <code>js/rag-ui.js:722</code>. La paridad de claves no garantiza que todo texto visible use claves. [cmd] <strong>Corregido en 8.12.5</strong>, con la prueba <code>test_i18n_literals.js</code>.</li>
           <li><strong>Iconos:</strong> cada referencia <code>#icon-*</code> existe en el sprite, el sprite no tiene símbolos sin uso y cada glifo de <code>js/icons.js</code> tiene consumidor. [test] <code>test_icon_sprite.js</code></li>
           <li><strong>Emojis en controles:</strong> la prueba cubre <code>markdown.js</code> y el banner de importación. Fuera de esos casos: [no verificado].</li>
           <li><strong>CSS:</strong> las 14 hojas enlazadas existen. [cmd] La ausencia de selectores muertos: [no verificado].</li>
@@ -73,7 +74,7 @@
               <tr><td><strong>Proveedores</strong></td><td>Cumple: Claude, Gemini, Ollama, OpenRouter, Mirror y WebLLM extienden <code>BaseProviderAdapter</code>; OpenAI/LM Studio y Personalizado usan la clase base.</td><td>[lectura]</td></tr>
               <tr><td><strong>Herramientas</strong></td><td>Cumple: 12 herramientas integradas sin <code>ui</code> ni <code>handler</code>.</td><td>[test] <code>test_tool_contract.js</code></td></tr>
               <tr><td><strong>Mensajes inyectados en inglés</strong></td><td>Cumple en los casos revisados.</td><td>[lectura]</td></tr>
-              <tr><td><strong>Errores explícitos</strong></td><td><strong>No cumple de forma general:</strong> 116 bloques <code>catch</code> vacíos en <code>js/</code>.</td><td>[cmd]</td></tr>
+              <tr><td><strong>Errores explícitos</strong></td><td>En 8.12.4 <strong>no cumplía de forma general</strong>: 116 bloques <code>catch</code> vacíos en <code>js/</code>. <strong>Corregido en 8.12.5.</strong></td><td>[cmd]; desde 8.12.5 [test] <code>test_error_handling.js</code></td></tr>
             </tbody>
           </table>
         </div>
@@ -110,16 +111,16 @@
         <h2>6. Hallazgos</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta y prueba de cierre</th></tr></thead>
+            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia (8.12.4)</th><th>Propuesta y prueba de cierre</th><th>Estado</th></tr></thead>
             <tbody>
-              <tr><td><strong>H-01</strong></td><td>Media</td><td>116 <code>catch {}</code> vacíos; caso crítico en <code>js/agent-core.js:1347</code> (respuesta final tras agotar turnos).</td><td>Registrar o propagar los errores y justificar los de carga opcional de módulos. Prueba de arquitectura con lista permitida.</td></tr>
-              <tr><td><strong>H-02</strong></td><td>Baja</td><td><code>js/sandbox.js</code>: <code>execute()</code> acepta <code>timeoutMs</code> como número u objeto.</td><td>Normalizar a número en la próxima versión mayor, con prueba unitaria.</td></tr>
-              <tr><td><strong>H-03</strong></td><td>Baja</td><td>Textos sin <code>ChatI18n</code> en <code>js/debug.js:336</code> y <code>js/rag-ui.js:722</code>.</td><td>Crear claves ES/EN. Prueba que detecte literales asignados a <code>textContent</code>.</td></tr>
-              <tr><td><strong>H-04</strong></td><td>Baja</td><td>La documentación presentaba el sandbox JS como frontera de seguridad.</td><td>Alinear la ayuda con el aviso de <code>js/sandbox.js</code>.</td></tr>
+              <tr><td><strong>H-01</strong></td><td>Media</td><td>116 <code>catch {}</code> vacíos; caso crítico en <code>js/agent-core.js:1347</code> (síntesis tras detectar un bucle de herramientas).</td><td>Registrar o propagar los errores y justificar los ignorados. Prueba de arquitectura.</td><td><strong>Corregido en 8.12.5</strong>: los errores con efecto real se registran y el resto documenta por qué se ignora. Pruebas: <code>test_error_handling.js</code> y 8 de comportamiento.</td></tr>
+              <tr><td><strong>H-02</strong></td><td>Baja</td><td><code>js/sandbox.js</code>: <code>execute()</code> acepta <code>timeoutMs</code> como número u objeto.</td><td>Normalizar a número, con prueba unitaria.</td><td><strong>Corregido en 8.12.5</strong>: solo admite números finitos positivos.</td></tr>
+              <tr><td><strong>H-03</strong></td><td>Baja</td><td>Textos sin <code>ChatI18n</code> en <code>js/debug.js:336</code> y <code>js/rag-ui.js:722</code>.</td><td>Crear claves ES/EN. Prueba que detecte literales asignados a <code>textContent</code>.</td><td><strong>Corregido en 8.12.5</strong>, junto con 8 literales más en <code>rag-ui.js</code> y <code>charts.js</code>.</td></tr>
+              <tr><td><strong>H-04</strong></td><td>Baja</td><td>La documentación presentaba el sandbox JS como frontera de seguridad.</td><td>Alinear la ayuda con el aviso de <code>js/sandbox.js</code>.</td><td>Pendiente.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Conclusión: las pruebas pasan íntegramente y los contratos protegidos por pruebas se cumplen. Quedan deudas que el borrador no detectó (H-01, H-03), y varias afirmaciones de "cero defectos" deberían convertirse en pruebas antes de darse por ciertas.</p>
+        <p>Conclusión: las pruebas pasan íntegramente y los contratos protegidos por pruebas se cumplen. Las deudas que el borrador no detectó (H-01, H-03) y H-02 están corregidas en 8.12.5; varias afirmaciones de "cero defectos" deberían convertirse en pruebas antes de darse por ciertas.</p>
       </div>
 
       <div class="card" id="autoria">
