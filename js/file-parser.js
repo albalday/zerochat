@@ -177,7 +177,7 @@
               parseCMapData(toParse, cmap);
               cmapByObject.set(String(objNum), localCmap);
             }
-          } catch (e) {}
+          } catch (e) { /* CMap dañado: se extrae el texto sin él */ }
         }
       }
       if (localCmap.size > 0) cmapByObject.set(String(objNum), localCmap);
@@ -614,7 +614,7 @@
         const buf = await res.arrayBuffer();
         await writePromise;
         return new Uint8Array(buf);
-      } catch (e) {}
+      } catch (e) { /* se prueba la siguiente estrategia de descompresión */ }
 
       try {
         let rawSlice = uint8Array;
@@ -629,7 +629,7 @@
         const buf = await res.arrayBuffer();
         await writePromise;
         return new Uint8Array(buf);
-      } catch (e) {}
+      } catch (e) { /* se prueba la siguiente estrategia de descompresión */ }
     }
 
     if (typeof require !== 'undefined') {
@@ -640,7 +640,7 @@
         try {
           const zlib = require('zlib');
           return zlib.inflateRawSync(uint8Array);
-        } catch (e2) {}
+        } catch (e2) { /* zlib no disponible o datos no comprimidos */ }
       }
     }
 
@@ -951,7 +951,7 @@
                 allObjects.set(oNum, oBody);
               }
             }
-          } catch (e) {}
+          } catch (e) { /* flujo de objetos dañado: se omite */ }
         }
       }
     }
@@ -1055,7 +1055,7 @@
                   pageItems.push(parsed);
                 }
               }
-            } catch (e) {}
+            } catch (e) { /* flujo de página dañado: se omite y se sigue con el resto */ }
           }
         }
 
