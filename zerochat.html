@@ -16,7 +16,7 @@
       if (!isAppleMobile && !isDesktopWebKit) return;
       var helpDir = /^es\b/i.test(navigator.language || '') ? 'help/' : 'help/en/';
       document.documentElement.style.display = 'none';
-      location.replace(helpDir + 'index.html#browser-compatibility');
+      location.replace(helpDir + 'install.html#browser-compatibility');
     })();
   </script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'self' blob:; manifest-src 'self'; media-src 'self' data: blob:;">

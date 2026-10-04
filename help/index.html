@@ -36,48 +36,14 @@
         </a>
         <span class="download-hint">El chat web no necesita instalación.</span>
       </div>
-      <p>El chat, los adjuntos y RAG funcionan sin Python. Para acceder a archivos del equipo, ejecutar comandos o usar servicios MCP, inicia el servidor local opcional que aparece abajo. <a href="architecture.html">Modos de uso, almacenamiento y privacidad →</a></p>
+      <p>El chat, los adjuntos y RAG funcionan sin Python. Para acceder a archivos del equipo, ejecutar comandos o usar servicios MCP, arranca el servidor local opcional. <a href="architecture.html">Modos de uso, almacenamiento y privacidad →</a></p>
+      <div class="quick-start" id="servidor-local">
+        <div class="quick-start-title">Servidor local · Linux, macOS y Termux</div>
+        <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
+        <a href="install.html">Windows, descarga directa y compatibilidad de navegador →</a>
+      </div>
     </div>
 
-    <div class="card" id="servidor-local">
-      <h2>Añade el servidor local</h2>
-      <p>Necesitas Python. Elige <strong>una</strong> de estas alternativas; ambas abren la web y utilizan <code>~/zerochat/</code> para los datos locales.</p>
-      <h3>Instalar desde PyPI (recomendado)</h3>
-      <p><strong>Linux, macOS y Android (Termux):</strong></p>
-<div class="code-wrapper"><pre><code>pip install zerochat
-zerochat</code></pre></div>
-      <p><strong>Windows (PowerShell o CMD):</strong> usa el lanzador <code>py</code>, que funciona aunque la carpeta <code>Scripts</code> de Python no esté en el <code>PATH</code>.</p>
-<div class="code-wrapper"><pre><code>py -m pip install zerochat
-py -m zerochat</code></pre></div>
-      <p>En los siguientes arranques basta con la segunda línea.</p>
-      <h3>Descargar el script</h3>
-      <p><strong>Linux, macOS y Android (Termux):</strong></p>
-      <div class="code-wrapper"><pre><code>curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
-python3 zerochat.py</code></pre></div>
-      <p><strong>Windows (PowerShell o CMD):</strong> <code>curl.exe</code> viene con Windows 10 y 11; en PowerShell hay que escribirlo con <code>.exe</code> para no usar el alias de <code>Invoke-WebRequest</code>.</p>
-      <div class="code-wrapper"><pre><code>curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
-py zerochat.py</code></pre></div>
-      <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> (<code>py zerochat.py</code> en Windows) desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>
-      <p>Mantén el proceso en ejecución y utiliza el enlace que abre. Después ve a <a href="mcp.html">Ajustes → MCP</a> para comprobar la conexión y habilitar herramientas.</p>
-
-      <h3 id="browser-compatibility">Entornos probados y compatibilidad de navegador</h3>
-      <ul>
-        <li><strong>Entornos probados:</strong>
-          <ul>
-            <li><strong>Linux:</strong> distribuciones estándar (x86_64 y ARM) con Python 3.10+. Ejecución de comandos con sesión <code>bash</code> interactiva persistente.</li>
-            <li><strong>Windows:</strong> Windows 10 y Windows 11 con PowerShell y lanzador <code>py</code>. La ejecución de comandos se adapta nativamente a PowerShell manteniendo directorio y entorno.</li>
-            <li><strong>Android + Termux:</strong> Termux con el paquete <code>python</code>. Abre URLs con <code>termux-open-url</code>. En Termux no es posible usar Playwright actualmente, así que <code>browser_action</code> y Playwright MCP no están disponibles.</li>
-          </ul>
-        </li>
-        <li><strong>Compatibilidad de navegador:</strong>
-          <ul>
-            <li>ZeroChat <strong>no funciona con el motor WebKit</strong> debido a sus restricciones de acceso a red local (Private Network Access) y de almacenamiento web. Si abres ZeroChat con WebKit se te redirige a esta sección.</li>
-            <li>Están afectados <strong>Safari</strong> (macOS) y <strong>todos los navegadores de iPhone y iPad</strong>, incluidos Chrome, Firefox y Edge para iOS/iPadOS, porque Apple obliga a usar WebKit en esos sistemas.</li>
-            <li>En <strong>Linux y Windows</strong> funciona con Firefox o con navegadores basados en Chromium (Chrome, Edge, Brave…). En <strong>macOS</strong> debería funcionar igual, pero no se ha probado.</li>
-          </ul>
-        </li>
-      </ul>
-    </div>
 
     <div class="card">
       <h2>Primeros pasos</h2>

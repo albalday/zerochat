@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Install the local server · ZeroChat Help · 8.x</title>
+  <meta name="description" content="Installing and starting the ZeroChat local server on Linux, macOS, Windows and Android (Termux); tested environments and browser compatibility.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../install.html" class="top-nav-link">Español</a>
+          <a href="index.html" class="top-nav-link">← Back to Index</a>
+        </div>
+      </div>
+      <h1>Install the local server</h1>
+      <p class="subtitle">Optional: computer files, command execution and MCP services.</p>
+    </header>
+
+    <div class="card" id="servidor-local">
+      <h2>Add the local server</h2>
+      <p>You need Python. Choose <strong>one</strong> of these alternatives; both open the web app and use <code>~/zerochat/</code> for local data.</p>
+      <h3>Install from PyPI (recommended)</h3>
+      <p><strong>Linux, macOS and Android (Termux):</strong></p>
+<div class="code-wrapper"><pre><code>pip install zerochat
+zerochat</code></pre></div>
+      <p><strong>Windows (PowerShell or CMD):</strong> use the <code>py</code> launcher, which works even if Python's <code>Scripts</code> folder is not on <code>PATH</code>.</p>
+<div class="code-wrapper"><pre><code>py -m pip install zerochat
+py -m zerochat</code></pre></div>
+      <p>On subsequent launches, the second line is enough.</p>
+      <h3>Download the script</h3>
+      <p><strong>Linux, macOS and Android (Termux):</strong></p>
+      <div class="code-wrapper"><pre><code>curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+python3 zerochat.py</code></pre></div>
+      <p><strong>Windows (PowerShell or CMD):</strong> <code>curl.exe</code> ships with Windows 10 and 11; in PowerShell type it with <code>.exe</code> to avoid the <code>Invoke-WebRequest</code> alias.</p>
+      <div class="code-wrapper"><pre><code>curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+py zerochat.py</code></pre></div>
+      <p>On subsequent launches, run <code>python3 zerochat.py</code> (<code>py zerochat.py</code> on Windows) from the download folder. You can also <a href="../../zerochat.py" download>download the file</a> manually.</p>
+      <p>Keep the process running and use the link it opens. Then go to <a href="mcp.html">Settings → MCP</a> to check the connection and enable tools.</p>
+
+      <h3 id="browser-compatibility">Tested environments and browser compatibility</h3>
+      <ul>
+        <li><strong>Tested environments:</strong>
+          <ul>
+            <li><strong>Linux:</strong> standard distributions (x86_64 and ARM) with Python 3.10+. Command execution uses an interactive persistent <code>bash</code> session.</li>
+            <li><strong>Windows:</strong> Windows 10 and Windows 11 with PowerShell and the <code>py</code> launcher. Command execution natively adapts to PowerShell preserving directory and environment variables.</li>
+            <li><strong>Android + Termux:</strong> Termux environment with the <code>python</code> package. Opens URLs with <code>termux-open-url</code>. Playwright cannot currently be used on Termux, so <code>browser_action</code> and Playwright MCP are not available.</li>
+          </ul>
+        </li>
+        <li><strong>Browser compatibility:</strong>
+          <ul>
+            <li>ZeroChat <strong>does not work with the WebKit engine</strong> due to its local network access (Private Network Access) and web storage restrictions. Opening ZeroChat with WebKit redirects you to this section.</li>
+            <li>This affects <strong>Safari</strong> (macOS) and <strong>every browser on iPhone and iPad</strong>, including Chrome, Firefox and Edge for iOS/iPadOS, because Apple requires WebKit on those systems.</li>
+            <li>On <strong>Linux and Windows</strong> it works with Firefox or Chromium-based browsers (Chrome, Edge, Brave…). On <strong>macOS</strong> it should work the same, but it has not been tested.</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <footer>
+      <p>ZeroChat 8.x · Personal user guide</p>
+    </footer>
+  </div>
+  <script src="../help.js"></script>
+</body>
+</html>

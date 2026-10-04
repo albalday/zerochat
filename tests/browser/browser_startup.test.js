@@ -93,7 +93,8 @@ test('Browser help - PyPI (Unix y Windows) y descarga directa tienen bloques cop
       'curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py\npython3 zerochat.py',
       'curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py\npy zerochat.py'
     ];
-    for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/mcp.html', 'help/en/mcp.html']) {
+    const quickCommand = 'pip install zerochat && zerochat';
+    for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/install.html', 'help/en/install.html', 'help/mcp.html', 'help/en/mcp.html']) {
       await page.goto('file://' + path.resolve(__dirname, '../..', helpPath), { waitUntil: 'load' });
       await page.evaluate(() => {
         Object.defineProperty(navigator, 'clipboard', {
@@ -101,6 +102,14 @@ test('Browser help - PyPI (Unix y Windows) y descarga directa tienen bloques cop
         });
       });
       const wrappers = page.locator('.code-wrapper');
+      if (helpPath.endsWith('/index.html')) {
+        assert.equal(await wrappers.count(), 1, helpPath);
+        assert.equal((await wrappers.locator('pre code').textContent()).trim(), quickCommand);
+        await wrappers.locator('.btn-copy').click();
+        assert.equal(await page.evaluate(() => window.copiedHelpText), quickCommand);
+        assert.equal(await page.locator('.quick-start a[href="install.html"]').count(), 1, helpPath);
+        continue;
+      }
       for (let index = 0; index < commands.length; index += 1) {
         const wrapper = wrappers.nth(index);
         assert.equal((await wrapper.locator('pre code').textContent()).trim(), commands[index]);

@@ -23,14 +23,14 @@ const SAFARI_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 test('Compatibilidad - WebKit se redirige a la ayuda en el idioma del navegador', () => {
   const cases = [
-    ['Safari macOS', SAFARI_MAC, 0, 'es-ES', 'help/index.html#browser-compatibility'],
-    ['Chrome iOS', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.6367.88 Mobile/15E148 Safari/604.1', 5, 'en-US', 'help/en/index.html#browser-compatibility'],
-    ['Safari iPadOS', SAFARI_MAC, 5, 'en-GB', 'help/en/index.html#browser-compatibility']
+    ['Safari macOS', SAFARI_MAC, 0, 'es-ES', 'help/install.html#browser-compatibility'],
+    ['Chrome iOS', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.6367.88 Mobile/15E148 Safari/604.1', 5, 'en-US', 'help/en/install.html#browser-compatibility'],
+    ['Safari iPadOS', SAFARI_MAC, 5, 'en-GB', 'help/en/install.html#browser-compatibility']
   ];
   for (const [name, userAgent, touchPoints, language, expected] of cases) {
     assert.deepEqual(runCompatCheck(userAgent, touchPoints, language), { redirectedTo: expected, hidden: true }, name);
   }
-  for (const helpPage of ['help/index.html', 'help/en/index.html']) {
+  for (const helpPage of ['help/install.html', 'help/en/install.html']) {
     assert.match(fs.readFileSync(path.join(ROOT, helpPage), 'utf8'), /id="browser-compatibility"/, helpPage);
   }
 });
