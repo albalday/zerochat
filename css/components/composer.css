@@ -1035,7 +1035,7 @@
   top: calc(100% + 0.5rem);
   left: 50%;
   transform: translateX(-50%);
-  width: min(340px, calc(100vw - 2rem));
+  width: min(380px, calc(100vw - 2rem));
   padding: 0.45rem;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1056,7 +1056,7 @@
 }
 
 .header-profile-popover-title {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1094,7 +1094,7 @@
 .header-profile-list {
   display: grid;
   gap: 0.2rem;
-  max-height: 240px;
+  max-height: min(320px, 60vh);
   overflow-y: auto;
 }
 
@@ -1141,7 +1141,7 @@
 
 .header-profile-option-name {
   overflow: hidden;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1150,7 +1150,7 @@
 .header-profile-option-description {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1196,17 +1196,5 @@
 @media (max-width: 640px) {
   .header-profile-popover {
     width: min(320px, calc(100vw - 1.5rem));
-  }
-
-  .header-profile-popover-title {
-    font-size: 0.78rem;
-  }
-
-  .header-profile-option-name {
-    font-size: 0.88rem;
-  }
-
-  .header-profile-option-description {
-    font-size: 0.8rem;
   }
 }

@@ -103,12 +103,12 @@ test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferen
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Cambiar de perfil no debe perder las instrucciones de datos');
 });
 
-test('ChatConfig - la ventana de contexto WebLLM es 64K por defecto y descarta tamaños no ofrecidos', () => {
+test('ChatConfig - la ventana de contexto WebLLM es 16K por defecto y descarta tamaños no ofrecidos', () => {
   const { store } = createFixture();
   store.initialize();
-  assert.equal(store.updateRuntime({ webllmConfig: undefined }).webllmConfig.context_window_size, '65536');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: 'default', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '65536');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '8192', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '65536');
+  assert.equal(store.updateRuntime({ webllmConfig: undefined }).webllmConfig.context_window_size, '16384');
+  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: 'default', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
+  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '8192', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
   const config = store.updateRuntime({ webllmConfig: { context_window_size: '131072', prefill_chunk_size: '1024' } });
   assert.deepEqual(config.webllmConfig, { context_window_size: '131072', prefill_chunk_size: '1024' });
 });
