@@ -1430,7 +1430,7 @@
           return saved;
         }
       }
-    } catch (e) {}
+    } catch (e) { /* almacenamiento no disponible: se usa el idioma del navegador */ }
 
     // Node.js expone un navigator global, pero no representa el idioma de una
     // interfaz web. Solo detectamos el idioma del navegador en un contexto DOM.
@@ -1449,7 +1449,7 @@
       if (browserLang.startsWith('en')) {
         return 'en';
       }
-    } catch (e) {}
+    } catch (e) { /* navigator no disponible: se usa el idioma por defecto */ }
 
     return 'es';
   }
@@ -1486,7 +1486,7 @@
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       try {
         window.dispatchEvent(new CustomEvent('zerochat:languagechange', { detail: { lang: target } }));
-      } catch (e) {}
+      } catch (e) { /* CustomEvent no disponible en este entorno */ }
     }
 
     changeListeners.forEach(fn => {
