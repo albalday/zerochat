@@ -58,7 +58,7 @@ ZeroChat expone buena parte de lo que los clientes comerciales ocultan: la petic
 
 ### Afirmaciones de la ayuda comprobadas
 1. `help/rag.html` indica que la búsqueda es léxica, sin embeddings ni índice vectorial, y que puede no encontrar sinónimos o traducciones. Coincide con el código.
-2. `help/architecture.html` declara la incompatibilidad con Safari (restricciones de Private Network Access y almacenamiento) y que en macOS hay que usar Google Chrome. Los entornos documentados son Linux (x86_64 y ARM), Windows 10/11 y Android con Termux. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles en Android.
+2. `help/architecture.html` declara la incompatibilidad con Safari (restricciones de Private Network Access y almacenamiento) y que en macOS debería funcionar con Firefox o navegadores basados en Chromium, aunque no se ha probado. Los entornos documentados son Linux (x86_64 y ARM), Windows 10/11 y Android con Termux. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles en Android.
 3. `help/tools-agent.html` describe Jina Reader, la conexión directa y el proxy AllOrigins como estrategias de las herramientas web, y DuckDuckGo como buscador.
 4. `help/reasoning-telemetry.html` describe la compactación al 70 % y el aviso «Compactando contexto» en el chat.
 5. `help/learning.html` presenta ZeroChat como proyecto personal de aprendizaje sobre clientes de IA y ejecución agéntica.

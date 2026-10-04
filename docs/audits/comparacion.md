@@ -72,7 +72,7 @@ Los datos de ZeroChat se han comprobado en su código. Los datos de las demás h
 2. **`<tool_call>` en texto**: permite experimentar con herramientas en modelos de WebLLM sin tool calling nativo. Es una función reciente (4 de octubre de 2026).
 3. **Contexto visible**: tokens de entrada, salida y caché; aviso al 60 %, estado crítico al 85 % y compactación automática al 70 % del presupuesto.
 4. **Razonamiento separado**: el bloque de razonamiento se muestra aparte de la respuesta durante el streaming.
-5. **Portabilidad**: Linux, Windows, macOS (con Chrome) y Android (Termux), sin Docker. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles.
+5. **Portabilidad**: Linux, Windows, macOS (sin probar) y Android (Termux), sin Docker. En Termux no es posible usar Playwright actualmente, así que `browser_action` y Playwright MCP no están disponibles.
 
 ---
 
