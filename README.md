@@ -33,16 +33,29 @@ Abre [ZeroChat en GitHub Pages](https://albalday.github.io/zerochat/zerochat.htm
 Para añadir herramientas del equipo, instala y ejecuta el backend con Python. / To add computer tools, install and run the Python backend:
 
 ```bash
+# Linux, macOS, Android (Termux)
 pip install zerochat
 zerochat
-# En Windows (si zerochat no está en PATH): py -m zerochat
+```
+
+```powershell
+# Windows (PowerShell o CMD / PowerShell or CMD)
+py -m pip install zerochat
+py -m zerochat
 ```
 
 También puedes descargar el script y ejecutarlo. / You can also download and run the script:
 
 ```bash
-curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+# Linux, macOS, Android (Termux)
+curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
 python3 zerochat.py
+```
+
+```powershell
+# Windows (PowerShell o CMD / PowerShell or CMD)
+curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+py zerochat.py
 ```
 
 > **Entornos probados / Tested environments:** Linux (x86_64, ARM), Windows 10/11 (PowerShell, `py -m zerochat`), Android (Termux con `python`; Playwright no se puede usar actualmente en Termux / Playwright cannot currently be used on Termux).  

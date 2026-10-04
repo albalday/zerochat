@@ -35,8 +35,13 @@ zerochat</code></pre></div>
         <div class="code-wrapper"><pre><code>py -m pip install zerochat
 py -m zerochat</code></pre></div>
       <h3>Direct download</h3>
-        <div class="code-wrapper"><pre><code>curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py</code></pre></div>
-      <p>For subsequent launches, use <code>zerochat</code> (or <code>py -m zerochat</code> on Windows) or <code>python3 zerochat.py</code>, respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>
+        <p><strong>Linux, macOS and Android (Termux):</strong></p>
+        <div class="code-wrapper"><pre><code>curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+python3 zerochat.py</code></pre></div>
+        <p><strong>Windows (PowerShell or CMD):</strong> <code>curl.exe</code> ships with Windows 10 and 11; in PowerShell type it with <code>.exe</code> to avoid the <code>Invoke-WebRequest</code> alias.</p>
+        <div class="code-wrapper"><pre><code>curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+py zerochat.py</code></pre></div>
+      <p>For subsequent launches, use <code>zerochat</code> (or <code>py -m zerochat</code> on Windows) or <code>python3 zerochat.py</code> (<code>py zerochat.py</code> on Windows), respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>
       <ol>
         <li>Keep the server running and open the link it provides.</li>
         <li>Go to <strong>Settings → MCP</strong> and check the connection and discovered tools.</li>

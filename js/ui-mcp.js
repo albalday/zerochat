@@ -83,8 +83,18 @@
     }
   }
 
-  function generateTerminalCommand() {
-    return 'pip install zerochat && zerochat';
+  const UNIX_TERMINAL_COMMAND = 'pip install zerochat\nzerochat';
+  // En Windows, `zerochat` suele no estar en el PATH y PowerShell 5 no admite `&&`; el lanzador py funciona siempre.
+  const WINDOWS_TERMINAL_COMMAND = 'py -m pip install zerochat\npy -m zerochat';
+
+  function isWindowsPlatform(nav = typeof navigator !== 'undefined' ? navigator : null) {
+    if (!nav) return false;
+    const platform = nav.userAgentData?.platform || nav.platform || '';
+    return /^win/i.test(platform) || /Windows NT/.test(nav.userAgent || '');
+  }
+
+  function generateTerminalCommand(nav) {
+    return isWindowsPlatform(nav) ? WINDOWS_TERMINAL_COMMAND : UNIX_TERMINAL_COMMAND;
   }
 
   async function copyCommandToClipboard(text, btnElement, translator = t) {

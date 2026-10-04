@@ -90,7 +90,8 @@ test('Browser help - PyPI (Unix y Windows) y descarga directa tienen bloques cop
     const commands = [
       'pip install zerochat\nzerochat',
       'py -m pip install zerochat\npy -m zerochat',
-      'curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py'
+      'curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py\npython3 zerochat.py',
+      'curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py\npy zerochat.py'
     ];
     for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/mcp.html', 'help/en/mcp.html']) {
       await page.goto('file://' + path.resolve(__dirname, '../..', helpPath), { waitUntil: 'load' });

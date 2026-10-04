@@ -668,7 +668,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
     assert.ok(mcpUiState.paneActive, 'El panel settings-mcp debe estar visible y activo');
     assert.ok(mcpUiState.badgeText.includes('Desconectado') || mcpUiState.badgeText.includes('Conectado'), 'El estado debe ser Desconectado o Conectado según disponibilidad');
     assert.ok(mcpUiState.bootstrapVisible, 'Debe explicar cómo arrancar el servidor local cuando no está disponible');
-    assert.equal(mcpUiState.commandText, 'pip install zerochat && zerochat');
+    assert.equal(mcpUiState.commandText, 'pip install zerochat\nzerochat', 'Chromium en Linux muestra el comando Unix en dos líneas');
     assert.equal(mcpUiState.helpHref, 'help/mcp.html');
     assert.ok(mcpUiState.hasToolsContainer, 'El contenedor de herramientas MCP debe estar presente');
     assert.ok(mcpUiState.toolsContainerVisible, 'El contenedor de herramientas MCP debe estar visible');

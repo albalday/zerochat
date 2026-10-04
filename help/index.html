@@ -51,8 +51,13 @@ zerochat</code></pre></div>
 py -m zerochat</code></pre></div>
       <p>En los siguientes arranques basta con la segunda línea.</p>
       <h3>Descargar el script</h3>
-<div class="code-wrapper"><pre><code>curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py</code></pre></div>
-      <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>
+      <p><strong>Linux, macOS y Android (Termux):</strong></p>
+      <div class="code-wrapper"><pre><code>curl -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+python3 zerochat.py</code></pre></div>
+      <p><strong>Windows (PowerShell o CMD):</strong> <code>curl.exe</code> viene con Windows 10 y 11; en PowerShell hay que escribirlo con <code>.exe</code> para no usar el alias de <code>Invoke-WebRequest</code>.</p>
+      <div class="code-wrapper"><pre><code>curl.exe -fsSL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py
+py zerochat.py</code></pre></div>
+      <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> (<code>py zerochat.py</code> en Windows) desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>
       <p>Mantén el proceso en ejecución y utiliza el enlace que abre. Después ve a <a href="mcp.html">Ajustes → MCP</a> para comprobar la conexión y habilitar herramientas.</p>
 
       <h3 id="browser-compatibility">Entornos probados y compatibilidad de navegador</h3>

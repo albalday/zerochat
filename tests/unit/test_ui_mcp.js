@@ -41,8 +41,21 @@ test('ChatUIMcp - sanea host y puerto, construye el endpoint y recomienda el arr
   );
 
   assert.equal(
-    ChatUIMcp.generateTerminalCommand(),
-    'pip install zerochat && zerochat'
+    ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }),
+    'pip install zerochat\nzerochat'
+  );
+  assert.equal(
+    ChatUIMcp.generateTerminalCommand({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }),
+    'pip install zerochat\nzerochat'
+  );
+  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'darwin' }), 'pip install zerochat\nzerochat');
+  assert.equal(
+    ChatUIMcp.generateTerminalCommand({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }),
+    'py -m pip install zerochat\npy -m zerochat'
+  );
+  assert.equal(
+    ChatUIMcp.generateTerminalCommand({ userAgentData: { platform: 'Windows' }, platform: '' }),
+    'py -m pip install zerochat\npy -m zerochat'
   );
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'zerochat.py'), 'utf8');
@@ -80,7 +93,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.bootstrapCard.style.display, 'block');
   assert.equal(elements.reconnectHint.style.display, 'block');
   assert.equal(elements.reconnectHint.textContent, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
-  assert.equal(elements.commandSnippet.textContent, 'pip install zerochat && zerochat');
+  assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
   // 2. Estado conectando
   ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
@@ -183,7 +196,7 @@ test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual'
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, 'pip install zerochat && zerochat');
+  assert.equal(mockCommandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
   uiInstance.destroy();
 });
