@@ -13,6 +13,7 @@
 
   const SCHEMA_VERSION = 3;
   const DEFAULT_THEME = Defaults.DEFAULT_THEME;
+  const WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE = String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE);
   const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
   const DEFAULTS = Object.freeze({
@@ -29,7 +30,7 @@
     activeRagBranchId: '', activeRagBranchIds: [],
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     webllmConfig: {
-      context_window_size: 'default',
+      context_window_size: WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE,
       prefill_chunk_size: 'default'
     }
   });
@@ -77,6 +78,12 @@
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
+    const webllmConfig = next.webllmConfig && typeof next.webllmConfig === 'object' ? clone(next.webllmConfig) : clone(DEFAULTS.webllmConfig);
+    // Solo se admiten los tamaños ofrecidos en la interfaz; los valores antiguos pasan al predeterminado.
+    if (!Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.includes(Number(webllmConfig.context_window_size))) {
+      webllmConfig.context_window_size = WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE;
+    }
+    next.webllmConfig = webllmConfig;
     if (!next.activeProfile || typeof next.activeProfile !== 'object') next.activeProfile = null;
     return next;
   }

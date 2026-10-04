@@ -89,7 +89,7 @@ test('Browser help - PyPI y descarga directa tienen bloques copiables independie
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     const commands = [
       'pip install zerochat && zerochat',
-      'curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py && python3 zerochat.py'
+      'curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py'
     ];
     for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/mcp.html', 'help/en/mcp.html']) {
       await page.goto('file://' + path.resolve(__dirname, '../..', helpPath), { waitUntil: 'load' });

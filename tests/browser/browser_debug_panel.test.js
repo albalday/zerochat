@@ -7,7 +7,7 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-  test('el panel de depuración expone filtros accesibles y alterna el autoscroll sin errores', async () => {
+  test('el panel de depuración expone filtros accesibles y sigue el final del log salvo que el usuario suba', async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -37,13 +37,39 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
       assert.deepEqual(selected.find(tab => tab.filter === 'network'), { filter: 'network', pressed: 'true', active: true });
       assert.equal(selected.filter(tab => tab.pressed === 'true').length, 1);
 
-      const isActive = () => page.evaluate(() => document.getElementById('btn-toggle-autoscroll').classList.contains('active'));
-      assert.equal(await isActive(), true);
-      await page.click('#btn-toggle-autoscroll');
-      assert.equal(await isActive(), false);
-      await page.click('#btn-toggle-autoscroll');
-      assert.equal(await isActive(), true);
+      const scroll = await page.evaluate(() => {
+        const log = document.getElementById('debug-log-content');
+        const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+        const fill = n => { for (let i = 0; i < n; i++) window.ChatDebug.addLog('network', `entrada ${i}`); };
+        document.querySelector('[data-debug-tab="all"]').click();
+        fill(60);
+        const followed = atBottom();
+        log.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+        log.scrollTo({ top: 0, behavior: 'instant' });
+        fill(5);
+        const kept = log.scrollTop;
+        document.querySelector('[data-debug-tab="network"]').click();
+        return { hasToggle: !!document.getElementById('btn-toggle-autoscroll'), scrollable: log.scrollHeight > log.clientHeight, followed, kept, resumedOnTab: atBottom() };
+      });
+      assert.deepEqual(scroll, { hasToggle: false, scrollable: true, followed: true, kept: 0, resumedOnTab: true });
       assert.deepEqual(pageErrors, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  test('en móvil el panel de depuración ocupa todo el ancho', async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await waitForAppReady(page);
+      await page.evaluate(() => document.getElementById('btn-toggle-debug').click());
+      const rect = await page.evaluate(() => {
+        const { left, width } = document.getElementById('debug-panel').getBoundingClientRect();
+        return { left, width };
+      });
+      assert.deepEqual(rect, { left: 0, width: 390 });
     } finally {
       await browser.close();
     }

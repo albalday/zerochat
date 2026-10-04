@@ -253,6 +253,49 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: detener un MCP en Windows elimina su árbol de procesos sin usar señales POSIX', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_mcp_windows_stop_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.DETECTED_OS = "windows"
+    client = module.StdioMcpClient(sys.executable, [], temp_dir, dict(os.environ))
+    client.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+    process = client.process
+    calls = []
+    real_run = subprocess.run
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[0] == "taskkill":
+            calls.append(cmd)
+            os.kill(int(cmd[2]), signal.SIGTERM)
+            return subprocess.CompletedProcess(cmd, 0)
+        return real_run(cmd, *args, **kwargs)
+    sigkill = signal.SIGKILL
+    del signal.SIGKILL
+    try:
+        with patch.object(module.subprocess, "run", side_effect=fake_run):
+            client.stop()
+    finally:
+        signal.SIGKILL = sigkill
+    assert calls == [["taskkill", "/PID", str(process.pid), "/T", "/F"]], calls
+    assert process.poll() is not None
+    assert client.process is None and client.tools == []
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 const LIMITS_MCP_FIXTURE = `import json, subprocess, sys, time
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
 with open(sys.argv[1], "w") as pid_file:

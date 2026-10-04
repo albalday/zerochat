@@ -381,6 +381,16 @@ class StdioMcpClient:
         self._alive = False
         if not self.process:
             return
+        if DETECTED_OS == "windows":
+            # Windows no tiene SIGKILL ni grupos POSIX: se elimina el árbol completo de una vez.
+            _kill_process_tree(self.process)
+            try:
+                self.process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            self.process = None
+            self.tools = []
+            return
         try:
             if not self._signal_group(signal.SIGTERM):
                 self.process.terminate()

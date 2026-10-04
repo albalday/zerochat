@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./cookies.js'), require('./profile-backup.js'), require('./utils.js'));
+    module.exports = factory(require('./cookies.js'), require('./profile-backup.js'), require('./utils.js'), require('./defaults.js'));
   } else {
-    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup, root.ChatUtils);
+    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup, root.ChatUtils, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (Storage, Backup, Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Storage, Backup, Utils, Defaults) {
   'use strict';
 
   const STORAGE_KEY = 'profiles_v1';
@@ -33,7 +33,7 @@
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
     webllmConfig: {
-      context_window_size: 'default',
+      context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
       prefill_chunk_size: 'default'
     }
   });

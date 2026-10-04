@@ -52,6 +52,9 @@
   const DEFAULT_TIMEOUT_MS = 15000;
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
+  // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
+  // y la espera de la autorización OAuth.
+  const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const MAX_OUTPUT_LENGTH = 60000;
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -1443,7 +1446,10 @@
         await this.syncExternalServers(registry).catch(() => {});
         return result;
       }
-      for (let attempt = 0; attempt <= EXTERNAL_START_POLL_ATTEMPTS; attempt += 1) {
+      // Cada fase (installing, starting) dispone de su propio presupuesto de esperas.
+      let phase = null;
+      let attempt = 0;
+      for (;;) {
         let status;
         try {
           status = await this.fetchExternalServers({ throwOnError: true });
@@ -1463,16 +1469,22 @@
           error.externalServer = server;
           throw error;
         }
-        const maxAttempts = server?.oauthUrl ? 80 : EXTERNAL_START_POLL_ATTEMPTS;
+        if (server.status !== phase) {
+          phase = server.status;
+          attempt = 0;
+        }
+        const maxAttempts = server.oauthUrl || server.status === 'installing'
+          ? EXTERNAL_LONG_START_POLL_ATTEMPTS
+          : EXTERNAL_START_POLL_ATTEMPTS;
         if (attempt >= maxAttempts) {
           const error = new Error(`MCP server '${serverId}' is still starting after ${maxAttempts} waits.`);
           error.code = 'EXTERNAL_START_WAIT_TIMEOUT';
           error.externalServer = server;
           throw error;
         }
-        if (typeof onWait === 'function') onWait(attempt + 1, maxAttempts, server.status, server);
+        attempt += 1;
+        if (typeof onWait === 'function') onWait(attempt, maxAttempts, server.status, server);
         await new Promise(resolve => setTimeout(resolve, EXTERNAL_START_POLL_INTERVAL_MS));
-
       }
     }
 

@@ -88,9 +88,10 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     assert.equal(await page.$eval('#btn-webllm-params', el => el.classList.contains('active')), true);
 
     // Seleccionar valores en los desplegables
-    await page.selectOption('#setting-webllm-context-window', '8192');
+    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '65536');
+    await page.selectOption('#setting-webllm-context-window', '131072');
     await page.selectOption('#setting-webllm-prefill-chunk', '2048');
-    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '8192');
+    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '131072');
     assert.equal(await page.$eval('#setting-webllm-prefill-chunk', el => el.value), '2048');
 
     // Pulsar el botón de nuevo lo oculta
@@ -172,7 +173,7 @@ test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los par
               apiType: 'webllm',
               apiUrl: 'webllm://local',
               model: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-              webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' }
+              webllmConfig: { context_window_size: '32768', prefill_chunk_size: 'default' }
             }
           }
         ]
@@ -188,20 +189,20 @@ test('Browser UI - WebLLM sincroniza el límite de contexto del modelo y los par
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    // 1. Con 'default', el límite publicado se sincroniza a 4096 y el badge muestra 4.1k (no 1M)
+    // 1. El valor heredado 'default' pasa a 64K y el badge muestra 65.5k (no 1M)
     const defaultContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
-    assert.equal(defaultContext, 4096);
+    assert.equal(defaultContext, 65536);
     const badgeText = await page.$eval('#connection-tokens-text', el => el.textContent);
-    assert.match(badgeText, /4(\.1)?k/i);
+    assert.match(badgeText, /65(\.5)?k/i);
     assert.doesNotMatch(badgeText, /1M/);
 
-    // 2. Al cambiar a perfil con parámetro avanzado 8192, el límite se actualiza a 8192 y badge a 8.2k
+    // 2. Al cambiar a perfil con parámetro avanzado 32768, el límite se actualiza a 32768 y badge a 32.8k
     await page.click('#active-profile-trigger');
     await page.click('[data-profile-id="profile:webllm-8k"]');
     const customContext = await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit);
-    assert.equal(customContext, 8192);
+    assert.equal(customContext, 32768);
     const updatedBadge = await page.$eval('#connection-tokens-text', el => el.textContent);
-    assert.match(updatedBadge, /8(\.2)?k/i);
+    assert.match(updatedBadge, /32(\.8)?k/i);
   } finally {
     await browser.close();
   }

@@ -1126,3 +1126,36 @@ test('MCP - timeout SSE identifica la expiración y elimina la petición pendien
   assert.equal(client.pendingRequests.size, 0);
   assert.equal(fetch.mock.callCount(), 1);
 });
+
+test('MCP - startExternalServer espera instalaciones largas y limita cada fase', async () => {
+  const originalSetTimeout = global.setTimeout;
+  global.setTimeout = (fn, ms, ...args) => (ms === 15000 ? setImmediate(fn, ...args) : originalSetTimeout(fn, ms, ...args));
+  const timeout = () => Object.assign(new Error('timeout'), { code: 'MCP_REQUEST_TIMEOUT' });
+  const run = async (phases) => {
+    const manager = new MCP.McpManager();
+    const waits = [];
+    let polls = 0;
+    manager.syncExternalServers = async () => {};
+    manager.requestExternalControl = async (method) => {
+      if (method === 'zerochat/external/servers/start') throw timeout();
+      const status = phases[Math.min(polls, phases.length - 1)];
+      polls += 1;
+      return { servers: [{ id: 'playwright', status }] };
+    };
+    const result = await manager.startExternalServer('playwright', null, (attempt, total, status) => waits.push({ attempt, total, status }));
+    return { result, waits };
+  };
+  try {
+    const install = [...Array(30).fill('installing'), ...Array(5).fill('starting'), 'running'];
+    const { result, waits } = await run(install);
+    assert.equal(result.servers[0].status, 'running');
+    assert.deepEqual(waits[29], { attempt: 30, total: 80, status: 'installing' });
+    assert.deepEqual(waits[30], { attempt: 1, total: 10, status: 'starting' });
+
+    await assert.rejects(run(Array(20).fill('starting')), error => (
+      error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
+    ));
+  } finally {
+    global.setTimeout = originalSetTimeout;
+  }
+});

@@ -329,7 +329,7 @@
         temperature,
         maxAgentTurns,
         webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
-          context_window_size: 'default',
+          context_window_size: String(resolveDep('ChatDefaults', './defaults.js').WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
           prefill_chunk_size: 'default'
         }
       }

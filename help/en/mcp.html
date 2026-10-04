@@ -33,7 +33,7 @@
           <strong>On Windows:</strong> If the <code>zerochat</code> executable is not on your <code>PATH</code>, run directly using <code>py -m zerochat</code> (or <code>python -m zerochat</code>).
         </div>
       <h3>Direct download</h3>
-        <div class="code-wrapper"><pre><code>curl -sL https://albalday.github.io/zerochat/zerochat.py -o zerochat.py &amp;&amp; python3 zerochat.py</code></pre></div>
+        <div class="code-wrapper"><pre><code>curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py</code></pre></div>
       <p>For subsequent launches, use <code>zerochat</code> (or <code>py -m zerochat</code> on Windows) or <code>python3 zerochat.py</code>, respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>
       <ol>
         <li>Keep the server running and open the link it provides.</li>
@@ -70,12 +70,24 @@
           <tr><td><code>memory</code></td><td>Memory and knowledge graphs; Node.js 18+ and npm.</td></tr>
         </tbody>
       </table></div>
+      <div class="subsection" id="nodejs-windows">
+      <h3>Install Node.js on Windows</h3>
+      <p>Open PowerShell and install the LTS release with <code>winget</code>, included with Windows 10 and 11:</p>
+        <div class="code-wrapper"><pre><code>winget install OpenJS.NodeJS.LTS</code></pre></div>
+      <p>You can also download the LTS installer (<code>.msi</code>) from <a href="https://nodejs.org/" target="_blank" rel="noopener noreferrer">nodejs.org</a> and keep the default options, which add Node.js and npm to the <code>PATH</code>.</p>
+      <ol>
+        <li>Close PowerShell and open a new window so the updated <code>PATH</code> is loaded.</li>
+        <li>Check the installation with <code>node --version</code> and <code>npm.cmd --version</code>.</li>
+        <li>Restart ZeroChat from that new window: the server only detects Node.js and npm if they were on the <code>PATH</code> when it started.</li>
+      </ol>
+      <p>If <code>npm --version</code> fails with a script execution policy error, use <code>npm.cmd</code>. ZeroChat is not affected by that policy.</p>
+      </div>
       <h3>Startup and OAuth</h3>
-      <p>The button shows <strong>Starting</strong> and stays disabled. If startup exceeds 15 seconds, ZeroChat checks the status and waits for up to ten additional 15-second intervals while it remains installing or starting. Installation and the OAuth wait are not treated as failures when the first timeout expires; once the service is active, the panel updates automatically. The button shows the attempt number.</p>
+      <p>The button shows <strong>Starting</strong> and stays disabled. If startup exceeds 15 seconds, ZeroChat checks the status and waits in 15-second intervals: up to 20 minutes while it installs dependencies (for example, Playwright and its browser) or awaits OAuth authorization, and up to ten more intervals while it starts. Installation and the OAuth wait are not treated as failures when the first timeout expires; once the service is active, the panel updates automatically. The button shows the attempt number.</p>
       <p>If the service needs OAuth, its card shows an <strong>Authorization required</strong> notice with an <strong>Authorize in browser</strong> button. ZeroChat tries to open the authorization tab; if the browser blocks it, press the button. Because it opens from the web page itself, it also works on Android and Termux. If the wait expires, the service may still be starting; reload the page to check the outcome.</p>
       <p>Services are not restarted automatically on the next ZeroChat startup. If any were enabled, a notice reminds you when connecting; start them from this panel when needed.</p>
       <h3>If installation fails</h3>
-      <p>Read the card's error. Check <code>node --version</code>, <code>npm --version</code>, network access and free disk space, then try again. You do not need to reinstall ZeroChat.</p>
+      <p>Read the card's error. Check <code>node --version</code>, <code>npm --version</code>, network access and free disk space, then try again. You do not need to reinstall ZeroChat. On Windows, see <a href="#nodejs-windows">Install Node.js on Windows</a>.</p>
     </div>
 
     <div class="card">

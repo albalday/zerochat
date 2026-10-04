@@ -22,6 +22,15 @@
     return (typeof window !== 'undefined' && window.ChatIcons) || require('./icons.js');
   }
 
+  function getConversationUI() {
+    return (typeof window !== 'undefined' && window.ChatUIConversation) || require('./ui-conversation.js');
+  }
+
+  // Sigue el final del log salvo que el usuario haya subido; force vuelve a engancharlo.
+  function scrollLogToBottom(force = false) {
+    if (dom.debugLogContent) getConversationUI().scrollToBottom(dom.debugLogContent, { force });
+  }
+
   function getI18n() {
     return (typeof window !== 'undefined' && window.ChatI18n) ? window.ChatI18n : {
       t: (k) => k
@@ -34,7 +43,6 @@
   }
 
   let dom = {};
-  let isAutoscroll = true;
   let activeFilter = 'all';
   let activeThinkingBlock = null;
   let rawLogsEnabled = true;
@@ -57,14 +65,6 @@
     return now.toTimeString().split(' ')[0];
   }
 
-  function toggleAutoscroll() {
-    isAutoscroll = !isAutoscroll;
-    if (dom.btnToggleAutoscroll) {
-      dom.btnToggleAutoscroll.classList.toggle('active', isAutoscroll);
-    }
-    return isAutoscroll;
-  }
-
   function togglePanel(forceOpen) {
     if (!dom.debugPanel) return;
     const isVisible = dom.debugPanel.style.display !== 'none';
@@ -77,9 +77,7 @@
         dom.btnToggleDebug.classList.add('active');
         dom.btnToggleDebug.setAttribute('aria-expanded', 'true');
       }
-      if (isAutoscroll && dom.debugLogContent) {
-        dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
-      }
+      scrollLogToBottom(true);
     } else {
       dom.debugPanel.style.display = 'none';
       dom.debugPanel.setAttribute('aria-hidden', 'true');
@@ -175,9 +173,7 @@
         rawEntries[0].remove();
       }
 
-      if (isAutoscroll) {
-        dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
-      }
+      scrollLogToBottom();
       return;
     }
 
@@ -206,9 +202,7 @@
         activeThinkingBlock.textContent += text;
       }
 
-      if (isAutoscroll) {
-        dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
-      }
+      scrollLogToBottom();
       return;
     }
 
@@ -245,9 +239,7 @@
     }
 
     dom.debugLogContent.appendChild(entry);
-    if (isAutoscroll) {
-      dom.debugLogContent.scrollTop = dom.debugLogContent.scrollHeight;
-    }
+    scrollLogToBottom();
   }
 
   function filterLogs(tabId) {
@@ -269,6 +261,7 @@
         entry.style.display = (type === 'raw') ? 'flex' : 'none';
       }
     });
+    scrollLogToBottom(true);
   }
 
   function openInterceptorModal({ endpoint, headers, payload, onSyncDebugState }) {
@@ -497,7 +490,6 @@
     setRawLogsEnabled,
     isRawLogsEnabled,
     getFormattedTime,
-    toggleAutoscroll,
     togglePanel,
     setStatus,
     clearLogs,

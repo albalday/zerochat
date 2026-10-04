@@ -23,7 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación">
-  <title>ZeroChat v8.11.2</title>
+  <title>ZeroChat v8.12.0</title>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- Carga concurrente paralela de hojas de estilo (elimina la cascada bloqueante de @import en móvil) -->
   <link rel="stylesheet" href="css/tokens.css">
@@ -66,7 +66,6 @@
       <symbol id="icon-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></symbol>
       <symbol id="icon-chevron-right" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></symbol>
       <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></symbol>
-      <symbol id="icon-arrow-down" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></symbol>
       <symbol id="icon-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></symbol>
       <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></symbol>
       <symbol id="icon-bot" viewBox="0 0 24 24"><rect width="18" height="12" x="3" y="10" rx="2"></rect><circle cx="12" cy="4" r="2"></circle><line x1="12" y1="6" x2="12" y2="10"></line><circle cx="8" cy="15" r="1"></circle><circle cx="16" cy="15" r="1"></circle></symbol>
@@ -359,7 +358,7 @@
         <a id="welcome-help-link" class="welcome-status-badge welcome-help-link" href="help/index.html" target="_blank" rel="noopener noreferrer" data-i18n-title="welcome_help_title" data-i18n-href="welcome_help_href" title="Abrir centro de ayuda y documentación online">
           <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
           <span data-i18n="welcome_help_link">Ayuda y Documentación</span>
-          <span id="welcome-version" class="welcome-version">(v8.11.2)</span>
+          <span id="welcome-version" class="welcome-version">(v8.12.0)</span>
           <svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
         </a>
       </div>
@@ -567,9 +566,6 @@
         </button>
         <button type="button" id="btn-clear-debug" class="btn-debug-action" data-i18n-title="btn_clear_debug_title" title="Limpiar logs">
           <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
-        </button>
-        <button type="button" id="btn-toggle-autoscroll" class="btn-debug-action active" data-i18n-title="btn_autoscroll_title" title="Auto-scroll activado">
-          <svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-down"></use></svg>
         </button>
         <button type="button" id="btn-close-debug" class="btn-debug-action btn-close-panel" data-i18n-title="btn_close_debug_title" title="Cerrar panel de logs">
           <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>

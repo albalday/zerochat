@@ -258,9 +258,18 @@ def _powershell_executable() -> str:
 
 
 def _kill_process_tree(proc: subprocess.Popen):
-    """Termina el proceso y, en POSIX, todo su grupo para no dejar hijos huérfanos."""
+    """Termina el proceso y sus descendientes (grupo POSIX o árbol de Windows) para no dejar huérfanos."""
     try:
-        if DETECTED_OS != "windows" and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+        if DETECTED_OS == "windows":
+            # TerminateProcess solo alcanza al hijo directo: npm.cmd o npx dejarían vivo a node.
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            if proc.poll() is None:
+                proc.kill()
+        elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         else:
             proc.kill()

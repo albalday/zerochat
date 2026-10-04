@@ -191,7 +191,6 @@
       debugStatusIndicator: document.getElementById('debug-status-indicator'),
       btnCopyDebug: document.getElementById('btn-copy-debug'),
       btnClearDebug: document.getElementById('btn-clear-debug'),
-      btnToggleAutoscroll: document.getElementById('btn-toggle-autoscroll'),
       btnCloseDebug: document.getElementById('btn-close-debug'),
       debugLogContent: document.getElementById('debug-log-content'),
       debugTabs: document.querySelectorAll('.debug-tab'),
@@ -400,7 +399,7 @@
       if (Number.isFinite(customSize) && customSize > 0) {
         publishedLimit = Math.floor(customSize);
       } else {
-        publishedLimit = UIInspector.getModelContextLimit?.(config.model) || 4096;
+        publishedLimit = window.ChatDefaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE;
       }
     } else {
       publishedLimit = UIInspector.getModelContextLimit?.(config.model);
@@ -1159,10 +1158,6 @@
 
     if (elements.btnCopyDebug) {
       elements.btnCopyDebug.addEventListener('click', copyDebugLogs);
-    }
-
-    if (elements.btnToggleAutoscroll) {
-      elements.btnToggleAutoscroll.addEventListener('click', () => Debug.toggleAutoscroll());
     }
 
     if (elements.debugTabs && elements.debugTabs.length > 0) {

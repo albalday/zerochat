@@ -892,13 +892,13 @@ test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque
   const waits = [];
   const pending = manager.startExternalServer('ejemplo', null, (attempt, total, status) => waits.push([attempt, total, status]));
   await flushMicrotasks();
-  assert.deepEqual(waits, [[1, 10, 'installing']]);
+  assert.deepEqual(waits, [[1, 80, 'installing']]);
   t.mock.timers.tick(14999);
   await flushMicrotasks();
   assert.equal(checks, 1);
   t.mock.timers.tick(1);
   await flushMicrotasks();
-  assert.deepEqual(waits, [[1, 10, 'installing'], [2, 10, 'starting']]);
+  assert.deepEqual(waits, [[1, 80, 'installing'], [1, 10, 'starting']]);
   t.mock.timers.tick(15000);
   assert.equal((await pending).servers[0].status, 'running');
   assert.equal(request.mock.callCount(), 1);

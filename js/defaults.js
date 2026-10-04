@@ -11,6 +11,8 @@
   'use strict';
 
   return Object.freeze({
-    DEFAULT_THEME: 'dark'
+    DEFAULT_THEME: 'dark',
+    WEBLLM_CONTEXT_WINDOW_SIZES: Object.freeze([16384, 32768, 65536, 131072]),
+    WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE: 65536
   });
 });

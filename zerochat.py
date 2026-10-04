@@ -43,7 +43,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SOURCE_BACKEND_VERSION = "8.11.0"
+SOURCE_BACKEND_VERSION = "8.12.0"
 
 def _read_source_version(filename: str) -> str | None:
     """Lee la versión de un archivo del repositorio cuando se ejecuta desde fuentes."""
@@ -682,9 +682,18 @@ def _powershell_executable() -> str:
 
 
 def _kill_process_tree(proc: subprocess.Popen):
-    """Termina el proceso y, en POSIX, todo su grupo para no dejar hijos huérfanos."""
+    """Termina el proceso y sus descendientes (grupo POSIX o árbol de Windows) para no dejar huérfanos."""
     try:
-        if DETECTED_OS != "windows" and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+        if DETECTED_OS == "windows":
+            # TerminateProcess solo alcanza al hijo directo: npm.cmd o npx dejarían vivo a node.
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            if proc.poll() is None:
+                proc.kill()
+        elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         else:
             proc.kill()
@@ -1883,6 +1892,16 @@ class StdioMcpClient:
     def stop(self):
         self._alive = False
         if not self.process:
+            return
+        if DETECTED_OS == "windows":
+            # Windows no tiene SIGKILL ni grupos POSIX: se elimina el árbol completo de una vez.
+            _kill_process_tree(self.process)
+            try:
+                self.process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            self.process = None
+            self.tools = []
             return
         try:
             if not self._signal_group(signal.SIGTERM):
