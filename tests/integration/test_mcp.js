@@ -1159,3 +1159,29 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
     global.setTimeout = originalSetTimeout;
   }
 });
+
+test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendientes', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const client = new MCP.McpClient({ url: 'http://localhost:9000' });
+  let settled = false;
+  client.pendingRequests.set(1, { resolve: () => { settled = true; }, reject: () => { settled = true; } });
+
+  client._handleJsonRpcMessage('{not json');
+
+  assert.equal(settled, false);
+  assert.equal(client.pendingRequests.has(1), true);
+  assert.equal(console.warn.mock.callCount(), 1);
+  assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
+});
+
+test('MCP - avisa cuando no puede guardar la configuración de servidores', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const Storage = require('../../js/cookies.js');
+  t.mock.method(Storage, 'setStorageItem', () => { throw new Error('QuotaExceededError'); });
+  const manager = new MCP.McpManager();
+
+  manager.saveConfig();
+
+  assert.equal(console.warn.mock.callCount(), 1);
+  assert.match(String(console.warn.mock.calls[0].arguments[0]), /MCP server configuration/);
+});

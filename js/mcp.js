@@ -91,7 +91,7 @@
   function getAgentCore() {
     if (typeof window !== 'undefined' && window.ChatAgentCore) return window.ChatAgentCore;
     if (typeof require !== 'undefined') {
-      try { return require('./agent-core.js'); } catch (e) {}
+      try { return require('./agent-core.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -99,7 +99,7 @@
   function getStorage() {
     if (typeof window !== 'undefined' && window.ChatStorage) return window.ChatStorage;
     if (typeof require !== 'undefined') {
-      try { return require('./cookies.js'); } catch (e) {}
+      try { return require('./cookies.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -107,7 +107,7 @@
   function getUtils() {
     if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
     if (typeof require !== 'undefined') {
-      try { return require('./utils.js'); } catch (_) {}
+      try { return require('./utils.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -115,7 +115,7 @@
   function getState() {
     if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
     if (typeof require !== 'undefined') {
-      try { return require('./state.js'); } catch (e) {}
+      try { return require('./state.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -123,7 +123,7 @@
   function getSecurity() {
     if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
     if (typeof require !== 'undefined') {
-      try { return require('./tool-security.js'); } catch (e) {}
+      try { return require('./tool-security.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -202,7 +202,7 @@
       if (client) {
         try {
           client.disconnect();
-        } catch (e) {}
+        } catch (e) { /* la conexión puede estar ya cerrada */ }
       }
     }
   }
@@ -234,7 +234,7 @@
   function webCrypto() {
     if (globalThis.crypto?.subtle) return globalThis.crypto;
     if (typeof require !== 'undefined') {
-      try { return require('crypto').webcrypto; } catch (_) {}
+      try { return require('crypto').webcrypto; } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -268,14 +268,14 @@
       if (this.sseSource) {
         try {
           this.sseSource.close();
-        } catch (e) {}
+        } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.sseSource = null;
       }
       if (this.sseReader) {
         try {
           const cancellation = this.sseReader.cancel();
           if (cancellation?.catch) cancellation.catch(() => {});
-        } catch (e) {}
+        } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.sseReader = null;
       }
       this.isSseActive = false;
@@ -475,7 +475,9 @@
             pending.resolve(data.result);
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[MCP] Ignoring malformed JSON-RPC message:', e);
+      }
     }
 
     /**
@@ -613,7 +615,7 @@
         // Enviar notificación de inicialización completada si el servidor lo soporta
         try {
           await this.notify('notifications/initialized', {});
-        } catch (e) {}
+        } catch (e) { /* notificación opcional: no todos los servidores la admiten */ }
 
         return {
           success: true,
@@ -649,7 +651,9 @@
         if (res.status === 404 && this.postUrl) {
           this.disconnect();
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn(`[MCP] Notification ${method} could not be sent:`, e);
+      }
     }
 
     /**
@@ -724,7 +728,7 @@
   function getNoOutputText() {
     let i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
     if (!i18n && typeof require !== 'undefined') {
-      try { i18n = require('./i18n.js'); } catch (_) {}
+      try { i18n = require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     const value = i18n?.t?.('tool_no_output');
     return value && value !== 'tool_no_output' ? value : 'No output';
@@ -1023,7 +1027,9 @@
         if (Storage && Storage.setStorageItem) {
           Storage.setStorageItem(this.storageKey, serialized);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[MCP] Could not save the MCP server configuration:', e);
+      }
     }
 
     /**
@@ -1072,7 +1078,7 @@
       if (this.clients.has(id)) {
         try {
           this.clients.get(id).disconnect();
-        } catch (e) {}
+        } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.clients.delete(id);
       }
       this.providers.delete(id);
@@ -1246,7 +1252,7 @@
       }
 
       if (this.clients.has('mcp_proxy')) {
-        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
+        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.clients.delete('mcp_proxy');
       }
 
@@ -1324,14 +1330,14 @@
       this.providers.delete('mcp_proxy');
 
       if (this.clients.has('mcp_proxy')) {
-        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) {}
+        try { this.clients.get('mcp_proxy').disconnect(); } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.clients.delete('mcp_proxy');
       }
 
       if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
       this.providers.delete('mcp_external');
       if (this.clients.has('mcp_external')) {
-        try { this.clients.get('mcp_external').disconnect(); } catch (e) {}
+        try { this.clients.get('mcp_external').disconnect(); } catch (e) { /* la conexión puede estar ya cerrada */ }
         this.clients.delete('mcp_external');
       }
 
@@ -1357,7 +1363,7 @@
       const AgentCore = getAgentCore();
       const targetRegistry = registry || AgentCore?.registry;
       if (this.clients.has('mcp_external')) {
-        try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
+        try { this.clients.get('mcp_external').disconnect(); } catch (_) { /* la conexión puede estar ya cerrada */ }
         this.clients.delete('mcp_external');
       }
       if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
@@ -1415,7 +1421,7 @@
         if (targetRegistry?.unregisterProvider) targetRegistry.unregisterProvider('mcp_prov_mcp_external');
         this.providers.delete('mcp_external');
         if (this.clients.has('mcp_external')) {
-          try { this.clients.get('mcp_external').disconnect(); } catch (_) {}
+          try { this.clients.get('mcp_external').disconnect(); } catch (_) { /* la conexión puede estar ya cerrada */ }
           this.clients.delete('mcp_external');
         }
       }
