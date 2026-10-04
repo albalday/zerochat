@@ -62,6 +62,7 @@ export const GROUPS = {
   providers: [
     'tests/integration/test_completed_model_queries.js',
     'tests/integration/test_providers.js',
+    'tests/unit/test_text_tool_calls.js',
     'tests/integration/test_webllm.js',
     'tests/browser/browser_webllm.test.js'
   ],

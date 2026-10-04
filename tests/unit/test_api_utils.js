@@ -258,3 +258,59 @@ test('Api - estimateTokens delega en el estimador de ChatContextManager', () => 
   assert.equal(Api.estimateTokens('abc', 50), 50);
   assert.equal(Api.estimateTokens(''), 0);
 });
+
+test('ChatAPI - streamChatCompletion interpreta <tool_call> en texto sin mostrarlo durante el streaming', async () => {
+  const originalFetch = global.fetch;
+  const pieces = ['Voy a buscar. <tool', '_call>\n{"name": "search_web", ', '"arguments": {"query": "webgpu"}}\n</tool_call>'];
+  const sseData = pieces.map(content => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`).join('') + 'data: [DONE]\n\n';
+  const encoder = new TextEncoder();
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sseData)); controller.close(); } })
+  });
+  const visibleChunks = [];
+  let doneArgs = null;
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1',
+      apiType: 'openai',
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }],
+      tools: [{ type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } }],
+      onChunk: text => visibleChunks.push(text),
+      onDone: (...args) => { doneArgs = args; }
+    });
+    assert.ok(visibleChunks.every(text => !text.includes('<tool')));
+    assert.equal(visibleChunks.at(-1), 'Voy a buscar. ');
+    assert.equal(res.accumulatedText, 'Voy a buscar.');
+    assert.equal(res.toolCalls.length, 1);
+    assert.deepEqual(res.toolCalls[0].function, { name: 'search_web', arguments: '{"query":"webgpu"}' });
+    assert.equal(doneArgs[0], 'Voy a buscar.');
+    assert.equal(doneArgs[2], res.toolCalls);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('ChatAPI - streamChatCompletion no interpreta <tool_call> si la petición no lleva herramientas', async () => {
+  const originalFetch = global.fetch;
+  const content = 'Ejemplo: <tool_call>{"name": "search_web", "arguments": {}}</tool_call>';
+  const sseData = `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`;
+  const encoder = new TextEncoder();
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sseData)); controller.close(); } })
+  });
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }], enableTools: false
+    });
+    assert.equal(res.accumulatedText, content);
+    assert.equal(res.toolCalls, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

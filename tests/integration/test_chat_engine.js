@@ -706,3 +706,12 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
 
   ChatAPI.streamChatCompletion = originalStream;
 });
+
+test('ChatEngine - con herramientas en texto (WebLLM) no inyecta la guía de pseudo-firmas', () => {
+  require('../../js/providers-webllm.js');
+  const appConfig = { apiType: 'webllm', apiUrl: 'webllm://local', model: 'Qwen3-4B-q4f16_1-MLC', language: 'es', enabledTools: { search_web: true } };
+  const messages = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Hola' }], appConfig, { enableTools: true });
+  const system = messages.find(message => message.role === 'system')?.content || '';
+  assert.equal(system.includes('AVAILABLE TOOLS AND FUNCTIONS'), false);
+  assert.ok(system.includes('*Workflow instruction:*'));
+});

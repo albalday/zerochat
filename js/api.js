@@ -18,6 +18,7 @@
   const WebSearch = typeof window !== 'undefined' ? (window.ChatWebSearch || {}) : {};
   const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
+  const TextToolCalls = typeof window !== 'undefined' ? (window.ChatTextToolCalls || null) : (typeof require !== 'undefined' ? (() => { try { return require('./text-tool-calls.js'); } catch(e) { return null; } })() : null);
 
   const TOOL_NAME_MAP = Object.freeze({
     // 1. Descarga y extracción de PDF
@@ -503,6 +504,25 @@
       }
     }
 
+    // Con herramientas activas, los bloques <tool_call> del texto se ocultan y se
+    // interpretan como llamadas si el proveedor no devolvió llamadas nativas.
+    const parsesTextToolCalls = Boolean(TextToolCalls) && toolsList.length > 0;
+    let textToolCalls = null;
+
+    function emitText(piece) {
+      const previousVisible = parsesTextToolCalls ? TextToolCalls.visibleText(accumulatedText) : accumulatedText;
+      accumulatedText += piece;
+      chunkCount++;
+      if (!onChunk) return;
+      if (!parsesTextToolCalls) {
+        onChunk(accumulatedText, piece, getStats());
+        return;
+      }
+      const visible = TextToolCalls.visibleText(accumulatedText);
+      if (visible === previousVisible) return;
+      onChunk(visible, visible.startsWith(previousVisible) ? visible.slice(previousVisible.length) : visible, getStats());
+    }
+
     function getFinalToolCalls() {
       const callIndices = Object.keys(accumulatedToolCalls);
       if (callIndices.length > 0) {
@@ -513,6 +533,19 @@
           }
           return item;
         });
+      }
+      if (parsesTextToolCalls) {
+        if (textToolCalls) return textToolCalls;
+        const extracted = TextToolCalls.extractToolCalls(accumulatedText);
+        if (extracted.toolCalls) {
+          accumulatedText = extracted.text;
+          textToolCalls = extracted.toolCalls.map(call => ({
+            ...call,
+            function: { ...call.function, name: normalizeToolName(call.function.name) || call.function.name }
+          }));
+          if (onLog) onLog({ type: 'info', text: `Llamadas a herramientas extraídas del texto: ${textToolCalls.map(call => call.function.name).join(', ')}` });
+        }
+        return textToolCalls;
       }
       return null;
     }
@@ -657,18 +690,14 @@
                       const preText = remaining.slice(0, openMatch.index);
                       if (preText) {
                         publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-                        accumulatedText += preText;
-                        chunkCount++;
-                        if (onChunk) onChunk(accumulatedText, preText, getStats());
+                        emitText(preText);
                       }
                       activeReasoningTag = openMatch[1].toLowerCase();
                       remaining = remaining.slice(openMatch.index + openMatch[0].length);
                       publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                     } else {
                       publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-                      accumulatedText += remaining;
-                      chunkCount++;
-                      if (onChunk) onChunk(accumulatedText, remaining, getStats());
+                      emitText(remaining);
                       remaining = '';
                     }
                   } else {
@@ -779,6 +808,7 @@
         console.log('Petición cancelada por el usuario.');
         const finalStats = getStats();
         const finalToolCalls = getFinalToolCalls();
+        if (parsesTextToolCalls && !finalToolCalls) accumulatedText = TextToolCalls.visibleText(accumulatedText);
         if (onDone) await onDone(accumulatedText || '(Generación detenida)', finalStats, finalToolCalls);
         return;
       }

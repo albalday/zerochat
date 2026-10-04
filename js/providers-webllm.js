@@ -13,6 +13,8 @@
 
   const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
   const COMPLETED_MODELS_STORAGE_KEY = 'webllm_completed_models_v1';
+  // Familias entrenadas con el formato <tool_call> y con tamaño suficiente para encadenar herramientas.
+  const TOOLS_RECOMMENDED_MODEL_PATTERN = /^(Qwen3-(4B|8B)|Qwen3\.5-(4B|9B)|Hermes-3-Llama-3\.1-8B|Hermes-2-Pro-)/;
   let modulePromise = null;
 
   function supported() {
@@ -23,6 +25,10 @@
     if (typeof navigator === 'undefined' || !navigator.gpu) return 'WebGPU no está disponible en este navegador.';
     if (typeof caches === 'undefined') return 'Cache Storage no está disponible en este navegador.';
     return 'El navegador no admite los requisitos de WebLLM.';
+  }
+
+  function isToolsRecommendedModel(modelId) {
+    return TOOLS_RECOMMENDED_MODEL_PATTERN.test(String(modelId || ''));
   }
 
   function getAppConfig(webllm) {
@@ -323,6 +329,7 @@
         details: {
           webllmCache: cached,
           webllmVramMB: Number.isFinite(Number(entry.vram_required_MB)) ? Number(entry.vram_required_MB) : null,
+          webllmToolsRecommended: isToolsRecommendedModel(entry.model_id),
           loaded_context_length: contextLength,
           max_context_length: contextLength
         }
@@ -331,7 +338,7 @@
     models.sort((a, b) => {
       const aCached = a?.details?.webllmCache === 'cached' ? 1 : 0;
       const bCached = b?.details?.webllmCache === 'cached' ? 1 : 0;
-      return bCached - aCached;
+      return (bCached - aCached) || (Number(b?.details?.webllmToolsRecommended === true) - Number(a?.details?.webllmToolsRecommended === true));
     });
     return { success: true, models, count: models.length, endpoint: 'webllm://local' };
   }
@@ -370,7 +377,7 @@
       super({
         id: 'webllm', label: 'WebLLM (local)', reasoningLevels: ['none'],
         connection: { endpoint: 'webllm://local', endpointReadOnly: true, credentials: false, localModelManagement: true },
-        capabilities: { vision: false, tools: false, reasoning: false, jsonMode: false, promptCaching: false, embeddings: false, modelListing: true },
+        capabilities: { vision: false, tools: false, textTools: true, reasoning: false, jsonMode: false, promptCaching: false, embeddings: false, modelListing: true },
         ...options
       });
       this.engines = options.engineManager || new WebLLMEngineManager();
@@ -471,6 +478,7 @@
   return {
     WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,
+    isToolsRecommendedModel,
     WebLLMEngineManager,
     WebLLMProviderAdapter,
     adapter,

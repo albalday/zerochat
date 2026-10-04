@@ -27,6 +27,7 @@ const PRECACHE_ASSETS = [
   './js/utils.js',
   './js/storage-db.js',
   './js/message-turns.js',
+  './js/text-tool-calls.js',
   './js/defaults.js',
   './js/state.js',
   './js/cookies.js',

@@ -103,7 +103,7 @@
       const bId = typeof b === 'string' ? b : (b?.id || b?.name || '');
       const aCached = (a?.details?.webllmCache === 'cached' || completed.has(aId)) ? 1 : 0;
       const bCached = (b?.details?.webllmCache === 'cached' || completed.has(bId)) ? 1 : 0;
-      return bCached - aCached;
+      return (bCached - aCached) || (Number(b?.details?.webllmToolsRecommended === true) - Number(a?.details?.webllmToolsRecommended === true));
     });
   }
 
@@ -328,7 +328,8 @@
       row.className = 'webllm-model-row';
       const state = model?.details?.webllmCache;
       const label = doc.createElement('span');
-      const stateLabel = text => `${id} · ${text}${formatWebLLMVram(model)}`;
+      const toolsLabel = model?.details?.webllmToolsRecommended === true ? ` · ${t('webllm_tools_recommended')}` : '';
+      const stateLabel = text => `${id} · ${text}${formatWebLLMVram(model)}${toolsLabel}`;
       const stateKey = state === 'cached' ? 'webllm_model_cached'
         : (state === 'incomplete' ? 'webllm_model_incomplete' : (state === 'unknown' ? 'webllm_model_unknown' : 'webllm_model_missing'));
       label.textContent = stateLabel(t(stateKey));

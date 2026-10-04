@@ -7,11 +7,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'));
+    module.exports = factory(require('./message-turns.js'), require('./text-tool-calls.js'));
   } else {
-    root.ChatProviders = factory(root.ChatMessageTurns);
+    root.ChatProviders = factory(root.ChatMessageTurns, root.ChatTextToolCalls);
   }
-})(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns, TextToolCalls) {
   'use strict';
 
   /**
@@ -21,6 +21,7 @@
     streaming: true,      // Soporte para streaming de respuestas vía SSE
     vision: true,         // Soporte para procesamiento de imágenes multimodales
     tools: true,          // Soporte para Function / Tool Calling
+    textTools: false,     // Herramientas mediante bloques <tool_call> en texto cuando no hay soporte nativo
     reasoning: true,      // Soporte para control de razonamiento (thinking / reasoning_effort)
     jsonMode: true,       // Soporte para structured outputs / response_format: { type: "json_object" }
     promptCaching: true,  // Soporte para Context / Prompt Caching efímero o persistente
@@ -179,7 +180,10 @@
       } = params;
 
       const capabilities = this.getCapabilities(model);
-      const formattedMessages = this.formatMessages(messages, capabilities);
+      const usesTextTools = !capabilities.tools && capabilities.textTools && TextToolCalls;
+      const formattedMessages = usesTextTools
+        ? TextToolCalls.prepareMessages(this.formatMessages(messages, capabilities), toolsList)
+        : this.formatMessages(messages, capabilities);
 
       const payload = {
         model: (model || '').trim(),

@@ -238,7 +238,8 @@
     let isNativeToolsSupported = true;
     if (API && API.getProviderCapabilities) {
       const caps = API.getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);
-      isNativeToolsSupported = caps ? (caps.tools !== false) : true;
+      // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
+      isNativeToolsSupported = caps ? (caps.tools !== false || caps.textTools === true) : true;
     }
 
     // 2. Instrucción de flujo para herramientas (estable)

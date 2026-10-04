@@ -64,6 +64,7 @@ test('WebLLM - el catálogo usa Cache Storage por defecto sin requerir IndexedDB
     id: 'test-model', name: 'test-model', details: {
       webllmCache: 'cached',
       webllmVramMB: 1536,
+      webllmToolsRecommended: false,
       loaded_context_length: 4096,
       max_context_length: 4096
     }
@@ -177,6 +178,38 @@ test('WebLLM - omite parámetros de razonamiento no garantizados (incluido none)
       model: 'test-model', messages: [], reasoningEffort: 'high', reasoningTransport: 'send-none'
     });
     assert.equal(payload.reasoning_effort, undefined);
+  }
+});
+
+test('WebLLM - describe las herramientas en texto y convierte el historial de llamadas', () => {
+  const adapter = new WebLLM.WebLLMProviderAdapter();
+  assert.equal(adapter.getCapabilities().textTools, true);
+  const tool = { type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } };
+  const payload = adapter.buildPayload({
+    model: 'test-model',
+    toolsList: [tool],
+    messages: [
+      { role: 'system', content: 'Base' },
+      { role: 'user', content: 'Busca' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'search_web', arguments: '{"query":"a"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', name: 'search_web', content: 'R1' }
+    ]
+  });
+  assert.equal(payload.tools, undefined);
+  assert.equal(payload.messages.filter(message => message.role === 'system').length, 1);
+  assert.match(payload.messages[0].content, /^Base\n\n# Tools/);
+  assert.ok(payload.messages[0].content.includes('"name":"search_web"'));
+  assert.equal(payload.messages[2].content, '<tool_call>\n{"name":"search_web","arguments":{"query":"a"}}\n</tool_call>');
+  assert.deepEqual(payload.messages[3], { role: 'user', content: '<tool_response>\nR1\n</tool_response>' });
+  assert.ok(payload.messages.every(message => typeof message.content === 'string' && message.role !== 'tool'));
+});
+
+test('WebLLM - recomienda para herramientas los modelos entrenados con <tool_call>', () => {
+  for (const id of ['Qwen3-4B-q4f16_1-MLC', 'Qwen3-8B-q4f32_1-MLC', 'Qwen3.5-9B-q4f16_1-MLC', 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC', 'Hermes-2-Pro-Mistral-7B-q4f16_1-MLC']) {
+    assert.equal(WebLLM.isToolsRecommendedModel(id), true, id);
+  }
+  for (const id of ['Qwen3-0.6B-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC', 'Llama-3.2-3B-Instruct-q4f16_1-MLC', 'test-model', '']) {
+    assert.equal(WebLLM.isToolsRecommendedModel(id), false, id);
   }
 });
 
