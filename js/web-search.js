@@ -233,7 +233,9 @@
             return wikiResults;
           }
         }
-      } catch (e) {}
+      } catch (error) {
+        console.warn('[ChatWebSearch] Wikipedia fallback search failed:', error);
+      }
       return [];
     }
 
