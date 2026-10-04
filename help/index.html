@@ -43,12 +43,13 @@
       <h2>Añade el servidor local</h2>
       <p>Necesitas Python. Elige <strong>una</strong> de estas alternativas; ambas abren la web y utilizan <code>~/zerochat/</code> para los datos locales.</p>
       <h3>Instalar desde PyPI (recomendado)</h3>
-<div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
-      <p>En los siguientes arranques, ejecuta <code>zerochat</code>.</p>
-      <div class="alert alert-info">
-        <strong>Ejecución en Windows:</strong> Si tras instalar con <code>pip</code> el comando <code>zerochat</code> no se reconoce porque la carpeta <code>Scripts</code> de Python no está en el <code>PATH</code>, ejecútalo directamente con el lanzador de Python:
-        <p style="margin: 0.5rem 0 0 0;"><code style="font-size: 1rem; font-weight: 600;">py -m zerochat</code> (o <code>python -m zerochat</code> si está en el PATH).</p>
-      </div>
+      <p><strong>Linux, macOS y Android (Termux):</strong></p>
+<div class="code-wrapper"><pre><code>pip install zerochat
+zerochat</code></pre></div>
+      <p><strong>Windows (PowerShell o CMD):</strong> usa el lanzador <code>py</code>, que funciona aunque la carpeta <code>Scripts</code> de Python no esté en el <code>PATH</code>.</p>
+<div class="code-wrapper"><pre><code>py -m pip install zerochat
+py -m zerochat</code></pre></div>
+      <p>En los siguientes arranques basta con la segunda línea.</p>
       <h3>Descargar el script</h3>
 <div class="code-wrapper"><pre><code>curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py</code></pre></div>
       <p>En los siguientes arranques, ejecuta <code>python3 zerochat.py</code> desde la carpeta de descarga. También puedes <a href="../zerochat.py" download>descargar el archivo</a> a mano.</p>

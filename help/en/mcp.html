@@ -28,10 +28,12 @@
       <h2>1. Start and connect</h2>
       <p>MCP connects the chat to computer tools and external services. You need the local ZeroChat server. Choose one installation method:</p>
       <h3>PyPI (recommended)</h3>
-        <div class="code-wrapper"><pre><code>pip install zerochat &amp;&amp; zerochat</code></pre></div>
-        <div class="alert alert-info">
-          <strong>On Windows:</strong> If the <code>zerochat</code> executable is not on your <code>PATH</code>, run directly using <code>py -m zerochat</code> (or <code>python -m zerochat</code>).
-        </div>
+        <p><strong>Linux, macOS and Android (Termux):</strong></p>
+        <div class="code-wrapper"><pre><code>pip install zerochat
+zerochat</code></pre></div>
+        <p><strong>Windows (PowerShell or CMD):</strong> use the <code>py</code> launcher, which works even if Python's <code>Scripts</code> folder is not on <code>PATH</code>.</p>
+        <div class="code-wrapper"><pre><code>py -m pip install zerochat
+py -m zerochat</code></pre></div>
       <h3>Direct download</h3>
         <div class="code-wrapper"><pre><code>curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py</code></pre></div>
       <p>For subsequent launches, use <code>zerochat</code> (or <code>py -m zerochat</code> on Windows) or <code>python3 zerochat.py</code>, respectively. Both open GitHub Pages and store local data in <code>~/zerochat/</code>.</p>

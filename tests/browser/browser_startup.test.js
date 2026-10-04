@@ -80,7 +80,7 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
   }
 });
 
-test('Browser help - PyPI y descarga directa tienen bloques copiables independientes en ambos idiomas', async () => {
+test('Browser help - PyPI (Unix y Windows) y descarga directa tienen bloques copiables independientes en ambos idiomas', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -88,7 +88,8 @@ test('Browser help - PyPI y descarga directa tienen bloques copiables independie
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     const commands = [
-      'pip install zerochat && zerochat',
+      'pip install zerochat\nzerochat',
+      'py -m pip install zerochat\npy -m zerochat',
       'curl https://albalday.github.io/zerochat/zerochat.py -o zerochat.py ; python3 zerochat.py'
     ];
     for (const helpPath of ['help/index.html', 'help/en/index.html', 'help/mcp.html', 'help/en/mcp.html']) {
