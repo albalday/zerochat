@@ -428,6 +428,27 @@ test('AgentRuntime - bloquea la sexta repetición consecutiva del mismo lote', a
   assert.equal(executions, 5);
 });
 
+test('AgentRuntime - registra el fallo de la síntesis tras detectar un bucle en lugar de ocultarlo', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const registry = new ToolRegistry();
+  registry.registerTool(new Tool({ name: 'repeat', execute: async () => ({ ok: true }) }));
+  const toolCall = { function: { name: 'repeat', arguments: '{"value":1}' } };
+  const logs = [];
+  let call = 0;
+  const result = await new AgentRuntime({ registry, maxSteps: 8 }).execute({
+    api: { streamChatCompletion: async params => {
+      if (params.enableTools === false) throw new Error('synthesis unavailable');
+      return { accumulatedText: '', toolCalls: [{ ...toolCall, id: `call_${call++}` }] };
+    } },
+    messages: [{ role: 'user', content: 'Repite.' }],
+    callbacks: { onLog: entry => logs.push(entry) }
+  });
+
+  assert.equal(result.status, 'loop_detected');
+  assert.ok(logs.some(entry => entry.type === 'warning' && /synthesis unavailable/.test(entry.text)));
+  assert.equal(console.warn.mock.callCount(), 1);
+});
+
 test('AgentRuntime - Clean termination when model returns empty text after tools', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({

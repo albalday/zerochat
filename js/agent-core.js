@@ -23,7 +23,7 @@
       return window[globalName];
     }
     if (typeof require !== 'undefined') {
-      try { return require(modulePath); } catch (e) {}
+      try { return require(modulePath); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -31,7 +31,7 @@
   function getBuiltinToolManifest() {
     if (typeof window !== 'undefined' && window.ChatToolManifest) return window.ChatToolManifest.builtin;
     if (typeof require !== 'undefined') {
-      try { return require('./tools/tool-manifest.js').builtin; } catch (e) {}
+      try { return require('./tools/tool-manifest.js').builtin; } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -48,7 +48,7 @@
   function getAPI() {
     if (typeof window !== 'undefined' && window.ChatAPI) return window.ChatAPI;
     if (typeof require !== 'undefined') {
-      try { return require('./api.js'); } catch (e) {}
+      try { return require('./api.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -56,7 +56,7 @@
   function getContextManager() {
     if (typeof window !== 'undefined' && window.ChatContextManager) return window.ChatContextManager;
     if (typeof require !== 'undefined') {
-      try { return require('./context-manager.js'); } catch (e) {}
+      try { return require('./context-manager.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -64,7 +64,7 @@
   function getToolRuntime() {
     if (typeof window !== 'undefined' && window.ChatToolRuntime) return window.ChatToolRuntime;
     if (typeof require !== 'undefined') {
-      try { return require('./tools/tool-runtime.js'); } catch (e) {}
+      try { return require('./tools/tool-runtime.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -72,7 +72,7 @@
   function getToolSecurity() {
     if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
     if (typeof require !== 'undefined') {
-      try { return require('./tool-security.js'); } catch (e) {}
+      try { return require('./tool-security.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -80,7 +80,7 @@
   function getToolCards() {
     if (typeof window !== 'undefined' && window.ChatToolCards) return window.ChatToolCards;
     if (typeof require !== 'undefined') {
-      try { return require('./tool-cards.js'); } catch (e) {}
+      try { return require('./tool-cards.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -88,7 +88,7 @@
   function getI18n() {
     if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
     if (typeof require !== 'undefined') {
-      try { return require('./i18n.js'); } catch (e) {}
+      try { return require('./i18n.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -1344,7 +1344,12 @@
                     lastStats = stats || lastStats;
                   }
                 });
-              } catch (e) {}
+              } catch (e) {
+                if (!combinedSignal.aborted) {
+                  console.warn('[ChatAgentCore] Synthesis after loop detection failed:', e);
+                  callbacks.onLog?.({ type: 'warning', text: `[Loop protection] Synthesis failed: ${e?.message || String(e)}` });
+                }
+              }
             }
             break;
           }
@@ -1421,7 +1426,7 @@
                     imgBase64 = parsed.image_base64;
                     imgMime = parsed.mime_type || imgMime;
                   }
-                } catch (e) {}
+                } catch (e) { /* el resultado no es JSON: se conserva como texto */ }
               }
 
               if (ragDataUrl && ragMimeType) {
@@ -1443,7 +1448,7 @@
                     parsedObj.image_base64 = `[Base64 image (${imgMime}), length: ${imgBase64.length} chars - injected as visual evidence]`;
                     textForModel = JSON.stringify(parsedObj, null, 2);
                   }
-                } catch (e) {}
+                } catch (e) { /* el resultado no es JSON: se conserva como texto */ }
                 toolResponseContent = textForModel;
                 toolImages = [{
                   dataUrl,
