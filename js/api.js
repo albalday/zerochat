@@ -189,7 +189,7 @@
   function getContextManager() {
     if (typeof window !== 'undefined' && window.ChatContextManager) return window.ChatContextManager;
     if (typeof require !== 'undefined') {
-      try { return require('./context-manager.js'); } catch (_) {}
+      try { return require('./context-manager.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -793,7 +793,10 @@
                 }
               }
 
-            } catch (jsonErr) {}
+            } catch (jsonErr) {
+              console.warn('[ChatAPI] Ignored unreadable stream chunk:', jsonErr);
+              if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
+            }
           }
         }
       }
@@ -804,7 +807,7 @@
         if (flushText && onLog) {
           onLog({ type: 'raw', subtype: 'incoming', text: flushText });
         }
-      } catch (e) {}
+      } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
 
       const finalStats = getStats();
       const finalToolCalls = getFinalToolCalls();

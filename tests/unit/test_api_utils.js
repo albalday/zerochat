@@ -342,3 +342,21 @@ test('ChatAPI - streamChatCompletion no interpreta <tool_call> si la petición n
     global.fetch = originalFetch;
   }
 });
+
+test('Api - registra los fragmentos SSE ilegibles sin interrumpir la respuesta', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const originalFetch = global.fetch;
+  const logs = [];
+  global.fetch = async () => new Response('data: {broken\n\ndata: {"choices":[{"delta":{"content":"Visible"}}]}\n\ndata: [DONE]\n\n');
+  try {
+    const res = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [],
+      onLog: entry => logs.push(entry)
+    });
+    assert.equal(res.accumulatedText, 'Visible');
+    assert.ok(logs.some(entry => entry.type === 'warning' && /Ignored unreadable stream chunk/.test(entry.text)));
+    assert.equal(console.warn.mock.callCount(), 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
