@@ -329,6 +329,17 @@
     const popover = elements.contextHubPopover;
     const btnClose = elements.btnCloseContextPopover;
 
+    // En móvil el popover ocupa el área del chat: desde el header hasta el composer.
+    function fitPopoverToChatArea() {
+      if (!popover || typeof window === 'undefined') return;
+      const composer = popover.closest('.chat-input-container');
+      const header = document.querySelector('.app-header');
+      const top = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+      const bottom = composer ? Math.max(0, window.innerHeight - composer.getBoundingClientRect().top) : 0;
+      popover.style.setProperty('--context-hub-top', `${top}px`);
+      popover.style.setProperty('--context-hub-bottom', `${bottom}px`);
+    }
+
     function closePopover() {
       if (popover) popover.style.display = 'none';
       badge.setAttribute('aria-expanded', 'false');
@@ -342,6 +353,7 @@
       }
       if (!popover) return;
       const isHidden = popover.style.display === 'none' || !popover.style.display;
+      if (isHidden) fitPopoverToChatArea();
       popover.style.display = isHidden ? 'flex' : 'none';
       badge.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
       badge.classList.toggle('active', isHidden);
@@ -374,6 +386,10 @@
         if (e.key === 'Escape' && popover && popover.style.display !== 'none') {
           closePopover();
         }
+      });
+
+      window.addEventListener('resize', function () {
+        if (popover && popover.style.display !== 'none') fitPopoverToChatArea();
       });
     }
 

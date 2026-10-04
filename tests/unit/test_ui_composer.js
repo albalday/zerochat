@@ -112,3 +112,38 @@ test('UIComposer - mount attaches submit and keydown handlers and disposes clean
   assert.equal(listeners['input:keydown'], undefined);
 });
 
+
+test('UIComposer - ArrowUp con el composer vacío recupera el último prompt', () => {
+  const listeners = {};
+  const userInput = {
+    value: '',
+    addEventListener: (evt, fn) => { listeners[evt] = fn; },
+    removeEventListener: (evt) => { delete listeners[evt]; },
+    focus() {}
+  };
+  let lastPrompt = 'último prompt';
+  UIComposer.mount({ userInput }, { getLastPrompt: () => lastPrompt });
+  const press = (init = {}) => {
+    let prevented = false;
+    listeners.keydown({ key: 'ArrowUp', preventDefault: () => { prevented = true; }, ...init });
+    return prevented;
+  };
+
+  assert.equal(press(), true);
+  assert.equal(userInput.value, 'último prompt');
+
+  // Con texto en el composer la flecha conserva su comportamiento nativo
+  userInput.value = 'borrador';
+  assert.equal(press(), false);
+  assert.equal(userInput.value, 'borrador');
+
+  // Con modificadores, durante composición IME o sin historial no se altera nada
+  userInput.value = '';
+  assert.equal(press({ shiftKey: true }), false);
+  assert.equal(press({ isComposing: true }), false);
+  lastPrompt = '';
+  assert.equal(press(), false);
+  assert.equal(userInput.value, '');
+
+  UIComposer.dispose();
+});

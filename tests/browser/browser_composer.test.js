@@ -171,7 +171,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
   }
 });
 
-test('Browser UI - el panel de métricas se ancla al borde derecho del composer', async () => {
+test('Browser UI - el panel de métricas se ancla al composer en escritorio y ocupa el área del chat en móvil', async () => {
   const browser = await createTestBrowser();
   try {
     for (const viewport of [{ width: 320, height: 700, isMobile: true }, { width: 1280, height: 800 }]) {
@@ -179,26 +179,59 @@ test('Browser UI - el panel de métricas se ancla al borde derecho del composer'
       await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await waitForAppReady(page);
 
+      await page.evaluate(() => { document.getElementById('connection-tokens-badge').style.display = 'inline-flex'; });
+      await page.click('#connection-tokens-badge');
       const layout = await page.evaluate(() => {
-        const composer = document.getElementById('chat-form');
-        const badge = document.getElementById('connection-tokens-badge');
-        const popover = document.getElementById('context-hub-popover');
-        badge.style.display = 'inline-flex';
-        popover.style.display = 'flex';
-        const composerRect = composer.getBoundingClientRect();
-        const popoverRect = popover.getBoundingClientRect();
+        const composerRect = document.getElementById('chat-form').getBoundingClientRect();
+        const popoverRect = document.getElementById('context-hub-popover').getBoundingClientRect();
         return {
+          popoverTop: popoverRect.top,
+          popoverBottom: popoverRect.bottom,
           popoverLeft: popoverRect.left,
           popoverRight: popoverRect.right,
+          composerTop: composerRect.top,
           composerLeft: composerRect.left,
           composerRight: composerRect.right,
+          headerBottom: document.querySelector('.app-header').getBoundingClientRect().bottom,
           viewportWidth: innerWidth
         };
       });
 
-      assert.ok(layout.popoverLeft >= layout.composerLeft - 1, 'El panel no debe salir por la izquierda del composer');
-      assert.ok(layout.popoverRight <= layout.composerRight + 1, 'El panel no debe salir por la derecha del composer');
-      assert.ok(layout.popoverRight <= layout.viewportWidth, 'El panel no debe salir del viewport');
+      if (viewport.isMobile) {
+        assert.equal(layout.popoverLeft, 0, 'En móvil el panel debe ocupar todo el ancho');
+        assert.equal(layout.popoverRight, layout.viewportWidth, 'En móvil el panel debe ocupar todo el ancho');
+        assert.ok(Math.abs(layout.popoverTop - layout.headerBottom) <= 1, 'En móvil el panel debe empezar bajo el header');
+        assert.ok(Math.abs(layout.popoverBottom - layout.composerTop) <= 1, 'En móvil el panel debe llegar hasta el composer');
+      } else {
+        assert.ok(layout.popoverLeft >= layout.composerLeft - 1, 'El panel no debe salir por la izquierda del composer');
+        assert.ok(layout.popoverRight <= layout.composerRight + 1, 'El panel no debe salir por la derecha del composer');
+        assert.ok(layout.popoverRight <= layout.viewportWidth, 'El panel no debe salir del viewport');
+      }
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - en móvil la telemetría con caché no saca el botón de enviar del composer', async () => {
+  const browser = await createTestBrowser();
+  try {
+    for (const width of [320, 375]) {
+      const page = await browser.newPage({ viewport: { width, height: 700 }, isMobile: true });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await waitForAppReady(page);
+      const layout = await page.evaluate(() => {
+        document.getElementById('connection-tokens-badge').style.display = 'inline-flex';
+        document.getElementById('connection-tokens-text').textContent = '~12.3k / 128k';
+        document.getElementById('context-hub-cache-pill').style.display = 'inline-flex';
+        document.getElementById('context-hub-cache-val').textContent = '10.2k';
+        const form = document.getElementById('chat-form').getBoundingClientRect();
+        const send = document.getElementById('btn-send').getBoundingClientRect();
+        return { formRight: form.right, sendRight: send.right, sendWidth: send.width };
+      });
+      assert.ok(layout.sendRight <= layout.formRight, `En ${width}px el botón de enviar debe quedar dentro del composer`);
+      assert.ok(layout.sendWidth >= 40, 'El botón de enviar no debe encogerse');
       await page.close();
     }
   } finally {

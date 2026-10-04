@@ -54,6 +54,7 @@
   const UIConversation = window.ChatUIConversation || {};
   const GenerationController = window.ChatGenerationController || {};
   const ToolSecurity = window.ChatToolSecurity || {};
+  const MessageTurns = window.ChatMessageTurns || {};
 
   function t(key, params) {
     if (I18n.t) return I18n.t(key, params);
@@ -1055,7 +1056,8 @@
     // Formulario de chat, adjuntos y arrastrar y soltar
     UIComposer.mount(elements, {
       onSendMessage: handleSendMessage,
-      onStopGeneration: handleStopGeneration
+      onStopGeneration: handleStopGeneration,
+      getLastPrompt: () => MessageTurns.getLastUserPrompt?.(getChatHistory()) || ''
     });
 
     // Parada ordenada ante cierre de página o recarga durante generación

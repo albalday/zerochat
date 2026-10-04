@@ -13,6 +13,10 @@ test('GenerationStatus - getViewModel presenta progreso, pensamiento, herramient
   assert.match(thinking.text, /18/);
   assert.equal(thinking.text.includes('secret reasoning'), false);
 
+  const compactThinking = Status.getViewModel({ phase: 'thinking', startedAt: 1000 }, 19000, { compact: true });
+  assert.ok(compactThinking.text.length < thinking.text.length, 'En móvil la etiqueta de pensamiento debe abreviarse');
+  assert.match(compactThinking.text, /18/);
+
   assert.equal(Status.getViewModel({ phase: 'idle' }).active, false);
 
   const model = Status.getViewModel('Recuperando contexto semántico...');

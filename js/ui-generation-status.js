@@ -21,7 +21,7 @@
     return resolveI18n()?.t?.(key, params) || key;
   }
 
-  function getViewModel(status = {}, now = Date.now()) {
+  function getViewModel(status = {}, now = Date.now(), options = {}) {
     const raw = typeof status === 'string' ? { text: status } : (status || {});
     const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
     const percent = raw.percent != null && raw.percent !== '' && Number.isFinite(Number(raw.percent))
@@ -35,7 +35,7 @@
       loading: t('generation_status_loading'),
       compiling: t('generation_status_compiling'),
       ready: t('generation_status_generating'),
-      thinking: t('generation_status_thinking'),
+      thinking: t(options.compact ? 'generation_status_thinking_short' : 'generation_status_thinking'),
       generating: t('generation_status_generating'),
       rag: t('generation_status_rag')
     };
@@ -47,9 +47,13 @@
     return { active, phase, percent, text };
   }
 
+  function isCompactViewport() {
+    return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 640px)').matches);
+  }
+
   function render(element, status) {
     if (!element) return;
-    const view = getViewModel(status);
+    const view = getViewModel(status, Date.now(), { compact: isCompactViewport() });
     element.hidden = !view.active;
     if (!view.active) {
       if (elapsedTimer) clearInterval(elapsedTimer);

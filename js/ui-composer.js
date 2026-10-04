@@ -175,7 +175,7 @@
     }
   }
 
-  function mount(elements, { onSendMessage, onStopGeneration } = {}) {
+  function mount(elements, { onSendMessage, onStopGeneration, getLastPrompt } = {}) {
     dispose();
     cachedElements = elements || {};
     const els = cachedElements;
@@ -217,6 +217,15 @@
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           if (typeof onSendMessage === 'function') onSendMessage();
+          return;
+        }
+        const plainArrowUp = e.key === 'ArrowUp' && !e.isComposing && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey;
+        if (plainArrowUp && !els.userInput.value.trim() && typeof getLastPrompt === 'function') {
+          const lastPrompt = getLastPrompt();
+          if (!lastPrompt) return;
+          e.preventDefault();
+          setPromptValue(els, lastPrompt);
+          els.userInput.setSelectionRange?.(lastPrompt.length, lastPrompt.length);
         }
       };
       els.userInput.addEventListener('keydown', onKeyDown);

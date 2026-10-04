@@ -113,3 +113,15 @@ test('Turns.dropOrphanToolMessages - descarta resultados sin turno assistant que
   ]);
   assert.deepEqual(result.map(message => message.role), ['user', 'assistant']);
 });
+
+test('Turns.getLastUserPrompt - devuelve el último prompt de usuario omitiendo el turno temporal', () => {
+  assert.equal(Turns.getLastUserPrompt(null), '');
+  assert.equal(Turns.getLastUserPrompt([{ role: 'user', content: 'La fecha y hora actual es: hoy' }]), '');
+  assert.equal(Turns.getLastUserPrompt([
+    { role: 'user', content: 'primero' },
+    { role: 'assistant', content: 'respuesta' },
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:' } }, { type: 'text', text: 'segundo' }] },
+    { role: 'assistant', content: 'otra respuesta' },
+    { role: 'tool', content: 'resultado' }
+  ]), 'segundo');
+});

@@ -70,5 +70,17 @@
     return dropOrphanToolMessages(remaining);
   }
 
-  return { extractBaseId, isDateTimeInitialTurn, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn };
+  function getLastUserPrompt(messages) {
+    if (!Array.isArray(messages)) return '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== 'user' || isDateTimeInitialTurn(message)) continue;
+      if (typeof message.content === 'string') return message.content;
+      const textPart = Array.isArray(message.content) ? message.content.find(part => part?.type === 'text') : null;
+      return textPart?.text || '';
+    }
+    return '';
+  }
+
+  return { extractBaseId, isDateTimeInitialTurn, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt };
 });
