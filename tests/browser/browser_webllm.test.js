@@ -63,7 +63,7 @@ test('Browser UI - WebLLM muestra enlace de ayuda online y lo oculta en otros pr
   }
 });
 
-test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta panel', async () => {
+test('Browser UI - WebLLM muestra siempre los parámetros de contexto y prefill sin engranaje', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -73,35 +73,25 @@ test('Browser UI - WebLLM muestra engranaje de parámetros avanzados y conmuta p
     await page.click('#active-profile-trigger');
     await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="edit"]');
 
-    // Inicialmente con OpenAI el botón de parámetros y el panel están ocultos
-    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), true);
+    assert.equal(await page.$('#btn-webllm-params'), null);
+
+    // Con OpenAI los parámetros WebLLM están ocultos
     assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
 
-    // Cambiar a WebLLM muestra el botón de engranaje
+    // Al cambiar a WebLLM se muestran directamente
     await page.selectOption('#setting-api-type', 'webllm');
-    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), false);
-    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
-
-    // Pulsar el botón abre el panel
-    await page.click('#btn-webllm-params');
     assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), false);
-    assert.equal(await page.$eval('#btn-webllm-params', el => el.classList.contains('active')), true);
+    assert.equal(await page.$eval('#webllm-params-panel', el => el.closest('.combobox-wrapper')), null);
 
     // Seleccionar valores en los desplegables
     assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '16384');
-    await page.selectOption('#setting-webllm-context-window', '131072');
+    await page.selectOption('#setting-webllm-context-window', '4096');
     await page.selectOption('#setting-webllm-prefill-chunk', '2048');
-    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '131072');
+    assert.equal(await page.$eval('#setting-webllm-context-window', el => el.value), '4096');
     assert.equal(await page.$eval('#setting-webllm-prefill-chunk', el => el.value), '2048');
 
-    // Pulsar el botón de nuevo lo oculta
-    await page.click('#btn-webllm-params');
-    assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
-    assert.equal(await page.$eval('#btn-webllm-params', el => el.classList.contains('active')), false);
-
-    // Cambiar a OpenAI oculta tanto el botón como el panel
+    // Cambiar a OpenAI vuelve a ocultarlos
     await page.selectOption('#setting-api-type', 'openai');
-    assert.equal(await page.$eval('#btn-webllm-params', el => el.hidden), true);
     assert.equal(await page.$eval('#webllm-params-panel', el => el.hidden), true);
   } finally {
     await browser.close();

@@ -219,8 +219,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
       settingApiType: { value: 'webllm' },
       settingWebllmContextWindow: { value: '' },
       settingWebllmPrefillChunk: { value: '' },
-      webllmParamsPanel: { hidden: false },
-      btnWebllmParams: { classList: { remove: () => {} } }
+      webllmParamsPanel: { hidden: true }
     };
     const profileData = {
       webllmConfig: {
@@ -231,7 +230,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
     UISettings.applyProfileToForm(elements, profileData);
     assert.equal(elements.settingWebllmContextWindow.value, '16384');
     assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
-    assert.equal(elements.webllmParamsPanel.hidden, true);
+    assert.equal(elements.webllmParamsPanel.hidden, false);
   }
 });
 

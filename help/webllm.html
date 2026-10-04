@@ -108,8 +108,8 @@
 
     <div class="card">
       <h2>Parámetros de rendimiento</h2>
-      <p>El engranaje del perfil WebLLM permite ajustar <code>context_window_size</code> (ventana de contexto) y <code>prefill_chunk_size</code> (bloque de procesamiento del prompt).</p>
-      <p>La ventana de contexto admite 4K, 8K, 16K (predeterminada), 32K, 64K y 128K. En móviles conviene 4K u 8K: el catálogo de WebLLM calcula la memoria de cada modelo con 4K. En el prefill, <strong>Por defecto del modelo</strong> conserva su configuración. Aumentar el contexto consume más memoria. Cambiar el prefill puede afectar velocidad y memoria, sin asegurar una mejora. Si falla la preparación, vuelve a los valores predeterminados o prueba un modelo menor.</p>
+      <p>Bajo el modelo, el perfil WebLLM muestra siempre los selectores de <code>context_window_size</code> (ventana de contexto) y <code>prefill_chunk_size</code> (bloque de procesamiento del prompt).</p>
+      <p>La ventana de contexto admite 4K, 8K, 16K, 32K, 64K y 128K. Por defecto se usa 4K en móviles y 16K en el resto de dispositivos, porque el catálogo de WebLLM calcula la memoria de cada modelo con 4K. Los perfiles ya guardados conservan su valor. En el prefill, <strong>Por defecto del modelo</strong> conserva su configuración. Aumentar el contexto consume más memoria. Cambiar el prefill puede afectar velocidad y memoria, sin asegurar una mejora. Si falla la preparación, vuelve a los valores predeterminados o prueba un modelo menor.</p>
     </div>
 
     <div class="card">

@@ -260,7 +260,6 @@
       settingModel: document.getElementById('setting-model'),
       modelDatalist: document.getElementById('model-datalist'),
       modelSelectHelper: document.getElementById('model-select-helper'),
-      btnWebllmParams: document.getElementById('btn-webllm-params'),
       webllmParamsPanel: document.getElementById('webllm-params-panel'),
       settingWebllmContextWindow: document.getElementById('setting-webllm-context-window'),
       settingWebllmPrefillChunk: document.getElementById('setting-webllm-prefill-chunk'),

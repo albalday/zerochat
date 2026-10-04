@@ -108,8 +108,8 @@
 
     <div class="card">
       <h2>Performance parameters</h2>
-      <p>The WebLLM profile gear control lets you adjust <code>context_window_size</code> and <code>prefill_chunk_size</code> (the prompt processing block size).</p>
-      <p>The context window accepts 4K, 8K, 16K (default), 32K, 64K and 128K. On phones, 4K or 8K is advisable: the WebLLM catalog estimates each model's memory at 4K. For prefill, <strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
+      <p>Below the model, the WebLLM profile always shows the selectors for <code>context_window_size</code> (context window) and <code>prefill_chunk_size</code> (the prompt processing block size).</p>
+      <p>The context window accepts 4K, 8K, 16K, 32K, 64K and 128K. The default is 4K on phones and 16K on other devices, because the WebLLM catalog estimates each model's memory at 4K. Profiles already saved keep their value. For prefill, <strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
     </div>
 
     <div class="card">
