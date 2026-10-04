@@ -165,11 +165,11 @@
           if (parsed?.version === MODEL_CACHE_VERSION && parsed.connections && typeof parsed.connections === 'object') {
             document = parsed;
           }
-        } catch (_) {}
+        } catch (_) { /* caché de modelos corrupta: se reinicia */ }
         document.connections[cacheKey] = discoveredModels;
         Storage.setStorageItem('cached_models', JSON.stringify(document));
       }
-    } catch (e) {}
+    } catch (e) { /* caché de modelos opcional: un fallo no impide devolver los modelos */ }
     return discoveredModels;
   }
 

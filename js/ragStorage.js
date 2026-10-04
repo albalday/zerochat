@@ -448,7 +448,7 @@
         if (typeof navigator.storage.estimate === 'function') ({ usage = 0, quota = 0 } = await navigator.storage.estimate());
         if (typeof navigator.storage.persisted === 'function') persisted = await navigator.storage.persisted();
       }
-    } catch (_) {}
+    } catch (_) { /* API de persistencia no disponible: se informa como no persistente */ }
     const percentUsed = quota > 0 ? (usage / quota) * 100 : 0;
     return { usage, quota, percentUsed, usagePercent: percentUsed.toFixed(2), isPersisted: persisted };
   }

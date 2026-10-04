@@ -197,7 +197,7 @@
     if (modulePath && typeof require === 'function') {
       try {
         return require(modulePath);
-      } catch (_) {}
+      } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }

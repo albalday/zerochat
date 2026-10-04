@@ -71,7 +71,7 @@
       const bytes = decodeBase64(value.keyHash);
       return bytes.length === 32 ? value.keyHash : null;
     } catch (_) {
-      try { storage.removeItem(KEY_CACHE); } catch (_) {}
+      try { storage.removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: la caché se ignora */ }
       return null;
     }
   }
@@ -87,7 +87,7 @@
   }
 
   function clearCachedKeyMaterial() {
-    try { getStorage()?.removeItem(KEY_CACHE); } catch (_) {}
+    try { getStorage()?.removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: no hay caché que borrar */ }
   }
 
   async function keyMaterialFromPassword(password) {

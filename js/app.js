@@ -556,7 +556,7 @@
     if (elements.activeProfileName) elements.activeProfileName.textContent = config.activeProfile?.name || 'Espejo';
     if (elements.activeProfilePopover && !elements.activeProfilePopover.hidden) {
       let profileList = [];
-      try { profileList = Profiles.list ? Profiles.list() : []; } catch (_) {}
+      try { profileList = Profiles.list ? Profiles.list() : []; } catch (_) { /* perfiles no disponibles: el selector se muestra vacío */ }
       UISettings.renderProfileMenu(elements, profileList, config.activeProfile?.id);
     }
     if (!profileEditorOpen) {

@@ -91,7 +91,7 @@
 
     // En táctiles, enfocar el composer despliega el teclado virtual sin que el usuario lo pida.
     if (elements.userInput && !isCoarsePointer()) {
-      try { elements.userInput.focus(); } catch (_) {}
+      try { elements.userInput.focus(); } catch (_) { /* el elemento puede no admitir foco en este momento */ }
     }
 
     if (!skipSave && typeof options.saveCurrentSession === 'function') {

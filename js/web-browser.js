@@ -48,7 +48,7 @@
     if (typeof require !== 'undefined') {
       try {
         return require('./file-parser.js');
-      } catch (e) {}
+      } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -174,7 +174,7 @@
         }
         return fullOutput;
       }
-    } catch (e) {}
+    } catch (e) { /* DOMParser no disponible o HTML ilegible: se usa la extracción por expresiones regulares */ }
 
     // Fallback simple basado en expresiones regulares para Node.js o entornos sin DOMParser
     const cleanText = htmlString

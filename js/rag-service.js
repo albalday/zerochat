@@ -10,7 +10,7 @@
 
   function getFileParser() {
     if (typeof window !== 'undefined' && window.ChatFileParser) return window.ChatFileParser;
-    if (typeof require !== 'undefined') { try { return require('./file-parser.js'); } catch (_) {} }
+    if (typeof require !== 'undefined') { try { return require('./file-parser.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
     return null;
   }
 

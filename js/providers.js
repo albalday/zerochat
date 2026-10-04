@@ -738,7 +738,7 @@
           } else if (res.status === 400 || res.status === 422) {
             connectionSuccess = true;
           }
-        } catch (e) {} finally {
+        } catch (e) { /* sondeo opcional: un fallo de red deja la capacidad sin determinar */ } finally {
           if (timerD) clearTimeout(timerD);
         }
       }

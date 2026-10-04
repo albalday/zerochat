@@ -13,7 +13,7 @@
 
   function resolveI18n() {
     if (typeof window !== 'undefined') return window.ChatI18n;
-    if (typeof require !== 'undefined') { try { return require('./i18n.js'); } catch (_) {} }
+    if (typeof require !== 'undefined') { try { return require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
     return null;
   }
 
@@ -78,7 +78,7 @@
   function resolveState() {
     if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
     if (typeof globalThis !== 'undefined' && globalThis.ChatState) return globalThis.ChatState;
-    if (typeof require !== 'undefined') { try { return require('./state.js'); } catch (_) {} }
+    if (typeof require !== 'undefined') { try { return require('./state.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
     return null;
   }
 
