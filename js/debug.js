@@ -336,7 +336,7 @@
               span.textContent = t('copied_text');
               setTimeout(() => { span.textContent = old; }, 1500);
             }
-          } catch (e) {}
+          } catch (e) { /* portapapeles denegado: el JSON sigue visible para copiarlo a mano */ }
         };
       }
 
@@ -464,7 +464,7 @@
         }
         const text = reason?.stack || reason?.message || String(reason || 'Unknown unhandled rejection');
         addLog('error', `[Unhandled Promise] ${text}`);
-      } catch (_) {}
+      } catch (_) { /* no se registra un fallo del propio registro para evitar recursión */ }
     });
 
     targetWindow.addEventListener('error', (event) => {
@@ -475,7 +475,7 @@
         const msg = event?.message || event?.error?.message || 'Runtime error';
         const source = event?.filename ? ` at ${event.filename}:${event.lineno || 0}` : '';
         addLog('error', `[Runtime Error] ${msg}${source}`);
-      } catch (_) {}
+      } catch (_) { /* no se registra un fallo del propio registro para evitar recursión */ }
     });
 
     return true;
