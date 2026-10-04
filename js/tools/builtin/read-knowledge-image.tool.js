@@ -12,7 +12,7 @@
   function getRagService(context = {}) {
     if (context.services?.ragService) return context.services.ragService;
     if (typeof window !== 'undefined' && window.ChatRagService) return window.ChatRagService;
-    if (typeof require !== 'undefined') { try { return require('../../rag-service.js'); } catch (_) {} }
+    if (typeof require !== 'undefined') { try { return require('../../rag-service.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
     return null;
   }
   function getBranchIds(context = {}) { return context.activeRagBranchIds || context.activeRagBranchId || context.branchId || context.config?.activeRagBranchIds || context.config?.activeRagBranchId || ''; }
@@ -23,7 +23,7 @@
       try {
         const md = require('../../markdown.js');
         if (md?.escapeHtml) return md;
-      } catch (_) {}
+      } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return {
       escapeHtml: value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
@@ -94,7 +94,7 @@
   const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) {} }
+  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

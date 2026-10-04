@@ -200,7 +200,7 @@
   } else if (typeof require !== 'undefined') {
     try {
       manifestApi = require('../tool-manifest.js');
-    } catch (e) {}
+    } catch (e) { /* módulo opcional: no disponible en este entorno */ }
   }
 
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) {

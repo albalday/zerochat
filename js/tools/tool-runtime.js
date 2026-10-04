@@ -35,7 +35,7 @@
     }
 
     if (typeof require !== 'undefined') {
-      try { return require(definition.modulePath); } catch (e) {}
+      try { return require(definition.modulePath); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }

@@ -29,7 +29,7 @@
   function getRagService(context = {}) {
     if (context.services?.ragService) return context.services.ragService;
     if (typeof window !== 'undefined' && window.ChatRagService) return window.ChatRagService;
-    if (typeof require !== 'undefined') { try { return require('../../rag-service.js'); } catch (_) {} }
+    if (typeof require !== 'undefined') { try { return require('../../rag-service.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
     return null;
   }
 
@@ -122,7 +122,7 @@
   const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService, getBranchId, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) {} }
+  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

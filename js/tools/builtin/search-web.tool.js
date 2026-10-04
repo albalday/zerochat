@@ -118,7 +118,7 @@
   const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getQuery, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) {} }
+  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ } }
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });
