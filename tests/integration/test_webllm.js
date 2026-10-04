@@ -244,6 +244,46 @@ test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', asy
   }
 });
 
+test('WebLLM - descarta el motor si se pierde la GPU durante la generación', async () => {
+  cached = true;
+  storageValues.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["test-model"]');
+  let created = 0;
+  let released = 0;
+  const manager = new WebLLM.WebLLMEngineManager(async () => {
+    created += 1;
+    const lost = created === 1;
+    return {
+      engine: {
+        chat: { completions: { create: async function* () {
+          if (lost) throw new Error("Failed to execute 'mapAsync' on 'GPUBuffer': Buffer was unmapped before mapping was resolved.");
+          yield { choices: [{ delta: { content: 'ok' } }] };
+        } } }
+      },
+      release: async () => { released += 1; }
+    };
+  });
+  const adapter = new WebLLM.WebLLMProviderAdapter({ engineManager: manager });
+  try {
+    const request = () => adapter.createStreamResponse({ payload: { model: 'test-model', messages: [{ role: 'user', content: 'hi' }] } });
+    const failed = await request();
+    await assert.rejects(drain(failed.body), error => /WebGPU device was lost/.test(error.message) && /mapAsync/.test(error.cause.message));
+    assert.equal(released, 1);
+    assert.equal(manager.active, null);
+    const retry = await request();
+    await drain(retry.body);
+    assert.equal(created, 2);
+  } finally {
+    await adapter.disposeActiveEngine();
+  }
+});
+
+test('WebLLM - isGpuLossError solo reconoce fallos de dispositivo', () => {
+  assert.equal(WebLLM.isGpuLossError(new Error('Device was lost.')), true);
+  assert.equal(WebLLM.isGpuLossError(new Error('Model not loaded before trying to complete ChatCompletionRequest.')), true);
+  assert.equal(WebLLM.isGpuLossError(new Error('Network failure')), false);
+  assert.equal(WebLLM.isGpuLossError(null), false);
+});
+
 test('WebLLM - no oculta como fallback un error real de preparación', async () => {
   const originalWorker = global.Worker;
   const originalCreateObjectURL = URL.createObjectURL;

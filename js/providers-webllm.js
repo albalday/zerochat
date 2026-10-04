@@ -136,6 +136,16 @@
     return error;
   }
 
+  // Al perderse el dispositivo WebGPU (casi siempre por falta de memoria), WebLLM descarga el
+  // motor y las lecturas en curso fallan; el motor activo queda inservible.
+  function isGpuLossError(error) {
+    return /mapAsync|device (was )?lost|GPUBuffer|Model not loaded/i.test(String(error?.message || error || ''));
+  }
+
+  function gpuLossError(error) {
+    return new Error('The WebGPU device was lost during local inference, usually because the GPU ran out of memory. Reduce the context window in the WebLLM profile settings or choose a smaller model.', { cause: error });
+  }
+
   function extractOverrides(config) {
     if (!config || typeof config !== 'object') return null;
     const overrides = {};
@@ -343,7 +353,7 @@
     return { success: true, models, count: models.length, endpoint: 'webllm://local' };
   }
 
-  function toSseStream(iterable, release) {
+  function toSseStream(iterable, release, mapError = error => error) {
     const encoder = new TextEncoder();
     const iterator = iterable[Symbol.asyncIterator]();
     return new ReadableStream({
@@ -359,7 +369,7 @@
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(next.value)}\n\n`));
         } catch (error) {
           await release();
-          controller.error(error);
+          controller.error(await mapError(error));
         }
       },
       async cancel() {
@@ -418,12 +428,17 @@
       const interrupt = () => engineHandle.engine?.interruptGenerate?.();
       signal?.addEventListener('abort', interrupt, { once: true });
       const finishStream = () => signal?.removeEventListener('abort', interrupt);
+      const recover = async error => {
+        if (!isGpuLossError(error)) return error;
+        await this.engines.dispose(payload.model).catch(() => {});
+        return gpuLossError(error);
+      };
       try {
         const stream = await engineHandle.engine.chat.completions.create({ ...payload, stream: true });
-        return { ok: true, body: toSseStream(stream, finishStream) };
+        return { ok: true, body: toSseStream(stream, finishStream, recover) };
       } catch (error) {
         finishStream();
-        throw error;
+        throw await recover(error);
       }
     }
 
@@ -479,6 +494,7 @@
     WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,
     isToolsRecommendedModel,
+    isGpuLossError,
     WebLLMEngineManager,
     WebLLMProviderAdapter,
     adapter,

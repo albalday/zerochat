@@ -108,7 +108,8 @@ test('ChatConfig - la ventana de contexto WebLLM es 16K por defecto y descarta t
   store.initialize();
   assert.equal(store.updateRuntime({ webllmConfig: undefined }).webllmConfig.context_window_size, '16384');
   assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: 'default', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
-  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '8192', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
+  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '2048', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '16384');
+  assert.equal(store.updateRuntime({ webllmConfig: { context_window_size: '4096', prefill_chunk_size: '1024' } }).webllmConfig.context_window_size, '4096');
   const config = store.updateRuntime({ webllmConfig: { context_window_size: '131072', prefill_chunk_size: '1024' } });
   assert.deepEqual(config.webllmConfig, { context_window_size: '131072', prefill_chunk_size: '1024' });
 });

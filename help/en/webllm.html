@@ -109,7 +109,7 @@
     <div class="card">
       <h2>Performance parameters</h2>
       <p>The WebLLM profile gear control lets you adjust <code>context_window_size</code> and <code>prefill_chunk_size</code> (the prompt processing block size).</p>
-      <p>The context window accepts 16K (default), 32K, 64K and 128K. For prefill, <strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
+      <p>The context window accepts 4K, 8K, 16K (default), 32K, 64K and 128K. On phones, 4K or 8K is advisable: the WebLLM catalog estimates each model's memory at 4K. For prefill, <strong>Model default</strong> retains its configuration. Increasing context consumes more memory. Changing prefill may affect speed and memory without guaranteeing an improvement. If preparation fails, return to defaults or try a smaller model.</p>
     </div>
 
     <div class="card">
@@ -126,7 +126,7 @@
     <div class="card">
       <h2>Common problems</h2>
       <ul><li><strong>WebGPU unavailable:</strong> check browser, secure context (HTTPS or localhost), drivers and graphics acceleration.</li>
-      <li><strong>Out of memory:</strong> close other GPU workloads, reduce context or choose a smaller model.</li>
+      <li><strong>Out of memory:</strong> close other GPU workloads, reduce context or choose a smaller model. If the GPU is lost during a reply (for example, an aborted <code>mapAsync</code> on a phone), ZeroChat discards the engine and prepares it again on the next message.</li>
       <li><strong>Download or preparation error:</strong> read the complete error in the model row, check network and space, and retry.</li>
       <li><strong>Missing cache:</strong> private browsing, site cleanup or browser quotas may remove resources. Cache is not guaranteed permanent storage.</li></ul>
       <p>Compatibility must be checked on the actual device. A model may support chat without supporting vision or another provider's reasoning settings, or may use tools poorly.</p>

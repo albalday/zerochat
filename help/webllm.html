@@ -109,7 +109,7 @@
     <div class="card">
       <h2>Parámetros de rendimiento</h2>
       <p>El engranaje del perfil WebLLM permite ajustar <code>context_window_size</code> (ventana de contexto) y <code>prefill_chunk_size</code> (bloque de procesamiento del prompt).</p>
-      <p>La ventana de contexto admite 16K (predeterminada), 32K, 64K y 128K. En el prefill, <strong>Por defecto del modelo</strong> conserva su configuración. Aumentar el contexto consume más memoria. Cambiar el prefill puede afectar velocidad y memoria, sin asegurar una mejora. Si falla la preparación, vuelve a los valores predeterminados o prueba un modelo menor.</p>
+      <p>La ventana de contexto admite 4K, 8K, 16K (predeterminada), 32K, 64K y 128K. En móviles conviene 4K u 8K: el catálogo de WebLLM calcula la memoria de cada modelo con 4K. En el prefill, <strong>Por defecto del modelo</strong> conserva su configuración. Aumentar el contexto consume más memoria. Cambiar el prefill puede afectar velocidad y memoria, sin asegurar una mejora. Si falla la preparación, vuelve a los valores predeterminados o prueba un modelo menor.</p>
     </div>
 
     <div class="card">
@@ -126,7 +126,7 @@
     <div class="card">
       <h2>Problemas frecuentes</h2>
       <ul><li><strong>WebGPU no disponible:</strong> revisa navegador, contexto seguro (HTTPS o localhost), controladores y aceleración gráfica.</li>
-      <li><strong>Falta de memoria:</strong> cierra otras cargas de GPU, reduce contexto o selecciona un modelo menor.</li>
+      <li><strong>Falta de memoria:</strong> cierra otras cargas de GPU, reduce contexto o selecciona un modelo menor. Si la GPU se pierde durante una respuesta (por ejemplo, <code>mapAsync</code> abortado en el móvil), ZeroChat descarta el motor y lo vuelve a preparar en el siguiente mensaje.</li>
       <li><strong>Error de descarga o preparación:</strong> lee el error completo de la fila del modelo, comprueba red y espacio y vuelve a intentarlo.</li>
       <li><strong>Caché ausente:</strong> la navegación privada, la limpieza del sitio o las cuotas del navegador pueden eliminar recursos. La caché no es una copia permanente garantizada.</li></ul>
       <p>La compatibilidad debe comprobarse en el dispositivo concreto. Un modelo puede conversar y aun así no admitir visión ni los ajustes de razonamiento de otro proveedor, o usar mal las herramientas.</p>
