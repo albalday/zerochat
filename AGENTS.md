@@ -220,9 +220,9 @@ Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
 
 Si el usuario lo ha pedido expresamente se podrá no ejecutar los test de pase a produccion. pidiendo confirmacion y dejando el motivo en el commit y push. no s epodrán hacer excepciones en numeros seguidos de version. en medio ha de haber una sin excepciones
 
-### Excepción para documentación en `/help`
+### Excepción para documentación en `/help`, `/docs` y `AGENTS.md`
 
-Los archivos de ayuda y documentación contenidos en el subdirectorio `/help/` no forman parte del bundle distribuible de la aplicación y están destinados a su publicación en línea para GitHub Pages en `master`. Se autoriza la publicación o sincronización directa a `master` de cambios exclusivos de `/help/` sin requerir incremento de versión del producto ni la ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
+Los archivos de `/help/` (ayuda publicada en GitHub Pages), de `/docs/` (informes de auditoría y propuestas) y `AGENTS.md` (normas del proyecto) no forman parte del código distribuible del producto ni requieren versionado. Se autoriza la publicación o sincronización directa a `master` de cambios que afecten exclusivamente a `/help/`, `/docs/` y `AGENTS.md`, sin incremento de versión del producto ni ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
 
 ## 8. Finalización
 
