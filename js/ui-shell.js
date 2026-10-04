@@ -15,7 +15,7 @@
   function resolveI18n() {
     if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
     if (typeof require !== 'undefined') {
-      try { return require('./i18n.js'); } catch (_) {}
+      try { return require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
   }
@@ -127,7 +127,7 @@
     }
 
     return () => {
-      cleanups.forEach(fn => { try { fn(); } catch (_) {} });
+      cleanups.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUIShell] Cleanup failed:', error); } });
     };
   }
 
@@ -157,7 +157,7 @@
     });
 
     return () => {
-      cleanups.forEach(fn => { try { fn(); } catch (_) {} });
+      cleanups.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUIShell] Cleanup failed:', error); } });
     };
   }
 
@@ -196,7 +196,7 @@
   }
 
   function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (_) {} });
+    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUIShell] Cleanup failed:', error); } });
     activeCleanupFns = [];
     cachedElements = null;
   }
