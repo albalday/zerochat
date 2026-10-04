@@ -5,7 +5,7 @@
 **Commit base del código**: `aff1019` (`master`; `dev` solo añade cambios de `/help` y de este informe)  
 **Alcance**: Backend local (`py/`, `zerochat.py`), frontend (`js/`, `js/tools/`), interfaz (`zerochat.html`), estilos (`css/`), scripts (`scripts/`) y pruebas (`tests/`).  
 **Procedimiento de referencia**: [`AuditFull.md`](AuditFull.md)  
-**Seguimiento**: H-01, H-02 y H-03 corregidos en la versión **8.12.5**; H-04 pendiente (ver [§6](#6-hallazgos)).
+**Seguimiento**: H-01, H-02 y H-03 corregidos en la versión **8.12.5**; H-04 corregido en la ayuda tras la 8.12.5 (ver [§6](#6-hallazgos)).
 
 ### Autoría
 
@@ -149,7 +149,7 @@ Los tiempos de ejecución varían entre máquinas y no se consideran evidencia.
 | **H-01** | Media | Estabilidad / diagnóstico | 116 `catch {}` vacíos en `js/`. Caso crítico: `js/agent-core.js:1347`, donde fallaba en silencio la síntesis tras detectar un bucle de herramientas (el borrador lo atribuía al límite de turnos). | Clasificarlos: los de carga opcional de módulos pueden quedar justificados con un comentario; el resto debe registrar el error o propagarlo. | Prueba de arquitectura que rechace `catch` vacíos. | **Corregido en 8.12.5**: los errores con efecto real se registran (síntesis tras bucle, fragmentos SSE ilegibles, JSON-RPC malformado, configuración MCP y política de seguridad no guardadas, escrituras rechazadas por `localStorage`, `update_plan`, búsqueda de respaldo y limpieza de paneles); el resto documenta por qué se ignora. Pruebas: `test_error_handling.js` y 8 pruebas de comportamiento. |
 | **H-02** | Baja | Mantenibilidad | `js/sandbox.js:641-650`: `execute()` acepta `timeoutMs` como número u objeto. | Normalizar a número. | Prueba unitaria del contrato de `execute`. | **Corregido en 8.12.5**: solo admite números finitos positivos; ningún llamador usaba la forma de objeto. Prueba en `test_sandbox.js`. |
 | **H-03** | Baja | Presentación / i18n | Literales visibles sin `ChatI18n`: `js/debug.js:336`, `js/rag-ui.js:722` (y, al corregirlo, 7 más en `rag-ui.js` y uno en `charts.js`). | Crear claves en ambos diccionarios. | Prueba de arquitectura que detecte asignaciones de texto literal. | **Corregido en 8.12.5**. Prueba: `test_i18n_literals.js`. Quedan textos de respaldo dentro de plantillas HTML (`js/charts.js`, `js/tool-cards.js`) que esa prueba no cubre. |
-| **H-04** | Baja | Seguridad (documental) | La ayuda y los informes previos presentaban el sandbox JS como frontera de seguridad. | Alinear la documentación con el aviso de `js/sandbox.js:11-14`. | Revisión de `/help`. | Pendiente. |
+| **H-04** | Baja | Seguridad (documental) | La ayuda y los informes previos presentaban el sandbox JS como frontera de seguridad. | Alinear la documentación con el aviso de `js/sandbox.js:11-14`. | Revisión de `/help`. | **Corregido tras 8.12.5** (solo documentación): `help/tools-agent.html` advierte en español e inglés que el sandbox no es una barrera de seguridad ni está pensado para código no fiable. |
 | **I-01** | Informativa | — | `py/ff-server.py:113` sirve `help/` en modo local. | Comportamiento previsto. | — | — |
 
 ---

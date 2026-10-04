@@ -52,7 +52,7 @@
 
     <div class="card">
       <h2>3. Running JavaScript</h2>
-      <p><code>execute_javascript</code> runs code using an iframe with an isolated origin, network restrictions and a Web Worker. Time and output limits apply; the aim is to perform calculations without giving code direct access to chat or disk.</p>
+      <p><code>execute_javascript</code> runs code using an iframe with an isolated origin, network restrictions and a Web Worker. Time and output limits apply; the aim is to perform calculations without giving code direct access to chat or disk. <strong>It is not a security boundary</strong>: it is meant for model calculations under your supervision, not for running untrusted code.</p>
       <p>Enable it when you need this processing and can review what it does. Isolation does not guarantee correct results or eliminate every resource risk. System commands use separate tools on the local server.</p>
     </div>
 

@@ -52,7 +52,7 @@
 
     <div class="card">
       <h2>3. Ejecutar JavaScript</h2>
-      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado, restricciones de red y un Web Worker. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco.</p>
+      <p><code>execute_javascript</code> ejecuta código mediante un iframe de origen aislado, restricciones de red y un Web Worker. Hay límites de tiempo y de salida; el objetivo es hacer cálculos sin dar al código acceso directo al chat o al disco. <strong>No es una barrera de seguridad</strong>: está pensado para cálculos del modelo bajo tu supervisión, no para ejecutar código no fiable.</p>
       <p>Actívala si necesitas ese procesamiento y puedes revisar lo que hace. El aislamiento no garantiza resultados correctos ni elimina todos los riesgos de recursos. Para comandos del sistema se usan herramientas distintas del servidor local.</p>
     </div>
 

@@ -28,7 +28,7 @@
       <div class="card">
         <h2>Alcance y método</h2>
         <p>Versión <strong>8.12.4</strong> (web) y <strong>8.12</strong> (backend), código en el commit <code>aff1019</code>. Procedimiento de referencia: <code>docs/audits/AuditFull.md</code>.</p>
-        <div class="alert alert-success"><p><strong>Seguimiento:</strong> los hallazgos H-01, H-02 y H-03 están <strong>corregidos en la versión 8.12.5</strong>. H-04 sigue pendiente. Los hallazgos se conservan tal como se detectaron en 8.12.4.</p></div>
+        <div class="alert alert-success"><p><strong>Seguimiento:</strong> los hallazgos H-01, H-02 y H-03 están <strong>corregidos en la versión 8.12.5</strong>. H-04 está corregido en la ayuda tras la 8.12.5. Los hallazgos se conservan tal como se detectaron en 8.12.4.</p></div>
         <p>Cada afirmación indica su procedencia: <strong>[test]</strong> prueba automatizada, <strong>[cmd]</strong> comando reproducible, <strong>[lectura]</strong> revisión del código sin prueba que lo proteja, <strong>[no verificado]</strong> hipótesis del borrador sin demostrar.</p>
       </div>
 
@@ -116,7 +116,7 @@
               <tr><td><strong>H-01</strong></td><td>Media</td><td>116 <code>catch {}</code> vacíos; caso crítico en <code>js/agent-core.js:1347</code> (síntesis tras detectar un bucle de herramientas).</td><td>Registrar o propagar los errores y justificar los ignorados. Prueba de arquitectura.</td><td><strong>Corregido en 8.12.5</strong>: los errores con efecto real se registran y el resto documenta por qué se ignora. Pruebas: <code>test_error_handling.js</code> y 8 de comportamiento.</td></tr>
               <tr><td><strong>H-02</strong></td><td>Baja</td><td><code>js/sandbox.js</code>: <code>execute()</code> acepta <code>timeoutMs</code> como número u objeto.</td><td>Normalizar a número, con prueba unitaria.</td><td><strong>Corregido en 8.12.5</strong>: solo admite números finitos positivos.</td></tr>
               <tr><td><strong>H-03</strong></td><td>Baja</td><td>Textos sin <code>ChatI18n</code> en <code>js/debug.js:336</code> y <code>js/rag-ui.js:722</code>.</td><td>Crear claves ES/EN. Prueba que detecte literales asignados a <code>textContent</code>.</td><td><strong>Corregido en 8.12.5</strong>, junto con 8 literales más en <code>rag-ui.js</code> y <code>charts.js</code>.</td></tr>
-              <tr><td><strong>H-04</strong></td><td>Baja</td><td>La documentación presentaba el sandbox JS como frontera de seguridad.</td><td>Alinear la ayuda con el aviso de <code>js/sandbox.js</code>.</td><td>Pendiente.</td></tr>
+              <tr><td><strong>H-04</strong></td><td>Baja</td><td>La documentación presentaba el sandbox JS como frontera de seguridad.</td><td>Alinear la ayuda con el aviso de <code>js/sandbox.js</code>.</td><td><strong>Corregido tras 8.12.5</strong>: la ayuda de herramientas advierte que el sandbox no es una barrera de seguridad.</td></tr>
             </tbody>
           </table>
         </div>

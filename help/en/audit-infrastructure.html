@@ -28,7 +28,7 @@
       <div class="card">
         <h2>Scope and method</h2>
         <p>Version <strong>8.12.4</strong> (web) and <strong>8.12</strong> (backend), code at commit <code>aff1019</code>. Reference procedure: <code>docs/audits/AuditFull.md</code>.</p>
-        <div class="alert alert-success"><p><strong>Follow-up:</strong> findings H-01, H-02 and H-03 are <strong>fixed in version 8.12.5</strong>. H-04 remains open. Findings are kept as they were detected in 8.12.4.</p></div>
+        <div class="alert alert-success"><p><strong>Follow-up:</strong> findings H-01, H-02 and H-03 are <strong>fixed in version 8.12.5</strong>. H-04 is fixed in the help after 8.12.5. Findings are kept as they were detected in 8.12.4.</p></div>
         <p>Each claim states its source: <strong>[test]</strong> automated test, <strong>[cmd]</strong> reproducible command, <strong>[read]</strong> code review not protected by a test, <strong>[unverified]</strong> draft hypothesis not demonstrated.</p>
       </div>
 
@@ -116,7 +116,7 @@
               <tr><td><strong>H-01</strong></td><td>Medium</td><td>116 empty <code>catch {}</code> blocks; critical case in <code>js/agent-core.js:1347</code> (synthesis after detecting a tool loop).</td><td>Log or propagate errors and justify the ignored ones. Architecture test.</td><td><strong>Fixed in 8.12.5</strong>: errors with real impact are logged and the rest document why they are ignored. Tests: <code>test_error_handling.js</code> and 8 behavior tests.</td></tr>
               <tr><td><strong>H-02</strong></td><td>Low</td><td><code>js/sandbox.js</code>: <code>execute()</code> accepts <code>timeoutMs</code> as a number or an object.</td><td>Normalize to a number, with a unit test.</td><td><strong>Fixed in 8.12.5</strong>: only finite positive numbers are accepted.</td></tr>
               <tr><td><strong>H-03</strong></td><td>Low</td><td>Text outside <code>ChatI18n</code> in <code>js/debug.js:336</code> and <code>js/rag-ui.js:722</code>.</td><td>Add ES/EN keys. Test that detects literals assigned to <code>textContent</code>.</td><td><strong>Fixed in 8.12.5</strong>, along with 8 more literals in <code>rag-ui.js</code> and <code>charts.js</code>.</td></tr>
-              <tr><td><strong>H-04</strong></td><td>Low</td><td>Documentation presented the JS sandbox as a security boundary.</td><td>Align the help with the warning in <code>js/sandbox.js</code>.</td><td>Open.</td></tr>
+              <tr><td><strong>H-04</strong></td><td>Low</td><td>Documentation presented the JS sandbox as a security boundary.</td><td>Align the help with the warning in <code>js/sandbox.js</code>.</td><td><strong>Fixed after 8.12.5</strong>: the tools help warns that the sandbox is not a security boundary.</td></tr>
             </tbody>
           </table>
         </div>
