@@ -333,3 +333,14 @@ test('Builtin Tools - finish_task requiere summary y señala detención limpia a
   assert.ok(md.includes('finish_task'));
   assert.ok(md.includes('Fase 3 completada con éxito.'));
 });
+
+test('Builtin Tools - update_plan avisa si ChatState rechaza el plan y sigue devolviendo el resultado', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const tool = BUILTIN_BY_ID.get('update_plan').createTool(AgentCore.Tool);
+  const failingState = { setAgentPlan() { throw new Error('state locked'); } };
+
+  const execRes = await tool.execute({ tasks: [{ title: 'Paso único', status: 'pending' }] }, { services: { state: failingState } });
+
+  assert.equal(execRes.success, true);
+  assert.equal(console.warn.mock.callCount(), 1);
+});

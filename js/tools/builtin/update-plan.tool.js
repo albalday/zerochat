@@ -152,7 +152,9 @@
         if (stateService && typeof stateService.setAgentPlan === 'function') {
           try {
             stateService.setAgentPlan(normalizedTasks);
-          } catch (_) {}
+          } catch (error) {
+            console.warn('[update_plan] Could not publish the plan to ChatState:', error);
+          }
         }
 
         return {
@@ -204,7 +206,7 @@
   } else if (typeof require !== 'undefined') {
     try {
       manifestApi = require('../tool-manifest.js');
-    } catch (e) {}
+    } catch (e) { /* módulo opcional: no disponible en este entorno */ }
   }
 
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) {
