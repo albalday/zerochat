@@ -407,7 +407,7 @@
   }
 
   function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (_) {} });
+    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUISidebar] Cleanup failed:', error); } });
     activeCleanupFns = [];
     cachedElements = null;
   }

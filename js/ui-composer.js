@@ -285,7 +285,7 @@
   }
 
   function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (_) {} });
+    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUIComposer] Cleanup failed:', error); } });
     activeCleanupFns = [];
     cachedElements = null;
   }
