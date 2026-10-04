@@ -705,12 +705,12 @@
     try {
       if (btnExport) {
         btnExport.disabled = true;
-        btnExport.textContent = 'Exportando 0%...';
+        btnExport.textContent = t('rag_export_starting');
       }
       const { blob, filename } = await storage().exportBranchBlob(branchId, {
         compress: true,
         onProgress: ({ current, total, percent }) => {
-          if (btnExport) btnExport.textContent = `Exportando ${percent}% (${current}/${total})...`;
+          if (btnExport) btnExport.textContent = t('rag_export_progress', { percent, current, total });
         }
       });
       const url = URL.createObjectURL(blob);
@@ -719,7 +719,7 @@
       anchor.download = filename;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      if (btnExport) btnExport.textContent = '¡Exportado!';
+      if (btnExport) btnExport.textContent = t('rag_export_done');
       await new Promise(resolve => setTimeout(resolve, 1500));
     } catch (error) {
       ChatDialogs.alert(t('notice_export_error', { err: error.message || error }), { type: 'error' });
@@ -738,22 +738,22 @@
     try {
       if (btnImport) {
         btnImport.disabled = true;
-        btnImport.textContent = 'Descomprimiendo...';
+        btnImport.textContent = t('rag_import_decompressing');
       }
       let text;
       try {
         text = await decompressFileIfNeeded(file);
       } catch (err) {
         if (err.name === 'RangeError' || err.code === 'ERR_STRING_TOO_LONG' || String(err).includes('string')) {
-          throw new Error('El archivo supera el límite de memoria del navegador (512 MB). Utiliza el respaldo ligero optimizado.');
+          throw new Error(t('rag_import_too_large'));
         }
         throw err;
       }
-      if (!text) throw new Error('El archivo de respaldo está vacío o no se pudo leer.');
-      if (btnImport) btnImport.textContent = 'Restaurando 0%...';
+      if (!text) throw new Error(t('rag_import_empty'));
+      if (btnImport) btnImport.textContent = t('rag_import_starting');
 
       const branch = await storage().importBranch(text, ({ current, total, percent }) => {
-        if (btnImport) btnImport.textContent = `Restaurando ${percent}% (${current}/${total})...`;
+        if (btnImport) btnImport.textContent = t('rag_import_progress', { percent, current, total });
       });
       indexer()?.invalidateBranch(branch.id);
       await renderManageDialog(branch.id);

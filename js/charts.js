@@ -28,6 +28,7 @@
   ];
 
   const { escapeHtml } = Utils;
+  const t = (key, params) => (typeof window !== 'undefined' && window.ChatI18n?.t) ? window.ChatI18n.t(key, params) : key;
 
   /**
    * Genera un gráfico de barras verticales en SVG.
@@ -297,7 +298,7 @@
           </div>
           <div class="tool-card-header-actions">
             <span class="chat-chart-badge">${escapeHtml(type.toUpperCase())}</span>
-            <button type="button" class="btn-tool-collapse" title="Minimizar / Expandir gráfico">${chevronSvg}</button>
+            <button type="button" class="btn-tool-collapse" title="${escapeHtml(t('chart_btn_toggle'))}">${chevronSvg}</button>
           </div>
         </div>
         <div class="tool-card-collapsible-body">

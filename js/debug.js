@@ -333,7 +333,7 @@
             const span = dom.btnCopyDebugJson.querySelector('span');
             if (span) {
               const old = span.textContent;
-              span.textContent = 'Copiado';
+              span.textContent = t('copied_text');
               setTimeout(() => { span.textContent = old; }, 1500);
             }
           } catch (e) {}

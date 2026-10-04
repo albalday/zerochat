@@ -639,15 +639,9 @@
    * @returns {Promise<{ success: boolean, result: string, logs: string[], executionTimeMs: number, error?: string }>}
    */
   async function execute(code, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    let effectiveTimeout = DEFAULT_TIMEOUT_MS;
-    if (typeof timeoutMs === 'number' && !isNaN(timeoutMs) && timeoutMs > 0) {
-      effectiveTimeout = timeoutMs;
-    } else if (typeof timeoutMs === 'object' && timeoutMs !== null) {
-      const parsed = timeoutMs.timeoutMs || timeoutMs.timeout;
-      if (typeof parsed === 'number' && !isNaN(parsed) && parsed > 0) {
-        effectiveTimeout = parsed;
-      }
-    }
+    const effectiveTimeout = (typeof timeoutMs === 'number' && timeoutMs > 0 && Number.isFinite(timeoutMs))
+      ? timeoutMs
+      : DEFAULT_TIMEOUT_MS;
 
     if (!code || typeof code !== 'string') {
       return {

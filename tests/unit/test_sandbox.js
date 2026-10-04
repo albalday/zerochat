@@ -156,6 +156,34 @@ test('Sandbox - Límite de tiempo (Timeout) y terminación forzada del Worker', 
   }
 });
 
+test('Sandbox - timeoutMs solo admite números finitos positivos; el resto usa el límite por defecto', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const originalUrl = global.URL;
+  global.Blob = class MockBlob {};
+  global.URL = { createObjectURL: () => 'blob:mock-worker-url', revokeObjectURL: () => {} };
+  global.Worker = class MockWorker {
+    postMessage() {}
+    terminate() {}
+  };
+
+  try {
+    for (const invalid of [{ timeoutMs: 50 }, NaN, -1, 0, Infinity, '50']) {
+      const pending = Sandbox.execute('while (true) {}', invalid);
+      t.mock.timers.tick(2500);
+      const res = await pending;
+      assert.match(res.error, /Timeout de 2500ms/, `valor ${String(invalid)}`);
+    }
+
+    const pending = Sandbox.execute('while (true) {}', 75);
+    t.mock.timers.tick(75);
+    assert.match((await pending).error, /Timeout de 75ms/);
+  } finally {
+    delete global.Worker;
+    delete global.Blob;
+    global.URL = originalUrl;
+  }
+});
+
 test('Sandbox - Aislamiento y terminación de Web Worker cuando está disponible', async () => {
   let terminated = false;
   let postedMessage = null;
