@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit 3: Comparison with Free AI Clients · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Dated, sourced comparison of ZeroChat, Open WebUI, LibreChat, Chatbox, Jan and Claude Desktop.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../audit-comparison.html" class="top-nav-link" lang="es">Español</a>
+          <a href="architecture.html" class="top-nav-link">← Infrastructure and data</a>
+        </div>
+      </div>
+      <h1>Audit 3: Comparison with Free AI Clients</h1>
+      <p class="subtitle">ZeroChat versus Open WebUI, LibreChat, Chatbox, Jan and Claude Desktop.</p>
+    </header>
+
+    <main>
+      <div class="alert alert-warning">
+        <p><strong>Validity:</strong> ZeroChat data was checked in its code; data for the others comes from their public documentation as of October 4, 2026. These products change every few weeks. Memory and performance were not measured, so no RAM figures are given.</p>
+      </div>
+
+      <div class="card">
+        <h2>1. Comparison matrix</h2>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr><th>Dimension</th><th>ZeroChat</th><th>Open WebUI</th><th>LibreChat</th><th>Chatbox</th><th>Jan</th><th>Claude Desktop</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Deployment</strong></td><td>Static web + optional single-file Python backend</td><td>Server (Docker or pip)</td><td>Server (Docker Compose + MongoDB)</td><td>Desktop/web app</td><td>Desktop app</td><td>Desktop app</td></tr>
+              <tr><td><strong>In-browser models (WebGPU)</strong></td><td>Yes (WebLLM)</td><td>No</td><td>No</td><td>No</td><td>No (native llama.cpp)</td><td>No</td></tr>
+              <tr><td><strong>Local models</strong></td><td>Yes (Ollama, LM Studio, OpenAI-compatible)</td><td>Yes (built-in Ollama)</td><td>Yes</td><td>Yes</td><td>Yes (own engine)</td><td>No</td></tr>
+              <tr><td><strong>Remote providers</strong></td><td>OpenAI, Claude, Gemini, OpenRouter and compatible</td><td>Broad</td><td>Broad</td><td>Broad</td><td>Several</td><td>Claude only</td></tr>
+              <tr><td><strong>MCP</strong></td><td>Local stdio and external HTTP with OAuth</td><td>Native Streamable HTTP (v0.6.31+), admins only</td><td>Yes (YAML and panel)</td><td>Yes</td><td>Yes</td><td>Local stdio and remote connectors</td></tr>
+              <tr><td><strong>Tool permissions</strong></td><td><code>ask</code> / <code>allow_all</code> / <code>workspace_trust</code> / <code>deny</code>, by path and command</td><td>By admin</td><td>By configuration</td><td>By configuration</td><td>By configuration</td><td>Per tool: always / ask / never</td></tr>
+              <tr><td><strong>Tool calling on small models</strong></td><td>Native and text <code>&lt;tool_call&gt;</code> (WebLLM)</td><td>Native or prompt-based</td><td>Model-dependent</td><td>Model-dependent</td><td>Model-dependent</td><td>Claude only</td></tr>
+              <tr><td><strong>RAG</strong></td><td>Lexical in the browser (Orama)</td><td>Vector</td><td>Vector</td><td>Knowledge base</td><td>Local retrieval</td><td>Projects</td></tr>
+              <tr><td><strong>Request inspection</strong></td><td>Editable interceptor and RAW panel</td><td>Server logs</td><td>Server logs</td><td>Limited</td><td>Limited</td><td>No</td></tr>
+              <tr><td><strong>Multi-user and roles</strong></td><td>No</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Analysis</h2>
+        <div class="subsection">
+          <h3>Versus Open WebUI and LibreChat</h3>
+          <p>Both are database-backed servers designed for several users. ZeroChat needs no server to chat; the local backend is only needed for MCP, commands and browser automation. No ZeroChat server stores history, but messages do reach the chosen provider.</p>
+          <p><strong>They win</strong> on multi-user, roles, vector RAG, voice and central administration. <strong>ZeroChat wins</strong> on startup without Docker, use on Android with Termux and request transparency.</p>
+        </div>
+        <div class="subsection">
+          <h3>Versus Chatbox and Jan</h3>
+          <p>Both are desktop apps. Jan runs GGUF models with native llama.cpp, with more performance and a larger catalog than WebLLM. ZeroChat runs models inside the tab with WebGPU, with nothing to install, at the cost of more limited models.</p>
+        </div>
+        <div class="subsection">
+          <h3>Versus Claude Desktop</h3>
+          <p>Claude Desktop only uses Anthropic models and lets you set each tool to always allow, ask or never. ZeroChat uses MCP with any provider, adds directory and command rules, and signs every call to the local backend with single-use HMAC. Claude Desktop wins on official integration, managed connectors and vendor support.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. ZeroChat differentiators</h2>
+        <ul>
+          <li><strong>Request interceptor:</strong> view and edit the exact JSON before sending.</li>
+          <li><strong>Text <code>&lt;tool_call&gt;</code></strong> for WebLLM models without native tool calling (recent feature).</li>
+          <li><strong>Visible context:</strong> input, output and cache; warning at 60 %, critical at 85 %, compaction at 70 %.</li>
+          <li><strong>Reasoning separated</strong> from the answer while streaming.</li>
+          <li><strong>Portability without Docker:</strong> Linux, Windows, macOS (with Chrome) and Android (Termux).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>4. When to choose each tool</h2>
+        <ul>
+          <li><strong>ZeroChat:</strong> to see and modify every request, test MCP with several providers or local models, without Docker.</li>
+          <li><strong>Open WebUI or LibreChat:</strong> for users, permissions, vector RAG or a team service.</li>
+          <li><strong>Jan:</strong> to run local GGUF models with good performance.</li>
+          <li><strong>Chatbox:</strong> for a simple multi-provider client on desktop and mobile.</li>
+          <li><strong>Claude Desktop:</strong> to work only with Anthropic using the official MCP integration.</li>
+        </ul>
+        <p>Conclusion: in 2026 MCP is no longer a differentiator on its own, since all five alternatives support it. What sets ZeroChat apart is the combination of serverless deployment, in-browser WebGPU, path- and command-based tool policies, and editable inspection of every request.</p>
+      </div>
+
+      <div class="card">
+        <h2>5. Sources</h2>
+        <p>Consulted on October 4, 2026:</p>
+        <ul>
+          <li><a href="https://docs.openwebui.com/features/mcp" rel="noopener">Open WebUI: MCP</a></li>
+          <li><a href="https://www.librechat.ai/docs/features/mcp" rel="noopener">LibreChat: MCP</a></li>
+          <li><a href="https://jan.ai/changelog/2025-07-31-llamacpp-tutorials" rel="noopener">Jan: migration from Cortex to llama.cpp</a></li>
+          <li><a href="https://glama.ai/mcp/clients/chatbox" rel="noopener">Chatbox: MCP capabilities</a></li>
+          <li><a href="https://support.claude.com/en/articles/11175166" rel="noopener">Claude: connectors and tool permissions</a></li>
+        </ul>
+      </div>
+
+      <div class="card" id="authorship">
+        <h2>Authorship</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>First approximation (draft):</strong> Gemini 3.8 Flash in Google Antigravity.</li>
+            <li><strong>Verification, correction and final writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code.</li>
+            <li>The agents worked from instructions given by the project owner; no human wrote the content.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Audit navigation">
+      <a href="audit-functionalities.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Audit 2: Functionalities</span>
+      </a>
+      <a href="audit-history.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Audit 4: History</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Audit 3 (Comparison) · October 4, 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

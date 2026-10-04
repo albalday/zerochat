@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auditoría 4: Evolución según Git · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Evolución de ZeroChat en 772 commits, de ChatCLI v0.9 a ZeroChat 8.12.4, separando hechos de interpretaciones.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/audit-history.html" class="top-nav-link" lang="en">English</a>
+          <a href="architecture.html" class="top-nav-link">← Infraestructura y datos</a>
+        </div>
+      </div>
+      <h1>Auditoría 4: Evolución según Git</h1>
+      <p class="subtitle">772 commits en 40 días, de ChatCLI v0.9 a ZeroChat 8.12.4.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>Método y límites</h2>
+        <p>Los <strong>hechos</strong> se comprueban con <code>git log</code> y <code>git show</code>; fechas y versiones proceden de cada commit. Las <strong>interpretaciones</strong> se marcan como tales. La mayoría de los commits solo tienen título: <strong>el historial no registra los motivos de las decisiones</strong>, así que este informe no atribuye causas que no estén documentadas.</p>
+      </div>
+
+      <div class="card">
+        <h2>1. Cifras del periodo</h2>
+        <ul>
+          <li>772 commits entre el 26 de agosto y el 4 de octubre de 2026: unos 19 al día, con picos de 65 (29/08) y 74 (02/09).</li>
+          <li>Los commits incluyen como coautores a varios agentes de codificación (Claude Opus 5, Opus 5.5, Fable 5.1). Desde el 2 de septiembre la documentación menciona el desarrollo "zero-code" con Codex y Antigravity.</li>
+          <li><em>Interpretación:</em> el ritmo encaja con un desarrollo dirigido por instrucciones y ejecutado mayoritariamente por agentes, como declara <a href="learning.html">Aprendizaje</a>.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>2. Fases</h2>
+        <div class="subsection">
+          <h3>ChatCLI multimedia (26–27 de agosto)</h3>
+          <p>Commit inicial ChatCLI v0.9 (<code>39fed30</code>). v2.1 añade multichat, gráficos SVG, voz STT/TTS y exportación (<code>dfdc964</code>). El bucle agéntico pasa de recursión a un <code>while</code> (<code>1fdf4d5</code>). Se retiran los avatares (<code>cd45cd8</code>).</p>
+        </div>
+        <div class="subsection">
+          <h3>AgentCore y MCP (28–31 de agosto)</h3>
+          <p>Se elimina el subsistema de voz (<code>cbc4cb1</code>). Llegan <code>AgentCore</code> y el primer MCP (<code>140d5a8</code>, <code>969526e</code>). Aparece un empaquetador con minificación (<code>f416f53</code>). El proyecto pasa a llamarse ZeroChat v5.1 con Tree-RAG experimental, que guardaba resúmenes en Markdown en el sistema de archivos (<code>ad107f4</code>, <code>cdfb631</code>, <code>6bc97d4</code>).</p>
+        </div>
+        <div class="subsection">
+          <h3>Orama, normas e interfaz (2–16 de septiembre)</h3>
+          <p>RAG con Orama y <code>ZeroChatDB</code> (<code>481c9c6</code>, v5.3.0) y primer <code>AGENTS.md</code> (<code>d37ff35</code>), ambos el 02/09. Iconos SVG (<code>abb692c</code>, v6.0.0), mensajes inyectados en inglés (<code>cfdab94</code>, v6.5.2), diálogos internos (<code>11a0389</code>, v6.5.4) y WebLLM el 11/09 (<code>e20a70c</code>, v6.6.0).</p>
+        </div>
+        <div class="subsection">
+          <h3>Backend unificado, PyPI y firmas (17–30 de septiembre)</h3>
+          <p>Primer token diario (<code>5ac5cd4</code>). <code>zerochat.py</code> unificado y fin del bundle en v7.0.0 (<code>f58544f</code>). Preparación de PyPI y entorno MCP unificado (<code>9083f2b</code>, <code>c69c382</code>). Backend modular <code>py/</code> (<code>b3db5f0</code>, v7.8.1). Firmas HMAC de llamadas a herramientas (<code>c51d0a8</code>, 27/09).</p>
+        </div>
+        <div class="subsection">
+          <h3>Endurecimiento y cierre de la 8.x (1–4 de octubre)</h3>
+          <p>El 03/10: slices de <code>ChatState</code> (<code>2059455</code>), token con permisos <code>0600</code> (<code>c6fca95</code>) y aceptación documentada del riesgo de origen compartido (<code>d4692e1</code>). El 04/10: <code>&lt;tool_call&gt;</code> en texto para WebLLM (<code>e44dd02</code>), limpieza de código muerto (<code>ffdbc6c</code>) y publicación 8.12.4 (<code>aff1019</code>).</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Cronología resumida</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Fecha</th><th>Versión</th><th>Commit</th><th>Hecho</th></tr></thead>
+            <tbody>
+              <tr><td>26/08</td><td>v0.9</td><td><code>39fed30</code></td><td>Nace ChatCLI</td></tr>
+              <tr><td>28/08</td><td>—</td><td><code>cbc4cb1</code></td><td>Eliminación de la voz</td></tr>
+              <tr><td>28/08</td><td>—</td><td><code>969526e</code></td><td>Primer MCP</td></tr>
+              <tr><td>30/08</td><td>v5.1</td><td><code>ad107f4</code></td><td>Renombrado a ZeroChat</td></tr>
+              <tr><td>02/09</td><td>v5.3.0</td><td><code>481c9c6</code></td><td>RAG con Orama</td></tr>
+              <tr><td>02/09</td><td>v5.3</td><td><code>d37ff35</code></td><td>Primer AGENTS.md</td></tr>
+              <tr><td>03/09</td><td>v6.0.0</td><td><code>abb692c</code></td><td>Iconos SVG</td></tr>
+              <tr><td>11/09</td><td>v6.6.0</td><td><code>e20a70c</code></td><td>WebLLM</td></tr>
+              <tr><td>17/09</td><td>v7.0.0</td><td><code>f58544f</code></td><td>Fin del bundle</td></tr>
+              <tr><td>23/09</td><td>v7.8.1</td><td><code>b3db5f0</code></td><td>Backend modular</td></tr>
+              <tr><td>27/09</td><td>—</td><td><code>c51d0a8</code></td><td>Firmas HMAC</td></tr>
+              <tr><td>03/10</td><td>v8.10.4</td><td><code>c6fca95</code></td><td>Token 0600</td></tr>
+              <tr><td>04/10</td><td>v8.12.0</td><td><code>e44dd02</code></td><td><code>&lt;tool_call&gt;</code> en texto</td></tr>
+              <tr><td>04/10</td><td>v8.12.4</td><td><code>aff1019</code></td><td>Publicación auditada</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>4. Qué aporta la historia</h2>
+        <ul>
+          <li><strong>El alcance actual es fruto de descartes:</strong> voz, avatares, bundle y Tree-RAG se retiraron. El historial registra qué se retiró, no por qué.</li>
+          <li><strong>El RAG léxico sustituyó a Tree-RAG</strong> tras unos tres días. No hay evidencia de que se probaran embeddings.</li>
+          <li><strong>Las normas de AGENTS.md llegan con sus cambios</strong> (iconos, inglés, diálogos). <em>Interpretación:</em> el reglamento fija decisiones para que los agentes no las reviertan; los commits no documentan incidentes concretos.</li>
+          <li><strong><code>&lt;tool_call&gt;</code> es reciente:</strong> llegó más de tres semanas después de WebLLM y aún tiene poco recorrido.</li>
+          <li><strong>La seguridad del backend se endureció en la segunda mitad</strong> del periodo: token diario, HMAC, permisos <code>0600</code> y riesgo de origen aceptado.</li>
+          <li><strong>El ritmo exige verificación:</strong> los borradores de estas auditorías contenían errores de fechas y capacidades.</li>
+        </ul>
+        <p>Conclusión: el estado final descrito en las otras auditorías es real. El historial explica cómo se llegó a él y recuerda que sus partes más recientes son las menos probadas por el uso.</p>
+      </div>
+
+      <div class="card" id="autoria">
+        <h2>Autoría</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>Primera aproximación (borrador):</strong> Gemini 3.8 Flash en Google Antigravity.</li>
+            <li><strong>Verificación, corrección y redacción final:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code.</li>
+            <li>Los agentes trabajaron a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Navegación de auditorías">
+      <a href="audit-comparison.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Auditoría 3: Comparativa</span>
+      </a>
+      <a href="architecture.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Infraestructura y datos</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Auditoría 4 (Historial) · 4 de octubre de 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

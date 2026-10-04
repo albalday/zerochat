@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auditoría 2: Funcionalidades y Banco de Pruebas · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Capacidades y límites verificados de ZeroChat como banco de pruebas personal para técnicos de IA.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/audit-functionalities.html" class="top-nav-link" lang="en">English</a>
+          <a href="architecture.html" class="top-nav-link">← Infraestructura y datos</a>
+        </div>
+      </div>
+      <h1>Auditoría 2: Funcionalidades y Banco de Pruebas</h1>
+      <p class="subtitle">Qué ofrece ZeroChat a una persona técnica en IA para experimentar, y qué no ofrece.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>1. Objetivo</h2>
+        <p>Evaluar ZeroChat 8.12.4 como banco de pruebas personal para entender un cliente de modelos de lenguaje, experimentar con agentes, herramientas y MCP, y observar inferencia, razonamiento y contexto. Uso personal y de autoformación, no profesional. Cada capacidad citada se ha comprobado en el código.</p>
+      </div>
+
+      <div class="card">
+        <h2>2. Capacidades por área</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Área</th><th>Valoración</th><th>Capacidades verificadas</th><th>Límites verificados</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Proveedores</strong></td><td>Alta</td><td>OpenAI/LM Studio, Claude, Gemini, Ollama, OpenRouter, WebLLM, Mirror y endpoint personalizado. Cambio de proveedor en la misma conversación.</td><td>Cada proveedor informa metadatos distintos (caché, razonamiento).</td></tr>
+              <tr><td><strong>Razonamiento</strong></td><td>Alta</td><td>Razonamiento separado en streaming. Niveles <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> y <code>on</code>.</td><td>Los tokens de razonamiento se recogen pero <strong>no se muestran</strong> en la telemetría.</td></tr>
+              <tr><td><strong>Contexto y telemetría</strong></td><td>Alta</td><td>Tokens de entrada, salida y caché; aviso al 60 %, crítico al 85 %; compactación automática al 70 %.</td><td>La capacidad puede ser asumida si el servidor no la publica (se indica).</td></tr>
+              <tr><td><strong>Agente y herramientas</strong></td><td>Alta</td><td>Function Calling nativo y <code>&lt;tool_call&gt;</code> en texto para WebLLM. Bucle de 5 a 200 turnos (40 por defecto) con <code>agent_checkpoint</code>, <code>update_plan</code> y <code>finish_task</code>. 12 herramientas integradas.</td><td><code>&lt;tool_call&gt;</code> solo en WebLLM y añadido el 4 de octubre de 2026.</td></tr>
+              <tr><td><strong>MCP</strong></td><td>Alta</td><td>Servidores stdio locales gestionados por <code>zerochat.py</code> y servidores HTTP externos con OAuth. Políticas <code>ask</code>, <code>allow_all</code>, <code>workspace_trust</code> y reglas <code>deny</code>; detección de comandos encadenados.</td><td>No hay visor del tráfico JSON-RPC con los servidores MCP.</td></tr>
+              <tr><td><strong>RAG local</strong></td><td>Media</td><td>Índice <strong>léxico</strong> Orama sobre IndexedDB. PDF (con imágenes y conversión CMYK), texto, Markdown, CSV/TSV, JSON, YAML, XML, HTML y código.</td><td>Sin embeddings ni búsqueda semántica. <strong>Sin DOCX</strong> ni formatos ofimáticos.</td></tr>
+              <tr><td><strong>Sandbox JS</strong></td><td>Media</td><td><code>&lt;iframe&gt;</code> con origen opaco, CSP <code>connect-src 'none'</code> y watchdog.</td><td>No es una frontera de seguridad, según el propio módulo.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Correspondencia con la ayuda</h2>
+        <p>Comprobado por muestreo, sin contrastar cada frase de cada página:</p>
+        <ul>
+          <li><a href="rag.html">RAG</a>: indica que la búsqueda es léxica, sin embeddings, y que puede no encontrar sinónimos ni traducciones. Coincide con el código.</li>
+          <li><a href="architecture.html">Arquitectura</a>: declara la incompatibilidad con Safari y que en macOS hay que usar Chrome; entornos Linux, Windows 10/11 y Android con Termux.</li>
+          <li><a href="tools-agent.html">Herramientas y agente</a>: describe DuckDuckGo, Jina Reader, la conexión directa y AllOrigins.</li>
+          <li><a href="reasoning-telemetry.html">Razonamiento y telemetría</a>: describe la compactación al 70 %.</li>
+          <li><a href="learning.html">Aprendizaje</a>: presenta ZeroChat como proyecto personal de aprendizaje.</li>
+        </ul>
+        <p>En los puntos revisados, la ayuda es coherente con el código y no promete capacidades inexistentes.</p>
+      </div>
+
+      <div class="card">
+        <h2>4. Casos de uso</h2>
+        <div class="subsection">
+          <h3>Probar un servidor MCP propio</h3>
+          <p>Registrarlo (stdio local o HTTP externo), ver sus herramientas y probar el comportamiento del agente con distintas políticas. Las tarjetas de herramienta muestran argumentos y resultados. <strong>No</strong> muestra los mensajes JSON-RPC crudos; para eso hace falta el MCP Inspector o registrar el tráfico en el servidor.</p>
+        </div>
+        <div class="subsection">
+          <h3>Comparar el razonamiento entre modelos</h3>
+          <p>Ajustar la intensidad y ver el razonamiento aparte de la respuesta. El recuento de tokens de razonamiento no aparece en la interfaz: hay que consultarlo en el JSON crudo del panel de depuración.</p>
+        </div>
+        <div class="subsection">
+          <h3>Interceptar y modificar peticiones</h3>
+          <p>Con <a href="debug.html">Debug messages</a>, cada petición se detiene antes del envío y muestra el JSON exacto, que se puede editar, validar y enviar o cancelar.</p>
+        </div>
+        <div class="subsection">
+          <h3>Inferencia local con WebGPU</h3>
+          <p>WebLLM en un Web Worker dedicado, sin backend. El catálogo recomienda modelos con mejor manejo de herramientas (Qwen3/3.5, Hermes). El motor se descarga de jsDelivr y los modelos ocupan de cientos de MB a varios GB.</p>
+        </div>
+        <div class="subsection">
+          <h3>Estudiar la arquitectura</h3>
+          <p>JavaScript modular UMD sin empaquetador ni framework: parsing de SSE, normalización entre proveedores, cancelación con <code>AbortController</code> y terminación de grupos de procesos en Python.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>5. Límites</h2>
+        <ul>
+          <li><strong>Monousuario:</strong> sin sesiones concurrentes ni roles.</li>
+          <li><strong>Datos en el navegador:</strong> si se borran los datos del sitio sin exportar, se pierden.</li>
+          <li><strong>Origen compartido</strong> en GitHub Pages (riesgo aceptado).</li>
+          <li><strong>RAG léxico:</strong> sin búsqueda semántica.</li>
+          <li><strong>Navegadores:</strong> Chromium y Firefox; Safari/WebKit no soportado. WebLLM requiere WebGPU.</li>
+          <li><strong>Privacidad condicionada:</strong> los mensajes llegan al proveedor remoto elegido y las herramientas web usan servicios de terceros.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>6. Dictamen</h2>
+        <p><strong>Muy adecuado como laboratorio personal de IA.</strong> Deja ver y modificar la petición, el streaming, el razonamiento, el contexto y la orquestación agéntica, y la ayuda describe con honestidad sus límites principales.</p>
+        <p>Mejoras propuestas: mostrar los tokens de razonamiento en la telemetría, registrar el tráfico JSON-RPC de MCP en el panel de depuración y añadir una guía de experimentos reproducibles.</p>
+      </div>
+
+      <div class="card" id="autoria">
+        <h2>Autoría</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>Primera aproximación (borrador):</strong> Gemini 3.8 Flash en Google Antigravity.</li>
+            <li><strong>Verificación, corrección y redacción final:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code.</li>
+            <li>Los agentes trabajaron a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido. Código verificado en el commit <code>aff1019</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Navegación de auditorías">
+      <a href="audit-infrastructure.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Auditoría 1: Infraestructura</span>
+      </a>
+      <a href="audit-comparison.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Auditoría 3: Comparativa</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Auditoría 2 (Funcionalidades) · 4 de octubre de 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

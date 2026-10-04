@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit 1: Infrastructure and Code Quality · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Code, architecture contract, security and test audit of ZeroChat 8.12.4, stating how each claim was verified.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../audit-infrastructure.html" class="top-nav-link" lang="es">Español</a>
+          <a href="architecture.html" class="top-nav-link">← Infrastructure and data</a>
+        </div>
+      </div>
+      <h1>Audit 1: Infrastructure and Code Quality</h1>
+      <p class="subtitle">Code state, architecture contracts, security and tests, stating how each claim was verified.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>Scope and method</h2>
+        <p>Version <strong>8.12.4</strong> (web) and <strong>8.12</strong> (backend), code at commit <code>aff1019</code>. Reference procedure: <code>docs/audits/AuditFull.md</code>.</p>
+        <p>Each claim states its source: <strong>[test]</strong> automated test, <strong>[cmd]</strong> reproducible command, <strong>[read]</strong> code review not protected by a test, <strong>[unverified]</strong> draft hypothesis not demonstrated.</p>
+      </div>
+
+      <div class="card">
+        <h2>1. Baseline</h2>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr><th>Command</th><th>Result</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>npm test</code></td><td>680/680 tests, 13 suites</td><td>[cmd]</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>86/86 tests in headless Chromium</td><td>[cmd]</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>298/298 tests</td><td>[cmd]</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>30/30 tests</td><td>[cmd]</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>23/23 tests in 5 files</td><td>[cmd]</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Dead code, i18n and resources</h2>
+        <ul>
+          <li><strong>Dictionaries:</strong> 649 Spanish and 649 English keys, with the same key set. [cmd]</li>
+          <li><strong>Text outside <code>ChatI18n</code>:</strong> <code>'Copiado'</code> in <code>js/debug.js:336</code> and <code>'¡Exportado!'</code> in <code>js/rag-ui.js:722</code>. Key parity does not guarantee that all visible text uses keys. [cmd]</li>
+          <li><strong>Icons:</strong> every <code>#icon-*</code> reference exists in the sprite, the sprite has no unused symbols and every glyph in <code>js/icons.js</code> has a consumer. [test] <code>test_icon_sprite.js</code></li>
+          <li><strong>Emojis in controls:</strong> the test covers <code>markdown.js</code> and the import banner. Beyond those: [unverified].</li>
+          <li><strong>CSS:</strong> the 14 linked stylesheets exist. [cmd] Absence of dead selectors: [unverified].</li>
+          <li><strong>Scripts:</strong> 69 scripts in <code>zerochat.html</code>, all with <code>defer</code>. [cmd]</li>
+          <li><strong>Debt markers:</strong> no <code>FIXME</code> or <code>HACK</code>; the only "TODO" match is the Spanish word "todo" in <code>js/tool-security.js:976</code>. [cmd]</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>3. Architecture contracts (AGENTS.md)</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Rule</th><th>Status</th><th>Source</th></tr></thead>
+            <tbody>
+              <tr><td><strong>State (<code>ChatState</code>)</strong></td><td>Compliant: only <code>state.js</code> and <code>ui-inspector.js</code> write the <code>ui</code> slice.</td><td>[test] <code>test_state_contract.js</code></td></tr>
+              <tr><td><strong>Dialogs</strong></td><td>Compliant: no native <code>alert()</code>, <code>confirm()</code> or <code>prompt()</code>.</td><td>[test] <code>test_dialogs.js</code></td></tr>
+              <tr><td><strong>Providers</strong></td><td>Compliant: Claude, Gemini, Ollama, OpenRouter, Mirror and WebLLM extend <code>BaseProviderAdapter</code>; OpenAI/LM Studio and Custom use the base class.</td><td>[read]</td></tr>
+              <tr><td><strong>Tools</strong></td><td>Compliant: 12 built-in tools without <code>ui</code> or <code>handler</code>.</td><td>[test] <code>test_tool_contract.js</code></td></tr>
+              <tr><td><strong>Injected messages in English</strong></td><td>Compliant in the reviewed cases.</td><td>[read]</td></tr>
+              <tr><td><strong>Explicit errors</strong></td><td><strong>Not compliant overall:</strong> 116 empty <code>catch</code> blocks in <code>js/</code>.</td><td>[cmd]</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>4. Security and isolation</h2>
+        <ul>
+          <li><strong>External HTML:</strong> the <code>ChatUtils</code> primitives (<code>setText</code>, <code>appendTextElement</code>) have escaping tests. [test] That every <code>innerHTML</code> use is sanitized: [unverified] exhaustively.</li>
+          <li><strong>JavaScript sandbox:</strong> <code>&lt;iframe&gt;</code> with <code>sandbox="allow-scripts"</code>, CSP <code>connect-src 'none'</code>, time watchdog and <code>e.source</code> filter. [read] The module itself warns that it is <strong>not a security sandbox</strong> at operating-system level (<code>js/sandbox.js:11-14</code>).</li>
+          <li><strong>Daily token:</strong> <code>~/zerochat/config/token.json</code> created with <code>0600</code> in a <code>0700</code> directory. [read] <code>py/cc-environment.py</code></li>
+          <li><strong>Tool signatures:</strong> HMAC-SHA256 over session, method, path, expiry, nonce and body hash; bounded TTL and single-use nonce under a lock. [read] <code>py/ff-server.py:170-205</code></li>
+          <li><strong>Processes:</strong> <code>_kill_process_tree()</code> kills the process group on timeout; MCP dependencies in <code>~/zerochat/.venv/</code>. [read]</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>5. Accepted risks</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Risk</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the origin can read the cookie, <code>localStorage</code> and IndexedDB. Accepted in <code>AGENTS.md</code> §4.</td></tr>
+              <tr><td>Non-loopback <code>--host</code></td><td>Exposes command execution to the network without encryption; startup warns.</td></tr>
+              <tr><td>WebLLM from a CDN</td><td>The engine is imported from <code>cdn.jsdelivr.net</code>.</td></tr>
+              <tr><td>Web tools</td><td>DuckDuckGo, Jina Reader and AllOrigins receive the queries and URLs.</td></tr>
+              <tr><td>Remote providers</td><td>Messages leave the browser for the chosen provider.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>6. Findings</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>ID</th><th>Priority</th><th>Evidence</th><th>Proposal and closing test</th></tr></thead>
+            <tbody>
+              <tr><td><strong>H-01</strong></td><td>Medium</td><td>116 empty <code>catch {}</code> blocks; critical case in <code>js/agent-core.js:1347</code> (final answer after running out of turns).</td><td>Log or propagate errors and justify optional module loads. Architecture test with an allowlist.</td></tr>
+              <tr><td><strong>H-02</strong></td><td>Low</td><td><code>js/sandbox.js</code>: <code>execute()</code> accepts <code>timeoutMs</code> as a number or an object.</td><td>Normalize to a number in the next major version, with a unit test.</td></tr>
+              <tr><td><strong>H-03</strong></td><td>Low</td><td>Text outside <code>ChatI18n</code> in <code>js/debug.js:336</code> and <code>js/rag-ui.js:722</code>.</td><td>Add ES/EN keys. Test that detects literals assigned to <code>textContent</code>.</td></tr>
+              <tr><td><strong>H-04</strong></td><td>Low</td><td>Documentation presented the JS sandbox as a security boundary.</td><td>Align the help with the warning in <code>js/sandbox.js</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Conclusion: all tests pass and the contracts protected by tests are met. Debts the draft missed remain (H-01, H-03), and several "zero defects" claims should become tests before being treated as facts.</p>
+      </div>
+
+      <div class="card" id="authorship">
+        <h2>Authorship and verification environment</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>First approximation (draft):</strong> Gemini 3.8 Flash in Google Antigravity.</li>
+            <li><strong>Verification, correction and final writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code.</li>
+            <li>The agents worked from instructions given by the project owner; no human wrote the content.</li>
+            <li><strong>Environment:</strong> Linux x86_64 (kernel 7.2), Node.js 24.18.1, Python 3.14.7, Playwright 1.62.1 with headless Chromium.</li>
+            <li><strong>Reproduction:</strong> <code>npm test</code>, <code>npm run test:browser</code> and the per-level commands in the baseline.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Audit navigation">
+      <a href="architecture.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Infrastructure and data</span>
+      </a>
+      <a href="audit-functionalities.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Audit 2: Functionalities</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Audit 1 (Infrastructure) · October 4, 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit 2: Functionalities and AI Testbed · ZeroChat 8.x Docs</title>
+  <meta name="description" content="Verified capabilities and limits of ZeroChat as a personal testbed for AI practitioners.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../audit-functionalities.html" class="top-nav-link" lang="es">Español</a>
+          <a href="architecture.html" class="top-nav-link">← Infrastructure and data</a>
+        </div>
+      </div>
+      <h1>Audit 2: Functionalities and AI Testbed</h1>
+      <p class="subtitle">What ZeroChat offers an AI practitioner for experimentation, and what it does not.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>1. Goal</h2>
+        <p>Evaluate ZeroChat 8.12.4 as a personal testbed to understand a language-model client, experiment with agents, tools and MCP, and observe inference, reasoning and context. Personal and self-training use, not professional use. Every capability cited was checked in the code.</p>
+      </div>
+
+      <div class="card">
+        <h2>2. Capabilities by area</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Area</th><th>Rating</th><th>Verified capabilities</th><th>Verified limits</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Providers</strong></td><td>High</td><td>OpenAI/LM Studio, Claude, Gemini, Ollama, OpenRouter, WebLLM, Mirror and a custom endpoint. Provider switching within the same conversation.</td><td>Each provider reports different metadata (cache, reasoning).</td></tr>
+              <tr><td><strong>Reasoning</strong></td><td>High</td><td>Reasoning separated while streaming. Levels <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> and <code>on</code>.</td><td>Reasoning tokens are collected but <strong>not shown</strong> in telemetry.</td></tr>
+              <tr><td><strong>Context and telemetry</strong></td><td>High</td><td>Input, output and cache tokens; warning at 60 %, critical at 85 %; automatic compaction at 70 %.</td><td>Capacity may be assumed when the server does not publish it (flagged as such).</td></tr>
+              <tr><td><strong>Agent and tools</strong></td><td>High</td><td>Native function calling and text <code>&lt;tool_call&gt;</code> blocks for WebLLM. Loop of 5 to 200 turns (40 by default) with <code>agent_checkpoint</code>, <code>update_plan</code> and <code>finish_task</code>. 12 built-in tools.</td><td><code>&lt;tool_call&gt;</code> only on WebLLM, added on October 4, 2026.</td></tr>
+              <tr><td><strong>MCP</strong></td><td>High</td><td>Local stdio servers managed by <code>zerochat.py</code> and external HTTP servers with OAuth. Policies <code>ask</code>, <code>allow_all</code>, <code>workspace_trust</code> and <code>deny</code> rules; chained-command detection.</td><td>No viewer for JSON-RPC traffic with MCP servers.</td></tr>
+              <tr><td><strong>Local RAG</strong></td><td>Medium</td><td><strong>Lexical</strong> Orama index over IndexedDB. PDF (with images and CMYK conversion), text, Markdown, CSV/TSV, JSON, YAML, XML, HTML and source code.</td><td>No embeddings or semantic search. <strong>No DOCX</strong> or office formats.</td></tr>
+              <tr><td><strong>JS sandbox</strong></td><td>Medium</td><td><code>&lt;iframe&gt;</code> with opaque origin, CSP <code>connect-src 'none'</code> and watchdog.</td><td>Not a security boundary, as the module itself states.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3. Consistency with the help</h2>
+        <p>Checked by sampling, without comparing every sentence of every page:</p>
+        <ul>
+          <li><a href="rag.html">RAG</a>: states that search is lexical, without embeddings, and may miss synonyms or translations. Matches the code.</li>
+          <li><a href="architecture.html">Infrastructure</a>: states Safari incompatibility and that macOS requires Chrome; Linux, Windows 10/11 and Android with Termux environments.</li>
+          <li><a href="tools-agent.html">Tools and agent</a>: describes DuckDuckGo, Jina Reader, direct connection and AllOrigins.</li>
+          <li><a href="reasoning-telemetry.html">Reasoning and telemetry</a>: describes compaction at 70 %.</li>
+          <li><a href="learning.html">Learning</a>: presents ZeroChat as a personal learning project.</li>
+        </ul>
+        <p>In the points reviewed, the help is consistent with the code and does not promise capabilities that do not exist.</p>
+      </div>
+
+      <div class="card">
+        <h2>4. Use cases</h2>
+        <div class="subsection">
+          <h3>Testing your own MCP server</h3>
+          <p>Register it (local stdio or external HTTP), view its tools and test the agent's behavior under different policies. Tool cards show the arguments and results. It does <strong>not</strong> show raw JSON-RPC messages; for that you need the MCP Inspector or server-side logging.</p>
+        </div>
+        <div class="subsection">
+          <h3>Comparing reasoning across models</h3>
+          <p>Adjust the intensity and see reasoning separately from the answer. The reasoning-token count is not shown in the interface: check it in the raw JSON in the debug panel.</p>
+        </div>
+        <div class="subsection">
+          <h3>Intercepting and modifying requests</h3>
+          <p>With <a href="debug.html">Debug messages</a>, each request pauses before sending and shows the exact JSON, which can be edited, validated and sent, or cancelled.</p>
+        </div>
+        <div class="subsection">
+          <h3>Local inference with WebGPU</h3>
+          <p>WebLLM in a dedicated Web Worker, without a backend. The catalog recommends models that handle tools better (Qwen3/3.5, Hermes). The engine is downloaded from jsDelivr and models take from hundreds of MB to several GB.</p>
+        </div>
+        <div class="subsection">
+          <h3>Studying the architecture</h3>
+          <p>Modular UMD JavaScript without a bundler or framework: SSE parsing, provider normalization, cancellation with <code>AbortController</code> and process-group termination in Python.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>5. Limits</h2>
+        <ul>
+          <li><strong>Single user:</strong> no concurrent sessions or roles.</li>
+          <li><strong>Data in the browser:</strong> clearing site data without exporting loses it.</li>
+          <li><strong>Shared origin</strong> on GitHub Pages (accepted risk).</li>
+          <li><strong>Lexical RAG:</strong> no semantic search.</li>
+          <li><strong>Browsers:</strong> Chromium and Firefox; Safari/WebKit not supported. WebLLM requires WebGPU.</li>
+          <li><strong>Conditional privacy:</strong> messages reach the chosen remote provider and web tools use third-party services.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>6. Verdict</h2>
+        <p><strong>Well suited as a personal AI lab.</strong> It lets you see and modify the request, streaming, reasoning, context and agent orchestration, and the help honestly describes its main limits.</p>
+        <p>Proposed improvements: show reasoning tokens in telemetry, log MCP JSON-RPC traffic in the debug panel and add a guide of reproducible experiments.</p>
+      </div>
+
+      <div class="card" id="authorship">
+        <h2>Authorship</h2>
+        <div class="alert alert-info">
+          <ul>
+            <li><strong>First approximation (draft):</strong> Gemini 3.8 Flash in Google Antigravity.</li>
+            <li><strong>Verification, correction and final writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code.</li>
+            <li>The agents worked from instructions given by the project owner; no human wrote the content. Code verified at commit <code>aff1019</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <nav class="page-navigation" aria-label="Audit navigation">
+      <a href="audit-infrastructure.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Audit 1: Infrastructure</span>
+      </a>
+      <a href="audit-comparison.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Audit 3: Comparison</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Audit 2 (Functionalities) · October 4, 2026</p>
+    </footer>
+  </div>
+</body>
+</html>
