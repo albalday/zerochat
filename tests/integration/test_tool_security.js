@@ -972,3 +972,16 @@ test('ChatToolSecurity - T01: workspace_trust no confía en rutas con ~ ni varia
   assert.equal(manager.evaluateAuthorization(readTool, { path: '$HOME/.ssh/id_rsa' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(readTool, { path: '${HOME}/.ssh/id_rsa' }).status, 'ask');
 });
+
+test('ToolSecurityManager - un listener que falla no impide notificar al resto y queda registrado', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const manager = new ChatToolSecurity.ToolSecurityManager();
+  let notified = false;
+  manager.subscribe(() => { throw new Error('listener broken'); });
+  manager.subscribe(() => { notified = true; });
+
+  manager.notifyListeners();
+
+  assert.strictEqual(notified, true);
+  assert.strictEqual(console.warn.mock.callCount(), 1);
+});

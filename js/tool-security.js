@@ -423,7 +423,7 @@
         if (typeof localStorage !== 'undefined' && localStorage?.getItem) {
           try {
             raw = localStorage.getItem(this.storageKey);
-          } catch (_) {}
+          } catch (_) { /* almacenamiento bloqueado: se usa la configuración por defecto */ }
         }
         if (!raw && Storage?.getStorageItem) {
           raw = Storage.getStorageItem(this.storageKey);
@@ -535,7 +535,9 @@
         if (typeof localStorage !== 'undefined' && localStorage?.setItem) {
           try {
             localStorage.setItem(this.storageKey, serialized);
-          } catch (_) {}
+          } catch (error) {
+            console.warn('[ChatToolSecurity] Could not persist the tool security policy:', error);
+          }
         }
         if (Storage?.setStorageItem) {
           Storage.setStorageItem(this.storageKey, serialized);
@@ -579,7 +581,7 @@
 
     notifyListeners() {
       this.listeners.forEach(fn => {
-        try { fn(this); } catch (e) {}
+        try { fn(this); } catch (e) { console.warn('[ChatToolSecurity] Listener failed:', e); }
       });
     }
 
