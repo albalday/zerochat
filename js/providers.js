@@ -23,6 +23,7 @@
     tools: true,          // Soporte para Function / Tool Calling
     textTools: false,     // Herramientas mediante bloques <tool_call> en texto cuando no hay soporte nativo
     reasoning: true,      // Soporte para control de razonamiento (thinking / reasoning_effort)
+    temperature: true,    // Admite el parámetro de muestreo temperature
     jsonMode: true,       // Soporte para structured outputs / response_format: { type: "json_object" }
     promptCaching: true,  // Soporte para Context / Prompt Caching efímero o persistente
     embeddings: true,     // Soporte para endpoints de generación de embeddings
@@ -187,9 +188,11 @@
 
       const payload = {
         model: (model || '').trim(),
-        messages: formattedMessages,
-        temperature: parseFloat(temperature) || 0.7
+        messages: formattedMessages
       };
+      if (capabilities.temperature !== false) {
+        payload.temperature = parseFloat(temperature) || 0.7;
+      }
 
       if (capabilities.streaming && stream !== false) {
         payload.stream = true;
@@ -1101,6 +1104,8 @@
           vision: true,
           tools: true,
           reasoning: false,
+          // Google rechazará temperature, top_p y top_k en los próximos modelos Gemini
+          temperature: false,
           jsonMode: true,
           promptCaching: true,
           embeddings: true,

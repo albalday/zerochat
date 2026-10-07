@@ -209,9 +209,16 @@
     const locked = elements?.profilesDialog?.dataset.profileLocked === 'true';
     elements?.profilesDialog?.querySelectorAll('.modal-body input, .modal-body textarea, .modal-body select, .modal-body button').forEach(control => {
       if (control === elements.profileSelectHelper || control.hasAttribute('data-profile-global-action')) return;
-      control.disabled = readOnly || locked || (control === elements.settingApiKey && control.closest('.api-key-field')?.hidden === true);
+      control.disabled = readOnly || locked
+        || (control === elements.settingApiKey && control.closest('.api-key-field')?.hidden === true)
+        || (control === elements.settingTemperature && !providerSupportsTemperature(elements));
     });
     if (elements?.settingApiKeyLocked) elements.settingApiKeyLocked.disabled = readOnly || locked;
+  }
+
+  function providerSupportsTemperature(elements) {
+    const providerId = elements?.settingApiType?.value || 'openai';
+    return getProviders()?.registry?.get?.(providerId)?.getCapabilities?.().temperature !== false;
   }
 
   function syncProviderFields(elements) {
@@ -232,6 +239,17 @@
       elements.settingApiUrl.required = connection.endpointReadOnly !== true;
     }
     if (elements?.settingApiKey) elements.settingApiKey.disabled = connection.credentials === false;
+    if (elements?.settingTemperature) {
+      const supportsTemperature = providerSupportsTemperature(elements);
+      const locked = elements.profilesDialog?.dataset.profileLocked === 'true';
+      elements.settingTemperature.disabled = locked || !supportsTemperature;
+      const temperatureHint = elements.temperatureHint || (typeof document !== 'undefined' ? document.getElementById('temperature-hint') : null);
+      if (temperatureHint) {
+        const hintKey = supportsTemperature ? 'field_temperature_hint' : 'field_temperature_unsupported_hint';
+        temperatureHint.dataset.i18n = hintKey;
+        temperatureHint.textContent = t(hintKey);
+      }
+    }
     const apiKeyField = elements?.settingApiKey?.closest?.('.api-key-field');
     if (apiKeyField) apiKeyField.hidden = connection.credentials === false;
     const apiKeyHintText = apiKeyField?.querySelector?.('#api-key-hint-text');
@@ -934,7 +952,7 @@ zerochat</code></pre>
           <textarea id="setting-system-prompt" rows="4" data-i18n-placeholder="field_system_prompt_placeholder" placeholder="Escribe aquí tus instrucciones personalizadas para el modelo (opcional)..."></textarea>
         </div>
         <div class="form-field" style="margin-bottom: 0;">
-          <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
+          <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" id="temperature-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
           <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
         </div>
       </div>

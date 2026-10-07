@@ -427,7 +427,7 @@
     if (onLog) {
       onLog({
         type: 'network',
-        text: `POST ${endpoint} [${detectedType.toUpperCase()}] | Modelo: ${model || '(no especificado)'} | Razonamiento: ${reasoningEffort || 'off'} | Temp: ${payload.temperature}`
+        text: `POST ${endpoint} [${detectedType.toUpperCase()}] | Modelo: ${model || '(no especificado)'} | Razonamiento: ${reasoningEffort || 'off'} | Temp: ${payload.temperature ?? '-'}`
       });
       onLog({
         type: 'raw',

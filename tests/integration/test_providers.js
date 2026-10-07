@@ -196,6 +196,8 @@ test('Capabilities - Declaración estándar y por proveedor', () => {
   assert.equal(baseCaps.promptCaching, true);
   assert.equal(baseCaps.embeddings, true);
   assert.equal(baseCaps.modelListing, true);
+  assert.equal(baseCaps.temperature, true);
+  assert.equal(new BaseProviderAdapter().buildPayload({ model: 'm', messages: [], temperature: '0.3' }).temperature, 0.3);
 
   const claudeAdapter = new ClaudeProviderAdapter();
   const claudeCaps = claudeAdapter.getCapabilities();
@@ -312,6 +314,9 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
   assert.equal(payload.model, 'gemini-1.5-flash');
   assert.equal(payload.reasoning_effort, undefined, 'No debe inyectar reasoning_effort');
   assert.equal(payload.stream_options, undefined, 'No debe inyectar stream_options');
+  assert.equal('temperature' in payload, false, 'Gemini no debe recibir temperature');
+  assert.equal('top_p' in payload, false);
+  assert.equal('top_k' in payload, false);
   // Debe haber insertado el mensaje assistant previo para evitar error 400 en Gemini
   assert.equal(payload.messages.length, 3);
   assert.equal(payload.messages[1].role, 'assistant');
@@ -345,6 +350,7 @@ test('ChatAPI.getProviderCapabilities - Consulta a través de ChatAPI', () => {
 
   const geminiCaps = ChatAPI.getProviderCapabilities('https://generativelanguage.googleapis.com/v1beta/openai');
   assert.equal(geminiCaps.reasoning, false);
+  assert.equal(geminiCaps.temperature, false);
   assert.equal(geminiCaps.promptCaching, true);
 });
 

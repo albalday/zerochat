@@ -53,6 +53,28 @@ test('UISettings - exige API key para proveedores remotos y enlaza las guías gr
   assert.equal(helpLink.hidden, true);
 });
 
+test('UISettings - desactiva la temperatura con proveedores que no la admiten', () => {
+  const temperatureHint = { dataset: {}, textContent: '' };
+  const elements = {
+    settingApiType: { value: 'gemini' },
+    settingTemperature: { disabled: false },
+    temperatureHint
+  };
+
+  UISettings.syncProviderFields(elements);
+  assert.equal(elements.settingTemperature.disabled, true);
+  assert.equal(temperatureHint.dataset.i18n, 'field_temperature_unsupported_hint');
+
+  elements.settingApiType.value = 'openai';
+  UISettings.syncProviderFields(elements);
+  assert.equal(elements.settingTemperature.disabled, false);
+  assert.equal(temperatureHint.dataset.i18n, 'field_temperature_hint');
+
+  elements.profilesDialog = { dataset: { profileLocked: 'true' } };
+  UISettings.syncProviderFields(elements);
+  assert.equal(elements.settingTemperature.disabled, true, 'Un perfil bloqueado mantiene el control desactivado');
+});
+
 test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
   const panes = [
     { id: 'settings-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
