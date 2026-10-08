@@ -53,23 +53,17 @@ test('ConversationService - shouldOfferBranchSummary requires at least 2 user tu
   assert.equal(ConversationService.shouldOfferBranchSummary([], -1), false);
 });
 
-test('ConversationService - createBranchHistoryWithSummary formats session IDs and preserves summary block and anchor', () => {
-  const compacted = [
+test('ConversationService - renumberForSession clona los mensajes con IDs de la sesión destino', () => {
+  const messages = [
     { id: 'sys_1', role: 'system', content: 'Base system prompt' },
-    { id: 'summary_1', role: 'system', content: 'Summary of past conversations', _isSummaryBlock: true }
+    { id: 'summary_1', role: 'system', content: 'Summary', _isSummaryBlock: true, _compressedMetadata: { n: 1 } }
   ];
-  const anchor = { id: 'asst_orig', role: 'assistant', content: 'Anchor answer' };
-
-  const result = ConversationService.createBranchHistoryWithSummary(compacted, anchor, 'sess_branch_123');
-  assert.equal(result.length, 3);
-  assert.equal(result[0].id, 'msg_sess_branch_123_0');
-  assert.equal(result[0].content, 'Base system prompt');
-  assert.equal(result[1].id, 'msg_sess_branch_123_1');
+  const result = ConversationService.renumberForSession(messages, 'sess_branch_123');
+  assert.deepEqual(result.map(m => m.id), ['msg_sess_branch_123_0', 'msg_sess_branch_123_1']);
   assert.equal(result[1]._isSummaryBlock, true);
-  assert.equal(result[1].content, 'Summary of past conversations');
-  assert.equal(result[2].id, 'msg_sess_branch_123_2');
-  assert.equal(result[2].role, 'assistant');
-  assert.equal(result[2].content, 'Anchor answer');
+  result[1]._compressedMetadata.n = 2;
+  assert.equal(messages[1]._compressedMetadata.n, 1, 'Debe ser una copia profunda');
+  assert.equal(messages[0].id, 'sys_1');
 });
 
 test('ConversationService - createConversationBranch with summarize: true generates summarized branch', async () => {
@@ -101,7 +95,10 @@ test('ConversationService - createConversationBranch with summarize: true genera
     getCurrentSessionId: () => 'parent_sess_1',
     getSavedSessions: () => [{ id: 'parent_sess_1', title: 'Parent Chat' }],
     summarize: true,
-    summarizeHistory: async () => 'Consolidated summary of conversation',
+    summarizeHistory: async ({ messages }) => {
+      summarizedContents.push(...messages.map(m => m.content));
+      return 'Consolidated summary of conversation';
+    },
     uiConversation: {
       showBranchLoadingIndicator: (wrap, text) => {
         indicatorEvents.push(['show', text]);
@@ -116,6 +113,7 @@ test('ConversationService - createConversationBranch with summarize: true genera
   };
 
   const indicatorEvents = [];
+  const summarizedContents = [];
   const success = await ConversationService.createConversationBranch(mockWrapper, options);
   assert.equal(success, true);
   assert.deepEqual(indicatorEvents, [['show', 'Resumiendo contexto previo...'], ['hide']]);
@@ -123,6 +121,8 @@ test('ConversationService - createConversationBranch with summarize: true genera
   assert.equal(savedSession.metadata.parentSessionId, 'parent_sess_1');
   assert.ok(savedHistory.some(m => m._isSummaryBlock && m.content === 'Consolidated summary of conversation'));
   assert.equal(savedHistory[savedHistory.length - 1].content, 'asst 2');
+  assert.deepEqual(summarizedContents, ['user 1', 'asst 1', 'user 2'], 'La respuesta de anclaje no se resume: se conserva literal');
+  assert.deepEqual(savedHistory.map(m => m.content), ['sys', 'Consolidated summary of conversation', 'asst 2']);
 });
 
 test('ConversationService - createConversationBranch ignora invocación si el botón ya está en estado de carga', async () => {

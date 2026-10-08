@@ -304,13 +304,15 @@
     if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
-  function cloneBranchHistory(history, boundary, sessionId) {
-    const Utils = getUtils();
-    const sourceHistory = history.slice(0, boundary + 1);
-    const clonedHistory = Utils?.clone ? Utils.clone(sourceHistory) : JSON.parse(JSON.stringify(sourceHistory));
-    return clonedHistory.map((message, index) => Object.assign({}, message, {
+  /** Copia profunda de los mensajes con identificadores propios de la sesión destino. */
+  function renumberForSession(messages, sessionId) {
+    return getUtils().clone(messages).map((message, index) => Object.assign({}, message, {
       id: `msg_${sessionId}_${index}`
     }));
+  }
+
+  function cloneBranchHistory(history, boundary, sessionId) {
+    return renumberForSession(history.slice(0, boundary + 1), sessionId);
   }
 
   function shouldOfferBranchSummary(history, boundary) {
@@ -319,21 +321,6 @@
     const nonSystem = subHistory.filter(m => m && m.role !== 'system');
     const userMessages = nonSystem.filter(m => m.role === 'user');
     return userMessages.length >= 2 || nonSystem.length >= 4;
-  }
-
-  function createBranchHistoryWithSummary(compactedMessages, anchorMessage, sessionId) {
-    const Utils = getUtils();
-    const clonedCompacted = Utils?.clone ? Utils.clone(compactedMessages) : JSON.parse(JSON.stringify(compactedMessages));
-    const clonedAnchor = Utils?.clone ? Utils.clone(anchorMessage) : JSON.parse(JSON.stringify(anchorMessage));
-    const result = clonedCompacted.map((message, index) => Object.assign({}, message, {
-      id: `msg_${sessionId}_${index}`
-    }));
-    if (clonedAnchor) {
-      result.push(Object.assign({}, clonedAnchor, {
-        id: `msg_${sessionId}_${result.length}`
-      }));
-    }
-    return result;
   }
 
   /** API key del perfil activo; pide la contraseña si está cifrada. Los fallos se propagan. */
@@ -369,8 +356,9 @@
       ? options.summarizeHistory
       : (params => defaultSummarizeHistory(params, options));
     const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+    // La respuesta de anclaje se conserva literal tras el resumen, así que no se resume.
     const compacted = await ContextManager.compressHistory({
-      messages: history.slice(0, boundary + 1),
+      messages: history.slice(0, boundary),
       summarizeFn: params => summarizeHistory({ ...params, signal }),
       options: {
         model: runtimeConfig.model,
@@ -378,7 +366,7 @@
       }
     });
     return compacted?.compressed && Array.isArray(compacted.messages)
-      ? createBranchHistoryWithSummary(compacted.messages, history[boundary], sessionId)
+      ? renumberForSession([...compacted.messages, history[boundary]], sessionId)
       : null;
   }
 
@@ -610,7 +598,7 @@
     setAssistantGroupMessageIds,
     cloneBranchHistory,
     shouldOfferBranchSummary,
-    createBranchHistoryWithSummary,
+    renumberForSession,
     defaultSummarizeHistory,
     createConversationBranch,
     deleteSession,
