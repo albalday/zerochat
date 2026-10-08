@@ -156,10 +156,9 @@ Initialize project mode for the repository at <cwd>. Work in this order:
 3. For each missing item, propose the smallest addition: either a short section in the
    project's own rules (e.g. AGENTS.md) or a file under .zerochat/ (plan.md, log.md).
    Show the exact text and wait for the user's explicit approval.
-4. Ask whether .zerochat/ should be versioned or added to .gitignore.
-5. After approval, create ZEROCHAT.md from <RULES_TEMPLATE> and .zerochat/state.md from
+4. After approval, create ZEROCHAT.md from <RULES_TEMPLATE> and .zerochat/state.md from
    <STATE_TEMPLATE>, and apply the approved changes.
-6. Finish by listing the files created or modified.
+5. Finish by listing the files created or modified.
 ```
 
 ### 4.3 Plantillas
@@ -401,4 +400,6 @@ prompt del resumidor es idéntico al actual.
   consultan con `search_files`. Los planes y registros nunca van en `AGENTS.md`, que otros
   agentes cargan en cada sesión. Son reglas de las plantillas y prompts, sin código de
   mantenimiento; un aviso por tamaño solo se añadirá si el uso demuestra que hace falta.
+- **Sin pregunta sobre `.gitignore`.** El arranque no pregunta si `.zerochat/` se versiona ni lo
+  añade a `.gitignore`: queda como cualquier otra carpeta y lo decide el usuario por su cuenta.
 
