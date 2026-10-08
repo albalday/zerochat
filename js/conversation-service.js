@@ -370,9 +370,57 @@
       : null;
   }
 
+  /** Decide si la rama se resume; null si el usuario cancela la bifurcación. */
+  async function askBranchMode(history, boundary, options = {}) {
+    if (typeof options.summarize === 'boolean') return { summarize: options.summarize };
+    if (!shouldOfferBranchSummary(history, boundary)) return { summarize: false };
+    const decision = await getDialogs().confirm(t('chat_branch_dialog_message'), {
+      title: t('chat_branch_dialog_title'),
+      acceptText: t('chat_branch_dialog_accept'),
+      cancelText: t('notice_cancel'),
+      checkbox: t('chat_branch_dialog_checkbox'),
+      checkboxDefault: true
+    });
+    return decision.accepted ? { summarize: decision.checkboxChecked } : null;
+  }
+
+  /**
+   * Historial de una rama resumida. Si el resumen falla, ofrece bifurcar con el historial
+   * completo; null si se cancela o la conversación quedó ocupada.
+   */
+  async function buildSummarizedBranchHistory(wrapper, history, boundary, sessionId, options = {}) {
+    const State = getState();
+    const UIConv = options.uiConversation || resolveDep('ChatUIConversation', './ui-conversation.js');
+    UIConv?.showBranchLoadingIndicator?.(wrapper, t('chat_branch_summarizing'));
+    let cancelled = false;
+    let summarized = null;
+    try {
+      // Mientras se resume, la conversación cuenta como ocupada y el botón de parar la cancela.
+      summarized = await getGenerationController().runCancellableTask(async signal => {
+        State?.setGenerationStatus?.({ phase: 'custom', text: t('chat_branch_summarizing') });
+        const result = await summarizeBranchHistory(history, boundary, sessionId, signal, options);
+        cancelled = signal.aborted;
+        return result;
+      });
+    } catch (err) {
+      console.warn('[ZeroChat] Error al generar resumen para rama:', err);
+    } finally {
+      State?.clearGenerationStatus?.();
+      UIConv?.hideBranchLoadingIndicator?.(wrapper);
+    }
+
+    if (cancelled || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return null;
+    if (summarized) return summarized;
+    const useFullHistory = await getDialogs().confirm(t('chat_branch_summary_failed'), {
+      title: t('chat_branch_dialog_title'),
+      acceptText: t('chat_branch_dialog_accept'),
+      cancelText: t('notice_cancel')
+    });
+    return useFullHistory ? cloneBranchHistory(history, boundary, sessionId) : null;
+  }
+
   async function createConversationBranch(wrapper, options = {}) {
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-    if (wrapper?.querySelector && wrapper.querySelector('.btn-branch-conversation.is-loading')) return false;
 
     const State = getState();
     const Storage = getStorage(options);
@@ -383,30 +431,8 @@
     await saveCurrentSession(options);
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
-    let summarize = false;
-    if (typeof options.summarize === 'boolean') {
-      summarize = options.summarize;
-    } else if (options.askConfirmation !== false && shouldOfferBranchSummary(history, boundary)) {
-      const Dialogs = getDialogs();
-      if (Dialogs?.confirm) {
-        const decision = await Dialogs.confirm(
-          t('chat_branch_dialog_message'),
-          {
-            title: t('chat_branch_dialog_title'),
-            acceptText: t('chat_branch_dialog_accept'),
-            cancelText: t('notice_cancel'),
-            checkbox: t('chat_branch_dialog_checkbox'),
-            checkboxDefault: true
-          }
-        );
-        if (!decision || (typeof decision === 'object' && !decision.accepted)) {
-          return false;
-        }
-        summarize = typeof decision === 'object' ? Boolean(decision.checkboxChecked) : false;
-      }
-    }
-
-    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    const mode = await askBranchMode(history, boundary, options);
+    if (!mode || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
     const parentSessionId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
     const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
@@ -416,48 +442,10 @@
       ? 'session_' + crypto.randomUUID()
       : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
-    let branchHistory = null;
-    if (summarize) {
-      const UIConv = options.uiConversation || resolveDep('ChatUIConversation', './ui-conversation.js');
-      UIConv?.showBranchLoadingIndicator?.(wrapper, t('chat_branch_summarizing'));
-      let cancelled = false;
-      try {
-        // Mientras se resume, la conversación cuenta como ocupada y el botón de parar la cancela.
-        branchHistory = await getGenerationController().runCancellableTask(async signal => {
-          State?.setGenerationStatus?.({ phase: 'custom', text: t('chat_branch_summarizing') });
-          const summarized = await summarizeBranchHistory(history, boundary, branchSessionId, signal, options);
-          cancelled = signal.aborted;
-          return summarized;
-        });
-      } catch (err) {
-        console.warn('[ZeroChat] Error al generar resumen para rama:', err);
-      } finally {
-        State?.clearGenerationStatus?.();
-        UIConv?.hideBranchLoadingIndicator?.(wrapper);
-      }
-
-      if (cancelled) return false;
-      if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
-      if (!branchHistory) {
-        const Dialogs = getDialogs();
-        const fallback = Dialogs?.confirm
-          ? await Dialogs.confirm(t('chat_branch_summary_failed'), {
-              title: t('chat_branch_dialog_title'),
-              acceptText: t('chat_branch_dialog_accept'),
-              cancelText: t('notice_cancel')
-            })
-          : true;
-        const accepted = typeof fallback === 'object' ? Boolean(fallback.accepted) : Boolean(fallback);
-        if (!accepted) {
-          return false;
-        }
-        summarize = false;
-        branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
-      }
-    } else {
-      branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
-    }
+    const branchHistory = mode.summarize
+      ? await buildSummarizedBranchHistory(wrapper, history, boundary, branchSessionId, options)
+      : cloneBranchHistory(history, boundary, branchSessionId);
+    if (!branchHistory) return false;
 
     const now = Date.now();
     const branchSession = {
@@ -468,8 +456,7 @@
       messageCount: branchHistory.length,
       metadata: {
         parentSessionId,
-        branchedFromMessageIds: (wrapper?.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean),
-        isSummarizedBranch: Boolean(summarize)
+        branchedFromMessageIds: (wrapper?.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean)
       }
     };
 

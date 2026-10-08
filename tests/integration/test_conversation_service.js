@@ -117,7 +117,6 @@ test('ConversationService - createConversationBranch with summarize: true genera
   const success = await ConversationService.createConversationBranch(mockWrapper, options);
   assert.equal(success, true);
   assert.deepEqual(indicatorEvents, [['show', 'Resumiendo contexto previo...'], ['hide']]);
-  assert.equal(savedSession.metadata.isSummarizedBranch, true);
   assert.equal(savedSession.metadata.parentSessionId, 'parent_sess_1');
   assert.ok(savedHistory.some(m => m._isSummaryBlock && m.content === 'Consolidated summary of conversation'));
   assert.equal(savedHistory[savedHistory.length - 1].content, 'asst 2');
@@ -125,12 +124,21 @@ test('ConversationService - createConversationBranch with summarize: true genera
   assert.deepEqual(savedHistory.map(m => m.content), ['sys', 'Consolidated summary of conversation', 'asst 2']);
 });
 
-test('ConversationService - createConversationBranch ignora invocación si el botón ya está en estado de carga', async () => {
-  const loadingWrapper = {
-    querySelector: (sel) => sel.includes('is-loading') ? {} : null
-  };
-  const result = await ConversationService.createConversationBranch(loadingWrapper, {});
-  assert.equal(result, false, 'Debe retornar false y no procesar si ya está cargando');
+test('ConversationService - createConversationBranch no bifurca mientras la conversación está ocupada', async () => {
+  const State = require('../../js/state.js');
+  const previousDialogs = globalThis.ChatDialogs;
+  const alerts = [];
+  globalThis.ChatDialogs = { alert: async message => { alerts.push(message); } };
+  State.set('streaming', { isGenerating: true });
+  try {
+    const { wrapper, options, saved } = createSummarizableBranch();
+    assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+    assert.equal(saved.length, 0);
+    assert.equal(alerts.length, 1);
+  } finally {
+    State.set('streaming', { isGenerating: false });
+    globalThis.ChatDialogs = previousDialogs;
+  }
 });
 
 test('ConversationService - createConversationBranch with summarize: false clones full branch', async () => {
@@ -169,7 +177,6 @@ test('ConversationService - createConversationBranch with summarize: false clone
 
   const success = await ConversationService.createConversationBranch(mockWrapper, options);
   assert.equal(success, true);
-  assert.equal(savedSession.metadata.isSummarizedBranch, false);
   assert.equal(savedHistory.length, 5);
   assert.equal(savedHistory.some(m => m._isSummaryBlock), false);
 });
@@ -259,4 +266,50 @@ test('ConversationService - parar durante el resumen cancela la rama sin ofrecer
   assert.equal(dialogs, 0);
   assert.equal(saved.length, 0);
   assert.equal(State.isConversationBusy(), false);
+});
+
+async function branchWithDialogs(confirmResults, configure = () => {}) {
+  const { wrapper, options, saved } = createSummarizableBranch();
+  delete options.summarize;
+  configure(options);
+  const previousDialogs = globalThis.ChatDialogs;
+  const confirms = [];
+  globalThis.ChatDialogs = {
+    confirm: async (message, opts) => { confirms.push({ message, opts }); return confirmResults.shift(); },
+    alert: async () => {}
+  };
+  try {
+    const created = await ConversationService.createConversationBranch(wrapper, options);
+    return { created, confirms, saved };
+  } finally {
+    globalThis.ChatDialogs = previousDialogs;
+  }
+}
+
+test('ConversationService - cancelar el diálogo de bifurcación no crea la rama', async () => {
+  const { created, confirms, saved } = await branchWithDialogs([{ accepted: false, checkboxChecked: true }]);
+  assert.equal(created, false);
+  assert.equal(confirms.length, 1);
+  assert.ok(confirms[0].opts.checkbox, 'Debe ofrecer la casilla de resumen');
+  assert.equal(saved.length, 0);
+});
+
+test('ConversationService - aceptar sin la casilla de resumen clona el historial completo', async () => {
+  const { created, saved } = await branchWithDialogs([{ accepted: true, checkboxChecked: false }], options => {
+    options.summarizeHistory = async () => { throw new Error('no debe resumir'); };
+  });
+  assert.equal(created, true);
+  assert.equal(saved[0].hist.length, 5);
+});
+
+test('ConversationService - si el resumen falla ofrece bifurcar con el historial completo', async () => {
+  const failing = options => { options.summarizeHistory = async () => { throw new Error('provider down'); }; };
+  const accepted = await branchWithDialogs([{ accepted: true, checkboxChecked: true }, true], failing);
+  assert.equal(accepted.created, true);
+  assert.equal(accepted.confirms.length, 2);
+  assert.equal(accepted.saved[0].hist.length, 5);
+
+  const declined = await branchWithDialogs([{ accepted: true, checkboxChecked: true }, false], failing);
+  assert.equal(declined.created, false);
+  assert.equal(declined.saved.length, 0);
 });

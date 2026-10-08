@@ -569,17 +569,14 @@ test('Browser UI - Bifurcación con resumen crea rama compactada y renderiza ban
       });
       const childId = window.ChatState.get('sessions').activeId;
       const child = await window.ChatStorage.getConversation(childId);
-      const childSession = window.ChatState.get('sessions').list.find(s => s.id === childId);
       return {
         created,
         childId,
-        childMetadata: childSession?.metadata || child?.metadata || {},
         childHistory: child?.history || []
       };
     });
 
     assert.equal(result.created, true, 'La rama con resumen debe crearse correctamente');
-    assert.equal(result.childMetadata.isSummarizedBranch, true, 'Debe marcarse como rama resumida');
     assert.ok(result.childHistory.some(m => m._isSummaryBlock && m.content === 'Resumen sintetizado del diálogo previo'), 'Debe contener el bloque de resumen');
     assert.equal(result.childHistory[result.childHistory.length - 1].content, 'Respuesta 2 para bifurcar', 'Debe conservar la respuesta de anclaje');
 

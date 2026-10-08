@@ -480,7 +480,6 @@
     btnBranch.title = t('btn_branch_title');
     btnBranch.setAttribute('aria-label', t('btn_branch_title'));
     btnBranch.addEventListener('click', () => {
-      if (btnBranch.disabled || (btnBranch.classList?.contains && btnBranch.classList.contains('is-loading'))) return;
       if (typeof callbacks.onBranch === 'function') {
         callbacks.onBranch(wrapper);
       }
