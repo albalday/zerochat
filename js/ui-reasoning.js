@@ -67,23 +67,11 @@
     elements.btnReasoning?.setAttribute?.('aria-expanded', 'false');
   }
 
-  function syncCheckpointToggle(elements, enabled, onToggleCheckpoint) {
-    const checkbox = elements?.chkReasoningAgentCheckpoint;
-    if (!checkbox) return;
-    checkbox.checked = Boolean(enabled);
-    checkbox._onToggleCheckpoint = onToggleCheckpoint;
-    if (!checkbox._hasReasoningListener) {
-      checkbox._hasReasoningListener = true;
-      checkbox.addEventListener('change', event => checkbox._onToggleCheckpoint?.(event.target.checked));
-    }
-  }
-
-  function openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+  function openReasoningMenu(elements, appConfig, onSelect) {
     if (!elements?.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'flex';
     elements.btnReasoning?.setAttribute?.('aria-expanded', 'true');
     syncReasoningIntensity(elements, appConfig?.reasoningEffort || 'medium');
-    syncCheckpointToggle(elements, Boolean(appConfig?.enabledTools?.agent_checkpoint), onToggleCheckpoint);
     const slider = elements.reasoningIntensity;
     if (slider) {
       slider._onReasoningIntensityChange = onSelect;
@@ -114,10 +102,10 @@
     slider?.focus?.();
   }
 
-  function toggleReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint) {
+  function toggleReasoningMenu(elements, appConfig, onSelect) {
     if (!elements?.reasoningMenu) return;
     if (elements.reasoningMenu.style.display === 'flex') closeReasoningMenu(elements);
-    else openReasoningMenu(elements, appConfig, onSelect, onToggleCheckpoint);
+    else openReasoningMenu(elements, appConfig, onSelect);
   }
 
   function updateReasoningUI(elements, level) {
@@ -138,5 +126,5 @@
     onLevelChanged?.(normalized);
   }
 
-  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, syncCheckpointToggle };
+  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI };
 });

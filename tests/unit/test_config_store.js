@@ -192,3 +192,10 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
   assert.equal(fallback.apiKey, undefined);
   assert.equal(fallback.language, 'en');
 });
+
+test('ChatConfig - descarta los interruptores de herramientas retiradas al normalizar', () => {
+  const config = ChatConfig.normalize({
+    enabledTools: { search_web: false, agent_checkpoint: true, update_plan: true, finish_task: false }
+  });
+  assert.deepEqual(config.enabledTools, { search_web: false });
+});

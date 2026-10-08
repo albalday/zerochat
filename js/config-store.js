@@ -36,6 +36,7 @@
   });
 
   const { clone } = Utils;
+  const RETIRED_TOOL_IDS = Object.freeze(['agent_checkpoint', 'update_plan', 'finish_task']);
 
   function normalizeBranchIds(value, fallback) {
     const values = Array.isArray(value) ? value : (value ? [value] : fallback || []);
@@ -68,6 +69,7 @@
     next.theme = next.theme === 'dark' ? 'dark' : 'light';
     next.language = next.language === 'en' ? 'en' : 'es';
     next.enabledTools = next.enabledTools && typeof next.enabledTools === 'object' ? clone(next.enabledTools) : clone(DEFAULTS.enabledTools);
+    RETIRED_TOOL_IDS.forEach(id => delete next.enabledTools[id]);
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;

@@ -255,7 +255,6 @@
       }
       try {
         const ragContext = await RagService.buildRagSystemContext(activeRagBranchIds, {
-          isCheckpointEnabled: !!(runtimeConfig.enabledTools && runtimeConfig.enabledTools.agent_checkpoint),
           lang: runtimeConfig.language || 'es'
         });
         if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: ragContext });

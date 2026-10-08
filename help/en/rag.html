@@ -68,7 +68,7 @@
       <p>A low temperature can reduce variation but does not guarantee accuracy. Check figures and quotations against the original, especially for PDFs with tables or scans.</p>
       <p>RAG was tuned against FinanceBench until a local model such as Qwen solved the first two and the last two tests. This does not guarantee that a small model will solve every question in the bench.</p>
       <h3>Checkpoints</h3>
-      <p><code>agent_checkpoint</code>, available from Reasoning, lets the model summarize findings and record its next step. It does not expand the context window or ensure every detail survives the summary.</p>
+      <p>RAG needs a model with at least 32K tokens of context. Below that, the retrieval protocol, tools, and a few chunks fill the window and the conversation is compacted almost immediately. When the model limit is known and falls short, ZeroChat warns you on branch activation; the notice does not prevent use.</p>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">

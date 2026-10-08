@@ -249,11 +249,7 @@
       if (!providerReceivesToolSignatures || options.forceSystemPromptGuide) {
         toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
       } else {
-        const isCheckpointActive = !!(appConfig?.enabledTools?.agent_checkpoint);
-        const checkpointGuidance = isCheckpointActive
-          ? '\n*Agent checkpoint:* When gathering information from multiple searches or documents, or before concluding, invoke "agent_checkpoint" to consolidate facts and record the current plan.'
-          : '';
-        toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.${checkpointGuidance}`;
+        toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
       }
     }
 
@@ -387,7 +383,6 @@
       autoSynthesize: true,
       synthesizeOnLoop: false,
       appendFinalMessage: true,
-      isCheckpointEnabled: Boolean(appConfig.enabledTools?.agent_checkpoint),
       contextOptions: {
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride
       },

@@ -256,10 +256,10 @@ suficiente para RAG.
   razonamiento y script), `sw.js` e `i18n.js`.
 - Configuraciones y perfiles guardados con `enabledTools.agent_checkpoint`: se ignora la clave
   (o se elimina al normalizar), sin error.
-- Aviso RAG: al activar una rama, y al enviar con ramas activas, si el límite de contexto
-  efectivo del modelo (`modelContextLimit` o `contextLimitOverride`) es conocido y menor de
-  32 768 tokens, se muestra un aviso no bloqueante: el modelo no es adecuado para RAG. Si el
-  límite es desconocido, no se avisa.
+- Aviso RAG: al activar una rama, si el límite de contexto efectivo del modelo
+  (`modelContextLimit` o `contextLimitOverride`) es conocido y menor de 32 768 tokens, se
+  muestra un aviso que no cambia la activación. Si el límite es desconocido, no se avisa. No se
+  repite en cada envío para no convertirlo en ruido.
 - `help/rag.html`, `help/reasoning-telemetry.html`, `help/tools-agent.html` y sus versiones en
   inglés: quitar el checkpoint y documentar el requisito de 32K.
 

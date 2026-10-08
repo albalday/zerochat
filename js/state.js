@@ -74,8 +74,7 @@
           search_web: true,
           fetch_web_page: true,
           download_pdf: true,
-          render_chart: true,
-          agent_checkpoint: false
+          render_chart: true
         },
         enableRawLogs: false,
         enableDebugMessages: false,

@@ -306,9 +306,6 @@
       tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));
       tools.push(createBuiltinTool('read_knowledge_image', 'ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'));
 
-      // 9. Punto de control agéntico multipropósito
-      tools.push(createBuiltinTool('agent_checkpoint', 'ChatBuiltinAgentCheckpointTool', './tools/builtin/agent-checkpoint.tool.js'));
-
       return tools;
     }
   }
@@ -1110,8 +1107,8 @@
           callbacks.onStepStart(stepIndex);
         }
 
-        // Automatic context compaction is independent from the agent_checkpoint
-        // tool. It replaces the previous checkpoint and later dialogue atomically.
+        // Automatic context compaction replaces the previous checkpoint and later
+        // dialogue atomically.
         if (!compressionUnavailable && ContextManager && typeof ContextManager.shouldCompress === 'function' &&
           typeof ContextManager.compressHistory === 'function' &&
           typeof summarizeHistory === 'function' &&

@@ -42,8 +42,7 @@
       <tr><td><code>fetch_web_page</code></td><td>Retrieves text from public pages; it does not replace a signed-in browser.</td></tr>
       <tr><td><code>download_pdf</code></td><td>Downloads a PDF and extracts readable text, subject to parser limitations.</td></tr>
       <tr><td><code>render_chart</code></td><td>Displays data in SVG charts; it does not validate data or calculations.</td></tr>
-      <tr><td><code>list_documents</code>, <code>search_knowledge_base</code>, <code>read_knowledge_chunk</code>, <code>read_knowledge_image</code></td><td>Query active RAG branches.</td></tr>
-      <tr><td><code>agent_checkpoint</code></td><td>Records findings and the next step.</td></tr></tbody></table></div>
+      <tr><td><code>list_documents</code>, <code>search_knowledge_base</code>, <code>read_knowledge_chunk</code>, <code>read_knowledge_image</code></td><td>Query active RAG branches.</td></tr></tbody></table></div>
       <p>Web tools send queries and URLs to third-party services. <code>search_web</code> queries DuckDuckGo, first through Jina Reader (<code>r.jina.ai</code>) and then directly, or the configured SearXNG instance. <code>fetch_web_page</code> and <code>download_pdf</code> try Jina Reader first and, if it fails, a direct connection and the AllOrigins proxy (<code>api.allorigins.win</code>). Local network URLs are always requested directly. Do not assume a connection without intermediaries or send these tools private URLs or credentials.</p>
       <p>File, terminal and browser automation tools need the <a href="mcp.html">local server</a>. Their calls include authorization and a temporary single-use signature; this does not protect against a compromised interface with session access.</p>
     </div>

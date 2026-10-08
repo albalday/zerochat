@@ -30,7 +30,18 @@ test('RagService - inyecta solo instrucciones compactas', async () => {
   assert.match(context, /Do not repeat the same query with different documentHint values/);
   assert.match(context, /scope="auto" only when neither intent is clear/);
   assert.doesNotMatch(context, /Kubernetes|PostgreSQL/);
+  assert.doesNotMatch(context, /agent_checkpoint/);
   assert.match(await RagService.injectRagContext('Responde brevemente.', branch.id), /Responde brevemente/);
+});
+
+test('RagService - detecta un contexto conocido inferior a 32K como insuficiente para RAG', () => {
+  assert.equal(RagService.RAG_MIN_CONTEXT_TOKENS, 32768);
+  assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 16384 }), 16384);
+  assert.equal(RagService.getInsufficientRagContextLimit({ contextLimitOverride: 8000.7 }), 8000);
+  assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 32768 }), null);
+  assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 131072, contextLimitOverride: 8000 }), null);
+  assert.equal(RagService.getInsufficientRagContextLimit({}), null);
+  assert.equal(RagService.getInsufficientRagContextLimit({ modelContextLimit: 'abc' }), null);
 });
 
 test('RagService - lista, busca y lee chunks', async () => {

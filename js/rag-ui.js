@@ -162,9 +162,19 @@
     }), { type: 'info' });
   }
 
+  async function warnAboutSmallContext() {
+    const RagService = typeof window !== 'undefined' ? window.ChatRagService : null;
+    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+    const config = runtimeConfig()?.get?.();
+    const limit = RagService?.getInsufficientRagContextLimit?.(config || {});
+    if (!limit || !Dialogs?.alert) return;
+    await Dialogs.alert(t('rag_small_context_warning', { limit, min: RagService.RAG_MIN_CONTEXT_TOKENS }), { type: 'warning' });
+  }
+
   async function toggleBranchActiveWithLanguageNotice(branchId) {
     const activeIds = toggleBranchActive(branchId);
     await warnAboutMixedBranchLanguages(activeIds);
+    if (activeIds.includes(String(branchId || '').trim())) await warnAboutSmallContext();
     return activeIds;
   }
 
@@ -813,6 +823,7 @@
       const branches = await storage().getBranches();
       const activeIds = setActiveBranchIds(branches.map(b => b.id));
       await warnAboutMixedBranchLanguages(activeIds);
+      if (activeIds.length > 0) await warnAboutSmallContext();
       await renderActivationDialog();
     });
   }
@@ -940,7 +951,7 @@
           <span class="rag-active-tip-icon">${getIcon('lightbulb', { size: 18 })}</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
-            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Si utilizas modelos compactos o con menor autonomía agéntica, activa el <strong>Punto de Control agéntico (agent_checkpoint)</strong> desde el menú de Razonamiento para consolidar hallazgos y mantener un plan de investigación claro.</span>
+            <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Usa un modelo con al menos <strong>32K tokens de contexto</strong>: con menos, el protocolo, las herramientas y unos pocos fragmentos llenan la ventana y la conversación se compacta casi de inmediato.</span>
           </div>
         </div>
       </div>

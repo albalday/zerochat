@@ -184,7 +184,6 @@
       reasoningIntensity: document.getElementById('reasoning-intensity'),
       reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
       btnCloseReasoning: document.getElementById('btn-close-reasoning'),
-      chkReasoningAgentCheckpoint: document.getElementById('chk-reasoning-agent-checkpoint'),
 
       // Panel de Debug & Logs
       btnToggleDebug: document.getElementById('btn-toggle-debug'),
@@ -455,17 +454,9 @@
     }
   }
 
-  function toggleCheckpointAgent(enabled) {
-    const currentTools = (appConfig && appConfig.enabledTools) ? appConfig.enabledTools : {};
-    const updatedTools = { ...currentTools, agent_checkpoint: Boolean(enabled) };
-    if (Config.updateRuntime) {
-      Config.updateRuntime({ enabledTools: updatedTools });
-    }
-  }
-
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel, toggleCheckpointAgent);
+      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel);
     }
   }
 
