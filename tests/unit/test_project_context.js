@@ -57,3 +57,18 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   assert.ok(prompt.includes(ProjectContext.RULES_TEMPLATE));
   assert.ok(prompt.includes(ProjectContext.STATE_TEMPLATE));
 });
+
+test('ProjectContext - las plantillas y prompts acotan el crecimiento de planes y registros', () => {
+  assert.equal(ProjectContext.ARCHIVE_DIR, '.zerochat/archive');
+  assert.match(ProjectContext.RULES_TEMPLATE, /When a milestone closes: reduce it to one line in the plan, move its log entries to \.zerochat\/archive\/<milestone-id>\.md \(move, never delete\)/);
+  assert.match(ProjectContext.RULES_TEMPLATE, /search_files/);
+
+  const bootstrap = ProjectContext.buildBootstrapPrompt('/repo');
+  assert.match(bootstrap, /never a log or a plan/);
+  assert.match(bootstrap, /other agents load them in every session/);
+
+  const block = ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content: 's' } });
+  assert.match(block, /When a milestone closes, archive its plan detail and log entries/);
+  assert.match(block, /Search archives instead of reading them in full/);
+});
+

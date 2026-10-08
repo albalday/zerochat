@@ -35,7 +35,9 @@
       <div class="table-responsive"><table><thead><tr><th>File</th><th>Contents</th></tr></thead>
       <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Rules and an index of the sources of truth: where the long- and short-term plans and the milestone and decision log live. It can simply point to <code>AGENTS.md</code>. Meant to be versioned. Injected into every chat.</td></tr>
       <tr><td><code>.zerochat/state.md</code></td><td>Current state: milestone in progress, next step and active decisions, in under 40 lines. Injected into every chat.</td></tr>
-      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan and decision log, only if the project does not already keep them elsewhere. Read when needed.</td></tr></tbody></table></div>
+      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan and decision log, only if the project does not already keep them elsewhere. Read when needed.</td></tr>
+      <tr><td><code>.zerochat/archive/</code></td><td>One file per closed milestone with its plan detail and log entries. Searched, not read in full.</td></tr></tbody></table></div>
+      <p>To keep the plan and log from growing without limit, when a milestone closes the agent reduces it to one line in the plan, moves its entries to <code>.zerochat/archive/&lt;milestone&gt;.md</code> and updates <code>state.md</code>. Nothing is summarized or deleted: it is moved. Plans and logs are not stored in <code>AGENTS.md</code>, which other agents load in every session; it only receives short rules and pointers.</p>
       <p>You decide whether <code>.zerochat/</code> is versioned or added to <code>.gitignore</code>. The project's own rules, such as <code>AGENTS.md</code>, are respected and never replaced.</p>
     </div>
 

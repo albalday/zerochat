@@ -394,4 +394,11 @@ prompt del resumidor es idéntico al actual.
   «Recargar». Se retira la lectura previa a cada envío, redundante con la de fin de respuesta.
 - **Fallo corregido.** Un `ZEROCHAT.md` inexistente se interpretaba como error: el servidor
   publica como `isError` los resultados con `success: false` y el motivo viaja en el contenido.
+- **Crecimiento de planes y registros.** No se resumen: un resumen del LLM pierde el porqué de
+  las decisiones y puede alterar la historia. `state.md` ya es la capa resumida (decisiones
+  vigentes con puntero al registro). Al cerrar un hito, el agente lo reduce a una línea en el
+  plan y mueve sus entradas del registro a `.zerochat/archive/<hito>.md`; los archivos se
+  consultan con `search_files`. Los planes y registros nunca van en `AGENTS.md`, que otros
+  agentes cargan en cada sesión. Son reglas de las plantillas y prompts, sin código de
+  mantenimiento; un aviso por tamaño solo se añadirá si el uso demuestra que hace falta.
 

@@ -35,7 +35,9 @@
       <div class="table-responsive"><table><thead><tr><th>Fichero</th><th>Contenido</th></tr></thead>
       <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Normas e índice de las fuentes de verdad: dónde están el plan a largo y corto plazo y el registro de hitos y decisiones. Puede limitarse a remitir a <code>AGENTS.md</code>. Pensado para versionarse. Se inyecta en cada chat.</td></tr>
       <tr><td><code>.zerochat/state.md</code></td><td>Estado actual: hito en curso, siguiente paso y decisiones vigentes, en menos de 40 líneas. Se inyecta en cada chat.</td></tr>
-      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan y registro de decisiones, solo si el proyecto no los tiene ya en otro sitio. Se leen cuando hacen falta.</td></tr></tbody></table></div>
+      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan y registro de decisiones, solo si el proyecto no los tiene ya en otro sitio. Se leen cuando hacen falta.</td></tr>
+      <tr><td><code>.zerochat/archive/</code></td><td>Un fichero por hito cerrado con el detalle de su plan y sus entradas del registro. Se consulta buscando, no leyéndolo entero.</td></tr></tbody></table></div>
+      <p>Para que el plan y el registro no crezcan sin límite, al cerrar un hito el agente lo deja en una línea en el plan, mueve sus entradas a <code>.zerochat/archive/&lt;hito&gt;.md</code> y actualiza <code>state.md</code>. Nada se resume ni se borra: se mueve. Los planes y registros no se guardan en <code>AGENTS.md</code>, que otros agentes cargan en cada sesión; allí solo van normas breves y punteros.</p>
       <p>Tú decides si <code>.zerochat/</code> se versiona o se añade a <code>.gitignore</code>. Las normas propias del proyecto, como <code>AGENTS.md</code>, se respetan y nunca se sustituyen.</p>
     </div>
 
