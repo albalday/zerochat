@@ -512,6 +512,36 @@
     }
   };
 
+  // ==========================================================================
+  // PREGUNTAS DEL AGENTE (ask_user)
+  // ==========================================================================
+
+  /** Solo la última pregunta, sin respuesta posterior ni generación en curso, admite elegir opción. */
+  function syncAskUserCards() {
+    if (!elements.messagesList?.querySelectorAll) return;
+    const messages = State.get?.('messages') || [];
+    const last = messages[messages.length - 1];
+    const pending = last?.role === 'tool' && last?.name === 'ask_user' && State.isConversationBusy?.() !== true;
+    const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
+    cards.forEach((card, index) => {
+      const active = pending && index === cards.length - 1;
+      card.classList.toggle('ask-user-answered', !active);
+      card.querySelectorAll('[data-ask-option]').forEach(button => { button.disabled = !active; });
+    });
+  }
+
+  async function handleAskUserOption(button) {
+    if (!button || button.disabled || !elements.userInput || State.isConversationBusy?.()) return;
+    const label = button.getAttribute('data-ask-option') || '';
+    if (!label) return;
+    // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
+    const typed = elements.userInput.value.trim();
+    elements.userInput.value = typed ? `${label}\n\n${typed}` : label;
+    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+    elements.messagesList?.querySelectorAll('[data-ask-option]').forEach(option => { option.disabled = true; });
+    await handleSendMessage();
+  }
+
   function refreshProjectContext() {
     if (!ProjectContext.refresh) return;
     ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
@@ -1481,6 +1511,15 @@
         // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
         refreshProjectContext();
       }
+
+      // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
+      const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
+      State.subscribe('messages', scheduleAskUserSync);
+      State.subscribe('streaming', scheduleAskUserSync);
+      elements.messagesList?.addEventListener('click', event => {
+        const option = event.target?.closest?.('[data-ask-option]');
+        if (option) handleAskUserOption(option);
+      });
     }
 
     if (Config.subscribe) {

@@ -760,4 +760,51 @@ test('Browser UI - el autoscroll respeta al usuario que sube durante la generaci
   } finally { await browser.close(); }
 });
 
+test('Browser UI - ask_user habilita solo la pregunta pendiente y envía la opción elegida', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.evaluate(() => {
+      const ask = (id, question, options) => [
+        { id: `${id}_turn_0_assistant`, role: 'assistant', content: null, tool_calls: [{ id: `call_${id}`, type: 'function', function: { name: 'ask_user', arguments: JSON.stringify({ question, options }) } }] },
+        { id: `${id}_tool`, role: 'tool', tool_call_id: `call_${id}`, name: 'ask_user', content: '{"status":"shown_to_user"}' }
+      ];
+      const history = [
+        { id: 'u1', role: 'user', content: 'Revisa' },
+        ...ask('a1', '¿Primera?', ['Uno', 'Dos']),
+        { id: 'u2', role: 'user', content: 'Uno' },
+        ...ask('a2', '¿Aplico <b>el</b> cambio?', [{ label: 'Aplicar', description: 'Escribe AGENTS.md' }, { label: 'Cancelar' }])
+      ];
+      window.ChatState.replaceMessages(history);
+      window.ChatUIConversation.renderSessionMessages({ messagesList: document.getElementById('messages-list') }, history);
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.ask-user-card [data-ask-option]:not(:disabled)').length === 2);
+    const cards = await page.evaluate(() => [...document.querySelectorAll('.ask-user-card')].map(card => ({
+      answered: card.classList.contains('ask-user-answered'),
+      enabled: [...card.querySelectorAll('[data-ask-option]')].filter(button => !button.disabled).map(button => button.dataset.askOption),
+      grouped: !!card.closest('.tool-call-group'),
+      question: card.querySelector('.ask-user-question').textContent.trim()
+    })));
+    assert.deepEqual(cards.map(card => card.answered), [true, false]);
+    assert.deepEqual(cards[1].enabled, ['Aplicar', 'Cancelar']);
+    assert.equal(cards[1].question, '¿Aplico <b>el</b> cambio?', 'La pregunta se muestra como texto');
+    assert.equal(cards.some(card => card.grouped), false, 'La pregunta queda fuera de los grupos de herramientas');
+
+    await page.fill('#user-input', 'con una nota');
+    await page.click('.ask-user-card:last-of-type [data-ask-option="Aplicar"]');
+    await page.waitForFunction(() => window.ChatState.get('messages').some(message => message.role === 'user' && message.content.startsWith('Aplicar')));
+    const sent = await page.evaluate(() => ({
+      content: window.ChatState.get('messages').filter(message => message.role === 'user').pop().content,
+      enabled: document.querySelectorAll('.ask-user-card [data-ask-option]:not(:disabled)').length
+    }));
+    assert.equal(sent.content, 'Aplicar\n\ncon una nota');
+    assert.equal(sent.enabled, 0, 'Tras responder no queda ninguna opción activa');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 });

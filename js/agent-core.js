@@ -306,6 +306,9 @@
       tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));
       tools.push(createBuiltinTool('read_knowledge_image', 'ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'));
 
+      // 9. Interacción: pregunta con opciones que cede el turno al usuario.
+      tools.push(createBuiltinTool('ask_user', 'ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'));
+
       return tools;
     }
   }
@@ -1095,6 +1098,7 @@
       let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
+      let yieldedToUser = false;
 
       while (stepIndex < maxSteps) {
         if (combinedSignal.aborted) {
@@ -1519,6 +1523,14 @@
           }
 
           stepIndex++;
+
+          // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina sin
+          // síntesis y la respuesta del usuario llega como el siguiente mensaje.
+          if (stepExecResults.some(r => r?.success && r?.result?.endTurn === true)) {
+            yieldedToUser = true;
+            status = 'completed';
+            break;
+          }
         } catch (err) {
           if (combinedSignal.aborted) {
             status = isTimedOut ? 'timeout' : 'cancelled';
@@ -1533,7 +1545,7 @@
       }
 
       // Si se alcanzó el límite máximo de iteraciones
-      if (stepIndex >= maxSteps && status === 'completed') {
+      if (stepIndex >= maxSteps && status === 'completed' && !yieldedToUser) {
         status = 'max_steps';
         if (workingMessages.length > 0 && workingMessages[workingMessages.length - 1].role === 'tool' && autoSynthesize && !combinedSignal.aborted) {
           if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
@@ -1631,6 +1643,7 @@
         stepsCount: stepIndex,
         maxStepsReached: status === 'max_steps',
         loopDetected: status === 'loop_detected',
+        awaitingUser: yieldedToUser,
         toolExecutions,
         history: workingMessages,
         stats: {

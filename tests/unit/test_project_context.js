@@ -52,7 +52,7 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   const prompt = ProjectContext.buildBootstrapPrompt('/home/u/repo');
   assert.match(prompt, /repository at \/home\/u\/repo/);
   assert.match(prompt, /AGENTS\.md first/);
-  assert.match(prompt, /wait for the user's explicit approval/);
+  assert.match(prompt, /wait for the user's explicit approval \(use the ask_user tool for it when available\)/);
   assert.doesNotMatch(prompt, /gitignore/, 'No pregunta ni decide si .zerochat se versiona');
   assert.ok(prompt.includes(ProjectContext.RULES_TEMPLATE));
   assert.ok(prompt.includes(ProjectContext.STATE_TEMPLATE));

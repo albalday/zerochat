@@ -279,3 +279,39 @@ test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML c
   assert.equal(swCard.innerHTML.includes('<script>'), false);
 });
 
+test('Builtin Tools - ask_user valida opciones, cede el turno y escapa el contenido de su tarjeta', async () => {
+  const AskUserTool = BUILTIN_BY_ID.get('ask_user');
+  assert.ok(AskUserTool, 'ask_user debe estar disponible en builtin tools');
+  const tool = AskUserTool.createTool(AgentCore.Tool);
+
+  assert.equal((await tool.execute({ question: '', options: ['a', 'b'] })).success, false);
+  assert.equal((await tool.execute({ question: '¿Cuál?', options: [{ label: 'Solo' }] })).success, false);
+  assert.equal((await tool.execute({ question: '¿Cuál?', options: ['a', 'b', 'c', 'd', 'e'] })).success, false);
+  assert.equal((await tool.execute({ question: '¿Cuál?', options: [{ label: 'Igual' }, { label: 'igual' }] })).success, false, 'Etiquetas duplicadas no cuentan como opciones distintas');
+
+  const result = await tool.execute({ question: ' ¿Aplico el cambio? ', options: [{ label: 'Aplicar', description: 'Escribe AGENTS.md' }, 'Cancelar'] });
+  assert.deepEqual(result, {
+    success: true,
+    endTurn: true,
+    question: '¿Aplico el cambio?',
+    options: [{ label: 'Aplicar', description: 'Escribe AGENTS.md' }, { label: 'Cancelar', description: '' }]
+  });
+  assert.match(tool.result.toModel({}, result), /next user message/);
+  assert.match(tool.formatDispatchMarkdown({}, result), /ask_user\*\*: ¿Aplico el cambio\?[\s\S]*- Aplicar — Escribe AGENTS\.md/);
+
+  const fakeDoc = { createElement: () => ({ className: '', innerHTML: '' }) };
+  const card = AskUserTool.view.createLiveCard({
+    question: '<img src=x onerror=alert(1)>?',
+    options: [{ label: '"><script>bad()</script>', description: '<b>x</b>' }, { label: 'Normal' }]
+  }, { document: fakeDoc, t: key => key });
+  assert.equal(card.innerHTML.includes('<script>'), false);
+  assert.equal(card.innerHTML.includes('<img src=x'), false);
+  assert.equal(card.innerHTML.includes('<b>x</b>'), false);
+  assert.match(card.innerHTML, /data-ask-option="&quot;&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;"/);
+  assert.equal((card.innerHTML.match(/ disabled>/g) || []).length, 2, 'Las opciones se pintan desactivadas hasta que la aplicación las habilita');
+
+  const invalid = AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { document: fakeDoc, t: key => key });
+  AskUserTool.view.updateLiveCard(invalid, { question: '¿?', options: [] }, { success: false, error: 'options must contain 2 to 4' }, 0, { t: key => key });
+  assert.match(invalid.innerHTML, /ask-user-error[\s\S]*options must contain 2 to 4/);
+});
+

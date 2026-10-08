@@ -581,3 +581,58 @@ test('AgentRuntime - execute limpia el listener abort del signal al finalizar', 
   assert.equal(addedCount, 1);
   assert.equal(removedCount, 1);
 });
+
+test('AgentRuntime - una herramienta con endTurn cede el turno sin síntesis ni más peticiones', async () => {
+  const registry = new ToolRegistry();
+  const AskUserTool = require('../../js/tools/builtin/ask-user.tool.js');
+  registry.registerTool(AskUserTool.createTool(Tool));
+  for (const maxSteps of [5, 1]) {
+    let requests = 0;
+    const result = await new AgentRuntime({ registry }).execute({
+      api: {
+        streamChatCompletion: async () => {
+          requests++;
+          return {
+            accumulatedText: 'Necesito tu decisión.',
+            toolCalls: [{ id: 'call_ask', type: 'function', function: { name: 'ask_user', arguments: JSON.stringify({ question: '¿Aplico?', options: ['Sí', 'No'] }) } }],
+            stats: null
+          };
+        }
+      },
+      messages: [{ role: 'user', content: 'Revisa el proyecto' }],
+      maxSteps,
+      appendFinalMessage: true
+    });
+    assert.equal(requests, 1, `maxSteps=${maxSteps}: no hay síntesis ni más pasos`);
+    assert.equal(result.status, 'completed');
+    assert.equal(result.awaitingUser, true);
+    assert.equal(result.success, true);
+    const last = result.history[result.history.length - 1];
+    assert.equal(last.role, 'tool');
+    assert.equal(last.name, 'ask_user');
+    assert.equal(result.history[result.history.length - 2].content, 'Necesito tu decisión.');
+  }
+});
+
+test('AgentRuntime - una pregunta inválida no cede el turno y el modelo puede corregirla', async () => {
+  const registry = new ToolRegistry();
+  registry.registerTool(require('../../js/tools/builtin/ask-user.tool.js').createTool(Tool));
+  let requests = 0;
+  const result = await new AgentRuntime({ registry }).execute({
+    api: {
+      streamChatCompletion: async () => {
+        requests++;
+        if (requests === 1) {
+          return { accumulatedText: '', toolCalls: [{ id: 'call_bad', type: 'function', function: { name: 'ask_user', arguments: JSON.stringify({ question: '¿?', options: ['Solo'] }) } }], stats: null };
+        }
+        return { accumulatedText: 'Respuesta directa.', toolCalls: [], stats: null };
+      }
+    },
+    messages: [{ role: 'user', content: 'Hola' }],
+    appendFinalMessage: true
+  });
+  assert.equal(requests, 2);
+  assert.equal(result.awaitingUser, false);
+  assert.equal(result.finalText, 'Respuesta directa.');
+});
+

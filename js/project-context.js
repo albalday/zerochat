@@ -65,7 +65,7 @@ Project rules: AGENTS.md   <!-- or "none" -->
     return `Initialize project mode for the repository at ${cwd}. Work in this order:
 1. Inspect existing rules and docs: AGENTS.md first, then CLAUDE.md, .cursorrules, README*, CONTRIBUTING*, docs/. Do not modify anything yet.
 2. Report what already covers: (a) long-term planning, (b) short-term planning, (c) milestone and decision records. Quote file and section.
-3. For each missing item, propose the smallest addition. Plans and logs grow, so they go in files under ${MEMORY_DIR}/ (plan.md, log.md); the project's own rules (e.g. AGENTS.md) may only receive short rules or pointers, never a log or a plan, because other agents load them in every session. Show the exact text and wait for the user's explicit approval.
+3. For each missing item, propose the smallest addition. Plans and logs grow, so they go in files under ${MEMORY_DIR}/ (plan.md, log.md); the project's own rules (e.g. AGENTS.md) may only receive short rules or pointers, never a log or a plan, because other agents load them in every session. Show the exact text and wait for the user's explicit approval (use the ask_user tool for it when available).
 4. After approval, create ${RULES_FILE} from the rules template and ${STATE_FILE} from the state template below, and apply the approved changes. Use absolute paths under ${cwd}.
 5. Finish by listing the files created or modified.
 

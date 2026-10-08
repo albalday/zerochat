@@ -55,8 +55,8 @@
 
   function appendToolCard(container, card, options = {}) {
     if (!container || !card) return null;
-    // Las visualizaciones son resultado principal, no ruido de ejecución.
-    if (card.querySelector?.('.chat-chart-card')) {
+    // Las visualizaciones y las preguntas al usuario son resultado principal, no ruido de ejecución.
+    if (card.querySelector?.('.chat-chart-card, .ask-user-card')) {
       container.appendChild(card);
       return null;
     }
