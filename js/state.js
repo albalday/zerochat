@@ -12,8 +12,6 @@
 }(typeof self !== 'undefined' ? self : this, function (MessageTurns, Defaults) {
   'use strict';
 
-  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
-
   function clone(obj) {
     if (obj === null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(clone);
@@ -55,45 +53,9 @@
   const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'ready', 'error']);
 
   function createInitialState(overrides = {}) {
-    const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
     const defaultState = {
-      // 1. Configuración de la Aplicación y Preferencias
-      config: {
-        schemaVersion: 3,
-        activeProfile: null,
-        apiUrl: 'http://localhost:1234/v1',
-        apiType: 'openai',
-        model: '',
-        systemPrompt: '',
-        systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT,
-        temperature: '0.7',
-        reasoningEffort: 'medium',
-        reasoningTransport: 'auto',
-        maxAgentTurns: 40,
-        theme: DEFAULT_THEME,
-        language: 'es',
-        enabledTools: {
-          execute_javascript: true,
-          search_web: true,
-          fetch_web_page: true,
-          download_pdf: true,
-          render_chart: true
-        },
-        enableRawLogs: false,
-        enableDebugMessages: false,
-        enableContextCache: true,
-        activeRagBranchId: '',
-        activeRagBranchIds: [],
-        modelReasoningConfig: null,
-        mcpHost: '127.0.0.1',
-        mcpPort: 6388,
-        projectMode: true,
-        projectDeclined: [],
-        webllmConfig: {
-          context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
-          prefill_chunk_size: 'default'
-        }
-      },
+      // 1. Configuración de la Aplicación y Preferencias (valores por defecto compartidos con ChatConfig)
+      config: clone(Defaults.CONFIG_DEFAULTS),
 
       // 2. Sesiones y Conversación Activa
       sessions: {

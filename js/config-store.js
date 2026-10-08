@@ -11,30 +11,11 @@
 }(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults, Utils) {
   'use strict';
 
-  const SCHEMA_VERSION = 3;
-  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
+  const SCHEMA_VERSION = Defaults.CONFIG_SCHEMA_VERSION;
   const WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE = String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE);
   const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
-  const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
-  const DEFAULTS = Object.freeze({
-    schemaVersion: SCHEMA_VERSION,
-    activeProfile: null,
-    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', modelContextLimit: null, contextLimitOverride: null,
-    systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'medium', reasoningTransport: 'auto',
-    maxAgentTurns: 40,
-    modelReasoningConfig: null,
-    enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
-    enableRawLogs: false, enableContextCache: true,
-    apiKeyLocked: false,
-    theme: DEFAULT_THEME, language: 'es', enableDebugMessages: false,
-    activeRagBranchId: '', activeRagBranchIds: [],
-    mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
-    projectMode: true, projectDeclined: [],
-    webllmConfig: {
-      context_window_size: WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE,
-      prefill_chunk_size: 'default'
-    }
-  });
+  const DEFAULT_SYSTEM_DATA_PROMPT = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
+  const DEFAULTS = Defaults.CONFIG_DEFAULTS;
 
   const { clone } = Utils;
   const RETIRED_TOOL_IDS = Object.freeze(['agent_checkpoint', 'update_plan', 'finish_task']);

@@ -366,3 +366,15 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
 });
+
+test('ChatState - la configuración inicial coincide con los valores por defecto de ChatConfig', () => {
+  const Defaults = require('../../js/defaults.js');
+  const Config = require('../../js/config-store.js');
+  const initial = ChatState.createInitialState().config;
+  assert.deepEqual(initial, Config.DEFAULTS);
+  assert.deepEqual(initial, Config.normalize({}), 'La normalización no debe alterar los valores por defecto');
+  initial.projectDeclined.push('/tmp/x');
+  initial.enabledTools.search_web = false;
+  assert.deepEqual(Defaults.CONFIG_DEFAULTS.projectDeclined, []);
+  assert.equal(Defaults.CONFIG_DEFAULTS.enabledTools.search_web, true);
+});
