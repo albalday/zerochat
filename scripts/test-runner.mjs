@@ -66,6 +66,10 @@ export const GROUPS = {
     'tests/integration/test_webllm.js',
     'tests/browser/browser_webllm.test.js'
   ],
+  project: [
+    'tests/unit/test_project_context.js',
+    'tests/integration/test_project_context.js'
+  ],
   bundle: [
     'tests/browser/browser_startup.test.js'
   ]

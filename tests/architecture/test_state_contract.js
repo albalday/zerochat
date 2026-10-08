@@ -20,3 +20,11 @@ test('ChatState - app.js no mantiene una copia mutable del estado de generación
   assert.doesNotMatch(appSource, /let\s+isGenerating\s*=/);
   assert.match(appSource, /State\.isConversationBusy/);
 });
+
+test('ChatState - el slice project solo se escribe mediante setProjectContext', () => {
+  const offenders = fs.readdirSync(JS_DIR)
+    .filter(name => name.endsWith('.js') && name !== 'state.js')
+    .filter(name => /\.set\(\s*['"]project['"]|setState\(\s*\{\s*project\b/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
+
+  assert.deepEqual(offenders, [], `Usa ChatState.setProjectContext: ${offenders.join(', ')}`);
+});

@@ -48,8 +48,11 @@
     'telemetry',
     'ui',
     'mcp',
-    'toolSecurity'
+    'toolSecurity',
+    'project'
   ]);
+
+  const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'ready', 'error']);
 
   function createInitialState(overrides = {}) {
     const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
@@ -155,6 +158,16 @@
         globalMcpPolicy: 'ask',
         authorizedCount: 0,
         tools: {}
+      },
+
+      // 10. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
+      project: {
+        cwd: '',
+        status: 'disabled',
+        error: '',
+        rules: { content: '', truncated: false },
+        state: { content: '', truncated: false },
+        checkedAt: null
       }
     };
 
@@ -553,6 +566,26 @@
       return { ok: true, state: getState() };
     }
 
+    function normalizeProjectFile(file) {
+      return { content: typeof file?.content === 'string' ? file.content : '', truncated: file?.truncated === true };
+    }
+
+    function setProjectContext(patch) {
+      if (!patch || typeof patch !== 'object') throw new TypeError('[ChatState] setProjectContext: patch debe ser un objeto.');
+      const next = Object.assign({}, state.project);
+      if (patch.status !== undefined) {
+        if (!PROJECT_STATUSES.includes(patch.status)) throw new Error(`[ChatState] setProjectContext: estado no válido "${patch.status}".`);
+        next.status = patch.status;
+      }
+      if (patch.cwd !== undefined) next.cwd = String(patch.cwd || '');
+      if (patch.error !== undefined) next.error = String(patch.error || '');
+      if (patch.rules !== undefined) next.rules = normalizeProjectFile(patch.rules);
+      if (patch.state !== undefined) next.state = normalizeProjectFile(patch.state);
+      if (patch.checkedAt !== undefined) next.checkedAt = Number.isFinite(patch.checkedAt) ? patch.checkedAt : null;
+      setState({ project: next });
+      return { ok: true, state: getState() };
+    }
+
     function enqueueNotice(notice) {
       if (!notice || typeof notice.message !== 'string' || typeof notice.title !== 'string' ||
           !['info', 'success', 'error', 'warning'].includes(notice.type) ||
@@ -667,6 +700,7 @@
       clearGenerationStatus,
       enqueueNotice,
       dismissNotice,
+      setProjectContext,
       CANONICAL_SLICES
     };
   }
@@ -678,6 +712,7 @@
     createStore,
     createInitialState,
     CANONICAL_SLICES,
+    PROJECT_STATUSES,
     getState: defaultStore.getState,
     get: defaultStore.get,
     setState: defaultStore.setState,
@@ -698,6 +733,7 @@
     setGenerationStatus: defaultStore.setGenerationStatus,
     clearGenerationStatus: defaultStore.clearGenerationStatus,
     enqueueNotice: defaultStore.enqueueNotice,
-    dismissNotice: defaultStore.dismissNotice
+    dismissNotice: defaultStore.dismissNotice,
+    setProjectContext: defaultStore.setProjectContext
   };
 }));

@@ -248,6 +248,15 @@
       : (runtimeConfig.activeRagBranchId ? [runtimeConfig.activeRagBranchId] : []);
     const activeRagBranchId = activeRagBranchIds[0] || runtimeConfig.activeRagBranchId || '';
 
+    const ProjectContext = resolveDep('ChatProjectContext', './project-context.js');
+    if (runtimeConfig.projectMode === true && ProjectContext?.refresh) {
+      try {
+        await ProjectContext.refresh({ signal: currentAbortController?.signal });
+      } catch (err) {
+        console.warn('[GenerationController] Could not refresh project context:', err);
+      }
+    }
+
     const RagService = resolveDep('ChatRagService', './rag-service.js');
     if (activeRagBranchIds.length > 0 && RagService?.buildRagSystemContext) {
       if (typeof options.setGenerationStatus === 'function') {

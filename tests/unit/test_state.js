@@ -351,3 +351,18 @@ test('ChatState - admite avisos de confirmación', () => {
   });
   assert.equal(store.get('ui').notices[0].type, 'warning');
 });
+
+test('ChatState - setProjectContext valida el estado y el cambio de conversación no reinicia el proyecto', () => {
+  const store = ChatState.createStore();
+  assert.equal(store.get('project').status, 'disabled');
+  assert.throws(() => store.setProjectContext({ status: 'unknown' }), /estado no válido/);
+  assert.throws(() => store.setProjectContext(null), /objeto/);
+
+  store.setProjectContext({ status: 'ready', cwd: '/repo', rules: { content: 'r', truncated: 'yes' } });
+  assert.deepEqual(store.get('project').rules, { content: 'r', truncated: false });
+  assert.deepEqual(store.get('project').state, { content: '', truncated: false });
+
+  store.initializeConversation({ sessionId: 'session_next', sessions: [], messages: [] });
+  assert.equal(store.get('project').status, 'ready');
+  assert.equal(store.get('project').cwd, '/repo');
+});

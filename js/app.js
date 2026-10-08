@@ -54,6 +54,7 @@
   const UIConversation = window.ChatUIConversation || {};
   const GenerationController = window.ChatGenerationController || {};
   const ToolSecurity = window.ChatToolSecurity || {};
+  const ProjectContext = window.ChatProjectContext || {};
   const MessageTurns = window.ChatMessageTurns || {};
 
   function t(key, params) {
@@ -1396,6 +1397,14 @@
       };
       State.subscribe('streaming', syncGenerationControls);
       syncGenerationControls(State.get?.('streaming') || {});
+
+      if (ProjectContext.refresh) {
+        // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
+        State.subscribe(
+          state => ({ status: state.mcp?.status, cwd: state.mcp?.serverInfo?.cwd || '', tools: state.mcp?.tools?.length || 0 }),
+          () => ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error))
+        );
+      }
     }
 
     if (Config.subscribe) {

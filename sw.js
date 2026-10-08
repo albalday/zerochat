@@ -71,6 +71,7 @@ const PRECACHE_ASSETS = [
   './js/profile-export-bundle.js',
   './js/profile-repository.js',
   './js/config-store.js',
+  './js/project-context.js',
   './js/context-manager.js',
   './js/chat-engine.js',
   './js/ui-reasoning.js',
