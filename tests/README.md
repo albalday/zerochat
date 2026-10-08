@@ -60,7 +60,7 @@ Para arrancar la aplicación localmente durante una comprobación manual, consul
 
 ## 3. Grupos funcionales
 
-Los grupos combinan suites de distintos niveles para acortar el ciclo de validación de un área. Los nombres disponibles son `turns`, `composer`, `generation`, `profiles`, `mcp`, `rag`, `providers` y `bundle`.
+Los grupos combinan suites de distintos niveles para acortar el ciclo de validación de un área. Los nombres disponibles son `turns`, `composer`, `generation`, `profiles`, `mcp`, `rag`, `project`, `providers` y `bundle`.
 
 | Grupo | Área cubierta |
 |---|---|
@@ -70,6 +70,7 @@ Los grupos combinan suites de distintos niveles para acortar el ciclo de validac
 | `profiles` | Perfiles, persistencia y su interfaz. |
 | `mcp` | Cliente MCP, herramientas y configuración asociada. |
 | `rag` | Ingesta, índice, almacenamiento y experiencia RAG. |
+| `project` | Modo proyecto: detección, estados, inyección e inicialización. |
 | `providers` | Adaptadores y consultas de modelos. |
 | `bundle` | Arranque y recursos necesarios para la aplicación distribuida. |
 

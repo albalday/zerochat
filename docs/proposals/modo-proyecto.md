@@ -1,6 +1,6 @@
 # Propuesta: Modo proyecto para trabajo de programación de larga duración
 
-Estado: borrador para implantación · Fecha: 2026-10-08
+Estado: implantado en `dev` (pasos 1-8) · Fecha: 2026-10-08
 
 ## 1. Objetivo
 

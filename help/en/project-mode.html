@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project mode · ZeroChat Help · 8.x</title>
+  <meta name="description" content="The rules, plan and state of a long-running coding project, present in every chat.">
+  <link rel="stylesheet" href="../help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="../project-mode.html" class="top-nav-link" lang="es">Español</a>
+          <a href="index.html" class="top-nav-link">← Back to index</a>
+        </div>
+      </div>
+      <h1>Project mode</h1>
+      <p class="subtitle">The rules, plan and state of a long-running coding project, present in every chat.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. What it does</h2>
+      <p>Project mode keeps a project's memory in the project's own files, not in the browser. On every request, ZeroChat adds the contents of <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code> to the system prompt. The agent uses them to know which rules to follow, where the plan and decision log live and where the work stands, and updates them when it closes a milestone or makes a decision.</p>
+      <p>It requires the <a href="mcp.html">local server</a>. The project is the directory from which <code>zerochat.py</code> is launched: one server per project. Without the server, the mode has no effect.</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Project files</h2>
+      <div class="table-responsive"><table><thead><tr><th>File</th><th>Contents</th></tr></thead>
+      <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Rules and an index of the sources of truth: where the long- and short-term plans and the milestone and decision log live. It can simply point to <code>AGENTS.md</code>. Meant to be versioned. Injected into every chat.</td></tr>
+      <tr><td><code>.zerochat/state.md</code></td><td>Current state: milestone in progress, next step and active decisions, in under 40 lines. Injected into every chat.</td></tr>
+      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan and decision log, only if the project does not already keep them elsewhere. Read when needed.</td></tr></tbody></table></div>
+      <p>You decide whether <code>.zerochat/</code> is versioned or added to <code>.gitignore</code>. The project's own rules, such as <code>AGENTS.md</code>, are respected and never replaced.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Enabling and initializing</h2>
+      <p>The switch is in the composer's <strong>Reasoning</strong> panel. It is a global preference: switching profiles does not change it. The project status appears below it:</p>
+      <ul><li><strong>Active:</strong> <code>ZEROCHAT.md</code> was read and is injected into every chat. <em>Reload</em> reads the files again.</li>
+      <li><strong>No ZEROCHAT.md:</strong> offers <em>Initialize project</em> and <em>Do not use in this project</em>.</li>
+      <li><strong>Disabled for the project:</strong> you declined it; <em>Re-enable in this project</em> undoes that.</li>
+      <li><strong>No read permission</strong> or <strong>requires the local server:</strong> nothing is injected.</li></ul>
+      <p><em>Initialize project</em> asks for confirmation, grants read and write access only to <code>.zerochat/</code> and sends the agent a visible message with the start-up instructions, in a new conversation if the active one has content. The agent first reviews <code>AGENTS.md</code> and the existing documentation, reports what already covers planning and decision records, proposes anything missing and waits for your approval before writing. It finishes by creating <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code>.</p>
+      <p>The files are read again when the server connects, before each message is sent and when each response finishes.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. Permissions and security</h2>
+      <ul><li>Reading uses <code>read_file</code> with the working directory's read rule, which exists by default. If you remove it, ZeroChat does not ask in every chat: it shows "no read permission".</li>
+      <li>Initialization adds the rule <code>RW:&lt;project&gt;/.zerochat</code>. Any write outside that folder, including <code>ZEROCHAT.md</code> and <code>AGENTS.md</code>, follows the current authorization policy.</li>
+      <li>File contents are treated as repository data, not privileged instructions: in a conflict, your messages and the system rules prevail. Each file is read up to 16 KB.</li></ul>
+    </div>
+
+    <div class="card">
+      <h2>5. Compaction and limits</h2>
+      <p>Because the rules and state live in the system prompt, they survive automatic history compaction. With the mode active, the summary adds a "Pending project records" section listing decisions and milestones not yet written, so the agent records them in the next step. No summary writes to the project on its own.</p>
+      <p>Project mode organizes information, but it does not guarantee that the model follows it or keeps the files up to date. Review the changes it proposes, especially with small models.</p>
+    </div>
+
+    <nav class="page-navigation" aria-label="Help navigation">
+      <a href="tools-agent.html" class="nav-button prev">
+        <span class="nav-direction">← Previous</span>
+        <span class="nav-title">Agent Mode & Tools</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Index</span>
+        <span class="nav-title">View all topics</span>
+      </a>
+      <a href="mcp.html" class="nav-button next">
+        <span class="nav-direction">Next →</span>
+        <span class="nav-title">Local server and MCP</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Project mode</p>
+    </footer>
+  </div>
+</body>
+</html>

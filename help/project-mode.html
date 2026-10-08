@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modo proyecto · Ayuda de ZeroChat · 8.x</title>
+  <meta name="description" content="Normas, plan y estado de un proyecto de programación largo, presentes en cada chat.">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-top">
+        <a href="index.html" class="logo-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+          ZeroChat 8.x Docs
+        </a>
+        <div class="header-actions">
+          <a href="en/project-mode.html" class="top-nav-link" lang="en">English</a>
+          <a href="index.html" class="top-nav-link">← Volver al índice</a>
+        </div>
+      </div>
+      <h1>Modo proyecto</h1>
+      <p class="subtitle">Normas, plan y estado de un proyecto de programación largo, presentes en cada chat.</p>
+    </header>
+
+    <div class="card">
+      <h2>1. Qué hace</h2>
+      <p>El modo proyecto mantiene la memoria de un proyecto en sus propios ficheros, no en el navegador. En cada petición, ZeroChat añade al prompt de sistema el contenido de <code>ZEROCHAT.md</code> y de <code>.zerochat/state.md</code>. El agente los consulta para saber qué normas seguir, dónde están el plan y el registro de decisiones y en qué punto está el trabajo, y los actualiza al cerrar un hito o tomar una decisión.</p>
+      <p>Requiere el <a href="mcp.html">servidor local</a>. El proyecto es el directorio desde el que se lanza <code>zerochat.py</code>: un servidor por proyecto. Sin servidor, el modo no tiene efecto.</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Ficheros del proyecto</h2>
+      <div class="table-responsive"><table><thead><tr><th>Fichero</th><th>Contenido</th></tr></thead>
+      <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Normas e índice de las fuentes de verdad: dónde están el plan a largo y corto plazo y el registro de hitos y decisiones. Puede limitarse a remitir a <code>AGENTS.md</code>. Pensado para versionarse. Se inyecta en cada chat.</td></tr>
+      <tr><td><code>.zerochat/state.md</code></td><td>Estado actual: hito en curso, siguiente paso y decisiones vigentes, en menos de 40 líneas. Se inyecta en cada chat.</td></tr>
+      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan y registro de decisiones, solo si el proyecto no los tiene ya en otro sitio. Se leen cuando hacen falta.</td></tr></tbody></table></div>
+      <p>Tú decides si <code>.zerochat/</code> se versiona o se añade a <code>.gitignore</code>. Las normas propias del proyecto, como <code>AGENTS.md</code>, se respetan y nunca se sustituyen.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Activar e inicializar</h2>
+      <p>El interruptor está en el panel de <strong>Razonamiento</strong> del compositor. Es una preferencia global: no cambia al cambiar de perfil. Debajo aparece el estado del proyecto:</p>
+      <ul><li><strong>Activo:</strong> se ha leído <code>ZEROCHAT.md</code> y se inyecta en cada chat. <em>Recargar</em> vuelve a leer los ficheros.</li>
+      <li><strong>Sin ZEROCHAT.md:</strong> ofrece <em>Inicializar proyecto</em> y <em>No usar en este proyecto</em>.</li>
+      <li><strong>Desactivado para el proyecto:</strong> lo rechazaste; <em>Reactivar en este proyecto</em> lo deshace.</li>
+      <li><strong>Sin permiso de lectura</strong> o <strong>requiere el servidor local:</strong> no se inyecta nada.</li></ul>
+      <p><em>Inicializar proyecto</em> pide confirmación, concede lectura y escritura solo en <code>.zerochat/</code> y envía al agente un mensaje visible con las instrucciones de arranque, en una conversación nueva si la activa tiene contenido. El agente revisa primero <code>AGENTS.md</code> y la documentación existente, informa de lo que ya cubre la planificación y el registro de decisiones, propone lo que falte y espera tu aprobación antes de escribir. Al terminar crea <code>ZEROCHAT.md</code> y <code>.zerochat/state.md</code>.</p>
+      <p>Los ficheros se vuelven a leer al conectar el servidor, antes de cada envío y al terminar cada respuesta.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. Permisos y seguridad</h2>
+      <ul><li>La lectura usa <code>read_file</code> con la regla de directorio de lectura del directorio de trabajo, que existe por defecto. Si la retiras, ZeroChat no pregunta en cada chat: muestra «sin permiso de lectura».</li>
+      <li>La inicialización añade la regla <code>RW:&lt;proyecto&gt;/.zerochat</code>. Cualquier escritura fuera de esa carpeta, incluidos <code>ZEROCHAT.md</code> y <code>AGENTS.md</code>, sigue la política de autorización vigente.</li>
+      <li>El contenido de los ficheros se trata como datos del repositorio, no como instrucciones privilegiadas: ante un conflicto prevalecen tus mensajes y las normas del sistema. Cada fichero se lee hasta 16 KB.</li></ul>
+    </div>
+
+    <div class="card">
+      <h2>5. Compactación y límites</h2>
+      <p>Como las normas y el estado van en el prompt de sistema, sobreviven a la compactación automática del historial. Con el modo activo, el resumen añade una sección «Pending project records» con las decisiones e hitos que aún no se han escrito, para que el agente los registre en el siguiente paso. Ningún resumen escribe por sí mismo en el proyecto.</p>
+      <p>El modo proyecto organiza la información, pero no garantiza que el modelo la siga ni que mantenga los ficheros al día. Revisa los cambios que propone, sobre todo con modelos pequeños.</p>
+    </div>
+
+    <nav class="page-navigation" aria-label="Navegación de ayuda">
+      <a href="tools-agent.html" class="nav-button prev">
+        <span class="nav-direction">← Anterior</span>
+        <span class="nav-title">Modo Agente y Herramientas</span>
+      </a>
+      <a href="index.html" class="nav-button index">
+        <span class="nav-direction">Índice</span>
+        <span class="nav-title">Ver todos los temas</span>
+      </a>
+      <a href="mcp.html" class="nav-button next">
+        <span class="nav-direction">Siguiente →</span>
+        <span class="nav-title">Servidor local y MCP</span>
+      </a>
+    </nav>
+
+    <footer>
+      <p>ZeroChat 8.x · Modo proyecto</p>
+    </footer>
+  </div>
+</body>
+</html>
