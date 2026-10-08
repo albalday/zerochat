@@ -29,6 +29,7 @@
       <p>Con un modelo que admite herramientas, ZeroChat puede alternar peticiones al modelo y ejecuciones: el modelo pide una herramienta, recibe su resultado y decide el siguiente paso. La herramienta puede ejecutarse en el navegador, en el servidor local o en un servicio MCP.</p>
       <p>Si el proveedor no admite llamadas nativas, como WebLLM, las herramientas se describen en el prompt y el modelo las pide con bloques <code>&lt;tool_call&gt;</code> en el texto. ZeroChat también interpreta esos bloques cuando un proveedor los devuelve como texto en lugar de llamadas nativas.</p>
       <p>Activa las herramientas necesarias en Ajustes y revisa sus permisos. El límite de turnos del agente es configurable entre 5 y 200 y vale 40 por defecto. Limita iteraciones, no garantiza completar la tarea ni fija un coste máximo. Puedes detener la generación; las acciones ya realizadas no se deshacen.</p>
+      <p>Para proyectos largos, el agente puede mantener plan, hitos y decisiones entre chats: consulta <a href="project-mode.html">Gestión de proyectos</a>.</p>
       <p>En <strong>Ajustes → Agente</strong>, el límite de turnos ocupa una sección abierta y cada herramienta se distingue con un fondo suave, sin marcos anidados. Las descripciones se adaptan al ancho disponible y el interruptor permanece junto a su herramienta.</p>
     </div>
 

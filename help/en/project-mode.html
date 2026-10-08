@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Project mode · ZeroChat Help · 8.x</title>
-  <meta name="description" content="The rules, plan and state of a long-running coding project, present in every chat.">
+  <title>Project management · ZeroChat Help · 8.x</title>
+  <meta name="description" content="How the agent plans, tracks and documents a long-running coding project.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -20,69 +20,70 @@
           <a href="index.html" class="top-nav-link">← Back to index</a>
         </div>
       </div>
-      <h1>Project mode</h1>
-      <p class="subtitle">The rules, plan and state of a long-running coding project, present in every chat.</p>
+      <h1>Project management</h1>
+      <p class="subtitle">How the agent plans, tracks and documents a long-running coding project.</p>
     </header>
 
     <div class="card">
-      <h2>1. What it does</h2>
-      <p>Project mode keeps a project's memory in the project's own files, not in the browser. On every request, ZeroChat adds the contents of <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code> to the system prompt. The agent uses them to know which rules to follow, where the plan and decision log live and where the work stands, and updates them when it closes a milestone or makes a decision.</p>
-      <p>It requires the <a href="mcp.html">local server</a>. The project is the directory from which <code>zerochat.py</code> is launched: one server per project. Without the server, the mode has no effect.</p>
+      <h2>1. The idea</h2>
+      <p>In a long project, every conversation starts without memory. ZeroChat keeps that memory in the project's own files and hands it to the agent at the start of every chat: the rules, where everything lives and where the work stands. The agent keeps it up to date as it works.</p>
+      <p>It works with the <a href="mcp.html">local server</a>: the project is the directory from which <code>zerochat.py</code> is launched.</p>
     </div>
 
     <div class="card">
-      <h2>2. Project files</h2>
-      <div class="table-responsive"><table><thead><tr><th>File</th><th>Contents</th></tr></thead>
-      <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Rules and an index of the sources of truth: where the long- and short-term plans and the milestone and decision log live. It can simply point to <code>AGENTS.md</code>. Meant to be versioned. Injected into every chat.</td></tr>
-      <tr><td><code>.zerochat/state.md</code></td><td>Current state: milestone in progress, next step and active decisions, in under 40 lines. Injected into every chat.</td></tr>
-      <tr><td><code>.zerochat/plan.md</code>, <code>.zerochat/log.md</code></td><td>Plan and decision log, only if the project does not already keep them elsewhere. Read when needed.</td></tr>
-      <tr><td><code>.zerochat/archive/</code></td><td>One file per closed milestone with its plan detail and log entries. Searched, not read in full.</td></tr></tbody></table></div>
-      <p>To keep the plan and log from growing without limit, when a milestone closes the agent reduces it to one line in the plan, moves its entries to <code>.zerochat/archive/&lt;milestone&gt;.md</code> and updates <code>state.md</code>. Nothing is summarized or deleted: it is moved. Plans and logs are not stored in <code>AGENTS.md</code>, which other agents load in every session; it only receives short rules and pointers.</p>
-      <p>ZeroChat does not decide whether <code>.zerochat/</code> is versioned: it is like any other project folder, and you can add it to <code>.gitignore</code> if you do not want to version it. The project's own rules, such as <code>AGENTS.md</code>, are respected and never replaced.</p>
+      <h2>2. The work cycle</h2>
+      <ol>
+        <li><strong>Initialize, once.</strong> The agent reviews <code>AGENTS.md</code> and the documentation, tells you what already covers planning and decision records, proposes anything missing and waits for your approval. It finishes by creating <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code>.</li>
+        <li><strong>Work.</strong> Every chat starts with the rules and the current state. The agent consults the plan and the log only when it needs them.</li>
+        <li><strong>Record.</strong> When it makes a non-obvious decision or changes the plan, the agent writes it to the log and updates the state.</li>
+        <li><strong>Close a milestone.</strong> It reduces the milestone to one line in the plan, moves its log entries to <code>.zerochat/archive/&lt;milestone&gt;.md</code> and updates the state. Nothing is summarized or deleted: it is moved.</li>
+        <li><strong>Resume.</strong> The next chat, even days later or with another model, starts where the previous one left off.</li>
+      </ol>
     </div>
 
     <div class="card">
-      <h2>3. Enabling and initializing</h2>
-      <p>The mode is on by default: as soon as the project has a <code>ZEROCHAT.md</code>, it is used without going through any menu. The switch in the composer's <strong>Reasoning</strong> panel turns it off; it is a global preference that does not change when switching profiles.</p>
-      <p>While the project is being injected, the reasoning button shows a colored dot; if the mode is on but the files cannot be read, the dot turns to a warning color. The button tooltip names the project and its status. The panel shows the details:</p>
-      <ul><li><strong>Active:</strong> <code>ZEROCHAT.md</code> was read and is injected into every chat. <em>Reload</em> reads the files again.</li>
-      <li><strong>No ZEROCHAT.md:</strong> offers <em>Initialize project</em> and <em>Do not use in this project</em>.</li>
-      <li><strong>Disabled for the project:</strong> you declined it; <em>Re-enable in this project</em> undoes that.</li>
-      <li><strong>No read permission</strong> or <strong>requires the local server:</strong> nothing is injected.</li></ul>
-      <p><em>Initialize project</em> asks for confirmation, grants read and write access only to <code>.zerochat/</code> and sends the agent a visible message with the start-up instructions, in a new conversation if the active one has content. The agent first reviews <code>AGENTS.md</code> and the existing documentation, reports what already covers planning and decision records, proposes anything missing and waits for your approval before writing. It finishes by creating <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code>.</p>
-      <p>The files are read when ZeroChat opens, when the server connects and when each response finishes, so the agent's changes are picked up for the next message. If you edit them by hand, press <em>Reload</em>.</p>
+      <h2>3. The files</h2>
+      <div class="table-responsive"><table><thead><tr><th>File</th><th>Purpose</th></tr></thead>
+      <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Rules and index: where the plan, log and state live. It can simply point to <code>AGENTS.md</code>. Included in every chat.</td></tr>
+      <tr><td><code>.zerochat/state.md</code></td><td>Current milestone, next step and active decisions, in under 40 lines. Included in every chat.</td></tr>
+      <tr><td><code>.zerochat/plan.md</code>, <code>log.md</code></td><td>Plan and decision log, if the project does not keep them elsewhere. Read when needed.</td></tr>
+      <tr><td><code>.zerochat/archive/</code></td><td>One file per closed milestone. Searched, not read in full.</td></tr></tbody></table></div>
+      <p>The project's own rules are respected. Plans and logs are never stored in <code>AGENTS.md</code>, which other agents load in every session. ZeroChat does not decide whether <code>.zerochat/</code> is versioned.</p>
     </div>
 
     <div class="card">
-      <h2>4. Permissions and security</h2>
-      <ul><li>Reading uses <code>read_file</code> with the working directory's read rule, which exists by default. If you remove it, ZeroChat does not ask in every chat: it shows "no read permission".</li>
-      <li>Initialization adds the rule <code>RW:&lt;project&gt;/.zerochat</code>. Any write outside that folder, including <code>ZEROCHAT.md</code> and <code>AGENTS.md</code>, follows the current authorization policy.</li>
-      <li>File contents are treated as repository data, not privileged instructions: in a conflict, your messages and the system rules prevail. Each file is read up to 16 KB.</li></ul>
+      <h2>4. In the interface</h2>
+      <ul><li>It is on by default: if the project has a <code>ZEROCHAT.md</code>, it is used without doing anything.</li>
+      <li>A dot on the <strong>Reasoning</strong> button shows that the project is in use; a warning-colored dot means the files could not be read.</li>
+      <li>The Reasoning panel shows the status and actions: <em>Initialize project</em>, <em>Do not use in this project</em>, <em>Re-enable</em> and <em>Reload</em>. Its "Project mode" switch turns it off for all projects.</li></ul>
     </div>
 
     <div class="card">
-      <h2>5. Compaction and limits</h2>
-      <p>Because the rules and state live in the system prompt, they survive automatic history compaction. With the mode active, the summary adds a "Pending project records" section listing decisions and milestones not yet written, so the agent records them in the next step. No summary writes to the project on its own.</p>
-      <p>Project mode organizes information, but it does not guarantee that the model follows it or keeps the files up to date. Review the changes it proposes, especially with small models.</p>
+      <h2>5. Details and limits</h2>
+      <ul><li>The files are read when ZeroChat opens, when the server connects and when each response finishes. If you edit them by hand, press <em>Reload</em>.</li>
+      <li>Initialization grants read and write access only to <code>.zerochat/</code>; any other write follows the current authorization policy.</li>
+      <li>Contents are treated as repository data, not privileged instructions, and each file is read up to 16 KB.</li>
+      <li>The rules and state survive history compaction; the summary flags anything not yet recorded.</li>
+      <li>The system organizes information, but it does not guarantee that the model follows it. Review what it proposes, especially with small models.</li></ul>
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">
-      <a href="tools-agent.html" class="nav-button prev">
+      <a href="conversations.html" class="nav-button prev">
         <span class="nav-direction">← Previous</span>
-        <span class="nav-title">Agent Mode & Tools</span>
+        <span class="nav-title">Conversations & Branching</span>
       </a>
       <a href="index.html" class="nav-button index">
         <span class="nav-direction">Index</span>
         <span class="nav-title">View all topics</span>
       </a>
-      <a href="mcp.html" class="nav-button next">
+      <a href="tools-agent.html" class="nav-button next">
         <span class="nav-direction">Next →</span>
-        <span class="nav-title">Local server and MCP</span>
+        <span class="nav-title">Agent Mode & Tools</span>
       </a>
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Project mode</p>
+      <p>ZeroChat 8.x · Project management</p>
     </footer>
   </div>
 </body>
