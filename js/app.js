@@ -468,6 +468,14 @@
   // MODO PROYECTO
   // ==========================================================================
 
+  /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
+  async function submitComposerText(text) {
+    if (!elements.userInput) return;
+    elements.userInput.value = text;
+    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await handleSendMessage();
+  }
+
   const projectPanelHandlers = {
     toggle(enabled) {
       Config.updateRuntime?.({ projectMode: Boolean(enabled) });
@@ -499,10 +507,7 @@
           },
           sendPrompt: async prompt => {
             UIReasoning.closeReasoningMenu?.(elements);
-            if (!elements.userInput) return;
-            elements.userInput.value = prompt;
-            elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
-            await handleSendMessage();
+            await submitComposerText(prompt);
           }
         });
       } catch (error) {
@@ -536,10 +541,8 @@
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
     const typed = elements.userInput.value.trim();
-    elements.userInput.value = typed ? `${label}\n\n${typed}` : label;
-    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
     elements.messagesList?.querySelectorAll('[data-ask-option]').forEach(option => { option.disabled = true; });
-    await handleSendMessage();
+    await submitComposerText(typed ? `${label}\n\n${typed}` : label);
   }
 
   function refreshProjectContext() {

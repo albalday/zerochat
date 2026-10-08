@@ -913,4 +913,33 @@ test('Browser UI - ask_user habilita solo la pregunta pendiente y envía la opci
   } finally { await browser.close(); }
 });
 
+test('Browser UI - inicializar el modo proyecto envía el prompt de arranque como mensaje del usuario', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.evaluate(() => {
+      const ProjectContext = window.ChatProjectContext;
+      ProjectContext.refresh = async () => window.ChatState.get('project');
+      ProjectContext.canInitialize = () => true;
+      ProjectContext.initialize = async ({ sendPrompt }) => sendPrompt('Initialize project mode for /tmp/demo');
+      window.ChatConfig.updateRuntime({ projectMode: true });
+      window.ChatState.setProjectContext({ cwd: '/tmp/demo', status: 'missing' });
+    });
+    await page.click('#btn-reasoning');
+    await page.click('[data-project-action="initialize"]');
+    await page.waitForFunction(() => window.ChatState.get('messages').some(message => message.role === 'user'));
+    const state = await page.evaluate(() => ({
+      sent: window.ChatState.get('messages').filter(message => message.role === 'user').pop().content,
+      menuOpen: document.getElementById('reasoning-menu').style.display === 'flex'
+    }));
+    assert.equal(state.sent, 'Initialize project mode for /tmp/demo');
+    assert.equal(state.menuOpen, false, 'El menú de razonamiento se cierra al enviar');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 });
