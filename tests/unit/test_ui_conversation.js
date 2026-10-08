@@ -27,6 +27,13 @@ function createMockElement(tag, className = '') {
       contains: (c) => {
         const set = new Set(_className ? _className.split(' ').filter(Boolean) : []);
         return set.has(c);
+      },
+      toggle: (c, force) => {
+        const set = new Set(_className ? _className.split(' ').filter(Boolean) : []);
+        const enabled = force === undefined ? !set.has(c) : Boolean(force);
+        if (enabled) set.add(c); else set.delete(c);
+        _className = Array.from(set).join(' ');
+        return enabled;
       }
     },
     id: '',
@@ -480,8 +487,7 @@ test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator a
 
   const btnBranch = doc.createElement('button');
   btnBranch.className = 'btn-msg-action btn-branch-conversation';
-  btnBranch.title = 'Bifurcar conversación';
-  btnBranch.innerHTML = '<svg class="ui-icon">branch</svg>';
+  btnBranch.title = 'Crear una rama desde esta respuesta';
   footerRow.appendChild(btnBranch);
 
   contentWrapper.appendChild(content);
@@ -511,7 +517,9 @@ test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator a
 
   assert.equal(btnBranch.disabled, false, 'El botón debe volver a estar habilitado');
   assert.equal(btnBranch.classList.contains('is-loading'), false, 'Debe removerse la clase is-loading');
-  assert.equal(btnBranch.title, 'Bifurcar conversación', 'Debe restaurarse el título original');
+  assert.equal(btnBranch.title, 'Crear una rama desde esta respuesta', 'Debe restaurarse el título del botón');
+  assert.equal(btnBranch.getAttribute('aria-label'), 'Crear una rama desde esta respuesta');
+  assert.doesNotMatch(btnBranch.innerHTML, /ui-icon-spin/, 'Debe retirarse el spinner');
   assert.equal(wrapper.querySelector('.branch-progress-indicator'), null, 'El indicador debe haberse eliminado del DOM');
 });
 

@@ -337,7 +337,6 @@
   function getConversationServiceOptions() {
     return {
       storage: Storage,
-      uiConversation: window.ChatUIConversation || UIConversation,
       getRuntimeConfig,
       language: appConfig.language || 'es',
       getConfiguredSystemPrompt: (cfg) => getConfiguredSystemPrompt(cfg),
@@ -361,13 +360,7 @@
           elements.userInput.focus();
         }
       },
-      closeSidebar: () => closeSidebar(),
-      summarizeHistory: async (params) => {
-        if (ConversationService?.defaultSummarizeHistory) {
-          return await ConversationService.defaultSummarizeHistory(params, getConversationServiceOptions());
-        }
-        return '';
-      }
+      closeSidebar: () => closeSidebar()
     };
   }
 

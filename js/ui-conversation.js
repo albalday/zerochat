@@ -476,9 +476,7 @@
     const btnBranch = doc.createElement('button');
     btnBranch.type = 'button';
     btnBranch.className = 'btn-msg-action btn-branch-conversation';
-    btnBranch.innerHTML = getMsgIcon('git-branch', 14);
-    btnBranch.title = t('btn_branch_title');
-    btnBranch.setAttribute('aria-label', t('btn_branch_title'));
+    setBranchButtonState(btnBranch, { loading: false });
     btnBranch.addEventListener('click', () => {
       if (typeof callbacks.onBranch === 'function') {
         callbacks.onBranch(wrapper);
@@ -537,6 +535,14 @@
     return banner;
   }
 
+  function setBranchButtonState(button, { loading, label = t('btn_branch_title') }) {
+    button.disabled = loading;
+    button.classList.toggle('is-loading', loading);
+    button.innerHTML = loading ? getMsgIcon('spinner', 14, 'ui-icon-spin') : getMsgIcon('git-branch', 14);
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+
   function showBranchLoadingIndicator(wrapper, text) {
     if (!wrapper || typeof wrapper.querySelector !== 'function') return null;
     const doc = wrapper.ownerDocument || (typeof document !== 'undefined' ? document : null);
@@ -546,16 +552,7 @@
 
     // 1. Estado de carga en el botón de acción
     const btnBranch = wrapper.querySelector('.btn-branch-conversation');
-    if (btnBranch && !btnBranch.classList?.contains?.('is-loading')) {
-      btnBranch.dataset.originalHtml = btnBranch.innerHTML;
-      btnBranch.dataset.originalTitle = btnBranch.title || '';
-      btnBranch.dataset.originalDisabled = btnBranch.disabled ? 'true' : 'false';
-      btnBranch.disabled = true;
-      btnBranch.classList?.add?.('is-loading');
-      btnBranch.innerHTML = getMsgIcon('spinner', 14, 'ui-icon-spin');
-      btnBranch.title = label;
-      btnBranch.setAttribute('aria-label', label);
-    }
+    if (btnBranch) setBranchButtonState(btnBranch, { loading: true, label });
 
     // 2. Píldora de estado contextual junto al mensaje
     let indicator = wrapper.querySelector('.branch-progress-indicator');
@@ -594,25 +591,7 @@
 
     // 2. Restaurar botón de acción
     const btnBranch = wrapper.querySelector('.btn-branch-conversation');
-    if (btnBranch && btnBranch.classList?.contains?.('is-loading')) {
-      btnBranch.classList.remove('is-loading');
-      if (btnBranch.dataset.originalHtml) {
-        btnBranch.innerHTML = btnBranch.dataset.originalHtml;
-        delete btnBranch.dataset.originalHtml;
-      } else {
-        btnBranch.innerHTML = getMsgIcon('git-branch', 14);
-      }
-      if (btnBranch.dataset.originalTitle !== undefined) {
-        btnBranch.title = btnBranch.dataset.originalTitle;
-        btnBranch.setAttribute('aria-label', btnBranch.dataset.originalTitle);
-        delete btnBranch.dataset.originalTitle;
-      } else {
-        btnBranch.title = t('btn_branch_title');
-        btnBranch.setAttribute('aria-label', t('btn_branch_title'));
-      }
-      btnBranch.disabled = btnBranch.dataset.originalDisabled === 'true';
-      delete btnBranch.dataset.originalDisabled;
-    }
+    if (btnBranch) setBranchButtonState(btnBranch, { loading: false });
   }
 
   function renderSessionMessages(elements, history, options = {}) {
