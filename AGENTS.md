@@ -18,7 +18,7 @@ El código fuente se mantiene en:
 
 El backend de Python reside modularizado en `py/` por funcionalidad y se reconstruye
 en el ejecutable unificado `zerochat.py` al final de cada cambio mediante
-`npm run build:backend` (equivalente a `cat $(ls py/*.py | sort) > zerochat.py`).
+`npm run build:backend` (que sincroniza los servicios gestionados, concatena ordenadamente los módulos de `py/` y asegura permisos de ejecución).
 El módulo que contiene `main()` se denomina obligatoriamente `zz-main.py` para que la
 ordenación alfabética lo sitúe siempre el último.
 
@@ -218,7 +218,7 @@ La validación automática mínima para un pase a `master` debe incluir:
 Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
 `master` debe ser únicamente el estado validado y liberado, no una rama de trabajo.
 
-Si el usuario lo ha pedido expresamente se podrá no ejecutar los test de pase a produccion. pidiendo confirmacion y dejando el motivo en el commit y push. no s epodrán hacer excepciones en numeros seguidos de version. en medio ha de haber una sin excepciones
+Únicamente si el usuario lo solicita de forma expresa, se podrá omitir la ejecución de los tests previos al pase a master. En tal caso, se requerirá confirmación explícita y se deberá dejar constancia del motivo en el mensaje del commit y push. No se permitirán excepciones en versiones consecutivas (entre dos versiones con excepción debe existir al menos una versión promovida con validación completa y sin excepciones).
 
 ### Excepción para documentación en `/help`, `/docs` y `AGENTS.md`
 
