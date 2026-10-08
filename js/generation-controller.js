@@ -56,6 +56,24 @@
     }
   }
 
+  /**
+   * Ejecuta una inferencia auxiliar (p. ej. el resumen de una rama) como generación en curso:
+   * bloquea envíos y cambios de sesión, habilita el botón de parar y entrega a la tarea su señal.
+   */
+  async function runCancellableTask(task) {
+    if (isGenerating()) throw new Error('A generation is already running.');
+    const State = getState();
+    const controller = new AbortController();
+    currentAbortController = controller;
+    State?.set?.('streaming', { isGenerating: true, status: 'streaming', error: null });
+    try {
+      return await task(controller.signal);
+    } finally {
+      if (currentAbortController === controller) currentAbortController = null;
+      State?.set?.('streaming', { isGenerating: false, status: 'idle', error: null });
+    }
+  }
+
   function isCoarsePointer() {
     const mq = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)');
     return Boolean(mq && mq.matches);
@@ -422,6 +440,7 @@
     handleSendMessage,
     finishGeneration,
     handleStopGeneration,
+    runCancellableTask,
     isGenerating,
     getCurrentAbortController
   };

@@ -237,3 +237,25 @@ test('GenerationController - loopDetected sets agent.loopWarning, reports error 
   assert.equal(GenerationController.isGenerating(), false, 'La generación debe quedar inactiva');
   assert.equal(actions.style.display, 'inline-flex', 'Las acciones del mensaje deben quedar visibles para copia');
 });
+
+test('GenerationController.runCancellableTask - marca la conversación ocupada y la libera aunque la tarea falle', async () => {
+  const Controller = require('../../js/generation-controller.js');
+  const ChatState = require('../../js/state.js');
+  await assert.rejects(Controller.runCancellableTask(async signal => {
+    assert.equal(ChatState.isConversationBusy(), true);
+    assert.equal(signal.aborted, false);
+    await assert.rejects(Controller.runCancellableTask(async () => {}), /already running/);
+    throw new Error('task failed');
+  }), /task failed/);
+  assert.equal(ChatState.isConversationBusy(), false);
+  assert.equal(Controller.isGenerating(), false);
+});
+
+test('GenerationController.runCancellableTask - el botón de parar aborta la señal de la tarea', async () => {
+  const Controller = require('../../js/generation-controller.js');
+  const aborted = await Controller.runCancellableTask(async signal => {
+    Controller.handleStopGeneration();
+    return signal.aborted;
+  });
+  assert.equal(aborted, true);
+});

@@ -198,3 +198,65 @@ test('ConversationService - defaultSummarizeHistory usa la API key del perfil ac
     ChatAPI.streamChatCompletion = previous.stream;
   }
 });
+
+function createSummarizableBranch() {
+  const history = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' },
+    { id: 'm4', role: 'user', content: 'user 2' },
+    { id: 'm5', role: 'assistant', content: 'asst 2' }
+  ];
+  const saved = [];
+  const options = {
+    storage: { saveConversation: async (session, hist) => { if (session.id !== 'parent_sess_1') saved.push({ session, hist }); return true; } },
+    getChatHistory: () => history,
+    getCurrentSessionId: () => 'parent_sess_1',
+    getSavedSessions: () => [{ id: 'parent_sess_1', title: 'Parent Chat' }],
+    summarize: true,
+    uiConversation: {},
+    renderSessionMessages: () => {},
+    renderSidebarChats: () => {},
+    resetComposerInput: () => {}
+  };
+  return { wrapper: { getAttribute: attr => attr === 'data-msg-id' ? 'm5' : null }, options, saved };
+}
+
+test('ConversationService - la conversación está ocupada mientras se resume la rama', async () => {
+  const State = require('../../js/state.js');
+  const { wrapper, options, saved } = createSummarizableBranch();
+  let busyDuringSummary = null;
+  let signalReceived = null;
+  options.summarizeHistory = async ({ signal }) => {
+    busyDuringSummary = State.isConversationBusy();
+    signalReceived = signal;
+    return 'summary';
+  };
+  assert.equal(await ConversationService.createConversationBranch(wrapper, options), true);
+  assert.equal(busyDuringSummary, true);
+  assert.ok(signalReceived && typeof signalReceived.aborted === 'boolean');
+  assert.equal(State.isConversationBusy(), false);
+  assert.equal(State.get('ui').generationStatus.phase, 'idle');
+  assert.equal(saved.length, 1);
+});
+
+test('ConversationService - parar durante el resumen cancela la rama sin ofrecer el historial completo', async () => {
+  const GenerationController = require('../../js/generation-controller.js');
+  const State = require('../../js/state.js');
+  const { wrapper, options, saved } = createSummarizableBranch();
+  options.summarizeHistory = ({ signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('aborted')));
+    GenerationController.handleStopGeneration();
+  });
+  const previousDialogs = globalThis.ChatDialogs;
+  let dialogs = 0;
+  globalThis.ChatDialogs = { confirm: async () => { dialogs++; return true; }, alert: async () => { dialogs++; } };
+  try {
+    assert.equal(await ConversationService.createConversationBranch(wrapper, options), false);
+  } finally {
+    globalThis.ChatDialogs = previousDialogs;
+  }
+  assert.equal(dialogs, 0);
+  assert.equal(saved.length, 0);
+  assert.equal(State.isConversationBusy(), false);
+});

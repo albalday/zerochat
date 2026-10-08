@@ -24,6 +24,7 @@
   function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
   function getUtils() { return resolveDep('ChatUtils', './utils.js'); }
   function getConfig() { return resolveDep('ChatConfig', './config-store.js'); }
+  function getGenerationController() { return resolveDep('ChatGenerationController', './generation-controller.js'); }
 
   function t(key, params) {
     const I18n = getI18n();
@@ -361,6 +362,26 @@
     return await summarize(params);
   }
 
+  /** Historial de la rama con el contexto previo resumido; null si no se pudo resumir. */
+  async function summarizeBranchHistory(history, boundary, sessionId, signal, options = {}) {
+    const ContextManager = resolveDep('ChatContextManager', './context-manager.js');
+    const summarizeHistory = typeof options.summarizeHistory === 'function'
+      ? options.summarizeHistory
+      : (params => defaultSummarizeHistory(params, options));
+    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+    const compacted = await ContextManager.compressHistory({
+      messages: history.slice(0, boundary + 1),
+      summarizeFn: params => summarizeHistory({ ...params, signal }),
+      options: {
+        model: runtimeConfig.model,
+        totalContextLimit: runtimeConfig.modelContextLimit || runtimeConfig.contextLimitOverride
+      }
+    });
+    return compacted?.compressed && Array.isArray(compacted.messages)
+      ? createBranchHistoryWithSummary(compacted.messages, history[boundary], sessionId)
+      : null;
+  }
+
   async function createConversationBranch(wrapper, options = {}) {
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     if (wrapper?.querySelector && wrapper.querySelector('.btn-branch-conversation.is-loading')) return false;
@@ -410,44 +431,24 @@
     let branchHistory = null;
     if (summarize) {
       const UIConv = options.uiConversation || resolveDep('ChatUIConversation', './ui-conversation.js');
-      if (UIConv?.showBranchLoadingIndicator) {
-        UIConv.showBranchLoadingIndicator(wrapper, t('chat_branch_summarizing'));
-      }
-      if (State?.setGenerationStatus) {
-        State.setGenerationStatus({ phase: 'custom', text: t('chat_branch_summarizing') });
-      }
+      UIConv?.showBranchLoadingIndicator?.(wrapper, t('chat_branch_summarizing'));
+      let cancelled = false;
       try {
-        const ContextManager = resolveDep('ChatContextManager', './context-manager.js');
-        const summarizeFn = typeof options.summarizeHistory === 'function'
-          ? options.summarizeHistory
-          : ((params) => defaultSummarizeHistory(params, options));
-        const sourceHistory = history.slice(0, boundary + 1);
-        const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
-
-        if (ContextManager && typeof ContextManager.compressHistory === 'function') {
-          const compacted = await ContextManager.compressHistory({
-            messages: sourceHistory,
-            summarizeFn,
-            options: {
-              model: runtimeConfig.model,
-              totalContextLimit: runtimeConfig.modelContextLimit || runtimeConfig.contextLimitOverride
-            }
-          });
-          if (compacted && compacted.compressed && Array.isArray(compacted.messages)) {
-            branchHistory = createBranchHistoryWithSummary(compacted.messages, history[boundary], branchSessionId);
-          }
-        }
+        // Mientras se resume, la conversación cuenta como ocupada y el botón de parar la cancela.
+        branchHistory = await getGenerationController().runCancellableTask(async signal => {
+          State?.setGenerationStatus?.({ phase: 'custom', text: t('chat_branch_summarizing') });
+          const summarized = await summarizeBranchHistory(history, boundary, branchSessionId, signal, options);
+          cancelled = signal.aborted;
+          return summarized;
+        });
       } catch (err) {
         console.warn('[ZeroChat] Error al generar resumen para rama:', err);
       } finally {
-        if (State?.setGenerationStatus) {
-          State.setGenerationStatus({ phase: 'idle' });
-        }
-        if (UIConv?.hideBranchLoadingIndicator) {
-          UIConv.hideBranchLoadingIndicator(wrapper);
-        }
+        State?.clearGenerationStatus?.();
+        UIConv?.hideBranchLoadingIndicator?.(wrapper);
       }
 
+      if (cancelled) return false;
       if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
       if (!branchHistory) {
