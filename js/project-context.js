@@ -161,15 +161,14 @@ ${stateBody}
         type: 'function',
         function: { name: READ_TOOL, arguments: JSON.stringify(args) }
       }, { signal });
-      if (!execution?.success) {
-        return { status: 'error', error: execution?.error || 'read_file failed' };
-      }
 
+      // El servidor marca como error (isError) los resultados con success: false, como un fichero
+      // inexistente; el motivo viaja en el contenido JSON, no en execution.error.
       let payload = null;
       try {
-        payload = JSON.parse(execution.result?.content || '');
+        payload = JSON.parse(execution?.result?.content || '');
       } catch (_) {
-        return { status: 'error', error: 'read_file returned an unexpected format' };
+        return { status: 'error', error: execution?.error || 'read_file returned an unexpected format' };
       }
       if (payload?.success !== true) {
         return isMissingFileError(payload?.error) ? { status: 'missing' } : { status: 'error', error: String(payload?.error || 'read_file failed') };

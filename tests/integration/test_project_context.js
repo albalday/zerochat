@@ -21,11 +21,13 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
         const args = JSON.parse(call.function.arguments);
         calls.push(args);
         const file = files[args.path];
-        if (file instanceof Error) return { success: false, error: file.message };
+        if (file instanceof Error) return { success: false, error: file.message, result: null };
         const payload = file === undefined
           ? { success: false, error: `File '${args.path}' does not exist.` }
           : (typeof file === 'string' ? { success: true, content: file, truncated: false } : file);
-        return { success: true, result: { content: JSON.stringify(payload) } };
+        // Igual que McpToolProvider con el servidor local: success: false del JSON llega como isError.
+        const ok = payload.success !== false;
+        return { success: ok, result: { success: ok, isError: !ok, content: JSON.stringify(payload) } };
       }
     }
   };
@@ -205,3 +207,68 @@ test('ProjectContext.initialize - la regla concedida permite escribir en .zeroch
   assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat-other/x' }).requiresApproval, true);
 });
 
+test('ProjectContext.refresh - un fallo de transporte sin contenido queda error con su motivo', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { context, state } = createHarness({ files: { '/repo/ZEROCHAT.md': new Error('connection reset') } });
+  await context.refresh();
+  assert.equal(state.get('project').status, 'error');
+  assert.equal(state.get('project').error, 'connection reset');
+});
+
+
+test('ProjectContext.refresh - con el proveedor MCP real, un ZEROCHAT.md inexistente queda missing', async () => {
+  const MCP = require('../../js/mcp.js');
+  const AgentCore = require('../../js/agent-core.js');
+  const backendResult = payload => ({
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+    isError: payload.success === false
+  });
+  const files = {};
+  const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Tools', url: 'http://127.0.0.1:6388/sse' });
+  client.request = async (method, params) => {
+    if (method === 'tools/list') return { tools: [{ name: 'read_file', inputSchema: { type: 'object' } }, { name: 'write_file', inputSchema: { type: 'object' } }] };
+    if (method === 'tools/call') {
+      const content = files[params.arguments.path];
+      // Misma forma que py/ff-server.py: success: false del JSON se publica como isError.
+      return backendResult(content === undefined
+        ? { success: false, error: `File '${params.arguments.path}' does not exist.` }
+        : { success: true, content, truncated: false });
+    }
+    throw new Error(`unexpected ${method}`);
+  };
+  const provider = new MCP.McpToolProvider(client, { id: 'mcp_prov_mcp_proxy' });
+  const registry = new AgentCore.ToolRegistry();
+  registry.registerProvider(provider);
+  await provider.discoverTools();
+  registry.registerProvider(provider);
+
+  // Gestor de seguridad real con la política por defecto: basta la regla R:<cwd> que crea al conectar.
+  const Security = require('../../js/tool-security.js');
+  const previousStartup = Security.manager.getStartupDirectory();
+  const previousRules = Security.manager.getDirectoryRules();
+  Security.manager.setDirectoryRules([]);
+  Security.manager.setStartupDirectory('/repo');
+  const previousMcp = ChatState.get('mcp');
+  ChatState.set('mcp', { status: 'connected', serverInfo: { cwd: '/repo' } });
+  try {
+    assert.deepEqual(Security.manager.getDirectoryRules(), ['R:/repo']);
+    const context = ProjectContext.createProjectContext({
+      state: ChatState,
+      config: { get: () => ({ projectMode: true, projectDeclined: [] }) },
+      agentCore: { registry, executor: new AgentCore.ToolExecutor(registry) }
+    });
+    await context.refresh();
+    assert.equal(ChatState.get('project').status, 'missing', ChatState.get('project').error);
+    assert.equal(context.canInitialize(), true);
+
+    files['/repo/ZEROCHAT.md'] = 'Project rules: AGENTS.md';
+    await context.refresh();
+    assert.equal(ChatState.get('project').status, 'ready');
+    assert.equal(ChatState.get('project').rules.content, 'Project rules: AGENTS.md');
+  } finally {
+    Security.manager.setStartupDirectory(previousStartup);
+    Security.manager.setDirectoryRules(previousRules);
+    ChatState.set('mcp', previousMcp);
+    ChatState.setProjectContext({ status: 'disabled', cwd: '', rules: {}, state: {} });
+  }
+});
