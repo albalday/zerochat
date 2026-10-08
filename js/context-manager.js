@@ -463,8 +463,9 @@
     const originalTokens = estimateHistoryTokens([...(checkpoint ? [checkpoint] : []), ...dialogue], options.model);
     let summaryContent = '';
     try {
+      const addendum = typeof options.summarizerAddendum === 'string' ? options.summarizerAddendum.trim() : '';
       summaryContent = await summarizeFn({
-        systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
+        systemPrompt: addendum ? `${SUMMARIZER_SYSTEM_PROMPT}\n\n${addendum}` : SUMMARIZER_SYSTEM_PROMPT,
         checkpoint,
         dialogue,
         messages: [...(checkpoint ? [checkpoint] : []), ...dialogue]

@@ -393,7 +393,11 @@
       synthesizeOnLoop: false,
       appendFinalMessage: true,
       contextOptions: {
-        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride
+        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
+        // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
+        ...(projectContext?.status === 'ready' && getProjectContext()?.SUMMARIZER_PROJECT_ADDENDUM
+          ? { summarizerAddendum: getProjectContext().SUMMARIZER_PROJECT_ADDENDUM }
+          : {})
       },
       summarizeHistory: async ({ systemPrompt, messages }) => {
         const API = getAPI();

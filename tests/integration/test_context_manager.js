@@ -319,3 +319,56 @@ test('ContextManager - buildOptimizedContext otorga presupuesto adaptativo para 
   assert.ok(!toolMsg.content.includes('Truncado por ChatContextManager'), 'No debe truncar si el presupuesto del modelo admite las tablas');
   assert.equal(toolMsg.content.length, tableContent.length);
 });
+
+test('ContextManager - compressHistory añade instrucciones al resumidor solo si se indican', async () => {
+  const history = [
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Decidimos usar SQLite.' },
+    { role: 'assistant', content: 'De acuerdo.' }
+  ];
+  const prompts = [];
+  const summarizeFn = async ({ systemPrompt }) => { prompts.push(systemPrompt); return 'Resumen'; };
+
+  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: {} });
+  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: { summarizerAddendum: '  ' } });
+  await ChatContextManager.compressHistory({ messages: history, summarizeFn, options: { summarizerAddendum: 'EXTRA' } });
+
+  assert.equal(prompts[0], prompts[1], 'Sin añadido el prompt del resumidor no cambia');
+  assert.equal(prompts[2], `${prompts[0]}\n\nEXTRA`);
+});
+
+test('ChatEngine - la compactación en modo proyecto pide marcar los registros pendientes', async () => {
+  const ChatAPI = require('../../js/api.js');
+  const ProjectContext = require('../../js/project-context.js');
+  const originalStream = ChatAPI.streamChatCompletion;
+  const history = [];
+  for (let index = 0; index < 4; index++) {
+    history.push(
+      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(60)}` },
+      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(60)}` }
+    );
+  }
+  const summarizerPrompts = [];
+  ChatAPI.streamChatCompletion = async (params) => {
+    if (params.toolChoice === 'none') {
+      summarizerPrompts.push(params.messages[0].content);
+      return { accumulatedText: 'Checkpoint.' };
+    }
+    return { accumulatedText: 'ok', toolCalls: null, stats: null };
+  };
+  try {
+    const run = projectContext => ChatEngine.executeAgentTurnLoop({
+      chatHistory: history.map(message => ({ ...message })),
+      appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', modelContextLimit: 300, enabledTools: {} },
+      projectContext
+    });
+    await run({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content: '' } });
+    await run({ status: 'missing', cwd: '/repo' });
+    assert.equal(summarizerPrompts.length, 2);
+    assert.ok(summarizerPrompts[0].endsWith(ProjectContext.SUMMARIZER_PROJECT_ADDENDUM));
+    assert.ok(!summarizerPrompts[1].includes('Pending project records'));
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+  }
+});
+
