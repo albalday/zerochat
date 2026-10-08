@@ -54,7 +54,10 @@ finally:
     sys.stdin = original_stdin
     sys.stdout = original_stdout
 `;
-  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+  // Python 3.14 colorea la ayuda de argparse si FORCE_COLOR está definido; el test compara texto plano.
+  const env = { ...process.env, NO_COLOR: '1' };
+  delete env.FORCE_COLOR;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, env, stdio: 'pipe' }));
 });
 
 test('zerochat.py: execute_command con cwd inexistente devuelve error sin ejecutar el comando', () => {
