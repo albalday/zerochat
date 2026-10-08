@@ -587,11 +587,11 @@ test('Browser UI - Bifurcación con resumen crea rama compactada y renderiza ban
     const banner = await page.locator('.branch-summary-banner');
     assert.equal(await banner.count(), 1, 'Debe renderizarse el banner de resumen en la UI');
 
-    const toggleBtn = page.locator('.btn-branch-summary-toggle');
+    const toggle = page.locator('.branch-summary-header');
     const body = page.locator('.branch-summary-body');
     assert.equal(await body.isVisible(), false, 'El cuerpo del resumen debe estar colapsado inicialmente');
 
-    await toggleBtn.click();
+    await toggle.click();
     assert.equal(await body.isVisible(), true, 'Al hacer clic debe expandirse el resumen');
     assert.match(await body.textContent(), /Resumen sintetizado/, 'Debe mostrar el contenido del resumen');
   } finally {

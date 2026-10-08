@@ -525,53 +525,15 @@
     return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
   }
 
-  function renderBranchSummaryBanner(container, summaryBlock) {
-    if (!container || !summaryBlock || !summaryBlock.content) return null;
+  /** Resumen del contexto previo (rama resumida o conversación compactada), plegado por defecto. */
+  function renderContextSummaryBanner(container, summaryBlock) {
+    if (!container || !summaryBlock?.content) return null;
     const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
     if (!doc) return null;
-
-    const banner = doc.createElement('div');
+    const banner = doc.createElement('details');
     banner.className = 'branch-summary-banner';
-
-    const header = doc.createElement('div');
-    header.className = 'branch-summary-header';
-
-    const titleWrap = doc.createElement('div');
-    titleWrap.className = 'branch-summary-title';
-    titleWrap.innerHTML = `${getMsgIcon('git-branch', 14)} <span>${t('chat_branch_summary_title')}</span>`;
-
-    const btnToggle = doc.createElement('button');
-    btnToggle.type = 'button';
-    btnToggle.className = 'btn-branch-summary-toggle';
-    btnToggle.setAttribute('aria-expanded', 'false');
-    btnToggle.textContent = t('chat_branch_summary_toggle_show');
-
-    header.appendChild(titleWrap);
-    header.appendChild(btnToggle);
-
-    const body = doc.createElement('div');
-    body.className = 'branch-summary-body';
-    body.style.display = 'none';
-
-    const Markdown = getMarkdown();
-    const renderedHtml = Markdown?.render ? Markdown.render(summaryBlock.content) : summaryBlock.content;
-    body.innerHTML = renderedHtml;
-
-    btnToggle.addEventListener('click', () => {
-      const isExpanded = btnToggle.getAttribute('aria-expanded') === 'true';
-      if (isExpanded) {
-        btnToggle.setAttribute('aria-expanded', 'false');
-        btnToggle.textContent = t('chat_branch_summary_toggle_show');
-        body.style.display = 'none';
-      } else {
-        btnToggle.setAttribute('aria-expanded', 'true');
-        btnToggle.textContent = t('chat_branch_summary_toggle_hide');
-        body.style.display = 'block';
-      }
-    });
-
-    banner.appendChild(header);
-    banner.appendChild(body);
+    banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${getMsgIcon('git-branch', 14)}<span>${Utils.escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
+      <div class="branch-summary-body">${getMarkdown().parseMarkdown(summaryBlock.content)}</div>`;
     container.appendChild(banner);
     return banner;
   }
@@ -661,7 +623,7 @@
 
     const summaryBlock = (history || []).find(m => m && m._isSummaryBlock);
     if (summaryBlock) {
-      renderBranchSummaryBanner(messagesList, summaryBlock);
+      renderContextSummaryBanner(messagesList, summaryBlock);
     }
 
     const nonSystem = (history || []).filter(m => m && m.role !== 'system');
@@ -835,7 +797,7 @@
     removeMessage,
     appendUserMessage,
     createAssistantMessagePlaceholder,
-    renderBranchSummaryBanner,
+    renderContextSummaryBanner,
     renderSessionMessages,
     showBranchLoadingIndicator,
     hideBranchLoadingIndicator

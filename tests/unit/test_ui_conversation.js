@@ -426,35 +426,25 @@ test('UIConversation - scrollToBottom sigue el final salvo que el usuario suba p
   }
 });
 
-test('UIConversation - renderBranchSummaryBanner crea y conmuta el banner de resumen de contexto previo', () => {
+test('UIConversation - renderContextSummaryBanner pinta el resumen plegado como Markdown saneado', () => {
   const doc = createMockDocument();
   const container = doc.createElement('div');
   const summaryBlock = {
     role: 'system',
-    content: 'Este es el resumen de la conversación previa.',
+    content: 'Resumen **previo** <img src=x onerror="alert(1)">',
     _isSummaryBlock: true
   };
 
-  const banner = UIConversation.renderBranchSummaryBanner(container, summaryBlock);
+  const banner = UIConversation.renderContextSummaryBanner(container, summaryBlock);
   assert.ok(banner);
+  assert.equal(banner.tagName, 'DETAILS');
   assert.equal(banner.className, 'branch-summary-banner');
-
-  const btnToggle = banner.querySelector('.btn-branch-summary-toggle');
-  const body = banner.querySelector('.branch-summary-body');
-  assert.ok(btnToggle);
-  assert.ok(body);
-  assert.equal(btnToggle.getAttribute('aria-expanded'), 'false');
-  assert.equal(body.style.display, 'none');
-
-  // Primer click: expandir
-  btnToggle.click();
-  assert.equal(btnToggle.getAttribute('aria-expanded'), 'true');
-  assert.equal(body.style.display, 'block');
-
-  // Segundo click: colapsar
-  btnToggle.click();
-  assert.equal(btnToggle.getAttribute('aria-expanded'), 'false');
-  assert.equal(body.style.display, 'none');
+  assert.equal(banner.open, undefined, 'Debe estar plegado por defecto');
+  assert.match(banner.innerHTML, /<summary class="branch-summary-header">/);
+  assert.match(banner.innerHTML, /<strong>previo<\/strong>/);
+  assert.doesNotMatch(banner.innerHTML, /<img src=x/);
+  assert.match(banner.innerHTML, /&lt;img/);
+  assert.equal(UIConversation.renderContextSummaryBanner(container, { content: '' }), null);
 });
 
 test('UIConversation - renderSessionMessages incluye el banner de resumen cuando hay un bloque de síntesis', () => {
