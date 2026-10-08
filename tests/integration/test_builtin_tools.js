@@ -304,6 +304,8 @@ test('Builtin Tools - ask_user valida opciones, cede el turno y escapa el conten
     question: '<img src=x onerror=alert(1)>?',
     options: [{ label: '"><script>bad()</script>', description: '<b>x</b>' }, { label: 'Normal' }]
   }, { document: fakeDoc, t: key => key });
+  assert.equal(card.className, 'tool-card-wrapper', 'Usa el contenedor común de ChatToolCards');
+  assert.equal(AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { createCardWrapper: () => ({ className: 'from-ui', innerHTML: '' }) }).className, 'from-ui');
   assert.equal(card.innerHTML.includes('<script>'), false);
   assert.equal(card.innerHTML.includes('<img src=x'), false);
   assert.equal(card.innerHTML.includes('<b>x</b>'), false);

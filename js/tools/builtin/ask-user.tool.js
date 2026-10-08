@@ -37,7 +37,8 @@
     }
   };
 
-  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+  const getUtils = () => typeof window !== 'undefined' && window.ChatUtils || require('../../utils.js');
 
   function clip(value, max) {
     const text = typeof value === 'string' ? value.trim() : '';
@@ -71,7 +72,7 @@
    * (la última del historial, sin generación en curso).
    */
   function renderCard(args, ui, error = '') {
-    const escapeHtml = ui?.markdown?.escapeHtml || safeEscapeHtml;
+    const escapeHtml = ui?.markdown?.escapeHtml || getUtils().escapeHtml;
     const t = ui?.t || (key => key);
     const normalized = normalizeArgs(args);
     const question = normalized.question || clip(args?.question, MAX_QUESTION_LENGTH);
@@ -85,17 +86,8 @@
     </div>`;
   }
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
-
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
+    const cardDiv = getCards().createCardWrapper(ui);
     if (cardDiv) cardDiv.innerHTML = renderCard(args, ui);
     return cardDiv;
   }
