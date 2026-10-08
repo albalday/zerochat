@@ -3,13 +3,19 @@ const assert = require('node:assert/strict');
 const ChatState = require('../../js/state.js');
 const ProjectContext = require('../../js/project-context.js');
 
-function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true } = {}) {
+function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, security: securityOverride = null } = {}) {
   const state = ChatState.createStore();
   if (connected) state.set('mcp', { status: 'connected', serverInfo: { cwd } });
   const calls = [];
   const tool = { name: 'read_file', isAvailable: () => true };
   const agentCore = {
-    registry: { getTool: name => (readTool && name === 'read_file' ? tool : null) },
+    registry: {
+      getTool: name => {
+        if (readTool && name === 'read_file') return tool;
+        if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
+        return null;
+      }
+    },
     executor: {
       async executeToolCall(call) {
         const args = JSON.parse(call.function.arguments);
@@ -23,14 +29,18 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
       }
     }
   };
-  const security = { evaluateAuthorization: () => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false }) };
+  const security = securityOverride || {
+    rules: [],
+    evaluateAuthorization: () => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false }),
+    addDirectoryRule(rule) { this.rules.push(rule); }
+  };
   const context = ProjectContext.createProjectContext({
     state,
     config: { get: () => ({ projectMode: true, projectDeclined: [], ...config }) },
     agentCore,
     security
   });
-  return { state, context, calls };
+  return { state, context, calls, security };
 }
 
 test('ProjectContext.refresh - desactivado no lee ficheros', async () => {
@@ -115,3 +125,83 @@ test('ProjectContext.refresh - solo publica el resultado de la llamada más reci
   await Promise.all([first, second]);
   assert.equal(harness.state.get('project').status, 'unavailable');
 });
+
+function initCallbacks({ accept = true, onConfirm } = {}) {
+  const log = { prompts: [], confirms: [], conversations: 0 };
+  return {
+    log,
+    callbacks: {
+      askConfirmation: async details => { log.confirms.push(details); await onConfirm?.(); return accept; },
+      startConversation: async () => { log.conversations++; },
+      sendPrompt: async prompt => { log.prompts.push(prompt); },
+      isBusy: () => false
+    }
+  };
+}
+
+test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía el arranque', async () => {
+  const { context, state, security } = createHarness();
+  await context.refresh();
+  assert.equal(state.get('project').status, 'missing');
+  assert.equal(context.canInitialize(), true);
+
+  const { log, callbacks } = initCallbacks();
+  const result = await context.initialize(callbacks);
+  assert.deepEqual(result, { ok: true, rule: 'RW:/repo/.zerochat' });
+  assert.deepEqual(security.rules, ['RW:/repo/.zerochat']);
+  assert.deepEqual(log.confirms, [{ cwd: '/repo', rule: 'RW:/repo/.zerochat' }]);
+  assert.equal(log.conversations, 1);
+  assert.equal(log.prompts.length, 1);
+  assert.match(log.prompts[0], /repository at \/repo/);
+});
+
+test('ProjectContext.initialize - cancelar no concede permisos ni envía nada', async () => {
+  const { context, security } = createHarness();
+  await context.refresh();
+  const { log, callbacks } = initCallbacks({ accept: false });
+  assert.deepEqual(await context.initialize(callbacks), { ok: false, reason: 'cancelled' });
+  assert.deepEqual(security.rules, []);
+  assert.equal(log.prompts.length, 0);
+});
+
+test('ProjectContext.initialize - revalida el proyecto tras la confirmación', async () => {
+  const { context, state, security } = createHarness();
+  await context.refresh();
+  const { log, callbacks } = initCallbacks({ onConfirm: () => state.setProjectContext({ cwd: '/other' }) });
+  assert.deepEqual(await context.initialize(callbacks), { ok: false, reason: 'state-changed' });
+  assert.deepEqual(security.rules, []);
+  assert.equal(log.prompts.length, 0);
+});
+
+test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada', async () => {
+  const noWrite = createHarness({ writeTool: false });
+  await noWrite.context.refresh();
+  assert.equal(noWrite.context.canInitialize(), false);
+  const first = initCallbacks();
+  assert.deepEqual(await noWrite.context.initialize(first.callbacks), { ok: false, reason: 'unavailable' });
+  assert.equal(first.log.confirms.length, 0);
+
+  const ready = createHarness({ files: { '/repo/ZEROCHAT.md': 'rules' } });
+  await ready.context.refresh();
+  const second = initCallbacks();
+  assert.deepEqual(await ready.context.initialize(second.callbacks), { ok: false, reason: 'unavailable' });
+  assert.equal(second.log.confirms.length, 0);
+});
+
+test('ProjectContext.initialize - la regla concedida permite escribir en .zerochat y no en el resto del proyecto', async () => {
+  const ChatToolSecurity = require('../../js/tool-security.js');
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_project_init_rule' });
+  manager.setStartupDirectory('/repo');
+  const { context } = createHarness({ security: manager });
+  await context.refresh();
+  const result = await context.initialize(initCallbacks().callbacks);
+  assert.equal(result.ok, true);
+
+  const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp', metadata: { originalName: 'write_file' } };
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat/state.md' }).requiresApproval, false);
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/ZEROCHAT.md' }).requiresApproval, true);
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/AGENTS.md' }).requiresApproval, true);
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat/../AGENTS.md' }).requiresApproval, true);
+  assert.equal(manager.evaluateAuthorization(writeTool, { path: '/repo/.zerochat-other/x' }).requiresApproval, true);
+});
+

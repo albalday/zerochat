@@ -487,6 +487,27 @@
     },
     reload() {
       refreshProjectContext();
+    },
+    async initialize() {
+      try {
+        await ProjectContext.initialize({
+          askConfirmation: ({ cwd, rule }) => ChatDialogs.confirm(t('project_initialize_confirm', { cwd, dir: rule.slice(3) })),
+          isBusy: () => State.isConversationBusy?.() === true,
+          startConversation: async () => {
+            if ((State.get?.('messages') || []).some(message => message?.role && message.role !== 'system')) await createNewSession();
+          },
+          sendPrompt: async prompt => {
+            UIReasoning.closeReasoningMenu?.(elements);
+            if (!elements.userInput) return;
+            elements.userInput.value = prompt;
+            elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+            await handleSendMessage();
+          }
+        });
+      } catch (error) {
+        console.error('[App] Project initialization failed:', error);
+        await ChatDialogs.alert(error?.message || String(error), { type: 'error' });
+      }
     }
   };
 
@@ -1450,6 +1471,10 @@
           refreshProjectContext
         );
         State.subscribe('project', renderProjectPanel);
+        // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
+        State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }) => {
+          if (!generating && Config.get?.()?.projectMode === true) refreshProjectContext();
+        });
       }
     }
 

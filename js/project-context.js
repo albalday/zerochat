@@ -233,7 +233,33 @@ ${stateBody}
       return Boolean(getCwd() && getAvailableTool(READ_TOOL) && getAvailableTool(WRITE_TOOL));
     }
 
-    return { refresh, readProjectFile, canInitialize };
+    /**
+     * Inicializa el proyecto en estado `missing`: tras confirmar, concede lectura y escritura
+     * solo en <cwd>/.zerochat y envía el prompt de arranque como mensaje visible. El resto de
+     * escrituras siguen pasando por la política de seguridad vigente.
+     */
+    async function initialize({ askConfirmation, sendPrompt, startConversation, isBusy } = {}) {
+      if (typeof askConfirmation !== 'function' || typeof sendPrompt !== 'function') throw new TypeError('initialize requires askConfirmation and sendPrompt');
+      const State = getState();
+      const project = State?.get?.('project') || {};
+      const cwd = project.cwd;
+      if (project.status !== 'missing' || !cwd || !canInitialize()) return { ok: false, reason: 'unavailable' };
+
+      const rule = `RW:${joinPath(cwd, MEMORY_DIR)}`;
+      if (!await askConfirmation({ cwd, rule })) return { ok: false, reason: 'cancelled' };
+
+      // El servidor o la conversación pueden haber cambiado durante la confirmación.
+      const current = State?.get?.('project') || {};
+      if (current.cwd !== cwd || current.status !== 'missing' || isBusy?.() || !canInitialize()) {
+        return { ok: false, reason: 'state-changed' };
+      }
+      getSecurity().addDirectoryRule(rule);
+      if (typeof startConversation === 'function') await startConversation();
+      await sendPrompt(buildBootstrapPrompt(cwd));
+      return { ok: true, rule };
+    }
+
+    return { refresh, readProjectFile, canInitialize, initialize };
   }
 
   const defaultContext = createProjectContext();
@@ -252,6 +278,7 @@ ${stateBody}
     buildBootstrapPrompt,
     createProjectContext,
     refresh: defaultContext.refresh,
-    canInitialize: defaultContext.canInitialize
+    canInitialize: defaultContext.canInitialize,
+    initialize: defaultContext.initialize
   };
 }));
