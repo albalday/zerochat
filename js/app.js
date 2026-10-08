@@ -337,6 +337,7 @@
   function getConversationServiceOptions() {
     return {
       storage: Storage,
+      uiConversation: window.ChatUIConversation || UIConversation,
       getRuntimeConfig,
       language: appConfig.language || 'es',
       getConfiguredSystemPrompt: (cfg) => getConfiguredSystemPrompt(cfg),
@@ -360,7 +361,13 @@
           elements.userInput.focus();
         }
       },
-      closeSidebar: () => closeSidebar()
+      closeSidebar: () => closeSidebar(),
+      summarizeHistory: async (params) => {
+        if (ConversationService?.defaultSummarizeHistory) {
+          return await ConversationService.defaultSummarizeHistory(params, getConversationServiceOptions());
+        }
+        return '';
+      }
     };
   }
 
@@ -972,9 +979,9 @@
   }
 
 
-  async function createConversationBranch(wrapper) {
+  async function createConversationBranch(wrapper, opts = {}) {
     if (ConversationService.createConversationBranch) {
-      return await ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
+      return await ConversationService.createConversationBranch(wrapper, Object.assign({}, getConversationServiceOptions(), opts));
     }
   }
 

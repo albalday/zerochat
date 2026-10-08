@@ -8,6 +8,7 @@ function createMockElement(tag, className = '') {
   const listeners = {};
 
   let _className = className;
+  let _textContent = '';
   const el = {
     tagName: tag.toUpperCase(),
     get className() { return _className; },
@@ -32,7 +33,16 @@ function createMockElement(tag, className = '') {
     style: {},
     dataset: {},
     innerHTML: '',
-    textContent: '',
+    get textContent() {
+      if (children.length > 0) {
+        return children.map(c => c.textContent || '').join('');
+      }
+      return _textContent;
+    },
+    set textContent(val) {
+      _textContent = String(val || '');
+      children.length = 0;
+    },
     children,
     parentNode: null,
     ownerDocument: null,
@@ -44,6 +54,16 @@ function createMockElement(tag, className = '') {
       children.push(child);
       child.parentNode = el;
       return child;
+    },
+    insertBefore(newChild, refChild) {
+      const idx = children.indexOf(refChild);
+      if (idx !== -1) {
+        children.splice(idx, 0, newChild);
+      } else {
+        children.push(newChild);
+      }
+      newChild.parentNode = el;
+      return newChild;
     },
     removeChild(child) {
       const idx = children.indexOf(child);
@@ -65,6 +85,12 @@ function createMockElement(tag, className = '') {
     removeEventListener(evt, fn) {
       if (!listeners[evt]) return;
       listeners[evt] = listeners[evt].filter(f => f !== fn);
+    },
+    emit(evt, data) {
+      if (listeners[evt]) listeners[evt].forEach(fn => fn(data));
+    },
+    click() {
+      if (listeners['click']) listeners['click'].forEach(fn => fn({ type: 'click' }));
     },
     querySelector(sel) {
       function findDeep(node) {
@@ -399,3 +425,104 @@ test('UIConversation - scrollToBottom sigue el final salvo que el usuario suba p
     assert.equal(container.scrollTop, 1400);
   }
 });
+
+test('UIConversation - renderBranchSummaryBanner crea y conmuta el banner de resumen de contexto previo', () => {
+  const doc = createMockDocument();
+  const container = doc.createElement('div');
+  const summaryBlock = {
+    role: 'system',
+    content: 'Este es el resumen de la conversación previa.',
+    _isSummaryBlock: true
+  };
+
+  const banner = UIConversation.renderBranchSummaryBanner(container, summaryBlock);
+  assert.ok(banner);
+  assert.equal(banner.className, 'branch-summary-banner');
+
+  const btnToggle = banner.querySelector('.btn-branch-summary-toggle');
+  const body = banner.querySelector('.branch-summary-body');
+  assert.ok(btnToggle);
+  assert.ok(body);
+  assert.equal(btnToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(body.style.display, 'none');
+
+  // Primer click: expandir
+  btnToggle.click();
+  assert.equal(btnToggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(body.style.display, 'block');
+
+  // Segundo click: colapsar
+  btnToggle.click();
+  assert.equal(btnToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(body.style.display, 'none');
+});
+
+test('UIConversation - renderSessionMessages incluye el banner de resumen cuando hay un bloque de síntesis', () => {
+  const doc = createMockDocument();
+  const messagesList = doc.createElement('div');
+  const welcomeBanner = doc.createElement('div');
+  const elements = { messagesList, welcomeBanner };
+
+  const history = [
+    { id: 's1', role: 'system', content: 'Prompt base' },
+    { id: 's2', role: 'system', content: 'Resumen consolidado', _isSummaryBlock: true },
+    { id: 'a1', role: 'assistant', content: 'Última respuesta del asistente' }
+  ];
+
+  UIConversation.renderSessionMessages(elements, history);
+  const banner = messagesList.querySelector('.branch-summary-banner');
+  assert.ok(banner, 'El banner de resumen debe estar presente en el contenedor de mensajes');
+  assert.equal(welcomeBanner.style.display, 'none');
+});
+
+test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator actualizan el DOM y el botón', () => {
+  const doc = createMockDocument();
+  const wrapper = doc.createElement('div');
+  wrapper.className = 'message-wrapper assistant';
+
+  const contentWrapper = doc.createElement('div');
+  contentWrapper.className = 'message-content-wrapper';
+  const content = doc.createElement('div');
+  content.className = 'message-content';
+  content.textContent = 'Mensaje de prueba';
+  const footerRow = doc.createElement('div');
+  footerRow.className = 'message-footer-row';
+
+  const btnBranch = doc.createElement('button');
+  btnBranch.className = 'btn-msg-action btn-branch-conversation';
+  btnBranch.title = 'Bifurcar conversación';
+  btnBranch.innerHTML = '<svg class="ui-icon">branch</svg>';
+  footerRow.appendChild(btnBranch);
+
+  contentWrapper.appendChild(content);
+  contentWrapper.appendChild(footerRow);
+  wrapper.appendChild(contentWrapper);
+
+  // 1. Mostrar indicador de carga
+  UIConversation.showBranchLoadingIndicator(wrapper, 'Resumiendo contexto previo...');
+
+  assert.equal(btnBranch.disabled, true, 'El botón debe quedar deshabilitado');
+  assert.ok(btnBranch.classList.contains('is-loading'), 'El botón debe tener la clase is-loading');
+  assert.equal(btnBranch.title, 'Resumiendo contexto previo...');
+
+  const indicator = wrapper.querySelector('.branch-progress-indicator');
+  assert.ok(indicator, 'Debe crearse el indicador de progreso');
+  assert.equal(indicator.getAttribute('role'), 'status');
+  assert.equal(indicator.getAttribute('aria-live'), 'polite');
+  assert.ok(indicator.textContent.includes('Resumiendo contexto previo...'));
+
+  // Llamada idempotente (no duplica)
+  UIConversation.showBranchLoadingIndicator(wrapper, 'Resumiendo contexto previo...');
+  const allIndicators = contentWrapper.children.filter(c => c.className?.includes('branch-progress-indicator'));
+  assert.equal(allIndicators.length, 1, 'No debe duplicar el indicador');
+
+  // 2. Ocultar indicador de carga
+  UIConversation.hideBranchLoadingIndicator(wrapper);
+
+  assert.equal(btnBranch.disabled, false, 'El botón debe volver a estar habilitado');
+  assert.equal(btnBranch.classList.contains('is-loading'), false, 'Debe removerse la clase is-loading');
+  assert.equal(btnBranch.title, 'Bifurcar conversación', 'Debe restaurarse el título original');
+  assert.equal(wrapper.querySelector('.branch-progress-indicator'), null, 'El indicador debe haberse eliminado del DOM');
+});
+
+

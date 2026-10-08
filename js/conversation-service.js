@@ -312,8 +312,123 @@
     }));
   }
 
+  function shouldOfferBranchSummary(history, boundary) {
+    if (!Array.isArray(history) || boundary < 0) return false;
+    const subHistory = history.slice(0, boundary + 1);
+    const nonSystem = subHistory.filter(m => m && m.role !== 'system');
+    const userMessages = nonSystem.filter(m => m.role === 'user');
+    return userMessages.length >= 2 || nonSystem.length >= 4;
+  }
+
+  function createBranchHistoryWithSummary(compactedMessages, anchorMessage, sessionId) {
+    const Utils = getUtils();
+    const clonedCompacted = Utils?.clone ? Utils.clone(compactedMessages) : JSON.parse(JSON.stringify(compactedMessages));
+    const clonedAnchor = Utils?.clone ? Utils.clone(anchorMessage) : JSON.parse(JSON.stringify(anchorMessage));
+    const result = clonedCompacted.map((message, index) => Object.assign({}, message, {
+      id: `msg_${sessionId}_${index}`
+    }));
+    if (clonedAnchor) {
+      result.push(Object.assign({}, clonedAnchor, {
+        id: `msg_${sessionId}_${result.length}`
+      }));
+    }
+    return result;
+  }
+
+  function formatHistoryTranscript(messages = []) {
+    const lines = [];
+    (messages || []).forEach(m => {
+      if (!m) return;
+      if (m._isSummaryBlock) {
+        lines.push(`[Previous Checkpoint Summary]:\n${m.content}`);
+      } else if (m.role === 'user') {
+        let text = '';
+        if (typeof m.content === 'string') {
+          text = m.content;
+        } else if (Array.isArray(m.content)) {
+          text = m.content.map(part => (part && part.text) ? part.text : '').filter(Boolean).join(' ');
+        }
+        if (text) lines.push(`User: ${text}`);
+      } else if (m.role === 'assistant') {
+        const text = typeof m.content === 'string' ? m.content : '';
+        if (text) {
+          lines.push(`Assistant: ${text}`);
+        } else if (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+          const names = m.tool_calls.map(tc => tc.function?.name || 'tool').join(', ');
+          lines.push(`Assistant: [Used tools: ${names}]`);
+        }
+      } else if (m.role === 'tool') {
+        const name = m.name || 'tool';
+        const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+        const snippet = raw.length > 500 ? raw.slice(0, 500) + '...' : raw;
+        lines.push(`Tool (${name}): ${snippet}`);
+      }
+    });
+    return lines.join('\n\n');
+  }
+
+  async function resolveActiveApiKey(runtimeConfig, options = {}) {
+    const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js') || (typeof window !== 'undefined' ? window.ChatProfileRepository : null);
+    const profileId = runtimeConfig?.activeProfile?.id;
+    if (profileId && Profiles?.load) {
+      try {
+        const activeProfile = await Profiles.load(profileId);
+        if (activeProfile?.settings?.apiKey) {
+          return activeProfile.settings.apiKey;
+        }
+      } catch (err) {
+        if (err?.code === 'PASSWORD_REQUIRED') {
+          const Dialogs = getDialogs();
+          const Backup = resolveDep('ChatProfileBackup', './profile-backup.js');
+          const password = await Dialogs?.prompt(t('crypto_current_password_prompt'), '', {
+            inputType: 'password', title: t('crypto_password_title')
+          });
+          if (password && Backup?.keyMaterialFromPassword) {
+            const keyMaterial = await Backup.keyMaterialFromPassword(password);
+            const activeProfile = await Profiles.load(profileId, keyMaterial);
+            Backup.cacheKeyMaterial?.(keyMaterial);
+            if (activeProfile?.settings?.apiKey) {
+              return activeProfile.settings.apiKey;
+            }
+          }
+        }
+      }
+    }
+    return runtimeConfig?.apiKey || '';
+  }
+
+  async function defaultSummarizeHistory({ systemPrompt, messages, signal }, options = {}) {
+    const API = resolveDep('ChatAPI', './api.js');
+    if (!API || typeof API.streamChatCompletion !== 'function') return '';
+    const Config = getConfig();
+    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (Config?.getActive?.() || {});
+    const apiKey = await resolveActiveApiKey(runtimeConfig, options);
+    const transcript = formatHistoryTranscript(messages);
+
+    const response = await API.streamChatCompletion({
+      apiUrl: runtimeConfig.apiUrl,
+      apiType: runtimeConfig.apiType,
+      apiKey,
+      model: runtimeConfig.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `Here is the conversation history to consolidate into a checkpoint:\n\n<conversation_history>\n${transcript}\n</conversation_history>\n\nGenerate the replacement checkpoint now.`
+        }
+      ],
+      temperature: 0,
+      reasoningEffort: 'none',
+      enableTools: false,
+      toolChoice: 'none',
+      signal
+    });
+    return response?.accumulatedText || '';
+  }
+
   async function createConversationBranch(wrapper, options = {}) {
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    if (wrapper?.querySelector && wrapper.querySelector('.btn-branch-conversation.is-loading')) return false;
 
     const State = getState();
     const Storage = getStorage(options);
@@ -324,6 +439,31 @@
     await saveCurrentSession(options);
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
+    let summarize = false;
+    if (typeof options.summarize === 'boolean') {
+      summarize = options.summarize;
+    } else if (options.askConfirmation !== false && shouldOfferBranchSummary(history, boundary)) {
+      const Dialogs = getDialogs();
+      if (Dialogs?.confirm) {
+        const decision = await Dialogs.confirm(
+          t('chat_branch_dialog_message'),
+          {
+            title: t('chat_branch_dialog_title'),
+            acceptText: t('chat_branch_dialog_accept'),
+            cancelText: t('notice_cancel'),
+            checkbox: t('chat_branch_dialog_checkbox'),
+            checkboxDefault: true
+          }
+        );
+        if (!decision || (typeof decision === 'object' && !decision.accepted)) {
+          return false;
+        }
+        summarize = typeof decision === 'object' ? Boolean(decision.checkboxChecked) : false;
+      }
+    }
+
+    if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+
     const parentSessionId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
     const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
     const parentSession = sessionsList.find(session => session.id === parentSessionId);
@@ -331,7 +471,70 @@
     const branchSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? 'session_' + crypto.randomUUID()
       : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-    const branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
+
+    let branchHistory = null;
+    if (summarize) {
+      const UIConv = options.uiConversation || resolveDep('ChatUIConversation', './ui-conversation.js');
+      if (UIConv?.showBranchLoadingIndicator) {
+        UIConv.showBranchLoadingIndicator(wrapper, t('chat_branch_summarizing'));
+      }
+      if (State?.setGenerationStatus) {
+        State.setGenerationStatus({ phase: 'custom', text: t('chat_branch_summarizing') });
+      }
+      try {
+        const ContextManager = resolveDep('ChatContextManager', './context-manager.js');
+        const summarizeFn = typeof options.summarizeHistory === 'function'
+          ? options.summarizeHistory
+          : ((params) => defaultSummarizeHistory(params, options));
+        const sourceHistory = history.slice(0, boundary + 1);
+        const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+
+        if (ContextManager && typeof ContextManager.compressHistory === 'function') {
+          const compacted = await ContextManager.compressHistory({
+            messages: sourceHistory,
+            summarizeFn,
+            options: {
+              model: runtimeConfig.model,
+              totalContextLimit: runtimeConfig.modelContextLimit || runtimeConfig.contextLimitOverride
+            }
+          });
+          if (compacted && compacted.compressed && Array.isArray(compacted.messages)) {
+            branchHistory = createBranchHistoryWithSummary(compacted.messages, history[boundary], branchSessionId);
+          }
+        }
+      } catch (err) {
+        console.warn('[ZeroChat] Error al generar resumen para rama:', err);
+      } finally {
+        if (State?.setGenerationStatus) {
+          State.setGenerationStatus({ phase: 'idle' });
+        }
+        if (UIConv?.hideBranchLoadingIndicator) {
+          UIConv.hideBranchLoadingIndicator(wrapper);
+        }
+      }
+
+      if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+
+      if (!branchHistory) {
+        const Dialogs = getDialogs();
+        const fallback = Dialogs?.confirm
+          ? await Dialogs.confirm(t('chat_branch_summary_failed'), {
+              title: t('chat_branch_dialog_title'),
+              acceptText: t('chat_branch_dialog_accept'),
+              cancelText: t('notice_cancel')
+            })
+          : true;
+        const accepted = typeof fallback === 'object' ? Boolean(fallback.accepted) : Boolean(fallback);
+        if (!accepted) {
+          return false;
+        }
+        summarize = false;
+        branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
+      }
+    } else {
+      branchHistory = cloneBranchHistory(history, boundary, branchSessionId);
+    }
+
     const now = Date.now();
     const branchSession = {
       id: branchSessionId,
@@ -341,7 +544,8 @@
       messageCount: branchHistory.length,
       metadata: {
         parentSessionId,
-        branchedFromMessageIds: (wrapper?.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean)
+        branchedFromMessageIds: (wrapper?.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean),
+        isSummarizedBranch: Boolean(summarize)
       }
     };
 
@@ -469,6 +673,10 @@
     getBranchBoundaryIndex,
     setAssistantGroupMessageIds,
     cloneBranchHistory,
+    shouldOfferBranchSummary,
+    createBranchHistoryWithSummary,
+    formatHistoryTranscript,
+    defaultSummarizeHistory,
     createConversationBranch,
     deleteSession,
     deleteAllSessions,

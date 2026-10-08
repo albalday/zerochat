@@ -27,10 +27,10 @@
     return I18n?.t ? I18n.t(key, params) : key;
   }
 
-  function getMsgIcon(name, size = 14) {
+  function getMsgIcon(name, size = 14, className = '') {
     const Icons = getIcons();
     if (Icons && Icons.has && Icons.has(name)) {
-      return Icons.get(name, { size, className: 'ui-icon' });
+      return Icons.get(name, { size, className });
     }
     return '';
   }
@@ -480,6 +480,7 @@
     btnBranch.title = t('btn_branch_title');
     btnBranch.setAttribute('aria-label', t('btn_branch_title'));
     btnBranch.addEventListener('click', () => {
+      if (btnBranch.disabled || (btnBranch.classList?.contains && btnBranch.classList.contains('is-loading'))) return;
       if (typeof callbacks.onBranch === 'function') {
         callbacks.onBranch(wrapper);
       }
@@ -524,10 +525,144 @@
     return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
   }
 
+  function renderBranchSummaryBanner(container, summaryBlock) {
+    if (!container || !summaryBlock || !summaryBlock.content) return null;
+    const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return null;
+
+    const banner = doc.createElement('div');
+    banner.className = 'branch-summary-banner';
+
+    const header = doc.createElement('div');
+    header.className = 'branch-summary-header';
+
+    const titleWrap = doc.createElement('div');
+    titleWrap.className = 'branch-summary-title';
+    titleWrap.innerHTML = `${getMsgIcon('git-branch', 14)} <span>${t('chat_branch_summary_title')}</span>`;
+
+    const btnToggle = doc.createElement('button');
+    btnToggle.type = 'button';
+    btnToggle.className = 'btn-branch-summary-toggle';
+    btnToggle.setAttribute('aria-expanded', 'false');
+    btnToggle.textContent = t('chat_branch_summary_toggle_show');
+
+    header.appendChild(titleWrap);
+    header.appendChild(btnToggle);
+
+    const body = doc.createElement('div');
+    body.className = 'branch-summary-body';
+    body.style.display = 'none';
+
+    const Markdown = getMarkdown();
+    const renderedHtml = Markdown?.render ? Markdown.render(summaryBlock.content) : summaryBlock.content;
+    body.innerHTML = renderedHtml;
+
+    btnToggle.addEventListener('click', () => {
+      const isExpanded = btnToggle.getAttribute('aria-expanded') === 'true';
+      if (isExpanded) {
+        btnToggle.setAttribute('aria-expanded', 'false');
+        btnToggle.textContent = t('chat_branch_summary_toggle_show');
+        body.style.display = 'none';
+      } else {
+        btnToggle.setAttribute('aria-expanded', 'true');
+        btnToggle.textContent = t('chat_branch_summary_toggle_hide');
+        body.style.display = 'block';
+      }
+    });
+
+    banner.appendChild(header);
+    banner.appendChild(body);
+    container.appendChild(banner);
+    return banner;
+  }
+
+  function showBranchLoadingIndicator(wrapper, text) {
+    if (!wrapper || typeof wrapper.querySelector !== 'function') return null;
+    const doc = wrapper.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return null;
+
+    const label = text || t('chat_branch_summarizing');
+
+    // 1. Estado de carga en el botón de acción
+    const btnBranch = wrapper.querySelector('.btn-branch-conversation');
+    if (btnBranch && !btnBranch.classList?.contains?.('is-loading')) {
+      btnBranch.dataset.originalHtml = btnBranch.innerHTML;
+      btnBranch.dataset.originalTitle = btnBranch.title || '';
+      btnBranch.dataset.originalDisabled = btnBranch.disabled ? 'true' : 'false';
+      btnBranch.disabled = true;
+      btnBranch.classList?.add?.('is-loading');
+      btnBranch.innerHTML = getMsgIcon('spinner', 14, 'ui-icon-spin');
+      btnBranch.title = label;
+      btnBranch.setAttribute('aria-label', label);
+    }
+
+    // 2. Píldora de estado contextual junto al mensaje
+    let indicator = wrapper.querySelector('.branch-progress-indicator');
+    if (!indicator) {
+      indicator = doc.createElement('div');
+      indicator.className = 'branch-progress-indicator';
+      indicator.setAttribute('role', 'status');
+      indicator.setAttribute('aria-live', 'polite');
+      indicator.innerHTML = getMsgIcon('spinner', 14, 'ui-icon-spin');
+
+      const textSpan = doc.createElement('span');
+      textSpan.textContent = label;
+      indicator.appendChild(textSpan);
+
+      const contentWrapper = wrapper.querySelector('.message-content-wrapper');
+      const footerRow = contentWrapper ? contentWrapper.querySelector('.message-footer-row') : null;
+      if (contentWrapper && footerRow && typeof contentWrapper.insertBefore === 'function') {
+        contentWrapper.insertBefore(indicator, footerRow);
+      } else if (contentWrapper && typeof contentWrapper.appendChild === 'function') {
+        contentWrapper.appendChild(indicator);
+      } else if (typeof wrapper.appendChild === 'function') {
+        wrapper.appendChild(indicator);
+      }
+    }
+    return indicator;
+  }
+
+  function hideBranchLoadingIndicator(wrapper) {
+    if (!wrapper || typeof wrapper.querySelector !== 'function') return;
+
+    // 1. Retirar píldora contextual
+    const indicator = wrapper.querySelector('.branch-progress-indicator');
+    if (indicator && indicator.parentNode) {
+      indicator.parentNode.removeChild(indicator);
+    }
+
+    // 2. Restaurar botón de acción
+    const btnBranch = wrapper.querySelector('.btn-branch-conversation');
+    if (btnBranch && btnBranch.classList?.contains?.('is-loading')) {
+      btnBranch.classList.remove('is-loading');
+      if (btnBranch.dataset.originalHtml) {
+        btnBranch.innerHTML = btnBranch.dataset.originalHtml;
+        delete btnBranch.dataset.originalHtml;
+      } else {
+        btnBranch.innerHTML = getMsgIcon('git-branch', 14);
+      }
+      if (btnBranch.dataset.originalTitle !== undefined) {
+        btnBranch.title = btnBranch.dataset.originalTitle;
+        btnBranch.setAttribute('aria-label', btnBranch.dataset.originalTitle);
+        delete btnBranch.dataset.originalTitle;
+      } else {
+        btnBranch.title = t('btn_branch_title');
+        btnBranch.setAttribute('aria-label', t('btn_branch_title'));
+      }
+      btnBranch.disabled = btnBranch.dataset.originalDisabled === 'true';
+      delete btnBranch.dataset.originalDisabled;
+    }
+  }
+
   function renderSessionMessages(elements, history, options = {}) {
     const messagesList = elements?.messagesList;
     if (!messagesList) return;
     messagesList.innerHTML = '';
+
+    const summaryBlock = (history || []).find(m => m && m._isSummaryBlock);
+    if (summaryBlock) {
+      renderBranchSummaryBanner(messagesList, summaryBlock);
+    }
 
     const nonSystem = (history || []).filter(m => m && m.role !== 'system');
     let validMessages = nonSystem;
@@ -538,7 +673,7 @@
       validMessages = nonSystem.slice(2);
     }
 
-    if (validMessages.length === 0) {
+    if (validMessages.length === 0 && !summaryBlock) {
       if (elements.welcomeBanner) {
         messagesList.appendChild(elements.welcomeBanner);
         elements.welcomeBanner.style.display = '';
@@ -700,6 +835,9 @@
     removeMessage,
     appendUserMessage,
     createAssistantMessagePlaceholder,
-    renderSessionMessages
+    renderBranchSummaryBanner,
+    renderSessionMessages,
+    showBranchLoadingIndicator,
+    hideBranchLoadingIndicator
   };
 }));

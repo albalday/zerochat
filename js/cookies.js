@@ -505,6 +505,8 @@
               };
               if (m.contextDateAnchor) msgRecord.contextDateAnchor = m.contextDateAnchor;
               if (m.images) msgRecord.images = m.images;
+              if (m._isSummaryBlock) msgRecord._isSummaryBlock = true;
+              if (m._compressedMetadata) msgRecord._compressedMetadata = m._compressedMetadata;
               msgStore.put(msgRecord);
             });
           }

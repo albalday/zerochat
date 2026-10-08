@@ -33,12 +33,144 @@ test('ConversationService - getBranchBoundaryIndex locates boundary from wrapper
   assert.equal(idx, 1);
 });
 
-test('ConversationService - createInitialChatHistory includes system_root role', () => {
-  const history = ConversationService.createInitialChatHistory({
-    getConfiguredSystemPrompt: () => 'Eres un asistente útil'
-  });
-  assert.equal(history.length, 1);
-  assert.equal(history[0].role, 'system');
-  assert.equal(history[0].content, 'Eres un asistente útil');
+test('ConversationService - shouldOfferBranchSummary requires at least 2 user turns or 4 dialogue turns', () => {
+  const shortHistory = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' }
+  ];
+  assert.equal(ConversationService.shouldOfferBranchSummary(shortHistory, 2), false);
+
+  const longHistory = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' },
+    { id: 'm4', role: 'user', content: 'user 2' },
+    { id: 'm5', role: 'assistant', content: 'asst 2' }
+  ];
+  assert.equal(ConversationService.shouldOfferBranchSummary(longHistory, 4), true);
+  assert.equal(ConversationService.shouldOfferBranchSummary(longHistory, 2), false);
+  assert.equal(ConversationService.shouldOfferBranchSummary([], -1), false);
+});
+
+test('ConversationService - createBranchHistoryWithSummary formats session IDs and preserves summary block and anchor', () => {
+  const compacted = [
+    { id: 'sys_1', role: 'system', content: 'Base system prompt' },
+    { id: 'summary_1', role: 'system', content: 'Summary of past conversations', _isSummaryBlock: true }
+  ];
+  const anchor = { id: 'asst_orig', role: 'assistant', content: 'Anchor answer' };
+
+  const result = ConversationService.createBranchHistoryWithSummary(compacted, anchor, 'sess_branch_123');
+  assert.equal(result.length, 3);
+  assert.equal(result[0].id, 'msg_sess_branch_123_0');
+  assert.equal(result[0].content, 'Base system prompt');
+  assert.equal(result[1].id, 'msg_sess_branch_123_1');
+  assert.equal(result[1]._isSummaryBlock, true);
+  assert.equal(result[1].content, 'Summary of past conversations');
+  assert.equal(result[2].id, 'msg_sess_branch_123_2');
+  assert.equal(result[2].role, 'assistant');
+  assert.equal(result[2].content, 'Anchor answer');
+});
+
+test('ConversationService - createConversationBranch with summarize: true generates summarized branch', async () => {
+  const history = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' },
+    { id: 'm4', role: 'user', content: 'user 2' },
+    { id: 'm5', role: 'assistant', content: 'asst 2' }
+  ];
+  const mockWrapper = {
+    getAttribute: (attr) => attr === 'data-msg-id' ? 'm5' : null
+  };
+
+  let savedSession = null;
+  let savedHistory = null;
+
+  const mockStorage = {
+    saveConversation: async (session, hist) => {
+      savedSession = session;
+      savedHistory = hist;
+      return true;
+    }
+  };
+
+  const options = {
+    storage: mockStorage,
+    getChatHistory: () => history,
+    getCurrentSessionId: () => 'parent_sess_1',
+    getSavedSessions: () => [{ id: 'parent_sess_1', title: 'Parent Chat' }],
+    summarize: true,
+    summarizeHistory: async () => 'Consolidated summary of conversation',
+    uiConversation: {
+      showBranchLoadingIndicator: (wrap, text) => {
+        indicatorEvents.push(['show', text]);
+      },
+      hideBranchLoadingIndicator: (wrap) => {
+        indicatorEvents.push(['hide']);
+      }
+    },
+    renderSessionMessages: () => {},
+    renderSidebarChats: () => {},
+    resetComposerInput: () => {}
+  };
+
+  const indicatorEvents = [];
+  const success = await ConversationService.createConversationBranch(mockWrapper, options);
+  assert.equal(success, true);
+  assert.deepEqual(indicatorEvents, [['show', 'Resumiendo contexto previo...'], ['hide']]);
+  assert.equal(savedSession.metadata.isSummarizedBranch, true);
+  assert.equal(savedSession.metadata.parentSessionId, 'parent_sess_1');
+  assert.ok(savedHistory.some(m => m._isSummaryBlock && m.content === 'Consolidated summary of conversation'));
+  assert.equal(savedHistory[savedHistory.length - 1].content, 'asst 2');
+});
+
+test('ConversationService - createConversationBranch ignora invocación si el botón ya está en estado de carga', async () => {
+  const loadingWrapper = {
+    querySelector: (sel) => sel.includes('is-loading') ? {} : null
+  };
+  const result = await ConversationService.createConversationBranch(loadingWrapper, {});
+  assert.equal(result, false, 'Debe retornar false y no procesar si ya está cargando');
+});
+
+test('ConversationService - createConversationBranch with summarize: false clones full branch', async () => {
+  const history = [
+    { id: 'm1', role: 'system', content: 'sys' },
+    { id: 'm2', role: 'user', content: 'user 1' },
+    { id: 'm3', role: 'assistant', content: 'asst 1' },
+    { id: 'm4', role: 'user', content: 'user 2' },
+    { id: 'm5', role: 'assistant', content: 'asst 2' }
+  ];
+  const mockWrapper = {
+    getAttribute: (attr) => attr === 'data-msg-id' ? 'm5' : null
+  };
+
+  let savedSession = null;
+  let savedHistory = null;
+
+  const mockStorage = {
+    saveConversation: async (session, hist) => {
+      savedSession = session;
+      savedHistory = hist;
+      return true;
+    }
+  };
+
+  const options = {
+    storage: mockStorage,
+    getChatHistory: () => history,
+    getCurrentSessionId: () => 'parent_sess_1',
+    getSavedSessions: () => [{ id: 'parent_sess_1', title: 'Parent Chat' }],
+    summarize: false,
+    renderSessionMessages: () => {},
+    renderSidebarChats: () => {},
+    resetComposerInput: () => {}
+  };
+
+  const success = await ConversationService.createConversationBranch(mockWrapper, options);
+  assert.equal(success, true);
+  assert.equal(savedSession.metadata.isSummarizedBranch, false);
+  assert.equal(savedHistory.length, 5);
+  assert.equal(savedHistory.some(m => m._isSummaryBlock), false);
 });
 

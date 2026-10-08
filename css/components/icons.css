@@ -25,7 +25,7 @@ svg.ui-icon {
 
 .ui-icon-spin,
 svg.ui-icon-spin {
-  animation: ui-icon-spin-keyframes 1s linear infinite;
+  animation: ui-icon-spin-keyframes 1s linear infinite !important;
 }
 
 @keyframes ui-icon-spin-keyframes {

@@ -539,6 +539,115 @@ test('Browser UI - crear una rama conserva el origen y corta el nuevo historial 
   }
 });
 
+test('Browser UI - Bifurcación con resumen crea rama compactada y renderiza banner colapsable', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    const result = await page.evaluate(async () => {
+      const parentId = 'session_branch_summarize_parent';
+      const history = [
+        { id: 'system_p', role: 'system', content: 'System prompt' },
+        { id: 'user_p_1', role: 'user', content: 'Pregunta 1' },
+        { id: 'asst_p_1', role: 'assistant', content: 'Respuesta 1' },
+        { id: 'user_p_2', role: 'user', content: 'Pregunta 2' },
+        { id: 'asst_p_2', role: 'assistant', content: 'Respuesta 2 para bifurcar' }
+      ];
+      const parent = { id: parentId, title: 'Chat largo previo', createdAt: Date.now(), updatedAt: Date.now(), messageCount: history.length };
+      window.ChatState.replaceConversation({ sessionId: parentId, messages: history });
+      window.ChatState.saveSessionMetadata(parent);
+      await window.ChatStorage.saveConversation(parent, history);
+
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('data-msg-id', 'asst_p_2');
+      wrapper.setAttribute('data-msg-ids', 'asst_p_2');
+      const created = await window.ChatApp.createConversationBranch(wrapper, {
+        summarize: true,
+        summarizeHistory: async () => 'Resumen sintetizado del diálogo previo'
+      });
+      const childId = window.ChatState.get('sessions').activeId;
+      const child = await window.ChatStorage.getConversation(childId);
+      const childSession = window.ChatState.get('sessions').list.find(s => s.id === childId);
+      return {
+        created,
+        childId,
+        childMetadata: childSession?.metadata || child?.metadata || {},
+        childHistory: child?.history || []
+      };
+    });
+
+    assert.equal(result.created, true, 'La rama con resumen debe crearse correctamente');
+    assert.equal(result.childMetadata.isSummarizedBranch, true, 'Debe marcarse como rama resumida');
+    assert.ok(result.childHistory.some(m => m._isSummaryBlock && m.content === 'Resumen sintetizado del diálogo previo'), 'Debe contener el bloque de resumen');
+    assert.equal(result.childHistory[result.childHistory.length - 1].content, 'Respuesta 2 para bifurcar', 'Debe conservar la respuesta de anclaje');
+
+    // Verificar renderizado en el DOM
+    const banner = await page.locator('.branch-summary-banner');
+    assert.equal(await banner.count(), 1, 'Debe renderizarse el banner de resumen en la UI');
+
+    const toggleBtn = page.locator('.btn-branch-summary-toggle');
+    const body = page.locator('.branch-summary-body');
+    assert.equal(await body.isVisible(), false, 'El cuerpo del resumen debe estar colapsado inicialmente');
+
+    await toggleBtn.click();
+    assert.equal(await body.isVisible(), true, 'Al hacer clic debe expandirse el resumen');
+    assert.match(await body.textContent(), /Resumen sintetizado/, 'Debe mostrar el contenido del resumen');
+  } finally {
+    await browser.close();
+  }
+});
+
+
+test('Browser UI - Bifurcar con resumen muestra indicador de carga visual en el botón y píldora en el mensaje', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    const filePath = getIndexUrl();
+    await page.goto(filePath, { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    await page.evaluate(() => {
+      const messagesList = document.getElementById('messages-list');
+      const placeholder = window.ChatUIConversation.createAssistantMessagePlaceholder(messagesList, 'test_msg_branch_load');
+      placeholder.actions.style.display = 'inline-flex';
+      window.ChatUIConversation.showBranchLoadingIndicator(placeholder.wrapper, 'Resumiendo contexto previo...');
+    });
+
+    const btnBranch = page.locator('[data-msg-id="test_msg_branch_load"] .btn-branch-conversation');
+    assert.equal(await btnBranch.isDisabled(), true, 'El botón de rama debe quedar deshabilitado');
+    const btnClass = await btnBranch.getAttribute('class');
+    assert.ok(btnClass.includes('is-loading'), 'El botón debe tener clase is-loading');
+
+    const indicator = page.locator('[data-msg-id="test_msg_branch_load"] .branch-progress-indicator');
+    assert.equal(await indicator.isVisible(), true, 'El indicador debe ser visible');
+    assert.ok((await indicator.textContent()).includes('Resumiendo contexto previo...'));
+
+    const spinIcon = page.locator('[data-msg-id="test_msg_branch_load"] .branch-progress-indicator svg.ui-icon-spin');
+    assert.equal(await spinIcon.count(), 1, 'Debe incluir el icono vectorial con animación de giro');
+
+    // Ahora ocultar el indicador y verificar restauración
+    await page.evaluate(() => {
+      const wrapper = document.querySelector('[data-msg-id="test_msg_branch_load"]');
+      window.ChatUIConversation.hideBranchLoadingIndicator(wrapper);
+    });
+
+    assert.equal(await indicator.count(), 0, 'El indicador debe removerse del DOM');
+    assert.equal(await btnBranch.isDisabled(), false, 'El botón debe reactivarse');
+    const restoredClass = await btnBranch.getAttribute('class');
+    assert.ok(!restoredClass.includes('is-loading'), 'La clase is-loading debe retirarse');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test('Browser UI - Borrado de respuesta de asistente con tools elimina completamente las respuestas de tools y sanea chatHistory', async () => {
   const browser = await createTestBrowser();
   try {
