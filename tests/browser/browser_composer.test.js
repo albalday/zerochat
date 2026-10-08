@@ -301,4 +301,46 @@ test('Browser UI - en móvil los pies de respuesta y confirmación permanecen en
     await browser.close();
   }
 });
+test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, persiste y ofrece acciones por estado', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    await page.click('#btn-reasoning');
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
+    assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'disabled');
+    assert.equal(await page.locator('[data-project-action]').count(), 0);
+
+    await page.locator('#project-mode-panel .switch').click();
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), true);
+    await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
+    assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'unavailable');
+
+    await page.evaluate(() => window.ChatState.setProjectContext({ status: 'missing', cwd: '/home/u/repo' }));
+    const missing = await page.evaluate(() => ({
+      text: document.querySelector('.project-mode-status').textContent,
+      actions: [...document.querySelectorAll('[data-project-action]')].map(button => button.dataset.projectAction)
+    }));
+    assert.match(missing.text, /repo/);
+    assert.deepEqual(missing.actions, ['decline'], 'Sin herramientas de escritura no se ofrece inicializar');
+
+    await page.click('[data-project-action="decline"]');
+    await page.locator('#notice-accept').click();
+    await page.waitForFunction(() => window.ChatConfig.getActive().projectDeclined.includes('/home/u/repo'));
+
+    await page.reload({ waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.click('#btn-reasoning');
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), true, 'El modo proyecto persiste tras recargar');
+    assert.deepEqual(await page.evaluate(() => window.ChatConfig.getActive().projectDeclined), ['/home/u/repo']);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
 });

@@ -41,3 +41,23 @@ test('UIReasoning - seleccionar nivel mantiene la compatibilidad y notifica la i
   assert.ok(classes.has('active-high'));
   assert.equal(elements.reasoningMenu.style.display, 'none');
 });
+
+test('UIReasoning - acciones del modo proyecto según su estado', () => {
+  assert.deepEqual(UIReasoning.getProjectActions({ status: 'missing' }, { canInitialize: true }), ['initialize', 'decline']);
+  assert.deepEqual(UIReasoning.getProjectActions({ status: 'missing' }), ['decline']);
+  assert.deepEqual(UIReasoning.getProjectActions({ status: 'declined' }), ['reactivate']);
+  for (const status of ['ready', 'error', 'no_access']) {
+    assert.deepEqual(UIReasoning.getProjectActions({ status }), ['reload'], status);
+  }
+  for (const status of ['disabled', 'unavailable']) {
+    assert.deepEqual(UIReasoning.getProjectActions({ status }), [], status);
+  }
+});
+
+test('UIReasoning - el texto de estado del proyecto usa la clave de su estado y el nombre de la carpeta', () => {
+  const I18n = require('../../js/i18n.js');
+  I18n.setLanguage?.('es', false);
+  assert.equal(UIReasoning.getProjectStatusText({ projectMode: false }, { status: 'ready', cwd: '/r' }), I18n.t('project_status_disabled'));
+  assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'ready', cwd: '/home/u/my-repo/' }), /my-repo/);
+  assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'missing', cwd: 'C:\\code\\app' }), /app/);
+});

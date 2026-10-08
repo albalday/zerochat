@@ -199,3 +199,24 @@ test('ChatConfig - descarta los interruptores de herramientas retiradas al norma
   });
   assert.deepEqual(config.enabledTools, { search_web: false });
 });
+
+test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activar un perfil', () => {
+  assert.equal(ChatConfig.normalize({}).projectMode, false);
+  assert.deepEqual(ChatConfig.normalize({}).projectDeclined, []);
+  const declined = Array.from({ length: 60 }, (_, index) => `/repo/${index}`);
+  const normalized = ChatConfig.normalize({
+    projectMode: 'yes',
+    projectDeclined: [' /a ', '/a', '', 42, 'x'.repeat(5000), ...declined]
+  });
+  assert.equal(normalized.projectMode, false);
+  assert.equal(normalized.projectDeclined.length, 50);
+  assert.equal(normalized.projectDeclined[49], '/repo/59');
+  assert.ok(!normalized.projectDeclined.includes(''));
+
+  const { store } = createFixture();
+  store.initialize();
+  store.updateGeneral({ projectMode: true, projectDeclined: ['/home/u/repo'] });
+  const config = store.activateProfile('office');
+  assert.equal(config.projectMode, true);
+  assert.deepEqual(config.projectDeclined, ['/home/u/repo']);
+});

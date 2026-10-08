@@ -185,6 +185,7 @@
       reasoningIntensity: document.getElementById('reasoning-intensity'),
       reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
       btnCloseReasoning: document.getElementById('btn-close-reasoning'),
+      projectModePanel: document.getElementById('project-mode-panel'),
 
       // Panel de Debug & Logs
       btnToggleDebug: document.getElementById('btn-toggle-debug'),
@@ -459,6 +460,50 @@
     if (UIReasoning.toggleReasoningMenu) {
       UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel);
     }
+    renderProjectPanel();
+  }
+
+  // ==========================================================================
+  // MODO PROYECTO
+  // ==========================================================================
+
+  const projectPanelHandlers = {
+    toggle(enabled) {
+      Config.updateRuntime?.({ projectMode: Boolean(enabled) });
+    },
+    async decline() {
+      const cwd = State.get?.('project')?.cwd;
+      if (!cwd) return;
+      const confirmed = await ChatDialogs.confirm(t('project_decline_confirm', { cwd }));
+      // El servidor puede haber cambiado de directorio mientras se esperaba la respuesta.
+      if (!confirmed || State.get?.('project')?.cwd !== cwd) return;
+      const declined = Config.get?.()?.projectDeclined || [];
+      Config.updateRuntime?.({ projectDeclined: [...declined, cwd] });
+    },
+    reactivate() {
+      const cwd = State.get?.('project')?.cwd;
+      const declined = Config.get?.()?.projectDeclined || [];
+      Config.updateRuntime?.({ projectDeclined: declined.filter(path => path !== cwd) });
+    },
+    reload() {
+      refreshProjectContext();
+    }
+  };
+
+  function refreshProjectContext() {
+    if (!ProjectContext.refresh) return;
+    ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
+  }
+
+  /** Solo se pinta con el panel de razonamiento abierto (renderizado bajo demanda). */
+  function renderProjectPanel() {
+    if (!UIReasoning.renderProjectPanel || elements.reasoningMenu?.style?.display !== 'flex') return;
+    UIReasoning.renderProjectPanel(elements, {
+      config: Config.get?.() || appConfig || {},
+      project: State.get?.('project') || {},
+      canInitialize: ProjectContext.canInitialize?.() === true,
+      handlers: projectPanelHandlers
+    });
   }
 
   function selectReasoningLevel(level) {
@@ -1402,8 +1447,9 @@
         // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
         State.subscribe(
           state => ({ status: state.mcp?.status, cwd: state.mcp?.serverInfo?.cwd || '', tools: state.mcp?.tools?.length || 0 }),
-          () => ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error))
+          refreshProjectContext
         );
+        State.subscribe('project', renderProjectPanel);
       }
     }
 
@@ -1414,6 +1460,11 @@
             .catch(error => console.error('Provider cleanup failed:', error));
         }
         updateUIFromConfig();
+        if (nextConfig?.projectMode !== previousConfig?.projectMode ||
+            JSON.stringify(nextConfig?.projectDeclined || []) !== JSON.stringify(previousConfig?.projectDeclined || [])) {
+          refreshProjectContext();
+        }
+        renderProjectPanel();
       });
     }
 

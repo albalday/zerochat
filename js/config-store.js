@@ -29,6 +29,7 @@
     theme: DEFAULT_THEME, language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
+    projectMode: false, projectDeclined: [],
     webllmConfig: {
       context_window_size: WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE,
       prefill_chunk_size: 'default'
@@ -41,6 +42,19 @@
   function normalizeBranchIds(value, fallback) {
     const values = Array.isArray(value) ? value : (value ? [value] : fallback || []);
     return values.map(String).map(id => id.trim()).filter(Boolean);
+  }
+
+  const MAX_DECLINED_PROJECTS = 50;
+  const MAX_PROJECT_PATH_LENGTH = 4096;
+
+  /** Rutas cwd rechazadas para el modo proyecto: únicas, acotadas y conservando las más recientes. */
+  function normalizeDeclinedProjects(value) {
+    const paths = Array.isArray(value) ? value : [];
+    const unique = [...new Set(paths
+      .filter(item => typeof item === 'string')
+      .map(item => item.trim())
+      .filter(item => item && item.length <= MAX_PROJECT_PATH_LENGTH))];
+    return unique.slice(-MAX_DECLINED_PROJECTS);
   }
 
   function normalize(config = {}) {
@@ -77,6 +91,8 @@
     const parsedMcpPort = Number(next.mcpPort);
     next.mcpPort = Number.isInteger(parsedMcpPort) && parsedMcpPort >= 1024 && parsedMcpPort <= 65535 ? parsedMcpPort : DEFAULTS.mcpPort;
     next.mcpAutoConnect = next.mcpAutoConnect === true;
+    next.projectMode = next.projectMode === true;
+    next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;

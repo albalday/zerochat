@@ -7,7 +7,7 @@
 
   const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
 
-  const { resolveDep } = Utils;
+  const { resolveDep, escapeHtml } = Utils;
 
   function t(key, params) {
     const I18n = resolveDep('ChatI18n', './i18n.js');
@@ -108,6 +108,66 @@
     else openReasoningMenu(elements, appConfig, onSelect);
   }
 
+  function projectName(cwd) {
+    const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
+    return parts[parts.length - 1] || String(cwd || '');
+  }
+
+  /** Acciones disponibles para cada estado del modo proyecto (initialize solo si se puede escribir). */
+  function getProjectActions(project = {}, options = {}) {
+    switch (project.status) {
+      case 'missing': return [...(options.canInitialize ? ['initialize'] : []), 'decline'];
+      case 'declined': return ['reactivate'];
+      case 'ready':
+      case 'error':
+      case 'no_access': return ['reload'];
+      default: return [];
+    }
+  }
+
+  function getProjectStatusText(config = {}, project = {}) {
+    if (config.projectMode !== true) return t('project_status_disabled');
+    const params = { name: projectName(project.cwd), error: project.error || '' };
+    return t(`project_status_${project.status || 'unavailable'}`, params);
+  }
+
+  /**
+   * Pinta el pie del panel de razonamiento con el interruptor del modo proyecto, su estado y
+   * las acciones del estado actual. Los manejadores se enlazan una vez por delegación.
+   */
+  function renderProjectPanel(elements, { config = {}, project = {}, canInitialize = false, handlers = {} } = {}) {
+    const panel = elements?.projectModePanel;
+    if (!panel) return;
+    panel._projectHandlers = handlers;
+    const Icons = resolveDep('ChatIcons', './icons.js');
+    const icon = Icons?.get ? Icons.get('folder', { size: 13 }) : '';
+    const enabled = config.projectMode === true;
+    const actions = enabled ? getProjectActions(project, { canInitialize: canInitialize && typeof handlers.initialize === 'function' }) : [];
+    panel.innerHTML = `
+      <div class="reasoning-agent-toggle-wrapper">
+        <div class="reasoning-agent-toggle-info">
+          <div class="reasoning-agent-toggle-title">${icon}<span>${escapeHtml(t('project_mode_title'))}</span></div>
+          <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(enabled ? project.status || '' : 'disabled')}" aria-live="polite">${escapeHtml(getProjectStatusText(config, project))}</div>
+        </div>
+        <label class="switch switch-sm" title="${escapeHtml(t('project_mode_tooltip'))}">
+          <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(t('project_mode_tooltip'))}"${enabled ? ' checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      ${actions.length ? `<div class="project-mode-actions">${actions.map(action =>
+        `<button type="button" class="btn-secondary" data-project-action="${action}">${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>` : ''}`;
+    if (!panel._hasProjectListeners) {
+      panel._hasProjectListeners = true;
+      panel.addEventListener('change', event => {
+        if (event.target?.id === 'chk-project-mode') panel._projectHandlers?.toggle?.(event.target.checked);
+      });
+      panel.addEventListener('click', event => {
+        const action = event.target?.closest?.('[data-project-action]')?.dataset?.projectAction;
+        if (action) panel._projectHandlers?.[action]?.();
+      });
+    }
+  }
+
   function updateReasoningUI(elements, level) {
     const normalized = getReasoningLevelFromIntensity(getReasoningIntensity(level));
     if (elements?.reasoningLabel) elements.reasoningLabel.textContent = getReasoningLevelLabel(normalized);
@@ -126,5 +186,5 @@
     onLevelChanged?.(normalized);
   }
 
-  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI };
+  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, renderProjectPanel };
 });
