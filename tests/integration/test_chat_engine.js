@@ -715,3 +715,55 @@ test('ChatEngine - con herramientas en texto (WebLLM) no inyecta la guía de pse
   assert.equal(system.includes('AVAILABLE TOOLS AND FUNCTIONS'), false);
   assert.ok(system.includes('*Workflow instruction:*'));
 });
+
+const READY_PROJECT = {
+  status: 'ready',
+  cwd: '/home/u/repo',
+  rules: { content: 'Project rules: AGENTS.md', truncated: false },
+  state: { content: '- Next step: tests', truncated: false }
+};
+
+test('ChatEngine - inyecta normas y estado del proyecto solo en estado ready', () => {
+  const history = [{ role: 'user', content: 'Hola' }];
+  const config = { systemPrompt: 'BASE' };
+  const plain = ChatEngine.buildEffectiveMessages(history, config, { enableTools: false });
+  const ready = ChatEngine.buildEffectiveMessages(history, config, { enableTools: false, projectContext: READY_PROJECT });
+  const missing = ChatEngine.buildEffectiveMessages(history, config, { enableTools: false, projectContext: { ...READY_PROJECT, status: 'missing' } });
+
+  assert.match(ready[0].content, /\*Project mode:\*[\s\S]*Project rules: AGENTS\.md[\s\S]*- Next step: tests/);
+  assert.equal(missing[0].content, plain[0].content, 'Fuera de ready el prompt no cambia');
+  assert.doesNotMatch(plain[0].content, /Project mode/);
+});
+
+test('ChatEngine - el bloque del proyecto sigue en el prompt de sistema tras una compactación', () => {
+  const history = [
+    { role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true },
+    { role: 'user', content: 'Continúa' }
+  ];
+  const messages = ChatEngine.buildEffectiveMessages(history, {}, { enableTools: false, projectContext: READY_PROJECT });
+  assert.equal(messages[0].role, 'system');
+  assert.match(messages[0].content, /Project mode/);
+  assert.ok(messages.some(message => message.content === 'Checkpoint acumulativo'));
+});
+
+test('ChatEngine - executeAgentTurnLoop envía al proveedor la instantánea del proyecto', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  let sentSystem = '';
+  ChatAPI.streamChatCompletion = async (params) => {
+    sentSystem = params.messages.find(message => message.role === 'system')?.content || '';
+    params.onChunk?.('ok', 'ok', null);
+    return { accumulatedText: 'ok', toolCalls: null, stats: null };
+  };
+  try {
+    const res = await ChatEngine.executeAgentTurnLoop({
+      chatHistory: [{ role: 'user', content: 'Hola' }],
+      appConfig: { apiUrl: 'http://localhost:1234/v1', model: 'test-model', enabledTools: {} },
+      projectContext: READY_PROJECT
+    });
+    assert.equal(res.success, true);
+    assert.match(sentSystem, /rooted at \/home\/u\/repo/);
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+  }
+});
+

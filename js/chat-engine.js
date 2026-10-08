@@ -22,6 +22,11 @@
       : (typeof require !== 'undefined' ? (() => { try { return require('./api.js'); } catch (e) { return {}; } })() : {});
   }
 
+  function getProjectContext() {
+    return (typeof window !== 'undefined' && window.ChatProjectContext)
+      || (typeof require !== 'undefined' ? require('./project-context.js') : null);
+  }
+
   function getAgentCore() {
     return (typeof window !== 'undefined' && window.ChatAgentCore)
       ? window.ChatAgentCore
@@ -264,8 +269,11 @@
       toolsGuide = toolsGuide ? `${toolsGuide}\n\n${ragInstruction}` : ragInstruction;
     }
 
+    // Normas y estado del proyecto: estables mientras no cambien sus ficheros.
+    const projectBlock = options.projectContext ? (getProjectContext()?.buildPromptBlock(options.projectContext) || '') : '';
+
     // Ensamblar bloque estable
-    let fullSystemPrompt = [baseSystemPrompt, toolsGuide].filter(Boolean).join('\n\n');
+    let fullSystemPrompt = [baseSystemPrompt, toolsGuide, projectBlock].filter(Boolean).join('\n\n');
 
     // 4. Inyección de contexto dinámico al final para preservar el prefijo en caché:
     // a) Contexto RAG recuperado para esta consulta
@@ -329,6 +337,7 @@
       activeRagBranchId = '',
       activeRagBranchIds = [],
       currentRagSystemContext = '',
+      projectContext = null,
       container,
       onTurnStart,
       onChunk,
@@ -417,6 +426,7 @@
       prepareMessages: (messages, options) => ({
         messages: buildEffectiveMessages(messages, appConfig, {
           currentRagSystemContext,
+          projectContext,
           activeRagBranchId: resolvedBranchId,
           activeRagBranchIds: resolvedBranchIds,
           forceSystemPromptGuide: Boolean(options.isSynthesis),

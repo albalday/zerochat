@@ -279,6 +279,8 @@
     }
 
     const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
+    // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
+    const projectContext = runtimeConfig.projectMode === true && State?.get ? (State.get('project') || null) : null;
 
     try {
       const runner = Engine || resolveDep('ChatEngine', './chat-engine.js');
@@ -313,6 +315,7 @@
         activeRagBranchId: activeRagBranchId,
         activeRagBranchIds: activeRagBranchIds,
         currentRagSystemContext: currentRagSystemContext,
+        projectContext,
         signal: currentAbortController.signal,
         container: content,
 

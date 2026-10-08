@@ -37,6 +37,20 @@ test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero 
   assert.ok(ragIdx < dateIdx, 'El contexto RAG debe preceder al ancla de fecha final');
 });
 
+test('ContextCache - el bloque del proyecto es estable: sigue a la base y precede a RAG y fecha', () => {
+  const sys = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Consulta' }], { systemPrompt: 'INSTRUCCION_BASE_MAESTRA' }, {
+    currentRagSystemContext: 'CONTEXTO_RAG_VARIABLE',
+    projectContext: { status: 'ready', cwd: '/repo', rules: { content: 'NORMAS_PROYECTO' }, state: { content: '' } }
+  }).find(m => m.role === 'system').content;
+
+  const baseIdx = sys.indexOf('INSTRUCCION_BASE_MAESTRA');
+  const projectIdx = sys.indexOf('NORMAS_PROYECTO');
+  assert.ok(baseIdx !== -1 && projectIdx !== -1);
+  assert.ok(baseIdx < projectIdx, 'Las instrucciones base preceden al proyecto');
+  assert.ok(projectIdx < sys.indexOf('CONTEXTO_RAG_VARIABLE'), 'El proyecto precede al contexto RAG dinámico');
+  assert.ok(projectIdx < sys.indexOf('Conversation start date'), 'El proyecto precede al ancla de fecha');
+});
+
 test('ContextCache - ClaudeAdapter genera cabeceras nativas y ubica cache_control en el último turno de tool', () => {
   const adapter = new ClaudeProviderAdapter();
   const headers = adapter.buildHeaders('sk-ant-test-key-123');
