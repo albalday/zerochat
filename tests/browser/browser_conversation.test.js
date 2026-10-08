@@ -263,6 +263,12 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
       const chartHistory = ChatToolCards.renderHistoricalToolCard({ function: { name: 'render_chart', arguments: JSON.stringify(chartArgs) } }, { content: '{}' });
       ChatToolCards.appendToolCard(container, chartHistory, { completed: true });
       const chartHistoryOutside = chartHistory.parentNode === container && !chartHistory.querySelector('.collapsed');
+      // Conversaciones guardadas con herramientas retiradas siguen mostrando una tarjeta genérica.
+      for (const [name, args] of [['update_plan', { tasks: [{ title: '<b>x</b>', status: 'pending' }] }], ['finish_task', { summary: 'ok' }]]) {
+        const historical = ChatToolCards.renderHistoricalToolCard({ function: { name, arguments: JSON.stringify(args) } }, { content: '{}' });
+        layouts.push({ name: name + ' retired history', canonical: !!historical.querySelector('.tool-card-header'),
+          collapsed: historical.querySelector('.tool-execution-card').classList.contains('collapsed') });
+      }
       container.remove();
       return { layouts, toggles, chartOutside, chartHistoryOutside };
     });

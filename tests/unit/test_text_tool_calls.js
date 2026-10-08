@@ -20,14 +20,14 @@ test('TextToolCalls.extractToolCalls - admite varias llamadas, bloque sin cerrar
   const text = [
     '<tool_call>```json\n{"name": "search_web", "arguments": {"query": "a"}}\n```</tool_call>',
     '<tool_call>[{"function": {"name": "fetch_web_page", "arguments": "{\\"url\\":\\"https://x\\"}"}}]</tool_call>',
-    '<tool_call>{"name": "finish_task", "parameters": {"summary": "ok"}}'
+    '<tool_call>{"name": "render_chart", "parameters": {"title": "ok"}}'
   ].join('\n');
   const { text: rest, toolCalls } = TextToolCalls.extractToolCalls(text);
   assert.equal(rest, '');
   assert.deepEqual(toolCalls.map(call => call.function), [
     { name: 'search_web', arguments: '{"query":"a"}' },
     { name: 'fetch_web_page', arguments: '{"url":"https://x"}' },
-    { name: 'finish_task', arguments: '{"summary":"ok"}' }
+    { name: 'render_chart', arguments: '{"title":"ok"}' }
   ]);
 });
 

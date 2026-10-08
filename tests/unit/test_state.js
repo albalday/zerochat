@@ -341,24 +341,6 @@ test('ChatState - Mutadores de adjuntos: setAttachments y clearAttachments', () 
   assert.equal(store.get('ui').attachedFiles.length, 0);
 });
 
-test('ChatState - Mutador de plan agéntico: setAgentPlan', () => {
-  const store = ChatState.createStore();
-  assert.equal(store.get('agent').plan, null);
-  assert.throws(() => store.setAgentPlan('invalid'), /array/);
-
-  const plan = [
-    { title: 'Paso 1', status: 'completed' },
-    { title: 'Paso 2', status: 'in_progress' }
-  ];
-  store.setAgentPlan(plan);
-  assert.equal(store.get('agent').plan.length, 2);
-  assert.equal(store.get('agent').plan[0].title, 'Paso 1');
-
-  // Inmutabilidad
-  plan.push({ title: 'Paso 3', status: 'pending' });
-  assert.equal(store.get('agent').plan.length, 2);
-});
-
 test('ChatState - admite avisos de confirmación', () => {
   const store = ChatState.createStore();
   store.enqueueNotice({
