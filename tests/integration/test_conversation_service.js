@@ -176,9 +176,10 @@ test('ConversationService - createConversationBranch with summarize: false clone
 
 
 test('ConversationService - defaultSummarizeHistory usa la API key del perfil activo y no oculta fallos al cargarlo', async () => {
-  const previous = { Profiles: globalThis.ChatProfileRepository, API: globalThis.ChatAPI };
+  const ChatAPI = require('../../js/api.js');
+  const previous = { Profiles: globalThis.ChatProfileRepository, stream: ChatAPI.streamChatCompletion };
   const requests = [];
-  globalThis.ChatAPI = { streamChatCompletion: async request => { requests.push(request); return { accumulatedText: 'summary' }; } };
+  ChatAPI.streamChatCompletion = async request => { requests.push(request); return { accumulatedText: 'summary' }; };
   const getRuntimeConfig = () => ({ apiUrl: 'https://x.test', apiType: 'openai', model: 'm', activeProfile: { id: 'p1' } });
   try {
     globalThis.ChatProfileRepository = { load: async () => ({ settings: { apiKey: 'sk-profile' } }) };
@@ -194,6 +195,6 @@ test('ConversationService - defaultSummarizeHistory usa la API key del perfil ac
     assert.equal(requests.length, 1);
   } finally {
     globalThis.ChatProfileRepository = previous.Profiles;
-    globalThis.ChatAPI = previous.API;
+    ChatAPI.streamChatCompletion = previous.stream;
   }
 });

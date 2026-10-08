@@ -767,3 +767,23 @@ test('ChatEngine - executeAgentTurnLoop envía al proveedor la instantánea del 
   }
 });
 
+
+test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas ni razonamiento', async () => {
+  const originalStream = ChatAPI.streamChatCompletion;
+  let request = null;
+  ChatAPI.streamChatCompletion = async params => { request = params; return { accumulatedText: 'checkpoint' }; };
+  try {
+    const signal = new AbortController().signal;
+    const summarize = ChatEngine.createHistorySummarizer({ apiUrl: 'https://x.test', apiType: 'openai', apiKey: 'k', model: 'm', signal });
+    const result = await summarize({ systemPrompt: 'SUMMARIZE', messages: [{ role: 'user', content: 'hola' }] });
+    assert.equal(result, 'checkpoint');
+    assert.equal(request.apiKey, 'k');
+    assert.equal(request.signal, signal);
+    assert.equal(request.enableTools, false);
+    assert.equal(request.reasoningEffort, 'none');
+    assert.deepEqual(request.messages.map(m => m.role), ['system', 'user', 'user']);
+    assert.equal(request.messages[0].content, 'SUMMARIZE');
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+  }
+});

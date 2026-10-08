@@ -399,27 +399,14 @@
           ? { summarizerAddendum: getProjectContext().SUMMARIZER_PROJECT_ADDENDUM }
           : {})
       },
-      summarizeHistory: async ({ systemPrompt, messages }) => {
-        const API = getAPI();
-        const response = await API.streamChatCompletion({
-          apiUrl: params.apiUrl || appConfig.apiUrl,
-          apiType: params.apiType || appConfig.apiType,
-          apiKey: params.apiKey || '',
-          model: params.model || appConfig.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-            { role: 'user', content: 'Generate the replacement checkpoint now.' }
-          ],
-          temperature: 0,
-          reasoningEffort: 'none',
-          enableTools: false,
-          toolChoice: 'none',
-          signal: params.signal,
-          onBeforeRequest
-        });
-        return response?.accumulatedText || '';
-      },
+      summarizeHistory: createHistorySummarizer({
+        apiUrl: params.apiUrl || appConfig.apiUrl,
+        apiType: params.apiType || appConfig.apiType,
+        apiKey: params.apiKey || '',
+        model: params.model || appConfig.model,
+        signal: params.signal,
+        onBeforeRequest
+      }),
       onBeforeRequest,
       onGenerationStatus,
       createMessageId: (kind, info) => {
@@ -570,8 +557,36 @@
     return executeWithAgentRuntime(params);
   }
 
+  /**
+   * Resumidor para ContextManager.compressHistory: pide al proveedor el checkpoint que sustituye
+   * al historial, sin herramientas ni razonamiento. Lo usan la compactación y las ramas resumidas.
+   */
+  function createHistorySummarizer({ apiUrl, apiType, apiKey = '', model, signal, onBeforeRequest } = {}) {
+    return async ({ systemPrompt, messages }) => {
+      const response = await getAPI().streamChatCompletion({
+        apiUrl,
+        apiType,
+        apiKey,
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+          { role: 'user', content: 'Generate the replacement checkpoint now.' }
+        ],
+        temperature: 0,
+        reasoningEffort: 'none',
+        enableTools: false,
+        toolChoice: 'none',
+        signal,
+        onBeforeRequest
+      });
+      return response?.accumulatedText || '';
+    };
+  }
+
   return {
     getConversationDateAnchor,
+    createHistorySummarizer,
     ensureConversationDate,
     getConfiguredSystemPrompt,
     getToolsSystemPromptGuide,

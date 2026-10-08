@@ -335,38 +335,6 @@
     return result;
   }
 
-  function formatHistoryTranscript(messages = []) {
-    const lines = [];
-    (messages || []).forEach(m => {
-      if (!m) return;
-      if (m._isSummaryBlock) {
-        lines.push(`[Previous Checkpoint Summary]:\n${m.content}`);
-      } else if (m.role === 'user') {
-        let text = '';
-        if (typeof m.content === 'string') {
-          text = m.content;
-        } else if (Array.isArray(m.content)) {
-          text = m.content.map(part => (part && part.text) ? part.text : '').filter(Boolean).join(' ');
-        }
-        if (text) lines.push(`User: ${text}`);
-      } else if (m.role === 'assistant') {
-        const text = typeof m.content === 'string' ? m.content : '';
-        if (text) {
-          lines.push(`Assistant: ${text}`);
-        } else if (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
-          const names = m.tool_calls.map(tc => tc.function?.name || 'tool').join(', ');
-          lines.push(`Assistant: [Used tools: ${names}]`);
-        }
-      } else if (m.role === 'tool') {
-        const name = m.name || 'tool';
-        const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
-        const snippet = raw.length > 500 ? raw.slice(0, 500) + '...' : raw;
-        lines.push(`Tool (${name}): ${snippet}`);
-      }
-    });
-    return lines.join('\n\n');
-  }
-
   /** API key del perfil activo; pide la contraseña si está cifrada. Los fallos se propagan. */
   async function resolveActiveApiKey(runtimeConfig) {
     const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -381,33 +349,16 @@
     return activeProfile?.settings?.apiKey || '';
   }
 
-  async function defaultSummarizeHistory({ systemPrompt, messages, signal }, options = {}) {
-    const API = resolveDep('ChatAPI', './api.js');
-    if (!API || typeof API.streamChatCompletion !== 'function') return '';
-    const Config = getConfig();
-    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const apiKey = await resolveActiveApiKey(runtimeConfig);
-    const transcript = formatHistoryTranscript(messages);
-
-    const response = await API.streamChatCompletion({
+  async function defaultSummarizeHistory(params, options = {}) {
+    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+    const summarize = getEngine().createHistorySummarizer({
       apiUrl: runtimeConfig.apiUrl,
       apiType: runtimeConfig.apiType,
-      apiKey,
+      apiKey: await resolveActiveApiKey(runtimeConfig),
       model: runtimeConfig.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `Here is the conversation history to consolidate into a checkpoint:\n\n<conversation_history>\n${transcript}\n</conversation_history>\n\nGenerate the replacement checkpoint now.`
-        }
-      ],
-      temperature: 0,
-      reasoningEffort: 'none',
-      enableTools: false,
-      toolChoice: 'none',
-      signal
+      signal: params.signal
     });
-    return response?.accumulatedText || '';
+    return await summarize(params);
   }
 
   async function createConversationBranch(wrapper, options = {}) {
@@ -659,7 +610,6 @@
     cloneBranchHistory,
     shouldOfferBranchSummary,
     createBranchHistoryWithSummary,
-    formatHistoryTranscript,
     defaultSummarizeHistory,
     createConversationBranch,
     deleteSession,
