@@ -87,7 +87,7 @@
         modelReasoningConfig: null,
         mcpHost: '127.0.0.1',
         mcpPort: 6388,
-        projectMode: false,
+        projectMode: true,
         projectDeclined: [],
         webllmConfig: {
           context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),

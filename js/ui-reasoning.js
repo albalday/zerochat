@@ -131,6 +131,27 @@
     return t(`project_status_${project.status || 'unavailable'}`, params);
   }
 
+  /** Marca del botón de razonamiento: ready (proyecto inyectado), warning (activo pero ilegible) o ''. */
+  function getProjectIndicator(config = {}, project = {}) {
+    if (config.projectMode !== true) return '';
+    if (project.status === 'ready') return 'ready';
+    if (project.status === 'error' || project.status === 'no_access') return 'warning';
+    return '';
+  }
+
+  /** Refleja el estado del proyecto en el botón (punto, nombre accesible y tooltip) sin abrir el panel. */
+  function syncProjectIndicator(elements, config = {}, project = {}) {
+    const button = elements?.btnReasoning;
+    if (!button) return;
+    const indicator = getProjectIndicator(config, project);
+    if (indicator) button.setAttribute('data-project-indicator', indicator);
+    else button.removeAttribute('data-project-indicator');
+    const text = indicator ? getProjectStatusText(config, project) : '';
+    if (elements.reasoningProjectLabel) elements.reasoningProjectLabel.textContent = text;
+    const baseTitle = t('reasoning_btn_title');
+    button.setAttribute('title', text ? `${baseTitle} · ${text}` : baseTitle);
+  }
+
   /**
    * Pinta el pie del panel de razonamiento con el interruptor del modo proyecto, su estado y
    * las acciones del estado actual. Los manejadores se enlazan una vez por delegación.
@@ -186,5 +207,5 @@
     onLevelChanged?.(normalized);
   }
 
-  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, renderProjectPanel };
+  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, renderProjectPanel, getProjectIndicator, syncProjectIndicator };
 });

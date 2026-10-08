@@ -41,13 +41,14 @@
 
     <div class="card">
       <h2>3. Enabling and initializing</h2>
-      <p>The switch is in the composer's <strong>Reasoning</strong> panel. It is a global preference: switching profiles does not change it. The project status appears below it:</p>
+      <p>The mode is on by default: as soon as the project has a <code>ZEROCHAT.md</code>, it is used without going through any menu. The switch in the composer's <strong>Reasoning</strong> panel turns it off; it is a global preference that does not change when switching profiles.</p>
+      <p>While the project is being injected, the reasoning button shows a colored dot; if the mode is on but the files cannot be read, the dot turns to a warning color. The button tooltip names the project and its status. The panel shows the details:</p>
       <ul><li><strong>Active:</strong> <code>ZEROCHAT.md</code> was read and is injected into every chat. <em>Reload</em> reads the files again.</li>
       <li><strong>No ZEROCHAT.md:</strong> offers <em>Initialize project</em> and <em>Do not use in this project</em>.</li>
       <li><strong>Disabled for the project:</strong> you declined it; <em>Re-enable in this project</em> undoes that.</li>
       <li><strong>No read permission</strong> or <strong>requires the local server:</strong> nothing is injected.</li></ul>
       <p><em>Initialize project</em> asks for confirmation, grants read and write access only to <code>.zerochat/</code> and sends the agent a visible message with the start-up instructions, in a new conversation if the active one has content. The agent first reviews <code>AGENTS.md</code> and the existing documentation, reports what already covers planning and decision records, proposes anything missing and waits for your approval before writing. It finishes by creating <code>ZEROCHAT.md</code> and <code>.zerochat/state.md</code>.</p>
-      <p>The files are read again when the server connects, before each message is sent and when each response finishes.</p>
+      <p>The files are read when ZeroChat opens, when the server connects and when each response finishes, so the agent's changes are picked up for the next message. If you edit them by hand, press <em>Reload</em>.</p>
     </div>
 
     <div class="card">

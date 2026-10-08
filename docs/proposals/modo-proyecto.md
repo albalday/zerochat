@@ -379,3 +379,19 @@ prompt del resumidor es idéntico al actual.
 | Política de seguridad que bloquea la lectura    | Estado `no_access` sin preguntas en cada chat; el panel lo explica |
 | Invalidación de la caché de contexto            | Bloque estable; solo cambia cuando cambian los ficheros           |
 | Usuarios que dependían de `agent_checkpoint`    | Aviso de contexto insuficiente para RAG y documentación en `/help` |
+
+## 9. Ajustes tras la primera prueba
+
+- **Activado por defecto.** La existencia de `ZEROCHAT.md` ya es una decisión explícita, como
+  `CLAUDE.md` en Claude Code, y lanzar `zerochat.py` en un directorio es un acto de confianza en
+  él (la regla por defecto es `R:<cwd>`). El interruptor queda para desactivarlo; «No usar en
+  este proyecto» sigue disponible por proyecto. Sin `ZEROCHAT.md` no hay avisos: la
+  inicialización se ofrece solo en el panel.
+- **Indicador en el botón de razonamiento.** Un punto superpuesto (color primario en `ready`, de
+  aviso en `error` y `no_access`) y el estado en el nombre accesible y el tooltip. No se usa el
+  botón de enviar: es la acción principal y ya alterna con «Detener».
+- **Lecturas.** Al arrancar, al conectar el servidor, al terminar cada respuesta y con
+  «Recargar». Se retira la lectura previa a cada envío, redundante con la de fin de respuesta.
+- **Fallo corregido.** Un `ZEROCHAT.md` inexistente se interpretaba como error: el servidor
+  publica como `isError` los resultados con `success: false` y el motivo viaja en el contenido.
+

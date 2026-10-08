@@ -61,3 +61,32 @@ test('UIReasoning - el texto de estado del proyecto usa la clave de su estado y 
   assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'ready', cwd: '/home/u/my-repo/' }), /my-repo/);
   assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'missing', cwd: 'C:\\code\\app' }), /app/);
 });
+
+test('UIReasoning - el indicador del botón solo marca proyectos activos o con fallo', () => {
+  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'ready' }), 'ready');
+  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'error' }), 'warning');
+  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'no_access' }), 'warning');
+  for (const status of ['missing', 'declined', 'unavailable', 'disabled']) {
+    assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status }), '', status);
+  }
+  assert.equal(UIReasoning.getProjectIndicator({ projectMode: false }, { status: 'ready' }), '');
+});
+
+test('UIReasoning - syncProjectIndicator actualiza atributo, nombre accesible y tooltip', () => {
+  const attributes = {};
+  const button = {
+    setAttribute: (key, value) => { attributes[key] = value; },
+    removeAttribute: key => { delete attributes[key]; }
+  };
+  const elements = { btnReasoning: button, reasoningProjectLabel: { textContent: '' } };
+  UIReasoning.syncProjectIndicator(elements, { projectMode: true }, { status: 'ready', cwd: '/home/u/zerochat' });
+  assert.equal(attributes['data-project-indicator'], 'ready');
+  assert.match(elements.reasoningProjectLabel.textContent, /zerochat/);
+  assert.match(attributes.title, / · .*zerochat/);
+
+  UIReasoning.syncProjectIndicator(elements, { projectMode: true }, { status: 'missing', cwd: '/home/u/zerochat' });
+  assert.equal(attributes['data-project-indicator'], undefined);
+  assert.equal(elements.reasoningProjectLabel.textContent, '');
+  assert.doesNotMatch(attributes.title, / · /);
+});
+

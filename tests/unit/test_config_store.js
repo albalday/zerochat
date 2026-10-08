@@ -201,22 +201,22 @@ test('ChatConfig - descarta los interruptores de herramientas retiradas al norma
 });
 
 test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activar un perfil', () => {
-  assert.equal(ChatConfig.normalize({}).projectMode, false);
+  assert.equal(ChatConfig.normalize({}).projectMode, true, 'Activo por defecto: ZEROCHAT.md ya es una decisión explícita');
   assert.deepEqual(ChatConfig.normalize({}).projectDeclined, []);
   const declined = Array.from({ length: 60 }, (_, index) => `/repo/${index}`);
   const normalized = ChatConfig.normalize({
-    projectMode: 'yes',
+    projectMode: false,
     projectDeclined: [' /a ', '/a', '', 42, 'x'.repeat(5000), ...declined]
   });
-  assert.equal(normalized.projectMode, false);
+  assert.equal(normalized.projectMode, false, 'Desactivarlo se respeta');
   assert.equal(normalized.projectDeclined.length, 50);
   assert.equal(normalized.projectDeclined[49], '/repo/59');
   assert.ok(!normalized.projectDeclined.includes(''));
 
   const { store } = createFixture();
   store.initialize();
-  store.updateGeneral({ projectMode: true, projectDeclined: ['/home/u/repo'] });
+  store.updateGeneral({ projectMode: false, projectDeclined: ['/home/u/repo'] });
   const config = store.activateProfile('office');
-  assert.equal(config.projectMode, true);
+  assert.equal(config.projectMode, false);
   assert.deepEqual(config.projectDeclined, ['/home/u/repo']);
 });

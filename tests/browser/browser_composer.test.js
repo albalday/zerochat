@@ -312,14 +312,29 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     await waitForAppReady(page);
 
     await page.click('#btn-reasoning');
-    assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
-    assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'disabled');
-    assert.equal(await page.locator('[data-project-action]').count(), 0);
-
-    await page.locator('#project-mode-panel .switch').click();
-    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), true);
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), true, 'Activo por defecto');
     await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
     assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'unavailable');
+    assert.equal(await page.locator('[data-project-action]').count(), 0);
+    assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Sin servidor no hay indicador');
+
+    await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/zerochat', rules: { content: 'r' } }));
+    const indicator = await page.evaluate(() => {
+      const button = document.getElementById('btn-reasoning');
+      const dot = getComputedStyle(button, '::after');
+      return { value: button.getAttribute('data-project-indicator'), dot: dot.content !== 'none' && dot.width === '7px', title: button.title, label: document.getElementById('reasoning-project-label').textContent };
+    });
+    assert.equal(indicator.value, 'ready');
+    assert.equal(indicator.dot, true);
+    assert.match(indicator.title, /zerochat/);
+    assert.match(indicator.label, /zerochat/);
+
+    await page.locator('#project-mode-panel .switch').click();
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), false);
+    await page.waitForFunction(() => window.ChatState.get('project').status === 'disabled');
+    assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Desactivado no hay indicador');
+    await page.locator('#project-mode-panel .switch').click();
+    await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
 
     await page.evaluate(() => window.ChatState.setProjectContext({ status: 'missing', cwd: '/home/u/repo' }));
     const missing = await page.evaluate(() => ({

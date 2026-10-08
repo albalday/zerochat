@@ -264,6 +264,27 @@
   justify-content: center;
 }
 
+.btn-reasoning {
+  position: relative;
+}
+
+/* Modo proyecto: punto sobre el botón; el estado completo está en su nombre accesible y su tooltip. */
+.btn-reasoning[data-project-indicator]::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--bg-surface);
+}
+
+.btn-reasoning[data-project-indicator="warning"]::after {
+  background-color: var(--warning);
+}
+
 .reasoning-gauge {
   overflow: visible;
 }

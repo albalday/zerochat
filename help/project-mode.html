@@ -41,13 +41,14 @@
 
     <div class="card">
       <h2>3. Activar e inicializar</h2>
-      <p>El interruptor está en el panel de <strong>Razonamiento</strong> del compositor. Es una preferencia global: no cambia al cambiar de perfil. Debajo aparece el estado del proyecto:</p>
+      <p>El modo está activado por defecto: basta con que el proyecto tenga <code>ZEROCHAT.md</code> para que se use, sin pasar por ningún menú. El interruptor está en el panel de <strong>Razonamiento</strong> del compositor y sirve para desactivarlo; es una preferencia global, que no cambia al cambiar de perfil.</p>
+      <p>Cuando el proyecto se está inyectando, el botón de razonamiento muestra un punto de color; si el modo está activo pero no se pueden leer los ficheros, el punto es de aviso. El tooltip del botón indica el proyecto y su estado. En el panel aparece el detalle:</p>
       <ul><li><strong>Activo:</strong> se ha leído <code>ZEROCHAT.md</code> y se inyecta en cada chat. <em>Recargar</em> vuelve a leer los ficheros.</li>
       <li><strong>Sin ZEROCHAT.md:</strong> ofrece <em>Inicializar proyecto</em> y <em>No usar en este proyecto</em>.</li>
       <li><strong>Desactivado para el proyecto:</strong> lo rechazaste; <em>Reactivar en este proyecto</em> lo deshace.</li>
       <li><strong>Sin permiso de lectura</strong> o <strong>requiere el servidor local:</strong> no se inyecta nada.</li></ul>
       <p><em>Inicializar proyecto</em> pide confirmación, concede lectura y escritura solo en <code>.zerochat/</code> y envía al agente un mensaje visible con las instrucciones de arranque, en una conversación nueva si la activa tiene contenido. El agente revisa primero <code>AGENTS.md</code> y la documentación existente, informa de lo que ya cubre la planificación y el registro de decisiones, propone lo que falte y espera tu aprobación antes de escribir. Al terminar crea <code>ZEROCHAT.md</code> y <code>.zerochat/state.md</code>.</p>
-      <p>Los ficheros se vuelven a leer al conectar el servidor, antes de cada envío y al terminar cada respuesta.</p>
+      <p>Los ficheros se leen al abrir ZeroChat, al conectar el servidor y al terminar cada respuesta, de modo que los cambios del agente se recogen para el siguiente mensaje. Si los editas a mano, pulsa <em>Recargar</em>.</p>
     </div>
 
     <div class="card">

@@ -181,6 +181,7 @@
       btnOpenRag: document.getElementById('btn-open-rag'),
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
+      reasoningProjectLabel: document.getElementById('reasoning-project-label'),
       reasoningMenu: document.getElementById('reasoning-menu'),
       reasoningIntensity: document.getElementById('reasoning-intensity'),
       reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
@@ -516,8 +517,9 @@
     ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
   }
 
-  /** Solo se pinta con el panel de razonamiento abierto (renderizado bajo demanda). */
+  /** El indicador del botón siempre; el panel solo con el menú abierto (renderizado bajo demanda). */
   function renderProjectPanel() {
+    UIReasoning.syncProjectIndicator?.(elements, Config.get?.() || appConfig || {}, State.get?.('project') || {});
     if (!UIReasoning.renderProjectPanel || elements.reasoningMenu?.style?.display !== 'flex') return;
     UIReasoning.renderProjectPanel(elements, {
       config: Config.get?.() || appConfig || {},
@@ -633,6 +635,7 @@
       }
     }
     updateReasoningUI(config.reasoningEffort || 'medium');
+    UIReasoning.syncProjectIndicator?.(elements, config, State.get?.('project') || {});
     applyTheme(config.theme);
     applyLanguage(config.language || 'es');
 
@@ -1475,6 +1478,8 @@
         State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }) => {
           if (!generating && Config.get?.()?.projectMode === true) refreshProjectContext();
         });
+        // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
+        refreshProjectContext();
       }
     }
 

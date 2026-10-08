@@ -29,7 +29,7 @@
     theme: DEFAULT_THEME, language: 'es', enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: [],
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
-    projectMode: false, projectDeclined: [],
+    projectMode: true, projectDeclined: [],
     webllmConfig: {
       context_window_size: WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE,
       prefill_chunk_size: 'default'
@@ -91,7 +91,7 @@
     const parsedMcpPort = Number(next.mcpPort);
     next.mcpPort = Number.isInteger(parsedMcpPort) && parsedMcpPort >= 1024 && parsedMcpPort <= 65535 ? parsedMcpPort : DEFAULTS.mcpPort;
     next.mcpAutoConnect = next.mcpAutoConnect === true;
-    next.projectMode = next.projectMode === true;
+    next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
     next.activeRagBranchId = next.activeRagBranchIds[0] || '';
