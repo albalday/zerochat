@@ -95,6 +95,28 @@
     return encodeBase64(new Uint8Array(await cryptoOrThrow().subtle.digest('SHA-256', new TextEncoder().encode(password))));
   }
 
+  /**
+   * Ejecuta `operation(keyMaterial)` con la clave por defecto y, si exige contraseña, la pide con
+   * `requestPassword`, reintenta con la clave derivada y la guarda en caché. Si el usuario cancela,
+   * relanza el error PASSWORD_REQUIRED con `cancelled: true`.
+   */
+  async function withPassword(operation, requestPassword) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error?.code !== 'PASSWORD_REQUIRED' || typeof requestPassword !== 'function') throw error;
+      const password = await requestPassword();
+      if (password === null || password === undefined) {
+        error.cancelled = true;
+        throw error;
+      }
+      const keyMaterial = await keyMaterialFromPassword(password);
+      const result = await operation(keyMaterial);
+      cacheKeyMaterial(keyMaterial);
+      return result;
+    }
+  }
+
   function validateProfiles(profiles) {
     if (!Array.isArray(profiles) || profiles.length > 100) throw new Error('La copia contiene una lista de perfiles no válida.');
     profiles.forEach(profile => {
@@ -180,5 +202,5 @@
     }
   }
 
-  return { FORMAT, VERSION, MAX_FILE_BYTES, KEY_CACHE_TTL_MS, encryptProfiles, decryptProfiles, encryptApiKey, decryptApiKey, validateApiKeySecret, keyMaterialFromPassword, getCachedKeyMaterial, cacheKeyMaterial, clearCachedKeyMaterial };
+  return { FORMAT, VERSION, MAX_FILE_BYTES, KEY_CACHE_TTL_MS, encryptProfiles, decryptProfiles, encryptApiKey, decryptApiKey, validateApiKeySecret, keyMaterialFromPassword, withPassword, getCachedKeyMaterial, cacheKeyMaterial, clearCachedKeyMaterial };
 }));

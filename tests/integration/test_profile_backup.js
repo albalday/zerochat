@@ -62,3 +62,42 @@ test('ProfileBackup - usa temporalmente el hash de contraseña y conserva el for
     else global.localStorage = originalStorage;
   }
 });
+
+function passwordRequiredError() {
+  return Object.assign(new Error('password required'), { code: 'PASSWORD_REQUIRED' });
+}
+
+test('ProfileBackup.withPassword - no pide contraseña si la operación funciona con la clave por defecto', async () => {
+  let prompts = 0;
+  const result = await Backup.withPassword(keyMaterial => ({ keyMaterial }), () => { prompts++; return 'x'; });
+  assert.deepEqual(result, { keyMaterial: undefined });
+  assert.equal(prompts, 0);
+});
+
+test('ProfileBackup.withPassword - reintenta con la clave derivada de la contraseña', async () => {
+  const expected = await Backup.keyMaterialFromPassword('secret');
+  const calls = [];
+  const result = await Backup.withPassword(async keyMaterial => {
+    calls.push(keyMaterial);
+    if (!keyMaterial) throw passwordRequiredError();
+    return 'ok';
+  }, async () => 'secret');
+  assert.equal(result, 'ok');
+  assert.deepEqual(calls, [undefined, expected]);
+});
+
+test('ProfileBackup.withPassword - la cancelación relanza PASSWORD_REQUIRED marcado como cancelado', async () => {
+  await assert.rejects(
+    Backup.withPassword(async () => { throw passwordRequiredError(); }, async () => null),
+    error => error.code === 'PASSWORD_REQUIRED' && error.cancelled === true
+  );
+});
+
+test('ProfileBackup.withPassword - propaga otros errores sin pedir contraseña', async () => {
+  let prompts = 0;
+  await assert.rejects(
+    Backup.withPassword(async () => { throw new Error('disk failure'); }, () => { prompts++; return 'x'; }),
+    /disk failure/
+  );
+  assert.equal(prompts, 0);
+});

@@ -174,3 +174,26 @@ test('ConversationService - createConversationBranch with summarize: false clone
   assert.equal(savedHistory.some(m => m._isSummaryBlock), false);
 });
 
+
+test('ConversationService - defaultSummarizeHistory usa la API key del perfil activo y no oculta fallos al cargarlo', async () => {
+  const previous = { Profiles: globalThis.ChatProfileRepository, API: globalThis.ChatAPI };
+  const requests = [];
+  globalThis.ChatAPI = { streamChatCompletion: async request => { requests.push(request); return { accumulatedText: 'summary' }; } };
+  const getRuntimeConfig = () => ({ apiUrl: 'https://x.test', apiType: 'openai', model: 'm', activeProfile: { id: 'p1' } });
+  try {
+    globalThis.ChatProfileRepository = { load: async () => ({ settings: { apiKey: 'sk-profile' } }) };
+    const summary = await ConversationService.defaultSummarizeHistory({ systemPrompt: 'sys', messages: [] }, { getRuntimeConfig });
+    assert.equal(summary, 'summary');
+    assert.equal(requests[0].apiKey, 'sk-profile');
+
+    globalThis.ChatProfileRepository = { load: async () => { throw new Error('storage broken'); } };
+    await assert.rejects(
+      ConversationService.defaultSummarizeHistory({ systemPrompt: 'sys', messages: [] }, { getRuntimeConfig }),
+      /storage broken/
+    );
+    assert.equal(requests.length, 1);
+  } finally {
+    globalThis.ChatProfileRepository = previous.Profiles;
+    globalThis.ChatAPI = previous.API;
+  }
+});

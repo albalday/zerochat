@@ -367,34 +367,18 @@
     return lines.join('\n\n');
   }
 
-  async function resolveActiveApiKey(runtimeConfig, options = {}) {
-    const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js') || (typeof window !== 'undefined' ? window.ChatProfileRepository : null);
+  /** API key del perfil activo; pide la contraseña si está cifrada. Los fallos se propagan. */
+  async function resolveActiveApiKey(runtimeConfig) {
+    const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js');
     const profileId = runtimeConfig?.activeProfile?.id;
-    if (profileId && Profiles?.load) {
-      try {
-        const activeProfile = await Profiles.load(profileId);
-        if (activeProfile?.settings?.apiKey) {
-          return activeProfile.settings.apiKey;
-        }
-      } catch (err) {
-        if (err?.code === 'PASSWORD_REQUIRED') {
-          const Dialogs = getDialogs();
-          const Backup = resolveDep('ChatProfileBackup', './profile-backup.js');
-          const password = await Dialogs?.prompt(t('crypto_current_password_prompt'), '', {
-            inputType: 'password', title: t('crypto_password_title')
-          });
-          if (password && Backup?.keyMaterialFromPassword) {
-            const keyMaterial = await Backup.keyMaterialFromPassword(password);
-            const activeProfile = await Profiles.load(profileId, keyMaterial);
-            Backup.cacheKeyMaterial?.(keyMaterial);
-            if (activeProfile?.settings?.apiKey) {
-              return activeProfile.settings.apiKey;
-            }
-          }
-        }
-      }
-    }
-    return runtimeConfig?.apiKey || '';
+    if (!profileId || !Profiles?.load) return '';
+    const activeProfile = await resolveDep('ChatProfileBackup', './profile-backup.js').withPassword(
+      keyMaterial => Profiles.load(profileId, keyMaterial),
+      () => getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
+        inputType: 'password', title: t('crypto_password_title')
+      })
+    );
+    return activeProfile?.settings?.apiKey || '';
   }
 
   async function defaultSummarizeHistory({ systemPrompt, messages, signal }, options = {}) {
@@ -402,7 +386,7 @@
     if (!API || typeof API.streamChatCompletion !== 'function') return '';
     const Config = getConfig();
     const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const apiKey = await resolveActiveApiKey(runtimeConfig, options);
+    const apiKey = await resolveActiveApiKey(runtimeConfig);
     const transcript = formatHistoryTranscript(messages);
 
     const response = await API.streamChatCompletion({

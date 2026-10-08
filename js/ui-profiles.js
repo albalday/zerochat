@@ -104,7 +104,12 @@
       UISettings.applyProfileToForm(els, profileData);
       syncProfileSaveState(els, opts);
       try {
-        let profile = id ? await Profiles?.load?.(id) : null;
+        const profile = id && Profiles?.load
+          ? await getProfileBackup().withPassword(
+            keyMaterial => Profiles.load(id, keyMaterial),
+            () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+          )
+          : null;
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (!keyInput || currentSelectedId !== id) return;
         const apiKey = profile?.settings?.apiKey || '';
@@ -115,25 +120,6 @@
         }
         syncProfileSaveState(els, opts);
       } catch (error) {
-        if (error?.code === 'PASSWORD_REQUIRED' && id) {
-          const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
-          if (password !== null) {
-            try {
-              const Backup = getProfileBackup();
-              const keyMaterial = await Backup.keyMaterialFromPassword(password);
-              const profile = await Profiles.load(id, keyMaterial);
-              Backup.cacheKeyMaterial(keyMaterial);
-              if (keyInput && (els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id) === id) {
-                keyInput.value = profile?.settings?.apiKey || '';
-                keyInput._loadedApiKey = keyInput.value;
-                syncProfileSaveState(els, opts);
-              }
-              return;
-            } catch (unlockError) {
-              error = unlockError;
-            }
-          }
-        }
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (currentSelectedId !== id) return;
         if (!isProfileFormDirty(els)) {
@@ -407,23 +393,16 @@
     const Profiles = getProfiles();
     if (!profileId || !Profiles?.load || typeof opts.inspectProfile !== 'function') return false;
     try {
-      let profile;
-      try {
-        profile = await Profiles.load(profileId);
-      } catch (error) {
-        if (error?.code !== 'PASSWORD_REQUIRED') throw error;
-        const password = await requestEncryptionPassword(t('crypto_current_password_prompt'));
-        if (password === null) return false;
-        const Backup = getProfileBackup();
-        const keyMaterial = await Backup.keyMaterialFromPassword(password);
-        profile = await Profiles.load(profileId, keyMaterial);
-        Backup.cacheKeyMaterial(keyMaterial);
-      }
+      const profile = await getProfileBackup().withPassword(
+        keyMaterial => Profiles.load(profileId, keyMaterial),
+        () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+      );
       if (!profile) return false;
       closeProfileMenu(els);
       await opts.inspectProfile(profile);
       return true;
     } catch (error) {
+      if (error?.cancelled) return false;
       showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
       return false;
     }

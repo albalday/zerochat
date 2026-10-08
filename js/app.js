@@ -1632,16 +1632,15 @@
 
             let imported;
             try {
-              imported = await ProfileBackup.decryptProfiles(payload);
+              imported = await ProfileBackup.withPassword(
+                keyMaterial => ProfileBackup.decryptProfiles(payload, keyMaterial),
+                () => window.ChatDialogs.prompt(window.ChatI18n.t('crypto_current_password_prompt'), '', {
+                  inputType: 'password', title: window.ChatI18n.t('crypto_password_title')
+                })
+              );
             } catch (error) {
-              if (error?.code !== 'PASSWORD_REQUIRED') throw error;
-              const password = await window.ChatDialogs.prompt(window.ChatI18n.t('crypto_current_password_prompt'), '', {
-                inputType: 'password', title: window.ChatI18n.t('crypto_password_title')
-              });
-              if (password === null) throw new Error('Import cancelled by user');
-              const keyMaterial = await ProfileBackup.keyMaterialFromPassword(password);
-              imported = await ProfileBackup.decryptProfiles(payload, keyMaterial);
-              ProfileBackup.cacheKeyMaterial(keyMaterial);
+              if (error?.cancelled) throw new Error('Import cancelled by user');
+              throw error;
             }
             console.log('[Import Mode] Decrypted', imported.length, 'profiles');
 

@@ -275,20 +275,14 @@
 
     try {
       const runner = Engine || resolveDep('ChatEngine', './chat-engine.js');
-      let activeProfile;
-      try {
-        activeProfile = Profiles?.load ? await Profiles.load(runtimeConfig.activeProfile?.id) : null;
-      } catch (error) {
-        if (error?.code !== 'PASSWORD_REQUIRED') throw error;
-        const password = await getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
-          inputType: 'password', title: t('crypto_password_title')
-        });
-        if (password === null || password === undefined) throw error;
-        const Backup = getProfileBackup();
-        const keyMaterial = await Backup.keyMaterialFromPassword(password);
-        activeProfile = await Profiles.load(runtimeConfig.activeProfile?.id, keyMaterial);
-        Backup.cacheKeyMaterial(keyMaterial);
-      }
+      const activeProfile = Profiles?.load
+        ? await getProfileBackup().withPassword(
+          keyMaterial => Profiles.load(runtimeConfig.activeProfile?.id, keyMaterial),
+          () => getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
+            inputType: 'password', title: t('crypto_password_title')
+          })
+        )
+        : null;
       const getChatHistory = typeof options.getChatHistory === 'function' ? options.getChatHistory : (() => State?.getMessages?.() || []);
 
       const loopResult = await runner.executeAgentTurnLoop({
