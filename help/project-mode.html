@@ -27,16 +27,17 @@
     <div class="card">
       <h2>1. La idea</h2>
       <p>En un proyecto largo, cada conversación empieza sin memoria. ZeroChat guarda esa memoria en ficheros del propio proyecto y se la entrega al agente al principio de cada chat: las normas, dónde está cada cosa y en qué punto está el trabajo. El agente la mantiene al día mientras trabaja.</p>
+      <p>Las normas, incluido cómo mantener la memoria, viven en <code>AGENTS.md</code>, el fichero que leen también Codex, Cursor, Copilot y otros agentes. Así cualquier agente que trabaje en el proyecto sigue el mismo plan y lo mantiene igual.</p>
       <p>Funciona con el <a href="mcp.html">servidor local</a>: el proyecto es el directorio desde el que se lanza <code>zerochat.py</code>.</p>
     </div>
 
     <div class="card">
       <h2>2. El ciclo de trabajo</h2>
       <ol>
-        <li><strong>Inicializar, una vez.</strong> El agente revisa <code>AGENTS.md</code> y la documentación, te dice qué cubre ya la planificación y el registro de decisiones, propone lo que falte y espera tu aprobación. Termina creando <code>ZEROCHAT.md</code> y <code>.zerochat/state.md</code>.</li>
+        <li><strong>Inicializar, una vez.</strong> El agente revisa <code>AGENTS.md</code>, los ficheros de otros agentes (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) y la documentación, y te dice qué cubre ya la planificación y el registro de decisiones. Después propone los cambios y espera tu aprobación: crear <code>AGENTS.md</code> si no existe o añadirle la sección <em>Project memory</em>, y que los ficheros de otros agentes remitan a él. Termina creando <code>.zerochat/state.md</code>.</li>
         <li><strong>Trabajar.</strong> Cada chat arranca con las normas y el estado actual. El agente consulta el plan y el registro solo cuando los necesita.</li>
-        <li><strong>Registrar.</strong> Al tomar una decisión no evidente o cambiar el plan, el agente la anota en el registro y actualiza el estado.</li>
-        <li><strong>Cerrar un hito.</strong> Lo deja en una línea en el plan, mueve sus entradas del registro a <code>.zerochat/archive/&lt;hito&gt;.md</code> y actualiza el estado. Nada se resume ni se borra: se mueve.</li>
+        <li><strong>Registrar.</strong> Al terminar una tarea, el agente la marca en el plan, anota sus decisiones no evidentes en el registro y pone la siguiente tarea en el estado.</li>
+        <li><strong>Cerrar un hito.</strong> Lo deja en una línea en el plan, mueve su sección del plan y sus entradas del registro a <code>.zerochat/archive/M&lt;n&gt;.md</code> y actualiza el estado. Nada se resume ni se borra: se mueve.</li>
         <li><strong>Retomar.</strong> El siguiente chat, aunque sea días después o con otro modelo, empieza donde se quedó el anterior.</li>
       </ol>
     </div>
@@ -44,16 +45,22 @@
     <div class="card">
       <h2>3. Los ficheros</h2>
       <div class="table-responsive"><table><thead><tr><th>Fichero</th><th>Para qué sirve</th></tr></thead>
-      <tbody><tr><td><code>ZEROCHAT.md</code></td><td>Normas e índice: dónde están el plan, el registro y el estado. Puede limitarse a remitir a <code>AGENTS.md</code>. Va en cada chat.</td></tr>
-      <tr><td><code>.zerochat/state.md</code></td><td>Hito en curso, siguiente paso y decisiones vigentes, en menos de 40 líneas. Va en cada chat.</td></tr>
-      <tr><td><code>.zerochat/plan.md</code>, <code>log.md</code></td><td>Plan y registro de decisiones, si el proyecto no los tiene en otro sitio. Se leen cuando hacen falta.</td></tr>
+      <tbody><tr><td><code>AGENTS.md</code></td><td>Normas del proyecto para todos los agentes. Su sección <em>Project memory</em> explica cómo mantener la memoria. Va en cada chat.</td></tr>
+      <tr><td><code>.zerochat/state.md</code></td><td>Hito en curso, siguiente tarea y decisiones vigentes, en menos de 40 líneas. Va en cada chat. Su existencia indica que el proyecto está inicializado.</td></tr>
+      <tr><td><code>.zerochat/plan.md</code></td><td>Hitos y sus tareas, si el proyecto no tiene el plan en otro sitio. Se lee cuando hace falta.</td></tr>
+      <tr><td><code>.zerochat/log.md</code></td><td>Registro de decisiones, una línea por decisión, solo se añade. Se lee cuando hace falta.</td></tr>
       <tr><td><code>.zerochat/archive/</code></td><td>Un fichero por hito cerrado. Se consulta buscando.</td></tr></tbody></table></div>
-      <p>Las normas propias del proyecto se respetan. Los planes y registros nunca se guardan en <code>AGENTS.md</code>, que otros agentes cargan en cada sesión. ZeroChat no decide si <code>.zerochat/</code> se versiona.</p>
+      <p><code>CLAUDE.md</code> y los ficheros de otros agentes solo remiten a <code>AGENTS.md</code>; en <code>CLAUDE.md</code> se usa la línea <code>@AGENTS.md</code>, que lo importa. Los planes y registros nunca se guardan en <code>AGENTS.md</code>, que los agentes cargan en cada sesión. ZeroChat no decide si <code>.zerochat/</code> se versiona.</p>
+      <h3>Tareas y decisiones</h3>
+      <p>Cada tarea ocupa una línea con un identificador numerado dentro de su hito. Para marcarla como hecha basta editar esa línea:</p>
+      <pre><code>- [ ] M2-T3 Exportar la conversación a PDF
+- [x] M2-T3 Exportar la conversación a PDF (2026-10-09)</code></pre>
+      <p>Los identificadores no se renumeran ni se reutilizan, y el plan y el registro no se reescriben enteros. Las decisiones se añaden al registro con su propio identificador y la tarea que las motivó: <code>- 2026-10-09 M2-D1 Usar la impresión del navegador (M2-T3)</code>.</p>
     </div>
 
     <div class="card">
       <h2>4. En la interfaz</h2>
-      <ul><li>Está activo por defecto: si el proyecto tiene <code>ZEROCHAT.md</code>, se usa sin hacer nada.</li>
+      <ul><li>Está activo por defecto: si el proyecto tiene <code>.zerochat/state.md</code>, se usa sin hacer nada.</li>
       <li>Un punto en el botón de <strong>Razonamiento</strong> indica que el proyecto se está usando; si es de aviso, no se han podido leer los ficheros.</li>
       <li>El panel de Razonamiento muestra el estado y las acciones: <em>Inicializar proyecto</em>, <em>No usar en este proyecto</em>, <em>Reactivar</em> y <em>Recargar</em>. Su interruptor «Modo proyecto» lo desactiva en todos los proyectos.</li></ul>
     </div>
@@ -61,7 +68,8 @@
     <div class="card">
       <h2>5. Detalles y límites</h2>
       <ul><li>Los ficheros se leen al abrir ZeroChat, al conectar el servidor y al terminar cada respuesta. Si los editas a mano, pulsa <em>Recargar</em>.</li>
-      <li>La inicialización concede lectura y escritura solo en <code>.zerochat/</code>; cualquier otra escritura sigue la política de autorización vigente.</li>
+      <li>La inicialización concede lectura y escritura solo en <code>.zerochat/</code>; cualquier otra escritura, como la de <code>AGENTS.md</code>, sigue la política de autorización vigente.</li>
+      <li>Si falta <code>AGENTS.md</code> o su sección <em>Project memory</em>, el agente propone añadirla. Colócala al principio del fichero: se leen 16 KB.</li>
       <li>El contenido se trata como datos del repositorio, no como instrucciones privilegiadas, y se lee hasta 16 KB por fichero.</li>
       <li>Las normas y el estado sobreviven a la compactación del historial; el resumen señala lo que aún falta por registrar.</li>
       <li>El sistema organiza la información, pero no garantiza que el modelo la siga. Revisa lo que propone, sobre todo con modelos pequeños.</li></ul>

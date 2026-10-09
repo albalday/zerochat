@@ -201,7 +201,7 @@ test('ChatConfig - descarta los interruptores de herramientas retiradas al norma
 });
 
 test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activar un perfil', () => {
-  assert.equal(ChatConfig.normalize({}).projectMode, true, 'Activo por defecto: ZEROCHAT.md ya es una decisión explícita');
+  assert.equal(ChatConfig.normalize({}).projectMode, true, 'Activo por defecto: .zerochat/state.md ya es una decisión explícita');
   assert.deepEqual(ChatConfig.normalize({}).projectDeclined, []);
   const declined = Array.from({ length: 60 }, (_, index) => `/repo/${index}`);
   const normalized = ChatConfig.normalize({
