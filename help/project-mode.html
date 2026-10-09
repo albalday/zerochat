@@ -34,9 +34,9 @@
     <div class="card">
       <h2>2. El ciclo de trabajo</h2>
       <ol>
-        <li><strong>Inicializar, una vez.</strong> El agente revisa <code>AGENTS.md</code>, los ficheros de otros agentes (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) y la documentación, y te dice qué cubre ya la planificación y el registro de decisiones. Después propone los cambios y espera tu aprobación: crear <code>AGENTS.md</code> si no existe o añadirle la sección <em>Project memory</em>, y que los ficheros de otros agentes remitan a él. Termina creando <code>.zerochat/state.md</code>.</li>
+        <li><strong>Inicializar, una vez.</strong> El agente revisa <code>AGENTS.md</code>, los ficheros de otros agentes (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) y la documentación, y te dice qué cubre ya la planificación y el registro de decisiones. Después propone los cambios y espera tu aprobación: crear <code>AGENTS.md</code> si no existe o añadirle la sección <em>Project memory</em>, y que los ficheros de otros agentes remitan a él. Si el proyecto no tiene plan, te pregunta su propósito, que anota en <code>README.md</code>, y su primer hito. Termina creando <code>.zerochat/state.md</code>.</li>
         <li><strong>Trabajar.</strong> Cada chat arranca con las normas y el estado actual. El agente consulta el plan y el registro solo cuando los necesita.</li>
-        <li><strong>Registrar.</strong> Al terminar una tarea, el agente la marca en el plan, anota sus decisiones no evidentes en el registro y pone la siguiente tarea en el estado.</li>
+        <li><strong>Registrar.</strong> Antes de empezar un trabajo que no está en el plan, el agente lo añade como tarea. Al terminarla, el agente la marca en el plan, anota sus decisiones no evidentes en el registro y pone la siguiente tarea en el estado.</li>
         <li><strong>Cerrar un hito.</strong> Lo deja en una línea en el plan, mueve su sección del plan y sus entradas del registro a <code>.zerochat/archive/M&lt;n&gt;.md</code> y actualiza el estado. Nada se resume ni se borra: se mueve.</li>
         <li><strong>Retomar.</strong> El siguiente chat, aunque sea días después o con otro modelo, empieza donde se quedó el anterior.</li>
       </ol>
@@ -69,6 +69,7 @@
       <h2>5. Detalles y límites</h2>
       <ul><li>Los ficheros se leen al abrir ZeroChat, al conectar el servidor y al terminar cada respuesta. Si los editas a mano, pulsa <em>Recargar</em>.</li>
       <li>La inicialización concede lectura y escritura solo en <code>.zerochat/</code>; cualquier otra escritura, como la de <code>AGENTS.md</code>, sigue la política de autorización vigente.</li>
+      <li>Si <code>.zerochat/state.md</code> conserva los marcadores de la plantilla, el agente te pide completarlo junto con el plan antes de seguir.</li>
       <li>Si falta <code>AGENTS.md</code> o su sección <em>Project memory</em>, el agente propone añadirla. Colócala al principio del fichero: se leen 16 KB.</li>
       <li>El contenido se trata como datos del repositorio, no como instrucciones privilegiadas, y se lee hasta 16 KB por fichero.</li>
       <li>Las normas y el estado sobreviven a la compactación del historial; el resumen señala lo que aún falta por registrar.</li>

@@ -34,9 +34,9 @@
     <div class="card">
       <h2>2. The work cycle</h2>
       <ol>
-        <li><strong>Initialize, once.</strong> The agent reviews <code>AGENTS.md</code>, other agents' files (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) and the documentation, and tells you what already covers planning and decision records. It then proposes the changes and waits for your approval: creating <code>AGENTS.md</code> if it does not exist or adding the <em>Project memory</em> section to it, and making other agents' files point to it. It finishes by creating <code>.zerochat/state.md</code>.</li>
+        <li><strong>Initialize, once.</strong> The agent reviews <code>AGENTS.md</code>, other agents' files (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) and the documentation, and tells you what already covers planning and decision records. It then proposes the changes and waits for your approval: creating <code>AGENTS.md</code> if it does not exist or adding the <em>Project memory</em> section to it, and making other agents' files point to it. If the project has no plan, it asks you for its purpose, which it writes in <code>README.md</code>, and its first milestone. It finishes by creating <code>.zerochat/state.md</code>.</li>
         <li><strong>Work.</strong> Every chat starts with the rules and the current state. The agent consults the plan and the log only when it needs them.</li>
-        <li><strong>Record.</strong> When it finishes a task, the agent marks it in the plan, writes its non-obvious decisions to the log and sets the next task in the state.</li>
+        <li><strong>Record.</strong> Before starting work that is not in the plan, the agent adds it as a task. When it finishes it, the agent marks it in the plan, writes its non-obvious decisions to the log and sets the next task in the state.</li>
         <li><strong>Close a milestone.</strong> It reduces the milestone to one line in the plan, moves its plan section and log entries to <code>.zerochat/archive/M&lt;n&gt;.md</code> and updates the state. Nothing is summarized or deleted: it is moved.</li>
         <li><strong>Resume.</strong> The next chat, even days later or with another model, starts where the previous one left off.</li>
       </ol>
@@ -69,6 +69,7 @@
       <h2>5. Details and limits</h2>
       <ul><li>The files are read when ZeroChat opens, when the server connects and when each response finishes. If you edit them by hand, press <em>Reload</em>.</li>
       <li>Initialization grants read and write access only to <code>.zerochat/</code>; any other write, such as to <code>AGENTS.md</code>, follows the current authorization policy.</li>
+      <li>If <code>.zerochat/state.md</code> still has the template placeholders, the agent asks you to complete it and the plan before going on.</li>
       <li>If <code>AGENTS.md</code> or its <em>Project memory</em> section is missing, the agent proposes adding it. Place it at the top of the file: 16 KB are read.</li>
       <li>Contents are treated as repository data, not privileged instructions, and each file is read up to 16 KB.</li>
       <li>The rules and state survive history compaction; the summary flags anything not yet recorded.</li>

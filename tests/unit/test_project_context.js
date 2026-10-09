@@ -53,6 +53,13 @@ test('ProjectContext.buildPromptBlock - pide crear AGENTS.md o su sección de me
   assert.doesNotMatch(ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: ProjectContext.MEMORY_SECTION_TEMPLATE }, state: { content: '' } }), /has no "Project memory" section/);
 });
 
+test('ProjectContext.buildPromptBlock - avisa si state.md conserva los marcadores de la plantilla', () => {
+  const ready = content => ProjectContext.buildPromptBlock({ status: 'ready', cwd: '/repo', rules: { content: 'r' }, state: { content } });
+  assert.match(ready(ProjectContext.STATE_TEMPLATE), /state\.md still has template placeholders: before other work, fill it and \.zerochat\/plan\.md in with the user/);
+  assert.match(ready('- Milestone: M1 <title>\n- Next task: M1-T1 <task>\n- Active decisions: none'), /still has template placeholders/);
+  assert.doesNotMatch(ready('- Milestone: M1 Setup\n- Next task: M1-T2 Add List<T> parser'), /still has template placeholders/);
+});
+
 test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige aprobación', () => {
   const prompt = ProjectContext.buildBootstrapPrompt('/home/u/repo');
   assert.match(prompt, /repository at \/home\/u\/repo/);
@@ -62,6 +69,10 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   assert.match(prompt, /in CLAUDE\.md use the line `@AGENTS\.md`/);
   assert.match(prompt, /Do not modify a file that says it must not be modified/);
   assert.match(prompt, /\.zerochat\/state\.md last, because its existence marks the project as initialized/);
+  assert.match(prompt, /Without a plan: ask the user for the project's purpose and its first milestone/);
+  assert.match(prompt, /Add the purpose to README\.md, creating it if missing; README\.md never holds plans, tasks or status/);
+  assert.match(prompt, /leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup"/);
+  assert.match(prompt, /If there are any, end the memory section with: "Other agent instruction files/);
   assert.doesNotMatch(prompt, /gitignore/, 'No pregunta ni decide si .zerochat se versiona');
   for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE']) {
     assert.ok(prompt.includes(ProjectContext[template]), template);
@@ -75,7 +86,9 @@ test('ProjectContext - la sección de memoria define tareas numeradas, edición 
   assert.match(section, /Mark a task done by editing only its line/);
   assert.match(section, /Never renumber or reuse an ID/);
   assert.match(section, /Never rewrite \.zerochat\/plan\.md or \.zerochat\/log\.md as a whole/);
+  assert.match(section, /Before starting work that is not in \.zerochat\/plan\.md, add it as the next task of the current milestone/);
   assert.match(section, /When you finish a task:/);
+  assert.doesNotMatch(section, /Other agent instruction files/, 'Solo se añade si existen otros ficheros de agente');
   assert.match(section, /to `\.zerochat\/archive\/M<n>\.md` \(move, never delete\)/);
   assert.doesNotMatch(section, /search_files|read_file|edit_file|write_file|ask_user|ZeroChat/, 'Neutral: la leen agentes sin las herramientas de ZeroChat');
   assert.match(ProjectContext.PLAN_TEMPLATE, /- \[ \] M1-T1 <task>/);
