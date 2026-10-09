@@ -36,8 +36,8 @@
       <ol>
         <li><strong>Initialize, once.</strong> The agent reviews <code>AGENTS.md</code>, other agents' files (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) and the documentation, and tells you what already covers planning and decision records. It then proposes the changes and waits for your approval: creating <code>AGENTS.md</code> if it does not exist or adding the <em>Project memory</em> section to it, and making other agents' files point to it. If the project has no plan, it asks you for its purpose, which it writes in <code>README.md</code>, and its first milestone. It finishes by creating <code>.zerochat/state.md</code>.</li>
         <li><strong>Work.</strong> Every chat starts with the rules and the current state. The agent consults the plan and the log only when it needs them.</li>
-        <li><strong>Record.</strong> Before starting work that is not in the plan, the agent adds it as a task. When it finishes it, the agent marks it in the plan, writes its non-obvious decisions to the log and sets the next task in the state.</li>
-        <li><strong>Close a milestone.</strong> It reduces the milestone to one line in the plan, moves its plan section and log entries to <code>.zerochat/archive/M&lt;n&gt;.md</code> and updates the state. Nothing is summarized or deleted: it is moved.</li>
+        <li><strong>Record.</strong> Before starting work that is not in the plan, the agent adds it as a task. Right after finishing each task, before starting the next one, it marks it in the plan, writes its non-obvious decisions to the log and sets the next task in the state. That way, if the session is cut short, the memory reflects what was done.</li>
+        <li><strong>Close a milestone.</strong> The agent asks you before closing a milestone or adding a new one, which always has a goal and done-when criteria. When closing it, it reduces the milestone to one line in the plan, moves its section to <code>.zerochat/archive/M&lt;n&gt;.md</code> and updates the state. Nothing is summarized or deleted: it is moved. The decision log is not archived, because decisions stay in force after the milestone.</li>
         <li><strong>Resume.</strong> The next chat, even days later or with another model, starts where the previous one left off.</li>
       </ol>
     </div>
@@ -45,11 +45,11 @@
     <div class="card">
       <h2>3. The files</h2>
       <div class="table-responsive"><table><thead><tr><th>File</th><th>Purpose</th></tr></thead>
-      <tbody><tr><td><code>AGENTS.md</code></td><td>Project rules for every agent. Its <em>Project memory</em> section explains how to keep the memory. Included in every chat.</td></tr>
+      <tbody><tr><td><code>AGENTS.md</code></td><td>Project rules for every agent; if details live in other documents, it links them. Its <em>Project memory</em> section explains how to keep the memory. Included in every chat.</td></tr>
       <tr><td><code>.zerochat/state.md</code></td><td>Current milestone, next task and active decisions, in under 40 lines. Included in every chat. Its existence marks the project as initialized.</td></tr>
       <tr><td><code>.zerochat/plan.md</code></td><td>Milestones and their tasks, if the project does not keep its plan elsewhere. Read when needed.</td></tr>
-      <tr><td><code>.zerochat/log.md</code></td><td>Decision log, one line per decision, append only. Read when needed.</td></tr>
-      <tr><td><code>.zerochat/archive/</code></td><td>One file per closed milestone. Searched, not read in full.</td></tr></tbody></table></div>
+      <tr><td><code>.zerochat/log.md</code></td><td>Decision log, one line per decision. Append only and never archived. Searched, not read in full.</td></tr>
+      <tr><td><code>.zerochat/archive/</code></td><td>The plan section of each closed milestone. Searched, not read in full.</td></tr></tbody></table></div>
       <p><code>CLAUDE.md</code> and other agents' files only point to <code>AGENTS.md</code>; <code>CLAUDE.md</code> uses the line <code>@AGENTS.md</code>, which imports it. Plans and logs are never stored in <code>AGENTS.md</code>, which agents load in every session. ZeroChat does not decide whether <code>.zerochat/</code> is versioned.</p>
       <h3>Tasks and decisions</h3>
       <p>Each task takes one line with an ID numbered within its milestone. Marking it done only takes editing that line:</p>

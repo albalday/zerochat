@@ -36,8 +36,8 @@
       <ol>
         <li><strong>Inicializar, una vez.</strong> El agente revisa <code>AGENTS.md</code>, los ficheros de otros agentes (<code>CLAUDE.md</code>, <code>.cursorrules</code>…) y la documentación, y te dice qué cubre ya la planificación y el registro de decisiones. Después propone los cambios y espera tu aprobación: crear <code>AGENTS.md</code> si no existe o añadirle la sección <em>Project memory</em>, y que los ficheros de otros agentes remitan a él. Si el proyecto no tiene plan, te pregunta su propósito, que anota en <code>README.md</code>, y su primer hito. Termina creando <code>.zerochat/state.md</code>.</li>
         <li><strong>Trabajar.</strong> Cada chat arranca con las normas y el estado actual. El agente consulta el plan y el registro solo cuando los necesita.</li>
-        <li><strong>Registrar.</strong> Antes de empezar un trabajo que no está en el plan, el agente lo añade como tarea. Al terminarla, el agente la marca en el plan, anota sus decisiones no evidentes en el registro y pone la siguiente tarea en el estado.</li>
-        <li><strong>Cerrar un hito.</strong> Lo deja en una línea en el plan, mueve su sección del plan y sus entradas del registro a <code>.zerochat/archive/M&lt;n&gt;.md</code> y actualiza el estado. Nada se resume ni se borra: se mueve.</li>
+        <li><strong>Registrar.</strong> Antes de empezar un trabajo que no está en el plan, el agente lo añade como tarea. Justo al terminar cada tarea, antes de empezar la siguiente, la marca en el plan, anota sus decisiones no evidentes en el registro y pone la siguiente tarea en el estado. Así, si la sesión se corta, la memoria refleja lo hecho.</li>
+        <li><strong>Cerrar un hito.</strong> El agente te pregunta antes de cerrar un hito o de abrir uno nuevo, que siempre lleva objetivo y criterio de cierre. Al cerrarlo, lo deja en una línea en el plan, mueve su sección a <code>.zerochat/archive/M&lt;n&gt;.md</code> y actualiza el estado. Nada se resume ni se borra: se mueve. El registro de decisiones no se archiva, porque las decisiones siguen vigentes después del hito.</li>
         <li><strong>Retomar.</strong> El siguiente chat, aunque sea días después o con otro modelo, empieza donde se quedó el anterior.</li>
       </ol>
     </div>
@@ -45,11 +45,11 @@
     <div class="card">
       <h2>3. Los ficheros</h2>
       <div class="table-responsive"><table><thead><tr><th>Fichero</th><th>Para qué sirve</th></tr></thead>
-      <tbody><tr><td><code>AGENTS.md</code></td><td>Normas del proyecto para todos los agentes. Su sección <em>Project memory</em> explica cómo mantener la memoria. Va en cada chat.</td></tr>
+      <tbody><tr><td><code>AGENTS.md</code></td><td>Normas del proyecto para todos los agentes; si los detalles están en otros documentos, los enlaza. Su sección <em>Project memory</em> explica cómo mantener la memoria. Va en cada chat.</td></tr>
       <tr><td><code>.zerochat/state.md</code></td><td>Hito en curso, siguiente tarea y decisiones vigentes, en menos de 40 líneas. Va en cada chat. Su existencia indica que el proyecto está inicializado.</td></tr>
       <tr><td><code>.zerochat/plan.md</code></td><td>Hitos y sus tareas, si el proyecto no tiene el plan en otro sitio. Se lee cuando hace falta.</td></tr>
-      <tr><td><code>.zerochat/log.md</code></td><td>Registro de decisiones, una línea por decisión, solo se añade. Se lee cuando hace falta.</td></tr>
-      <tr><td><code>.zerochat/archive/</code></td><td>Un fichero por hito cerrado. Se consulta buscando.</td></tr></tbody></table></div>
+      <tr><td><code>.zerochat/log.md</code></td><td>Registro de decisiones, una línea por decisión. Solo se añade y nunca se archiva. Se consulta buscando.</td></tr>
+      <tr><td><code>.zerochat/archive/</code></td><td>La sección del plan de cada hito cerrado. Se consulta buscando.</td></tr></tbody></table></div>
       <p><code>CLAUDE.md</code> y los ficheros de otros agentes solo remiten a <code>AGENTS.md</code>; en <code>CLAUDE.md</code> se usa la línea <code>@AGENTS.md</code>, que lo importa. Los planes y registros nunca se guardan en <code>AGENTS.md</code>, que los agentes cargan en cada sesión. ZeroChat no decide si <code>.zerochat/</code> se versiona.</p>
       <h3>Tareas y decisiones</h3>
       <p>Cada tarea ocupa una línea con un identificador numerado dentro de su hito. Para marcarla como hecha basta editar esa línea:</p>

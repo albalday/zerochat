@@ -87,9 +87,12 @@ test('ProjectContext - la sección de memoria define tareas numeradas, edición 
   assert.match(section, /Never renumber or reuse an ID/);
   assert.match(section, /Never rewrite \.zerochat\/plan\.md or \.zerochat\/log\.md as a whole/);
   assert.match(section, /Before starting work that is not in \.zerochat\/plan\.md, add it as the next task of the current milestone/);
-  assert.match(section, /When you finish a task:/);
+  assert.match(section, /Right after finishing each task, before starting the next one: mark it/);
+  assert.match(section, /Ask the user before closing a milestone or adding a new one\. Every milestone has a Goal and a Done when line/);
+  assert.match(section, /^Rules for agents go in this file; if details live in other docs, link them from here\.$/m);
+  assert.match(section, /log\.md`: decisions, one line each, append only and never archived/);
   assert.doesNotMatch(section, /Other agent instruction files/, 'Solo se añade si existen otros ficheros de agente');
-  assert.match(section, /to `\.zerochat\/archive\/M<n>\.md` \(move, never delete\)/);
+  assert.match(section, /move its section from \.zerochat\/plan\.md to `\.zerochat\/archive\/M<n>\.md` \(move, never delete\)/);
   assert.doesNotMatch(section, /search_files|read_file|edit_file|write_file|ask_user|ZeroChat/, 'Neutral: la leen agentes sin las herramientas de ZeroChat');
   assert.match(ProjectContext.PLAN_TEMPLATE, /- \[ \] M1-T1 <task>/);
   assert.match(ProjectContext.STATE_TEMPLATE, /Next task: M1-T1/);

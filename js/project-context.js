@@ -31,12 +31,14 @@
   // Sección de AGENTS.md: la leen todos los agentes, así que no nombra herramientas de ZeroChat.
   const MEMORY_SECTION_TEMPLATE = `## ${MEMORY_SECTION_TITLE}
 
+Rules for agents go in this file; if details live in other docs, link them from here.
+
 Every agent working in this repository keeps the project memory up to date:
 
 - \`${STATE_FILE}\`: current milestone, next task and active decisions. Read it before starting work. Keep it under 40 lines.
 - \`${PLAN_FILE}\`: milestones and their tasks.
-- \`${LOG_FILE}\`: decisions, one line each, append only.
-- \`${ARCHIVE_DIR}/M<n>.md\`: closed milestones. Search them; do not read them in full.
+- \`${LOG_FILE}\`: decisions, one line each, append only and never archived. Search it; do not read it in full.
+- \`${ARCHIVE_DIR}/M<n>.md\`: plan sections of closed milestones. Search them; do not read them in full.
 
 Tasks take one line each, with an ID numbered within their milestone: \`- [ ] M2-T3 Short description\`.
 - Mark a task done by editing only its line: \`- [x] M2-T3 Short description (YYYY-MM-DD)\`. A dropped task is marked done with \`(dropped: reason)\`.
@@ -46,8 +48,10 @@ Tasks take one line each, with an ID numbered within their milestone: \`- [ ] M2
 Record decisions that the code does not make obvious by appending to ${LOG_FILE}: \`- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)\`.
 
 Before starting work that is not in ${PLAN_FILE}, add it as the next task of the current milestone.
-When you finish a task: mark it in ${PLAN_FILE}, append its decisions to ${LOG_FILE} and set the next task in ${STATE_FILE}.
-When a milestone closes: move its section from ${PLAN_FILE} and its lines from ${LOG_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
+Right after finishing each task, before starting the next one: mark it in ${PLAN_FILE}, append its decisions to ${LOG_FILE} and set the next task in ${STATE_FILE}.
+
+Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
+When the user confirms a milestone is closed: move its section from ${PLAN_FILE} to \`${ARCHIVE_DIR}/M<n>.md\` (move, never delete), leave \`## M<n> Title: closed YYYY-MM-DD\` in ${PLAN_FILE} and update ${STATE_FILE}.
 `;
 
   const PLAN_TEMPLATE = `# Plan
