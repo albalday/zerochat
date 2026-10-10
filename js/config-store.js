@@ -11,7 +11,6 @@
 }(typeof self !== 'undefined' ? self : this, function (State, Storage, Profiles, Defaults, Utils) {
   'use strict';
 
-  const SCHEMA_VERSION = Defaults.CONFIG_SCHEMA_VERSION;
   const WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE = String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE);
   const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
   const DEFAULT_SYSTEM_DATA_PROMPT = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
@@ -39,7 +38,7 @@
   }
 
   function normalize(config = {}) {
-    const next = { ...clone(DEFAULTS), ...clone(config), schemaVersion: SCHEMA_VERSION };
+    const next = { ...clone(DEFAULTS), ...clone(config) };
     delete next.activeProfileName;
     delete next.enableAgentJs;
     delete next.enableAgentWeb;
@@ -59,8 +58,6 @@
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
     next.reasoningEffort = ['off', 'none'].includes(String(next.reasoningEffort).toLowerCase()) ? 'none' : String(next.reasoningEffort || DEFAULTS.reasoningEffort);
     next.reasoningTransport = ['omit', 'send-none'].includes(next.reasoningTransport) ? next.reasoningTransport : 'auto';
-    // Retired: the agent loop no longer has a step limit.
-    delete next.maxAgentTurns;
     next.theme = next.theme === 'dark' ? 'dark' : 'light';
     next.language = next.language === 'en' ? 'en' : 'es';
     next.enabledTools = next.enabledTools && typeof next.enabledTools === 'object' ? clone(next.enabledTools) : clone(DEFAULTS.enabledTools);
@@ -143,7 +140,6 @@
     function updateRuntime(patch = {}) {
       const current = getActive();
       const safePatch = { ...patch };
-      delete safePatch.schemaVersion;
       delete safePatch.activeProfile;
       const connectionChanged = ['apiUrl', 'apiType', 'model'].some(key => Object.prototype.hasOwnProperty.call(safePatch, key)
         && safePatch[key] !== current[key]);
@@ -207,5 +203,5 @@
   }
 
   const defaultStore = createConfigStore();
-  return { SCHEMA_VERSION, DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize, createConfigStore, ...defaultStore };
+  return { DEFAULT_SYSTEM_DATA_PROMPT, DEFAULTS: clone(DEFAULTS), normalize, createConfigStore, ...defaultStore };
 }));

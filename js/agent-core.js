@@ -1149,11 +1149,7 @@
         let stepMessages = workingMessages;
         let contextDiagnostics = null;
         if (typeof prepareMessages === 'function') {
-          const prepared = await prepareMessages(workingMessages, {
-            stepIndex,
-            model,
-            apiType
-          });
+          const prepared = await prepareMessages(workingMessages);
           if (Array.isArray(prepared)) {
             stepMessages = prepared;
           } else if (prepared && Array.isArray(prepared.messages)) {

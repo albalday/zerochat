@@ -56,16 +56,6 @@ test('ProfileRepository - conserva y normaliza webllmConfig en settings', () => 
   assert.deepEqual(retrieved.settings.webllmConfig, webllmConfig);
 });
 
-test('ProfileRepository - descarta el límite de turnos retirado de perfiles antiguos', () => {
-  const repository = Profiles.createRepository(createStorage());
-  repository.save({ id: 'legacy', name: 'Antiguo', settings: { model: 'model-a', maxAgentTurns: 15 } });
-
-  const settings = repository.get('legacy').settings;
-  assert.equal(settings.model, 'model-a');
-  assert.equal('maxAgentTurns' in settings, false);
-  assert.equal('maxAgentTurns' in Profiles.NEW_PROFILE_SETTINGS, false);
-});
-
 test('ProfileRepository - fusiona una importación en una única escritura y conserva Espejo', async () => {
   const repository = Profiles.createRepository(createStorage());
   repository.save({ id: 'local', name: 'Local', settings: { model: 'before' } });

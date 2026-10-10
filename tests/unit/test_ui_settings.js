@@ -250,13 +250,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
   }
 });
 
-test('UISettings - gatherCurrentFormConfig no incluye el límite de turnos retirado y extrae webllmConfig con default si está vacío', () => {
-  {
-    const elements = { settingModel: { value: 'gpt-4o' } };
-    const config = UISettings.gatherCurrentFormConfig(elements, { maxAgentTurns: 15 });
-    assert.equal('maxAgentTurns' in config, false);
-  }
-
+test('UISettings - gatherCurrentFormConfig extrae webllmConfig con default si está vacío', () => {
   {
     const elements = {
       settingModel: { value: 'Llama-3.2-1B' },

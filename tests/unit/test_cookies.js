@@ -13,7 +13,7 @@ test('Storage - Guardar y recuperar valores en memoria/storage', () => {
 });
 
 test('Storage - persiste exclusivamente el documento de configuración operativa', () => {
-  const config = { schemaVersion: 2, model: 'custom-test-model', enabledTools: { search_web: false } };
+  const config = { model: 'custom-test-model', enabledTools: { search_web: false } };
   Storage.saveRuntimeConfigV2(config);
   const loaded = Storage.loadRuntimeConfigV2();
   assert.deepEqual(loaded, config);

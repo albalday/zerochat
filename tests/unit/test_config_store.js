@@ -32,7 +32,6 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   const { store, getPersisted } = createFixture();
   const config = store.initialize();
 
-  assert.equal(config.schemaVersion, 3);
   assert.equal(config.theme, 'dark');
   assert.equal(config.language, 'es');
   assert.equal(config.mcpAutoConnect, false);
@@ -42,18 +41,12 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(getPersisted().activeProfileName, undefined);
 });
 
-test('ChatConfig - valores por defecto: razonamiento medio, sin límite de turnos y mcpAutoConnect desactivado', () => {
+test('ChatConfig - valores por defecto: razonamiento medio y mcpAutoConnect desactivado', () => {
   {
     const { store } = createFixture();
     store.initialize();
     assert.equal(store.updateRuntime({ reasoningEffort: undefined }).reasoningEffort, 'medium');
     assert.equal(store.updateRuntime({ reasoningEffort: 'none' }).reasoningEffort, 'none');
-  }
-
-  {
-    const { store } = createFixture();
-    assert.equal('maxAgentTurns' in store.initialize(), false);
-    assert.equal('maxAgentTurns' in store.updateRuntime({ maxAgentTurns: 15 }), false);
   }
 
   {
@@ -69,18 +62,6 @@ test('ChatConfig - valores por defecto: razonamiento medio, sin límite de turno
     assert.equal(disabled.mcpAutoConnect, false);
     assert.equal(getPersisted().mcpAutoConnect, false);
   }
-});
-
-test('ChatConfig - descarta el límite de turnos de una configuración persistida antigua', () => {
-  const { store } = createFixture();
-  const legacy = { ...store.initialize(), maxAgentTurns: 15, schemaVersion: 2 };
-  const storage = {
-    loadRuntimeConfigV2: () => legacy,
-    saveRuntimeConfigV2: () => {}
-  };
-  const migrated = ChatConfig.createConfigStore({ state: State.createStore(), storage, profiles: { initialize: () => {}, get: () => null, list: () => [] } }).initialize();
-  assert.equal('maxAgentTurns' in migrated, false);
-  assert.equal(migrated.schemaVersion, 3);
 });
 
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
