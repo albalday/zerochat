@@ -185,7 +185,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(bashTool?.description?.includes('Host OS:'), 'bash debe declarar el SO anfitrión');
     const execToolDef = tools.find(t => t.name === 'execute_command');
     assert.ok(execToolDef?.description?.includes('Host OS:'), 'execute_command debe declarar el SO anfitrión');
-    assert.ok(toolNames.includes('set_project_directory'));
+    assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
     const browserAction = tools.find(t => t.name === 'browser_action');
@@ -207,6 +207,28 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(availabilityRes.status, 200);
     const availabilityJson = await availabilityRes.json();
     assert.equal(typeof availabilityJson.result?.available, 'boolean');
+
+    // El cambio de directorio del proyecto es un método de control de la interfaz.
+    const projectRpc = async (id, params) => (await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'zerochat/project/set_directory', params })
+    })).json();
+    const startCwd = initJson.result.serverInfo.cwd;
+    const projectDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-project-')));
+    try {
+      const moved = await projectRpc(42, { path: projectDir });
+      assert.equal(moved.result?.cwd, projectDir);
+      assert.equal(moved.result?.previous_cwd, startCwd);
+      const movedHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+      assert.equal(movedHb.cwd, projectDir, 'El heartbeat publica el nuevo directorio');
+      assert.equal((await projectRpc(43, { path: path.join(projectDir, 'missing') })).error?.code, -32602);
+      assert.equal((await projectRpc(44, { path: 7 })).error?.code, -32602);
+      assert.equal((await projectRpc(45, {})).error?.code, -32602);
+    } finally {
+      assert.equal((await projectRpc(46, { path: startCwd })).result?.cwd, startCwd);
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
 
     // El contrato estricto rechaza parámetros que ya no existen.
     const obsoleteArgumentRes = await fetch(baseUrl, {

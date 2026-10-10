@@ -941,26 +941,18 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
         return _tool_error(str(e), os=DETECTED_OS)
 
 
-def set_project_directory(path: str) -> str:
-    """Change the project directory shared by the file tools, the shell and project mode."""
-    try:
-        if not path.strip():
-            return _tool_error("The directory path is empty. The project directory was not changed.")
-        target = Path(path.strip()).expanduser().resolve()
-        if not target.is_dir():
-            return _tool_error(f"Directory '{path}' does not exist or is not a directory. The project directory was not changed.")
-        previous = str(Path.cwd().resolve())
-        SHELL_SESSION.change_directory(str(target))
-        return json.dumps({
-            "success": True,
-            "cwd": str(target),
-            "previous_cwd": previous,
-            "has_agents_md": (target / "AGENTS.md").is_file(),
-            "has_project_memory": (target / ".zerochat" / "state.md").is_file(),
-            "note": "Relative paths and the shell now use this directory. Its project rules load with the next user message."
-        }, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
+def set_project_directory(path) -> dict:
+    """Cambia el directorio del proyecto: el del proceso, base de las rutas relativas, y el de la shell."""
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("La ruta del directorio está vacía.")
+    if len(path) > MAX_PATH_LENGTH:
+        raise ValueError("La ruta del directorio excede el tamaño máximo permitido.")
+    target = Path(path.strip()).expanduser().resolve()
+    if not target.is_dir():
+        raise ValueError(f"'{path}' no existe o no es un directorio.")
+    previous = str(Path.cwd().resolve())
+    SHELL_SESSION.change_directory(str(target))
+    return {"cwd": str(target), "previous_cwd": previous}
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
@@ -1446,7 +1438,7 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Execute a command in an interactive persistent Windows PowerShell session (preserves cwd and environment variables across calls). Host OS: Windows."
             if DETECTED_OS == "windows"
             else "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls). Host OS: Linux/Unix (bash)."
-        ) + " cd only moves the shell; use set_project_directory to change the project directory.",
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1501,20 +1493,6 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     },
     {
-        "name": "set_project_directory",
-        "description": (
-            "Change the project directory: the base for relative paths, the shell's working directory and the project rules (AGENTS.md). "
-            "Use it only when the user asks to work in another directory."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Absolute path, ~ path or path relative to the current project directory"}
-            },
-            "required": ["path"]
-        }
-    },
-    {
         "name": "get_diagnostics",
         "description": "Retrieve syntax diagnostics and code errors for a file or the entire workspace.",
         "inputSchema": {
@@ -1552,7 +1530,6 @@ LOCAL_TOOL_HANDLERS = {
     "bash": bash,
     "search_files": search_files,
     "execute_command": execute_command,
-    "set_project_directory": set_project_directory,
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
@@ -1610,9 +1587,6 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "command": (str, MAX_COMMAND_LENGTH),
             "cwd": (str, MAX_PATH_LENGTH),
             "timeout_seconds": (int, None)
-        },
-        "set_project_directory": {
-            "path": (str, MAX_PATH_LENGTH)
         },
         "get_diagnostics": {
             "path": (str, MAX_PATH_LENGTH)
@@ -2751,6 +2725,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+        if method == "zerochat/project/set_directory":
+            # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
+            try:
+                return set_project_directory(params.get("path")), None, ""
+            except (ValueError, OSError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):

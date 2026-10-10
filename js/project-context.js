@@ -27,7 +27,6 @@
   const MAX_FILE_BYTES = 16384;
   const READ_TOOL = 'read_file';
   const WRITE_TOOL = 'write_file';
-  const DIRECTORY_TOOL = 'set_project_directory';
 
   // Sección de AGENTS.md: la leen todos los agentes, así que no nombra herramientas de ZeroChat.
   const MEMORY_SECTION_TEMPLATE = `## ${MEMORY_SECTION_TITLE}
@@ -193,6 +192,7 @@ ${stateBody}
     const getConfig = () => deps.config || resolveDep('ChatConfig', './config-store.js');
     const getAgentCore = () => deps.agentCore || resolveDep('ChatAgentCore', './agent-core.js');
     const getSecurity = () => deps.security || resolveDep('ChatToolSecurity', './tool-security.js')?.manager;
+    const getMcp = () => deps.mcp || resolveDep('ChatMCP', './mcp.js')?.manager;
 
     let refreshSequence = 0;
 
@@ -327,14 +327,12 @@ ${stateBody}
     }
 
     function canChangeDirectory() {
-      return Boolean(getCwd() && getAvailableTool(DIRECTORY_TOOL));
+      return Boolean(getCwd() && typeof getMcp()?.setProjectDirectory === 'function');
     }
 
     /**
-     * Cambia el directorio del proyecto a petición del usuario. Escribir la ruta es su
-     * confirmación, así que la llamada se autoriza una vez sin volver a preguntar; una
-     * denegación explícita de la política sigue prevaleciendo. El proveedor MCP publica el
-     * nuevo directorio y la suscripción al servidor recalcula el proyecto.
+     * Cambia el directorio del proyecto a petición del usuario: el servidor local mueve el
+     * proceso y la shell, y el gestor MCP publica el nuevo directorio, que recalcula el proyecto.
      */
     async function changeDirectory({ askPath, isBusy } = {}) {
       if (typeof askPath !== 'function') throw new TypeError('changeDirectory requires askPath');
@@ -347,21 +345,13 @@ ${stateBody}
       // El servidor o la conversación pueden haber cambiado mientras se escribía la ruta.
       if (getCwd() !== cwd || isBusy?.() || !canChangeDirectory()) return { ok: false, reason: 'state-changed' };
 
-      const execution = await getAgentCore().executor.executeToolCall({
-        id: 'project_change_directory',
-        type: 'function',
-        function: { name: DIRECTORY_TOOL, arguments: JSON.stringify({ path }) }
-      }, { requestToolAuthorization: async () => 'allow_once' });
-      let payload = null;
       try {
-        payload = JSON.parse(execution?.result?.content || '');
-      } catch (_) {
-        payload = null;
+        const result = await getMcp().setProjectDirectory(path);
+        return { ok: true, cwd: String(result?.cwd || '') };
+      } catch (error) {
+        // El aviso muestra el motivo del servidor sin el prefijo técnico del cliente JSON-RPC.
+        return { ok: false, reason: 'error', error: String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '') };
       }
-      if (payload?.success !== true) {
-        return { ok: false, reason: 'error', error: String(payload?.error || execution?.error || `${DIRECTORY_TOOL} failed`) };
-      }
-      return { ok: true, cwd: String(payload.cwd || '') };
     }
 
     return { refresh, readProjectFile, canInitialize, initialize, canChangeDirectory, changeDirectory };

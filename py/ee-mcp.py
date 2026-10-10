@@ -53,9 +53,6 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "cwd": (str, MAX_PATH_LENGTH),
             "timeout_seconds": (int, None)
         },
-        "set_project_directory": {
-            "path": (str, MAX_PATH_LENGTH)
-        },
         "get_diagnostics": {
             "path": (str, MAX_PATH_LENGTH)
         },

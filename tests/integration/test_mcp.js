@@ -1189,7 +1189,7 @@ test('MCP - avisa cuando no puede guardar la configuración de servidores', (t) 
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /MCP server configuration/);
 });
 
-test('MCP - un set_project_directory correcto y syncProjectDirectory publican el nuevo directorio', async () => {
+test('MCP - setProjectDirectory pide el cambio al servidor local y syncProjectDirectory lo publica', async () => {
   const ToolSecurity = require('../../js/tool-security.js');
   const previousState = ChatState.get('mcp');
   const previousStartup = ToolSecurity.manager.startupDirectory;
@@ -1203,26 +1203,22 @@ test('MCP - un set_project_directory correcto y syncProjectDirectory publican el
     assert.equal(ChatState.get('mcp').serverInfo.name, 'ZeroChat');
     assert.equal(ToolSecurity.manager.getStartupDirectory(), '/home/u/b');
 
-    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
-    assert.equal(manager.syncProjectDirectory('/home/u/c'), false, 'sin conexión no se publica');
+    const requests = [];
+    manager.clients.set('mcp_proxy', {
+      request: async (method, params) => {
+        requests.push({ method, params });
+        if (params.path === '/nope') throw new Error("Error MCP (-32602): '/nope' no existe o no es un directorio.");
+        return { cwd: '/home/u/c', previous_cwd: '/home/u/b' };
+      }
+    });
+    assert.deepEqual(await manager.setProjectDirectory('~/c'), { cwd: '/home/u/c', previous_cwd: '/home/u/b' });
+    assert.deepEqual(requests, [{ method: 'zerochat/project/set_directory', params: { path: '~/c' } }]);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/c');
+    await assert.rejects(() => manager.setProjectDirectory('/nope'), /no existe/);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/c');
 
-    const published = [];
-    let response = { success: true, content: JSON.stringify({ success: true, cwd: '/home/u/d' }) };
-    const client = {
-      id: 'mcp_proxy',
-      name: 'ZeroChat',
-      initialize: async () => {},
-      listTools: async () => [{ name: 'set_project_directory', description: 'x', inputSchema: { type: 'object', properties: {} } }],
-      callTool: async () => response
-    };
-    const provider = new MCP.McpToolProvider(client, { onProjectDirectory: cwd => published.push(cwd) });
-    const [tool] = await provider.discoverTools();
-    await tool.execute({ path: '/home/u/d' }, {});
-    response = { success: false, content: JSON.stringify({ success: false, error: 'missing' }) };
-    await tool.execute({ path: '/nope' }, {});
-    response = { success: true, content: 'no json' };
-    await tool.execute({ path: '/nope' }, {});
-    assert.deepEqual(published, ['/home/u/d'], 'solo un cambio correcto publica el directorio');
+    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
+    assert.equal(manager.syncProjectDirectory('/home/u/d'), false, 'sin conexión no se publica');
   } finally {
     ChatState.set('mcp', previousState);
     ToolSecurity.manager.startupDirectory = previousStartup;

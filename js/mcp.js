@@ -56,7 +56,6 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const MAX_OUTPUT_LENGTH = 60000;
-  const PROJECT_DIRECTORY_TOOL = 'set_project_directory';
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
@@ -119,17 +118,6 @@
       try { return require('./state.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
-  }
-
-  /** Directorio nuevo que devuelve un set_project_directory correcto, o '' si falló. */
-  function readProjectDirectoryResult(result) {
-    if (!result?.success) return '';
-    try {
-      const payload = JSON.parse(result.content || '');
-      return payload?.success === true && typeof payload.cwd === 'string' ? payload.cwd : '';
-    } catch (_) {
-      return '';
-    }
   }
 
   function getSecurity() {
@@ -866,7 +854,6 @@
       this.serverName = client.name || 'MCP Server';
       this.serverUrl = client.url || '';
       this.onTransportFailure = typeof options.onTransportFailure === 'function' ? options.onTransportFailure : null;
-      this.onProjectDirectory = typeof options.onProjectDirectory === 'function' ? options.onProjectDirectory : null;
       this.cachedTools = [];
     }
 
@@ -935,16 +922,11 @@
           },
           execute: async (args, context = {}) => {
             try {
-              const result = await this.client.callTool(rt.name, args, {
+              return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
                 toolAuthorization: context.toolAuthorization === true
               });
-              if (this.client.id === 'mcp_proxy' && rt.name === PROJECT_DIRECTORY_TOOL) {
-                const cwd = readProjectDirectoryResult(result);
-                if (cwd) this.onProjectDirectory?.(cwd);
-              }
-              return result;
             } catch (error) {
               if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
                 await this.onTransportFailure?.(error);
@@ -1138,8 +1120,7 @@
       const provider = new McpToolProvider(client, {
         id: `mcp_prov_${serverId}`,
         name: serverConfig.name,
-        onTransportFailure: error => this.markProxyUnavailable(error, targetRegistry),
-        onProjectDirectory: cwd => this.syncProjectDirectory(cwd)
+        onTransportFailure: error => this.markProxyUnavailable(error, targetRegistry)
       });
 
       try {
@@ -1196,7 +1177,7 @@
     }
 
     /**
-     * Publica el directorio del proyecto que informa el servidor local (set_project_directory o
+     * Publica el directorio del proyecto que informa el servidor local (al cambiarlo o en el
      * heartbeat) para que el modo proyecto y la regla de lectura por defecto lo sigan.
      */
     syncProjectDirectory(cwd) {
@@ -1388,6 +1369,13 @@
       const client = this.getExternalControlClient();
       if (!client) throw new Error('Servicio local de herramientas no conectado.');
       return client.request(method, params, options);
+    }
+
+    /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */
+    async setProjectDirectory(path) {
+      const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
+      this.syncProjectDirectory(result?.cwd);
+      return result;
     }
 
     async refreshExternalProvider(registry = null) {

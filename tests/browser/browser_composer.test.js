@@ -370,17 +370,14 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await waitForAppReady(page);
       await page.evaluate(() => {
         window.__directoryCalls = [];
-        window.__directoryResult = { success: true, cwd: '/home/u/other' };
-        window.ChatAgentCore.registry.registerTool(new window.ChatAgentCore.Tool({
-          name: 'set_project_directory',
-          category: 'mcp',
-          metadata: { originalName: 'set_project_directory', mcpServerId: 'mcp_proxy' },
-          execute: async args => {
-            window.__directoryCalls.push(args);
-            const payload = window.__directoryResult;
-            return { success: payload.success, content: JSON.stringify(payload) };
-          }
-        }));
+        window.__directoryError = '';
+        const manager = window.ChatMCP.manager;
+        manager.setProjectDirectory = async path => {
+          window.__directoryCalls.push(path);
+          if (window.__directoryError) throw new Error(window.__directoryError);
+          manager.syncProjectDirectory(path);
+          return { cwd: path };
+        };
         window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/home/u/repo' }, tools: [] });
       });
       await page.click('#btn-reasoning');
@@ -404,16 +401,17 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.locator('#notice-input').fill('/home/u/other');
       await page.locator('#notice-accept').click();
       await page.waitForFunction(() => window.__directoryCalls.length === 1);
-      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), [{ path: '/home/u/other' }]);
-      assert.equal(await page.locator('.tool-card-auth-prompt').count(), 0, 'El diálogo ya es la confirmación');
+      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other']);
+      await page.waitForFunction(() => window.ChatState.get('project').cwd === '/home/u/other');
 
-      await page.evaluate(() => { window.__directoryResult = { success: false, error: "Directory '/nope' does not exist" }; });
+      await page.evaluate(() => { window.__directoryError = "Error MCP (-32602): '/nope' no existe o no es un directorio."; });
       // Aceptar el diálogo cuenta como clic fuera y cierra el menú, como en las demás acciones.
       await page.click('#btn-reasoning');
       await page.click('[data-project-action="changeDirectory"]');
       await page.locator('#notice-input').fill('/nope');
       await page.locator('#notice-accept').click();
-      await page.waitForFunction(() => /does not exist/.test(document.getElementById('notice-message').textContent));
+      await page.waitForFunction(() => /'\/nope' no existe/.test(document.getElementById('notice-message').textContent));
+      assert.doesNotMatch(await page.locator('#notice-message').textContent(), /Error MCP/);
       await page.locator('#notice-accept').click();
       assert.deepEqual(errors, []);
     } finally {

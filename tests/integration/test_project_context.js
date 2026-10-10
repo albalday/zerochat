@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const ChatState = require('../../js/state.js');
 const ProjectContext = require('../../js/project-context.js');
 
-function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryTool = false, directoryResult = null, security: securityOverride = null } = {}) {
+function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryTool = false, directoryError = null, security: securityOverride = null } = {}) {
   const state = ChatState.createStore();
   if (connected) state.set('mcp', { status: 'connected', serverInfo: { cwd } });
   const calls = [];
@@ -13,19 +13,13 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
       getTool: name => {
         if (readTool && name === 'read_file') return tool;
         if (writeTool && name === 'write_file') return { name: 'write_file', isAvailable: () => true };
-        if (directoryTool && name === 'set_project_directory') return { name, isAvailable: () => true };
         return null;
       }
     },
     executor: {
-      async executeToolCall(call, context = {}) {
+      async executeToolCall(call) {
         const args = JSON.parse(call.function.arguments);
         calls.push(args);
-        if (call.function.name === 'set_project_directory') {
-          const decision = await context.requestToolAuthorization?.();
-          const payload = directoryResult || { success: true, cwd: args.path };
-          return { success: payload.success, authorization: decision, result: { success: payload.success, content: JSON.stringify(payload) } };
-        }
         const file = files[args.path];
         if (file instanceof Error) return { success: false, error: file.message, result: null };
         const payload = file === undefined
@@ -42,13 +36,22 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
     evaluateAuthorization: () => (approval ? { status: 'ask', requiresApproval: true } : { status: 'allow', requiresApproval: false }),
     addDirectoryRule(rule) { this.rules.push(rule); }
   };
+  const directoryRequests = [];
+  const mcp = directoryTool ? {
+    async setProjectDirectory(path) {
+      directoryRequests.push(path);
+      if (directoryError) throw new Error(directoryError);
+      return { cwd: path, previous_cwd: cwd };
+    }
+  } : {};
   const context = ProjectContext.createProjectContext({
     state,
     config: { get: () => ({ projectMode: true, projectDeclined: [], ...config }) },
     agentCore,
-    security
+    security,
+    mcp
   });
-  return { state, context, calls, security };
+  return { state, context, calls, security, directoryRequests };
 }
 
 test('ProjectContext.refresh - desactivado no lee ficheros', async () => {
@@ -288,31 +291,31 @@ test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/state.md 
   }
 });
 
-test('ProjectContext.changeDirectory - ejecuta set_project_directory con la ruta escrita, autorizada una vez', async () => {
-  const { context, calls } = createHarness({ directoryTool: true });
+test('ProjectContext.changeDirectory - pide al servidor el directorio escrito', async () => {
+  const { context, directoryRequests } = createHarness({ directoryTool: true });
   assert.equal(context.canChangeDirectory(), true);
   const asked = [];
   const result = await context.changeDirectory({ askPath: cwd => { asked.push(cwd); return '  /other  '; } });
   assert.deepEqual(result, { ok: true, cwd: '/other' });
   assert.deepEqual(asked, ['/repo']);
-  assert.deepEqual(calls, [{ path: '/other' }]);
+  assert.deepEqual(directoryRequests, ['/other']);
 });
 
-test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de estado no ejecutan nada', async () => {
+test('ProjectContext.changeDirectory - cancelar, la misma ruta o un cambio de estado no piden nada', async () => {
   const cancelled = createHarness({ directoryTool: true });
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => null }), { ok: false, reason: 'cancelled' });
   assert.deepEqual(await cancelled.context.changeDirectory({ askPath: () => '/repo' }), { ok: false, reason: 'cancelled' });
-  assert.equal(cancelled.calls.length, 0);
+  assert.equal(cancelled.directoryRequests.length, 0);
 
   const moved = createHarness({ directoryTool: true });
   const askPath = () => { moved.state.set('mcp', { status: 'connected', serverInfo: { cwd: '/elsewhere' } }); return '/other'; };
   assert.deepEqual(await moved.context.changeDirectory({ askPath }), { ok: false, reason: 'state-changed' });
   let busy = false;
   assert.deepEqual(await moved.context.changeDirectory({ askPath: () => { busy = true; return '/other'; }, isBusy: () => busy }), { ok: false, reason: 'state-changed' });
-  assert.equal(moved.calls.length, 0);
+  assert.equal(moved.directoryRequests.length, 0);
 });
 
-test('ProjectContext.changeDirectory - sin servidor, sin la herramienta o generando no pregunta', async () => {
+test('ProjectContext.changeDirectory - sin servidor local o generando no pregunta', async () => {
   const askPath = () => { throw new Error('no debe preguntar'); };
   for (const harness of [createHarness({ directoryTool: false }), createHarness({ directoryTool: true, connected: false })]) {
     assert.equal(harness.context.canChangeDirectory(), false);
@@ -323,10 +326,8 @@ test('ProjectContext.changeDirectory - sin servidor, sin la herramienta o genera
   await assert.rejects(() => busy.context.changeDirectory({}), TypeError);
 });
 
-test('ProjectContext.changeDirectory - devuelve el motivo si el servidor rechaza la ruta', async () => {
-  const { context } = createHarness({ directoryTool: true, directoryResult: { success: false, error: "Directory '/nope' does not exist" } });
+test('ProjectContext.changeDirectory - devuelve el motivo del servidor sin el prefijo JSON-RPC', async () => {
+  const { context } = createHarness({ directoryTool: true, directoryError: "Error MCP (-32602): '/nope' no existe o no es un directorio." });
   const result = await context.changeDirectory({ askPath: () => '/nope' });
-  assert.equal(result.ok, false);
-  assert.equal(result.reason, 'error');
-  assert.match(result.error, /does not exist/);
+  assert.deepEqual(result, { ok: false, reason: 'error', error: "'/nope' no existe o no es un directorio." });
 });

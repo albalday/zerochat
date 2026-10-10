@@ -456,6 +456,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
+        if method == "zerochat/project/set_directory":
+            # Lo invoca la interfaz a petición del usuario: no es una herramienta del modelo.
+            try:
+                return set_project_directory(params.get("path")), None, ""
+            except (ValueError, OSError) as exc:
+                return None, {"code": -32602, "message": str(exc)}, ""
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):

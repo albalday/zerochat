@@ -598,7 +598,6 @@
         toolName: tool.name,
         directoryAccess: authEval.directoryAccess,
         directoryPath: authEval.directoryPath,
-        onceOnly: authEval.onceOnly === true,
         signal: context.signal
       });
       const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;

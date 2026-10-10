@@ -272,7 +272,7 @@
     // Normas y estado del proyecto: estables mientras no cambien sus ficheros.
     const projectBlock = options.projectContext ? (getProjectContext()?.buildPromptBlock(options.projectContext) || '') : '';
     const directoryLine = isToolsEnabled && options.projectDirectory
-      ? `*Project directory:* ${options.projectDirectory}. Relative paths in local tools resolve against it; only set_project_directory changes it.`
+      ? `*Project directory:* ${options.projectDirectory}. Relative paths in local tools resolve against it.`
       : '';
 
     // Ensamblar bloque estable

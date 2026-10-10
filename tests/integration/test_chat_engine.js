@@ -134,7 +134,7 @@ test('ChatEngine - buildEffectiveMessages indica el directorio del proyecto solo
   const config = { systemPrompt: 'Base', language: 'es' };
   const withTools = ChatEngine.buildEffectiveMessages(history, config, { enableTools: true, projectDirectory: '/home/u/app' });
   assert.ok(withTools[0].content.includes('*Project directory:* /home/u/app.'));
-  assert.ok(withTools[0].content.includes('only set_project_directory changes it'));
+  assert.ok(withTools[0].content.includes('Relative paths in local tools resolve against it.'));
   const withoutTools = ChatEngine.buildEffectiveMessages(history, config, { enableTools: false, projectDirectory: '/home/u/app' });
   assert.ok(!withoutTools[0].content.includes('Project directory'));
   const withoutServer = ChatEngine.buildEffectiveMessages(history, config, { enableTools: true, projectDirectory: '' });
