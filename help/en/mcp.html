@@ -58,7 +58,8 @@ py zerochat.py</code></pre></div>
       <h2>2. Use computer tools</h2>
       <ul>
         <li><strong>Files:</strong> <code>list_directory</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code> and <code>search_files</code>.</li>
-        <li><strong>Commands:</strong> <code>bash</code> and <code>execute_command</code>. The shell session retains its working directory and environment variables across calls. On Linux/macOS/Android it uses <code>bash</code>/<code>sh</code>; on Windows it runs natively in <strong>PowerShell</strong> providing host OS context to the model.</li>
+        <li><strong>Project directory:</strong> <code>set_project_directory</code> changes the base for relative paths, the shell's directory and the <a href="project-mode.html">project</a>; it always asks for confirmation.</li>
+        <li><strong>Commands:</strong> <code>bash</code> and <code>execute_command</code>. The shell session retains its working directory and environment variables across calls; a <code>cd</code> only moves the shell, not the project. On Linux/macOS/Android it uses <code>bash</code>/<code>sh</code>; on Windows it runs natively in <strong>PowerShell</strong> providing host OS context to the model.</li>
         <li><strong>Syntax checks:</strong> <code>get_diagnostics</code>; it does not replace project tests.</li>
         <li><strong>Browser:</strong> <code>browser_action</code> requires Node.js and having Chrome or Edge on your system (or Chromium). To use it, start the Playwright service in Settings → MCP (it installs automatically). See the <a href="browser-action.html">setup guide</a>.</li>
       </ul>
