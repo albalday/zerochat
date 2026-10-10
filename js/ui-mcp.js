@@ -545,8 +545,7 @@
       title: translator('mcp_external_restore_title'),
       acceptText: translator('mcp_btn_start_server'),
       cancelText: translator('mcp_external_restore_skip'),
-      items,
-      itemRemoveLabel: translator('mcp_external_restore_remove')
+      items
     });
     if (!Array.isArray(selected) || selected.length === 0) return [];
     const failed = [];
@@ -933,7 +932,6 @@
     renderCurrentToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
-    runExternalServerAction,
     offerStoppedExternalServices,
     syncSecurityControls,
     initMcpUI,

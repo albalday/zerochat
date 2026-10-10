@@ -569,7 +569,6 @@
         if (!Array.isArray(notice.items) || notice.items.length > 50 ||
             notice.items.some(entry => !entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 || typeof entry.label !== 'string')) throw new TypeError('Invalid notice');
         item.items = notice.items.map(entry => ({ id: entry.id, label: entry.label.slice(0, 200) }));
-        if (notice.itemRemoveLabel) item.itemRemoveLabel = String(notice.itemRemoveLabel).slice(0, 100);
       }
       setState({ ui: Object.assign({}, state.ui, { notices: queue.concat(item), noticeSequence: id }) });
       return id;

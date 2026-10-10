@@ -31,7 +31,7 @@
         const remove = doc.createElement('button');
         remove.type = 'button';
         remove.className = 'notice-item-remove';
-        remove.setAttribute('aria-label', `${notice.itemRemoveLabel || translations.t('notice_item_remove')}: ${item.label}`);
+        remove.setAttribute('aria-label', `${translations.t('notice_item_remove')}: ${item.label}`);
         remove.title = remove.getAttribute('aria-label');
         remove.innerHTML = iconCatalog?.get ? iconCatalog.get('close', { size: 14 }) : '';
         remove.addEventListener('click', () => {
@@ -111,7 +111,7 @@
         dismiss(true);
       }
     });
-    accept.addEventListener('click', () => { if (!accept.disabled) dismiss(true); });
+    accept.addEventListener('click', () => dismiss(true));
     cancel.addEventListener('click', () => dismiss(false));
     dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
     dialog.addEventListener('close', () => { if (!dialog.open) dismiss(); });
@@ -131,8 +131,7 @@
         checkbox: options.checkbox,
         checkboxDefault: options.checkboxDefault,
         inputType: options.inputType,
-        items: options.items,
-        itemRemoveLabel: options.itemRemoveLabel
+        items: options.items
       });
       return new Promise(resolve => {
         const unsubscribe = store.subscribe(s => (s.ui.notices || []).some(item => item.id === id), present => {

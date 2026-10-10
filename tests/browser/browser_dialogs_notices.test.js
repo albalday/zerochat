@@ -143,12 +143,12 @@ test('Browser UI - Confirmations with removable items return the kept items safe
     const items = [{ id: 'a', label: '<img src=x onerror="window.injected=true">' }, { id: 'b', label: 'Beta' }, { id: 'c', label: 'Gamma' }];
     await page.evaluate(list => {
       window.itemResults = [];
-      ChatDialogs.confirm('Start?', { items: list, itemRemoveLabel: 'Do not start' }).then(value => window.itemResults.push(value));
+      ChatDialogs.confirm('Start?', { items: list }).then(value => window.itemResults.push(value));
     }, items);
     assert.equal(await page.locator('#notice-items li').count(), 3);
     assert.equal(await page.locator('#notice-items img').count(), 0);
     assert.equal(await page.locator('#notice-items .notice-item-remove svg').count(), 3);
-    assert.equal(await page.locator('#notice-items .notice-item-remove').nth(1).getAttribute('aria-label'), 'Do not start: Beta');
+    assert.equal(await page.locator('#notice-items .notice-item-remove').nth(1).getAttribute('aria-label'), 'Quitar: Beta');
     await page.locator('#notice-items .notice-item-remove').nth(1).click();
     assert.equal(await page.locator('#notice-items li').count(), 2);
     await page.locator('#notice-accept').click();
