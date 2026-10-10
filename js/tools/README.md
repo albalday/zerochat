@@ -26,6 +26,18 @@ La protección de bucles guarda, solo durante el turno, la huella de los último
 
 Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRegistry`, evalúa la política de `ChatToolSecurity` y solo después invoca `tool.execute`. Las herramientas MCP que requieren confirmación se bloquean si no existe una interfaz que pueda recoger una decisión explícita del usuario.
 
+Cada invocación recibe en `context.invocationId` un identificador único, que también lleva su tarjeta en `data-invocation-id`. Sirve para referirse a la ejecución antes de que termine.
+
+### Comandos locales
+
+El host local expone una sola herramienta de ejecución, `run_command`, y otra de control, `check_command`. Cada llamada a `run_command` abre una shell nueva (bash, o PowerShell en Windows) en el directorio del proyecto: no hereda `cd`, variables ni entornos virtuales de llamadas anteriores. La salida une stdout y stderr en el orden en que se producen.
+
+- Sin `background`, espera hasta `timeout_seconds` (30 por defecto, máximo 600) y, si no ha terminado, mata el grupo de procesos completo.
+- Con `background: true`, responde a los pocos segundos con un `job_id` y la primera salida; el comando sigue sin plazo hasta que termina o se detiene.
+- `check_command(job_id, wait_seconds?, stop?)` devuelve el estado y solo la salida que el modelo aún no ha visto. No requiere confirmación porque solo actúa sobre comandos del registro del host.
+
+Cada comando es una tarea del registro del host, con su log en un directorio temporal de la sesión. Su comienzo se guarda en disco y su final en memoria, con un tope de 5 MB, y el log se borra al cerrar ZeroChat. El cliente envía `context.invocationId` como `params._meta.zerochatJobKey`; si se aborta el turno, detiene el comando con `zerochat/jobs/stop` y esa clave. La interfaz consulta y controla las tareas con los métodos `zerochat/jobs/list`, `zerochat/jobs/get`, `zerochat/jobs/log` y `zerochat/jobs/stop`, y el heartbeat publica las que siguen en marcha. Al parar el servidor, también con SIGHUP, se detienen todas.
+
 Las llamadas `tools/call` al host local incorporan además un sello efímero emitido por el backend durante `initialize`. Tras una autorización positiva, el cliente firma los bytes exactos del JSON-RPC con HMAC-SHA256 sobre `zerochat-tool-auth-v1`, identificador de arranque, método, ruta, caducidad Unix en milisegundos, nonce aleatorio de 128 bits y el SHA-256 hexadecimal del cuerpo UTF-8. El host consume el nonce de forma atómica y rechaza sellos ausentes, alterados, caducados o repetidos. Las credenciales viven solo en memoria y no se reenvían a MCP remotos. El sello vincula el flujo normal de autorización con la petición, pero un frontend comprometido que pueda leer la clave aún puede crear sellos.
 
 ## Herramienta de ejecución de código (`execute_javascript`)

@@ -177,14 +177,16 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(toolNames.includes('read_file'));
     assert.ok(toolNames.includes('write_file'));
     assert.ok(toolNames.includes('edit_file'));
-    assert.ok(toolNames.includes('bash'));
+    assert.ok(toolNames.includes('run_command'));
+    assert.ok(toolNames.includes('check_command'));
     assert.ok(toolNames.includes('search_files'));
-    assert.ok(toolNames.includes('execute_command'));
+    assert.ok(!toolNames.includes('bash') && !toolNames.includes('execute_command'), 'Una sola herramienta para ejecutar comandos');
     assert.ok(typeof initJson.result?.serverInfo?.os === 'string', 'serverInfo debe publicar el SO detectado');
-    const bashTool = tools.find(t => t.name === 'bash');
-    assert.ok(bashTool?.description?.includes('Host OS:'), 'bash debe declarar el SO anfitrión');
-    const execToolDef = tools.find(t => t.name === 'execute_command');
-    assert.ok(execToolDef?.description?.includes('Host OS:'), 'execute_command debe declarar el SO anfitrión');
+    const runTool = tools.find(t => t.name === 'run_command');
+    assert.ok(runTool?.description?.includes('Host OS:'), 'run_command debe declarar el SO anfitrión');
+    assert.match(runTool.description, /fresh/, 'run_command debe advertir de que cada llamada empieza de cero');
+    assert.equal(runTool.inputSchema.properties.cwd, undefined, 'run_command no admite cwd');
+    assert.deepEqual(Object.keys(runTool.inputSchema.properties).sort(), ['background', 'command', 'timeout_seconds']);
     assert.ok(!toolNames.includes('set_project_directory'), 'El cambio de proyecto no es una herramienta del modelo');
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
@@ -399,80 +401,70 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
 
     try { fs.unlinkSync(testFilePath); } catch (_) {}
 
-    // 6.4. Comprobar herramienta bash con sesión persistente (variables de entorno y cwd)
-    const bashEnv1Res = await fetch(baseUrl, {
+    // 6.4. run_command: cada llamada empieza en el proyecto, sin heredar cd ni variables.
+    const callTool = async (id, name, args, meta) => {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args, ...(meta ? { _meta: meta } : {}) } })
+      });
+      assert.equal(res.status, 200);
+      const json = await res.json();
+      return { json, parsed: JSON.parse(json.result?.content?.[0]?.text) };
+    };
+    const jobsRpc = async (id, method, params = {}) => (await fetch(baseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 56,
-        method: 'tools/call',
-        params: {
-          name: 'bash',
-          arguments: { command: 'export ZEROCHAT_PERSIST_VAR="antigravity_persistent_value" && cd tests/helpers' }
-        }
-      })
-    });
-    assert.equal(bashEnv1Res.status, 200);
-    const bashEnv1Json = await bashEnv1Res.json();
-    const parsedBash1 = JSON.parse(bashEnv1Json.result?.content?.[0]?.text);
-    assert.equal(parsedBash1.success, true);
-    assert.match(parsedBash1.cwd, /tests\/helpers$/);
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'X-ZeroChat-Token': testToken },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
+    })).json();
 
-    const bashEnv2Res = await fetch(baseUrl, {
+    const run1 = await callTool(56, 'run_command', { command: 'export ZEROCHAT_PERSIST_VAR=1 && cd tests/helpers && pwd' });
+    assert.equal(run1.parsed.success, true);
+    assert.match(run1.parsed.output, /tests\/helpers/);
+    const run2 = await callTool(57, 'run_command', { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' });
+    assert.equal(run2.parsed.output, `CHECK_VAR=\n${fs.realpathSync(repoRoot)}\n`);
+    const failing = await callTool(58, 'run_command', { command: 'echo uno; echo dos >&2; exit 2' });
+    assert.equal(failing.json.result.isError, true);
+    assert.equal(failing.parsed.exit_code, 2);
+    assert.equal(failing.parsed.output, 'uno\ndos\n');
+    const cwdRes = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 57,
-        method: 'tools/call',
-        params: {
-          name: 'bash',
-          arguments: { command: 'echo "CHECK_VAR=$ZEROCHAT_PERSIST_VAR" && pwd' }
-        }
-      })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 59, method: 'tools/call', params: { name: 'run_command', arguments: { command: 'pwd', cwd: '/tmp' } } })
     });
-    assert.equal(bashEnv2Res.status, 200);
-    const bashEnv2Json = await bashEnv2Res.json();
-    const parsedBash2 = JSON.parse(bashEnv2Json.result?.content?.[0]?.text);
-    assert.equal(parsedBash2.success, true);
-    assert.match(parsedBash2.stdout, /CHECK_VAR=antigravity_persistent_value/);
-    assert.match(parsedBash2.stdout, /tests\/helpers/);
+    assert.equal(cwdRes.status, 400, 'run_command rechaza el argumento cwd');
+    assert.match((await cwdRes.json()).error || '', /cwd/);
 
-    // Restaurar cwd del bash
-    await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 58,
-        method: 'tools/call',
-        params: { name: 'bash', arguments: { command: `cd ${JSON.stringify(repoRoot)}` } }
-      })
-    });
+    // 6.5. Truncado defensivo de la salida (>8.000 caracteres) con el log completo disponible.
+    const trunc = await callTool(60, 'run_command', { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' });
+    assert.equal(trunc.parsed.success, true);
+    assert.equal(trunc.parsed.truncated, true);
+    assert.match(trunc.parsed.output, /Output truncated/);
+    assert.match(trunc.parsed.output, /line 000/);
+    assert.match(trunc.parsed.output, /line 119/);
+    assert.ok(fs.readFileSync(trunc.parsed.log_file, 'utf8').includes('line 060'));
 
-    // 6.5. Comprobar truncado defensivo de bash (>8.000 caracteres)
-    const bashTruncRes = await fetch(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 59,
-        method: 'tools/call',
-        params: {
-          name: 'bash',
-          arguments: { command: 'python3 -c "for i in range(120): print(f\'line {i:03d} \' + \'x\'*80)"' }
-        }
-      })
-    });
-    assert.equal(bashTruncRes.status, 200);
-    const bashTruncJson = await bashTruncRes.json();
-    const parsedBashTrunc = JSON.parse(bashTruncJson.result?.content?.[0]?.text);
-    assert.equal(parsedBashTrunc.success, true);
-    assert.equal(parsedBashTrunc.truncated, true);
-    assert.match(parsedBashTrunc.stdout, /Output truncated|Salida truncada/);
-    assert.match(parsedBashTrunc.stdout, /line 000/);
-    assert.match(parsedBashTrunc.stdout, /line 119/);
+    // 6.5b. Segundo plano: la tarjeta lo sigue con zerochat/jobs/* y el cliente lo detiene con su clave.
+    const bg = await callTool(61, 'run_command', { command: 'echo listo; exec sleep 100', background: true }, { zerochatJobKey: 'tarjeta-prueba-1' });
+    assert.equal(bg.parsed.status, 'running');
+    assert.equal(bg.parsed.output, 'listo\n');
+    const runningHb = await (await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } })).json();
+    assert.ok(runningHb.jobs.some(job => job.id === bg.parsed.job_id && job.status === 'running'), 'El heartbeat publica los comandos en marcha');
+    const details = await jobsRpc(62, 'zerochat/jobs/get', { key: 'tarjeta-prueba-1' });
+    assert.equal(details.result.id, bg.parsed.job_id);
+    assert.equal(details.result.tail, 'listo\n');
+    assert.equal(details.result.background, true);
+    const page = await jobsRpc(63, 'zerochat/jobs/log', { id: bg.parsed.job_id, offset: 2, limit: 3 });
+    assert.deepEqual([page.result.text, page.result.next, page.result.done], ['sto', 5, false]);
+    assert.equal((await jobsRpc(64, 'zerochat/jobs/log', { id: bg.parsed.job_id, offset: -1 })).error?.code, -32602);
+    assert.ok((await jobsRpc(65, 'zerochat/jobs/list')).result.jobs.some(job => job.key === 'tarjeta-prueba-1'));
+    const stoppedByUser = await jobsRpc(66, 'zerochat/jobs/stop', { key: 'tarjeta-prueba-1' });
+    assert.equal(stoppedByUser.result.status, 'stopped');
+    assert.equal(stoppedByUser.result.stop_reason, 'user');
+    assert.equal((await jobsRpc(67, 'zerochat/jobs/get', { id: 99999 })).error?.code, -32602);
+    const seen = await callTool(68, 'check_command', { job_id: bg.parsed.job_id });
+    assert.equal(seen.parsed.status, 'stopped');
+    assert.equal(seen.parsed.stopped_by, 'user');
 
     // 6.6. Comprobar search_files con regex y filtro glob
     const searchRes = await fetch(baseUrl, {
@@ -484,7 +476,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
         method: 'tools/call',
         params: {
           name: 'search_files',
-          arguments: { query: 'PersistentShellSession', path: '.', file_pattern: '*.py' }
+          arguments: { query: 'def set_project_directory', path: '.', file_pattern: '*.py' }
         }
       })
     });

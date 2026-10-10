@@ -44,7 +44,7 @@ def main():
     if args.test:
         print(timestamp_message(f"TEST list_directory {'ok' if json.loads(list_directory('.'))['success'] else 'error'}"))
         print(timestamp_message(f"TEST read_file {'ok' if json.loads(read_file('package.json', max_lines=5))['success'] else 'error'}"))
-        print(timestamp_message(f"TEST execute_command {'ok' if json.loads(execute_command('echo hello'))['success'] else 'error'}"))
+        print(timestamp_message(f"TEST run_command {'ok' if json.loads(run_command('echo hello'))['success'] else 'error'}"))
         print(timestamp_message("TEST all local tools ready."))
         return
 
@@ -136,6 +136,9 @@ def main():
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
+    # Cerrar el terminal no debe dejar vivos los comandos, que no reciben sus señales.
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, shutdown)
 
     try:
         server.serve_forever()

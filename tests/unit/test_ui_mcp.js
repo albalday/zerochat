@@ -271,8 +271,8 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
         }
       },
       {
-        id: 'execute_command',
-        name: 'execute_command',
+        id: 'run_command',
+        name: 'run_command',
         description: 'Ejecuta comandos en la terminal',
         inputSchema: {
           type: 'object',
@@ -287,7 +287,7 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
     const currentEnabled = {
       list_directory: true,
       read_file: false,
-      execute_command: true
+      run_command: true
     };
 
     // Crear mock checkboxes para simular querySelectorAll
@@ -312,15 +312,15 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura 
     // Verificar markup de las tools
     assert.ok(container.innerHTML.includes('list_directory'));
     assert.ok(container.innerHTML.includes('read_file'));
-    assert.ok(container.innerHTML.includes('execute_command'));
+    assert.ok(container.innerHTML.includes('run_command'));
     assert.ok(container.innerHTML.includes('MCP'));
 
-    // Simular que el usuario desactiva 'execute_command'
+    // Simular que el usuario desactiva 'run_command'
     mockCheckboxes[2].checked = false;
-    changeListeners['execute_command_change']();
+    changeListeners['run_command_change']();
 
     assert.ok(lastUpdatedConfig);
-    assert.equal(lastUpdatedConfig.enabledTools.execute_command, false);
+    assert.equal(lastUpdatedConfig.enabledTools.run_command, false);
 
     // Simular que el usuario activa 'read_file'
     mockCheckboxes[1].checked = true;

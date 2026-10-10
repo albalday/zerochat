@@ -233,289 +233,8 @@ def edit_file(path: str, old_str: str = None, new_str: str = None, content: str 
         return _tool_error(str(e))
 
 
-def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
-    """Outputs >8,000 characters are truncated to first 50 lines + warning + last 30 lines."""
-    if len(text) <= max_chars:
-        return text, False
-    lines = text.splitlines(keepends=True)
-    if len(lines) <= head_lines + tail_lines:
-        half = max_chars // 2
-        return (
-            text[:half]
-            + f"\n\n[... Output truncated due to length ({len(text)} total characters) ...]\n\n"
-            + text[-half:],
-            True
-        )
-    omitted = len(lines) - head_lines - tail_lines
-    head = "".join(lines[:head_lines])
-    tail = "".join(lines[-tail_lines:])
-    warning = f"\n\n[... Output truncated: omitted {omitted} lines ({len(text)} total characters) ...]\n\n"
-    return head + warning + tail, True
-
-
-def _powershell_executable() -> str:
-    return shutil.which("powershell") or shutil.which("pwsh") or "powershell.exe"
-
-
-def _kill_process_tree(proc: subprocess.Popen):
-    """Termina el proceso y sus descendientes (grupo POSIX o árbol de Windows) para no dejar huérfanos."""
-    try:
-        if DETECTED_OS == "windows":
-            # TerminateProcess solo alcanza al hijo directo: npm.cmd o npx dejarían vivo a node.
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-            if proc.poll() is None:
-                proc.kill()
-        elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        else:
-            proc.kill()
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-
-
-# Cada flujo conserva solo su comienzo y su final; la salida visible se trunca después a 8000.
-MAX_CAPTURE_HEAD_CHARS = 64 * 1024
-MAX_CAPTURE_TAIL_CHARS = 64 * 1024
-
-
-class _BoundedCapture:
-    """Lee un flujo hasta su cierre reteniendo como mucho su comienzo y su final."""
-
-    def __init__(self, stream):
-        self._head: list[str] = []
-        self._head_len = 0
-        self._tail: collections.deque[str] = collections.deque()
-        self._tail_len = 0
-        self._dropped = 0
-        self._thread = threading.Thread(target=self._read, args=(stream,), daemon=True)
-        self._thread.start()
-
-    def _read(self, stream):
-        try:
-            while True:
-                chunk = stream.read(8192)
-                if not chunk:
-                    break
-                room = MAX_CAPTURE_HEAD_CHARS - self._head_len
-                if room > 0:
-                    self._head.append(chunk[:room])
-                    self._head_len += len(chunk[:room])
-                    chunk = chunk[room:]
-                if chunk:
-                    self._tail.append(chunk)
-                    self._tail_len += len(chunk)
-                    while self._tail_len - len(self._tail[0]) >= MAX_CAPTURE_TAIL_CHARS:
-                        self._dropped += len(self._tail[0])
-                        self._tail_len -= len(self._tail.popleft())
-        except (OSError, ValueError):
-            pass
-
-    def text(self, timeout: float) -> str:
-        # Un descendiente que escape del grupo puede mantener el pipe abierto: no esperar sin límite.
-        self._thread.join(timeout)
-        tail = "".join(self._tail)
-        if self._dropped:
-            tail = f"\n[... {self._dropped} characters discarded while capturing ...]\n" + tail
-        return "".join(self._head) + tail
-
-
-def _run_process(argv, cwd: str, timeout_seconds: int, shell: bool = False) -> tuple[int | None, str, str]:
-    """Ejecuta un proceso en su propio grupo con salida acotada.
-
-    Devuelve returncode None si se agotó el plazo; en ese caso termina también sus descendientes.
-    """
-    proc = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        shell=shell,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
-    )
-    stdout = _BoundedCapture(proc.stdout)
-    stderr = _BoundedCapture(proc.stderr)
-    try:
-        proc.wait(timeout=timeout_seconds)
-        returncode = proc.returncode
-    except subprocess.TimeoutExpired:
-        # Termina el grupo entero para no dejar vivos los procesos que lanzó el comando.
-        _kill_process_tree(proc)
-        proc.wait()
-        returncode = None
-    return returncode, stdout.text(2), stderr.text(2)
-
-
-def _command_result(returncode: int, stdout: str, stderr: str, cwd: str) -> str:
-    truncated_out, was_out_trunc = truncate_terminal_output(stdout)
-    truncated_err, was_err_trunc = truncate_terminal_output(stderr)
-    return json.dumps({
-        "success": returncode == 0,
-        "returncode": returncode,
-        "stdout": truncated_out,
-        "stderr": truncated_err,
-        "cwd": cwd,
-        "os": DETECTED_OS,
-        "truncated": was_out_trunc or was_err_trunc
-    }, ensure_ascii=False, indent=2)
-
-
-class PersistentShellSession:
-    """Maintains working directory (cwd) and environment variables across successive calls."""
-    def __init__(self):
-        prefix = "zerochat_ps_" if DETECTED_OS == "windows" else "zerochat_bash_"
-        self._dir = tempfile.mkdtemp(prefix=prefix)
-        self._cwd_file = Path(self._dir) / "cwd"
-        self._env_file = Path(self._dir) / ("env.txt" if DETECTED_OS == "windows" else "env.sh")
-        self._cwd = str(Path.cwd().resolve())
-        self._lock = threading.Lock()
-        atexit.register(self.cleanup)
-
-    def change_directory(self, directory: str):
-        """Mueve el proceso y la shell al nuevo proyecto sin interrumpir un comando en curso."""
-        with self._lock:
-            os.chdir(directory)
-            self._cwd = directory
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self._dir, ignore_errors=True)
-        except Exception:
-            pass
-
-    def run(self, command: str, timeout_seconds: int = 30) -> str:
-        with self._lock:
-            safe_timeout = max(1, min(int(timeout_seconds), 300))
-            if DETECTED_OS == "windows":
-                return self._run_windows(command, safe_timeout)
-            return self._run_posix(command, safe_timeout)
-
-    def _run_windows(self, command: str, safe_timeout: int) -> str:
-        runner_script = Path(self._dir) / f"runner_{time.time_ns()}.ps1"
-        escaped_cwd = self._cwd.replace("'", "''")
-        escaped_env = str(self._env_file).replace("'", "''")
-        escaped_cwd_file = str(self._cwd_file).replace("'", "''")
-
-        script_content = (
-            "$ErrorActionPreference = 'Continue'\n"
-            f"if (Test-Path -LiteralPath '{escaped_env}') {{\n"
-            f"    Get-Content -LiteralPath '{escaped_env}' | ForEach-Object {{\n"
-            "        $parts = $_ -split '=', 2\n"
-            "        if ($parts.Count -eq 2) {\n"
-            "            [System.Environment]::SetEnvironmentVariable($parts[0], $parts[1], 'Process')\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-            f"Set-Location -LiteralPath '{escaped_cwd}'\n"
-            "$LASTEXITCODE = $null\n"
-            "$__ret = 0\n"
-            "try {\n"
-            "    . {\n"
-            f"{command}\n"
-            "    }\n"
-            "    if ($LASTEXITCODE -ne $null) {\n"
-            "        $__ret = $LASTEXITCODE\n"
-            "    } elseif (-not $?) {\n"
-            "        $__ret = 1\n"
-            "    }\n"
-            "} catch {\n"
-            "    $__ret = 1\n"
-            "    [Console]::Error.WriteLine($_)\n"
-            "} finally {\n"
-            f"    (Get-Location).Path | Set-Content -LiteralPath '{escaped_cwd_file}' -Encoding utf8\n"
-            f"    Get-ChildItem env: | ForEach-Object {{ \"$($_.Name)=$($_.Value)\" }} | Set-Content -LiteralPath '{escaped_env}' -Encoding utf8\n"
-            "    exit $__ret\n"
-            "}\n"
-        )
-        argv = [
-            _powershell_executable(),
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy", "Bypass",
-            "-File", str(runner_script)
-        ]
-        return self._run_runner(argv, runner_script, script_content, safe_timeout)
-
-    def _run_posix(self, command: str, safe_timeout: int) -> str:
-        runner_script = Path(self._dir) / f"runner_{time.time_ns()}.sh"
-        script_content = (
-            "if [ -f " + shlex.quote(str(self._env_file)) + " ]; then\n"
-            "  . " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true\n"
-            "fi\n"
-            "cd " + shlex.quote(self._cwd) + " 2>/dev/null || true\n"
-            "trap '__ret=$?; pwd > " + shlex.quote(str(self._cwd_file)) + "; export -p > " + shlex.quote(str(self._env_file)) + " 2>/dev/null || true; exit $__ret' EXIT\n"
-            + command + "\n"
-        )
-        shell_bin = shutil.which("bash") or shutil.which("sh") or "bash"
-        return self._run_runner([shell_bin, str(runner_script)], runner_script, script_content, safe_timeout)
-
-    def _run_runner(self, argv: list[str], runner_script: Path, script_content: str, safe_timeout: int) -> str:
-        """Ejecuta el script de la sesión y conserva el cwd que deja al terminar."""
-        try:
-            runner_script.write_text(script_content, encoding="utf-8")
-            runner_script.chmod(0o700)
-            returncode, stdout, stderr = _run_process(argv, self._cwd, safe_timeout)
-            if returncode is None:
-                return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=self._cwd, os=DETECTED_OS)
-
-            try:
-                saved_cwd = self._cwd_file.read_text(encoding="utf-8").strip()
-                if saved_cwd and Path(saved_cwd).is_dir():
-                    self._cwd = saved_cwd
-            except OSError:
-                pass
-            return _command_result(returncode, stdout, stderr, self._cwd)
-        except Exception as e:
-            return _tool_error(str(e), cwd=self._cwd, os=DETECTED_OS)
-        finally:
-            try:
-                runner_script.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-
-SHELL_SESSION = PersistentShellSession()
-
-
-def bash(command: str, timeout_seconds: int = 30) -> str:
-    """Execute a command in an interactive persistent shell session."""
-    return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
-
-
-def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> str:
-    """Execute a command in the system shell and capture stdout and stderr."""
-    if cwd == "." or cwd == SHELL_SESSION._cwd:
-        return SHELL_SESSION.run(command, timeout_seconds=timeout_seconds)
-    safe_timeout = max(1, min(int(timeout_seconds), 300))
-    try:
-        target_cwd = Path(cwd).expanduser().resolve()
-        if not target_cwd.is_dir():
-            return _tool_error(f"Working directory '{cwd}' does not exist or is not a directory. The command was not executed.", os=DETECTED_OS)
-
-        if DETECTED_OS == "windows":
-            argv = [_powershell_executable(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
-        else:
-            argv = command
-        returncode, stdout, stderr = _run_process(argv, str(target_cwd), safe_timeout, shell=DETECTED_OS != "windows")
-        if returncode is None:
-            return _tool_error(f"Command timed out after {safe_timeout} seconds (terminated).", cwd=str(target_cwd), os=DETECTED_OS)
-        return _command_result(returncode, stdout, stderr, str(target_cwd))
-    except Exception as e:
-        return _tool_error(str(e), os=DETECTED_OS)
-
-
 def set_project_directory(path) -> dict:
-    """Cambia el directorio del proyecto: el del proceso, base de las rutas relativas, y el de la shell."""
+    """Cambia el directorio del proyecto: el del proceso, base de las rutas relativas y de los comandos."""
     if not isinstance(path, str) or not path.strip():
         raise ValueError("La ruta del directorio está vacía.")
     if len(path) > MAX_PATH_LENGTH:
@@ -524,7 +243,8 @@ def set_project_directory(path) -> dict:
     if not target.is_dir():
         raise ValueError(f"'{path}' no existe o no es un directorio.")
     previous = str(Path.cwd().resolve())
-    SHELL_SESSION.change_directory(str(target))
+    # Los comandos en marcha conservan el directorio en que se lanzaron.
+    os.chdir(target)
     return {"cwd": str(target), "previous_cwd": previous}
 
 
@@ -1006,29 +726,6 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     },
     {
-        "name": "bash",
-        "description": (
-            "Execute a command in an interactive persistent Windows PowerShell session (preserves cwd and environment variables across calls). Host OS: Windows."
-            if DETECTED_OS == "windows"
-            else "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls). Host OS: Linux/Unix (bash)."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": (
-                        "PowerShell command to execute (e.g. dir, git status, python test.py)"
-                        if DETECTED_OS == "windows"
-                        else "Shell command to execute (e.g. npm test, git status)"
-                    )
-                },
-                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 30)", "default": 30}
-            },
-            "required": ["command"]
-        }
-    },
-    {
         "name": "search_files",
         "description": "Recursively search for plain text or regular expressions across project files.",
         "inputSchema": {
@@ -1042,11 +739,20 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     },
     {
-        "name": "execute_command",
+        "name": "run_command",
         "description": (
-            "Execute a command in the Windows system shell (PowerShell) and capture stdout/stderr. Host OS: Windows."
+            "Run a PowerShell command in the project directory and return its exit code and output (stdout and stderr combined). "
+            "Each call starts a fresh PowerShell in the project directory: Set-Location and $env: changes do not carry over to later calls, "
+            "so chain them with ; in the same command. "
             if DETECTED_OS == "windows"
-            else f"Execute a shell command and capture stdout/stderr. Host OS: {DETECTED_OS}."
+            else
+            "Run a shell command (bash) in the project directory and return its exit code and output (stdout and stderr combined). "
+            "Each call starts a fresh shell in the project directory: cd, export or source/activate do not carry over to later calls, "
+            "so chain them with && in the same command. "
+        ) + (
+            "By default it waits up to timeout_seconds and kills the command if it has not finished. "
+            "Use background=true for servers, watchers or anything that does not finish on its own; "
+            f"then follow or stop it with check_command. Host OS: {DETECTED_OS}."
         ),
         "inputSchema": {
             "type": "object",
@@ -1054,15 +760,28 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "command": {
                     "type": "string",
                     "description": (
-                        "Command to execute in Windows PowerShell"
+                        "PowerShell command to run (e.g. git status; npm test)"
                         if DETECTED_OS == "windows"
-                        else "Command to execute"
+                        else "Shell command to run (e.g. git status, npm test)"
                     )
                 },
-                "cwd": {"type": "string", "description": "Working directory (defaults to '.')"},
-                "timeout_seconds": {"type": "integer", "description": "Timeout in seconds (defaults to 60)", "default": 60}
+                "timeout_seconds": {"type": "integer", "description": f"Seconds to wait before killing the command (default {COMMAND_DEFAULT_TIMEOUT}, max {COMMAND_MAX_TIMEOUT}). Ignored with background=true.", "default": COMMAND_DEFAULT_TIMEOUT},
+                "background": {"type": "boolean", "description": "Return after a few seconds and keep the command running; returns a job_id for check_command.", "default": False}
             },
             "required": ["command"]
+        }
+    },
+    {
+        "name": "check_command",
+        "description": "Check a command started by run_command: returns its status and the output produced since the last check. Use wait_seconds to wait for it to finish, or stop=true to terminate it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "integer", "description": "job_id returned by run_command"},
+                "wait_seconds": {"type": "integer", "description": f"Seconds to wait for the command to finish before returning (default 0, max {COMMAND_MAX_WAIT})", "default": 0},
+                "stop": {"type": "boolean", "description": "Terminate the command and its child processes", "default": False}
+            },
+            "required": ["job_id"]
         }
     },
     {
@@ -1100,9 +819,9 @@ LOCAL_TOOL_HANDLERS = {
     "read_file": read_file,
     "write_file": write_file,
     "edit_file": edit_file,
-    "bash": bash,
+    "run_command": run_command,
+    "check_command": check_command,
     "search_files": search_files,
-    "execute_command": execute_command,
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }

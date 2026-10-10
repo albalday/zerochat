@@ -103,7 +103,7 @@
 
   const LOCAL_MANAGED_TOOLS = new Set([
     'read_file', 'list_directory', 'search_files', 'get_diagnostics',
-    'edit_file', 'write_file', 'execute_command', 'bash'
+    'edit_file', 'write_file', 'run_command', 'check_command'
   ]);
 
   function getIntegratedPathAccess(toolName) {
@@ -112,7 +112,9 @@
     return '';
   }
 
-  const COMMAND_TOOLS = new Set(['execute_command', 'bash']);
+  const COMMAND_TOOL = 'run_command';
+  // Solo consulta o detiene comandos ya lanzados por run_command: no ejecuta nada nuevo.
+  const JOB_CONTROL_TOOL = 'check_command';
 
   // Sintaxis de shell que ejecuta otro comando: ; && || & ` $( <( >( y saltos de línea (T02).
   function hasCommandChaining(cmd) {
@@ -677,21 +679,16 @@
     }
 
     /**
-     * Comprueba los directorios en que se ejecutará un comando (argumento cwd y "cd <dir> &&"
-     * inicial): cada uno debe estar cubierto por alguna regla de directorio (T01/T02).
+     * Comprueba el directorio en que se ejecutará un comando (un "cd <dir> &&" inicial; si no,
+     * el del proyecto): debe estar cubierto por alguna regla de directorio (T01/T02).
      */
     evaluateCommandDirectories(args = {}) {
       const cmdVal = String(args.command || args.cmd || args.script || '').trim();
-      const cwd = typeof args.cwd === 'string' && args.cwd.trim() !== '.' ? args.cwd.trim() : '';
       const leadingCd = splitLeadingCd(cmdVal);
-      const directories = cwd ? [cwd] : [];
-      if (leadingCd) {
-        const isRelative = !/^[\\/~$]/.test(leadingCd.directory);
-        directories.push(cwd && isRelative ? `${cwd}/${leadingCd.directory}` : leadingCd.directory);
-      }
-      const outside = directories.find(dir =>
-        !this.evaluateDirectoryRule('R', dir).allowed && !this.evaluateDirectoryRule('W', dir).allowed);
-      return outside ? { allowed: false, directory: outside } : { allowed: true };
+      if (!leadingCd) return { allowed: true };
+      const dir = leadingCd.directory;
+      const covered = this.evaluateDirectoryRule('R', dir).allowed || this.evaluateDirectoryRule('W', dir).allowed;
+      return covered ? { allowed: true } : { allowed: false, directory: dir };
     }
 
     findToolEntry(toolIdOrName, tool = null) {
@@ -700,13 +697,6 @@
       if (typeof id === 'string') {
         if (this.tools.has(id)) {
           return { toolId: id, entry: this.tools.get(id) };
-        }
-        if (COMMAND_TOOLS.has(id)) {
-          for (const sibling of COMMAND_TOOLS) {
-            if (this.tools.has(sibling)) {
-              return { toolId: sibling, entry: this.tools.get(sibling) };
-            }
-          }
         }
       }
       return null;
@@ -762,18 +752,6 @@
       };
 
       this.tools.set(targetId, entry);
-
-      if (COMMAND_TOOLS.has(targetId)) {
-        for (const sibling of COMMAND_TOOLS) {
-          if (sibling !== targetId) {
-            this.tools.set(sibling, {
-              ...entry,
-              originalName: sibling
-            });
-          }
-        }
-      }
-
       this.save();
     }
 
@@ -785,11 +763,6 @@
         deleted = this.tools.delete(found.toolId) || deleted;
       }
       deleted = this.tools.delete(toolId) || deleted;
-      if (COMMAND_TOOLS.has(toolId) || (found && COMMAND_TOOLS.has(found.toolId))) {
-        for (const sibling of COMMAND_TOOLS) {
-          deleted = this.tools.delete(sibling) || deleted;
-        }
-      }
       if (deleted) {
         this.save();
         return true;
@@ -975,6 +948,18 @@
         }
       }
 
+      if (toolName === JOB_CONTROL_TOOL || originalName === JOB_CONTROL_TOOL) {
+        return {
+          requiresApproval: false,
+          status: TOOL_POLICIES.ALLOW,
+          reason: 'job_control_tool',
+          toolId,
+          serverName,
+          serverId,
+          originalName
+        };
+      }
+
       // 3. Modo global allow_all: TODO permitido
       if (this.globalMcpPolicy === GLOBAL_POLICIES.ALLOW_ALL) {
         return {
@@ -1121,7 +1106,7 @@
         };
       }
 
-      if ((toolName === 'execute_command' || toolName === 'bash' || originalName === 'execute_command' || originalName === 'bash')
+      if ((toolName === COMMAND_TOOL || originalName === COMMAND_TOOL)
           && this.globalMcpPolicy === GLOBAL_POLICIES.WORKSPACE_TRUST) {
         const cmdVal = String(args.command || args.cmd || args.script || '').trim();
         const leadingCd = splitLeadingCd(cmdVal);

@@ -20,6 +20,10 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         return
     _SERVER_SHUTTING_DOWN.set()
     HEARTBEAT_WATCHDOG_STOP.set()
+    running = [job.command for job in JOBS.list() if not job.done.is_set()]
+    if running:
+        console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(cmd[:60] for cmd in running)))
+    JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
@@ -275,8 +279,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         if is_heartbeat:
             mark_browser_active()
-            # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto.
-            self._send_json_response(200, {"ok": True, "cwd": str(Path.cwd().resolve())})
+            # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
+            # jobs, mostrar los comandos que siguen en marcha.
+            self._send_json_response(200, {
+                "ok": True,
+                "cwd": str(Path.cwd().resolve()),
+                "jobs": [job.summary() for job in JOBS.list() if not job.done.is_set()]
+            })
             return
 
         accept = self.headers.get("Accept", "")
@@ -444,8 +453,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             handler = LOCAL_TOOL_HANDLERS.get(tool_name)
             if not handler:
                 return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+            arguments = dict(params.get("arguments", {}))
+            if tool_name == "run_command":
+                # La clave la pone el cliente, no el modelo: permite detener el comando antes de conocer su job_id.
+                meta = params.get("_meta")
+                arguments["job_key"] = meta.get("zerochatJobKey") if isinstance(meta, dict) else None
             try:
-                tool_output_json = handler(**params.get("arguments", {}))
+                tool_output_json = handler(**arguments)
             except Exception as ex:
                 return self._tool_exception_result(ex), None, str(ex)
             tool_error_info = ""
@@ -462,10 +476,36 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 return set_project_directory(params.get("path")), None, ""
             except (ValueError, OSError) as exc:
                 return None, {"code": -32602, "message": str(exc)}, ""
+        if method.startswith("zerochat/jobs/"):
+            return self._dispatch_jobs(method, params)
         if method == "zerochat/external/status":
             return {"host": "running", "version": VERSION, "servers": GLOBAL_MCP_MANAGER.list_servers()}, None, ""
         if method in ("zerochat/external/servers/start", "zerochat/external/servers/stop", "zerochat/external/servers/configure"):
             return self._dispatch_server_control(method, params)
+        return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
+
+    @staticmethod
+    def _dispatch_jobs(method: str, params: dict) -> tuple[dict | None, dict | None, str]:
+        """Control de los comandos desde la interfaz: tarjetas, log y botón de detener."""
+        if method == "zerochat/jobs/list":
+            return {"jobs": [job.summary() for job in JOBS.list()]}, None, ""
+        job = JOBS.get(job_id=params.get("id"), key=params.get("key"))
+        if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
+            return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""
+        if method == "zerochat/jobs/get":
+            return job_details(job), None, ""
+        if method == "zerochat/jobs/log":
+            offset = params.get("offset", 0)
+            limit = params.get("limit", JOB_LOG_PAGE_BYTES)
+            if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+                return None, {"code": -32602, "message": "offset debe ser un entero no negativo."}, ""
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+                return None, {"code": -32602, "message": "limit debe ser un entero positivo."}, ""
+            text, next_offset = job.read_range(offset, min(limit, JOB_LOG_PAGE_BYTES))
+            return {"text": text, "next": next_offset, "total": job.total, "done": job.done.is_set()}, None, ""
+        if method == "zerochat/jobs/stop":
+            JOBS.stop(job, "user")
+            return job_details(job), None, ""
         return None, {"code": -32601, "message": f"Método '{method}' no soportado."}, ""
 
     @staticmethod

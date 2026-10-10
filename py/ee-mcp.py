@@ -39,19 +39,20 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "mode": (str, 32),
             "target_content": (str, MAX_HTTP_BODY_BYTES)
         },
-        "bash": {
+        "run_command": {
             "command": (str, MAX_COMMAND_LENGTH),
-            "timeout_seconds": (int, None)
+            "timeout_seconds": (int, None),
+            "background": (bool, None)
+        },
+        "check_command": {
+            "job_id": (int, None),
+            "wait_seconds": (int, None),
+            "stop": (bool, None)
         },
         "search_files": {
             "query": (str, 4096),
             "path": (str, MAX_PATH_LENGTH),
             "file_pattern": (str, 256)
-        },
-        "execute_command": {
-            "command": (str, MAX_COMMAND_LENGTH),
-            "cwd": (str, MAX_PATH_LENGTH),
-            "timeout_seconds": (int, None)
         },
         "get_diagnostics": {
             "path": (str, MAX_PATH_LENGTH)

@@ -234,3 +234,18 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   }
 });
 
+
+test('ToolDispatcher - cada invocación recibe un invocationId propio en su contexto', async () => {
+  const seen = [];
+  AgentCore.registry.registerTool(new AgentCore.Tool({
+    definition: { name: 'probe_invocation_id', description: 'Probe', parameters: { type: 'object', properties: {} } },
+    execute: async (_args, context) => { seen.push(context.invocationId); return { success: true }; },
+    result: { toModel: () => 'ok' }
+  }));
+  const toolCall = { id: 'call_probe', type: 'function', function: { name: 'probe_invocation_id', arguments: '{}' } };
+  await AgentCore.dispatchToolCall(toolCall);
+  await AgentCore.dispatchToolCall(toolCall);
+  assert.equal(seen.length, 2);
+  assert.ok(seen.every(id => typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id)));
+  assert.notEqual(seen[0], seen[1]);
+});

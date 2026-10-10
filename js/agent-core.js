@@ -93,6 +93,11 @@
     return null;
   }
 
+  function createInvocationId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+
   /**
    * Versión del contrato público que deben implementar las herramientas.
    *
@@ -837,12 +842,15 @@
       const rawFuncName = toolCall?.function?.name || '';
       const parsedArgs = this.parseArguments(toolCall?.function?.arguments) || {};
       const ToolCards = getToolCards();
+      // Identifica esta invocación ante la herramienta y su tarjeta mientras se ejecuta.
+      const invocationId = createInvocationId();
 
       // 1. Crear e insertar la tarjeta DOM en vivo con estado de carga
       let cardEl = null;
       if (ToolCards && ToolCards.createLiveToolCard && container && typeof document !== 'undefined') {
-        cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs);
+        cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs, { invocationId });
         if (cardEl) {
+          cardEl.dataset.invocationId = invocationId;
           if (ToolCards.appendToolCard) ToolCards.appendToolCard(container, cardEl);
           else container.appendChild(cardEl);
           if (typeof attachListeners === 'function') attachListeners(cardEl);
@@ -860,6 +868,7 @@
       const execRes = await this.executeToolCall(toolCall, {
         lang: language,
         ...options,
+        invocationId,
         requestToolAuthorization: ToolCards?.promptToolAuthorization
           ? async (pendingToolCall, authorization) => {
             if (typeof scrollToBottom === 'function') scrollToBottom();

@@ -5,7 +5,7 @@ ZeroChat - Backend Local Unificado y Gestor de Entorno
 Proporciona:
 1. Auto-creación del entorno MCP local `~/zerochat/.venv`.
 2. Servidor local HTTP y Server-Sent Events (SSE) con autenticación estricta por token efímero.
-3. Herramientas locales seguras: read_file, edit_file, list_directory, execute_command.
+3. Herramientas locales seguras: read_file, edit_file, list_directory, run_command.
 4. Apertura automática del navegador apuntando a zerochat.html con token en el fragmento hash.
 """
 

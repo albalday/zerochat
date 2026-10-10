@@ -50,6 +50,7 @@
   }
 
   const DEFAULT_TIMEOUT_MS = 15000;
+  const LOCAL_COMMAND_TOOL = 'run_command';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
@@ -675,7 +676,8 @@
 
       const result = await this.request('tools/call', {
         name: name,
-        arguments: args
+        arguments: args,
+        ...(options.meta ? { _meta: options.meta } : {})
       }, options);
 
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -921,17 +923,27 @@
             available: rt.availability?.available !== false
           },
           execute: async (args, context = {}) => {
+            // Un comando del servidor local sigue vivo aunque se aborte la petición: se detiene
+            // con la clave de la invocación, que el servidor conoce antes de devolver su job_id.
+            const jobKey = this.client.id === 'mcp_proxy' && toolName === LOCAL_COMMAND_TOOL ? context.invocationId : null;
+            const stopJob = () => {
+              this.client.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
+            };
+            if (jobKey) context.signal?.addEventListener?.('abort', stopJob, { once: true });
             try {
               return await this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
-                toolAuthorization: context.toolAuthorization === true
+                toolAuthorization: context.toolAuthorization === true,
+                meta: jobKey ? { zerochatJobKey: jobKey } : undefined
               });
             } catch (error) {
               if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
                 await this.onTransportFailure?.(error);
               }
               throw error;
+            } finally {
+              if (jobKey) context.signal?.removeEventListener?.('abort', stopJob);
             }
           },
           result: {

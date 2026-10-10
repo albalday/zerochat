@@ -28,7 +28,7 @@
       <h2>1. The idea</h2>
       <p>In a long project, every conversation starts without memory. ZeroChat keeps that memory in the project's own files and hands it to the agent at the start of every chat: the rules, where everything lives and where the work stands. The agent keeps it up to date as it works.</p>
       <p>The rules, including how to keep the memory, live in <code>AGENTS.md</code>, the file that Codex, Cursor, Copilot and other agents also read. That way any agent working on the project follows the same plan and keeps it the same way.</p>
-      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel, with the edit icon next to the path. The agent cannot change it: a <code>cd</code> in the shell only moves the shell.</p>
+      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel, with the edit icon next to the path. The agent cannot change it: a <code>cd</code> only applies within its own command, and the next one starts again in the project.</p>
     </div>
 
     <div class="card">

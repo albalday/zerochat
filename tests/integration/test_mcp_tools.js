@@ -59,7 +59,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
                   }
                 },
                 {
-                  name: 'execute_command',
+                  name: 'run_command',
                   description: 'Ejecuta un comando en la terminal local.',
                   inputSchema: {
                     type: 'object',
@@ -96,7 +96,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     // Comprobar metadatos, alias e iconos
     const listDirTool = tools.find(t => t.metadata.originalName === 'list_directory');
     const readFileTool = tools.find(t => t.metadata.originalName === 'read_file');
-    const execCmdTool = tools.find(t => t.metadata.originalName === 'execute_command');
+    const execCmdTool = tools.find(t => t.metadata.originalName === 'run_command');
 
     assert.ok(listDirTool);
     assert.ok(readFileTool);
@@ -121,7 +121,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     const mcpDefsDisconnected = defsDisconnected.filter(d =>
       d.function.name.includes('list_directory') ||
       d.function.name.includes('read_file') ||
-      d.function.name.includes('execute_command')
+      d.function.name.includes('run_command')
     );
     assert.equal(mcpDefsDisconnected.length, 0);
 
@@ -131,17 +131,17 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     const mcpDefsConnected = defsConnected.filter(d =>
       d.function.name.includes('list_directory') ||
       d.function.name.includes('read_file') ||
-      d.function.name.includes('execute_command')
+      d.function.name.includes('run_command')
     );
     assert.equal(mcpDefsConnected.length, 3);
 
-    // 3. Con switch desactivado para 'execute_command': debe excluirse
+    // 3. Con switch desactivado para 'run_command': debe excluirse
     const defsFiltered = registry.getActiveDefinitions({
       enabledTools: {
         [execCmdTool.id]: false
       }
     });
-    const hasExec = defsFiltered.some(d => d.function.name.includes('execute_command'));
+    const hasExec = defsFiltered.some(d => d.function.name.includes('run_command'));
     const hasRead = defsFiltered.some(d => d.function.name.includes('read_file'));
     assert.equal(hasExec, false);
     assert.equal(hasRead, true);
@@ -150,7 +150,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     registry.unregisterProvider('mcp_prov_mcp_proxy');
     assert.equal(registry.hasTool('list_directory'), false);
     assert.equal(registry.hasTool('read_file'), false);
-    assert.equal(registry.hasTool('execute_command'), false);
+    assert.equal(registry.hasTool('run_command'), false);
   } finally {
     global.fetch = originalFetch;
     ChatState.set('mcp', { status: 'disconnected' });
@@ -158,7 +158,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
 });
 
 
-test('MCP Tools - Formateo de resultados Markdown especializado para list_directory, read_file y execute_command', () => {
+test('MCP Tools - Formateo de resultados Markdown especializado para list_directory, read_file y run_command', () => {
   const client = new MCP.McpClient({ id: 'local_server', name: 'ZeroChat' });
   const provider = new MCP.McpToolProvider(client);
 
@@ -167,7 +167,7 @@ test('MCP Tools - Formateo de resultados Markdown especializado para list_direct
     category: 'mcp'
   });
 
-  // 1. execute_command
+  // 1. run_command
   const execResult = {
     content: JSON.stringify({
       success: true,
@@ -318,7 +318,7 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
   }
 });
 
-test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, edit_file, browser_navigate, execute_command con os_info)', async () => {
+test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, edit_file, browser_navigate, run_command con os_info)', async () => {
   const originalFetch = global.fetch;
 
   try {
@@ -352,7 +352,7 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
                 { name: 'read_file', description: 'Lee archivos con rangos', inputSchema: { type: 'object', required: ['path'] } },
                 { name: 'search_files', description: 'Busca por nombre y contenido', inputSchema: { type: 'object' } },
                 { name: 'edit_file', description: 'Edición atómica de archivos', inputSchema: { type: 'object', required: ['path', 'content'] } },
-                { name: 'execute_command', description: 'Terminal con SO detectado: Linux x86_64', inputSchema: { type: 'object', required: ['command'] } },
+                { name: 'run_command', description: 'Terminal con SO detectado: Linux x86_64', inputSchema: { type: 'object', required: ['command'] } },
                 { name: 'browser_navigate', description: 'Navegación de prueba', inputSchema: { type: 'object', required: ['url'] } }
               ]
             }
@@ -360,7 +360,7 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
         };
       }
       if (body.method === 'tools/call') {
-        if (body.params?.name === 'execute_command') {
+        if (body.params?.name === 'run_command') {
           return {
             ok: true,
             status: 200,
@@ -400,18 +400,74 @@ test('MCP Tools - Servidor Local expone herramientas de proyecto (search_files, 
     const searchTool = tools.find(t => t.metadata.originalName === 'search_files');
     const editTool = tools.find(t => t.metadata.originalName === 'edit_file');
     const browserTool = tools.find(t => t.metadata.originalName === 'browser_navigate');
-    const execTool = tools.find(t => t.metadata.originalName === 'execute_command');
+    const execTool = tools.find(t => t.metadata.originalName === 'run_command');
 
     assert.ok(searchTool, 'search_files debe estar registrada');
     assert.ok(editTool, 'edit_file debe estar registrada');
     assert.ok(browserTool, 'browser_navigate debe estar registrada');
-    assert.ok(execTool, 'execute_command debe estar registrada');
+    assert.ok(execTool, 'run_command debe estar registrada');
 
-    // Ejecutar execute_command y validar retorno con os_info
-    const callResult = await client.callTool('execute_command', { command: 'git --version' });
+    // Ejecutar run_command y validar retorno con os_info
+    const callResult = await client.callTool('run_command', { command: 'git --version' });
     assert.equal(callResult.success, true);
     assert.ok(callResult.content.includes('os_info'));
     assert.ok(callResult.content.includes('Linux'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('MCP Tools - run_command del servidor local envía la clave de la invocación y se detiene al abortar', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    global.fetch = async (url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      calls.push(body);
+      const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
+      if (body.method === 'initialize') {
+        return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'ZeroChat Local Server', version: '1.0.0' }, capabilities: { tools: {} } });
+      }
+      if (body.method === 'tools/list') {
+        return reply({ tools: [
+          { name: 'run_command', description: 'Run a command', inputSchema: { type: 'object', required: ['command'] } },
+          { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', required: ['path'] } }
+        ] });
+      }
+      if (body.method === 'tools/call' && body.params.name === 'run_command') {
+        // Simula un comando largo: la petición solo termina al abortarse.
+        return new Promise((resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+        });
+      }
+      if (body.method === 'tools/call') {
+        return reply({ content: [{ type: 'text', text: '{"success": true}' }], isError: false });
+      }
+      if (body.method === 'zerochat/jobs/stop') return reply({ status: 'stopped' });
+      return { ok: false, status: 404 };
+    };
+
+    const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Server', url: 'http://127.0.0.1:6388/sse' });
+    const tools = await new MCP.McpToolProvider(client).discoverTools();
+    const runTool = tools.find(t => t.name === 'run_command');
+    const readTool = tools.find(t => t.name === 'read_file');
+
+    const controller = new AbortController();
+    const pending = runTool.execute({ command: 'sleep 100' }, { invocationId: 'inv-clave-1234', signal: controller.signal });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const toolCall = calls.find(call => call.method === 'tools/call');
+    assert.deepEqual(toolCall.params._meta, { zerochatJobKey: 'inv-clave-1234' });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const stop = calls.find(call => call.method === 'zerochat/jobs/stop');
+    assert.deepEqual(stop?.params, { key: 'inv-clave-1234' });
+
+    // Las demás herramientas no llevan clave ni provocan paradas.
+    calls.length = 0;
+    await readTool.execute({ path: 'x' }, { invocationId: 'inv-otra-12345', signal: new AbortController().signal });
+    assert.equal(calls.find(call => call.method === 'tools/call').params._meta, undefined);
+    assert.equal(calls.some(call => call.method === 'zerochat/jobs/stop'), false);
   } finally {
     global.fetch = originalFetch;
   }

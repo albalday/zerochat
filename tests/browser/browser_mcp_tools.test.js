@@ -340,7 +340,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
       card.innerHTML = '<div class="tool-execution-card"><span class="tool-card-badge"></span><div class="tool-card-collapsible-body"><div style="height: 110px;"></div></div></div>';
       messagesList.appendChild(card);
       window.__permissionCard = card;
-      window.__permissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'bash' } }, {
+      window.__permissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'run_command' } }, {
         serverId: 'zerochat-local',
         serverName: 'ZeroChat Local Server',
         args: { command: 'git status' }
@@ -426,7 +426,7 @@ test('Browser UI - el menú de permisos de escritorio no queda bajo el composer'
       card.innerHTML = '<div class="tool-execution-card"><span class="tool-card-badge"></span><div class="tool-card-collapsible-body"><div style="height: 80px;"></div></div></div>';
       messagesList.appendChild(card);
       window.__desktopPermissionCard = card;
-      window.__desktopPermissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'bash' } }, {
+      window.__desktopPermissionDecision = window.ChatToolCards.promptToolAuthorization(card, { function: { name: 'run_command' } }, {
         args: { command: 'git status' }
       });
     });

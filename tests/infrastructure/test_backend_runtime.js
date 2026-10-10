@@ -60,7 +60,7 @@ finally:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, env, stdio: 'pipe' }));
 });
 
-test('zerochat.py: execute_command con cwd inexistente devuelve error sin ejecutar el comando', () => {
+test('zerochat.py: run_command abre una shell nueva en el proyecto y une stdout y stderr en orden', { skip: process.platform === 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
@@ -71,26 +71,32 @@ from pathlib import Path
 
 with tempfile.TemporaryDirectory() as temp_dir:
     os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
-    spec = importlib.util.spec_from_file_location("zerochat_execute_cwd_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    spec = importlib.util.spec_from_file_location("zerochat_run_command_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
     zerochat = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zerochat)
-    marker = Path(temp_dir) / "marker.txt"
-    missing = Path(temp_dir) / "missing"
-    result = json.loads(zerochat.execute_command(f"touch {marker}", cwd=str(missing)))
-    assert result["success"] is False
-    assert "does not exist" in result["error"]
-    assert not marker.exists()
-    a_file = Path(temp_dir) / "file.txt"
-    a_file.write_text("x", encoding="utf-8")
-    result = json.loads(zerochat.execute_command("pwd", cwd=str(a_file)))
-    assert result["success"] is False
-    ok = json.loads(zerochat.execute_command("pwd", cwd=temp_dir))
-    assert ok["success"] is True
+    start = Path.cwd()
+    project = (Path(temp_dir) / "project").resolve()
+    (project / "src").mkdir(parents=True)
+    os.chdir(project)
+
+    result = json.loads(zerochat.run_command("echo uno; echo dos >&2; echo tres; exit 3"))
+    assert result["success"] is False and result["status"] == "exited" and result["exit_code"] == 3, result
+    assert result["output"] == "uno\\ndos\\ntres\\n", result
+    assert isinstance(result["job_id"], int) and "cwd" not in result
+
+    # Nada pasa de una llamada a la siguiente: ni el directorio ni las variables.
+    assert json.loads(zerochat.run_command("cd src && export ZC_TEST_VAR=1 && pwd"))["output"].strip() == str(project / "src")
+    after = json.loads(zerochat.run_command('pwd; echo "var=$ZC_TEST_VAR"'))
+    assert after["output"] == f"{project}\\nvar=\\n", after
+
+    for bad in ("", "   "):
+        assert json.loads(zerochat.run_command(bad))["success"] is False
+    os.chdir(start)
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
-test('zerochat.py: set_project_directory mueve el proceso y la shell, y cd no cambia el proyecto', { skip: process.platform === 'win32' }, () => {
+test('zerochat.py: set_project_directory mueve el proceso y los comandos, y cd no cambia el proyecto', { skip: process.platform === 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
@@ -123,16 +129,16 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert result == {"cwd": str(project), "previous_cwd": str(start)}
     assert Path.cwd().resolve() == project
     assert json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola")
-    assert json.loads(zerochat.bash("pwd"))["stdout"].strip() == str(project)
+    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project)
 
-    # cd solo mueve la shell: el proyecto (y las rutas relativas) siguen en la raíz.
-    assert json.loads(zerochat.bash("cd src"))["cwd"] == str(project / "src")
+    # cd solo vale dentro del comando: el proyecto (y las rutas relativas) siguen en la raíz.
+    assert json.loads(zerochat.run_command("cd src && pwd"))["output"].strip() == str(project / "src")
     assert Path.cwd().resolve() == project
     assert json.loads(zerochat.read_file("note.txt"))["success"] is True
 
-    # Una ruta relativa se resuelve contra el proyecto actual y la shell vuelve a la nueva raíz.
+    # Una ruta relativa se resuelve contra el proyecto actual y los comandos arrancan en la nueva raíz.
     assert zerochat.set_project_directory("src")["cwd"] == str(project / "src")
-    assert json.loads(zerochat.bash("pwd"))["stdout"].strip() == str(project / "src")
+    assert json.loads(zerochat.run_command("pwd"))["output"].strip() == str(project / "src")
     assert zerochat.get_dev_root() == dev_root
     assert "set_project_directory" not in zerochat.LOCAL_TOOL_HANDLERS
     os.chdir(start)
@@ -471,7 +477,7 @@ test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ me
   assert.equal(currentZerochat, concatenated, 'zerochat.py debe coincidir exactamente con la concatenación ordenada de py/*.py (ejecuta npm run build:backend)');
 });
 
-test('zerochat.py: execute_command termina los descendientes al agotar el plazo y acota la salida', { skip: process.platform === 'win32' }, () => {
+test('zerochat.py: run_command mata a los descendientes al agotar el plazo y acota la salida', { skip: process.platform === 'win32' }, () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const script = `
 import importlib.util
@@ -489,31 +495,105 @@ def wait_dead(pid):
         except ProcessLookupError:
             return
         time.sleep(0.05)
-    raise AssertionError(f"El proceso {pid} sigue vivo tras agotar el plazo")
+    raise AssertionError(f"El proceso {pid} sigue vivo")
 
 with tempfile.TemporaryDirectory() as temp_dir:
     os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
-    spec = importlib.util.spec_from_file_location("zerochat_execute_command_limits_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    spec = importlib.util.spec_from_file_location("zerochat_run_command_limits_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
     zerochat = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zerochat)
-    work_dir = Path(temp_dir) / "work"
-    work_dir.mkdir()
 
-    # Con cwd explícito (subproceso propio) y por la sesión persistente.
-    for label, cwd in (("cwd", str(work_dir)), ("session", ".")):
-        pid_file = Path(temp_dir) / f"{label}.pid"
-        command = f"sh -c 'echo $$ > {pid_file}; exec sleep 100' & sleep 100"
-        started = time.monotonic()
-        result = json.loads(zerochat.execute_command(command, cwd=cwd, timeout_seconds=1))
-        assert result["success"] is False and "timed out" in result["error"], result
-        assert time.monotonic() - started < 5, label
-        wait_dead(int(pid_file.read_text().strip()))
+    pid_file = Path(temp_dir) / "timeout.pid"
+    started = time.monotonic()
+    result = json.loads(zerochat.run_command(f"sh -c 'echo $$ > {pid_file}; exec sleep 100' & echo antes; sleep 100", timeout_seconds=1))
+    assert result["success"] is False and result["status"] == "timeout", result
+    assert "timed out after 1 s" in result["error"] and "background=true" in result["note"]
+    assert result["output"] == "antes\\n"
+    assert time.monotonic() - started < 6
+    wait_dead(int(pid_file.read_text().strip()))
 
-    for cwd in (str(work_dir), "."):
-        result = json.loads(zerochat.execute_command("python3 -c \\"print('x' * 5000000)\\"", cwd=cwd, timeout_seconds=30))
-        assert result["success"] is True, result
-        assert result["truncated"] is True
-        assert len(result["stdout"]) < 20000
+    # Lo que deja en marcha un comando que ya ha terminado no sobrevive como huérfano.
+    leftover = Path(temp_dir) / "leftover.pid"
+    result = json.loads(zerochat.run_command(f"(sh -c 'echo $$ > {leftover}; exec sleep 100' &); while [ ! -s {leftover} ]; do sleep 0.05; done; echo fin"))
+    assert result["status"] == "exited" and result["output"] == "fin\\n", result
+    wait_dead(int(leftover.read_text().strip()))
+
+    result = json.loads(zerochat.run_command("python3 -c \\"print('x' * 5000000)\\"", timeout_seconds=30))
+    assert result["success"] is True, result
+    assert result["truncated"] is True and len(result["output"]) < 20000
+    log_file = Path(result["log_file"])
+    assert log_file.is_file() and log_file.stat().st_size == 5000001
+
+    # Un log que supera el tope conserva comienzo y final, con una marca en medio.
+    zerochat.JOB_LOG_HEAD_BYTES = 1000
+    zerochat.JOB_LOG_TAIL_BYTES = 1000
+    result = json.loads(zerochat.run_command("seq 1 20000"))
+    job = zerochat.JOBS.get(job_id=result["job_id"])
+    assert result["output"].endswith("20000\\n") and result["truncated"] is True
+    text, next_offset = job.read_range(0, 10 ** 9)
+    assert text.startswith("1\\n2\\n") and "bytes of output discarded" in text and text.endswith("19999\\n20000\\n")
+    assert next_offset == job.total
+    content = log_file.with_name(f"job-{job.id}.log").read_text(encoding="utf-8")
+    assert content.startswith("1\\n2\\n") and "bytes of output discarded" in content and content.endswith("20000\\n")
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+test('zerochat.py: run_command en segundo plano se sigue y se detiene con check_command', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+import time
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_background_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    zerochat.BACKGROUND_STARTUP_WAIT = 0.5
+
+    # Un fallo inmediato se ve en la propia respuesta.
+    failed = json.loads(zerochat.run_command("echo ocupado; exit 4", background=True))
+    assert failed["status"] == "exited" and failed["exit_code"] == 4 and failed["output"] == "ocupado\\n", failed
+
+    started = time.monotonic()
+    first = json.loads(zerochat.run_command("echo uno; sleep 1.5; echo dos; sleep 1.5; echo tres", background=True, job_key="clave-de-prueba"))
+    assert time.monotonic() - started < 2
+    assert first["status"] == "running" and first["output"] == "uno\\n" and "check_command" in first["note"], first
+    job_id = first["job_id"]
+    assert zerochat.JOBS.get(key="clave-de-prueba").id == job_id
+
+    # Solo devuelve lo que el modelo aún no ha visto.
+    nothing = json.loads(zerochat.check_command(job_id))
+    assert nothing["status"] == "running" and nothing["new_output"] == "", nothing
+    finished = json.loads(zerochat.check_command(job_id, wait_seconds=10))
+    assert finished["status"] == "exited" and finished["exit_code"] == 0 and finished["new_output"] == "dos\\ntres\\n", finished
+    assert zerochat.JOBS.get(job_id=job_id).reported is True
+
+    server = json.loads(zerochat.run_command("echo escuchando; exec sleep 100", background=True))
+    stopped = json.loads(zerochat.check_command(server["job_id"], stop=True))
+    assert stopped["success"] is True and stopped["status"] == "stopped" and stopped["stopped_by"] == "model", stopped
+
+    unknown = json.loads(zerochat.check_command(9999))
+    assert unknown["success"] is False and "Unknown job_id" in unknown["error"]
+
+    # Límite de comandos simultáneos.
+    zerochat.MAX_RUNNING_JOBS = 1
+    busy = json.loads(zerochat.run_command("sleep 100", background=True))
+    refused = json.loads(zerochat.run_command("echo otro"))
+    assert refused["success"] is False and "Too many commands" in refused["error"], refused
+    zerochat.MAX_RUNNING_JOBS = 8
+
+    # Al apagar se detienen todos y se borra el directorio de logs.
+    log_dir = zerochat.JOBS.get(job_id=busy["job_id"]).log_path.parent
+    zerochat.JOBS.shutdown()
+    assert zerochat.JOBS.get(job_id=busy["job_id"]).status == "stopped"
+    assert not log_dir.exists()
+    assert "bash" not in zerochat.LOCAL_TOOL_HANDLERS and "execute_command" not in zerochat.LOCAL_TOOL_HANDLERS
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
