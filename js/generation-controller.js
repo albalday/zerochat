@@ -275,16 +275,16 @@
         const ragContext = await RagService.buildRagSystemContext(activeRagBranchIds, {
           lang: runtimeConfig.language || 'es'
         });
-        if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: ragContext });
+        if (State?.set) State.set('agent', { ragSystemContext: ragContext });
       } catch (err) {
         console.warn('Error al cargar contexto inicial de RAG:', err);
         if (typeof options.addDebugLog === 'function') {
           options.addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
         }
-        if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: '' });
+        if (State?.set) State.set('agent', { ragSystemContext: '' });
       }
     } else {
-      if (State?.set) State.set('agent', { loopWarning: false, ragSystemContext: '' });
+      if (State?.set) State.set('agent', { ragSystemContext: '' });
     }
 
     const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
@@ -383,9 +383,6 @@
       }
 
       if (loopResult && loopResult.loopDetected) {
-        if (State?.set) {
-          State.set('agent', { loopWarning: true });
-        }
         if (typeof options.setDebugStatus === 'function') {
           options.setDebugStatus('error', t('debug_status_loop_detected'));
         }

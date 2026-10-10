@@ -78,7 +78,6 @@
       agent: {
         activeTurnIndex: 0,
         currentTool: null,
-        loopWarning: false,
         ragSystemContext: ''
       },
 
@@ -350,7 +349,7 @@
         sessions: { activeId: sessionId, list: clone(sessions) },
         messages: clone(messages),
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
         ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });
@@ -388,7 +387,7 @@
         sessions: nextSessions,
         messages: Array.isArray(messages) ? clone(messages) : [],
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
         ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });
@@ -522,7 +521,7 @@
         sessions: { activeId: clonedMeta.id, list },
         messages: clone(history),
         streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' },
+        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
         telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
         ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
       });

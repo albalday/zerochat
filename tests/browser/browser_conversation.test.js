@@ -681,7 +681,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
       // Guardar conversación en el almacenamiento
       await window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Tools' }, history);
       window.ChatState.setState({
-        agent: { activeTurnIndex: 3, currentTool: 'execute_javascript', loopWarning: true, ragSystemContext: 'stale context' },
+        agent: { activeTurnIndex: 3, currentTool: 'execute_javascript', ragSystemContext: 'stale context' },
         telemetry: { stats: { tokens: 99 }, diagnostics: { used: 99 }, lastTurnStats: { tokens: 42 } },
         ui: { reasoningMenuOpen: true, debugPanelOpen: true, attachedFiles: [{ name: 'stale.txt' }] }
       });
@@ -735,7 +735,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     assert.ok(result.beforeDelete.hasDeleteBtn, 'El botón de eliminar respuesta debe existir');
     assert.equal(result.beforeDelete.restoredMessages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
     assert.deepEqual(result.beforeDelete.restoredMessages[1].tool_calls, [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]);
-    assert.deepEqual(result.beforeDelete.restoredAgent, { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' });
+    assert.deepEqual(result.beforeDelete.restoredAgent, { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' });
     assert.deepEqual(result.beforeDelete.restoredTelemetry, { stats: null, diagnostics: null, lastTurnStats: null });
     assert.equal(result.beforeDelete.restoredUi.reasoningMenuOpen, false);
     assert.equal(result.beforeDelete.restoredUi.debugPanelOpen, false);

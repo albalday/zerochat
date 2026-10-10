@@ -176,7 +176,7 @@ test('GenerationController - el aviso de modelo vacío escapa apiUrl', async () 
   assert.ok(content.innerHTML.includes('&lt;img src=x onerror=&quot;bad()&quot;&gt;'));
 });
 
-test('GenerationController - loopDetected sets agent.loopWarning, reports error status and stops cleanly', async t => {
+test('GenerationController - loopDetected reports error status and stops cleanly', async t => {
   const State = require('../../js/state.js');
   const store = State.createStore();
   const previousState = global.ChatState;
@@ -230,7 +230,6 @@ test('GenerationController - loopDetected sets agent.loopWarning, reports error 
     saveCurrentSession: () => { savedSession = true; }
   });
 
-  assert.equal(store.get('agent').loopWarning, true, 'Debe marcar agent.loopWarning como true en ChatState');
   assert.equal(debugStatusValue, 'error', 'El estado de depuración debe indicar error tras bucle');
   assert.equal(debugLogRecorded?.type, 'error', 'Debe registrar log de error con advertencia de bucle');
   assert.equal(savedSession, true, 'Debe guardar la sesión completa tras la parada ordenada');

@@ -153,7 +153,7 @@ test('ChatState - Inicializa una conversación y limpia todo el estado transitor
     sessions: { activeId: 'session_old', list: [{ id: 'session_old' }] },
     messages: [{ id: 'old_user', role: 'user', content: 'Anterior' }],
     streaming: { stats: { tokens: 40 }, status: 'done', error: new Error('previous error') },
-    agent: { activeTurnIndex: 4, currentTool: 'search_web', loopWarning: true, ragSystemContext: 'old RAG context' },
+    agent: { activeTurnIndex: 4, currentTool: 'search_web', ragSystemContext: 'old RAG context' },
     telemetry: { stats: { tokens: 40 }, diagnostics: { used: 40 }, lastTurnStats: { tokens: 20 } },
     ui: { reasoningMenuOpen: true, activeModal: 'debug_interceptor', attachedFiles: [{ name: 'old.txt' }] }
   });
@@ -166,7 +166,7 @@ test('ChatState - Inicializa una conversación y limpia todo el estado transitor
   assert.equal(state.sessions.activeId, 'session_new');
   assert.deepEqual(state.messages, messages);
   assert.deepEqual(state.streaming, { isGenerating: false, stats: null, status: 'idle', error: null });
-  assert.deepEqual(state.agent, { activeTurnIndex: 0, currentTool: null, loopWarning: false, ragSystemContext: '' });
+  assert.deepEqual(state.agent, { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' });
   assert.deepEqual(state.telemetry, { stats: null, diagnostics: null, lastTurnStats: null });
   assert.equal(state.ui.reasoningMenuOpen, false);
   assert.equal(state.ui.debugPanelOpen, false);

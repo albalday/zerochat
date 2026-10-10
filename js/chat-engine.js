@@ -386,7 +386,6 @@
       reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
       messages: chatHistory,
       signal: params.signal,
-      maxRetries: 0,
       appendFinalMessage: true,
       contextOptions: {
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
@@ -521,7 +520,7 @@
       chatHistory.length = 0;
       chatHistory.push(...result.history);
     }
-    if (result.cancelled || result.status === 'cancelled') return { success: false, cancelled: true };
+    if (result.status === 'cancelled') return { success: false, cancelled: true };
     if (result.error) return { success: false, error: result.error };
     const turnTexts = [...turnMarkdown.entries()]
       .sort(([left], [right]) => left - right)

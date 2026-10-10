@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const AgentCoreModule = require('../../js/agent-core.js');
 const { AgentRuntime, Tool, ToolRegistry, ToolExecutor } = AgentCoreModule;
 
-test('AgentRuntime - el camino directo de reintentos no omite la política de tools', async () => {
+test('AgentRuntime - la ejecución directa de tools no omite su política', async () => {
   const registry = new ToolRegistry();
   let executions = 0;
   registry.registerTool(new Tool({
@@ -16,12 +16,16 @@ test('AgentRuntime - el camino directo de reintentos no omite la política de to
     }
   }));
 
-  const result = await new AgentRuntime({ registry }).executeToolWithRetries({
-    function: { name: 'mcp_test_sensitive_action', arguments: '{}' }
+  let step = 0;
+  const result = await new AgentRuntime({ registry }).execute({
+    api: { streamChatCompletion: async () => step++ === 0
+      ? { accumulatedText: '', toolCalls: [{ id: 'call_1', function: { name: 'mcp_test_sensitive_action', arguments: '{}' } }] }
+      : { accumulatedText: 'Hecho.', toolCalls: [] } },
+    messages: [{ role: 'user', content: 'Actúa.' }]
   });
 
-  assert.equal(result.success, false);
-  assert.match(result.error, /explicit user authorization/i);
+  assert.equal(result.toolExecutions[0].success, false);
+  assert.match(result.toolExecutions[0].error, /explicit user authorization/i);
   assert.equal(executions, 0);
 });
 
@@ -298,7 +302,7 @@ test('AgentRuntime - Error de herramienta capturado y recuperación en siguiente
     }
   };
 
-  const runtime = new AgentRuntime({ registry, maxRetries: 1 });
+  const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
     api: mockApi,
     messages: [{ role: 'user', content: 'Consulta la base de datos' }]
@@ -308,44 +312,8 @@ test('AgentRuntime - Error de herramienta capturado y recuperación en siguiente
   assert.equal(result.status, 'completed');
   assert.equal(result.toolExecutions[0].success, false);
   assert.match(result.toolExecutions[0].error, /base de datos/);
-  assert.equal(attempts, 2); // 1 original + 1 retry
+  assert.equal(attempts, 1);
   assert.match(result.finalText, /error en el servicio/);
-});
-
-test('AgentRuntime - Timeout global de ejecución agéntica', async () => {
-  const registry = new ToolRegistry();
-  registry.registerTool(new Tool({
-    name: 'slow_query',
-    execute: async (args, ctx) => {
-      await new Promise(r => setTimeout(r, 200));
-      return { data: 'ok' };
-    }
-  }));
-
-  const mockApi = {
-    streamChatCompletion: async (params) => {
-      // Simular latencia de red en streaming
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => resolve({ accumulatedText: '', toolCalls: [{ function: { name: 'slow_query', arguments: '{}' } }] }), 100);
-        if (params.signal) {
-          params.signal.addEventListener('abort', () => {
-            clearTimeout(timer);
-            reject(new Error('Abortado'));
-          });
-        }
-      });
-    }
-  };
-
-  const runtime = new AgentRuntime({ registry, timeoutMs: 30 });
-  const result = await runtime.execute({
-    api: mockApi,
-    messages: [{ role: 'user', content: 'Haz algo muy lento' }]
-  });
-
-  assert.equal(result.success, false);
-  assert.equal(result.status, 'timeout');
-  assert.match(result.error.message, /Tiempo límite/);
 });
 
 test('AgentRuntime - Cancelación manual mediante AbortSignal', async () => {
@@ -615,40 +583,6 @@ test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mism
   assert.deepEqual(executedCalls[1], { tool: 'b', args: { year: 2020 } });
   assert.equal(result.toolExecutions.length, 2);
   assert.equal(result.finalText, 'Métricas recuperadas: 100 y 200.');
-});
-
-test('AgentRuntime - execute limpia el listener abort del signal al finalizar', async () => {
-  const runtime = new AgentRuntime({ registry: new ToolRegistry() });
-  const controller = new AbortController();
-  const signal = controller.signal;
-
-  let addedCount = 0;
-  let removedCount = 0;
-  const originalAdd = signal.addEventListener.bind(signal);
-  const originalRemove = signal.removeEventListener.bind(signal);
-
-  signal.addEventListener = (type, listener, options) => {
-    if (type === 'abort') addedCount++;
-    return originalAdd(type, listener, options);
-  };
-  signal.removeEventListener = (type, listener, options) => {
-    if (type === 'abort') removedCount++;
-    return originalRemove(type, listener, options);
-  };
-
-  const mockApi = {
-    streamChatCompletion: async () => ({ accumulatedText: 'Respuesta', toolCalls: [] })
-  };
-
-  const result = await runtime.execute({
-    api: mockApi,
-    messages: [{ role: 'user', content: 'Hola' }],
-    signal
-  });
-
-  assert.equal(result.success, true);
-  assert.equal(addedCount, 1);
-  assert.equal(removedCount, 1);
 });
 
 test('AgentRuntime - una herramienta con endTurn cede el turno sin más peticiones', async () => {

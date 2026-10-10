@@ -932,7 +932,7 @@
   /**
    * Entorno de ejecución agéntico avanzado (AgentRuntime).
    * Orquesta el ciclo de vida de razonamiento y acción (ReAct), múltiples pasos,
-   * control de tiempo/timeout, reintentos de herramientas, cancelación,
+   * cancelación,
    * detección de bucles infinitos y presupuestos de tokens. No hay límite de pasos:
    * el ciclo termina con la respuesta final, un bucle, ask_user, cancelación o error.
    */
@@ -940,8 +940,6 @@
     constructor(options = {}) {
       this.registry = options.registry || new ToolRegistry();
       this.executor = options.executor || new ToolExecutor(this.registry);
-      this.timeoutMs = options.timeoutMs || 0; // 0 = sin límite global de tiempo
-      this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : 1;
     }
 
     /**
@@ -989,42 +987,6 @@
     }
 
     /**
-     * Ejecuta una llamada a herramienta con soporte de reintentos y captura de errores.
-     */
-    async executeToolWithRetries(toolCall, context = {}, maxRetries = 0, onRetry = null) {
-      let attempts = 0;
-      let lastResult = null;
-
-      while (attempts <= maxRetries) {
-        if (context.signal && context.signal.aborted) {
-          return {
-            success: false,
-            toolName: toolCall?.function?.name || '',
-            error: 'Ejecución cancelada por el usuario.',
-            executionTimeMs: 0,
-            cancelled: true
-          };
-        }
-
-        lastResult = await this.executor.executeToolCall(toolCall, context);
-        if (lastResult.success) {
-          return lastResult;
-        }
-
-        attempts++;
-        if (attempts <= maxRetries && !lastResult.cancelled) {
-          if (typeof onRetry === 'function') {
-            onRetry(toolCall, attempts, maxRetries, lastResult.error);
-          }
-          // Pausa corta antes de reintentar
-          await new Promise(r => setTimeout(r, 50));
-        }
-      }
-
-      return lastResult;
-    }
-
-    /**
      * Ejecuta el ciclo completo de ejecución agéntica multi-turno.
      */
     async execute(params = {}) {
@@ -1040,8 +1002,6 @@
         enableTools = true,
         toolFilterOptions = {},
         signal = null,
-        timeoutMs = this.timeoutMs,
-        maxRetries = this.maxRetries,
         api: customApi = null,
         prepareMessages = null,
         resolveToolDefinitions = null,
@@ -1066,38 +1026,8 @@
 
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-      // Configuración de cancelación y timeouts
-      let isTimedOut = false;
-      let isCancelled = false;
-      const internalAbortController = new AbortController();
-      let timeoutTimer = null;
-
-      if (timeoutMs > 0) {
-        timeoutTimer = setTimeout(() => {
-          isTimedOut = true;
-          internalAbortController.abort();
-          if (callbacks.onTimeout) {
-            callbacks.onTimeout(timeoutMs, stepIndex);
-          }
-        }, timeoutMs);
-      }
-
-      let onSignalAbort = null;
-      if (signal) {
-        if (signal.aborted) {
-          isCancelled = true;
-          internalAbortController.abort();
-        } else {
-          onSignalAbort = () => {
-            isCancelled = true;
-            internalAbortController.abort();
-            if (callbacks.onAbort) callbacks.onAbort();
-          };
-          signal.addEventListener('abort', onSignalAbort, { once: true });
-        }
-      }
-
-      const combinedSignal = internalAbortController.signal;
+      // Sin signal externo se usa uno que nunca se aborta.
+      const abortSignal = signal || new AbortController().signal;
 
       let stepIndex = 0;
       let workingMessages = [...messages];
@@ -1113,9 +1043,9 @@
       let yieldedToUser = false;
 
       while (true) {
-        if (combinedSignal.aborted) {
-          status = isTimedOut ? 'timeout' : 'cancelled';
-          executionError = new Error(isTimedOut ? 'Tiempo límite de ejecución agéntica excedido.' : 'Ejecución agéntica cancelada por el usuario.');
+        if (abortSignal.aborted) {
+          status = 'cancelled';
+          executionError = new Error('Ejecución agéntica cancelada por el usuario.');
           break;
         }
 
@@ -1156,19 +1086,6 @@
             stepMessages = prepared.messages;
             contextDiagnostics = prepared.diagnostics || null;
           }
-        } else if (ContextManager && ContextManager.buildOptimizedContext) {
-          try {
-            const opt = ContextManager.buildOptimizedContext(workingMessages, {
-              ...safeContextOptions,
-              model,
-              providerType: apiType
-            });
-            if (opt && opt.messages) {
-              stepMessages = opt.messages;
-            }
-          } catch (e) {
-            stepMessages = workingMessages;
-          }
         }
         if (callbacks.onContextPrepared) callbacks.onContextPrepared(contextDiagnostics, stepIndex);
 
@@ -1201,7 +1118,7 @@
             enableAgentWeb: toolFilterOptions.enableAgentWeb !== false,
             enableAgentSearch: toolFilterOptions.enableAgentSearch !== false,
             enableAgentChart: toolFilterOptions.enableAgentChart !== false,
-            signal: combinedSignal,
+            signal: abortSignal,
             onBeforeRequest,
             onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
 
@@ -1229,9 +1146,9 @@
           });
 
           if (streamError) {
-            if (combinedSignal.aborted) {
-              status = isTimedOut ? 'timeout' : 'cancelled';
-              executionError = new Error(isTimedOut ? 'Tiempo límite de ejecución agéntica excedido.' : 'Ejecución agéntica cancelada por el usuario.');
+            if (abortSignal.aborted) {
+              status = 'cancelled';
+              executionError = new Error('Ejecución agéntica cancelada por el usuario.');
             } else {
               status = 'error';
               executionError = streamError;
@@ -1342,7 +1259,7 @@
           const stepExecResults = [];
 
           for (let i = 0; i < stepToolCalls.length; i++) {
-            if (combinedSignal.aborted) break;
+            if (abortSignal.aborted) break;
             const call = stepToolCalls[i];
             const toolFnName = call.function?.name || '';
 
@@ -1352,21 +1269,12 @@
             }
 
             const toolContext = {
-              signal: combinedSignal,
+              signal: abortSignal,
               ...params
             };
             const execResult = typeof dispatchToolCall === 'function'
               ? await dispatchToolCall(call, toolContext)
-              : await this.executeToolWithRetries(
-                call,
-                toolContext,
-                maxRetries,
-                (tc, attempt, total, err) => {
-                  if (callbacks.onRetry) {
-                    callbacks.onRetry(tc, attempt, total, err, stepIndex);
-                  }
-                }
-              );
+              : await this.executor.executeToolCall(call, toolContext);
             stepExecResults.push(execResult);
 
             let toolResponseContent = '';
@@ -1500,9 +1408,9 @@
             break;
           }
         } catch (err) {
-          if (combinedSignal.aborted) {
-            status = isTimedOut ? 'timeout' : 'cancelled';
-            executionError = new Error(isTimedOut ? 'Tiempo límite de ejecución agéntica excedido.' : 'Ejecución agéntica cancelada por el usuario.');
+          if (abortSignal.aborted) {
+            status = 'cancelled';
+            executionError = new Error('Ejecución agéntica cancelada por el usuario.');
           } else {
             status = 'error';
             executionError = err;
@@ -1510,13 +1418,6 @@
           }
           break;
         }
-      }
-
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
-      }
-      if (signal && onSignalAbort && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onSignalAbort);
       }
 
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
