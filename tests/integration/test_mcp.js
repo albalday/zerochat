@@ -1188,3 +1188,43 @@ test('MCP - avisa cuando no puede guardar la configuración de servidores', (t) 
   assert.equal(console.warn.mock.callCount(), 1);
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /MCP server configuration/);
 });
+
+test('MCP - un set_project_directory correcto y syncProjectDirectory publican el nuevo directorio', async () => {
+  const ToolSecurity = require('../../js/tool-security.js');
+  const previousState = ChatState.get('mcp');
+  const previousStartup = ToolSecurity.manager.startupDirectory;
+  const manager = new MCP.McpManager();
+  try {
+    ChatState.set('mcp', { ...previousState, status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/home/u/a' } });
+    assert.equal(manager.syncProjectDirectory(''), false);
+    assert.equal(manager.syncProjectDirectory('/home/u/a'), false);
+    assert.equal(manager.syncProjectDirectory('/home/u/b'), true);
+    assert.equal(ChatState.get('mcp').serverInfo.cwd, '/home/u/b');
+    assert.equal(ChatState.get('mcp').serverInfo.name, 'ZeroChat');
+    assert.equal(ToolSecurity.manager.getStartupDirectory(), '/home/u/b');
+
+    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
+    assert.equal(manager.syncProjectDirectory('/home/u/c'), false, 'sin conexión no se publica');
+
+    const published = [];
+    let response = { success: true, content: JSON.stringify({ success: true, cwd: '/home/u/d' }) };
+    const client = {
+      id: 'mcp_proxy',
+      name: 'ZeroChat',
+      initialize: async () => {},
+      listTools: async () => [{ name: 'set_project_directory', description: 'x', inputSchema: { type: 'object', properties: {} } }],
+      callTool: async () => response
+    };
+    const provider = new MCP.McpToolProvider(client, { onProjectDirectory: cwd => published.push(cwd) });
+    const [tool] = await provider.discoverTools();
+    await tool.execute({ path: '/home/u/d' }, {});
+    response = { success: false, content: JSON.stringify({ success: false, error: 'missing' }) };
+    await tool.execute({ path: '/nope' }, {});
+    response = { success: true, content: 'no json' };
+    await tool.execute({ path: '/nope' }, {});
+    assert.deepEqual(published, ['/home/u/d'], 'solo un cambio correcto publica el directorio');
+  } finally {
+    ChatState.set('mcp', previousState);
+    ToolSecurity.manager.startupDirectory = previousStartup;
+  }
+});

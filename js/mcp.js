@@ -56,6 +56,7 @@
   // y la espera de la autorización OAuth.
   const EXTERNAL_LONG_START_POLL_ATTEMPTS = 80;
   const MAX_OUTPUT_LENGTH = 60000;
+  const PROJECT_DIRECTORY_TOOL = 'set_project_directory';
   const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
   const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
@@ -118,6 +119,17 @@
       try { return require('./state.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
+  }
+
+  /** Directorio nuevo que devuelve un set_project_directory correcto, o '' si falló. */
+  function readProjectDirectoryResult(result) {
+    if (!result?.success) return '';
+    try {
+      const payload = JSON.parse(result.content || '');
+      return payload?.success === true && typeof payload.cwd === 'string' ? payload.cwd : '';
+    } catch (_) {
+      return '';
+    }
   }
 
   function getSecurity() {
@@ -854,6 +866,7 @@
       this.serverName = client.name || 'MCP Server';
       this.serverUrl = client.url || '';
       this.onTransportFailure = typeof options.onTransportFailure === 'function' ? options.onTransportFailure : null;
+      this.onProjectDirectory = typeof options.onProjectDirectory === 'function' ? options.onProjectDirectory : null;
       this.cachedTools = [];
     }
 
@@ -922,11 +935,16 @@
           },
           execute: async (args, context = {}) => {
             try {
-              return await this.client.callTool(rt.name, args, {
+              const result = await this.client.callTool(rt.name, args, {
                 signal: context.signal,
                 timeoutMs: options.timeoutMs,
                 toolAuthorization: context.toolAuthorization === true
               });
+              if (this.client.id === 'mcp_proxy' && rt.name === PROJECT_DIRECTORY_TOOL) {
+                const cwd = readProjectDirectoryResult(result);
+                if (cwd) this.onProjectDirectory?.(cwd);
+              }
+              return result;
             } catch (error) {
               if (this.client.id === 'mcp_proxy' && isTransportFailure(error)) {
                 await this.onTransportFailure?.(error);
@@ -1120,7 +1138,8 @@
       const provider = new McpToolProvider(client, {
         id: `mcp_prov_${serverId}`,
         name: serverConfig.name,
-        onTransportFailure: error => this.markProxyUnavailable(error, targetRegistry)
+        onTransportFailure: error => this.markProxyUnavailable(error, targetRegistry),
+        onProjectDirectory: cwd => this.syncProjectDirectory(cwd)
       });
 
       try {
@@ -1176,6 +1195,20 @@
       return probeConnection(url, options);
     }
 
+    /**
+     * Publica el directorio del proyecto que informa el servidor local (set_project_directory o
+     * heartbeat) para que el modo proyecto y la regla de lectura por defecto lo sigan.
+     */
+    syncProjectDirectory(cwd) {
+      const State = getState();
+      const current = State?.get?.('mcp') || {};
+      const next = typeof cwd === 'string' ? cwd.trim() : '';
+      if (!next || current.status !== 'connected' || !current.serverInfo || current.serverInfo.cwd === next) return false;
+      getSecurity()?.manager?.setStartupDirectory?.(next);
+      State.set('mcp', { ...current, serverInfo: { ...current.serverInfo, cwd: next } });
+      return true;
+    }
+
     async markProxyUnavailable(error, registry = null) {
       const State = getState();
       const current = State?.get?.('mcp') || {};
@@ -1207,6 +1240,7 @@
           await this.markProxyUnavailable(new Error(probe.error), registry);
           return { success: false, probe };
         }
+        if (probe.serverInfo?.cwd) getSecurity()?.manager?.setStartupDirectory?.(probe.serverInfo.cwd);
         const latest = State?.get?.('mcp') || current;
         State?.set?.('mcp', {
           ...latest, status: 'connected', serverInfo: probe.serverInfo || latest.serverInfo,

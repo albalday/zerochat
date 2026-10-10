@@ -1425,6 +1425,8 @@
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
+      // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
+      window.ChatMCP?.manager?.syncProjectDirectory?.(payload.cwd);
     } catch (_) {
       if (heartbeatCheckInFlight) return;
       heartbeatCheckInFlight = true;
