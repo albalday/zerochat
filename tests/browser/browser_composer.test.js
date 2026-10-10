@@ -426,7 +426,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     }
   });
 
-  test('Browser UI - la franja de comandos en marcha lleva a su tarjeta, los detiene y avisa antes de cerrar', { timeout: 30000 }, async () => {
+  test('Browser UI - al terminar un turno con comandos en segundo plano se añade un aviso estático al final del chat', { timeout: 30000 }, async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -445,45 +445,43 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
         window.__running = [
           { id: 1, command: 'npm run dev', status: 'running', started_at: Date.now() - 65000, background: true },
           { id: 2, command: 'pytest -x', status: 'running', started_at: Date.now() - 5000, background: true },
-          // Un comando esperado no aparece en la franja: ya se ve en su tarjeta.
+          // Un comando esperado no cuenta: ya se ve en su tarjeta.
           { id: 9, command: 'npm run build', status: 'running', started_at: Date.now() - 3000, background: false }
         ];
-        window.__stops = [];
-        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
-          if (method === 'zerochat/jobs/stop') {
-            window.__stops.push(params.id);
-            window.__running = window.__running.filter(job => job.id !== params.id);
-            return { id: params.id, status: 'stopped' };
-          }
-          return { jobs: window.__running };
-        };
+        window.__listCalls = 0;
+        window.ChatMCP.manager.requestExternalControl = async () => { window.__listCalls++; return { jobs: window.__running }; };
         window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
-        window.ChatMCP.manager.syncCommandJobs(window.__running, { exitOnClose: true });
+        window.__endTurn = () => {
+          window.ChatState.set('streaming', { isGenerating: true });
+          window.ChatState.set('streaming', { isGenerating: false });
+        };
+        window.__endTurn();
       });
 
-      const bar = page.locator('#command-jobs-bar');
-      await bar.waitFor({ state: 'visible' });
-      const shown = await bar.evaluate(el => ({
-        title: el.querySelector('.command-jobs-title').textContent.trim(),
-        items: Array.from(el.querySelectorAll('.command-job'), item => ({
-          text: item.querySelector('code').textContent,
-          time: item.querySelector('.command-job-time').textContent,
-          disabled: item.querySelector('.command-job-link').getAttribute('aria-disabled'),
-          stopLabel: item.querySelector('.command-job-stop').getAttribute('aria-label'),
-          svg: Boolean(item.querySelector('.command-job-stop svg'))
-        })),
-        stopAll: Boolean(el.querySelector('.command-jobs-stop-all'))
+      const notice = page.locator('#messages-list .command-jobs-card');
+      await notice.waitFor({ state: 'visible' });
+      const shown = await notice.evaluate(el => ({
+        last: el === el.parentElement.lastElementChild,
+        title: el.querySelector('.command-jobs-card-title').textContent.trim(),
+        items: Array.from(el.querySelectorAll('li'), item => [item.querySelector('code').textContent, item.querySelector('.command-jobs-time').textContent, item.querySelector('.command-jobs-link').tagName]),
+        buttons: el.querySelectorAll('button').length,
+        svg: Boolean(el.querySelector('.command-jobs-card-title svg'))
       }));
-      assert.equal(shown.title, 'Comandos en marcha: 2');
-      assert.deepEqual(shown.items.map(item => [item.text, item.disabled, item.stopLabel, item.svg]), [
-        ['npm run dev', null, 'Detener npm run dev', true],
-        ['pytest -x', 'true', 'Detener pytest -x', true]
-      ]);
-      assert.match(shown.items[0].time, /^1:0[5-6]$/);
-      assert.equal(shown.stopAll, true);
+      assert.equal(shown.last, true, 'El aviso se añade al final del chat');
+      assert.equal(shown.title, 'Comandos en segundo plano en marcha: 2');
+      assert.deepEqual(shown.items.map(([command, , tag]) => [command, tag]), [['npm run dev', 'BUTTON'], ['pytest -x', 'SPAN']]);
+      assert.match(shown.items[0][1], /^1:0[5-6]$/);
+      assert.equal(shown.buttons, 1, 'Sin botones de detener: solo el enlace a la tarjeta que está a la vista');
+      assert.equal(shown.svg, true);
+      assert.equal(await page.locator('#command-jobs-bar').count(), 0, 'Ya no hay franja fija sobre el composer');
+
+      // No se actualiza: el tiempo queda como estaba.
+      const timeBefore = shown.items[1][1];
+      await page.waitForTimeout(1500);
+      assert.equal(await notice.locator('li').nth(1).locator('.command-jobs-time').textContent(), timeBefore);
 
       // El enlace abre el grupo, despliega la tarjeta y la resalta.
-      await bar.locator('.command-job-link').first().click();
+      await notice.locator('button.command-jobs-link').click();
       const opened = await page.evaluate(() => {
         const card = document.querySelector('[data-job-id="1"]');
         return { open: card.closest('details').open, collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'), highlighted: card.classList.contains('command-card-highlight') };
@@ -491,32 +489,31 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.deepEqual(opened, { open: true, collapsed: false, highlighted: true });
 
       // Cerrar la pestaña detendría el servidor y los comandos: el navegador pide confirmación.
+      await page.evaluate(() => window.ChatMCP.manager.syncCommandJobs(window.__running, { exitOnClose: true }));
       let beforeUnload = null;
       page.once('dialog', async dialog => { beforeUnload = dialog.type(); await dialog.dismiss(); });
       await page.evaluate(() => { location.href = 'about:blank#salir'; });
       await page.waitForTimeout(300);
       assert.equal(beforeUnload, 'beforeunload');
 
-      await bar.locator('.command-job-stop').nth(1).click();
-      await page.waitForFunction(() => document.querySelectorAll('#command-jobs-bar .command-job').length === 1);
-      assert.deepEqual(await page.evaluate(() => window.__stops), [2]);
-      assert.equal(await bar.locator('.command-jobs-stop-all').count(), 0, 'Con un solo comando no hace falta «Detener todos»');
-
+      // El turno siguiente sustituye el aviso; sin comandos en marcha, no queda ninguno.
       await page.evaluate(() => {
-        window.__running.push({ id: 3, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true });
-        window.ChatMCP.manager.syncCommandJobs(window.__running);
+        window.__running = window.__running.filter(job => job.id !== 2);
+        window.__endTurn();
       });
-      await bar.locator('.command-jobs-stop-all').click();
-      await page.locator('#notice-accept').click();
-      await bar.waitFor({ state: 'hidden' });
-      assert.deepEqual(await page.evaluate(() => window.__stops.slice().sort()), [1, 2, 3], 'Detener todos no toca el comando esperado');
+      await page.waitForFunction(() => document.querySelector('.command-jobs-card .command-jobs-card-title')?.textContent.includes(': 1'));
+      assert.equal(await page.locator('.command-jobs-card').count(), 1);
+      await page.evaluate(() => {
+        window.__running = [];
+        window.__endTurn();
+      });
+      await page.waitForFunction(() => document.querySelectorAll('.command-jobs-card').length === 0);
 
-      // Sin comandos en marcha ya no se pide confirmación al salir.
       let secondDialog = null;
       page.once('dialog', async dialog => { secondDialog = dialog.type(); await dialog.dismiss(); });
       await page.evaluate(() => { location.href = 'about:blank#salir'; });
       await page.waitForTimeout(300);
-      assert.equal(secondDialog, null);
+      assert.equal(secondDialog, null, 'Sin comandos en marcha no se pide confirmación al salir');
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

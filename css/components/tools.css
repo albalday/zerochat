@@ -1538,3 +1538,92 @@
   color: var(--text-muted);
   border-color: var(--border-color);
 }
+
+/* Aviso al terminar un turno con comandos en segundo plano en marcha */
+.command-jobs-card {
+  max-width: var(--max-content-width, 68rem);
+  margin: 0.75rem auto;
+  padding: 0.6rem 0.85rem;
+  box-sizing: border-box;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.command-jobs-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.command-jobs-card-title .ui-icon {
+  color: var(--primary);
+}
+
+.command-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-jobs-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  max-width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+button.command-jobs-link {
+  cursor: pointer;
+}
+
+button.command-jobs-link:hover code {
+  text-decoration: underline;
+}
+
+button.command-jobs-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.command-jobs-link code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-jobs-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.command-jobs-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.command-card-highlight .tool-execution-card {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}

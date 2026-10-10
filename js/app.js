@@ -179,7 +179,6 @@
       btnSend: document.getElementById('btn-send'),
       btnStopStream: document.getElementById('btn-stop-stream'),
       generationStatus: document.getElementById('generation-status'),
-      commandJobsBar: document.getElementById('command-jobs-bar'),
       btnOpenRag: document.getElementById('btn-open-rag'),
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
@@ -1170,7 +1169,7 @@
       getLastPrompt: () => MessageTurns.getLastUserPrompt?.(getChatHistory()) || ''
     });
 
-    UICommandJobs.mount?.({ bar: elements.commandJobsBar, messagesList: elements.messagesList });
+    UICommandJobs.mount?.({ messagesList: elements.messagesList });
 
     // Parada ordenada ante cierre de página o recarga durante generación
     if (typeof window !== 'undefined' && window.addEventListener) {
