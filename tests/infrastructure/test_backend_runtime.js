@@ -597,3 +597,101 @@ with tempfile.TemporaryDirectory() as temp_dir:
 `;
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
+
+test('zerochat.py: al arrancar mata los comandos de instancias muertas sin tocar las vivas', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    tempfile.tempdir = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_orphans_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    base = zerochat._jobs_base_dir()
+    assert base.parent == Path(temp_dir)
+
+    def spawn_group():
+        proc = subprocess.Popen(["sleep", "100"], start_new_session=True)
+        return proc, {"pgid": proc.pid, "start": zerochat._process_start_token(proc.pid)}
+
+    def session(name, owner, jobs):
+        directory = base / name
+        directory.mkdir()
+        (directory / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
+        (directory / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
+        return directory
+
+    dead_owner = subprocess.Popen(["true"])
+    dead_owner.wait()
+    orphan, orphan_entry = spawn_group()
+    reused, reused_entry = spawn_group()
+    reused_entry["start"] = "otro-arranque"
+    dead = session("dead", {"pid": dead_owner.pid, "start": "x"}, {"1": orphan_entry, "2": reused_entry})
+
+    alive_job, alive_entry = spawn_group()
+    alive = session("alive", {"pid": os.getpid(), "start": zerochat._process_start_token(os.getpid())}, {"1": alive_entry})
+    # Un proceso vivo con otro arranque no es la instancia registrada: su sesión se limpia.
+    impostor_job, impostor_entry = spawn_group()
+    impostor = session("impostor", {"pid": alive_job.pid, "start": "otro-arranque"}, {"1": impostor_entry})
+
+    assert zerochat.cleanup_orphan_jobs() == 2
+    assert orphan.wait(timeout=5) == -9 and impostor_job.wait(timeout=5) == -9
+    assert reused.poll() is None, "un PID reutilizado por otro proceso no se mata"
+    assert alive_job.poll() is None, "los comandos de una instancia viva no se tocan"
+    assert not dead.exists() and not impostor.exists() and alive.exists()
+    for proc in (reused, alive_job):
+        proc.kill()
+        proc.wait()
+
+    # La propia instancia apunta sus comandos en marcha y los borra al terminar.
+    zerochat.BACKGROUND_STARTUP_WAIT = 0.2
+    started = json.loads(zerochat.run_command("exec sleep 100", background=True))
+    job = zerochat.JOBS.get(job_id=started["job_id"])
+    own = job.log_path.parent
+    owner = json.loads((own / "owner.json").read_text(encoding="utf-8"))
+    assert owner["pid"] == os.getpid()
+    registry = json.loads((own / "jobs.json").read_text(encoding="utf-8"))
+    assert registry[str(job.id)] == {"pgid": job.proc.pid, "start": zerochat._process_start_token(job.proc.pid)}, (registry, job.id, job.proc.pid)
+    zerochat.check_command(job.id, stop=True)
+    assert json.loads((own / "jobs.json").read_text(encoding="utf-8")) == {}
+    zerochat.JOBS.shutdown()
+    assert not own.exists()
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
+test('zerochat.py: en Windows cada comando queda en un Job Object que lo mata si ZeroChat termina', { skip: process.platform !== 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import ctypes
+import importlib.util
+import os
+import tempfile
+from ctypes import wintypes
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_windows_job_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    job = zerochat.JOBS.start("Start-Sleep -Seconds 30", background=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+    inside = wintypes.BOOL(False)
+    assert kernel32.IsProcessInJob(int(job.proc._handle), zerochat.JOBS._windows_job._handle, ctypes.byref(inside))
+    assert inside.value
+    zerochat.JOBS.stop(job, "user")
+    assert job.status == "stopped"
+    zerochat.JOBS.shutdown()
+`;
+  assert.doesNotThrow(() => execFileSync('python', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});

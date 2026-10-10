@@ -68,6 +68,145 @@ def _kill_process_tree(proc: subprocess.Popen):
             pass
 
 
+def _process_start_token(pid: int) -> str | None:
+    """Huella del arranque de un proceso: distingue al original de otro que reciba el mismo PID."""
+    try:
+        if Path(f"/proc/{pid}/stat").is_file():
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+            # El nombre del proceso va entre paréntesis y puede contener espacios.
+            return stat.rsplit(")", 1)[1].split()[19]
+        result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() or None
+    except (OSError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _jobs_base_dir() -> Path:
+    """Directorio común de los logs y registros de comandos de todas las instancias del usuario."""
+    try:
+        owner = str(os.getuid())
+    except AttributeError:
+        owner = re.sub(r"[^A-Za-z0-9_-]", "_", os.environ.get("USERNAME", "user"))
+    base = Path(tempfile.gettempdir()) / f"zerochat-jobs-{owner}"
+    base.mkdir(mode=0o700, exist_ok=True)
+    return base
+
+
+def cleanup_orphan_jobs() -> int:
+    """Mata los comandos de instancias de ZeroChat que murieron sin poder detenerlos (POSIX).
+
+    Solo actúa sobre instancias cuyo proceso ya no existe, y sobre grupos cuyo líder es el
+    proceso registrado o ya no existe: nunca alcanza a otra instancia viva ni a un proceso ajeno.
+    """
+    if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
+        return 0
+    killed = 0
+    try:
+        sessions = [entry for entry in _jobs_base_dir().iterdir() if entry.is_dir()]
+    except OSError:
+        return 0
+    for session in sessions:
+        try:
+            owner = json.loads((session / "owner.json").read_text(encoding="utf-8"))
+            owner_pid = int(owner["pid"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if owner_pid == os.getpid() or (_pid_alive(owner_pid) and _process_start_token(owner_pid) == owner.get("start")):
+            continue
+        try:
+            registry = json.loads((session / "jobs.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            registry = {}
+        for entry in registry.values() if isinstance(registry, dict) else ():
+            try:
+                pgid = int(entry["pgid"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            # Mientras el grupo exista, su número no se reasigna; si el líder vive, debe ser el registrado.
+            if _pid_alive(pgid) and _process_start_token(pgid) != entry.get("start"):
+                continue
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+                killed += 1
+            except OSError:
+                pass
+        shutil.rmtree(session, ignore_errors=True)
+    return killed
+
+
+class _WindowsKillOnCloseJob:
+    """Job Object de Windows que mata los comandos si ZeroChat termina, aunque sea de golpe."""
+
+    def __init__(self):
+        self._handle = None
+        self._kernel32 = None
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class BasicLimits(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)
+                ]
+
+            class IoCounters(ctypes.Structure):
+                _fields_ = [(name, ctypes.c_uint64) for name in (
+                    "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                    "ReadTransferCount", "WriteTransferCount", "OtherTransferCount"
+                )]
+
+            class ExtendedLimits(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)
+                ]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+            kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+            kernel32.SetInformationJobObject.restype = wintypes.BOOL
+            kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+            kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+            kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            handle = kernel32.CreateJobObjectW(None, None)
+            if not handle:
+                return
+            limits = ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            # 9 = JobObjectExtendedLimitInformation
+            if not kernel32.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+                return
+            self._handle = handle
+            self._kernel32 = kernel32
+        except (OSError, AttributeError, ImportError):
+            self._handle = None
+
+    def assign(self, proc: subprocess.Popen) -> bool:
+        # Un nieto lanzado antes de la asignación podría escapar: el margen es de microsegundos.
+        if not self._handle:
+            return False
+        try:
+            return bool(self._kernel32.AssignProcessToJobObject(self._handle, int(proc._handle)))
+        except (OSError, AttributeError, ValueError):
+            return False
+
+
 def _utf8_boundary(data: bytes) -> int:
     """Primer byte que comienza un carácter UTF-8, para no partir uno multibyte."""
     start = 0
@@ -121,6 +260,7 @@ class CommandJob:
         self.model_cursor = 0
         self.reported = False
         self.proc: subprocess.Popen | None = None
+        self.leader_start: str | None = None
         self.runner_path: Path | None = None
         self.done = threading.Event()
         self._lock = threading.Lock()
@@ -271,12 +411,31 @@ class JobManager:
         self._next_id = 1
         self._lock = threading.Lock()
         self._dir: Path | None = None
+        self._windows_job: _WindowsKillOnCloseJob | None = None
         atexit.register(self.shutdown)
 
     def _session_dir(self) -> Path:
+        """Directorio de esta instancia, con su huella para que otra pueda limpiarlo si muere."""
         if self._dir is None:
-            self._dir = Path(tempfile.mkdtemp(prefix="zerochat_jobs_"))
+            directory = Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=_jobs_base_dir()))
+            owner = {"pid": os.getpid(), "start": _process_start_token(os.getpid())}
+            (directory / "owner.json").write_text(json.dumps(owner), encoding="utf-8")
+            self._dir = directory
         return self._dir
+
+    def _write_registry(self):
+        """Apunta en disco los grupos de procesos en marcha para limpiarlos tras un cierre abrupto."""
+        if DETECTED_OS == "windows" or self._dir is None:
+            return
+        with self._lock:
+            entries = {
+                str(job.id): {"pgid": job.proc.pid, "start": job.leader_start}
+                for job in self._jobs.values() if job.proc and job.ended_at is None
+            }
+        try:
+            _atomic_write_text(self._dir / "jobs.json", json.dumps(entries))
+        except OSError:
+            pass
 
     def running_count(self) -> int:
         with self._lock:
@@ -334,8 +493,15 @@ class JobManager:
             stderr=subprocess.STDOUT,
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
+        if DETECTED_OS == "windows":
+            if self._windows_job is None:
+                self._windows_job = _WindowsKillOnCloseJob()
+            self._windows_job.assign(job.proc)
+        else:
+            job.leader_start = _process_start_token(job.proc.pid)
         job.start_reader(job.proc.stdout)
         threading.Thread(target=self._watch, args=(job,), daemon=True).start()
+        self._write_registry()
 
     def _watch(self, job: CommandJob):
         proc = job.proc
@@ -365,6 +531,7 @@ class JobManager:
             job.status = "stopped"
         else:
             job.status = "exited"
+        self._write_registry()
         job.done.set()
 
     def get(self, job_id=None, key=None) -> CommandJob | None:

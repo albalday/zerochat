@@ -48,6 +48,10 @@ def main():
         print(timestamp_message("TEST all local tools ready."))
         return
 
+    orphans = cleanup_orphan_jobs()
+    if orphans:
+        print(timestamp_message(f"Detenidos {orphans} comando(s) que seguían en marcha de una sesión anterior interrumpida."))
+
     # 1. Asegurar el entorno MCP aislado en ambos modos de distribución.
     if not args.no_venv:
         ensure_virtual_environment()
