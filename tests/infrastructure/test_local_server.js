@@ -538,6 +538,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     });
     assert.equal(sseRes.status, 200);
     assert.equal(sseRes.headers.get('content-type'), 'text/event-stream');
+    assert.equal(sseRes.headers.get('cache-control'), 'no-store');
 
     // 8. Comprobar servicios MCP externos arrancables individualmente
     const statusRes = await fetch(baseUrl, {

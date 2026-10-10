@@ -1027,6 +1027,7 @@ test('MCP - SSE autenticado usa cabeceras en navegador y procesa CRLF fragmentad
       assert.equal(options.headers['X-ZeroChat-Token'], 'test-session');
       assert.equal(options.headers.Accept, 'text/event-stream');
       assert.equal(options.redirect, 'error');
+      assert.equal(options.cache, 'no-store');
       signal = options.signal;
       return { ok: true, body: new ReadableStream({ start(controller) { stream = controller; } }) };
     };

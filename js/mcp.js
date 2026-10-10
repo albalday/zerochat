@@ -409,6 +409,8 @@
             fetch(this.url, {
               headers: { ...this.buildHeaders(), 'Accept': 'text/event-stream' },
               signal: controller.signal,
+              // Firefox retiene otro GET a la misma URL mientras escribe en caché un stream abierto.
+              cache: 'no-store',
               redirect: 'error'
             }).then(async res => {
               if (controller.signal.aborted || this.sseSource !== source) return;

@@ -282,7 +282,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if "/sse" in self.path or "text/event-stream" in accept:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "keep-alive")
             self.send_cors_headers()
             self.end_headers()
