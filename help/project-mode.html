@@ -28,7 +28,7 @@
       <h2>1. La idea</h2>
       <p>En un proyecto largo, cada conversación empieza sin memoria. ZeroChat guarda esa memoria en ficheros del propio proyecto y se la entrega al agente al principio de cada chat: las normas, dónde está cada cosa y en qué punto está el trabajo. El agente la mantiene al día mientras trabaja.</p>
       <p>Las normas, incluido cómo mantener la memoria, viven en <code>AGENTS.md</code>, el fichero que leen también Codex, Cursor, Copilot y otros agentes. Así cualquier agente que trabaje en el proyecto sigue el mismo plan y lo mantiene igual.</p>
-      <p>Funciona con el <a href="mcp.html">servidor local</a>: el proyecto es su directorio de trabajo, al principio el directorio desde el que se lanza <code>zerochat.py</code>. Puedes cambiarlo sin reiniciar desde el panel de Razonamiento con <em>Cambiar…</em>. El agente no puede cambiarlo: un <code>cd</code> en la shell solo mueve la shell.</p>
+      <p>Funciona con el <a href="mcp.html">servidor local</a>: el proyecto es su directorio de trabajo, al principio el directorio desde el que se lanza <code>zerochat.py</code>. Puedes cambiarlo sin reiniciar desde el panel de Razonamiento, con el icono de editar junto a la ruta. El agente no puede cambiarlo: un <code>cd</code> en la shell solo mueve la shell.</p>
     </div>
 
     <div class="card">
@@ -62,13 +62,13 @@
       <h2>4. En la interfaz</h2>
       <ul><li>Está activo por defecto: si el proyecto tiene <code>.zerochat/state.md</code>, se usa sin hacer nada.</li>
       <li>Un punto en el botón de <strong>Razonamiento</strong> indica que el proyecto se está usando; si es de aviso, no se han podido leer los ficheros.</li>
-      <li>El panel de Razonamiento muestra el estado y las acciones: <em>Inicializar proyecto</em>, <em>No usar en este proyecto</em>, <em>Reactivar</em> y <em>Recargar</em>. Su interruptor «Modo proyecto» lo desactiva en todos los proyectos.</li>
-      <li>Debajo aparece el directorio del proyecto, también con el modo apagado, y el botón <em>Cambiar…</em>. El cambio vale para todas las pestañas, porque el servidor es uno, y no está disponible mientras el modelo responde.</li></ul>
+      <li>El panel de Razonamiento muestra el estado y las acciones: <em>Inicializar proyecto</em>, <em>No usar en este proyecto</em>, <em>Reactivar</em> y <em>Actualizar datos</em>, que vuelve a leer los ficheros de gestión del proyecto. Su interruptor «Modo proyecto» lo desactiva en todos los proyectos.</li>
+      <li>Debajo aparece el directorio del proyecto, también con el modo apagado, con el icono de editar para cambiarlo. El cambio vale para todas las pestañas, porque el servidor es uno, y no está disponible mientras el modelo responde.</li></ul>
     </div>
 
     <div class="card">
       <h2>5. Detalles y límites</h2>
-      <ul><li>Los ficheros se leen al abrir ZeroChat, al conectar el servidor y al terminar cada respuesta. Si los editas a mano, pulsa <em>Recargar</em>.</li>
+      <ul><li>Los ficheros se leen al abrir ZeroChat, al conectar el servidor y al terminar cada respuesta. Si los editas a mano, pulsa <em>Actualizar datos</em>.</li>
       <li>La inicialización concede lectura y escritura solo en <code>.zerochat/</code>; cualquier otra escritura, como la de <code>AGENTS.md</code>, sigue la política de autorización vigente.</li>
       <li>Si <code>.zerochat/state.md</code> conserva los marcadores de la plantilla, el agente te pide completarlo junto con el plan antes de seguir.</li>
       <li>Si falta <code>AGENTS.md</code> o su sección <em>Project memory</em>, el agente propone añadirla. Colócala al principio del fichero: se leen 16 KB.</li>
