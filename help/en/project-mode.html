@@ -28,7 +28,7 @@
       <h2>1. The idea</h2>
       <p>In a long project, every conversation starts without memory. ZeroChat keeps that memory in the project's own files and hands it to the agent at the start of every chat: the rules, where everything lives and where the work stands. The agent keeps it up to date as it works.</p>
       <p>The rules, including how to keep the memory, live in <code>AGENTS.md</code>, the file that Codex, Cursor, Copilot and other agents also read. That way any agent working on the project follows the same plan and keeps it the same way.</p>
-      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel with <em>Change…</em>, or by asking the agent, which uses <code>set_project_directory</code> and asks for your confirmation. A <code>cd</code> in the shell does not change the project.</p>
+      <p>It works with the <a href="mcp.html">local server</a>: the project is its working directory, initially the directory from which <code>zerochat.py</code> is launched. You can change it without restarting from the Reasoning panel with <em>Change…</em>. The agent cannot change it: a <code>cd</code> in the shell only moves the shell.</p>
     </div>
 
     <div class="card">
@@ -63,7 +63,7 @@
       <ul><li>It is on by default: if the project has a <code>.zerochat/state.md</code>, it is used without doing anything.</li>
       <li>A dot on the <strong>Reasoning</strong> button shows that the project is in use; a warning-colored dot means the files could not be read.</li>
       <li>The Reasoning panel shows the status and actions: <em>Initialize project</em>, <em>Do not use in this project</em>, <em>Re-enable</em> and <em>Reload</em>. Its "Project mode" switch turns it off for all projects.</li>
-      <li>Below it are the project directory, shown even with the mode off, and the <em>Change…</em> button. The change applies to every tab, because there is a single server, and it is unavailable while the model is responding. If it changes in the middle of a response, the new project's rules load with the next message.</li></ul>
+      <li>Below it are the project directory, shown even with the mode off, and the <em>Change…</em> button. The change applies to every tab, because there is a single server, and it is unavailable while the model is responding.</li></ul>
     </div>
 
     <div class="card">

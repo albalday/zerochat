@@ -58,8 +58,7 @@ py zerochat.py</code></pre></div>
       <h2>2. Usa las herramientas del equipo</h2>
       <ul>
         <li><strong>Archivos:</strong> <code>list_directory</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code> y <code>search_files</code>.</li>
-        <li><strong>Directorio del proyecto:</strong> <code>set_project_directory</code> cambia la base de las rutas relativas, el directorio de la shell y el <a href="project-mode.html">proyecto</a>; siempre pide confirmación.</li>
-        <li><strong>Comandos:</strong> <code>bash</code> y <code>execute_command</code>. La sesión shell conserva el directorio de trabajo y las variables entre llamadas; un <code>cd</code> solo mueve la shell, no el proyecto. En Linux/macOS/Android utiliza <code>bash</code>/<code>sh</code>; en Windows se ejecuta de forma nativa en <strong>PowerShell</strong> informando del sistema operativo al modelo.</li>
+        <li><strong>Comandos:</strong> <code>bash</code> y <code>execute_command</code>. La sesión shell conserva el directorio de trabajo y las variables entre llamadas; un <code>cd</code> solo mueve la shell, no el <a href="project-mode.html">directorio del proyecto</a>, que se cambia desde el panel de Razonamiento. En Linux/macOS/Android utiliza <code>bash</code>/<code>sh</code>; en Windows se ejecuta de forma nativa en <strong>PowerShell</strong> informando del sistema operativo al modelo.</li>
         <li><strong>Comprobaciones de sintaxis:</strong> <code>get_diagnostics</code>; no sustituye las pruebas del proyecto.</li>
         <li><strong>Navegador:</strong> <code>browser_action</code> requiere Node.js y disponer de Chrome o Edge en el sistema (o Chromium). Para usarla, inicia el servicio Playwright en Ajustes → MCP (se instala solo). Consulta la <a href="browser-action.html">guía de preparación</a>.</li>
       </ul>
