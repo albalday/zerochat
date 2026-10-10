@@ -90,3 +90,15 @@ test('UIReasoning - syncProjectIndicator actualiza atributo, nombre accesible y 
   assert.doesNotMatch(attributes.title, / · /);
 });
 
+
+test('UIReasoning.shortenHomePath abrevia la carpeta personal con ~ sin tocar otras rutas', () => {
+  assert.equal(UIReasoning.shortenHomePath('/home/u/vs/zerochat'), '~/vs/zerochat');
+  assert.equal(UIReasoning.shortenHomePath('/home/u'), '~');
+  assert.equal(UIReasoning.shortenHomePath('/Users/ana/app'), '~/app');
+  assert.equal(UIReasoning.shortenHomePath('/data/data/com.termux/files/home/app'), '~/app');
+  assert.equal(UIReasoning.shortenHomePath('C:\\Users\\ana\\app'), '~\\app');
+  assert.equal(UIReasoning.shortenHomePath('/home/user2x/app'), '~/app');
+  assert.equal(UIReasoning.shortenHomePath('/homes/u/app'), '/homes/u/app');
+  assert.equal(UIReasoning.shortenHomePath('/srv/app'), '/srv/app');
+  assert.equal(UIReasoning.shortenHomePath(''), '');
+});

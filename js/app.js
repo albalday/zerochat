@@ -495,6 +495,20 @@
     reload() {
       refreshProjectContext();
     },
+    async changeDirectory() {
+      try {
+        const result = await ProjectContext.changeDirectory({
+          askPath: cwd => ChatDialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
+          isBusy: () => State.isConversationBusy?.() === true
+        });
+        if (result?.reason === 'error') {
+          await ChatDialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
+        }
+      } catch (error) {
+        console.error('[App] Project directory change failed:', error);
+        await ChatDialogs.alert(error?.message || String(error), { type: 'error' });
+      }
+    },
     async initialize() {
       try {
         await ProjectContext.initialize({
@@ -556,6 +570,8 @@
       config: Config.get?.() || appConfig || {},
       project: State.get?.('project') || {},
       canInitialize: ProjectContext.canInitialize?.() === true,
+      canChangeDirectory: ProjectContext.canChangeDirectory?.() === true,
+      busy: State.isConversationBusy?.() === true,
       handlers: projectPanelHandlers
     });
   }
@@ -1510,6 +1526,8 @@
         // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
         State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }) => {
           if (!generating && Config.get?.()?.projectMode === true) refreshProjectContext();
+          // «Cambiar…» solo está activo sin generación en curso.
+          renderProjectPanel();
         });
         // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
         refreshProjectContext();

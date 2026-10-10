@@ -108,6 +108,13 @@
     else openReasoningMenu(elements, appConfig, onSelect);
   }
 
+  // Carpeta personal en Linux, macOS, Termux y Windows: se muestra como ~ para acortar la ruta.
+  const HOME_PREFIX = /^(?:\/home\/[^/]+|\/Users\/[^/]+|\/data\/data\/com\.termux\/files\/home|[A-Za-z]:\\Users\\[^\\]+)(?=$|[\\/])/;
+
+  function shortenHomePath(path) {
+    return String(path || '').replace(HOME_PREFIX, '~');
+  }
+
   function projectName(cwd) {
     const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
     return parts[parts.length - 1] || String(cwd || '');
@@ -156,7 +163,7 @@
    * Pinta el pie del panel de razonamiento con el interruptor del modo proyecto, su estado y
    * las acciones del estado actual. Los manejadores se enlazan una vez por delegación.
    */
-  function renderProjectPanel(elements, { config = {}, project = {}, canInitialize = false, handlers = {} } = {}) {
+  function renderProjectPanel(elements, { config = {}, project = {}, canInitialize = false, canChangeDirectory = false, busy = false, handlers = {} } = {}) {
     const panel = elements?.projectModePanel;
     if (!panel) return;
     panel._projectHandlers = handlers;
@@ -164,6 +171,14 @@
     const icon = Icons?.get ? Icons.get('folder', { size: 13 }) : '';
     const enabled = config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize: canInitialize && typeof handlers.initialize === 'function' }) : [];
+    // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
+    const cwd = String(project.cwd || '');
+    const changeButton = canChangeDirectory && typeof handlers.changeDirectory === 'function'
+      ? `<button type="button" class="btn-secondary" data-project-action="changeDirectory" title="${escapeHtml(t('project_action_change_directory_title'))}"${busy ? ' disabled' : ''}>${escapeHtml(t('project_action_change_directory'))}</button>`
+      : '';
+    const directoryHtml = cwd
+      ? `<div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>`
+      : '';
     panel.innerHTML = `
       <div class="reasoning-agent-toggle-wrapper">
         <div class="reasoning-agent-toggle-info">
@@ -175,6 +190,7 @@
           <span class="slider"></span>
         </label>
       </div>
+      ${directoryHtml}
       ${actions.length ? `<div class="project-mode-actions">${actions.map(action =>
         `<button type="button" class="btn-secondary" data-project-action="${action}">${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>` : ''}`;
     if (!panel._hasProjectListeners) {
@@ -207,5 +223,5 @@
     onLevelChanged?.(normalized);
   }
 
-  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, renderProjectPanel, getProjectIndicator, syncProjectIndicator };
+  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, shortenHomePath, renderProjectPanel, getProjectIndicator, syncProjectIndicator };
 });

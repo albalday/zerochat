@@ -27,6 +27,7 @@
   const MAX_FILE_BYTES = 16384;
   const READ_TOOL = 'read_file';
   const WRITE_TOOL = 'write_file';
+  const DIRECTORY_TOOL = 'set_project_directory';
 
   // Sección de AGENTS.md: la leen todos los agentes, así que no nombra herramientas de ZeroChat.
   const MEMORY_SECTION_TEMPLATE = `## ${MEMORY_SECTION_TITLE}
@@ -325,7 +326,45 @@ ${stateBody}
       return { ok: true, rule };
     }
 
-    return { refresh, readProjectFile, canInitialize, initialize };
+    function canChangeDirectory() {
+      return Boolean(getCwd() && getAvailableTool(DIRECTORY_TOOL));
+    }
+
+    /**
+     * Cambia el directorio del proyecto a petición del usuario. Escribir la ruta es su
+     * confirmación, así que la llamada se autoriza una vez sin volver a preguntar; una
+     * denegación explícita de la política sigue prevaleciendo. El proveedor MCP publica el
+     * nuevo directorio y la suscripción al servidor recalcula el proyecto.
+     */
+    async function changeDirectory({ askPath, isBusy } = {}) {
+      if (typeof askPath !== 'function') throw new TypeError('changeDirectory requires askPath');
+      const cwd = getCwd();
+      if (!cwd || !canChangeDirectory() || isBusy?.()) return { ok: false, reason: 'unavailable' };
+
+      const answer = await askPath(cwd);
+      const path = typeof answer === 'string' ? answer.trim() : '';
+      if (!path || path === cwd) return { ok: false, reason: 'cancelled' };
+      // El servidor o la conversación pueden haber cambiado mientras se escribía la ruta.
+      if (getCwd() !== cwd || isBusy?.() || !canChangeDirectory()) return { ok: false, reason: 'state-changed' };
+
+      const execution = await getAgentCore().executor.executeToolCall({
+        id: 'project_change_directory',
+        type: 'function',
+        function: { name: DIRECTORY_TOOL, arguments: JSON.stringify({ path }) }
+      }, { requestToolAuthorization: async () => 'allow_once' });
+      let payload = null;
+      try {
+        payload = JSON.parse(execution?.result?.content || '');
+      } catch (_) {
+        payload = null;
+      }
+      if (payload?.success !== true) {
+        return { ok: false, reason: 'error', error: String(payload?.error || execution?.error || `${DIRECTORY_TOOL} failed`) };
+      }
+      return { ok: true, cwd: String(payload.cwd || '') };
+    }
+
+    return { refresh, readProjectFile, canInitialize, initialize, canChangeDirectory, changeDirectory };
   }
 
   const defaultContext = createProjectContext();
@@ -351,6 +390,8 @@ ${stateBody}
     createProjectContext,
     refresh: defaultContext.refresh,
     canInitialize: defaultContext.canInitialize,
-    initialize: defaultContext.initialize
+    initialize: defaultContext.initialize,
+    canChangeDirectory: defaultContext.canChangeDirectory,
+    changeDirectory: defaultContext.changeDirectory
   };
 }));

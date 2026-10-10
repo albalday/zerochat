@@ -491,6 +491,31 @@
   overflow-wrap: anywhere;
 }
 
+.project-mode-directory {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  min-width: 0;
+}
+
+.project-mode-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.project-mode-directory .btn-secondary {
+  flex-shrink: 0;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+}
+
 .project-mode-actions {
   display: flex;
   flex-wrap: wrap;

@@ -358,4 +358,66 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     await browser.close();
   }
 });
+
+  test('Browser UI - el panel del proyecto muestra el directorio y lo cambia con «Cambiar…»', async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error' && !/Project directory change failed/.test(message.text())) errors.push(message.text()); });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await waitForAppReady(page);
+      await page.evaluate(() => {
+        window.__directoryCalls = [];
+        window.__directoryResult = { success: true, cwd: '/home/u/other' };
+        window.ChatAgentCore.registry.registerTool(new window.ChatAgentCore.Tool({
+          name: 'set_project_directory',
+          category: 'mcp',
+          metadata: { originalName: 'set_project_directory', mcpServerId: 'mcp_proxy' },
+          execute: async args => {
+            window.__directoryCalls.push(args);
+            const payload = window.__directoryResult;
+            return { success: payload.success, content: JSON.stringify(payload) };
+          }
+        }));
+        window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/home/u/repo' }, tools: [] });
+      });
+      await page.click('#btn-reasoning');
+      const path = page.locator('.project-mode-path');
+      await path.waitFor();
+      assert.equal(await path.textContent(), '~/repo');
+      assert.equal(await path.getAttribute('title'), '/home/u/repo');
+
+      // Con el modo proyecto apagado el directorio sigue visible.
+      await page.locator('#project-mode-panel .switch').click();
+      await page.waitForFunction(() => window.ChatState.get('project').status === 'disabled');
+      assert.equal(await page.locator('.project-mode-path').textContent(), '~/repo');
+
+      await page.evaluate(() => window.ChatState.set('streaming', { isGenerating: true }));
+      assert.equal(await page.locator('[data-project-action="changeDirectory"]').isDisabled(), true, 'Desactivado durante la generación');
+      await page.evaluate(() => window.ChatState.set('streaming', { isGenerating: false }));
+      assert.equal(await page.locator('[data-project-action="changeDirectory"]').isDisabled(), false);
+
+      await page.click('[data-project-action="changeDirectory"]');
+      assert.equal(await page.locator('#notice-input').inputValue(), '/home/u/repo');
+      await page.locator('#notice-input').fill('/home/u/other');
+      await page.locator('#notice-accept').click();
+      await page.waitForFunction(() => window.__directoryCalls.length === 1);
+      assert.deepEqual(await page.evaluate(() => window.__directoryCalls), [{ path: '/home/u/other' }]);
+      assert.equal(await page.locator('.tool-card-auth-prompt').count(), 0, 'El diálogo ya es la confirmación');
+
+      await page.evaluate(() => { window.__directoryResult = { success: false, error: "Directory '/nope' does not exist" }; });
+      // Aceptar el diálogo cuenta como clic fuera y cierra el menú, como en las demás acciones.
+      await page.click('#btn-reasoning');
+      await page.click('[data-project-action="changeDirectory"]');
+      await page.locator('#notice-input').fill('/nope');
+      await page.locator('#notice-accept').click();
+      await page.waitForFunction(() => /does not exist/.test(document.getElementById('notice-message').textContent));
+      await page.locator('#notice-accept').click();
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+    }
+  });
 });
