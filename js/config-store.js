@@ -59,8 +59,8 @@
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
     next.reasoningEffort = ['off', 'none'].includes(String(next.reasoningEffort).toLowerCase()) ? 'none' : String(next.reasoningEffort || DEFAULTS.reasoningEffort);
     next.reasoningTransport = ['omit', 'send-none'].includes(next.reasoningTransport) ? next.reasoningTransport : 'auto';
-    const parsedTurns = Number(next.maxAgentTurns);
-    next.maxAgentTurns = Number.isInteger(parsedTurns) ? Math.min(200, Math.max(5, parsedTurns)) : 40;
+    // Retired: the agent loop no longer has a step limit.
+    delete next.maxAgentTurns;
     next.theme = next.theme === 'dark' ? 'dark' : 'light';
     next.language = next.language === 'en' ? 'en' : 'es';
     next.enabledTools = next.enabledTools && typeof next.enabledTools === 'object' ? clone(next.enabledTools) : clone(DEFAULTS.enabledTools);
@@ -121,11 +121,6 @@
       } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
       if (stored) {
         const config = { ...stored, modelContextLimit: null };
-        // Version 2 used 15 as the shipped default. Migrate only that legacy
-        // default once; any other persisted choice remains untouched.
-        if (Number(stored.schemaVersion) < SCHEMA_VERSION && Number(config.maxAgentTurns) === 15) {
-          config.maxAgentTurns = DEFAULTS.maxAgentTurns;
-        }
         try {
           if (!profiles?.get?.(config.activeProfile?.id) && fallbackProfile) {
             return commit(applyProfile(config, fallbackProfile));

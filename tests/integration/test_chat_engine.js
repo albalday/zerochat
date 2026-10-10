@@ -654,17 +654,18 @@ test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningC
   ChatAPI.streamChatCompletion = originalStream;
 });
 
-test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite de turnos (15) aunque falle la síntesis', async (t) => {
+test('ChatEngine - executeAgentTurnLoop no limita los turnos ni pide una síntesis', async () => {
   const originalStream = ChatAPI.streamChatCompletion;
+  const TOOL_TURNS = 45;
 
   let callCount = 0;
-  let synthesisPrompt = '';
+  let synthesisRequested = false;
   ChatAPI.streamChatCompletion = async (params) => {
     callCount++;
-    if (params.enableTools === false) {
-      // Simular fallo de red o rechazo de servidor en la síntesis final
-      synthesisPrompt = params.messages.at(-1)?.content || '';
-      throw new Error('HTTP 500: Server synthesis failed');
+    if (params.enableTools === false || params.toolChoice === 'none') synthesisRequested = true;
+    if (callCount > TOOL_TURNS) {
+      if (params.onDone) params.onDone('Hecho.', null, []);
+      return { accumulatedText: 'Hecho.', toolCalls: [], stats: null };
     }
     const tc = [{
       id: 'call_turn_' + callCount,
@@ -678,7 +679,7 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
     return { accumulatedText: '', toolCalls: tc, stats: null };
   };
 
-  const history = [{ role: 'user', content: 'Ejecuta 15 herramientas' }];
+  const history = [{ role: 'user', content: 'Ejecuta muchas herramientas' }];
   const appConfig = {
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
@@ -687,24 +688,23 @@ test('ChatEngine - executeAgentTurnLoop finaliza con éxito al alcanzar límite 
     language: 'es'
   };
 
-  const res = await ChatEngine.executeAgentTurnLoop({
-    apiUrl: appConfig.apiUrl,
-    apiType: appConfig.apiType,
-    model: appConfig.model,
-    chatHistory: history,
-    appConfig: appConfig,
-    maxAgentTurns: 15
-  });
+  try {
+    const res = await ChatEngine.executeAgentTurnLoop({
+      apiUrl: appConfig.apiUrl,
+      apiType: appConfig.apiType,
+      model: appConfig.model,
+      chatHistory: history,
+      appConfig: appConfig
+    });
 
-  assert.equal(res.success, true);
-  assert.ok(callCount >= 15, 'Debe haber ejecutado al menos 15 llamadas');
-  assert.match(synthesisPrompt, /Prefer a brief, clear answer/, 'La síntesis debe priorizar una respuesta concisa');
-  assert.match(synthesisPrompt, /Do not enumerate tool calls or results/, 'La síntesis no debe pedir un listado de herramientas');
-  assert.equal(res.finalAssistantText, 'I could not produce a final answer after processing the available information. Please try again.');
-  assert.doesNotMatch(res.finalAssistantText, /let v =|Summary of Consulted Information/, 'El fallback no debe exponer resultados crudos de herramientas');
-  assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
-
-  ChatAPI.streamChatCompletion = originalStream;
+    assert.equal(res.success, true);
+    assert.equal(callCount, TOOL_TURNS + 1);
+    assert.equal(synthesisRequested, false, 'No debe pedirse una síntesis sin herramientas');
+    assert.equal(res.finalAssistantText, 'Hecho.');
+    assert.ok(history.some(m => m.id && m.id.endsWith('_final')), 'Debe registrar el turno final en el historial');
+  } finally {
+    ChatAPI.streamChatCompletion = originalStream;
+  }
 });
 
 test('ChatEngine - con herramientas en texto (WebLLM) no inyecta la guía de pseudo-firmas', () => {

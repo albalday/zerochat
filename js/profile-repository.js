@@ -16,7 +16,7 @@
   const READONLY_PROFILE_ID = 'profile:mirror';
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'model', 'systemPrompt', 'temperature',
-    'reasoningEffort', 'reasoningTransport', 'maxAgentTurns', 'modelReasoningConfig', 'enabledTools',
+    'reasoningEffort', 'reasoningTransport', 'modelReasoningConfig', 'enabledTools',
     'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked'
   ]);
   const STORAGE_PROFILE_FIELDS = Object.freeze([...PROFILE_FIELDS, 'apiKey']);
@@ -29,7 +29,7 @@
 
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
-    temperature: '0.7', reasoningEffort: 'medium', reasoningTransport: 'auto', maxAgentTurns: 40, modelReasoningConfig: null,
+    temperature: '0.7', reasoningEffort: 'medium', reasoningTransport: 'auto', modelReasoningConfig: null,
     enabledTools: { execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true },
     enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
     webllmConfig: {

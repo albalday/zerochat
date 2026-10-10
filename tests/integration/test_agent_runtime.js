@@ -253,7 +253,7 @@ test('AgentRuntime - Múltiples pasos agénticos secuenciales', async () => {
     }
   };
 
-  const runtime = new AgentRuntime({ registry, maxSteps: 5 });
+  const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
     api: mockApi,
     messages: [{ role: 'user', content: 'Dame los pedidos del usuario activo' }]
@@ -375,78 +375,147 @@ test('AgentRuntime - Cancelación manual mediante AbortSignal', async () => {
   assert.match(result.error.message, /cancelada/);
 });
 
-test('AgentRuntime - permite ciclos de programación cuando los lotes de herramientas alternan', async () => {
-  const registry = new ToolRegistry();
-  let testRuns = 0;
-  let edits = 0;
-  registry.registerTool(new Tool({ name: 'run_tests', execute: async () => { testRuns++; return { passed: false }; } }));
-  registry.registerTool(new Tool({ name: 'apply_change', execute: async () => { edits++; return { changed: true }; } }));
-
-  let step = 0;
-  const mockApi = {
-    streamChatCompletion: async () => {
-      if (step++ === 8) return { accumulatedText: 'Trabajo terminado.', toolCalls: [] };
-      const isTest = step % 2 === 1;
+// Simula un modelo que pide los pasos indicados y después responde sin herramientas.
+// Cada paso es { tool, args, text }; registra las peticiones para comprobar que no hay síntesis.
+function scriptedApi(steps, finalText = 'Trabajo terminado.') {
+  const requests = [];
+  let index = 0;
+  return {
+    requests,
+    streamChatCompletion: async params => {
+      requests.push(params);
+      const step = steps[index++];
+      if (!step) return { accumulatedText: finalText, toolCalls: [] };
       return {
-        accumulatedText: '',
-        toolCalls: [{
-          id: `call_${step}`,
-          function: { name: isTest ? 'run_tests' : 'apply_change', arguments: isTest ? '{"suite":"unit"}' : '{"target":"app.js"}' }
-        }]
+        accumulatedText: step.text || '',
+        toolCalls: [{ id: `call_${index}`, function: { name: step.tool, arguments: JSON.stringify(step.args || {}) } }]
       };
     }
   };
+}
 
-  const result = await new AgentRuntime({ registry, maxSteps: 12 }).execute({
-    api: mockApi,
-    messages: [{ role: 'user', content: 'Corrige el proyecto.' }]
-  });
+function countingRegistry(names) {
+  const registry = new ToolRegistry();
+  const counts = {};
+  for (const name of names) {
+    counts[name] = 0;
+    registry.registerTool(new Tool({ name, execute: async () => { counts[name]++; return { ok: true }; } }));
+  }
+  return { registry, counts };
+}
+
+function assertNoSynthesis(api) {
+  assert.ok(api.requests.every(params => params.enableTools !== false && params.toolChoice !== 'none'),
+    'El runtime nunca pide una síntesis sin herramientas');
+}
+
+test('AgentRuntime - permite ciclos de programación test -> editar -> test cuando la edición cambia', async () => {
+  const { registry, counts } = countingRegistry(['run_tests', 'apply_change']);
+  const steps = [];
+  for (let i = 0; i < 8; i++) {
+    steps.push({ tool: 'run_tests', args: { suite: 'unit' } }, { tool: 'apply_change', args: { target: 'app.js', patch: i } });
+  }
+  const api = scriptedApi(steps);
+  const result = await new AgentRuntime({ registry }).execute({ api, messages: [{ role: 'user', content: 'Corrige el proyecto.' }] });
 
   assert.equal(result.status, 'completed');
-  assert.equal(testRuns, 4);
-  assert.equal(edits, 4);
+  assert.equal(counts.run_tests, 8);
+  assert.equal(counts.apply_change, 8);
 });
 
-test('AgentRuntime - bloquea la sexta repetición consecutiva del mismo lote', async () => {
-  const registry = new ToolRegistry();
-  let executions = 0;
-  registry.registerTool(new Tool({ name: 'repeat', execute: async () => { executions++; return { ok: true }; } }));
-  const toolCall = { function: { name: 'repeat', arguments: '{"value":1}' } };
-  let loopDetectedEventFired = false;
-  const result = await new AgentRuntime({ registry, maxSteps: 8 }).execute({
-    api: { streamChatCompletion: async params => params.enableTools === false
-      ? { accumulatedText: 'Resumen.', toolCalls: [] }
-      : { accumulatedText: '', toolCalls: [{ ...toolCall, id: `call_${executions}` }] } },
+test('AgentRuntime - detiene el quinto lote idéntico consecutivo sin ejecutarlo ni sintetizar', async () => {
+  const { registry, counts } = countingRegistry(['repeat']);
+  const api = scriptedApi(Array.from({ length: 10 }, () => ({ tool: 'repeat', args: { value: 1 } })));
+  let loopPeriod = null;
+  const result = await new AgentRuntime({ registry }).execute({
+    api,
     messages: [{ role: 'user', content: 'Repite.' }],
-    callbacks: { onLoopDetected: () => { loopDetectedEventFired = true; } }
+    appendFinalMessage: true,
+    callbacks: { onLoopDetected: (_call, period) => { loopPeriod = period; } }
   });
 
   assert.equal(result.status, 'loop_detected');
   assert.equal(result.loopDetected, true);
-  assert.equal(loopDetectedEventFired, true);
+  assert.equal(result.success, true);
+  assert.equal(loopPeriod, 1);
+  assert.equal(counts.repeat, 4);
+  assert.equal(api.requests.length, 5);
   assert.match(result.finalText, /Infinite Loop Protection/);
-  assert.equal(executions, 5);
+  assert.equal(result.history.at(-1).role, 'assistant');
+  assertNoSynthesis(api);
 });
 
-test('AgentRuntime - registra el fallo de la síntesis tras detectar un bucle en lugar de ocultarlo', async (t) => {
-  t.mock.method(console, 'warn', () => {});
-  const registry = new ToolRegistry();
-  registry.registerTool(new Tool({ name: 'repeat', execute: async () => ({ ok: true }) }));
-  const toolCall = { function: { name: 'repeat', arguments: '{"value":1}' } };
-  const logs = [];
-  let call = 0;
-  const result = await new AgentRuntime({ registry, maxSteps: 8 }).execute({
-    api: { streamChatCompletion: async params => {
-      if (params.enableTools === false) throw new Error('synthesis unavailable');
-      return { accumulatedText: '', toolCalls: [{ ...toolCall, id: `call_${call++}` }] };
-    } },
-    messages: [{ role: 'user', content: 'Repite.' }],
-    callbacks: { onLog: entry => logs.push(entry) }
+test('AgentRuntime - detiene dos lotes alternados tras cinco ciclos', async () => {
+  const { registry, counts } = countingRegistry(['a', 'b']);
+  const steps = [];
+  for (let i = 0; i < 8; i++) steps.push({ tool: 'a', args: { n: 1 } }, { tool: 'b', args: { n: 2 } });
+  const api = scriptedApi(steps);
+  let loopPeriod = null;
+  const result = await new AgentRuntime({ registry }).execute({
+    api,
+    messages: [{ role: 'user', content: 'Alterna.' }],
+    callbacks: { onLoopDetected: (_call, period) => { loopPeriod = period; } }
   });
 
   assert.equal(result.status, 'loop_detected');
-  assert.ok(logs.some(entry => entry.type === 'warning' && /synthesis unavailable/.test(entry.text)));
-  assert.equal(console.warn.mock.callCount(), 1);
+  assert.equal(loopPeriod, 2);
+  assert.equal(api.requests.length, 10);
+  assert.equal(counts.a, 5);
+  assert.equal(counts.b, 4);
+  assertNoSynthesis(api);
+});
+
+test('AgentRuntime - no considera bucle una serie interrumpida ni un ciclo de tres lotes', async () => {
+  const { registry } = countingRegistry(['a', 'b', 'c']);
+  const interrupted = [1, 2, 3, 4].map(() => ({ tool: 'a' })).concat([{ tool: 'b' }], [1, 2, 3, 4].map(() => ({ tool: 'a' })));
+  const threeCycle = [];
+  for (let i = 0; i < 6; i++) threeCycle.push({ tool: 'a' }, { tool: 'b' }, { tool: 'c' });
+
+  for (const steps of [interrupted, threeCycle]) {
+    const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Trabaja.' }] });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.stepsCount, steps.length);
+  }
+});
+
+test('AgentRuntime - no limita el número de pasos', async () => {
+  const { registry, counts } = countingRegistry(['read_page']);
+  const steps = Array.from({ length: 60 }, (_, page) => ({ tool: 'read_page', args: { page } }));
+  const api = scriptedApi(steps, 'Documento leído.');
+  const result = await new AgentRuntime({ registry }).execute({ api, messages: [{ role: 'user', content: 'Lee todo.' }] });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(counts.read_page, 60);
+  assert.equal(result.finalText, 'Documento leído.');
+  assertNoSynthesis(api);
+});
+
+test('AgentRuntime - un texto nuevo para el usuario reinicia el control de bucles', async () => {
+  const { registry, counts } = countingRegistry(['repeat']);
+  const steps = [1, 2, 3, 4].map(() => ({ tool: 'repeat' }))
+    .concat([{ tool: 'repeat', text: 'Sigo esperando a que el servicio responda.' }], [1, 2, 3].map(() => ({ tool: 'repeat' })));
+  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Espera.' }] });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(counts.repeat, 8);
+});
+
+test('AgentRuntime - la misma frase repetida en cada paso no reinicia el control de bucles', async () => {
+  const { registry, counts } = countingRegistry(['repeat']);
+  const steps = Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: i % 2 ? 'Voy a  buscar...' : 'voy a buscar...' }));
+  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Busca.' }] });
+
+  assert.equal(result.status, 'loop_detected');
+  assert.equal(counts.repeat, 4);
+});
+
+test('AgentRuntime - una tool call emitida como texto no reinicia el control de bucles', async () => {
+  const { registry, counts } = countingRegistry(['repeat']);
+  const steps = Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: `<tool_call>{"name":"repeat","n":${i}}</tool_call>` }));
+  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Repite.' }] });
+
+  assert.equal(result.status, 'loop_detected');
+  assert.equal(counts.repeat, 4);
 });
 
 test('AgentRuntime - Clean termination when model returns empty text after tools', async () => {
@@ -471,7 +540,7 @@ test('AgentRuntime - Clean termination when model returns empty text after tools
     }
   };
 
-  const runtime = new AgentRuntime({ registry, autoSynthesize: true });
+  const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
     api: mockApi,
     messages: [{ role: 'user', content: 'Get the stock price' }]
@@ -582,11 +651,11 @@ test('AgentRuntime - execute limpia el listener abort del signal al finalizar', 
   assert.equal(removedCount, 1);
 });
 
-test('AgentRuntime - una herramienta con endTurn cede el turno sin síntesis ni más peticiones', async () => {
+test('AgentRuntime - una herramienta con endTurn cede el turno sin más peticiones', async () => {
   const registry = new ToolRegistry();
   const AskUserTool = require('../../js/tools/builtin/ask-user.tool.js');
   registry.registerTool(AskUserTool.createTool(Tool));
-  for (const maxSteps of [5, 1]) {
+  {
     let requests = 0;
     const result = await new AgentRuntime({ registry }).execute({
       api: {
@@ -600,10 +669,9 @@ test('AgentRuntime - una herramienta con endTurn cede el turno sin síntesis ni 
         }
       },
       messages: [{ role: 'user', content: 'Revisa el proyecto' }],
-      maxSteps,
       appendFinalMessage: true
     });
-    assert.equal(requests, 1, `maxSteps=${maxSteps}: no hay síntesis ni más pasos`);
+    assert.equal(requests, 1, 'no hay más pasos tras ceder el turno');
     assert.equal(result.status, 'completed');
     assert.equal(result.awaitingUser, true);
     assert.equal(result.success, true);

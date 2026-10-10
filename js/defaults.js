@@ -34,7 +34,6 @@
     activeProfile: null,
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', modelContextLimit: null, contextLimitOverride: null,
     systemPrompt: '', systemDataPrompt: DEFAULT_SYSTEM_DATA_PROMPT, temperature: '0.7', reasoningEffort: 'medium', reasoningTransport: 'auto',
-    maxAgentTurns: 40,
     modelReasoningConfig: null,
     enabledTools: Object.freeze({ execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }),
     enableRawLogs: false, enableContextCache: true,

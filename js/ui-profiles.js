@@ -297,7 +297,6 @@
     const model = els.settingModel?.value.trim() || '';
     const systemPrompt = els.settingSystemPrompt?.value.trim() || '';
     const temperature = els.settingTemperature?.value || baseSettings.temperature || '0.7';
-    const maxAgentTurns = els.settingMaxAgentTurns?.value ? Number(els.settingMaxAgentTurns.value) : (baseSettings.maxAgentTurns || 40);
     const apiKeyLocked = els.settingApiKeyLocked?.checked === true;
 
     const saved = await Profiles.saveEditable({
@@ -313,7 +312,6 @@
         model,
         systemPrompt,
         temperature,
-        maxAgentTurns,
         webllmConfig: formConfig?.webllmConfig || baseSettings.webllmConfig || {
           context_window_size: String(resolveDep('ChatDefaults', './defaults.js').WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
           prefill_chunk_size: 'default'

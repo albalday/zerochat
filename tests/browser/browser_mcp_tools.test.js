@@ -505,10 +505,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.click('#btn-open-settings');
     await page.click('[data-section="agent"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    await page.$eval('#setting-max-agent-turns', (input) => {
-      input.value = String(Number(input.value) + 1);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first().locator('..').click();
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
 
     await page.click('#btn-close-settings');

@@ -42,7 +42,7 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   assert.equal(getPersisted().activeProfileName, undefined);
 });
 
-test('ChatConfig - valores por defecto: razonamiento medio, 40 turnos acotados entre 5 y 200 y mcpAutoConnect desactivado', () => {
+test('ChatConfig - valores por defecto: razonamiento medio, sin límite de turnos y mcpAutoConnect desactivado', () => {
   {
     const { store } = createFixture();
     store.initialize();
@@ -52,9 +52,8 @@ test('ChatConfig - valores por defecto: razonamiento medio, 40 turnos acotados e
 
   {
     const { store } = createFixture();
-    assert.equal(store.initialize().maxAgentTurns, 40);
-    assert.equal(store.updateRuntime({ maxAgentTurns: 1 }).maxAgentTurns, 5);
-    assert.equal(store.updateRuntime({ maxAgentTurns: 300 }).maxAgentTurns, 200);
+    assert.equal('maxAgentTurns' in store.initialize(), false);
+    assert.equal('maxAgentTurns' in store.updateRuntime({ maxAgentTurns: 15 }), false);
   }
 
   {
@@ -72,18 +71,15 @@ test('ChatConfig - valores por defecto: razonamiento medio, 40 turnos acotados e
   }
 });
 
-test('ChatConfig - migra el valor predeterminado heredado de 15 turnos a 40 una sola vez', () => {
+test('ChatConfig - descarta el límite de turnos de una configuración persistida antigua', () => {
   const { store } = createFixture();
-  store.initialize();
-  const legacy = store.updateRuntime({ maxAgentTurns: 15 });
-  // Simula una configuración persistida antes del cambio de valor predeterminado.
-  legacy.schemaVersion = 2;
+  const legacy = { ...store.initialize(), maxAgentTurns: 15, schemaVersion: 2 };
   const storage = {
     loadRuntimeConfigV2: () => legacy,
     saveRuntimeConfigV2: () => {}
   };
   const migrated = ChatConfig.createConfigStore({ state: State.createStore(), storage, profiles: { initialize: () => {}, get: () => null, list: () => [] } }).initialize();
-  assert.equal(migrated.maxAgentTurns, 40);
+  assert.equal('maxAgentTurns' in migrated, false);
   assert.equal(migrated.schemaVersion, 3);
 });
 

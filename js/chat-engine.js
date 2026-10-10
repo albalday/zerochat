@@ -2,9 +2,9 @@
  * Motor Agéntico de Mensajería y Streaming (ChatEngine) para ZeroChat.
  * Responsable de:
  * - Construcción y anclaje de mensajes efectivos (System Prompt, Context-Caching, RAG context).
- * - Orquestación del bucle agéntico multi-turno (turnos asistentes, llamadas a herramientas y síntesis forzada).
+ * - Orquestación del bucle agéntico multi-turno (turnos asistentes y llamadas a herramientas).
  * - Streaming de tokens, reasoning/thinking chunks y cálculo de métricas en tiempo real.
- * - Prevención de bucles infinitos por llamadas idénticas consecutivas.
+ * - Presentación de la parada por bucle que detecta AgentRuntime.
  */
 
 (function (root, factory) {
@@ -138,7 +138,7 @@
    * Construye el array de mensajes normalizado y enriquecido para la API de inferencia.
    * @param {Array} chatHistory - Historial de mensajes de la conversación.
    * @param {Object} appConfig - Configuración activa de la aplicación.
-   * @param {Object} [options={}] - Opciones de contexto (ej: currentRagSystemContext, forceSystemPromptGuide).
+   * @param {Object} [options={}] - Opciones de contexto (ej: currentRagSystemContext).
    * @returns {Array} - Array de mensajes listo para streamChatCompletion.
    */
   function buildEffectiveMessages(chatHistory = [], appConfig = {}, options = {}) {
@@ -251,7 +251,7 @@
     const lang = appConfig.language || 'es';
     let toolsGuide = '';
     if (isToolsEnabled) {
-      if (!providerReceivesToolSignatures || options.forceSystemPromptGuide) {
+      if (!providerReceivesToolSignatures) {
         toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
       } else {
         toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
@@ -367,7 +367,6 @@
       : (activeRagBranchId ? [activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
     const resolvedBranchId = activeRagBranchId || resolvedBranchIds[0] || appConfig.activeRagBranchId || '';
     const turnBlocks = new Map();
-    let synthesisBlock = null;
     const turnMarkdown = new Map();
 
     const getTurnMarkdown = turnIndex => {
@@ -387,10 +386,7 @@
       reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
       messages: chatHistory,
       signal: params.signal,
-      maxSteps: params.maxAgentTurns || appConfig.maxAgentTurns || 40,
       maxRetries: 0,
-      autoSynthesize: true,
-      synthesizeOnLoop: false,
       appendFinalMessage: true,
       contextOptions: {
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
@@ -414,13 +410,12 @@
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
         return `${assistantMsgId}_turn_${info.stepIndex}_tool_${info.toolCall?.id || info.toolIndex}_${Date.now()}`;
       },
-      prepareMessages: (messages, options) => ({
+      prepareMessages: messages => ({
         messages: buildEffectiveMessages(messages, appConfig, {
           currentRagSystemContext,
           projectContext,
           activeRagBranchId: resolvedBranchId,
           activeRagBranchIds: resolvedBranchIds,
-          forceSystemPromptGuide: Boolean(options.isSynthesis),
           onContextPrepared: diagnostics => { lastContextDiagnostics = diagnostics; }
         }),
         diagnostics: lastContextDiagnostics
@@ -462,7 +457,7 @@
           scrollFn();
         },
         onChunk: (text, delta, stats, turnIndex) => {
-          const block = turnBlocks.get(turnIndex) || synthesisBlock;
+          const block = turnBlocks.get(turnIndex);
           if (block) {
             UIConversation.renderAssistantBlock(block, text, { streaming: true, attachListeners: attachEvts });
           }
@@ -513,13 +508,8 @@
             onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
           }
         },
-        onSynthesize: () => {
-          if (container && typeof document !== 'undefined') {
-            synthesisBlock = UIConversation.createAssistantBlock(container);
-          }
-        },
         onDone: finalText => {
-          const block = synthesisBlock || turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
+          const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
           if (block && finalText) {
             UIConversation.renderAssistantBlock(block, finalText, { attachListeners: attachEvts });
           }

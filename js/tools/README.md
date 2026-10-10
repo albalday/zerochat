@@ -18,9 +18,11 @@ Las herramientas de conocimiento local usan cuatro operaciones canónicas: `list
 
 `AgentRuntime` (`js/agent-core.js`) es el único bucle agéntico. `chat-engine.js` prepara el contexto y adapta sus eventos al DOM, pero no ejecuta iteraciones ni herramientas.
 
-Una herramienta puede ceder el turno al usuario devolviendo `endTurn: true` en un resultado correcto, como hace `ask_user`. El bucle termina tras ese paso, sin síntesis final, y la respuesta del usuario llega como el siguiente mensaje. `AgentRuntime` lo indica con `awaitingUser` en su resultado.
+Una herramienta puede ceder el turno al usuario devolviendo `endTurn: true` en un resultado correcto, como hace `ask_user`. El bucle termina tras ese paso y la respuesta del usuario llega como el siguiente mensaje. `AgentRuntime` lo indica con `awaitingUser` en su resultado.
 
-La protección de bucles compara el lote ordenado de herramientas de cada paso con el del paso inmediatamente anterior. Detiene la sexta repetición consecutiva del mismo lote; una secuencia que alterna acciones, como verificar, editar y volver a verificar, continúa hasta el límite de turnos configurado.
+No hay límite de pasos: el bucle termina con una respuesta sin herramientas, una herramienta con `endTurn`, la protección de bucles, la cancelación del usuario o un error. El runtime nunca pide al modelo una síntesis o resumen final.
+
+La protección de bucles guarda, solo durante el turno, la huella de los últimos 10 lotes de herramientas (nombre y argumentos con las claves ordenadas, en el orden del lote). Antes de ejecutar un lote comprueba si el historial termina en el mismo lote repetido 5 veces (`aaaaa`) o en dos lotes alternados 5 veces (`ababababab`); en ese caso no lo ejecuta, añade un aviso al texto del paso y termina con `loopDetected`. Un texto para el usuario distinto del último que reinició el control vacía el historial; la misma frase repetida en cada paso y las llamadas emitidas como texto (`<tool_call>`) no lo reinician. Ciclos como verificar, editar y volver a verificar no cuentan como bucle porque cada edición cambia los argumentos.
 
 Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRegistry`, evalúa la política de `ChatToolSecurity` y solo después invoca `tool.execute`. Las herramientas MCP que requieren confirmación se bloquean si no existe una interfaz que pueda recoger una decisión explícita del usuario.
 

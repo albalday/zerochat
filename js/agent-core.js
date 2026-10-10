@@ -921,24 +921,27 @@
     }
   }
 
+  // Un bucle es el mismo lote de herramientas repetido 5 veces seguidas (aaaaa) o dos
+  // lotes alternados 5 veces (ababababab). Ciclos como test -> editar -> test no cuentan
+  // porque cada edición cambia los argumentos, y un texto nuevo para el usuario entre
+  // pasos reinicia el control.
+  const LOOP_REPETITIONS = 5;
+  const LOOP_MAX_PERIOD = 2;
+  const LOOP_HISTORY_SIZE = LOOP_REPETITIONS * LOOP_MAX_PERIOD;
+
   /**
    * Entorno de ejecución agéntico avanzado (AgentRuntime).
    * Orquesta el ciclo de vida de razonamiento y acción (ReAct), múltiples pasos,
    * control de tiempo/timeout, reintentos de herramientas, cancelación,
-   * detección de bucles infinitos, presupuestos de tokens y síntesis final.
+   * detección de bucles infinitos y presupuestos de tokens. No hay límite de pasos:
+   * el ciclo termina con la respuesta final, un bucle, ask_user, cancelación o error.
    */
   class AgentRuntime {
     constructor(options = {}) {
       this.registry = options.registry || new ToolRegistry();
       this.executor = options.executor || new ToolExecutor(this.registry);
-      this.maxSteps = options.maxSteps || options.maxTurns || (options.appConfig && options.appConfig.maxAgentTurns) || (options.config && options.config.maxAgentTurns) || 40;
       this.timeoutMs = options.timeoutMs || 0; // 0 = sin límite global de tiempo
-      this.stepTimeoutMs = options.stepTimeoutMs || 60000; // 60s por paso
       this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : 1;
-      // A repeated tool batch is only a loop when it is repeated consecutively.
-      // This leaves normal programming cycles such as test -> edit -> test alone.
-      this.loopThreshold = options.loopThreshold || 5;
-      this.autoSynthesize = options.autoSynthesize !== false;
     }
 
     /**
@@ -969,6 +972,20 @@
 
     getToolBatchFingerprint(toolCalls) {
       return JSON.stringify((toolCalls || []).map(toolCall => this.getToolCallFingerprint(toolCall)));
+    }
+
+    /**
+     * Devuelve el periodo del ciclo con que termina el historial de lotes
+     * (1 = aaaaa, 2 = ababababab) o 0 si no termina en bucle.
+     */
+    detectLoop(fingerprints) {
+      for (let period = 1; period <= LOOP_MAX_PERIOD; period++) {
+        const span = period * LOOP_REPETITIONS;
+        if (fingerprints.length < span) continue;
+        const tail = fingerprints.slice(-span);
+        if (tail.every((fp, i) => fp === tail[i % period])) return period;
+      }
+      return 0;
     }
 
     /**
@@ -1023,13 +1040,8 @@
         enableTools = true,
         toolFilterOptions = {},
         signal = null,
-        maxSteps = this.maxSteps,
         timeoutMs = this.timeoutMs,
-        stepTimeoutMs = this.stepTimeoutMs,
         maxRetries = this.maxRetries,
-        loopThreshold = this.loopThreshold,
-        autoSynthesize = this.autoSynthesize,
-        synthesizeOnLoop = true,
         api: customApi = null,
         prepareMessages = null,
         resolveToolDefinitions = null,
@@ -1093,14 +1105,14 @@
       let finalReasoningText = '';
       let lastStats = null;
       const toolExecutions = [];
-      let previousToolBatchFingerprint = null;
-      let consecutiveToolBatchCount = 0;
+      let toolBatchHistory = [];
+      let lastResetText = null;
       let compressionUnavailable = false;
       let status = 'completed';
       let executionError = null;
       let yieldedToUser = false;
 
-      while (stepIndex < maxSteps) {
+      while (true) {
         if (combinedSignal.aborted) {
           status = isTimedOut ? 'timeout' : 'cancelled';
           executionError = new Error(isTimedOut ? 'Tiempo límite de ejecución agéntica excedido.' : 'Ejecución agéntica cancelada por el usuario.');
@@ -1140,8 +1152,7 @@
           const prepared = await prepareMessages(workingMessages, {
             stepIndex,
             model,
-            apiType,
-            isSynthesis: false
+            apiType
           });
           if (Array.isArray(prepared)) {
             stepMessages = prepared;
@@ -1274,82 +1285,6 @@
           }
 
           // Caso B: Llamadas a herramientas detectadas (soporte para llamadas individuales y en paralelo)
-          const currentBatchFingerprint = this.getToolBatchFingerprint(stepToolCalls);
-          consecutiveToolBatchCount = currentBatchFingerprint === previousToolBatchFingerprint
-            ? consecutiveToolBatchCount + 1
-            : 1;
-          previousToolBatchFingerprint = currentBatchFingerprint;
-          const repeatedConsecutively = consecutiveToolBatchCount > loopThreshold;
-
-          // Detección y protección contra bucles infinitos
-          if (repeatedConsecutively) {
-            status = 'loop_detected';
-            if (callbacks.onLoopDetected) {
-              callbacks.onLoopDetected(stepToolCalls[0], consecutiveToolBatchCount, stepIndex);
-            }
-            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.';
-            currentStepText = (currentStepText || '') + loopWarning;
-            finalAccumulatedText = currentStepText;
-            if (appendFinalMessage) {
-              workingMessages.push({
-                id: typeof createMessageId === 'function'
-                  ? createMessageId('final', { stepIndex })
-                  : `msg_turn_${stepIndex}_final`,
-                role: 'assistant',
-                content: currentStepText
-              });
-            }
-
-            if (callbacks.onStepDone) {
-              callbacks.onStepDone(stepIndex, {
-                type: 'loop_detected',
-                text: currentStepText,
-                assistantMsg: {
-                  id: typeof createMessageId === 'function'
-                    ? createMessageId('final', { stepIndex })
-                    : `msg_turn_${stepIndex}_final`,
-                  role: 'assistant',
-                  content: currentStepText
-                }
-              });
-            }
-
-            if (autoSynthesize && synthesizeOnLoop && !combinedSignal.aborted) {
-              if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
-              try {
-                const synthRes = await API.streamChatCompletion({
-                  apiUrl,
-                  apiType,
-                  apiKey,
-                  model,
-                  messages: [
-                    ...workingMessages,
-                    { role: 'assistant', content: currentStepText }
-                  ],
-                  temperature,
-                  reasoningEffort,
-                  reasoningTransport,
-                  enableTools: false,
-                  signal: combinedSignal,
-                  onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
-                  onChunk: (fullTextSoFar, delta, stats) => {
-                    finalAccumulatedText = fullTextSoFar;
-                    if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
-                  },
-                  onDone: (finalText, stats) => {
-                    finalAccumulatedText = finalText || finalAccumulatedText;
-                    lastStats = stats || lastStats;
-                  }
-                });
-              } catch (e) {
-                if (!combinedSignal.aborted) {
-                  console.warn('[ChatAgentCore] Synthesis after loop detection failed:', e);
-                  callbacks.onLog?.({ type: 'warning', text: `[Loop protection] Synthesis failed: ${e?.message || String(e)}` });
-                }
-              }
-            }
-            break;
-          }
           const trimmedStepText = (currentStepText || '').trim();
           if (
             trimmedStepText.startsWith('<|') ||
@@ -1368,6 +1303,43 @@
             trimmedStepText.startsWith('executejs(')
           ) {
             currentStepText = '';
+          }
+
+          // Un texto nuevo para el usuario reinicia el control de bucles. La misma frase
+          // repetida en cada paso ("Voy a buscar...") no lo reinicia.
+          const visibleText = (currentStepText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (visibleText && visibleText !== lastResetText) {
+            toolBatchHistory = [];
+            lastResetText = visibleText;
+          }
+          toolBatchHistory.push(this.getToolBatchFingerprint(stepToolCalls));
+          if (toolBatchHistory.length > LOOP_HISTORY_SIZE) toolBatchHistory.shift();
+          const loopPeriod = this.detectLoop(toolBatchHistory);
+
+          if (loopPeriod > 0) {
+            status = 'loop_detected';
+            if (callbacks.onLoopDetected) {
+              callbacks.onLoopDetected(stepToolCalls[0], loopPeriod, stepIndex);
+            }
+            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.';
+            currentStepText = (currentStepText || '') + loopWarning;
+            finalAccumulatedText = currentStepText;
+            const finalMsg = {
+              id: typeof createMessageId === 'function'
+                ? createMessageId('final', { stepIndex })
+                : `msg_turn_${stepIndex}_final`,
+              role: 'assistant',
+              content: currentStepText
+            };
+            if (appendFinalMessage) workingMessages.push(finalMsg);
+            if (callbacks.onStepDone) {
+              callbacks.onStepDone(stepIndex, {
+                type: 'loop_detected',
+                text: currentStepText,
+                assistantMsg: finalMsg
+              });
+            }
+            break;
           }
 
           const executedToolMessages = [];
@@ -1524,8 +1496,8 @@
 
           stepIndex++;
 
-          // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina sin
-          // síntesis y la respuesta del usuario llega como el siguiente mensaje.
+          // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina
+          // y la respuesta del usuario llega como el siguiente mensaje.
           if (stepExecResults.some(r => r?.success && r?.result?.endTurn === true)) {
             yieldedToUser = true;
             status = 'completed';
@@ -1544,83 +1516,6 @@
         }
       }
 
-      // Si se alcanzó el límite máximo de iteraciones
-      if (stepIndex >= maxSteps && status === 'completed' && !yieldedToUser) {
-        status = 'max_steps';
-        if (workingMessages.length > 0 && workingMessages[workingMessages.length - 1].role === 'tool' && autoSynthesize && !combinedSignal.aborted) {
-          if (callbacks.onSynthesize) callbacks.onSynthesize(stepIndex);
-          try {
-            const hasRagTool = workingMessages.some(m => m.name === 'search_knowledge_base' || m.name === 'read_knowledge_chunk' || m.name === 'list_documents');
-            const synthPrompt = [
-              'Answer the user\'s original request directly, using only the relevant tool results.',
-              'Prefer a brief, clear answer. Mention the process only when it materially helps the user; if so, keep it to one short sentence.',
-              'Do not enumerate tool calls or results, reproduce raw tool output, or add a process summary when it does not help answer the request.',
-              hasRagTool ? 'If the requested information was not found in the consulted documents, state that clearly.' : ''
-            ].filter(Boolean).join(' ');
-
-            let synthMessages = workingMessages;
-            if (typeof prepareMessages === 'function') {
-              const prepared = await prepareMessages(workingMessages, {
-                stepIndex,
-                model,
-                apiType,
-                isSynthesis: true
-              });
-              synthMessages = Array.isArray(prepared)
-                ? prepared
-                : (Array.isArray(prepared?.messages) ? prepared.messages : workingMessages);
-            }
-            synthMessages = [...synthMessages, { role: 'user', content: synthPrompt }];
-            const synthRes = await API.streamChatCompletion({
-              apiUrl,
-              apiType,
-              apiKey,
-              model,
-              messages: synthMessages,
-              temperature,
-              reasoningEffort,
-              reasoningTransport,
-              enableTools: false,
-              toolChoice: 'none',
-              signal: combinedSignal,
-              onBeforeRequest,
-              onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
-              onChunk: (fullTextSoFar, delta, stats) => {
-                finalAccumulatedText = fullTextSoFar;
-                if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats);
-              },
-              onDone: (finalText, stats) => {
-                finalAccumulatedText = finalText || finalAccumulatedText;
-                lastStats = stats || lastStats;
-              }
-            });
-            if (synthRes && synthRes.accumulatedText) {
-              finalAccumulatedText = synthRes.accumulatedText;
-            }
-          } catch (e) {
-            if (typeof console !== 'undefined' && console.warn) {
-              console.warn('[ChatAgentCore] Error during auto-synthesis:', e);
-            }
-            if (callbacks && typeof callbacks.onLog === 'function') {
-              callbacks.onLog({ type: 'warning', text: `[Auto-synthesis] Fallback activado tras error: ${e?.message || String(e)}` });
-            }
-          }
-
-          if (!finalAccumulatedText || finalAccumulatedText.trim() === '') {
-            finalAccumulatedText = 'I could not produce a final answer after processing the available information. Please try again.';
-          }
-          if (appendFinalMessage && finalAccumulatedText) {
-            workingMessages.push({
-              id: typeof createMessageId === 'function'
-                ? createMessageId('final', { stepIndex })
-                : `msg_turn_${stepIndex}_final`,
-              role: 'assistant',
-              content: finalAccumulatedText
-            });
-          }
-        }
-      }
-
       if (timeoutTimer) {
         clearTimeout(timeoutTimer);
       }
@@ -1636,12 +1531,11 @@
       }
 
       return {
-        success: status === 'completed' || status === 'max_steps' || status === 'loop_detected',
+        success: status === 'completed' || status === 'loop_detected',
         status,
         finalText: finalAccumulatedText,
         reasoningText: finalReasoningText,
         stepsCount: stepIndex,
-        maxStepsReached: status === 'max_steps',
         loopDetected: status === 'loop_detected',
         awaitingUser: yieldedToUser,
         toolExecutions,

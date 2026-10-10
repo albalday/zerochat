@@ -183,9 +183,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
       settingSystemPrompt: { value: '' },
       settingSystemDataPrompt: { value: '' },
       settingTemperature: { value: '' },
-      temperatureVal: { textContent: '' },
-      settingMaxAgentTurns: { value: '' },
-      maxAgentTurnsVal: { textContent: '' }
+      temperatureVal: { textContent: '' }
     };
 
     const profileData = {
@@ -194,8 +192,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
       model: 'claude-3-7-sonnet',
       systemPrompt: 'Eres un asistente experto.',
       systemDataPrompt: 'Formato ZeroChat.',
-      temperature: '0.2',
-      maxAgentTurns: 22
+      temperature: '0.2'
     };
 
     UISettings.applyProfileToForm(elements, profileData);
@@ -208,8 +205,6 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
     assert.equal(elements.settingSystemDataPrompt.value, 'Formato ZeroChat.');
     assert.equal(elements.settingTemperature.value, '0.2');
     assert.equal(elements.temperatureVal.textContent, '0.2');
-    assert.equal(elements.settingMaxAgentTurns.value, 22);
-    assert.equal(elements.maxAgentTurnsVal.textContent, 22);
   }
 
   {
@@ -220,8 +215,7 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
       settingModel: { value: '' },
       modelSelectHelper: { value: '' },
       settingSystemPrompt: { value: '' },
-      settingTemperature: { value: '' },
-      settingMaxAgentTurns: { value: '' }
+      settingTemperature: { value: '' }
     };
 
     const profileData = {
@@ -256,15 +250,11 @@ test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defect
   }
 });
 
-test('UISettings - gatherCurrentFormConfig extrae maxAgentTurns y webllmConfig con default si está vacío', () => {
+test('UISettings - gatherCurrentFormConfig no incluye el límite de turnos retirado y extrae webllmConfig con default si está vacío', () => {
   {
-    const elements = {
-      settingModel: { value: 'gpt-4o' },
-      settingMaxAgentTurns: { value: '25' }
-    };
-    const appConfig = { maxAgentTurns: 15 };
-    const config = UISettings.gatherCurrentFormConfig(elements, appConfig);
-    assert.equal(config.maxAgentTurns, 25);
+    const elements = { settingModel: { value: 'gpt-4o' } };
+    const config = UISettings.gatherCurrentFormConfig(elements, { maxAgentTurns: 15 });
+    assert.equal('maxAgentTurns' in config, false);
   }
 
   {

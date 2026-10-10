@@ -270,8 +270,6 @@
       settingTemperature: document.getElementById('setting-temperature'),
       temperatureVal: document.getElementById('temperature-val'),
       temperatureHint: document.getElementById('temperature-hint'),
-      settingMaxAgentTurns: document.getElementById('setting-max-agent-turns'),
-      maxAgentTurnsVal: document.getElementById('max-agent-turns-val'),
       themeButtons: document.querySelectorAll('.btn-theme-toggle'),
       langButtons: document.querySelectorAll('.btn-lang-toggle'),
       inspectorResults: document.getElementById('inspector-results'),

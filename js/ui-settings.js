@@ -183,12 +183,6 @@
         elements.temperatureVal.textContent = profileData.temperature;
       }
     }
-    if (elements.settingMaxAgentTurns && profileData.maxAgentTurns !== undefined) {
-      elements.settingMaxAgentTurns.value = profileData.maxAgentTurns;
-      if (elements.maxAgentTurnsVal) {
-        elements.maxAgentTurnsVal.textContent = profileData.maxAgentTurns;
-      }
-    }
     if (elements.agentToolsContainer) {
       renderAgentToolsUI(elements.agentToolsContainer, profileData.enabledTools || {});
     }
@@ -311,7 +305,6 @@
       temperature: elements?.settingTemperature ? elements.settingTemperature.value : (appConfig?.temperature || '0.7'),
       reasoningEffort: appConfig?.reasoningEffort || 'medium',
       reasoningTransport: appConfig?.reasoningTransport || 'auto',
-      maxAgentTurns: elements?.settingMaxAgentTurns ? Number(elements.settingMaxAgentTurns.value) : (appConfig?.maxAgentTurns || 40),
       modelReasoningConfig: appConfig?.modelReasoningConfig || null,
       theme: appConfig?.theme || DEFAULT_THEME,
       language: appConfig?.language || 'es',
@@ -364,12 +357,6 @@
 
       if (elements.agentToolsContainer) {
         renderAgentToolsUI(elements.agentToolsContainer, appConfig?.enabledTools || {});
-      }
-      if (elements.settingMaxAgentTurns) {
-        elements.settingMaxAgentTurns.value = appConfig?.maxAgentTurns || 40;
-      }
-      if (elements.maxAgentTurnsVal) {
-        elements.maxAgentTurnsVal.textContent = appConfig?.maxAgentTurns || 40;
       }
     }
 
@@ -580,14 +567,6 @@
       activeCleanupFns.push(() => els.settingTemperature.removeEventListener('input', onInput));
     }
 
-    if (els.settingMaxAgentTurns && els.maxAgentTurnsVal) {
-      const onInput = (e) => {
-        els.maxAgentTurnsVal.textContent = e.target.value;
-      };
-      els.settingMaxAgentTurns.addEventListener('input', onInput);
-      activeCleanupFns.push(() => els.settingMaxAgentTurns.removeEventListener('input', onInput));
-    }
-
     if (els.btnToggleKey && els.settingApiKey) {
       const onClick = () => {
         const isPass = els.settingApiKey.type === 'password';
@@ -674,17 +653,6 @@
         <div id="settings-agent" class="settings-section-pane">
           <div class="settings-section-intro">
             <p data-i18n="agent_intro">Configura las herramientas agénticas que se transmiten al modelo.</p>
-          </div>
-
-          <div class="form-field">
-            <div class="range-field-header">
-              <label for="setting-max-agent-turns">
-                <strong data-i18n="field_max_agent_turns">Límite de turnos agénticos</strong>
-              </label>
-              <span id="max-agent-turns-val" class="range-field-value">40</span>
-            </div>
-            <span class="label-hint" data-i18n="field_max_agent_turns_hint">Número máximo de pasos de herramientas antes de forzar la síntesis final (entre 5 y 200).</span>
-            <input type="range" id="setting-max-agent-turns" min="5" max="200" step="1" value="40">
           </div>
 
           <!-- Contenedor dinámico de herramientas agénticas registradas -->
