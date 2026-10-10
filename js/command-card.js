@@ -168,6 +168,7 @@
 
     render() {
       const { state, card } = this;
+      if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
       const badge = card.querySelector('.tool-card-badge');
       if (badge) badge.outerHTML = renderBadge(state);
       const output = card.querySelector('.command-card-output');
@@ -218,6 +219,8 @@
       if (state.status === 'running') {
         state.tail = data.output || '';
         this.ensurePolling();
+        // La franja de comandos en marcha lo muestra sin esperar al siguiente latido.
+        getMcp()?.refreshCommandJobs?.();
       } else {
         this.stopPolling();
       }
@@ -242,6 +245,7 @@
     }
 
     finish() {
+      if (this.state.toolReturned) getMcp()?.refreshCommandJobs?.();
       if (this.state.reactivated) {
         this.state.reactivated = false;
         getToolCards()?.completeToolCard?.(this.card, { success: !isFailure(this.state) });
@@ -300,6 +304,8 @@
         if (this.isFinal() && this.state.toolReturned) {
           this.stopPolling();
           this.finish();
+        } else {
+          getMcp()?.refreshCommandJobs?.();
         }
       } catch (error) {
         await getDialogs()?.alert?.(t('command_stop_error', { error: error?.message || String(error) }), { type: 'error' });

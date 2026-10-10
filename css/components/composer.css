@@ -20,6 +20,141 @@
   }
 }
 
+/* Franja de comandos en marcha, encima del composer */
+.command-jobs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  max-width: var(--max-content-width, 68rem);
+  width: 100%;
+  margin: 0 auto 0.5rem;
+  padding: 0.35rem 0.6rem;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.command-jobs-bar[hidden] {
+  display: none;
+}
+
+.command-jobs-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.command-jobs-title .ui-icon {
+  color: var(--primary);
+  animation: pulse-tool-badge 1.4s infinite ease-in-out;
+}
+
+.command-jobs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.command-job {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-subtle);
+  overflow: hidden;
+}
+
+.command-job-link,
+.command-job-stop,
+.command-jobs-stop-all {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.command-job-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+}
+
+.command-job-link code {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-job-link[aria-disabled="true"] {
+  cursor: default;
+}
+
+.command-job-link:not([aria-disabled="true"]):hover code {
+  text-decoration: underline;
+}
+
+.command-job-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.command-job-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border-color);
+}
+
+.command-job-stop:hover:not(:disabled),
+.command-jobs-stop-all:hover {
+  color: var(--error-color);
+}
+
+.command-jobs-stop-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.command-job-link:focus-visible,
+.command-job-stop:focus-visible,
+.command-jobs-stop-all:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.command-card-highlight .tool-execution-card {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
 /* Contenedor de chips de archivos adjuntos */
 .attachments-container {
   display: flex;

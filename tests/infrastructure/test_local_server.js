@@ -846,6 +846,8 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     const hbData = await authHb.json();
     assert.equal(hbData.ok, true, 'Heartbeat debe responder {"ok": true}');
     assert.equal(typeof hbData.cwd, 'string', 'Heartbeat debe publicar el directorio del proyecto');
+    assert.equal(hbData.exit_on_close, true, 'Heartbeat avisa de que cerrar el navegador detiene el servidor');
+    assert.deepEqual(hbData.jobs, []);
 
     // 4. Latido sucesivo antes de que expire el timeout (a los 100ms) mantiene vivo el servidor
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -896,6 +898,7 @@ test('Servidor local zerochat.py: --no-exit-on-close desactiva el watchdog', asy
     // Enviar un heartbeat
     const hbRes = await fetch(`${baseUrl}/zerochat/heartbeat`, { headers: { 'X-ZeroChat-Token': testToken } });
     assert.equal(hbRes.status, 200);
+    assert.equal((await hbRes.json()).exit_on_close, false, 'Cerrar la pestaña no detendrá los comandos');
 
     // Esperar 400ms (> ZEROCHAT_HEARTBEAT_TIMEOUT=0.2)
     await new Promise(resolve => setTimeout(resolve, 400));

@@ -1224,3 +1224,41 @@ test('MCP - setProjectDirectory pide el cambio al servidor local y syncProjectDi
     ToolSecurity.manager.startupDirectory = previousStartup;
   }
 });
+
+test('MCP - syncCommandJobs publica solo los comandos en marcha y no reescribe el estado en cada latido', async () => {
+  const previousState = ChatState.get('mcp');
+  const manager = new MCP.McpManager();
+  try {
+    ChatState.set('mcp', { ...previousState, status: 'connected', commandJobs: [], exitOnClose: false });
+    const writes = [];
+    const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.commandJobs));
+    const jobs = [
+      { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3 },
+      { id: 2, command: 'npm test', status: 'exited', started_at: 2000 },
+      { id: 'x', command: 'malo', status: 'running' }
+    ];
+    assert.equal(manager.syncCommandJobs(jobs, { exitOnClose: true }), true);
+    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, key: 'inv-a', command: 'npm run dev', startedAt: 1000, background: true }]);
+    assert.equal(ChatState.get('mcp').exitOnClose, true);
+    // El mismo conjunto con otro tiempo transcurrido no vuelve a escribir.
+    assert.equal(manager.syncCommandJobs([{ ...jobs[0], elapsed_s: 13 }], { exitOnClose: true }), false);
+    assert.equal(writes.length, 1);
+
+    const requests = [];
+    manager.clients.set('mcp_proxy', {
+      request: async (method, params) => {
+        requests.push({ method, params });
+        return method === 'zerochat/jobs/list' ? { jobs: [] } : { id: params.id, status: 'stopped' };
+      }
+    });
+    assert.deepEqual(await manager.stopCommandJob(1), { id: 1, status: 'stopped' });
+    assert.deepEqual(requests.map(request => request.method), ['zerochat/jobs/stop', 'zerochat/jobs/list']);
+    assert.deepEqual(ChatState.get('mcp').commandJobs, []);
+    unsubscribe?.();
+
+    ChatState.set('mcp', { ...ChatState.get('mcp'), status: 'disconnected' });
+    assert.equal(manager.syncCommandJobs(jobs), false, 'sin conexión no se publica');
+  } finally {
+    ChatState.set('mcp', previousState);
+  }
+});

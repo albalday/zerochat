@@ -367,6 +367,8 @@
 
     <!-- Barra de entrada inferior -->
     <div class="chat-input-wrapper">
+      <!-- Comandos de run_command que siguen en marcha -->
+      <div id="command-jobs-bar" class="command-jobs-bar" role="status" aria-live="polite" hidden></div>
       <!-- Previsualización de archivos adjuntos -->
       <div id="attachments-container" class="attachments-container" style="display: none;"></div>
 
@@ -694,6 +696,7 @@
   <script defer src="js/debug.js"></script>
   <script defer src="js/tool-cards.js"></script>
   <script defer src="js/command-card.js"></script>
+  <script defer src="js/ui-command-jobs.js"></script>
   <script defer src="js/attachments.js"></script>
   <script defer src="js/export.js"></script>
   <script defer src="js/profile-backup.js"></script>

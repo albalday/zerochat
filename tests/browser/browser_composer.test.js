@@ -425,4 +425,99 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await browser.close();
     }
   });
+
+  test('Browser UI - la franja de comandos en marcha lleva a su tarjeta, los detiene y avisa antes de cerrar', { timeout: 30000 }, async () => {
+    const browser = await createTestBrowser();
+    try {
+      const page = await browser.newPage();
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await waitForAppReady(page);
+
+      await page.evaluate(() => {
+        // La tarjeta del comando 1 está en esta conversación, archivada en un grupo cerrado.
+        const details = document.createElement('details');
+        details.className = 'tool-call-group-history';
+        details.innerHTML = '<div class="tool-card-wrapper command-card-wrapper" data-job-id="1"><div class="tool-execution-card collapsed"></div></div>';
+        document.getElementById('messages-list').appendChild(details);
+        window.__running = [
+          { id: 1, command: 'npm run dev', status: 'running', started_at: Date.now() - 65000 },
+          { id: 2, command: 'pytest -x', status: 'running', started_at: Date.now() - 5000 }
+        ];
+        window.__stops = [];
+        window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+          if (method === 'zerochat/jobs/stop') {
+            window.__stops.push(params.id);
+            window.__running = window.__running.filter(job => job.id !== params.id);
+            return { id: params.id, status: 'stopped' };
+          }
+          return { jobs: window.__running };
+        };
+        window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
+        window.ChatMCP.manager.syncCommandJobs(window.__running, { exitOnClose: true });
+      });
+
+      const bar = page.locator('#command-jobs-bar');
+      await bar.waitFor({ state: 'visible' });
+      const shown = await bar.evaluate(el => ({
+        title: el.querySelector('.command-jobs-title').textContent.trim(),
+        items: Array.from(el.querySelectorAll('.command-job'), item => ({
+          text: item.querySelector('code').textContent,
+          time: item.querySelector('.command-job-time').textContent,
+          disabled: item.querySelector('.command-job-link').getAttribute('aria-disabled'),
+          stopLabel: item.querySelector('.command-job-stop').getAttribute('aria-label'),
+          svg: Boolean(item.querySelector('.command-job-stop svg'))
+        })),
+        stopAll: Boolean(el.querySelector('.command-jobs-stop-all'))
+      }));
+      assert.equal(shown.title, 'Comandos en marcha: 2');
+      assert.deepEqual(shown.items.map(item => [item.text, item.disabled, item.stopLabel, item.svg]), [
+        ['npm run dev', null, 'Detener npm run dev', true],
+        ['pytest -x', 'true', 'Detener pytest -x', true]
+      ]);
+      assert.match(shown.items[0].time, /^1:0[5-6]$/);
+      assert.equal(shown.stopAll, true);
+
+      // El enlace abre el grupo, despliega la tarjeta y la resalta.
+      await bar.locator('.command-job-link').first().click();
+      const opened = await page.evaluate(() => {
+        const card = document.querySelector('[data-job-id="1"]');
+        return { open: card.closest('details').open, collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'), highlighted: card.classList.contains('command-card-highlight') };
+      });
+      assert.deepEqual(opened, { open: true, collapsed: false, highlighted: true });
+
+      // Cerrar la pestaña detendría el servidor y los comandos: el navegador pide confirmación.
+      let beforeUnload = null;
+      page.once('dialog', async dialog => { beforeUnload = dialog.type(); await dialog.dismiss(); });
+      await page.evaluate(() => { location.href = 'about:blank#salir'; });
+      await page.waitForTimeout(300);
+      assert.equal(beforeUnload, 'beforeunload');
+
+      await bar.locator('.command-job-stop').nth(1).click();
+      await page.waitForFunction(() => document.querySelectorAll('#command-jobs-bar .command-job').length === 1);
+      assert.deepEqual(await page.evaluate(() => window.__stops), [2]);
+      assert.equal(await bar.locator('.command-jobs-stop-all').count(), 0, 'Con un solo comando no hace falta «Detener todos»');
+
+      await page.evaluate(() => {
+        window.__running.push({ id: 3, command: 'npm run watch', status: 'running', started_at: Date.now() });
+        window.ChatMCP.manager.syncCommandJobs(window.__running);
+      });
+      await bar.locator('.command-jobs-stop-all').click();
+      await page.locator('#notice-accept').click();
+      await bar.waitFor({ state: 'hidden' });
+      assert.deepEqual(await page.evaluate(() => window.__stops.slice().sort()), [1, 2, 3]);
+
+      // Sin comandos en marcha ya no se pide confirmación al salir.
+      let secondDialog = null;
+      page.once('dialog', async dialog => { secondDialog = dialog.type(); await dialog.dismiss(); });
+      await page.evaluate(() => { location.href = 'about:blank#salir'; });
+      await page.waitForTimeout(300);
+      assert.equal(secondDialog, null);
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+    }
+  });
 });

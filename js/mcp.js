@@ -1282,9 +1282,9 @@
         }
         if (State?.set) {
           if (silentOnFailure) {
-            State.set('mcp', { status: 'disconnected', host, port, endpoint: targetEndpoint, serverInfo: null, tools: [], latencyMs: null, error: null });
+            State.set('mcp', { status: 'disconnected', host, port, endpoint: targetEndpoint, serverInfo: null, tools: [], latencyMs: null, error: null, commandJobs: [] });
           } else {
-            State.set('mcp', { status: 'error', host, port, endpoint: targetEndpoint, error: probe.error, latencyMs: probe.latencyMs, serverInfo: null, tools: [] });
+            State.set('mcp', { status: 'error', host, port, endpoint: targetEndpoint, error: probe.error, latencyMs: probe.latencyMs, serverInfo: null, tools: [], commandJobs: [] });
           }
         }
         return { success: false, available: false, probe, error: probe.error };
@@ -1379,7 +1379,7 @@
       }
 
       const State = getState();
-      if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [] });
+      if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [] });
       return { success: true };
     }
 
@@ -1391,6 +1391,46 @@
       const client = this.getExternalControlClient();
       if (!client) throw new Error('Servicio local de herramientas no conectado.');
       return client.request(method, params, options);
+    }
+
+    /**
+     * Publica en ChatState los comandos que siguen en marcha en el servidor local. Solo
+     * escribe si cambia el conjunto o el estado, no en cada latido.
+     */
+    syncCommandJobs(jobs, { exitOnClose } = {}) {
+      const State = getState();
+      const current = State?.get?.('mcp') || {};
+      if (current.status !== 'connected') return false;
+      const next = (Array.isArray(jobs) ? jobs : [])
+        .filter(job => job && Number.isInteger(job.id) && job.status === 'running')
+        .map(job => ({
+          id: job.id,
+          key: typeof job.key === 'string' ? job.key : null,
+          command: typeof job.command === 'string' ? job.command : '',
+          startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now(),
+          background: job.background === true
+        }));
+      const signature = list => JSON.stringify((list || []).map(job => [job.id, job.command, job.startedAt]));
+      const exit = typeof exitOnClose === 'boolean' ? exitOnClose : current.exitOnClose === true;
+      if (signature(next) === signature(current.commandJobs) && exit === (current.exitOnClose === true)) return false;
+      State.set('mcp', { commandJobs: next, exitOnClose: exit });
+      return true;
+    }
+
+    /** Vuelve a leer del servidor los comandos en marcha, tras lanzar o detener alguno. */
+    async refreshCommandJobs() {
+      try {
+        const result = await this.requestExternalControl('zerochat/jobs/list', {});
+        return this.syncCommandJobs(result?.jobs);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async stopCommandJob(id) {
+      const result = await this.requestExternalControl('zerochat/jobs/stop', { id });
+      await this.refreshCommandJobs();
+      return result;
     }
 
     /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */

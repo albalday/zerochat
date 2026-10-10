@@ -50,6 +50,7 @@
   const UITransfer = window.ChatUITransfer || {};
   const UIProfiles = window.ChatUIProfiles || {};
   const UIComposer = window.ChatUIComposer || {};
+  const UICommandJobs = window.ChatUICommandJobs || {};
   const ConversationService = window.ChatConversationService || {};
   const UIConversation = window.ChatUIConversation || {};
   const GenerationController = window.ChatGenerationController || {};
@@ -178,6 +179,7 @@
       btnSend: document.getElementById('btn-send'),
       btnStopStream: document.getElementById('btn-stop-stream'),
       generationStatus: document.getElementById('generation-status'),
+      commandJobsBar: document.getElementById('command-jobs-bar'),
       btnOpenRag: document.getElementById('btn-open-rag'),
       btnReasoning: document.getElementById('btn-reasoning'),
       reasoningLabel: document.getElementById('reasoning-label'),
@@ -1168,6 +1170,8 @@
       getLastPrompt: () => MessageTurns.getLastUserPrompt?.(getChatHistory()) || ''
     });
 
+    UICommandJobs.mount?.({ bar: elements.commandJobsBar, messagesList: elements.messagesList });
+
     // Parada ordenada ante cierre de página o recarga durante generación
     if (typeof window !== 'undefined' && window.addEventListener) {
       const handleWindowUnload = () => {
@@ -1443,6 +1447,7 @@
       if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
       // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
       window.ChatMCP?.manager?.syncProjectDirectory?.(payload.cwd);
+      window.ChatMCP?.manager?.syncCommandJobs?.(payload.jobs, { exitOnClose: payload.exit_on_close === true });
     } catch (_) {
       if (heartbeatCheckInFlight) return;
       heartbeatCheckInFlight = true;

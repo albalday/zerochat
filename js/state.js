@@ -113,7 +113,11 @@
         lastConnected: null,
         lastVerified: null,
         latencyMs: null,
-        error: null
+        error: null,
+        // Comandos de run_command que siguen en marcha en el servidor local.
+        commandJobs: [],
+        // El servidor se detiene (y con él los comandos) al cerrar el navegador.
+        exitOnClose: false
       },
 
       // 9. Políticas de Seguridad de Herramientas (MCP y Built-in)

@@ -2660,6 +2660,8 @@ HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
+# Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
+EXIT_ON_CLOSE = False
 
 
 def mark_browser_active():
@@ -2935,11 +2937,12 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if is_heartbeat:
             mark_browser_active()
             # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto;
-            # jobs, mostrar los comandos que siguen en marcha.
+            # jobs, mostrar los comandos que siguen en marcha y avisar antes de cerrar si se detendrían.
             self._send_json_response(200, {
                 "ok": True,
                 "cwd": str(Path.cwd().resolve()),
-                "jobs": [job.summary() for job in JOBS.list() if not job.done.is_set()]
+                "jobs": [job.summary() for job in JOBS.list() if not job.done.is_set()],
+                "exit_on_close": EXIT_ON_CLOSE
             })
             return
 
@@ -3429,7 +3432,7 @@ def remote_exposure_warning(host: str) -> str | None:
 
 
 def main():
-    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL
+    global ACTIVE_PORT, ACTIVE_HOST, SESSION_TOKEN, CONSOLE_CONTROL, EXIT_ON_CLOSE
     global TOOL_AUTH_KEY, TOOL_AUTH_SESSION_ID, TOOL_AUTH_NONCES
 
     parser = argparse.ArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
@@ -3502,6 +3505,7 @@ def main():
     browser_host = ACTIVE_HOST if ACTIVE_HOST in {"127.0.0.1", "localhost"} else "127.0.0.1"
     target_url = f"{ui_url}#{urlencode({'token': SESSION_TOKEN, 'host': browser_host, 'port': ACTIVE_PORT})}"
     exit_on_close = not args.no_exit_on_close
+    EXIT_ON_CLOSE = exit_on_close
 
     print("=" * 64)
     print(f"  ZeroChat Local Server v{VERSION} (UI {UI_VERSION})")
