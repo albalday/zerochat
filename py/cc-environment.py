@@ -1,8 +1,10 @@
 
+@functools.lru_cache(maxsize=1)
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
     Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
+    Se calcula una vez: set_project_directory cambia cwd y no debe cambiar la interfaz servida.
     """
     script_dir = Path(__file__).resolve().parent
     cwd = Path.cwd().resolve()

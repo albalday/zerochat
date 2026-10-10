@@ -17,6 +17,7 @@ import base64
 import collections
 import datetime
 import fnmatch
+import functools
 import hashlib
 import hmac
 import importlib.metadata
@@ -206,10 +207,12 @@ def log_event(message: str):
     """Registra en consola un evento con la hora local."""
     console_log(timestamp_message(message))
 
+@functools.lru_cache(maxsize=1)
 def get_dev_root() -> Path | None:
     """
     Detecta si zerochat.py se está ejecutando en el directorio de desarrollo del repositorio.
     Comprueba si existen zerochat.html, js/ y css/ en el directorio del script o en cwd.
+    Se calcula una vez: set_project_directory cambia cwd y no debe cambiar la interfaz servida.
     """
     script_dir = Path(__file__).resolve().parent
     cwd = Path.cwd().resolve()
@@ -805,6 +808,12 @@ class PersistentShellSession:
         self._lock = threading.Lock()
         atexit.register(self.cleanup)
 
+    def change_directory(self, directory: str):
+        """Mueve el proceso y la shell al nuevo proyecto sin interrumpir un comando en curso."""
+        with self._lock:
+            os.chdir(directory)
+            self._cwd = directory
+
     def cleanup(self):
         try:
             shutil.rmtree(self._dir, ignore_errors=True)
@@ -930,6 +939,27 @@ def execute_command(command: str, cwd: str = ".", timeout_seconds: int = 60) -> 
         return _command_result(returncode, stdout, stderr, str(target_cwd))
     except Exception as e:
         return _tool_error(str(e), os=DETECTED_OS)
+
+
+def set_project_directory(path: str) -> str:
+    """Change the project directory shared by the file tools, the shell and project mode."""
+    try:
+        if not path.strip():
+            return _tool_error("The directory path is empty. The project directory was not changed.")
+        target = Path(path.strip()).expanduser().resolve()
+        if not target.is_dir():
+            return _tool_error(f"Directory '{path}' does not exist or is not a directory. The project directory was not changed.")
+        previous = str(Path.cwd().resolve())
+        SHELL_SESSION.change_directory(str(target))
+        return json.dumps({
+            "success": True,
+            "cwd": str(target),
+            "previous_cwd": previous,
+            "has_agents_md": (target / "AGENTS.md").is_file(),
+            "has_project_memory": (target / ".zerochat" / "state.md").is_file()
+        }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
 
 
 def search_files(query: str, path: str = ".", file_pattern: str = None, max_results: int = 100) -> str:
@@ -1415,7 +1445,7 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Execute a command in an interactive persistent Windows PowerShell session (preserves cwd and environment variables across calls). Host OS: Windows."
             if DETECTED_OS == "windows"
             else "Execute a command in an interactive persistent shell session (preserves cwd and exported environment variables across calls). Host OS: Linux/Unix (bash)."
-        ),
+        ) + " cd only moves the shell; use set_project_directory to change the project directory.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1470,6 +1500,20 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     },
     {
+        "name": "set_project_directory",
+        "description": (
+            "Change the project directory: the base for relative paths, the shell's working directory and the project rules (AGENTS.md). "
+            "Use it only when the user asks to work in another directory."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path, ~ path or path relative to the current project directory"}
+            },
+            "required": ["path"]
+        }
+    },
+    {
         "name": "get_diagnostics",
         "description": "Retrieve syntax diagnostics and code errors for a file or the entire workspace.",
         "inputSchema": {
@@ -1507,6 +1551,7 @@ LOCAL_TOOL_HANDLERS = {
     "bash": bash,
     "search_files": search_files,
     "execute_command": execute_command,
+    "set_project_directory": set_project_directory,
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action
 }
@@ -1564,6 +1609,9 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
             "command": (str, MAX_COMMAND_LENGTH),
             "cwd": (str, MAX_PATH_LENGTH),
             "timeout_seconds": (int, None)
+        },
+        "set_project_directory": {
+            "path": (str, MAX_PATH_LENGTH)
         },
         "get_diagnostics": {
             "path": (str, MAX_PATH_LENGTH)
@@ -2521,7 +2569,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         if is_heartbeat:
             mark_browser_active()
-            self._send_json_response(200, {"ok": True})
+            # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto.
+            self._send_json_response(200, {"ok": True, "cwd": str(Path.cwd().resolve())})
             return
 
         accept = self.headers.get("Accept", "")

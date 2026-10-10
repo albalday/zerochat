@@ -275,7 +275,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
         if is_heartbeat:
             mark_browser_active()
-            self._send_json_response(200, {"ok": True})
+            # cwd permite a cada pestaña notar que otra ha cambiado el directorio del proyecto.
+            self._send_json_response(200, {"ok": True, "cwd": str(Path.cwd().resolve())})
             return
 
         accept = self.headers.get("Accept", "")

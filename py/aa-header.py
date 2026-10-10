@@ -17,6 +17,7 @@ import base64
 import collections
 import datetime
 import fnmatch
+import functools
 import hashlib
 import hmac
 import importlib.metadata

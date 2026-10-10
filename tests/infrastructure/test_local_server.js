@@ -185,6 +185,7 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.ok(bashTool?.description?.includes('Host OS:'), 'bash debe declarar el SO anfitrión');
     const execToolDef = tools.find(t => t.name === 'execute_command');
     assert.ok(execToolDef?.description?.includes('Host OS:'), 'execute_command debe declarar el SO anfitrión');
+    assert.ok(toolNames.includes('set_project_directory'));
     assert.ok(toolNames.includes('get_diagnostics'));
     assert.ok(toolNames.includes('browser_action'));
     const browserAction = tools.find(t => t.name === 'browser_action');
@@ -830,6 +831,7 @@ test('Servidor local zerochat.py: heartbeat y apagado automático por inactivida
     assert.equal(authHb.status, 200, 'Heartbeat con token válido debe ser 200');
     const hbData = await authHb.json();
     assert.equal(hbData.ok, true, 'Heartbeat debe responder {"ok": true}');
+    assert.equal(typeof hbData.cwd, 'string', 'Heartbeat debe publicar el directorio del proyecto');
 
     // 4. Latido sucesivo antes de que expire el timeout (a los 100ms) mantiene vivo el servidor
     await new Promise(resolve => setTimeout(resolve, 100));

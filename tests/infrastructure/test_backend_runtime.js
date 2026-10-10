@@ -90,6 +90,62 @@ with tempfile.TemporaryDirectory() as temp_dir:
   assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
 });
 
+test('zerochat.py: set_project_directory mueve el proceso y la shell, y cd no cambia el proyecto', { skip: process.platform === 'win32' }, () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const script = `
+import importlib.util
+import json
+import os
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    os.environ["ZEROCHAT_DATA_DIR"] = temp_dir
+    spec = importlib.util.spec_from_file_location("zerochat_project_dir_test", Path(${JSON.stringify(path.join(repoRoot, 'zerochat.py'))}))
+    zerochat = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(zerochat)
+    dev_root = zerochat.get_dev_root()
+    start = Path.cwd().resolve()
+    project = (Path(temp_dir) / "project").resolve()
+    (project / ".zerochat").mkdir(parents=True)
+    (project / ".zerochat" / "state.md").write_text("# state", encoding="utf-8")
+    (project / "AGENTS.md").write_text("# rules", encoding="utf-8")
+    (project / "src").mkdir()
+    (project / "note.txt").write_text("hola", encoding="utf-8")
+
+    for bad in ("", "   ", str(project / "missing"), str(project / "note.txt")):
+        result = json.loads(zerochat.set_project_directory(bad))
+        assert result["success"] is False, bad
+        assert Path.cwd().resolve() == start
+
+    result = json.loads(zerochat.set_project_directory(str(project)))
+    assert result["success"] is True
+    assert result["cwd"] == str(project)
+    assert result["previous_cwd"] == str(start)
+    assert result["has_agents_md"] is True and result["has_project_memory"] is True
+    assert Path.cwd().resolve() == project
+    assert json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola")
+    assert json.loads(zerochat.bash("pwd"))["stdout"].strip() == str(project)
+
+    # cd solo mueve la shell: el proyecto (y las rutas relativas) siguen en la raíz.
+    assert json.loads(zerochat.bash("cd src"))["cwd"] == str(project / "src")
+    assert Path.cwd().resolve() == project
+    assert json.loads(zerochat.read_file("note.txt"))["success"] is True
+
+    # Una ruta relativa se resuelve contra el proyecto actual y la shell vuelve a la nueva raíz.
+    result = json.loads(zerochat.set_project_directory("src"))
+    assert result["success"] is True and result["cwd"] == str(project / "src")
+    assert result["has_project_memory"] is False
+    assert json.loads(zerochat.bash("pwd"))["stdout"].strip() == str(project / "src")
+    assert zerochat.get_dev_root() == dev_root
+    assert zerochat.validate_local_tool_arguments("set_project_directory", {"path": 3}) is not None
+    assert zerochat.validate_local_tool_arguments("set_project_directory", {}) is not None
+    assert zerochat.validate_local_tool_arguments("set_project_directory", {"path": "x"}) is None
+    os.chdir(start)
+`;
+  assert.doesNotThrow(() => execFileSync('python3', ['-c', script], { cwd: repoRoot, stdio: 'pipe' }));
+});
+
 test('Generación y persistencia de token diario en zerochat.py', async () => {
   const code = `
 import zerochat
