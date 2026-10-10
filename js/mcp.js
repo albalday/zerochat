@@ -1395,21 +1395,21 @@
     }
 
     /**
-     * Publica en ChatState los comandos que siguen en marcha en el servidor local. Solo
-     * escribe si cambia el conjunto o el estado, no en cada latido.
+     * Publica en ChatState los comandos en segundo plano que siguen en marcha en el servidor
+     * local. Los esperados ya se ven en su tarjeta mientras el turno los espera. Solo escribe
+     * si cambia el conjunto, no en cada latido.
      */
     syncCommandJobs(jobs, { exitOnClose } = {}) {
       const State = getState();
       const current = State?.get?.('mcp') || {};
       if (current.status !== 'connected') return false;
       const next = (Array.isArray(jobs) ? jobs : [])
-        .filter(job => job && Number.isInteger(job.id) && job.status === 'running')
+        .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
         .map(job => ({
           id: job.id,
           key: typeof job.key === 'string' ? job.key : null,
           command: typeof job.command === 'string' ? job.command : '',
-          startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now(),
-          background: job.background === true
+          startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
         }));
       const signature = list => JSON.stringify((list || []).map(job => [job.id, job.command, job.startedAt]));
       const exit = typeof exitOnClose === 'boolean' ? exitOnClose : current.exitOnClose === true;

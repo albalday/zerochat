@@ -1225,7 +1225,7 @@ test('MCP - setProjectDirectory pide el cambio al servidor local y syncProjectDi
   }
 });
 
-test('MCP - syncCommandJobs publica solo los comandos en marcha y no reescribe el estado en cada latido', async () => {
+test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha y no reescribe el estado en cada latido', async () => {
   const previousState = ChatState.get('mcp');
   const manager = new MCP.McpManager();
   try {
@@ -1234,11 +1234,13 @@ test('MCP - syncCommandJobs publica solo los comandos en marcha y no reescribe e
     const unsubscribe = ChatState.subscribe('mcp', value => writes.push(value.commandJobs));
     const jobs = [
       { id: 1, key: 'inv-a', command: 'npm run dev', status: 'running', started_at: 1000, background: true, elapsed_s: 3 },
-      { id: 2, command: 'npm test', status: 'exited', started_at: 2000 },
-      { id: 'x', command: 'malo', status: 'running' }
+      { id: 2, command: 'npm test', status: 'exited', started_at: 2000, background: true },
+      { id: 4, command: 'npm run build', status: 'running', started_at: 3000, background: false },
+      { id: 'x', command: 'malo', status: 'running', background: true }
     ];
     assert.equal(manager.syncCommandJobs(jobs, { exitOnClose: true }), true);
-    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, key: 'inv-a', command: 'npm run dev', startedAt: 1000, background: true }]);
+    // Solo los de segundo plano: un comando esperado ya se ve en su tarjeta.
+    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, key: 'inv-a', command: 'npm run dev', startedAt: 1000 }]);
     assert.equal(ChatState.get('mcp').exitOnClose, true);
     // El mismo conjunto con otro tiempo transcurrido no vuelve a escribir.
     assert.equal(manager.syncCommandJobs([{ ...jobs[0], elapsed_s: 13 }], { exitOnClose: true }), false);

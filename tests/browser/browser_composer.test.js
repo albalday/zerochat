@@ -443,8 +443,10 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
         details.innerHTML = '<div class="tool-card-wrapper command-card-wrapper" data-job-id="1"><div class="tool-execution-card collapsed"></div></div>';
         document.getElementById('messages-list').appendChild(details);
         window.__running = [
-          { id: 1, command: 'npm run dev', status: 'running', started_at: Date.now() - 65000 },
-          { id: 2, command: 'pytest -x', status: 'running', started_at: Date.now() - 5000 }
+          { id: 1, command: 'npm run dev', status: 'running', started_at: Date.now() - 65000, background: true },
+          { id: 2, command: 'pytest -x', status: 'running', started_at: Date.now() - 5000, background: true },
+          // Un comando esperado no aparece en la franja: ya se ve en su tarjeta.
+          { id: 9, command: 'npm run build', status: 'running', started_at: Date.now() - 3000, background: false }
         ];
         window.__stops = [];
         window.ChatMCP.manager.requestExternalControl = async (method, params) => {
@@ -501,13 +503,13 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.equal(await bar.locator('.command-jobs-stop-all').count(), 0, 'Con un solo comando no hace falta «Detener todos»');
 
       await page.evaluate(() => {
-        window.__running.push({ id: 3, command: 'npm run watch', status: 'running', started_at: Date.now() });
+        window.__running.push({ id: 3, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true });
         window.ChatMCP.manager.syncCommandJobs(window.__running);
       });
       await bar.locator('.command-jobs-stop-all').click();
       await page.locator('#notice-accept').click();
       await bar.waitFor({ state: 'hidden' });
-      assert.deepEqual(await page.evaluate(() => window.__stops.slice().sort()), [1, 2, 3]);
+      assert.deepEqual(await page.evaluate(() => window.__stops.slice().sort()), [1, 2, 3], 'Detener todos no toca el comando esperado');
 
       // Sin comandos en marcha ya no se pide confirmación al salir.
       let secondDialog = null;
