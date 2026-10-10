@@ -48,6 +48,7 @@ export const GROUPS = {
   ],
   mcp: [
     'tests/unit/test_ui_mcp.js',
+    'tests/unit/test_command_card.js',
     'tests/integration/test_mcp.js',
     'tests/integration/test_mcp_tools.js',
     'tests/browser/browser_mcp_tools.test.js'

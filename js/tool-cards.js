@@ -88,6 +88,16 @@
     updateToolCallGroup(group);
   }
 
+  /** Devuelve a la zona visible del grupo una tarjeta cuya tarea sigue en marcha tras terminar la llamada. */
+  function reactivateToolCard(card) {
+    if (!card) return;
+    card.dataset.toolCallStatus = 'running';
+    const group = card.closest?.('.tool-call-group');
+    const activeCards = group?.querySelector('.tool-call-group-active-cards');
+    if (activeCards) activeCards.appendChild(card);
+    updateToolCallGroup(group);
+  }
+
   function createCardWrapper(ui, extraClass = '') {
     if (ui?.createCardWrapper) return ui.createCardWrapper(extraClass);
     const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
@@ -497,6 +507,7 @@
     renderHistoricalToolCard,
     appendToolCard,
     completeToolCard,
+    reactivateToolCard,
     promptToolAuthorization,
     collapseCard,
     SPINNER_SVG,

@@ -66,6 +66,7 @@ const PRECACHE_ASSETS = [
   './js/mcp.js',
   './js/debug.js',
   './js/tool-cards.js',
+  './js/command-card.js',
   './js/attachments.js',
   './js/export.js',
   './js/profile-backup.js',

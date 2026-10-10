@@ -121,6 +121,14 @@
     return null;
   }
 
+  function getCommandCard() {
+    if (typeof window !== 'undefined' && window.ChatCommandCard) return window.ChatCommandCard;
+    if (typeof require !== 'undefined') {
+      try { return require('./command-card.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
+    }
+    return null;
+  }
+
   function getSecurity() {
     if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
     if (typeof require !== 'undefined') {
@@ -960,7 +968,9 @@
             }
           },
           displayMode: 'collapsed',
-          view: createMcpToolView(toolName, serverName),
+          view: (this.client.id === 'mcp_proxy' && toolName === LOCAL_COMMAND_TOOL && getCommandCard()?.createView)
+            ? getCommandCard().createView()
+            : createMcpToolView(toolName, serverName),
           formatter: (args, result) => {
             return formatMcpMarkdown(toolName, args, result, null, serverName);
           }

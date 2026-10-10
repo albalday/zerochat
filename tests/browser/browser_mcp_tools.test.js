@@ -1023,4 +1023,153 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
   }
 });
 
+test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo detiene', { timeout: 30000 }, async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    await page.evaluate(() => {
+      // Servidor simulado: un comando en segundo plano que escribe líneas hasta que se detiene.
+      const job = { id: 7, key: 'inv-tarjeta-1', status: 'running', exit_code: null, started_at: Date.now() - 5000, elapsed_s: 5, output_bytes: 0, log: '' };
+      window.__jobCalls = [];
+      window.__job = job;
+      const line = n => `linea ${n}\n`;
+      for (let i = 1; i <= 6; i++) job.log += line(i);
+      window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+        window.__jobCalls.push({ method, params });
+        const matches = params.id === job.id || params.key === job.key;
+        if (!matches) throw new Error('Comando no encontrado');
+        if (method === 'zerochat/jobs/stop') { job.status = 'stopped'; job.exit_code = -15; job.stop_reason = 'user'; }
+        if (job.status === 'running') job.log += line(job.log.split('\n').length);
+        job.output_bytes = job.log.length;
+        const details = { id: job.id, key: job.key, status: job.status, exit_code: job.exit_code, started_at: job.started_at, elapsed_s: job.elapsed_s, output_bytes: job.output_bytes, tail: job.log.slice(-200) };
+        if (method === 'zerochat/jobs/log') {
+          return { text: job.log.slice(params.offset, params.offset + params.limit), next: Math.min(job.log.length, params.offset + params.limit), total: job.log.length, done: job.status !== 'running' };
+        }
+        return details;
+      };
+      const container = document.createElement('div');
+      container.id = 'command-card-test';
+      document.getElementById('chat-messages')?.appendChild(container) || document.body.appendChild(container);
+      const view = window.ChatCommandCard.createView();
+      const args = { command: 'npm run dev', background: true };
+      const card = view.createLiveCard(args, {});
+      card.dataset.invocationId = job.key;
+      window.ChatToolCards.appendToolCard(container, card);
+      // Igual que agent-core: actualizar la tarjeta con el resultado y archivarla como terminada.
+      const result = { content: JSON.stringify({ success: true, status: 'running', job_id: 7, elapsed_s: 2.5, output: 'linea 1\n' }) };
+      view.updateLiveCard(card, args, result, 2500, {});
+      window.ChatToolCards.completeToolCard(card, result);
+      window.__commandCard = card;
+    });
+
+    const card = page.locator('#command-card-test .command-card-wrapper');
+    await page.waitForFunction(() => window.__commandCard.parentElement?.classList.contains('tool-call-group-active-cards'));
+    await page.waitForFunction(() => /linea 7/.test(window.__commandCard.querySelector('.command-card-output').textContent));
+    const running = await card.evaluate(el => ({
+      badge: el.querySelector('.tool-card-badge').textContent.trim(),
+      expanded: !el.querySelector('.tool-execution-card').classList.contains('collapsed'),
+      status: el.dataset.toolCallStatus,
+      title: el.querySelector('.command-card-command').getAttribute('title'),
+      lines: el.querySelector('.command-card-output').textContent.split('\n').length,
+      stopVisible: !el.querySelector('[data-command-action="stop"]').hidden,
+      groupRunning: el.closest('.tool-call-group').classList.contains('is-running')
+    }));
+    assert.match(running.badge, /En segundo plano · 0?:?0?\d/);
+    assert.deepEqual([running.expanded, running.status, running.title, running.lines, running.stopVisible, running.groupRunning],
+      [true, 'running', 'npm run dev', 4, true, true]);
+    assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
+
+    // Ver log muestra el log completo y oculta las últimas líneas.
+    await card.locator('[data-command-action="log"]').click();
+    await page.waitForFunction(() => /linea 1\n/.test(window.__commandCard.querySelector('.command-card-log').textContent));
+    const withLog = await card.evaluate(el => ({
+      log: el.querySelector('.command-card-log').textContent,
+      logHidden: el.querySelector('.command-card-log').hidden,
+      outputHidden: el.querySelector('.command-card-output').hidden,
+      button: el.querySelector('[data-command-action="log"]').textContent.trim(),
+      expanded: el.querySelector('[data-command-action="log"]').getAttribute('aria-expanded')
+    }));
+    assert.match(withLog.log, /^linea 1\nlinea 2\n/);
+    assert.deepEqual([withLog.logHidden, withLog.outputHidden, withLog.button, withLog.expanded], [false, true, 'Ocultar log', 'true']);
+
+    await card.locator('[data-command-action="stop"]').click();
+    await page.waitForFunction(() => /Detenido/.test(window.__commandCard.querySelector('.tool-card-badge').textContent));
+    const stopped = await card.evaluate(el => ({
+      stopHidden: el.querySelector('[data-command-action="stop"]').hidden,
+      archived: el.parentElement.classList.contains('tool-call-group-cards'),
+      status: el.dataset.toolCallStatus
+    }));
+    assert.deepEqual(stopped, { stopHidden: true, archived: true, status: 'success' });
+    assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/stop' && call.params.id === 7));
+    const callsAfterStop = await page.evaluate(() => window.__jobCalls.length);
+    await page.waitForTimeout(1300);
+    assert.equal(await page.evaluate(() => window.__jobCalls.length), callsAfterStop, 'Un comando terminado deja de consultarse');
+
+    // Un comando esperado: se sigue por la clave de la invocación hasta que llega el resultado.
+    const foreground = await page.evaluate(async () => {
+      const job = window.__job;
+      Object.assign(job, { id: 8, key: 'inv-tarjeta-2', status: 'running', exit_code: null, log: 'compilando\n' });
+      const view = window.ChatCommandCard.createView();
+      const args = { command: 'npm run build' };
+      const card = view.createLiveCard(args, {});
+      card.dataset.invocationId = job.key;
+      window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
+      await new Promise(resolve => setTimeout(resolve, 1300));
+      const during = {
+        badge: card.querySelector('.tool-card-badge').textContent.trim(),
+        stop: !card.querySelector('[data-command-action="stop"]').hidden,
+        byKey: window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2')
+      };
+      const result = { content: JSON.stringify({ success: false, status: 'exited', job_id: 8, exit_code: 2, duration_s: 3.1, output: 'error TS2304\n' }) };
+      view.updateLiveCard(card, args, result, 3100, {});
+      return {
+        during,
+        after: {
+          badge: card.querySelector('.tool-card-badge').textContent.trim(),
+          output: card.querySelector('.command-card-output').textContent,
+          stop: !card.querySelector('[data-command-action="stop"]').hidden,
+          keepExpanded: Boolean(result.keepExpanded)
+        }
+      };
+    });
+    assert.match(foreground.during.badge, /^Ejecutándose · /);
+    assert.equal(foreground.during.stop, true);
+    assert.equal(foreground.during.byKey, true);
+    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', output: 'error TS2304', stop: false, keepExpanded: false });
+
+    // Tarjeta del historial: estado guardado, y el log avisa si ya no existe en el servidor.
+    const historical = await page.evaluate(async () => {
+      window.ChatMCP.manager.requestExternalControl = async () => { throw new Error('Comando no encontrado'); };
+      const view = window.ChatCommandCard.createView();
+      const card = view.renderHistoricalCard({ command: 'pytest -x' }, {
+        content: JSON.stringify({ success: true, status: 'exited', job_id: 3, exit_code: 0, duration_s: 72, output: '5 passed\n' })
+      }, {});
+      document.getElementById('command-card-test').appendChild(card);
+      card.querySelector('[data-command-action="log"]').click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return {
+        badge: card.querySelector('.tool-card-badge').textContent.trim(),
+        collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'),
+        stop: !card.querySelector('[data-command-action="stop"]').hidden,
+        log: card.querySelector('.command-card-log').textContent
+      };
+    });
+    assert.deepEqual(historical, {
+      badge: 'Terminado · 1:12',
+      collapsed: true,
+      stop: false,
+      log: 'El log ya no está disponible: ZeroChat se ha reiniciado o el comando se ha descartado.'
+    });
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
 });
