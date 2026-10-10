@@ -147,10 +147,12 @@
 
     rawMessages.forEach(m => {
       if (m.role === 'user') {
+        // Aviso de comandos en segundo plano terminados, guardado con el mensaje y no visible en el chat.
+        const userText = m.commandNotes ? `${m.commandNotes}\n\n${m.content || ''}` : m.content;
         if (m.images && Array.isArray(m.images) && m.images.length > 0) {
           const contentParts = [];
-          if (m.content) {
-            contentParts.push({ type: 'text', text: m.content });
+          if (userText) {
+            contentParts.push({ type: 'text', text: userText });
           }
           m.images.forEach(img => {
             if (img && img.dataUrl) {
@@ -164,7 +166,7 @@
           });
           messages.push({ role: 'user', content: contentParts });
         } else {
-          messages.push({ role: 'user', content: m.content || '' });
+          messages.push({ role: 'user', content: userText || '' });
         }
       } else if (m.role === 'assistant') {
         const item = { role: 'assistant', content: m.content !== undefined ? m.content : '' };

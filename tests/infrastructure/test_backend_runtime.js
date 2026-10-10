@@ -578,6 +578,17 @@ with tempfile.TemporaryDirectory() as temp_dir:
     stopped = json.loads(zerochat.check_command(server["job_id"], stop=True))
     assert stopped["success"] is True and stopped["status"] == "stopped" and stopped["stopped_by"] == "model", stopped
 
+    # Un final que el modelo no ha visto se entrega una sola vez; los vistos y los vivos, nunca.
+    unseen = json.loads(zerochat.run_command("echo a; sleep 0.8; echo fin; exit 3", background=True))
+    zerochat.JOBS.get(job_id=unseen["job_id"]).done.wait(5)
+    alive = json.loads(zerochat.run_command("exec sleep 100", background=True))
+    reports = zerochat.JOBS.report_finished([unseen["job_id"], job_id, alive["job_id"], 9999, unseen["job_id"]])
+    assert [r["id"] for r in reports] == [unseen["job_id"]], reports
+    assert reports[0]["exit_code"] == 3 and reports[0]["tail"] == "a\\nfin" and reports[0]["log_file"].endswith(".log")
+    assert zerochat.JOBS.report_finished([unseen["job_id"]]) == []
+    assert json.loads(zerochat.check_command(unseen["job_id"]))["new_output"] == ""
+    zerochat.check_command(alive["job_id"], stop=True)
+
     unknown = json.loads(zerochat.check_command(9999))
     assert unknown["success"] is False and "Unknown job_id" in unknown["error"]
 

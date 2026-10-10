@@ -428,6 +428,8 @@ JOB_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{8,64}")
 MODEL_OUTPUT_READ_BYTES = 64 * 1024
 CARD_TAIL_BYTES = 2048
 JOB_LOG_PAGE_BYTES = 256 * 1024
+REPORT_TAIL_LINES = 20
+REPORT_TAIL_BYTES = 4096
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -977,6 +979,22 @@ class JobManager:
                 pass
             job.done.wait(JOB_STOP_GRACE_SECONDS)
         return job
+
+    def report_finished(self, ids: list[int]) -> list[dict]:
+        """Final de los comandos indicados que han terminado sin que el modelo lo haya visto.
+
+        Cada final se entrega una sola vez: queda marcado como visto.
+        """
+        reports = []
+        for job_id in dict.fromkeys(ids):
+            job = self.get(job_id=job_id)
+            if job is None or not job.done.is_set() or job.reported:
+                continue
+            job.reported = True
+            job.model_cursor = job.total
+            tail = "\n".join(job.tail_text(REPORT_TAIL_BYTES).rstrip("\n").split("\n")[-REPORT_TAIL_LINES:])
+            reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
+        return reports
 
     def stop_all(self, reason: str = "shutdown") -> list[CommandJob]:
         running = [job for job in self.list() if not job.done.is_set()]
@@ -3147,6 +3165,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         """Control de los comandos desde la interfaz: tarjetas, log y botón de detener."""
         if method == "zerochat/jobs/list":
             return {"jobs": [job.summary() for job in JOBS.list()]}, None, ""
+        if method == "zerochat/jobs/report":
+            ids = params.get("ids")
+            if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
+                return None, {"code": -32602, "message": "ids debe ser una lista de hasta 100 enteros."}, ""
+            return {"reports": JOBS.report_finished(ids)}, None, ""
         job = JOBS.get(job_id=params.get("id"), key=params.get("key"))
         if method in ("zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/stop") and job is None:
             return None, {"code": -32602, "message": "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat."}, ""

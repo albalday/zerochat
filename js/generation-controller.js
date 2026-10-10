@@ -287,6 +287,14 @@
       if (State?.set) State.set('agent', { ragSystemContext: '' });
     }
 
+    // Los comandos en segundo plano que han terminado sin que el modelo lo viera se le comunican
+    // con este mensaje; la nota queda guardada en él para que el historial no cambie en otros turnos.
+    const readMessages = () => (State?.get ? (State.get('messages') || []) : []);
+    const commandNotes = await resolveDep('ChatMCP', './mcp.js')?.manager?.buildCommandNotes?.(readMessages());
+    if (commandNotes && State?.replaceMessages) {
+      State.replaceMessages(readMessages().map(message => (message.id === userMsgId ? { ...message, commandNotes } : message)));
+    }
+
     const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
     // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
     const projectContext = runtimeConfig.projectMode === true && State?.get ? (State.get('project') || null) : null;

@@ -51,6 +51,7 @@
 
   const DEFAULT_TIMEOUT_MS = 15000;
   const LOCAL_COMMAND_TOOL = 'run_command';
+  const LOCAL_COMMAND_CHECK_TOOL = 'check_command';
   const EXTERNAL_START_POLL_ATTEMPTS = 10;
   const EXTERNAL_START_POLL_INTERVAL_MS = 15000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
@@ -1425,6 +1426,40 @@
       } catch (_) {
         return false;
       }
+    }
+
+    /**
+     * Nota en inglés para el modelo con los comandos en segundo plano de esta conversación que
+     * han terminado sin que los haya visto terminar. Vacía si no hay ninguno.
+     */
+    async buildCommandNotes(messages = []) {
+      const lastStatus = new Map();
+      for (const message of Array.isArray(messages) ? messages : []) {
+        if (message?.role !== 'tool' || ![LOCAL_COMMAND_TOOL, LOCAL_COMMAND_CHECK_TOOL].includes(message.name)) continue;
+        const data = getCommandCard()?.parseResult?.(message.content);
+        if (data && Number.isInteger(data.job_id)) lastStatus.set(data.job_id, data.status);
+      }
+      const ids = [...lastStatus].filter(([, status]) => status === 'running').map(([id]) => id).slice(-100);
+      if (!ids.length) return '';
+      let reports = [];
+      try {
+        reports = (await this.requestExternalControl('zerochat/jobs/report', { ids }, { timeoutMs: 3000 }))?.reports || [];
+      } catch (_) {
+        return '';
+      }
+      if (!reports.length) return '';
+      const format = getCommandCard()?.formatDuration || (seconds => `${seconds} s`);
+      const lines = ['Background commands that finished since your last turn:'];
+      for (const report of reports) {
+        const duration = format(report.elapsed_s);
+        const outcome = report.status === 'stopped'
+          ? `was stopped by ${report.stop_reason === 'user' ? 'the user' : 'ZeroChat'} after ${duration}`
+          : `exited with code ${report.exit_code} after ${duration}`;
+        lines.push(`- job_id ${report.id} \`${String(report.command || '').split('\n')[0]}\` ${outcome}.`);
+        if (report.tail) lines.push('  Last lines:', ...String(report.tail).split('\n').map(line => `    ${line}`));
+      }
+      lines.push('For more output, read the log file with read_file or search_files: ' + reports.map(report => `job_id ${report.id}: ${report.log_file}`).join('; ') + '.');
+      return lines.join('\n');
     }
 
     async stopCommandJob(id) {

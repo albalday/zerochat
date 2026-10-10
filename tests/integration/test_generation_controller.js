@@ -258,3 +258,41 @@ test('GenerationController.runCancellableTask - el botÃ³n de parar aborta la seÃ
   });
   assert.equal(aborted, true);
 });
+
+test('GenerationController - guarda en el mensaje del usuario la nota de comandos terminados antes de llamar al modelo', async t => {
+  const State = require('../../js/state.js');
+  const names = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments', 'ChatMCP'];
+  const previous = names.map(name => [name, global[name]]);
+  t.after(() => {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete global[name];
+      else global[name] = value;
+    }
+  });
+  const store = State.createStore();
+  global.ChatState = store;
+  global.ChatProfileRepository = { load: async () => null };
+  global.ChatAttachments = { getFiles: () => [] };
+  const seenByNotes = [];
+  global.ChatMCP = { manager: { buildCommandNotes: async messages => { seenByNotes.push(messages.map(m => m.content)); return 'Background commands that finished since your last turn: ...'; } } };
+  let historyAtCall = null;
+  global.ChatEngine = { executeAgentTurnLoop: async ({ chatHistory }) => {
+    historyAtCall = chatHistory;
+    return { success: true, chatHistory: [...chatHistory, { role: 'assistant', content: 'ok' }] };
+  } };
+
+  await GenerationController.handleSendMessage({
+    elements: { userInput: { value: 'sigue' } },
+    api: { streamChatCompletion() {} },
+    getRuntimeConfig: () => ({ model: 'test', apiUrl: 'http://localhost:1234/v1' }),
+    appendUserMessage: () => 'user-notes-test',
+    getChatHistory: () => store.get('messages'),
+    createAssistantMessagePlaceholder: () => ({ content: { innerHTML: '' }, actions: { style: {} }, wrapper: {}, row: {}, msgId: 'assistant-notes-test' })
+  });
+
+  assert.deepEqual(seenByNotes, [['sigue']]);
+  const user = historyAtCall.find(message => message.id === 'user-notes-test');
+  assert.equal(user.content, 'sigue', 'El texto visible no cambia');
+  assert.equal(user.commandNotes, 'Background commands that finished since your last turn: ...');
+  assert.equal(store.get('messages').find(message => message.id === 'user-notes-test').commandNotes, user.commandNotes);
+});

@@ -799,3 +799,18 @@ test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas n
     ChatAPI.streamChatCompletion = originalStream;
   }
 });
+
+test('ChatEngine - antepone al mensaje del usuario la nota de comandos terminados, también con imágenes', () => {
+  const note = 'Background commands that finished since your last turn:\n- job_id 4 `npm test` exited with code 1 after 3:12.';
+  const messages = ChatEngine.buildEffectiveMessages([
+    { role: 'user', content: 'sigue', commandNotes: note },
+    { role: 'assistant', content: 'vale' },
+    { role: 'user', content: 'mira esto', commandNotes: note, images: [{ dataUrl: 'data:image/png;base64,AA==' }] },
+    { role: 'user', content: 'sin nota' }
+  ], {}, { enableTools: false });
+  const users = messages.filter(message => message.role === 'user');
+  assert.equal(users[0].content, `${note}\n\nsigue`);
+  assert.equal(users[1].content[0].text, `${note}\n\nmira esto`);
+  assert.equal(users[1].content[1].type, 'image_url');
+  assert.equal(users[2].content, 'sin nota');
+});

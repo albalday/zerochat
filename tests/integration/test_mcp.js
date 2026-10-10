@@ -1262,3 +1262,45 @@ test('MCP - syncCommandJobs publica solo los comandos en marcha y no reescribe e
     ChatState.set('mcp', previousState);
   }
 });
+
+test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano terminados sin que el modelo lo viera', async () => {
+  const manager = new MCP.McpManager();
+  const requests = [];
+  manager.clients.set('mcp_proxy', {
+    request: async (method, params) => {
+      requests.push({ method, params });
+      return { reports: [
+        { id: 4, command: 'npm test\necho fin', status: 'exited', exit_code: 1, elapsed_s: 192, stop_reason: null, tail: 'FAIL a.test.js\n1 failed', log_file: '/tmp/z/job-4.log' },
+        { id: 6, command: 'npm run dev', status: 'stopped', exit_code: -15, elapsed_s: 30, stop_reason: 'user', tail: '', log_file: '/tmp/z/job-6.log' }
+      ] };
+    }
+  });
+  const tool = (name, data) => ({ role: 'tool', name, tool_call_id: `c${Math.random()}`, content: JSON.stringify(data) });
+  const messages = [
+    { role: 'user', content: 'lanza las pruebas' },
+    tool('run_command', { success: true, status: 'running', job_id: 4, output: '' }),
+    tool('run_command', { success: true, status: 'running', job_id: 5, output: '' }),
+    tool('check_command', { success: true, status: 'exited', job_id: 5, exit_code: 0, new_output: '' }),
+    tool('run_command', { success: true, status: 'running', job_id: 6, output: '' }),
+    tool('read_file', { success: true, status: 'running', job_id: 7 }),
+    { role: 'tool', name: 'run_command', content: 'Error MCP (-32602): Argumento no permitido: cwd' }
+  ];
+  const note = await manager.buildCommandNotes(messages);
+  assert.deepEqual(requests, [{ method: 'zerochat/jobs/report', params: { ids: [4, 6] } }]);
+  assert.equal(note, [
+    'Background commands that finished since your last turn:',
+    '- job_id 4 `npm test` exited with code 1 after 3:12.',
+    '  Last lines:',
+    '    FAIL a.test.js',
+    '    1 failed',
+    '- job_id 6 `npm run dev` was stopped by the user after 30 s.',
+    'For more output, read the log file with read_file or search_files: job_id 4: /tmp/z/job-4.log; job_id 6: /tmp/z/job-6.log.'
+  ].join('\n'));
+
+  // Sin comandos pendientes no se consulta al servidor; si falla, no hay nota.
+  requests.length = 0;
+  assert.equal(await manager.buildCommandNotes(messages.slice(0, 1)), '');
+  assert.equal(requests.length, 0);
+  manager.clients.set('mcp_proxy', { request: async () => { throw new Error('offline'); } });
+  assert.equal(await manager.buildCommandNotes(messages), '');
+});

@@ -462,6 +462,12 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(stoppedByUser.result.status, 'stopped');
     assert.equal(stoppedByUser.result.stop_reason, 'user');
     assert.equal((await jobsRpc(67, 'zerochat/jobs/get', { id: 99999 })).error?.code, -32602);
+    assert.equal((await jobsRpc(69, 'zerochat/jobs/report', { ids: 'x' })).error?.code, -32602);
+    assert.equal((await jobsRpc(70, 'zerochat/jobs/report', { ids: [true] })).error?.code, -32602);
+    const report = await jobsRpc(71, 'zerochat/jobs/report', { ids: [bg.parsed.job_id] });
+    assert.equal(report.result.reports.length, 1, 'El final detenido por el usuario aún no lo ha visto el modelo');
+    assert.equal(report.result.reports[0].stop_reason, 'user');
+    assert.deepEqual((await jobsRpc(72, 'zerochat/jobs/report', { ids: [bg.parsed.job_id] })).result.reports, []);
     const seen = await callTool(68, 'check_command', { job_id: bg.parsed.job_id });
     assert.equal(seen.parsed.status, 'stopped');
     assert.equal(seen.parsed.stopped_by, 'user');

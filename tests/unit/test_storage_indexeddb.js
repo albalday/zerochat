@@ -162,3 +162,14 @@ test('Storage IndexedDB - preserva íntegros turnos del asistente, herramientas,
     assert.equal(loaded.history[4].content, 'Hoy es 2 de septiembre de 2026.');
   }
 });
+
+test('Storage IndexedDB - conserva la nota de comandos terminados del mensaje del usuario', async () => {
+  const sessionId = 'test_session_command_notes';
+  await Storage.saveConversation({ id: sessionId, title: 'Notas' }, [
+    { id: 'n1', role: 'user', content: 'sigue', commandNotes: 'Background commands that finished since your last turn: ...' },
+    { id: 'n2', role: 'user', content: 'sin nota' }
+  ]);
+  const loaded = await Storage.getConversation(sessionId);
+  assert.equal(loaded.history[0].commandNotes, 'Background commands that finished since your last turn: ...');
+  assert.equal('commandNotes' in loaded.history[1], false);
+});
