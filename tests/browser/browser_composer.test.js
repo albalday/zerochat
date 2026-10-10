@@ -385,6 +385,13 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await path.waitFor();
       assert.equal(await path.textContent(), '~/repo');
       assert.equal(await path.getAttribute('title'), '/home/u/repo');
+      const changeButton = page.locator('[data-project-action="changeDirectory"]');
+      assert.equal(await changeButton.getAttribute('aria-label'), await changeButton.getAttribute('title'));
+      assert.ok((await changeButton.getAttribute('aria-label')).length > 0);
+      assert.equal(await changeButton.locator('svg.ui-icon').count(), 1, 'El botón es el icono de editar');
+      assert.equal((await changeButton.textContent()).trim(), '');
+      await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/repo', rules: { content: 'r' } }));
+      assert.match(await page.locator('[data-project-action="reload"]').getAttribute('title'), /AGENTS\.md/);
 
       // Con el modo proyecto apagado el directorio sigue visible.
       await page.locator('#project-mode-panel .switch').click();

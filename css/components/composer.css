@@ -333,8 +333,8 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  min-width: 250px;
-  max-width: 320px;
+  min-width: 270px;
+  max-width: 340px;
   overflow: hidden;
   /* Se abre con display:flex desde ui-reasoning.js. */
   flex-direction: column;
@@ -347,7 +347,7 @@
   padding: 0.65rem 0.7rem 0.65rem 0.85rem;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-surface-subtle);
-  font-size: 0.775rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-main);
 }
@@ -400,13 +400,13 @@
 .reasoning-intensity-heading {
   margin-bottom: 0.85rem;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .reasoning-intensity-heading output {
   color: var(--primary);
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 700;
 }
 
@@ -443,14 +443,14 @@
 .reasoning-intensity-scale {
   margin-top: 0.5rem;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .reasoning-menu-footer {
   padding: 0.5rem 0.85rem;
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface-subtle);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -474,7 +474,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-main);
 }
@@ -485,35 +485,60 @@
 }
 
 .reasoning-agent-toggle-desc {
-  font-size: 0.675rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
-  line-height: 1.25;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .project-mode-directory {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
   min-width: 0;
 }
 
 .project-mode-path {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--text-muted);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
-.project-mode-directory .btn-secondary {
+.btn-project-directory {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.72rem;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.btn-project-directory:hover:not(:disabled) {
+  color: var(--primary);
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.btn-project-directory:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-project-directory:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .project-mode-actions {
@@ -524,8 +549,8 @@
 }
 
 .project-mode-actions .btn-secondary {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.72rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
 }
 
 @media (max-width: 640px) {

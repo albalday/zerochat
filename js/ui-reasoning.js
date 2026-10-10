@@ -120,6 +120,9 @@
     return parts[parts.length - 1] || String(cwd || '');
   }
 
+  // Acciones cuyo nombre no basta para saber qué hacen.
+  const PROJECT_ACTION_TITLES = Object.freeze({ reload: 'project_action_reload_title' });
+
   /** Acciones disponibles para cada estado del modo proyecto (initialize solo si se puede escribir). */
   function getProjectActions(project = {}, options = {}) {
     switch (project.status) {
@@ -173,8 +176,9 @@
     const actions = enabled ? getProjectActions(project, { canInitialize: canInitialize && typeof handlers.initialize === 'function' }) : [];
     // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
     const cwd = String(project.cwd || '');
+    const changeLabel = escapeHtml(t('project_action_change_directory'));
     const changeButton = canChangeDirectory && typeof handlers.changeDirectory === 'function'
-      ? `<button type="button" class="btn-secondary" data-project-action="changeDirectory" title="${escapeHtml(t('project_action_change_directory_title'))}"${busy ? ' disabled' : ''}>${escapeHtml(t('project_action_change_directory'))}</button>`
+      ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons?.get ? Icons.get('edit', { size: 15 }) : ''}</button>`
       : '';
     const directoryHtml = cwd
       ? `<div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>`
@@ -192,7 +196,7 @@
       </div>
       ${directoryHtml}
       ${actions.length ? `<div class="project-mode-actions">${actions.map(action =>
-        `<button type="button" class="btn-secondary" data-project-action="${action}">${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>` : ''}`;
+        `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>` : ''}`;
     if (!panel._hasProjectListeners) {
       panel._hasProjectListeners = true;
       panel.addEventListener('change', event => {
