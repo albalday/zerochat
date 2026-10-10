@@ -1560,6 +1560,34 @@
   gap: 0.4rem;
   font-weight: 600;
   color: var(--text-main);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.command-jobs-card-title::-webkit-details-marker {
+  display: none;
+}
+
+.command-jobs-card-title::after {
+  content: '';
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: auto;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.command-jobs-card[open] .command-jobs-card-title::after {
+  transform: rotate(225deg);
+}
+
+.command-jobs-card-title:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .command-jobs-card-title .ui-icon {

@@ -1,7 +1,8 @@
 /**
  * Tarjeta de run_command: sigue al comando mientras su proceso vive en el servidor local y
- * muestra su estado y un botón para detenerlo. Desplegada, muestra su log, que se actualiza
- * mientras el comando sigue en marcha; plegada, no pide nada al servidor salvo el estado.
+ * muestra su estado y un botón para detenerlo. El reloj se calcula en el navegador y el final
+ * se detecta con el latido, que trae los comandos en marcha: plegada, la tarjeta no hace
+ * peticiones propias. Desplegada, pide su log mientras el comando sigue en marcha.
  *
  * Mientras la llamada está en curso la tarjeta identifica al comando por la clave de la
  * invocación (`data-invocation-id`); en cuanto el resultado trae su `job_id`, por este.
@@ -17,7 +18,9 @@
 
   const { resolveDep } = Utils;
 
-  const POLL_MS = 1000;
+  // Solo una tarjeta desplegada pide su log, y con este intervalo.
+  const LOG_POLL_MS = 2000;
+  const FIRST_LOG_POLL_MS = 700;
   const LOG_PAGE_BYTES = 256 * 1024;
   const MAX_LOG_CHARS = 512 * 1024;
   const FINAL_STATUSES = new Set(['exited', 'timeout', 'stopped']);
@@ -29,6 +32,7 @@
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const getDialogs = () => resolveDep('ChatDialogs', null);
   const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
+  const getState = () => resolveDep('ChatState', './state.js');
   const t = (key, params) => getI18n()?.t?.(key, params) || key;
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const icon = (name, size = 13) => getIcons()?.get?.(name, { size }) || '';
@@ -124,6 +128,44 @@
     return card;
   }
 
+  // Tarjetas de comandos en marcha: un único reloj para todas y una única suscripción al latido.
+  const tracked = new Set();
+  let clockTimer = null;
+  let jobsSubscribed = false;
+
+  function track(controller) {
+    tracked.add(controller);
+    if (clockTimer === null && typeof setInterval === 'function') {
+      clockTimer = setInterval(() => {
+        for (const item of tracked) {
+          if (!item.card.isConnected) untrack(item);
+          else if (item.state.confirmed) item.renderBadge();
+        }
+      }, 1000);
+    }
+    const State = getState();
+    if (!jobsSubscribed && State?.subscribe) {
+      jobsSubscribed = true;
+      // Un comando que deja de figurar entre los que siguen en marcha ha terminado: su tarjeta
+      // pregunta una vez cómo acabó.
+      State.subscribe(state => ({ ids: JSON.stringify((state.mcp?.commandJobs || []).map(job => job.id)) }), ({ ids }) => {
+        const running = new Set(JSON.parse(ids));
+        for (const item of tracked) {
+          if (item.state.toolReturned && Number.isInteger(item.state.id) && !running.has(item.state.id)) item.refreshStatus();
+        }
+      });
+    }
+  }
+
+  function untrack(controller) {
+    tracked.delete(controller);
+    controller.stopLogPolling();
+    if (!tracked.size && clockTimer !== null) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  }
+
   class CommandCardController {
     constructor(card, state) {
       this.card = card;
@@ -134,18 +176,26 @@
         startedAt: Date.now(),
         id: null,
         toolReturned: false,
+        // El servidor ya conoce el comando: hasta entonces no se toca la insignia, que puede
+        // estar pidiendo permiso al usuario.
+        confirmed: false,
         output: '',
         reactivated: false,
         ...state
       };
-      this.timer = null;
+      this.logTimer = null;
       this.log = { loaded: false, next: 0, loading: false };
       controllers.set(card, this);
       // El log se pide al desplegar la tarjeta, la despliegue quien la despliegue.
       const inner = card.querySelector('.tool-execution-card');
       if (inner && typeof MutationObserver !== 'undefined') {
         new MutationObserver(() => {
-          if (this.isExpanded() && !this.log.loaded) this.loadLog();
+          if (!this.isExpanded()) {
+            this.stopLogPolling();
+            return;
+          }
+          if (!this.log.loaded) this.loadLog();
+          this.scheduleLog();
         }).observe(inner, { attributes: true, attributeFilter: ['class'] });
       }
     }
@@ -165,11 +215,15 @@
       return Boolean(inner) && !inner.classList.contains('collapsed');
     }
 
+    renderBadge() {
+      const badge = this.card.querySelector('.tool-card-badge');
+      if (badge) badge.outerHTML = renderBadge(this.state);
+    }
+
     render() {
       const { state, card } = this;
       if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
-      const badge = card.querySelector('.tool-card-badge');
-      if (badge) badge.outerHTML = renderBadge(state);
+      this.renderBadge();
       const stopButton = card.querySelector('[data-command-action="stop"]');
       if (stopButton) stopButton.hidden = state.status !== 'running' || !this.ref();
     }
@@ -177,6 +231,7 @@
     applyDetails(details) {
       if (!details || typeof details !== 'object') return;
       const { state } = this;
+      state.confirmed = true;
       if (Number.isInteger(details.id)) state.id = details.id;
       if (typeof details.status === 'string') state.status = details.status;
       if (details.exit_code !== undefined) state.exitCode = details.exit_code;
@@ -188,10 +243,11 @@
     applyResult(data, fallbackError = '') {
       const { state } = this;
       state.toolReturned = true;
+      state.confirmed = true;
       if (!data) {
         state.status = 'error';
         state.output = fallbackError;
-        this.stopPolling();
+        untrack(this);
         this.render();
         this.showText(state.output);
         return;
@@ -203,24 +259,65 @@
       if (Number.isFinite(data.elapsed_s)) state.startedAt = Date.now() - data.elapsed_s * 1000;
       state.output = [data.output ?? data.new_output ?? '', data.error ? `\n${data.error}` : ''].join('').trim();
       if (state.status === 'running') {
-        this.ensurePolling();
-        // La franja de comandos en marcha lo muestra sin esperar al siguiente latido.
+        track(this);
+        this.scheduleLog();
+        // El aviso de fin de turno y el latido lo cuentan sin esperar al siguiente latido.
         getMcp()?.refreshCommandJobs?.();
       } else {
-        this.stopPolling();
+        untrack(this);
         // El log se recargará entero si se vuelve a desplegar.
         this.log.loaded = false;
       }
       this.render();
     }
 
-    ensurePolling() {
-      if (this.timer === null && !this.isFinal()) this.timer = setTimeout(() => this.tick(), POLL_MS);
+    scheduleLog() {
+      if (this.logTimer === null && !this.isFinal() && this.isExpanded()) {
+        this.logTimer = setTimeout(() => this.pollLog(), LOG_POLL_MS);
+      }
     }
 
-    stopPolling() {
-      if (this.timer !== null) clearTimeout(this.timer);
-      this.timer = null;
+    stopLogPolling() {
+      if (this.logTimer !== null) clearTimeout(this.logTimer);
+      this.logTimer = null;
+    }
+
+    async pollLog() {
+      this.logTimer = null;
+      if (!this.card.isConnected) {
+        untrack(this);
+        return;
+      }
+      if (typeof document === 'undefined' || !document.hidden) {
+        const done = await this.loadLog();
+        if (done && this.state.toolReturned) {
+          await this.refreshStatus();
+          return;
+        }
+        // La clave de la invocación llega después de crear la tarjeta: el botón de detener
+        // aparece cuando el servidor ya conoce el comando.
+        if (this.state.confirmed) this.render();
+      }
+      this.scheduleLog();
+    }
+
+    /** Pregunta una vez al servidor cómo está el comando. */
+    async refreshStatus() {
+      const ref = this.ref();
+      const mcp = getMcp();
+      if (!ref || !mcp?.requestExternalControl) return;
+      try {
+        this.applyDetails(await mcp.requestExternalControl('zerochat/jobs/get', ref));
+      } catch (_) {
+        if (!this.state.toolReturned) return;
+        this.state.status = 'unavailable';
+      }
+      if (this.isFinal()) {
+        untrack(this);
+        if (this.isExpanded() && this.state.status !== 'unavailable') await this.loadLog();
+        this.finish();
+      }
+      this.render();
     }
 
     /** Un comando que sigue en segundo plano vuelve a la zona visible de su grupo de herramientas. */
@@ -239,45 +336,6 @@
       }
     }
 
-    async tick() {
-      this.timer = null;
-      if (!this.card.isConnected) return;
-      if (typeof document !== 'undefined' && document.hidden) {
-        this.ensurePolling();
-        return;
-      }
-      const ref = this.ref();
-      const mcp = getMcp();
-      if (!ref || !mcp?.requestExternalControl) {
-        if (this.state.toolReturned) {
-          this.state.status = 'unavailable';
-          this.render();
-        } else {
-          this.ensurePolling();
-        }
-        return;
-      }
-      this.reactivate();
-      try {
-        this.applyDetails(await mcp.requestExternalControl('zerochat/jobs/get', ref));
-      } catch (_) {
-        if (this.state.toolReturned) {
-          this.state.status = 'unavailable';
-          this.finish();
-          this.render();
-          return;
-        }
-        // Antes de que el servidor registre el comando (por ejemplo, mientras se pide permiso al
-        // usuario) la consulta falla: se reintenta sin tocar la tarjeta.
-        this.ensurePolling();
-        return;
-      }
-      if (this.isExpanded()) await this.loadLog();
-      this.render();
-      if (this.isFinal()) this.finish();
-      else this.ensurePolling();
-    }
-
     async stop() {
       const ref = this.ref();
       const mcp = getMcp();
@@ -289,7 +347,7 @@
         if (this.isExpanded()) await this.loadLog();
         this.render();
         if (this.isFinal() && this.state.toolReturned) {
-          this.stopPolling();
+          untrack(this);
           this.finish();
         } else {
           getMcp()?.refreshCommandJobs?.();
@@ -313,20 +371,23 @@
       if (this.state.toolReturned) this.showText(this.state.output || t('command_log_unavailable'));
     }
 
-    /** La primera vez carga el final del log; después, solo lo nuevo. */
+    /**
+     * La primera vez carga el final del log; después, solo lo nuevo. Devuelve si el comando ya
+     * ha terminado, según el servidor.
+     */
     async loadLog() {
-      if (this.log.loading) return;
+      if (this.log.loading) return false;
       if (this.state.status === 'error') {
         this.showText(this.state.output);
-        return;
+        return true;
       }
       const ref = this.ref();
       const mcp = getMcp();
       const logEl = this.card.querySelector('.command-card-log');
-      if (!logEl) return;
+      if (!logEl) return false;
       if (!ref || !mcp?.requestExternalControl) {
         this.showFallback();
-        return;
+        return false;
       }
       this.log.loading = true;
       const initial = !this.log.loaded;
@@ -341,15 +402,18 @@
         }
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
         const page = await mcp.requestExternalControl('zerochat/jobs/log', { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES });
+        this.state.confirmed = true;
         this.log.next = Number(page?.next) || this.log.next;
         this.log.loaded = true;
         text += prefix + String(page?.text || '');
         if (text.length > MAX_LOG_CHARS) text = text.slice(text.length - MAX_LOG_CHARS);
         this.showText(text);
         if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+        return page?.done === true;
       } catch (_) {
         // Antes de registrarse el comando se reintentará; si ya no existe, queda la salida guardada.
         if (initial) this.showFallback();
+        return false;
       } finally {
         this.log.loading = false;
       }
@@ -364,7 +428,9 @@
         if (!card) return null;
         const controller = new CommandCardController(card, {});
         controller.render();
-        controller.ensurePolling();
+        track(controller);
+        // La primera consulta llega antes para que el reloj y el log arranquen enseguida.
+        controller.logTimer = setTimeout(() => controller.pollLog(), FIRST_LOG_POLL_MS);
         return card;
       },
       updateLiveCard: (card, args, result = {}, _elapsedMs = 0) => {
@@ -385,11 +451,14 @@
         const controller = new CommandCardController(card, { startedAt: null });
         controller.applyResult(data, typeof message?.content === 'string' ? message.content : '');
         if (running) {
-          // La duración real llega con la primera consulta al servidor.
+          // La duración real y el estado actual llegan con la primera consulta al servidor.
           controller.state.startedAt = null;
           controller.state.elapsed = Number(data.elapsed_s) || 0;
           controller.render();
-          setTimeout(() => controller.reactivate(), 0);
+          setTimeout(() => {
+            controller.reactivate();
+            controller.refreshStatus();
+          }, 0);
         }
         return card;
       }

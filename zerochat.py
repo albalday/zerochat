@@ -2680,6 +2680,7 @@ HEARTBEAT_WATCHDOG_STOP = threading.Event()
 _SERVER_SHUTTING_DOWN = threading.Event()
 # Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
 EXIT_ON_CLOSE = False
+QUIET_RPC_METHODS = frozenset({"zerochat/jobs/get", "zerochat/jobs/log", "zerochat/jobs/list"})
 
 
 def mark_browser_active():
@@ -3247,7 +3248,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         # Etiqueta de seguimiento para la petición y respuesta (sin datos sensibles)
         action_tag = f"[tools/call: {params['name']}]" if method == "tools/call" else f"[rpc: {method}]"
         log_detail = f"{safe_path} {action_tag}"
-        self._log_req("POST", log_detail)
+        # Las consultas periódicas de la interfaz no se registran, como el latido. Un fallo suyo es
+        # normal (por ejemplo, preguntar por un comando que el servidor aún no ha registrado).
+        quiet = method in QUIET_RPC_METHODS
+        if not quiet:
+            self._log_req("POST", log_detail)
 
         if req_id is None and method.startswith("notifications/"):
             self.send_response(204)
@@ -3273,7 +3278,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             response_payload["result"] = result
             error_info = tool_error_info
 
-        if self._send_json_response(200, response_payload):
+        if self._send_json_response(200, response_payload) and not quiet:
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
     def log_message(self, format, *args):

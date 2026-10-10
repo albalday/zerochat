@@ -1,6 +1,6 @@
 /**
  * Aviso de comandos en segundo plano que siguen en marcha al terminar un turno: una tarjeta más
- * al final del chat con la situación en ese momento. No se actualiza; el estado de cada comando
+ * al final del chat, plegada, con la situación en ese momento. No se actualiza; el estado de cada comando
  * está en su propia tarjeta. Avisa también antes de cerrar la pestaña si cerrarla los detendría.
  */
 (function (root, factory) {
@@ -40,9 +40,9 @@
   function createSummaryCard(jobs, { now = Date.now(), messagesList = null } = {}) {
     if (typeof document === 'undefined' || !Array.isArray(jobs) || !jobs.length) return null;
     const format = getCommandCard()?.formatDuration || (seconds => `${Math.floor(seconds)} s`);
-    const card = document.createElement('div');
+    // Plegada por defecto: con varios comandos, la lista no debe ocupar la respuesta.
+    const card = document.createElement('details');
     card.className = CARD_CLASS;
-    card.setAttribute('role', 'note');
     const items = jobs.map(job => {
       const inView = Boolean(findCard(messagesList, job.id));
       const label = `<code title="${escapeHtml(job.command)}">${escapeHtml(shortCommand(job.command))}</code>`
@@ -52,7 +52,7 @@
         ? `<button type="button" class="command-jobs-link">${label}</button>`
         : `<span class="command-jobs-link">${label}</span>`}</li>`;
     }).join('');
-    card.innerHTML = `<div class="command-jobs-card-title">${icon('terminal')}<span>${escapeHtml(t('command_jobs_title', { count: jobs.length }))}</span></div>`
+    card.innerHTML = `<summary class="command-jobs-card-title">${icon('terminal')}<span>${escapeHtml(t('command_jobs_title', { count: jobs.length }))}</span></summary>`
       + `<ul class="command-jobs-list">${items}</ul>`
       + `<p class="command-jobs-hint">${escapeHtml(t('command_jobs_hint'))}</p>`;
     card.addEventListener('click', event => {

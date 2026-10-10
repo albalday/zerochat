@@ -788,8 +788,22 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
       body: unknownBody
     });
 
+    // 7. Las consultas periódicas de la interfaz no se registran; detener un comando, sí.
+    const controlRpc = (id, method, params) => fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-ZeroChat-Token': testToken },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params })
+    });
+    await controlRpc(13, 'zerochat/jobs/list', {});
+    await controlRpc(14, 'zerochat/jobs/get', { key: 'clave-inexistente' });
+    await controlRpc(15, 'zerochat/jobs/log', { id: 999, offset: 0 });
+    await controlRpc(16, 'zerochat/jobs/stop', { id: 999 });
+
     // Dar margen para vaciar buffers de stdout
     await new Promise(resolve => setTimeout(resolve, 150));
+
+    assert.ok(!/zerochat\/jobs\/(list|get|log)/.test(serverOutput), 'Las consultas periódicas de la interfaz no deben llenar la consola');
+    assert.match(serverOutput, /\[rpc: zerochat\/jobs\/stop\]/, 'Las acciones sobre comandos sí se registran');
 
     // Validar líneas con formato [HH:MM:SS]
     const timestampRegex = /\[\d{2}:\d{2}:\d{2}\]/;

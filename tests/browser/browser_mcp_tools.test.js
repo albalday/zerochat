@@ -1089,14 +1089,16 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.ok(calls.some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
     assert.ok(calls.some(call => call.method === 'zerochat/jobs/log' && call.params.id === 7));
 
-    // Plegada solo se consulta el estado; al desplegarla de nuevo, el log vuelve a estar al día.
-    const collapsedCalls = await page.evaluate(async () => {
+    // Plegada no hace peticiones, aunque el reloj siga avanzando; al desplegarla de nuevo, el log
+    // vuelve a estar al día.
+    const collapsed = await page.evaluate(async () => {
       window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
       const before = window.__jobCalls.length;
-      await new Promise(resolve => setTimeout(resolve, 2200));
-      return window.__jobCalls.slice(before).map(call => call.method);
+      const badgeBefore = window.__commandCard.querySelector('.tool-card-badge').textContent;
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      return { calls: window.__jobCalls.slice(before).map(call => call.method), clockMoved: window.__commandCard.querySelector('.tool-card-badge').textContent !== badgeBefore };
     });
-    assert.ok(collapsedCalls.length > 0 && collapsedCalls.every(method => method === 'zerochat/jobs/get'), collapsedCalls.join());
+    assert.deepEqual(collapsed, { calls: [], clockMoved: true });
     await page.evaluate(() => window.__commandCard.querySelector('.tool-execution-card').classList.remove('collapsed'));
     await page.waitForFunction(() => {
       const log = window.__commandCard.querySelector('.command-card-log').textContent;
@@ -1148,6 +1150,34 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.equal(foreground.during.byKey, true);
     assert.equal(foreground.during.log, true, 'Mientras se espera, la tarjeta desplegada muestra el log');
     assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', stop: false, keepExpanded: false });
+
+    // El final de un comando en segundo plano llega con el latido: al dejar de figurar entre los
+    // que siguen en marcha, su tarjeta pregunta una vez cómo acabó.
+    const viaHeartbeat = await page.evaluate(async () => {
+      const job = window.__job;
+      Object.assign(job, { id: 11, key: 'inv-tarjeta-3', status: 'running', exit_code: null, log: 'vigilando\n' });
+      window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
+      window.ChatMCP.manager.syncCommandJobs([{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }]);
+      const view = window.ChatCommandCard.createView();
+      const args = { command: 'npm run watch', background: true };
+      const card = view.createLiveCard(args, {});
+      card.dataset.invocationId = job.key;
+      window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
+      view.updateLiveCard(card, args, { content: JSON.stringify({ success: true, status: 'running', job_id: 11, elapsed_s: 2.5, output: 'vigilando\n' }) }, 2500, {});
+      await new Promise(resolve => setTimeout(resolve, 100));
+      // Plegada (tras volver a la vista), solo pregunta por el final.
+      card.querySelector('.tool-execution-card').classList.add('collapsed');
+      Object.assign(job, { status: 'exited', exit_code: 0, elapsed_s: 42 });
+      const before = window.__jobCalls.length;
+      window.ChatMCP.manager.syncCommandJobs([]);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return {
+        badge: card.querySelector('.tool-card-badge').textContent.trim(),
+        calls: window.__jobCalls.slice(before).map(call => [call.method, call.params.id])
+      };
+    });
+    // Después vuelve a leer la lista de comandos en marcha, ya sin este.
+    assert.deepEqual(viaHeartbeat, { badge: 'Terminado · 42 s', calls: [['zerochat/jobs/get', 11], ['zerochat/jobs/list', undefined]] });
 
     // Tarjeta del historial: plegada y sin peticiones; al desplegarla, si el log ya no existe en
     // el servidor, muestra la salida guardada en el chat.

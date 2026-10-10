@@ -426,7 +426,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     }
   });
 
-  test('Browser UI - al terminar un turno con comandos en segundo plano se añade un aviso estático al final del chat', { timeout: 30000 }, async () => {
+  test('Browser UI - al terminar un turno con comandos en segundo plano se añade un aviso estático y plegado al final del chat', { timeout: 30000 }, async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -461,12 +461,14 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       const notice = page.locator('#messages-list .command-jobs-card');
       await notice.waitFor({ state: 'visible' });
       const shown = await notice.evaluate(el => ({
+        open: el.open,
         last: el === el.parentElement.lastElementChild,
         title: el.querySelector('.command-jobs-card-title').textContent.trim(),
         items: Array.from(el.querySelectorAll('li'), item => [item.querySelector('code').textContent, item.querySelector('.command-jobs-time').textContent, item.querySelector('.command-jobs-link').tagName]),
         buttons: el.querySelectorAll('button').length,
         svg: Boolean(el.querySelector('.command-jobs-card-title svg'))
       }));
+      assert.equal(shown.open, false, 'El aviso aparece plegado');
       assert.equal(shown.last, true, 'El aviso se añade al final del chat');
       assert.equal(shown.title, 'Comandos en segundo plano en marcha: 2');
       assert.deepEqual(shown.items.map(([command, , tag]) => [command, tag]), [['npm run dev', 'BUTTON'], ['pytest -x', 'SPAN']]);
@@ -480,7 +482,9 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.waitForTimeout(1500);
       assert.equal(await notice.locator('li').nth(1).locator('.command-jobs-time').textContent(), timeBefore);
 
-      // El enlace abre el grupo, despliega la tarjeta y la resalta.
+      // Desplegado, el enlace abre el grupo, despliega la tarjeta y la resalta.
+      await notice.locator('summary').click();
+      assert.equal(await notice.evaluate(el => el.open), true);
       await notice.locator('button.command-jobs-link').click();
       const opened = await page.evaluate(() => {
         const card = document.querySelector('[data-job-id="1"]');
