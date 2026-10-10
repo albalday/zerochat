@@ -39,9 +39,3 @@ test('ChatCommandCard - la insignia distingue cada estado del comando', () => {
   assert.equal(view({ status: 'error' }).text, I18n.t('command_status_failed'));
   assert.equal(view({ status: 'unavailable' }).text, I18n.t('command_status_unavailable'));
 });
-
-test('ChatCommandCard - lastLines conserva solo las últimas líneas de la salida', () => {
-  assert.equal(CommandCard.lastLines('1\n2\n3\n4\n5\n6\n'), '3\n4\n5\n6');
-  assert.equal(CommandCard.lastLines('uno'), 'uno');
-  assert.equal(CommandCard.lastLines(''), '');
-});

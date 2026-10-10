@@ -1023,7 +1023,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
   }
 });
 
-test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo detiene', { timeout: 30000 }, async () => {
+test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al desplegarse y lo detiene', { timeout: 30000 }, async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
@@ -1070,33 +1070,38 @@ test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo 
 
     const card = page.locator('#command-card-test .command-card-wrapper');
     await page.waitForFunction(() => window.__commandCard.parentElement?.classList.contains('tool-call-group-active-cards'));
-    await page.waitForFunction(() => /linea 7/.test(window.__commandCard.querySelector('.command-card-output').textContent));
+    // Desplegada, la tarjeta muestra el log y lo va completando.
+    await page.waitForFunction(() => /linea 1\n[\s\S]*linea 8\n/.test(window.__commandCard.querySelector('.command-card-log').textContent));
     const running = await card.evaluate(el => ({
       badge: el.querySelector('.tool-card-badge').textContent.trim(),
       expanded: !el.querySelector('.tool-execution-card').classList.contains('collapsed'),
       status: el.dataset.toolCallStatus,
       title: el.querySelector('.command-card-command').getAttribute('title'),
-      lines: el.querySelector('.command-card-output').textContent.split('\n').length,
+      logStart: el.querySelector('.command-card-log').textContent.slice(0, 16),
+      buttons: Array.from(el.querySelectorAll('[data-command-action]'), button => button.dataset.commandAction),
       stopVisible: !el.querySelector('[data-command-action="stop"]').hidden,
       groupRunning: el.closest('.tool-call-group').classList.contains('is-running')
     }));
     assert.match(running.badge, /En segundo plano · 0?:?0?\d/);
-    assert.deepEqual([running.expanded, running.status, running.title, running.lines, running.stopVisible, running.groupRunning],
-      [true, 'running', 'npm run dev', 4, true, true]);
-    assert.ok((await page.evaluate(() => window.__jobCalls)).some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
+    assert.deepEqual([running.expanded, running.status, running.title, running.logStart, running.buttons, running.stopVisible, running.groupRunning],
+      [true, 'running', 'npm run dev', 'linea 1\nlinea 2\n', ['stop'], true, true]);
+    const calls = await page.evaluate(() => window.__jobCalls);
+    assert.ok(calls.some(call => call.method === 'zerochat/jobs/get' && call.params.id === 7));
+    assert.ok(calls.some(call => call.method === 'zerochat/jobs/log' && call.params.id === 7));
 
-    // Ver log muestra el log completo y oculta las últimas líneas.
-    await card.locator('[data-command-action="log"]').click();
-    await page.waitForFunction(() => /linea 1\n/.test(window.__commandCard.querySelector('.command-card-log').textContent));
-    const withLog = await card.evaluate(el => ({
-      log: el.querySelector('.command-card-log').textContent,
-      logHidden: el.querySelector('.command-card-log').hidden,
-      outputHidden: el.querySelector('.command-card-output').hidden,
-      button: el.querySelector('[data-command-action="log"]').textContent.trim(),
-      expanded: el.querySelector('[data-command-action="log"]').getAttribute('aria-expanded')
-    }));
-    assert.match(withLog.log, /^linea 1\nlinea 2\n/);
-    assert.deepEqual([withLog.logHidden, withLog.outputHidden, withLog.button, withLog.expanded], [false, true, 'Ocultar log', 'true']);
+    // Plegada solo se consulta el estado; al desplegarla de nuevo, el log vuelve a estar al día.
+    const collapsedCalls = await page.evaluate(async () => {
+      window.__commandCard.querySelector('.tool-execution-card').classList.add('collapsed');
+      const before = window.__jobCalls.length;
+      await new Promise(resolve => setTimeout(resolve, 2200));
+      return window.__jobCalls.slice(before).map(call => call.method);
+    });
+    assert.ok(collapsedCalls.length > 0 && collapsedCalls.every(method => method === 'zerochat/jobs/get'), collapsedCalls.join());
+    await page.evaluate(() => window.__commandCard.querySelector('.tool-execution-card').classList.remove('collapsed'));
+    await page.waitForFunction(() => {
+      const log = window.__commandCard.querySelector('.command-card-log').textContent;
+      return log.endsWith(window.__job.log.split('\n').slice(-2).join('\n'));
+    });
 
     await card.locator('[data-command-action="stop"]').click();
     await page.waitForFunction(() => /Detenido/.test(window.__commandCard.querySelector('.tool-card-badge').textContent));
@@ -1124,7 +1129,8 @@ test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo 
       const during = {
         badge: card.querySelector('.tool-card-badge').textContent.trim(),
         stop: !card.querySelector('[data-command-action="stop"]').hidden,
-        byKey: window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2')
+        byKey: window.__jobCalls.some(call => call.params.key === 'inv-tarjeta-2'),
+        log: card.querySelector('.command-card-log').textContent.startsWith('compilando\n')
       };
       const result = { content: JSON.stringify({ success: false, status: 'exited', job_id: 8, exit_code: 2, duration_s: 3.1, output: 'error TS2304\n' }) };
       view.updateLiveCard(card, args, result, 3100, {});
@@ -1132,7 +1138,6 @@ test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo 
         during,
         after: {
           badge: card.querySelector('.tool-card-badge').textContent.trim(),
-          output: card.querySelector('.command-card-output').textContent,
           stop: !card.querySelector('[data-command-action="stop"]').hidden,
           keepExpanded: Boolean(result.keepExpanded)
         }
@@ -1141,30 +1146,43 @@ test('Browser UI - la tarjeta de run_command sigue al comando, abre su log y lo 
     assert.match(foreground.during.badge, /^Ejecutándose · /);
     assert.equal(foreground.during.stop, true);
     assert.equal(foreground.during.byKey, true);
-    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', output: 'error TS2304', stop: false, keepExpanded: false });
+    assert.equal(foreground.during.log, true, 'Mientras se espera, la tarjeta desplegada muestra el log');
+    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', stop: false, keepExpanded: false });
 
-    // Tarjeta del historial: estado guardado, y el log avisa si ya no existe en el servidor.
+    // Tarjeta del historial: plegada y sin peticiones; al desplegarla, si el log ya no existe en
+    // el servidor, muestra la salida guardada en el chat.
     const historical = await page.evaluate(async () => {
-      window.ChatMCP.manager.requestExternalControl = async () => { throw new Error('Comando no encontrado'); };
+      const requests = [];
+      window.ChatMCP.manager.requestExternalControl = async method => { requests.push(method); throw new Error('Comando no encontrado'); };
       const view = window.ChatCommandCard.createView();
-      const card = view.renderHistoricalCard({ command: 'pytest -x' }, {
-        content: JSON.stringify({ success: true, status: 'exited', job_id: 3, exit_code: 0, duration_s: 72, output: '5 passed\n' })
-      }, {});
-      document.getElementById('command-card-test').appendChild(card);
-      card.querySelector('[data-command-action="log"]').click();
+      const make = output => {
+        const card = view.renderHistoricalCard({ command: 'pytest -x' }, {
+          content: JSON.stringify({ success: true, status: 'exited', job_id: 3, exit_code: 0, duration_s: 72, output })
+        }, {});
+        document.getElementById('command-card-test').appendChild(card);
+        return card;
+      };
+      const card = make('5 passed\n');
+      const empty = make('');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const before = { collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'), requests: requests.length };
+      card.querySelector('.tool-execution-card').classList.remove('collapsed');
+      empty.querySelector('.tool-execution-card').classList.remove('collapsed');
       await new Promise(resolve => setTimeout(resolve, 50));
       return {
+        before,
         badge: card.querySelector('.tool-card-badge').textContent.trim(),
-        collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed'),
         stop: !card.querySelector('[data-command-action="stop"]').hidden,
-        log: card.querySelector('.command-card-log').textContent
+        log: card.querySelector('.command-card-log').textContent,
+        empty: empty.querySelector('.command-card-log').textContent
       };
     });
     assert.deepEqual(historical, {
+      before: { collapsed: true, requests: 0 },
       badge: 'Terminado · 1:12',
-      collapsed: true,
       stop: false,
-      log: 'El log ya no está disponible: ZeroChat se ha reiniciado o el comando se ha descartado.'
+      log: '5 passed',
+      empty: 'El log ya no está disponible: ZeroChat se ha reiniciado o el comando se ha descartado.'
     });
     assert.deepEqual(errors, []);
   } finally {
