@@ -956,7 +956,8 @@ def set_project_directory(path: str) -> str:
             "cwd": str(target),
             "previous_cwd": previous,
             "has_agents_md": (target / "AGENTS.md").is_file(),
-            "has_project_memory": (target / ".zerochat" / "state.md").is_file()
+            "has_project_memory": (target / ".zerochat" / "state.md").is_file(),
+            "note": "Relative paths and the shell now use this directory. Its project rules load with the next user message."
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))

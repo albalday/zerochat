@@ -129,6 +129,18 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
   assert.ok(!JSON.stringify(messages).includes('[Context Time:'));
 });
 
+test('ChatEngine - buildEffectiveMessages indica el directorio del proyecto solo con herramientas', () => {
+  const history = [{ role: 'user', content: 'Hola' }];
+  const config = { systemPrompt: 'Base', language: 'es' };
+  const withTools = ChatEngine.buildEffectiveMessages(history, config, { enableTools: true, projectDirectory: '/home/u/app' });
+  assert.ok(withTools[0].content.includes('*Project directory:* /home/u/app.'));
+  assert.ok(withTools[0].content.includes('only set_project_directory changes it'));
+  const withoutTools = ChatEngine.buildEffectiveMessages(history, config, { enableTools: false, projectDirectory: '/home/u/app' });
+  assert.ok(!withoutTools[0].content.includes('Project directory'));
+  const withoutServer = ChatEngine.buildEffectiveMessages(history, config, { enableTools: true, projectDirectory: '' });
+  assert.ok(!withoutServer[0].content.includes('Project directory'));
+});
+
 test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas', async (t) => {
   const originalStream = ChatAPI.streamChatCompletion;
   let receivedApiKey;

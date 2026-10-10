@@ -103,8 +103,11 @@
 
   const LOCAL_MANAGED_TOOLS = new Set([
     'read_file', 'list_directory', 'search_files', 'get_diagnostics',
-    'edit_file', 'write_file', 'execute_command', 'bash'
+    'edit_file', 'write_file', 'execute_command', 'bash', 'set_project_directory'
   ]);
+
+  // Cambia el contexto de todas las pestañas: siempre se confirma, y solo para esta llamada.
+  const PROJECT_DIRECTORY_TOOL = 'set_project_directory';
 
   function getIntegratedPathAccess(toolName) {
     if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'get_diagnostics') return 'R';
@@ -973,6 +976,20 @@
             originalName
           };
         }
+      }
+
+      // 2b. Cambio del directorio del proyecto: confirmación explícita aunque haya permisos amplios
+      if (toolName === PROJECT_DIRECTORY_TOOL || originalName === PROJECT_DIRECTORY_TOOL) {
+        return {
+          requiresApproval: true,
+          status: TOOL_POLICIES.ASK,
+          reason: 'project_directory_confirmation',
+          onceOnly: true,
+          toolId,
+          serverName,
+          serverId,
+          originalName
+        };
       }
 
       // 3. Modo global allow_all: TODO permitido

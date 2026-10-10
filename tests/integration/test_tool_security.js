@@ -985,3 +985,22 @@ test('ToolSecurityManager - un listener que falla no impide notificar al resto y
   assert.strictEqual(notified, true);
   assert.strictEqual(console.warn.mock.callCount(), 1);
 });
+
+test('ChatToolSecurity - set_project_directory siempre pide confirmación de una sola vez', () => {
+  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_project_dir' });
+  const tool = { id: 'set_project_directory', name: 'set_project_directory', category: 'mcp', metadata: { originalName: 'set_project_directory', mcpServerId: 'mcp_proxy' } };
+  const asks = () => {
+    const evaluation = manager.evaluateAuthorization(tool, { path: '/home/u/b' });
+    assert.equal(evaluation.requiresApproval, true);
+    assert.equal(evaluation.status, 'ask');
+    assert.equal(evaluation.onceOnly, true);
+  };
+  asks();
+  manager.setGlobalMcpPolicy('allow_all');
+  asks();
+  manager.setToolPolicy('set_project_directory', 'allow', { scope: 'permanent' });
+  manager.setServerPolicy('mcp_proxy', 'allow', { scope: 'permanent' });
+  asks();
+  manager.setToolPolicy('set_project_directory', 'deny', { scope: 'permanent' });
+  assert.equal(manager.evaluateAuthorization(tool, { path: '/home/u/b' }).status, 'deny', 'una denegación explícita prevalece');
+});

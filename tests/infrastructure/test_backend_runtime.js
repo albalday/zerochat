@@ -123,6 +123,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert result["cwd"] == str(project)
     assert result["previous_cwd"] == str(start)
     assert result["has_agents_md"] is True and result["has_project_memory"] is True
+    assert "next user message" in result["note"]
     assert Path.cwd().resolve() == project
     assert json.loads(zerochat.read_file("note.txt"))["content"].startswith("hola")
     assert json.loads(zerochat.bash("pwd"))["stdout"].strip() == str(project)

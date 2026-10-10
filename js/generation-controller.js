@@ -290,6 +290,9 @@
     const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
     // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
     const projectContext = runtimeConfig.projectMode === true && State?.get ? (State.get('project') || null) : null;
+    // Base de las rutas relativas de las herramientas locales, con o sin modo proyecto.
+    const mcpState = State?.get ? (State.get('mcp') || {}) : {};
+    const projectDirectory = mcpState.status === 'connected' ? String(mcpState.serverInfo?.cwd || '') : '';
 
     try {
       const runner = Engine || resolveDep('ChatEngine', './chat-engine.js');
@@ -318,6 +321,7 @@
         activeRagBranchIds: activeRagBranchIds,
         currentRagSystemContext: currentRagSystemContext,
         projectContext,
+        projectDirectory,
         signal: currentAbortController.signal,
         container: content,
 

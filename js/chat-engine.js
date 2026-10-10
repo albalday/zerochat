@@ -271,9 +271,12 @@
 
     // Normas y estado del proyecto: estables mientras no cambien sus ficheros.
     const projectBlock = options.projectContext ? (getProjectContext()?.buildPromptBlock(options.projectContext) || '') : '';
+    const directoryLine = isToolsEnabled && options.projectDirectory
+      ? `*Project directory:* ${options.projectDirectory}. Relative paths in local tools resolve against it; only set_project_directory changes it.`
+      : '';
 
     // Ensamblar bloque estable
-    let fullSystemPrompt = [baseSystemPrompt, toolsGuide, projectBlock].filter(Boolean).join('\n\n');
+    let fullSystemPrompt = [baseSystemPrompt, toolsGuide, directoryLine, projectBlock].filter(Boolean).join('\n\n');
 
     // 4. Inyección de contexto dinámico al final para preservar el prefijo en caché:
     // a) Contexto RAG recuperado para esta consulta
@@ -338,6 +341,7 @@
       activeRagBranchIds = [],
       currentRagSystemContext = '',
       projectContext = null,
+      projectDirectory = '',
       container,
       onTurnStart,
       onChunk,
@@ -413,6 +417,7 @@
         messages: buildEffectiveMessages(messages, appConfig, {
           currentRagSystemContext,
           projectContext,
+          projectDirectory,
           activeRagBranchId: resolvedBranchId,
           activeRagBranchIds: resolvedBranchIds,
           onContextPrepared: diagnostics => { lastContextDiagnostics = diagnostics; }

@@ -80,6 +80,33 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
   } finally { await browser.close(); }
 });
 
+test('Browser UI - la autorización de set_project_directory solo ofrece permitir una vez o denegar', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const manager = new window.ChatToolSecurity.ToolSecurityManager({ storageKey: 'browser_project_dir_auth' });
+      const tool = { id: 'set_project_directory', name: 'set_project_directory', category: 'mcp', metadata: { originalName: 'set_project_directory', mcpServerId: 'mcp_proxy' } };
+      const args = { path: '/home/u/b' };
+      const auth = manager.evaluateAuthorization(tool, args);
+      const card = window.ChatToolCards.createLiveToolCard(tool.name, args);
+      document.body.appendChild(card);
+      const pending = window.ChatToolCards.promptToolAuthorization(card, { function: { name: tool.name, arguments: JSON.stringify(args) } }, { ...auth, args });
+      const buttons = [...card.querySelectorAll('.tool-card-auth-prompt .btn-auth-action')].map(button => button.className);
+      card.querySelector('.btn-auth-allow-once').click();
+      const decision = await pending;
+      card.remove();
+      return { buttons, decision };
+    });
+    assert.equal(result.buttons.length, 2);
+    assert.ok(result.buttons[0].includes('btn-auth-allow-once'));
+    assert.ok(result.buttons[1].includes('btn-auth-deny'));
+    assert.equal(result.decision, 'allow_once');
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - autorización de Composio muestra y devuelve únicamente su servicio', async () => {
   const browser = await createTestBrowser();
   try {

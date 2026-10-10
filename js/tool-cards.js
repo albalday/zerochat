@@ -341,7 +341,7 @@
       </div>
       <div class="tool-auth-actions">
         <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir solo esta llamada')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
-        <div class="tool-auth-more">
+        ${options.onceOnly === true ? '' : `<div class="tool-auth-more">
           <button type="button" class="btn-auth-action btn-auth-more" title="${morePermissionsTitle}" aria-label="${morePermissionsTitle}" aria-expanded="false">${CHEVRON_SVG} <span class="btn-auth-more-label">${morePermissionsLabel}</span></button>
           <div class="tool-auth-more-menu" role="group" aria-label="${morePermissionsTitle}" hidden>
             <button type="button" class="btn-auth-action btn-auth-allow-session" title="${esc(tFn('tool_auth_allow_session') || 'Permitir durante toda la sesión activa de chat')}">${CLOCK_SVG} <span>${tFn('tool_auth_allow_session') || 'En esta sesión'}</span></button>
@@ -349,7 +349,7 @@
             ${contextualButtonsHtml}
             ${serverButtonHtml}
           </div>
-        </div>
+        </div>`}
         <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
       </div>
     `;
