@@ -1305,13 +1305,11 @@
       const hasStoppedEnabledService = servers.some(server => server?.enabled === true && server?.status === 'stopped');
       if (!hasStoppedEnabledService) return false;
 
+      const ui = typeof window !== 'undefined' ? window.ChatUIMcp : null;
+      if (typeof ui?.offerStoppedExternalServices !== 'function') return false;
       this.externalStartupNoticeShown = true;
-      const dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-      const i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
-      if (typeof dialogs?.alert !== 'function') return false;
-      const message = i18n?.t?.('mcp_external_stopped_notice') ||
-        'Previously enabled MCP services were not started automatically. Go to Settings → MCP to start them.';
-      void dialogs.alert(message, { type: 'info' });
+      void ui.offerStoppedExternalServices(servers)
+        .catch(error => console.warn('[MCP] Could not restore previous MCP services:', error));
       return true;
     }
 

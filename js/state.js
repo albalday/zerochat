@@ -565,11 +565,17 @@
       if (notice.cancelText) item.cancelText = String(notice.cancelText).slice(0, 100);
       if (notice.checkbox) item.checkbox = String(notice.checkbox).slice(0, 500);
       if (notice.checkboxDefault !== undefined) item.checkboxDefault = Boolean(notice.checkboxDefault);
+      if (notice.items !== undefined) {
+        if (!Array.isArray(notice.items) || notice.items.length > 50 ||
+            notice.items.some(entry => !entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 || typeof entry.label !== 'string')) throw new TypeError('Invalid notice');
+        item.items = notice.items.map(entry => ({ id: entry.id, label: entry.label.slice(0, 200) }));
+        if (notice.itemRemoveLabel) item.itemRemoveLabel = String(notice.itemRemoveLabel).slice(0, 100);
+      }
       setState({ ui: Object.assign({}, state.ui, { notices: queue.concat(item), noticeSequence: id }) });
       return id;
     }
 
-    function dismissNotice(id, accepted = false, value = null, checkboxChecked = false) {
+    function dismissNotice(id, accepted = false, value = null, checkboxChecked = false, items = null) {
       if (!(state.ui.notices || []).some(item => item.id === id)) return;
       const targetNotice = state.ui.notices.find(item => item.id === id);
       const result = { id, accepted: accepted === true };
@@ -578,6 +584,12 @@
       }
       if (targetNotice && targetNotice.checkbox !== undefined) {
         result.checkboxChecked = Boolean(checkboxChecked);
+      }
+      if (targetNotice && targetNotice.items) {
+        const offered = new Set(targetNotice.items.map(entry => entry.id));
+        result.items = accepted === true && Array.isArray(items)
+          ? [...new Set(items)].filter(itemId => offered.has(itemId))
+          : null;
       }
       setState({ ui: Object.assign({}, state.ui, { notices: state.ui.notices.filter(item => item.id !== id), noticeResult: result }) });
     }

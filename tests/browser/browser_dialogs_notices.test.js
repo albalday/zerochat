@@ -128,6 +128,49 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
   } finally { await browser.close(); }
 });
 
+test('Browser UI - Confirmations with removable items return the kept items safely', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.route(/^https?:/, route => route.fulfill(route.request().resourceType() === 'eventsource'
+      ? { status: 204, body: '' }
+      : { status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], models: [] }) }));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.goto(getIndexUrl());
+    await page.waitForFunction(() => window.ChatState?.get('messages').length > 0);
+    const items = [{ id: 'a', label: '<img src=x onerror="window.injected=true">' }, { id: 'b', label: 'Beta' }, { id: 'c', label: 'Gamma' }];
+    await page.evaluate(list => {
+      window.itemResults = [];
+      ChatDialogs.confirm('Start?', { items: list, itemRemoveLabel: 'Do not start' }).then(value => window.itemResults.push(value));
+    }, items);
+    assert.equal(await page.locator('#notice-items li').count(), 3);
+    assert.equal(await page.locator('#notice-items img').count(), 0);
+    assert.equal(await page.locator('#notice-items .notice-item-remove svg').count(), 3);
+    assert.equal(await page.locator('#notice-items .notice-item-remove').nth(1).getAttribute('aria-label'), 'Do not start: Beta');
+    await page.locator('#notice-items .notice-item-remove').nth(1).click();
+    assert.equal(await page.locator('#notice-items li').count(), 2);
+    await page.locator('#notice-accept').click();
+    assert.deepEqual(await page.evaluate(() => window.itemResults), [['a', 'c']]);
+    assert.equal(await page.locator('#notice-items').isHidden(), true);
+
+    await page.evaluate(list => {
+      ChatDialogs.confirm('Start?', { items: list }).then(value => window.itemResults.push(value));
+    }, items.slice(0, 1));
+    await page.locator('#notice-items .notice-item-remove').click();
+    assert.equal(await page.locator('#notice-accept').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.itemResults), [['a', 'c'], null]);
+    await page.evaluate(() => { ChatDialogs.alert('Plain'); });
+    assert.equal(await page.locator('#notice-accept').isDisabled(), false);
+    assert.equal(await page.locator('#notice-items').isHidden(), true);
+    await page.locator('#notice-accept').click();
+    assert.equal(await page.evaluate(() => window.injected), undefined);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - Notices disappear immediately after a blocked import and confirmation', async () => {
   const browser = await createTestBrowser();
   try {

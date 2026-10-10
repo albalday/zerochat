@@ -687,6 +687,96 @@ test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado inici
   }
 });
 
+test('ChatUIMcp - ofrece iniciar los servicios de la sesión anterior y arranca solo los que se conservan', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const previousState = ChatState.get('mcp');
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const originalDialogs = globalThis.ChatDialogs;
+  const confirms = [];
+  const alerts = [];
+  const started = [];
+  const servers = [
+    { id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },
+    { id: 'composio', enabled: true, status: 'stopped', displayName: { es: 'Composio' } },
+    { id: 'ejemplo', enabled: true, status: 'stopped' },
+    { id: 'running', enabled: true, status: 'running' },
+    { id: 'disabled', enabled: false, status: 'stopped' }
+  ];
+  let selection = ['memory', 'composio'];
+  globalThis.ChatDialogs = {
+    confirm: async (message, options) => { confirms.push({ message, options }); return selection; },
+    alert: async (message, options) => { alerts.push({ message, options }); }
+  };
+  ChatState.set('mcp', { ...previousState, tools: [], externalServers: servers });
+  try {
+    ChatMCP.manager.startExternalServer = async id => {
+      started.push(id);
+      if (id === 'composio') throw new Error('connection failed');
+    };
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers, (key, params) => ChatI18n.t(key, params)), selection);
+    } finally {
+      console.error = originalError;
+    }
+
+    assert.equal(confirms.length, 1);
+    assert.deepEqual(confirms[0].options.items, [
+      { id: 'memory', label: 'Memoria' },
+      { id: 'composio', label: 'Composio' },
+      { id: 'ejemplo', label: 'ejemplo' }
+    ]);
+    assert.equal(confirms[0].options.acceptText, 'Iniciar');
+    assert.deepEqual(started, ['memory', 'composio']);
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].options.type, 'error');
+    assert.match(alerts[0].message, /Composio/);
+    assert.doesNotMatch(alerts[0].message, /Memoria/);
+
+    started.length = 0;
+    selection = null;
+    assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers, (key, params) => ChatI18n.t(key, params)), []);
+    assert.deepEqual(started, []);
+
+    confirms.length = 0;
+    assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
+    assert.equal(confirms.length, 0);
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    if (originalDialogs === undefined) delete globalThis.ChatDialogs;
+    else globalThis.ChatDialogs = originalDialogs;
+    ChatState.set('mcp', previousState);
+  }
+});
+
+test('ChatUIMcp - no reinicia un servicio que se inició mientras el diálogo estaba abierto', async () => {
+  const ChatMCP = require('../../js/mcp.js');
+  const previousState = ChatState.get('mcp');
+  const originalStart = ChatMCP.manager.startExternalServer;
+  const originalDialogs = globalThis.ChatDialogs;
+  const started = [];
+  const servers = [{ id: 'memory', enabled: true, status: 'stopped' }];
+  globalThis.ChatDialogs = {
+    confirm: async () => {
+      ChatState.set('mcp', current => ({ ...current, externalServers: [{ id: 'memory', enabled: true, status: 'running' }] }));
+      return ['memory'];
+    },
+    alert: async () => {}
+  };
+  ChatState.set('mcp', { ...previousState, externalServers: servers });
+  try {
+    ChatMCP.manager.startExternalServer = async id => { started.push(id); };
+    await ChatUIMcp.offerStoppedExternalServices(servers);
+    assert.deepEqual(started, []);
+  } finally {
+    ChatMCP.manager.startExternalServer = originalStart;
+    if (originalDialogs === undefined) delete globalThis.ChatDialogs;
+    else globalThis.ChatDialogs = originalDialogs;
+    ChatState.set('mcp', previousState);
+  }
+});
+
 function makeAbortError() {
   const error = new Error('Aborted');
   error.name = 'AbortError';

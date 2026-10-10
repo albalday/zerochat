@@ -48,6 +48,21 @@ test('Confirmations remain independent and require explicit acceptance', () => {
   assert.deepEqual(store.get('ui').noticeResult, { id: second, accepted: false });
 });
 
+test('Item lists return only the offered items kept on acceptance', () => {
+  const store = State.createStore();
+  const notice = { message: 'Start?', title: 'Services', type: 'info', mode: 'confirm', items: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+  const first = store.enqueueNotice(notice);
+  assert.deepEqual(store.get('ui').notices[0].items, notice.items);
+  store.dismissNotice(first, true, null, false, ['b', 'b', 'injected']);
+  assert.deepEqual(store.get('ui').noticeResult, { id: first, accepted: true, items: ['b'] });
+  const second = store.enqueueNotice(notice);
+  store.dismissNotice(second, false, null, false, ['a']);
+  assert.deepEqual(store.get('ui').noticeResult, { id: second, accepted: false, items: null });
+  assert.throws(() => store.enqueueNotice({ ...notice, items: [{ id: '', label: 'Empty' }] }), TypeError);
+  assert.throws(() => store.enqueueNotice({ ...notice, items: [{ id: 'x'.repeat(201), label: 'Long' }] }), TypeError);
+  assert.throws(() => store.enqueueNotice({ ...notice, items: 'a' }), TypeError);
+});
+
 test('Prompts preserve initial text and distinguish empty acceptance from cancellation', () => {
   const store = State.createStore();
   const notice = { message: 'Name', title: 'Input', type: 'info', mode: 'prompt', value: '<text>' };

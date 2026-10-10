@@ -991,21 +991,23 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
   }
 });
 
-test('MCP - avisa una vez de servicios habilitados que no se reinician', () => {
+test('MCP - ofrece una vez iniciar los servicios habilitados que siguen detenidos', () => {
   const originalWindow = global.window;
-  const alerts = [];
+  const offers = [];
   try {
     global.window = {
-      ChatDialogs: { alert: (message, options) => { alerts.push({ message, options }); return Promise.resolve(); } },
-      ChatI18n: { t: key => key === 'mcp_external_stopped_notice' ? 'Aviso MCP detenido' : key }
+      ChatUIMcp: { offerStoppedExternalServices: servers => { offers.push(servers); return Promise.resolve([]); } }
     };
     const manager = new MCP.McpManager();
-    assert.equal(manager.notifyStoppedExternalServices([
+    assert.equal(manager.notifyStoppedExternalServices([{ id: 'memory', enabled: false, status: 'stopped' }]), false);
+    const servers = [
       { id: 'composio', enabled: true, status: 'stopped' },
       { id: 'memory', enabled: false, status: 'stopped' }
-    ]), true);
-    assert.deepEqual(alerts, [{ message: 'Aviso MCP detenido', options: { type: 'info' } }]);
-    assert.equal(manager.notifyStoppedExternalServices([{ id: 'composio', enabled: true, status: 'stopped' }]), false);
+    ];
+    assert.equal(manager.notifyStoppedExternalServices(servers), true);
+    assert.deepEqual(offers, [servers]);
+    assert.equal(manager.notifyStoppedExternalServices(servers), false);
+    assert.equal(offers.length, 1);
   } finally {
     if (originalWindow === undefined) delete global.window;
     else global.window = originalWindow;

@@ -49,6 +49,13 @@
     return isEnabled && isAvailable;
   }
 
+  function isBrowserActionCurrentlyActive() {
+    const enabledTools = (getConfig()?.get?.() || getConfig()?.getActive?.())?.enabledTools || {};
+    const localTools = getState()?.get?.('mcp')?.tools || [];
+    const browserTool = localTools.find(tool => (tool.id || tool.name) === 'browser_action' || tool.name === 'browser_action');
+    return isBrowserActionActive(enabledTools, browserTool);
+  }
+
   function getAllMcpTools(state = {}) {
     const localTools = Array.isArray(state.tools) ? state.tools : [];
     const externalTools = Array.isArray(state.externalTools) ? state.externalTools : [];
@@ -283,10 +290,7 @@
     const language = getI18n()?.getLanguage?.() || 'es';
     const Security = getSecurity();
     const Icons = getIcons();
-    const enabledTools = (getConfig()?.get?.() || getConfig()?.getActive?.())?.enabledTools || {};
-    const localTools = getState()?.get?.('mcp')?.tools || [];
-    const browserTool = localTools.find(tool => (tool.id || tool.name) === 'browser_action' || tool.name === 'browser_action');
-    const browserActionActive = isBrowserActionActive(enabledTools, browserTool);
+    const browserActionActive = isBrowserActionCurrentlyActive();
     container.innerHTML = servers.map(server => {
       const isRunning = server.status === 'running';
       const isStarting = server.status === 'starting';
@@ -436,71 +440,127 @@
         const sid = btn.getAttribute?.('data-server-id');
         const action = btn.getAttribute?.('data-action');
         if (!sid) return;
-        let browserActionDisabled = false;
-        if (sid === 'playwright' && action === 'start' && browserActionActive) {
-          const accepted = await getDialogs()?.confirm?.(
-            translator('mcp_playwright_replacement_confirm'),
-            {
-              type: 'warning',
-              title: translator('mcp_playwright_replacement_title'),
-              acceptText: translator('mcp_playwright_replacement_accept'),
-              cancelText: translator('notice_cancel')
-            }
-          );
-          if (!accepted) return;
-          browserActionDisabled = updateToolEnabledState('browser_action', false);
-          if (!browserActionDisabled) {
-            await getDialogs()?.alert?.(translator('mcp_external_action_error'), { type: 'error' });
-            return;
-          }
-        }
-        btn.disabled = true;
-        btn.setAttribute?.('aria-busy', 'true');
-        const pendingStatus = action === 'start' ? 'starting' : 'stopped';
-        const pendingLabel = translator(`mcp_external_status_${pendingStatus}`);
-        btn.textContent = pendingLabel;
-        updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
-        const MCP = getMCP();
-        let didAutoOpenOAuth = false;
-        const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
-          const oauthUrl = serverData?.oauthUrl || null;
-          if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined') {
-            didAutoOpenOAuth = true;
-            try { window.open(oauthUrl, '_blank'); } catch (_) { /* ventana emergente bloqueada: el enlace OAuth sigue visible en el panel */ }
-          }
-          updateExternalServerState(sid, {
-            status,
-            ...(oauthUrl ? { oauthUrl } : {}),
-            error: null,
-            startWait: { attempt, total }
-          });
-        };
-        try {
-          if (action === 'start') {
-            await MCP?.manager?.startExternalServer?.(sid, null, reportStartWait);
-          } else {
-            await MCP?.manager?.stopExternalServer?.(sid);
-          }
-        } catch (error) {
-          const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
-            (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
-          if (!error.code?.startsWith('EXTERNAL_START_')) {
-            console.error(`[MCP UI] Error trying to ${action} external server:`, error);
-          }
-          updateExternalServerState(sid, {
-            status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
-            startWait: null,
-            error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
-            ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
-          });
-
-          if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
-        } finally {
-          btn.disabled = false;
-          btn.removeAttribute?.('aria-busy');
-        }
+        await runExternalServerAction(sid, action, translator, { browserActionActive, button: btn });
       });
     });
+  }
+
+  /**
+   * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta.
+   * Devuelve true si la acción terminó correctamente.
+   */
+  async function runExternalServerAction(sid, action, translator = t, options = {}) {
+    const btn = options.button || null;
+    let browserActionDisabled = false;
+    if (sid === 'playwright' && action === 'start' && options.browserActionActive) {
+      const accepted = await getDialogs()?.confirm?.(
+        translator('mcp_playwright_replacement_confirm'),
+        {
+          type: 'warning',
+          title: translator('mcp_playwright_replacement_title'),
+          acceptText: translator('mcp_playwright_replacement_accept'),
+          cancelText: translator('notice_cancel')
+        }
+      );
+      if (!accepted) return false;
+      browserActionDisabled = updateToolEnabledState('browser_action', false);
+      if (!browserActionDisabled) {
+        await getDialogs()?.alert?.(translator('mcp_external_action_error'), { type: 'error' });
+        return false;
+      }
+    }
+    const pendingStatus = action === 'start' ? 'starting' : 'stopped';
+    if (btn) {
+      btn.disabled = true;
+      btn.setAttribute?.('aria-busy', 'true');
+      btn.textContent = translator(`mcp_external_status_${pendingStatus}`);
+    }
+    updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
+    const MCP = getMCP();
+    let didAutoOpenOAuth = false;
+    const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
+      const oauthUrl = serverData?.oauthUrl || null;
+      if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined') {
+        didAutoOpenOAuth = true;
+        try { window.open(oauthUrl, '_blank'); } catch (_) { /* ventana emergente bloqueada: el enlace OAuth sigue visible en el panel */ }
+      }
+      updateExternalServerState(sid, {
+        status,
+        ...(oauthUrl ? { oauthUrl } : {}),
+        error: null,
+        startWait: { attempt, total }
+      });
+    };
+    try {
+      if (action === 'start') {
+        await MCP?.manager?.startExternalServer?.(sid, null, reportStartWait);
+      } else {
+        await MCP?.manager?.stopExternalServer?.(sid);
+      }
+      return true;
+    } catch (error) {
+      const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
+        (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
+      if (!error.code?.startsWith('EXTERNAL_START_')) {
+        console.error(`[MCP UI] Error trying to ${action} external server:`, error);
+      }
+      updateExternalServerState(sid, {
+        status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
+        startWait: null,
+        error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
+        ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
+      });
+
+      if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
+      return false;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute?.('aria-busy');
+      }
+    }
+  }
+
+  function getServiceName(server, language) {
+    const name = server?.displayName;
+    return String((name && typeof name === 'object' ? name[language] || name.es || name.en : name) || server?.id || '');
+  }
+
+  /**
+   * Ofrece iniciar los servicios activos en la sesión anterior que siguen detenidos.
+   * El usuario puede quitar de la lista los que no quiera iniciar.
+   */
+  async function offerStoppedExternalServices(servers, translator = t) {
+    if (!Array.isArray(servers)) return [];
+    const language = getI18n()?.getLanguage?.() || 'es';
+    const items = servers
+      .filter(server => server?.enabled === true && server?.status === 'stopped' && typeof server.id === 'string' && server.id)
+      .slice(0, 50)
+      .map(server => ({ id: server.id, label: getServiceName(server, language) }));
+    if (items.length === 0) return [];
+    const Dialogs = getDialogs();
+    if (typeof Dialogs?.confirm !== 'function') return [];
+    const selected = await Dialogs.confirm(translator('mcp_external_restore_message'), {
+      type: 'info',
+      title: translator('mcp_external_restore_title'),
+      acceptText: translator('mcp_btn_start_server'),
+      cancelText: translator('mcp_external_restore_skip'),
+      items,
+      itemRemoveLabel: translator('mcp_external_restore_remove')
+    });
+    if (!Array.isArray(selected) || selected.length === 0) return [];
+    const failed = [];
+    for (const id of selected) {
+      const current = (getState()?.get?.('mcp')?.externalServers || []).find(server => server.id === id);
+      // El usuario pudo iniciarlo desde Ajustes mientras el diálogo seguía abierto.
+      if (!current || current.status !== 'stopped') continue;
+      const ok = await runExternalServerAction(id, 'start', translator, { browserActionActive: isBrowserActionCurrentlyActive() });
+      if (!ok) failed.push(items.find(item => item.id === id)?.label || id);
+    }
+    if (failed.length > 0) {
+      await Dialogs.alert?.(translator('mcp_external_restore_failed', { names: failed.join(', ') }), { type: 'error' });
+    }
+    return selected;
   }
 
   function updateExternalServerState(serverId, changes) {
@@ -873,6 +933,8 @@
     renderCurrentToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
+    runExternalServerAction,
+    offerStoppedExternalServices,
     syncSecurityControls,
     initMcpUI,
     autoConnectIfAvailable,

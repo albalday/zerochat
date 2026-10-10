@@ -1,10 +1,10 @@
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatDialogs = factory(root.ChatState, root.ChatI18n, root.document);
-})(typeof self !== 'undefined' ? self : this, function (state, i18n, document) {
+  else root.ChatDialogs = factory(root.ChatState, root.ChatI18n, root.document, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (state, i18n, document, icons) {
   'use strict';
 
-  function create(store, translations, doc) {
+  function create(store, translations, doc, iconCatalog = null) {
     const dialog = doc.getElementById('notice-dialog');
     const title = doc.getElementById('notice-title');
     const message = doc.getElementById('notice-message');
@@ -14,8 +14,36 @@
     const checkboxContainer = doc.getElementById('notice-checkbox-container');
     const checkbox = doc.getElementById('notice-checkbox');
     const checkboxText = doc.getElementById('notice-checkbox-text');
+    const itemList = doc.getElementById('notice-items');
     let activeId = null;
     let previousFocus = null;
+
+    function renderItems(notice) {
+      if (!itemList) return;
+      itemList.replaceChildren();
+      itemList.hidden = !notice?.items;
+      accept.disabled = false;
+      for (const item of notice?.items || []) {
+        const row = doc.createElement('li');
+        row.dataset.id = item.id;
+        const label = doc.createElement('span');
+        label.textContent = item.label;
+        const remove = doc.createElement('button');
+        remove.type = 'button';
+        remove.className = 'notice-item-remove';
+        remove.setAttribute('aria-label', `${notice.itemRemoveLabel || translations.t('notice_item_remove')}: ${item.label}`);
+        remove.title = remove.getAttribute('aria-label');
+        remove.innerHTML = iconCatalog?.get ? iconCatalog.get('close', { size: 14 }) : '';
+        remove.addEventListener('click', () => {
+          const next = row.nextElementSibling || row.previousElementSibling;
+          row.remove();
+          accept.disabled = itemList.children.length === 0;
+          (next?.querySelector('button') || cancel).focus();
+        });
+        row.append(label, remove);
+        itemList.append(row);
+      }
+    }
 
     function render() {
       const notice = (store.get('ui').notices || [])[0];
@@ -25,6 +53,7 @@
         input.value = '';
         if (checkbox) checkbox.checked = false;
         if (checkboxContainer) checkboxContainer.hidden = true;
+        renderItems(null);
         accept.setAttribute('data-i18n', 'notice_accept');
         accept.textContent = translations.t('notice_accept');
         cancel.setAttribute('data-i18n', 'notice_cancel');
@@ -59,6 +88,7 @@
         if (checkboxText) checkboxText.textContent = notice.checkbox || '';
         if (checkbox) checkbox.checked = Boolean(notice.checkboxDefault);
       }
+      renderItems(notice);
       dialog.dataset.type = notice.type;
       if (!dialog.open) {
         previousFocus = doc.activeElement;
@@ -70,7 +100,8 @@
     function dismiss(accepted = false) {
       if (activeId !== null) {
         const isChecked = Boolean(checkbox && checkbox.checked);
-        store.dismissNotice(activeId, accepted, input.value, isChecked);
+        const items = itemList && !itemList.hidden ? Array.from(itemList.children, row => row.dataset.id) : null;
+        store.dismissNotice(activeId, accepted, input.value, isChecked, items);
       }
     }
     input.addEventListener('keydown', event => {
@@ -80,7 +111,7 @@
         dismiss(true);
       }
     });
-    accept.addEventListener('click', () => dismiss(true));
+    accept.addEventListener('click', () => { if (!accept.disabled) dismiss(true); });
     cancel.addEventListener('click', () => dismiss(false));
     dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
     dialog.addEventListener('close', () => { if (!dialog.open) dismiss(); });
@@ -99,7 +130,9 @@
         cancelText: options.cancelText,
         checkbox: options.checkbox,
         checkboxDefault: options.checkboxDefault,
-        inputType: options.inputType
+        inputType: options.inputType,
+        items: options.items,
+        itemRemoveLabel: options.itemRemoveLabel
       });
       return new Promise(resolve => {
         const unsubscribe = store.subscribe(s => (s.ui.notices || []).some(item => item.id === id), present => {
@@ -108,7 +141,9 @@
             const result = store.get('ui').noticeResult;
             const accepted = result?.id === id && result.accepted === true;
             const checkboxChecked = Boolean(result?.id === id && result.checkboxChecked === true);
-            if (options.checkbox !== undefined || options.returnDetails) {
+            if (options.items !== undefined) {
+              resolve(accepted ? (result.items || []) : null);
+            } else if (options.checkbox !== undefined || options.returnDetails) {
               resolve({ accepted, applyToAll: checkboxChecked, checkboxChecked, value: result?.value ?? null });
             } else {
               resolve(mode === 'prompt' ? (accepted ? result.value : null) : mode === 'confirm' ? accepted : undefined);
@@ -130,5 +165,5 @@
       }, 'confirm')
     };
   }
-  return document ? create(state, i18n, document) : { create };
+  return document ? create(state, i18n, document, icons) : { create };
 });

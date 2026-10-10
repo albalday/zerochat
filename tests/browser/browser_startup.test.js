@@ -285,11 +285,15 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
             return { success: true };
           };
           window.ChatDialogs.confirm = async (message, options) => {
+            if (options.items) {
+              window.__recordStartup('mcp');
+              window.__mcpOfferItems = options.items;
+              return null;
+            }
             window.__updateNotice = { message, options };
             window.__recordStartup('update');
             return new Promise(resolve => { window.__resolveUpdate = resolve; });
           };
-          window.ChatDialogs.alert = async () => window.__recordStartup('mcp');
         ` + source });
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/zerochat.html#token=test-startup`, { waitUntil: 'load' });
@@ -316,6 +320,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
       const expected = outcome === 'reload' ? ['check', 'update', 'check', 'mcp'] :
         outcome === 'later' ? ['check', 'update', 'mcp'] : ['check', 'mcp'];
       assert.deepEqual(await page.evaluate(() => window.__startupEvents), expected);
+      assert.deepEqual(await page.evaluate(() => window.__mcpOfferItems), [{ id: 'memory', label: 'memory' }]);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();
