@@ -403,6 +403,21 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(edit0Json.result?.isError, true);
     assert.match(edit0Json.result?.content?.[0]?.text || '', /Target text was not found|No se encontró el texto/);
 
+    // Los modos heredados de escritura ya no existen: write_file cubre la escritura completa.
+    for (const [id, args, expected] of [
+      [56, { path: testFilePath, content: 'sobrescrito', mode: 'write' }, /Argumento no permitido: content/],
+      [57, { path: testFilePath, old_str: 'segunda linea modificada' }, /Falta el argumento obligatorio: new_str/]
+    ]) {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'edit_file', arguments: args } })
+      });
+      const json = await res.json();
+      assert.match(JSON.stringify(json), expected);
+    }
+    assert.match(fs.readFileSync(testFilePath, 'utf8'), /segunda linea modificada/, 'El fichero no cambia con argumentos rechazados');
+
     try { fs.unlinkSync(testFilePath); } catch (_) {}
 
     // 6.4. run_command: cada llamada empieza en el proyecto, sin heredar cd ni variables.

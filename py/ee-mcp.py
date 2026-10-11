@@ -34,10 +34,7 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "edit_file": {
             "path": (str, MAX_PATH_LENGTH),
             "old_str": (str, MAX_HTTP_BODY_BYTES),
-            "new_str": (str, MAX_HTTP_BODY_BYTES),
-            "content": (str, MAX_HTTP_BODY_BYTES),
-            "mode": (str, 32),
-            "target_content": (str, MAX_HTTP_BODY_BYTES)
+            "new_str": (str, MAX_HTTP_BODY_BYTES)
         },
         "run_command": {
             "command": (str, MAX_COMMAND_LENGTH),
@@ -86,12 +83,6 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     for name in definition.get("inputSchema", {}).get("required", ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
-
-    if tool_name == "edit_file":
-        has_surgical = "old_str" in arguments and "new_str" in arguments
-        has_legacy = "content" in arguments
-        if not has_surgical and not has_legacy:
-            return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
 
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:

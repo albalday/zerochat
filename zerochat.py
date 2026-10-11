@@ -1272,70 +1272,31 @@ def write_file(path: str, content: str) -> str:
         return _tool_error(str(e))
 
 
-def edit_file(path: str, old_str: str = None, new_str: str = None, content: str = None, mode: str = "surgical", target_content: str = None) -> str:
-    """Modify an existing file surgically or atomically."""
+def edit_file(path: str, old_str: str, new_str: str) -> str:
+    """Replace the single occurrence of old_str with new_str in an existing file."""
     try:
         target = Path(path).expanduser().resolve()
+        if not target.exists():
+            return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
+        if not target.is_file():
+            return _tool_error(f"Path '{path}' is not a regular file.")
 
-        # Preferred surgical mode (old_str -> new_str)
-        if old_str is not None and new_str is not None:
-            if not target.exists():
-                return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
-            if not target.is_file():
-                return _tool_error(f"Path '{path}' is not a regular file.")
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            file_text = f.read()
 
-            with open(target, "r", encoding="utf-8", errors="replace") as f:
-                file_text = f.read()
+        occurrences = file_text.count(old_str)
+        if occurrences == 0:
+            return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
+        if occurrences > 1:
+            return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match.")
 
-            occurrences = file_text.count(old_str)
-            if occurrences == 0:
-                return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
-            if occurrences > 1:
-                return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match.")
-
-            updated_text = file_text.replace(old_str, new_str, 1)
-            _atomic_write_text(target, updated_text)
-            return json.dumps({
-                "success": True,
-                "path": str(target),
-                "mode": "surgical",
-                "bytes_written": len(updated_text.encode("utf-8")),
-                "replacements": 1
-            }, ensure_ascii=False, indent=2)
-
-        # Legacy modes (write, append, replace_chunk)
-        if content is None:
-            return _tool_error("Must provide old_str and new_str for surgical edit, or content for compatible modes.")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if mode == "append":
-            with open(target, "a", encoding="utf-8") as f:
-                f.write(content)
-            bytes_written = len(content.encode("utf-8"))
-        elif mode == "replace_chunk":
-            if not target.exists():
-                return _tool_error(f"File '{path}' does not exist for replace_chunk.")
-            if not target_content:
-                return _tool_error("target_content is required in replace_chunk mode.")
-
-            with open(target, "r", encoding="utf-8", errors="replace") as f:
-                existing = f.read()
-
-            if target_content not in existing:
-                return _tool_error("target_content was not found in the file.")
-
-            new_text = existing.replace(target_content, content, 1)
-            _atomic_write_text(target, new_text)
-            bytes_written = len(new_text.encode("utf-8"))
-        else:  # write
-            _atomic_write_text(target, content)
-            bytes_written = len(content.encode("utf-8"))
-
+        updated_text = file_text.replace(old_str, new_str, 1)
+        _atomic_write_text(target, updated_text)
         return json.dumps({
             "success": True,
             "path": str(target),
-            "mode": mode,
-            "bytes_written": bytes_written
+            "bytes_written": len(updated_text.encode("utf-8")),
+            "replacements": 1
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -1966,10 +1927,7 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "edit_file": {
             "path": (str, MAX_PATH_LENGTH),
             "old_str": (str, MAX_HTTP_BODY_BYTES),
-            "new_str": (str, MAX_HTTP_BODY_BYTES),
-            "content": (str, MAX_HTTP_BODY_BYTES),
-            "mode": (str, 32),
-            "target_content": (str, MAX_HTTP_BODY_BYTES)
+            "new_str": (str, MAX_HTTP_BODY_BYTES)
         },
         "run_command": {
             "command": (str, MAX_COMMAND_LENGTH),
@@ -2018,12 +1976,6 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     for name in definition.get("inputSchema", {}).get("required", ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
-
-    if tool_name == "edit_file":
-        has_surgical = "old_str" in arguments and "new_str" in arguments
-        has_legacy = "content" in arguments
-        if not has_surgical and not has_legacy:
-            return "Faltan argumentos obligatorios: especifica 'old_str' y 'new_str' o 'content'"
 
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:
