@@ -30,10 +30,25 @@
   // Las URL de imagen se validan sobre texto ya escapado (parseTextMarkdown), así que
   // el valor de sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
 
+  // El código en línea se aparta antes de las tablas y las demás reglas para que |, *, _,
+  // enlaces o imágenes dentro de él se muestren literales; se restaura al terminar.
+  const CODE_PLACEHOLDER = /\u0000(\d+)\u0000/g;
+
+  function protectInlineCode(text, codes) {
+    return text.replace(/`([^`\n]+)`/g, function (match, code) {
+      codes.push(`<code>${code}</code>`);
+      return `\u0000${codes.length - 1}\u0000`;
+    });
+  }
+
+  function restoreInlineCode(html, codes) {
+    return codes.length ? html.replace(CODE_PLACEHOLDER, (match, index) => codes[Number(index)] || '') : html;
+  }
+
+  // Celdas de tabla: su código en línea ya lo apartó parseTextMarkdown.
   function parseInlineMarkdown(text) {
     if (!text) return '';
     let p = text;
-    p = p.replace(/`([^`\n]+)`/g, '<code>$1</code>');
     p = p.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
     p = p.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     p = p.replace(/__(.*?)__/g, '<strong>$1</strong>');
@@ -181,7 +196,8 @@
   function parseTextMarkdown(text) {
     if (!text) return '';
 
-    let p = escapeHtml(text);
+    let p = escapeHtml(text).replace(/\u0000/g, '');
+    const codes = [];
 
     // Reglas horizontales (---, ***, ___)
     p = p.replace(/^[ \t]*(?:---|\*\*\*|___)[ \t]*$/gm, '<hr>');
@@ -212,13 +228,11 @@
       `;
     });
 
-    // 2. Tablas Markdown (GFM Tables)
-    p = parseMarkdownTables(p);
+    // 2. Código inline `código`
+    p = protectInlineCode(p, codes);
 
-    // 3. Código inline `código`
-    p = p.replace(/`([^`\n]+)`/g, function (match, code) {
-      return `<code>${code}</code>`;
-    });
+    // 3. Tablas Markdown (GFM Tables)
+    p = parseMarkdownTables(p);
 
     // 4. Encabezados (# Titulo)
     p = p.replace(/^### (.*$)/gm, '<h3>$1</h3>');
@@ -275,7 +289,7 @@
 
     // 12. Párrafos y saltos de línea
     const chunks = p.split(/\n{2,}/);
-    return chunks.map(chunk => {
+    return restoreInlineCode(chunks.map(chunk => {
       const trimmed = chunk.trim();
       if (!trimmed) return '';
       if (
@@ -293,7 +307,7 @@
         return trimmed;
       }
       return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
-    }).filter(Boolean).join('');
+    }).filter(Boolean).join(''), codes);
   }
 
   /**

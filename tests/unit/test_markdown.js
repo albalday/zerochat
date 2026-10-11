@@ -84,3 +84,16 @@ test('Markdown - imágenes: base64, rag-image y URLs sin doble escape ni inyecci
 });
 
 
+
+test('Markdown - el código en línea se muestra literal y no lo alteran otras reglas', () => {
+  assert.equal(Markdown.parseMarkdown('- `6*7` = 42\n- `7*6` = 42'), '<ul><li><code>6*7</code> = 42</li><li><code>7*6</code> = 42</li></ul>');
+  assert.equal(Markdown.parseMarkdown('usa `a _b_ c` y `**x**` con *cursiva*'), '<p>usa <code>a _b_ c</code> y <code>**x**</code> con <em>cursiva</em></p>');
+  assert.equal(Markdown.parseMarkdown('`![x](https://e.test/i.png)` `[l](https://e.test)`'), '<p><code>![x](https://e.test/i.png)</code> <code>[l](https://e.test)</code></p>');
+  assert.equal(Markdown.parseMarkdown('`<b>x</b>`'), '<p><code>&lt;b&gt;x&lt;/b&gt;</code></p>');
+
+  const table = Markdown.parseMarkdown('| a | b |\n|---|---|\n| `2*3*4` | `x | y` |');
+  assert.ok(table.includes('<td><code>2*3*4</code></td>'), 'El código de una celda tampoco se convierte en cursiva');
+  assert.ok(table.includes('<td><code>x | y</code></td>'), 'Una barra dentro del código no parte la celda');
+
+  assert.equal(Markdown.parseMarkdown('texto \u00000\u0000 raro'), '<p>texto 0 raro</p>', 'Un marcador escrito en la entrada no inyecta código');
+});
