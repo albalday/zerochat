@@ -15,6 +15,23 @@ const assert = require('node:assert/strict');
 // Importar ChatEngine y dependencias
 const ChatEngine = require('../../js/chat-engine.js');
 
+test('ChatEngine - reenvía el razonamiento solo en los pasos del turno en curso', () => {
+  const call = id => [{ id, type: 'function', function: { name: 'read_file', arguments: '{}' } }];
+  const messages = ChatEngine.buildEffectiveMessages([
+    { role: 'user', content: 'Primera' },
+    { role: 'assistant', content: null, tool_calls: call('c1'), reasoningReplay: { field: 'reasoning_content', text: 'viejo' } },
+    { role: 'tool', tool_call_id: 'c1', name: 'read_file', content: 'a' },
+    { role: 'assistant', content: 'Listo' },
+    { role: 'user', content: 'Segunda' },
+    { role: 'assistant', content: null, tool_calls: call('c2'), reasoningReplay: { field: 'reasoning', text: 'actual' } },
+    { role: 'tool', tool_call_id: 'c2', name: 'read_file', content: 'b' }
+  ]);
+  const assistants = messages.filter(m => m.role === 'assistant' && m.tool_calls);
+  assert.equal('reasoning_content' in assistants[0], false);
+  assert.equal(assistants[1].reasoning, 'actual');
+  assert.equal(messages.some(m => 'reasoningReplay' in m), false);
+});
+
 test('ChatEngine - no inventa turnos assistant para resultados de llamadas paralelas', () => {
   const messages = ChatEngine.buildEffectiveMessages([
     { role: 'user', content: 'Busca dos cosas' },

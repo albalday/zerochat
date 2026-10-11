@@ -438,6 +438,12 @@
 
     let accumulatedText = '';
     let accumulatedReasoning = '';
+    // Razonamiento recibido en un campo propio del delta; el agente lo reenvía dentro del turno.
+    let replayReasoning = '';
+    let replayReasoningField = '';
+    const getReasoningReplay = () => (replayReasoningField && replayReasoning
+      ? { field: replayReasoningField, text: replayReasoning }
+      : null);
     let accumulatedToolCalls = {};
     let chunkCount = 0;
     let activeReasoningTag = null;
@@ -663,7 +669,7 @@
                 });
               }
               if (onDone) await onDone(accumulatedText, stats, toolCalls, accumulatedReasoning);
-              return { accumulatedText, accumulatedReasoning, stats, toolCalls };
+              return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats, toolCalls };
             }
 
             try {
@@ -678,6 +684,10 @@
                 publishGenerationStatus({ phase: 'thinking', percent: null, detail: '' });
                 if (!firstTokenTime) firstTokenTime = performance.now();
                 accumulatedReasoning += chunkData.reasoningChunk;
+                if (chunkData.reasoningField) {
+                  replayReasoningField = chunkData.reasoningField;
+                  replayReasoning += chunkData.reasoningChunk;
+                }
                 if (onReasoningChunk) {
                   onReasoningChunk(chunkData.reasoningChunk, accumulatedReasoning);
                 } else if (onLog) {
@@ -812,7 +822,7 @@
       const finalStats = getStats();
       const finalToolCalls = getFinalToolCalls();
       if (onDone) await onDone(accumulatedText, finalStats, finalToolCalls, accumulatedReasoning);
-      return { accumulatedText, accumulatedReasoning, stats: finalStats, toolCalls: finalToolCalls };
+      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: finalStats, toolCalls: finalToolCalls };
 
     } catch (err) {
       if (err.name === 'AbortError') {

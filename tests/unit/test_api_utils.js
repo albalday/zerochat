@@ -91,6 +91,23 @@ test('Api - publica estados de conexión, pensamiento y generación sin exponer 
   }
 });
 
+test('Api - devuelve para reenviar solo el razonamiento recibido en un campo propio', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async () => new Response('data: {"choices":[{"delta":{"reasoning_content":"paso "}}]}\n\ndata: {"choices":[{"delta":{"reasoning_content":"uno"}}]}\n\ndata: {"choices":[{"delta":{"content":"Hecho"}}]}\n\ndata: [DONE]\n\n');
+    const fromField = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [] });
+    assert.deepEqual(fromField.reasoningReplay, { field: 'reasoning_content', text: 'paso uno' });
+
+    // Las etiquetas <think> en el texto no tienen campo en el que devolverlas.
+    global.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"<think>oculto</think>Hecho"}}]}\n\ndata: [DONE]\n\n');
+    const fromTags = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [] });
+    assert.equal(fromTags.accumulatedReasoning, 'oculto');
+    assert.equal(fromTags.reasoningReplay, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
   const originalFetch = global.fetch;
   let network = 0;

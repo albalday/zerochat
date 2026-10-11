@@ -189,6 +189,38 @@ test('AgentRuntime - Tool call normal con resolución y respuesta final', async 
   assert.equal(result.history.length, 3); // user, assistant(call), tool(res)
 });
 
+test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no lo guarda en el historial', async () => {
+  const ChatEngine = require('../../js/chat-engine.js');
+  const registry = new ToolRegistry();
+  registry.registerTool(new Tool({ name: 'lookup', execute: async () => ({ ok: true }) }));
+
+  const sent = [];
+  let step = 0;
+  const result = await new AgentRuntime({ registry }).execute({
+    api: {
+      streamChatCompletion: async params => {
+        sent.push(params.messages);
+        step++;
+        if (step < 3) {
+          return {
+            accumulatedText: '',
+            reasoningReplay: { field: 'reasoning_content', text: `plan ${step}` },
+            toolCalls: [{ id: `call_${step}`, type: 'function', function: { name: 'lookup', arguments: JSON.stringify({ step }) } }]
+          };
+        }
+        return { accumulatedText: 'Hecho.', toolCalls: [] };
+      }
+    },
+    prepareMessages: messages => ChatEngine.buildEffectiveMessages(messages),
+    messages: [{ role: 'user', content: 'Busca.' }]
+  });
+
+  assert.equal(result.status, 'completed');
+  const replayed = sent[2].filter(m => m.role === 'assistant').map(m => m.reasoning_content);
+  assert.deepEqual(replayed, ['plan 1', 'plan 2']);
+  assert.equal(result.history.some(m => 'reasoningReplay' in m), false);
+});
+
 test('AgentRuntime - serializa el resultado para el modelo a través del contrato de la tool', async () => {
   const registry = new ToolRegistry();
   registry.registerTool(new Tool({

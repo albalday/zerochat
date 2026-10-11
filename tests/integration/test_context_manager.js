@@ -3,6 +3,12 @@ const assert = require('node:assert');
 const ChatContextManager = require('../../js/context-manager.js');
 const ChatEngine = require('../../js/chat-engine.js');
 
+test('ContextManager - la estimación cuenta el razonamiento reenviado', () => {
+  const base = { role: 'assistant', content: null, tool_calls: [] };
+  const withReasoning = { ...base, reasoning_content: 'razonamiento '.repeat(40) };
+  assert.ok(ChatContextManager.estimateMessageTokens(withReasoning) > ChatContextManager.estimateMessageTokens(base) + 50);
+});
+
 test('ContextManager - Estimación de tokens para texto, código y multimodales', () => {
   const shortText = 'Hola, ¿cómo estás?';
   const tokens = ChatContextManager.estimateTextTokens(shortText);

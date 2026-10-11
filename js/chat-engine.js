@@ -144,8 +144,10 @@
   function buildEffectiveMessages(chatHistory = [], appConfig = {}, options = {}) {
     const rawMessages = (chatHistory || []).filter(m => m && m.role);
     const messages = [];
+    // El razonamiento solo se reenvía en el turno en curso, desde el último mensaje del usuario.
+    const currentTurnStart = rawMessages.map(m => m.role).lastIndexOf('user');
 
-    rawMessages.forEach(m => {
+    rawMessages.forEach((m, index) => {
       if (m.role === 'user') {
         // Aviso de comandos en segundo plano terminados, guardado con el mensaje y no visible en el chat.
         const userText = m.commandNotes ? `${m.commandNotes}\n\n${m.content || ''}` : m.content;
@@ -172,6 +174,10 @@
         const item = { role: 'assistant', content: m.content !== undefined ? m.content : '' };
         if (m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
           item.tool_calls = m.tool_calls;
+        }
+        const replay = m.reasoningReplay;
+        if (index > currentTurnStart && replay && typeof replay.field === 'string' && typeof replay.text === 'string') {
+          item[replay.field] = replay.text;
         }
         messages.push(item);
       } else if (m.role === 'tool') {

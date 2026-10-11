@@ -97,6 +97,12 @@
     return new Error('Ejecución agéntica cancelada por el usuario.');
   }
 
+  function withoutReasoningReplay(message) {
+    if (!message || !message.reasoningReplay) return message;
+    const { reasoningReplay, ...rest } = message;
+    return rest;
+  }
+
   function createInvocationId() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -1114,6 +1120,7 @@
 
         let currentStepText = '';
         let currentStepReasoning = '';
+        let stepReasoningReplay = null;
         let stepToolCalls = null;
         let stepStats = null;
         let streamError = null;
@@ -1176,6 +1183,7 @@
           if (streamResult) {
             currentStepText = streamResult.accumulatedText || currentStepText;
             currentStepReasoning = streamResult.accumulatedReasoning || currentStepReasoning;
+            stepReasoningReplay = streamResult.reasoningReplay || null;
             stepToolCalls = streamResult.toolCalls || stepToolCalls;
             stepStats = streamResult.stats || stepStats;
           }
@@ -1395,6 +1403,8 @@
             content: currentStepText || null,
             tool_calls: stepToolCalls
           };
+          // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
+          if (stepReasoningReplay) assistantMsg.reasoningReplay = stepReasoningReplay;
 
           workingMessages.push(assistantMsg);
           for (const tMsg of executedToolMessages) {
@@ -1452,7 +1462,7 @@
         loopDetected: status === 'loop_detected',
         awaitingUser: yieldedToUser,
         toolExecutions,
-        history: workingMessages,
+        history: workingMessages.map(withoutReasoningReplay),
         stats: {
           totalTimeMs: totalElapsedMs,
           tokens: lastStats?.tokens || 0,

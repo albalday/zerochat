@@ -87,6 +87,11 @@
       });
     }
 
+    // Razonamiento reenviado dentro del turno en curso (buildEffectiveMessages)
+    ['reasoning_content', 'reasoning'].forEach(field => {
+      if (typeof message[field] === 'string') tokens += estimateTextTokens(message[field]);
+    });
+
     // Tool calls emitidas por el asistente
     if (Array.isArray(message.tool_calls)) {
       message.tool_calls.forEach(tc => {

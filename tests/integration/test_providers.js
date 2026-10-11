@@ -93,6 +93,38 @@ test('OpenAIAdapter - Auto-recuperación de errores HTTP 400', () => {
   assert.equal(payload.tools, undefined);
 });
 
+test('OpenAIAdapter - indica el campo del razonamiento que se puede reenviar', () => {
+  const adapter = new BaseProviderAdapter();
+  assert.equal(adapter.parseStreamChunk({ choices: [{ delta: { reasoning_content: 'a' } }] }).reasoningField, 'reasoning_content');
+  assert.equal(adapter.parseStreamChunk({ choices: [{ delta: { reasoning: 'b' } }] }).reasoningField, 'reasoning');
+  const thinking = adapter.parseStreamChunk({ choices: [{ delta: { thinking: 'c' } }] });
+  assert.equal(thinking.reasoningChunk, 'c');
+  assert.equal(thinking.reasoningField, undefined);
+});
+
+test('OpenAIAdapter - un rechazo del razonamiento reenviado lo quita de los mensajes y conserva reasoning_effort', () => {
+  const adapter = new BaseProviderAdapter();
+  const payload = {
+    reasoning_effort: 'high',
+    messages: [
+      { role: 'user', content: 'Hola' },
+      { role: 'assistant', content: null, reasoning_content: 'plan', tool_calls: [{ id: 'c1' }] }
+    ]
+  };
+  const recovery = adapter.handleHttpError(400, "messages[1]: unexpected field 'reasoning_content'", payload);
+  assert.deepEqual(recovery, { retry: true, reason: 'reasoning_history_rejected' });
+  assert.equal('reasoning_content' in payload.messages[1], false);
+  assert.equal(payload.reasoning_effort, 'high');
+
+  // "reasoning" es también un parámetro raíz: sin mención a los mensajes se trata como tal.
+  const routerPayload = {
+    reasoning: { effort: 'high' },
+    messages: [{ role: 'assistant', content: null, reasoning: 'plan', tool_calls: [{ id: 'c1' }] }]
+  };
+  assert.equal(adapter.handleHttpError(400, "Unknown parameter 'reasoning'", routerPayload).reason, 'reasoning_rejected');
+  assert.equal(routerPayload.messages[0].reasoning, 'plan');
+});
+
 test('ClaudeAdapter - Formato de mensajes, presupuesto de thinking y caché efímera', () => {
   const adapter = new ClaudeProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('https://api.anthropic.com/v1'), 'https://api.anthropic.com/v1/messages');

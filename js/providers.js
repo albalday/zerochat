@@ -30,6 +30,11 @@
     modelListing: true    // Soporte para descubrimiento automático de modelos (/models, /api/tags)
   };
 
+  // Campos de los mensajes del asistente en los que los servidores compatibles con OpenAI
+  // devuelven y aceptan el razonamiento: reasoning_content (llama.cpp, vLLM, DeepSeek) y
+  // reasoning (Ollama, OpenRouter).
+  const REASONING_REPLAY_FIELDS = ['reasoning_content', 'reasoning'];
+
   function serializeContent(content) {
     if (typeof content === 'string') return content;
     if (content === undefined) return '';
@@ -241,6 +246,9 @@
         const rChunk = delta.reasoning_content || delta.reasoning || delta.thinking || delta.thought || '';
         if (rChunk) {
           result.reasoningChunk = rChunk;
+          // Campo en el que el servidor acepta de vuelta el razonamiento dentro del bucle de herramientas.
+          const field = REASONING_REPLAY_FIELDS.find(name => typeof delta[name] === 'string' && delta[name]);
+          if (field) result.reasoningField = field;
         }
 
         // Contenido textual normal
@@ -294,6 +302,24 @@
      */
     handleHttpError(status, serverErrorMsg, payload) {
       const errLower = (serverErrorMsg || '').toLowerCase();
+
+      // Va antes que la regla de parámetros: un rechazo del razonamiento reenviado en los mensajes
+      // también menciona "reasoning" y quitar reasoning_effort no lo resolvería. "reasoning" es
+      // además un parámetro raíz (OpenRouter), así que solo cuenta si el error habla de mensajes.
+      const replayFields = REASONING_REPLAY_FIELDS.filter(field =>
+        Array.isArray(payload.messages) && payload.messages.some(m => m && m.role === 'assistant' && field in m));
+      const rejectsReplay = replayFields.some(field => field === 'reasoning'
+        ? errLower.includes('message') && errLower.includes(field)
+        : errLower.includes(field));
+      if (status === 400 && rejectsReplay) {
+        payload.messages = payload.messages.map(m => {
+          if (!m || m.role !== 'assistant') return m;
+          const clean = { ...m };
+          replayFields.forEach(field => { delete clean[field]; });
+          return clean;
+        });
+        return { retry: true, reason: 'reasoning_history_rejected' };
+      }
 
       if (status === 400 && (payload.reasoning_effort || payload.thinking || payload.reasoning)) {
         if (errLower.includes('reasoning') || errLower.includes('thinking') || errLower.includes('unexpected') || errLower.includes('unrecognized') || errLower.includes('extra') || errLower.includes('unknown')) {
@@ -1073,6 +1099,7 @@
         const baseRes = super.parseStreamChunk(parsed, state);
         if (baseRes.textChunk) result.textChunk = baseRes.textChunk;
         if (baseRes.reasoningChunk) result.reasoningChunk = baseRes.reasoningChunk;
+        if (baseRes.reasoningField) result.reasoningField = baseRes.reasoningField;
         if (baseRes.toolCallDeltas.length > 0) result.toolCallDeltas = baseRes.toolCallDeltas;
         if (baseRes.cachedTokens > 0) result.cachedTokens = baseRes.cachedTokens;
         if (baseRes.cacheCreationTokens > 0) result.cacheCreationTokens = baseRes.cacheCreationTokens;
