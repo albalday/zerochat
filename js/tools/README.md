@@ -28,6 +28,14 @@ Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRe
 
 Cada invocación recibe en `context.invocationId` un identificador único, que también lleva su tarjeta en `data-invocation-id`. Sirve para referirse a la ejecución antes de que termine.
 
+### Subagente (`delegate_task`)
+
+`delegate_task` (`js/tools/builtin/delegate-task.tool.js`) lanza otra ejecución de `AgentRuntime` en la misma pestaña, con el mismo proveedor y modelo. Su historial empieza con un único mensaje de usuario, en inglés, con las normas del subagente y el encargo; reutiliza `prepareMessages`, `contextOptions` y `summarizeHistory` del agente principal, así que comparte su prompt de sistema, el directorio y las normas del proyecto, el presupuesto de contexto y la compactación. Hereda su `signal`: detener el turno detiene también al subagente. Al agente principal solo vuelve el texto final, truncado a 20.000 caracteres; sus pasos no entran en el historial.
+
+El subagente es de solo lectura. De las definiciones activas del turno (`resolveToolDefinitions`) solo recibe las de `isReadOnlyTool`: las nativas `search_web`, `fetch_web_page`, `download_pdf`, `execute_javascript` y las cuatro de conocimiento, y del servidor local (`mcpServerId === 'mcp_proxy'`) `read_file`, `list_directory`, `search_files` y `get_diagnostics`. Quedan fuera las MCP externas, porque no declaran si escriben, además de `ask_user`, `render_chart` y la propia `delegate_task`, así que no hay subagentes anidados. Su despacho rechaza sin ejecutarla cualquier llamada a una herramienta que no se le ofreció. Cada llamada permitida pasa por el `dispatchToolCall` del agente principal y, con él, por `ToolExecutor` y `ChatToolSecurity`.
+
+La tarjeta (`createLiveCard`) muestra el encargo, el paso en curso en la insignia y, en `.subagent-steps`, las tarjetas de las herramientas del subagente y sus textos intermedios, que se pintan al terminar cada paso y no durante el streaming. `execute` localiza la tarjeta por `context.invocationId` dentro de `context.container` y pasa `.subagent-steps` como contenedor del despacho, de modo que las autorizaciones aparecen en las tarjetas anidadas. El informe se renderiza con `ChatMarkdown.parseMarkdown`. En el historial solo queda el mensaje `tool` con el informe, o el error en JSON, y `renderHistoricalCard` reconstruye con él el encargo y el informe. El runtime ejecuta las llamadas de un lote en orden, así que varias delegaciones en una misma respuesta van una tras otra.
+
 ### Comandos locales
 
 El host local expone una sola herramienta de ejecución, `run_command`, y otra de control, `check_command`. Cada llamada a `run_command` abre una shell nueva (bash, o PowerShell en Windows) en el directorio del proyecto: no hereda `cd`, variables ni entornos virtuales de llamadas anteriores. La salida une stdout y stderr en el orden en que se producen.

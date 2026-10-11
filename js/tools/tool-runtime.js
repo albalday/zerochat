@@ -20,7 +20,8 @@
     charts: { globalName: 'ChatCharts', modulePath: '../charts.js' },
     ragStorage: { globalName: 'ChatRagStorage', modulePath: '../ragStorage.js' },
     ragService: { globalName: 'ChatRagService', modulePath: '../rag-service.js' },
-    mcp: { globalName: 'ChatMCP', modulePath: '../mcp.js' }
+    mcp: { globalName: 'ChatMCP', modulePath: '../mcp.js' },
+    agent: { globalName: 'ChatAgentCore', modulePath: '../agent-core.js' }
   };
 
   function resolveService(name) {

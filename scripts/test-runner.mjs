@@ -38,6 +38,7 @@ export const GROUPS = {
     'tests/unit/test_ui_generation_status.js',
     'tests/integration/test_chat_engine.js',
     'tests/integration/test_agent_runtime.js',
+    'tests/integration/test_delegate_task.js',
     'tests/browser/browser_conversation.test.js'
   ],
   profiles: [

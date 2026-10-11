@@ -1655,3 +1655,31 @@ button.command-jobs-link:focus-visible {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
 }
+
+/* Subagente (delegate_task): encargo, pasos con sus herramientas e informe final. */
+.subagent-body {
+  font-family: var(--font-sans);
+}
+
+.subagent-task {
+  margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-muted);
+}
+
+.subagent-steps:empty {
+  display: none;
+}
+
+.subagent-step-text {
+  margin: 0.35rem 0;
+}
+
+.subagent-report {
+  margin-top: 0.5rem;
+}
+
+.subagent-error {
+  color: var(--error-color);
+}

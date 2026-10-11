@@ -21,6 +21,10 @@
 
   const TOOL_CALLS_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 6 4 4-8 8-4-4z"></path><path d="m5 19-2 2"></path><path d="m17 7 2-2"></path></svg>';
 
+  // Un subagente anida grupos dentro de su tarjeta: cada grupo solo gestiona sus zonas directas.
+  const GROUP_CARDS = ':scope > .tool-call-group-history > .tool-call-group-cards';
+  const GROUP_ACTIVE_CARDS = ':scope > .tool-call-group-active-cards';
+
   function getToolCallGroup(container) {
     const lastChild = container?.lastElementChild;
     return lastChild?.classList?.contains('tool-call-group') ? lastChild : null;
@@ -28,12 +32,12 @@
 
   function updateToolCallGroup(group) {
     if (!group) return;
-    const cards = Array.from(group.querySelectorAll('.tool-card-wrapper'));
+    const cards = Array.from(group.querySelectorAll(`${GROUP_CARDS} > .tool-card-wrapper, ${GROUP_ACTIVE_CARDS} > .tool-card-wrapper`));
     const running = cards.filter(card => card.dataset.toolCallStatus === 'running');
     const failed = cards.filter(card => card.dataset.toolCallStatus === 'error').length;
     const count = cards.length;
-    const label = group.querySelector('.tool-call-group-label');
-    const status = group.querySelector('.tool-call-group-status');
+    const label = group.querySelector(':scope > .tool-call-group-history > .tool-call-group-summary > .tool-call-group-label');
+    const status = group.querySelector(':scope > .tool-call-group-history > .tool-call-group-summary > .tool-call-group-status');
     const isRunning = running.length > 0;
     group.classList.toggle('is-running', isRunning);
     group.classList.toggle('has-error', !isRunning && failed > 0);
@@ -68,7 +72,7 @@
       trailingAssistantBlock.remove();
     }
     const group = getToolCallGroup(container) || createToolCallGroup(container);
-    const cards = group?.querySelector(options.completed ? '.tool-call-group-cards' : '.tool-call-group-active-cards');
+    const cards = group?.querySelector(options.completed ? GROUP_CARDS : GROUP_ACTIVE_CARDS);
     if (!cards) {
       container.appendChild(card);
       return null;
@@ -83,7 +87,7 @@
     if (!card) return;
     card.dataset.toolCallStatus = result?.success === false || result?.error ? 'error' : 'success';
     const group = card.closest?.('.tool-call-group');
-    const completedCards = group?.querySelector('.tool-call-group-cards');
+    const completedCards = group?.querySelector(GROUP_CARDS);
     if (completedCards) completedCards.appendChild(card);
     updateToolCallGroup(group);
   }
@@ -93,7 +97,7 @@
     if (!card) return;
     card.dataset.toolCallStatus = 'running';
     const group = card.closest?.('.tool-call-group');
-    const activeCards = group?.querySelector('.tool-call-group-active-cards');
+    const activeCards = group?.querySelector(GROUP_ACTIVE_CARDS);
     if (activeCards) activeCards.appendChild(card);
     updateToolCallGroup(group);
   }

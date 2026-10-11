@@ -318,6 +318,9 @@
       // 9. Interacción: pregunta con opciones que cede el turno al usuario.
       tools.push(createBuiltinTool('ask_user', 'ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'));
 
+      // 10. Subagente de solo lectura con contexto propio.
+      tools.push(createBuiltinTool('delegate_task', 'ChatBuiltinDelegateTaskTool', './tools/builtin/delegate-task.tool.js'));
+
       return tools;
     }
   }

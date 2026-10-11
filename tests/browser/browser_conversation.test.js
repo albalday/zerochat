@@ -942,4 +942,93 @@ test('Browser UI - inicializar el modo proyecto envía el prompt de arranque com
   } finally { await browser.close(); }
 });
 
+test('Browser UI - el subagente de delegate_task muestra sus herramientas en su tarjeta y devuelve solo el informe', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const API = window.ChatAPI;
+      const original = API.streamChatCompletion;
+      const subagentRequests = [];
+      let parentRequests = 0;
+      const reply = (params, text, toolCalls = []) => {
+        params.onDone?.(text, null, toolCalls, '');
+        return { accumulatedText: text, toolCalls, stats: null };
+      };
+      API.streamChatCompletion = async params => {
+        const isSubagent = params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]'));
+        if (isSubagent) {
+          subagentRequests.push({ messages: params.messages.map(message => ({ role: message.role, content: message.content })), tools: params.tools.map(tool => tool.function.name) });
+          return subagentRequests.length === 1
+            ? reply(params, 'Calculo el valor.', [{ id: 'sub_1', type: 'function', function: { name: 'execute_javascript', arguments: JSON.stringify({ code: 'return 6 * 7;' }) } }])
+            : reply(params, 'El valor es **42**.');
+        }
+        parentRequests++;
+        return parentRequests === 1
+          ? reply(params, '', [
+            { id: 'parent_1', type: 'function', function: { name: 'delegate_task', arguments: JSON.stringify({ task: 'Compute 6 * 7 <b>now</b>.' }) } },
+            { id: 'parent_2', type: 'function', function: { name: 'execute_javascript', arguments: JSON.stringify({ code: 'return 1;' }) } }
+          ])
+          : reply(params, 'Listo.');
+      };
+      const container = document.createElement('div');
+      document.getElementById('messages-list').appendChild(container);
+      try {
+        const loop = await window.ChatEngine.executeAgentTurnLoop({
+          chatHistory: [{ role: 'user', content: 'Mensaje privado del agente principal' }],
+          appConfig: { apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: true, delegate_task: true } },
+          container,
+          attachListeners: el => window.ChatMarkdown.attachCopyCodeListeners(el)
+        });
+        const card = [...container.querySelectorAll('.subagent-card')];
+        const outer = card[0]?.closest('.tool-card-wrapper');
+        const steps = card[0]?.querySelector('.subagent-steps');
+        const topGroup = container.querySelector(':scope > .tool-call-group');
+        return {
+          topGroupStatus: topGroup?.querySelector('.tool-call-group-status')?.textContent,
+          parentCardsInTopGroup: topGroup?.querySelectorAll(':scope > .tool-call-group-history > .tool-call-group-cards > .tool-card-wrapper').length,
+          finalText: loop.finalAssistantText,
+          delegated: loop.chatHistory.find(message => message.role === 'tool' && message.name === 'delegate_task')?.content,
+          parentSawSubagentTool: loop.chatHistory.some(message => message.tool_call_id === 'sub_1'),
+          cards: card.length,
+          outerInTopGroup: outer?.parentElement?.closest('.tool-call-group')?.parentElement === container,
+          nestedCards: steps?.querySelectorAll('.tool-call-group .tool-card-wrapper').length,
+          stepText: steps?.querySelector('.subagent-step-text')?.textContent.trim(),
+          task: card[0]?.querySelector('.subagent-task')?.innerHTML,
+          report: card[0]?.querySelector('.subagent-report strong')?.textContent,
+          badge: card[0]?.querySelector('.tool-card-badge')?.className,
+          collapsed: card[0]?.classList.contains('collapsed'),
+          subagentRequests
+        };
+      } finally {
+        API.streamChatCompletion = original;
+        container.remove();
+      }
+    });
+    assert.equal(result.finalText, 'Listo.');
+    assert.equal(result.delegated, 'El valor es **42**.');
+    assert.equal(result.parentSawSubagentTool, false, 'Los pasos del subagente no entran en el historial principal');
+    assert.equal(result.cards, 1);
+    assert.equal(result.outerInTopGroup, true);
+    assert.match(result.topGroupStatus, /^2\b/, 'El grupo principal no cuenta las herramientas del subagente');
+    assert.equal(result.parentCardsInTopGroup, 2, 'La llamada siguiente del agente principal no cae dentro de la tarjeta del subagente');
+    assert.equal(result.nestedCards, 1, 'La herramienta del subagente se pinta dentro de su tarjeta');
+    assert.equal(result.stepText, 'Calculo el valor.');
+    assert.equal(result.task, 'Compute 6 * 7 &lt;b&gt;now&lt;/b&gt;.');
+    assert.equal(result.report, '42');
+    assert.match(result.badge, /status-success/);
+    assert.equal(result.collapsed, true);
+    const [first] = result.subagentRequests;
+    assert.deepEqual(first.tools, ['execute_javascript']);
+    assert.equal(first.messages[0].role, 'system');
+    assert.match(first.messages[0].content, /Main system prompt/, 'Comparte el prompt de sistema del agente principal');
+    assert.equal(first.messages.some(message => String(message.content).includes('Mensaje privado')), false);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 });
