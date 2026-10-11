@@ -88,15 +88,8 @@
    * @returns {string} Código HTML del elemento <svg>.
    */
   function get(name, options = {}) {
-    const key = name === 'new-chat' ? 'square-pen' : name;
-    const glyph = GLYPHS[key];
-    if (!glyph) {
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn(`[ChatIcons] Icono no encontrado en catálogo: "${name}"`);
-      }
-      // Fallback sutil a círculo si el glifo no existe
-      return `<svg class="ui-icon ${options.className || ''}" width="${options.size || 16}" height="${options.size || 16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${options.strokeWidth || 2}" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle></svg>`;
-    }
+    const glyph = GLYPHS[name];
+    if (!glyph) throw new Error(`Unknown icon: ${name}`);
 
     const size = options.size || 16;
     const strokeWidth = options.strokeWidth || 2;

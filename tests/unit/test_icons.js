@@ -10,7 +10,7 @@ test('ChatIcons - el catálogo identifica iconos existentes e inexistentes', () 
   assert.equal(ChatIcons.has('icono_inventado_xyz'), false);
 });
 
-test('ChatIcons - get genera SVG heredando el color, respeta opciones y usa un fallback ante iconos desconocidos', () => {
+test('ChatIcons - get genera SVG heredando el color, respeta opciones y falla ante iconos desconocidos', () => {
   const svg = ChatIcons.get('brain');
   for (const fragment of ['viewBox="0 0 24 24"', 'stroke="currentColor"', 'fill="none"', 'class="ui-icon"', 'width="16"', 'height="16"']) {
     assert.ok(svg.includes(fragment), fragment);
@@ -22,6 +22,5 @@ test('ChatIcons - get genera SVG heredando el color, respeta opciones y usa un f
     assert.ok(customSvg.includes(fragment), fragment);
   }
 
-  const fallbackSvg = ChatIcons.get('icono_desconocido');
-  assert.ok(fallbackSvg.startsWith('<svg') && fallbackSvg.includes('<circle'));
+  assert.throws(() => ChatIcons.get('icono_desconocido'), /Unknown icon/);
 });
