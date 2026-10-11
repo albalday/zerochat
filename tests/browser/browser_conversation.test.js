@@ -1035,4 +1035,59 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
   } finally { await browser.close(); }
 });
 
+test('Browser UI - el subagente usa el perfil de conexión «Subagente» si existe', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      localStorage.setItem('zerochat_profiles_v1', JSON.stringify({
+        schemaVersion: 1,
+        profiles: [{ id: 'profile:Subagente', name: 'Subagente', settings: { apiUrl: 'http://127.0.0.1:9/sub', apiType: 'openai', model: 'sub-model' } }]
+      }));
+    });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const result = await page.evaluate(async () => {
+      const API = window.ChatAPI;
+      const original = API.streamChatCompletion;
+      const requests = [];
+      let parentRequests = 0;
+      API.streamChatCompletion = async params => {
+        const isSubagent = params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]'));
+        requests.push({ subagent: isSubagent, model: params.model, apiUrl: params.apiUrl });
+        const text = isSubagent ? 'Informe' : (++parentRequests === 1 ? '' : 'Listo.');
+        const toolCalls = !isSubagent && parentRequests === 1
+          ? [{ id: 'parent_1', type: 'function', function: { name: 'delegate_task', arguments: JSON.stringify({ task: 'Investigate' }) } }]
+          : [];
+        params.onDone?.(text, null, toolCalls, '');
+        return { accumulatedText: text, toolCalls, stats: null };
+      };
+      const container = document.createElement('div');
+      document.getElementById('messages-list').appendChild(container);
+      try {
+        await window.ChatEngine.executeAgentTurnLoop({
+          chatHistory: [{ role: 'user', content: 'Hola' }],
+          appConfig: { apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: false, delegate_task: true } },
+          container,
+          attachListeners: el => window.ChatMarkdown.attachCopyCodeListeners(el)
+        });
+        const label = container.querySelector('.subagent-card .subagent-profile');
+        return { requests, label: label?.textContent, labelTitle: label?.title, labelHidden: label?.hidden };
+      } finally {
+        API.streamChatCompletion = original;
+        container.remove();
+      }
+    });
+    assert.deepEqual(result.requests.filter(request => request.subagent).map(request => request.model), ['sub-model']);
+    assert.equal(result.requests.find(request => request.subagent).apiUrl, 'http://127.0.0.1:9/sub');
+    assert.ok(result.requests.filter(request => !request.subagent).every(request => request.model === 'main-model'));
+    assert.equal(result.label, 'sub-model', 'La tarjeta indica el modelo del perfil');
+    assert.match(result.labelTitle, /Subagente/);
+    assert.equal(result.labelHidden, false);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 });

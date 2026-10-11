@@ -17,6 +17,8 @@
   // Del servidor local, solo las de lectura. Los MCP externos quedan fuera: no declaran si escriben.
   const READ_ONLY_LOCAL_TOOLS = new Set(['read_file', 'list_directory', 'search_files', 'get_diagnostics']);
   const LOCAL_SERVER_ID = 'mcp_proxy';
+  // Un perfil de conexión con este nombre (sin distinguir mayúsculas) da al subagente otro modelo.
+  const SUBAGENT_PROFILE_NAMES = new Set(['subagente', 'subagent']);
 
   const definition = {
     name: 'delegate_task',
@@ -98,6 +100,14 @@
         stepBlock.className = 'subagent-step-text';
         steps.appendChild(stepBlock);
       },
+      /** El título ya dice «Subagente»: la etiqueta muestra el modelo y el perfil queda en su ayuda. */
+      setProfile(name, model) {
+        const label = card.querySelector('.subagent-profile');
+        if (!label || !name) return;
+        label.textContent = model || name;
+        label.title = t('tool_delegate_profile_title', { name });
+        label.hidden = false;
+      },
       setText(text) {
         const block = stepBlock;
         stepBlock = null;
@@ -110,6 +120,70 @@
         context.attachListeners?.(block);
       }
     };
+  }
+
+  /**
+   * Conexión del subagente: la del agente principal o, si existe, la del perfil «Subagente».
+   * Un perfil existente que no se puede cargar es un error: no se sustituye en silencio por el principal.
+   */
+  async function resolveConnection(context = {}) {
+    const inherited = {
+      apiUrl: context.apiUrl,
+      apiType: context.apiType,
+      apiKey: context.apiKey,
+      model: context.model,
+      temperature: context.temperature,
+      reasoningEffort: context.reasoningEffort,
+      reasoningTransport: context.reasoningTransport,
+      contextOptions: context.contextOptions || {},
+      summarizeHistory: context.summarizeHistory || null
+    };
+    const Profiles = context.services?.profiles;
+    const match = (Profiles?.list?.() || [])
+      .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
+    if (!match) return inherited;
+
+    const Backup = context.services?.profileBackup;
+    const load = keyMaterial => Profiles.load(match.id, keyMaterial);
+    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
+    const i18n = getI18n();
+    const t = key => (i18n?.t ? i18n.t(key) : key);
+    let profile;
+    try {
+      profile = Backup?.withPassword
+        ? await Backup.withPassword(load, Dialogs?.prompt
+          ? () => Dialogs.prompt(t('crypto_current_password_prompt'), '', { inputType: 'password', title: t('crypto_password_title') })
+          : undefined)
+        : await load();
+    } catch (error) {
+      return { error: `The "${match.name}" connection profile could not be loaded: ${error?.message || String(error)}` };
+    }
+    const settings = profile?.settings || {};
+    const connection = {
+      profileName: match.name,
+      apiUrl: settings.apiUrl,
+      apiType: settings.apiType,
+      apiKey: settings.apiKey || '',
+      model: settings.model,
+      temperature: settings.temperature,
+      reasoningEffort: settings.reasoningEffort || 'medium',
+      reasoningTransport: settings.reasoningTransport || 'auto',
+      // Sin capacidad declarada en el perfil, el gestor de contexto asume la de su modelo.
+      contextOptions: { ...inherited.contextOptions, totalContextLimit: settings.contextLimitOverride || null },
+      summarizeHistory: null
+    };
+    const Engine = context.services?.engine;
+    if (typeof Engine?.createHistorySummarizer === 'function') {
+      connection.summarizeHistory = Engine.createHistorySummarizer({
+        apiUrl: connection.apiUrl,
+        apiType: connection.apiType,
+        apiKey: connection.apiKey,
+        model: connection.model,
+        signal: context.signal || null,
+        onBeforeRequest: context.onBeforeRequest || null
+      });
+    }
+    return connection;
   }
 
   async function runSubagent(args = {}, context = {}) {
@@ -131,7 +205,11 @@
     });
     if (tools.length === 0) return { success: false, error: 'No read-only tools are enabled, so a subagent cannot investigate anything.' };
 
+    const connection = await resolveConnection(context);
+    if (connection.error) return { success: false, error: connection.error };
+
     const progress = createProgressView(findLiveCard(context), context);
+    progress?.setProfile(connection.profileName, connection.model);
     // El modelo puede pedir una herramienta que no se le ofreció: se rechaza sin ejecutarla.
     const dispatch = async (toolCall, toolContext) => {
       const name = toolCall?.function?.name || '';
@@ -146,20 +224,20 @@
     };
 
     const result = await AgentCore.runtime.execute({
-      apiUrl: context.apiUrl,
-      apiType: context.apiType,
-      apiKey: context.apiKey,
-      model: context.model,
-      temperature: context.temperature,
-      reasoningEffort: context.reasoningEffort,
-      reasoningTransport: context.reasoningTransport,
+      apiUrl: connection.apiUrl,
+      apiType: connection.apiType,
+      apiKey: connection.apiKey,
+      model: connection.model,
+      temperature: connection.temperature,
+      reasoningEffort: connection.reasoningEffort,
+      reasoningTransport: connection.reasoningTransport,
       api: context.api || null,
       messages: [{ role: 'user', content: buildSubagentPrompt(normalized.task) }],
       signal: context.signal || null,
-      // Mismo prompt de sistema, proyecto y presupuesto de contexto que el agente principal.
+      // Mismo prompt de sistema y proyecto que el agente principal; la compactación usa su propia conexión.
       prepareMessages: context.prepareMessages || null,
-      contextOptions: context.contextOptions || {},
-      summarizeHistory: context.summarizeHistory || null,
+      contextOptions: connection.contextOptions,
+      summarizeHistory: connection.summarizeHistory,
       onBeforeRequest: context.onBeforeRequest || null,
       resolveToolDefinitions: () => tools,
       dispatchToolCall: dispatch,
@@ -194,7 +272,7 @@
     const task = clip(typeof args?.task === 'string' ? args.task.trim() : '', TASK_PREVIEW_LENGTH);
     card.innerHTML = getCards().renderCardHtml({
       className: 'subagent-card',
-      titleHtml: `<span>${BOT_ICON_SVG}</span><span>${escapeHtml(t('tool_delegate_title'))}</span>`,
+      titleHtml: `<span>${BOT_ICON_SVG}</span><span>${escapeHtml(t('tool_delegate_title'))}</span><span class="subagent-profile" hidden></span>`,
       badgeHtml: `<span class="tool-card-badge status-loading">${ui?.SPINNER_SVG || ''} <span>${escapeHtml(t('tool_delegate_step', { step: 1 }))}</span></span>`,
       bodyHtml: `<div class="tool-card-result subagent-body">
         <div class="tool-result-label">${escapeHtml(t('tool_delegate_task_label'))}</div>

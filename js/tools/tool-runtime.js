@@ -21,7 +21,10 @@
     ragStorage: { globalName: 'ChatRagStorage', modulePath: '../ragStorage.js' },
     ragService: { globalName: 'ChatRagService', modulePath: '../rag-service.js' },
     mcp: { globalName: 'ChatMCP', modulePath: '../mcp.js' },
-    agent: { globalName: 'ChatAgentCore', modulePath: '../agent-core.js' }
+    agent: { globalName: 'ChatAgentCore', modulePath: '../agent-core.js' },
+    engine: { globalName: 'ChatEngine', modulePath: '../chat-engine.js' },
+    profiles: { globalName: 'ChatProfileRepository', modulePath: '../profile-repository.js' },
+    profileBackup: { globalName: 'ChatProfileBackup', modulePath: '../profile-backup.js' }
   };
 
   function resolveService(name) {
