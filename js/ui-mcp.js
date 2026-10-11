@@ -360,7 +360,7 @@
         <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
           <div class="mcp-server-info">
             <div class="mcp-server-title-row">
-              <strong class="mcp-server-name">${escapeHtml(server.displayName?.[language] || server.displayName?.es || server.displayName || server.id)}</strong>
+              <strong class="mcp-server-name">${escapeHtml(getServiceName(server, language))}</strong>
               <span class="mcp-server-badge ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusLabel)}</span>
               ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
             </div>

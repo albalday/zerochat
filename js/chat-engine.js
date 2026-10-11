@@ -511,7 +511,7 @@
           const statusText = i18n?.t ? i18n.t('generation_status_loop_detected') : 'Parada ordenada: bucle infinito detectado';
           onGenerationStatus?.({ phase: 'error', text: statusText });
           if (typeof onLog === 'function') {
-            onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas repetidamente con los mismos argumentos. Interrumpiendo ciclo agéntico.');
+            onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas en un patrón repetido con los mismos argumentos. Interrumpiendo ciclo agéntico.');
           }
         },
         onDone: finalText => {

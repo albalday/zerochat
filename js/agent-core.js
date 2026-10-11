@@ -93,6 +93,10 @@
     return null;
   }
 
+  function createCancelledError() {
+    return new Error('Ejecución agéntica cancelada por el usuario.');
+  }
+
   function createInvocationId() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -1054,7 +1058,7 @@
       while (true) {
         if (abortSignal.aborted) {
           status = 'cancelled';
-          executionError = new Error('Ejecución agéntica cancelada por el usuario.');
+          executionError = createCancelledError();
           break;
         }
 
@@ -1157,7 +1161,7 @@
           if (streamError) {
             if (abortSignal.aborted) {
               status = 'cancelled';
-              executionError = new Error('Ejecución agéntica cancelada por el usuario.');
+              executionError = createCancelledError();
             } else {
               status = 'error';
               executionError = streamError;
@@ -1243,7 +1247,7 @@
             if (callbacks.onLoopDetected) {
               callbacks.onLoopDetected(stepToolCalls[0], loopPeriod, stepIndex);
             }
-            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress. Halting agent turn loop.';
+            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.';
             currentStepText = (currentStepText || '') + loopWarning;
             finalAccumulatedText = currentStepText;
             const finalMsg = {
@@ -1419,7 +1423,7 @@
         } catch (err) {
           if (abortSignal.aborted) {
             status = 'cancelled';
-            executionError = new Error('Ejecución agéntica cancelada por el usuario.');
+            executionError = createCancelledError();
           } else {
             status = 'error';
             executionError = err;

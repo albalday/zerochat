@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, escapeHtml } = Utils;
 
   const MAX_COMMAND_CHARS = 60;
   const CARD_CLASS = 'command-jobs-card';
@@ -24,7 +24,6 @@
   const getConversation = () => resolveDep('ChatUIConversation', './ui-conversation.js');
   const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
   const t = (key, params) => getI18n()?.t?.(key, params) || key;
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const icon = (name, size = 14) => getIcons()?.get?.(name, { size }) || '';
 
   function shortCommand(command) {
@@ -76,19 +75,18 @@
 
   /** Sustituye el aviso anterior por la situación actual, al final del chat. */
   async function appendSummary(messagesList) {
-    if (!messagesList) return null;
+    if (!messagesList) return;
     await getMcp()?.refreshCommandJobs?.();
     messagesList.querySelectorAll(`.${CARD_CLASS}`).forEach(card => card.remove());
     const card = createSummaryCard(getState()?.get?.('mcp')?.commandJobs || [], { messagesList });
-    if (!card) return null;
+    if (!card) return;
     messagesList.appendChild(card);
     getConversation()?.scrollToBottom?.(messagesList);
-    return card;
   }
 
   function mount({ messagesList } = {}) {
     const State = getState();
-    if (!messagesList || !State?.subscribe) return null;
+    if (!messagesList || !State?.subscribe) return;
     State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }, previous) => {
       if (previous?.generating && !generating) appendSummary(messagesList);
     });
@@ -102,13 +100,7 @@
         }
       });
     }
-    return { appendSummary: () => appendSummary(messagesList) };
   }
 
-  return {
-    mount,
-    createSummaryCard,
-    appendSummary,
-    shortCommand
-  };
+  return { mount };
 }));

@@ -23,9 +23,9 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
         return
     _SERVER_SHUTTING_DOWN.set()
     HEARTBEAT_WATCHDOG_STOP.set()
-    running = [job.command for job in JOBS.list() if not job.done.is_set()]
+    running = JOBS.running()
     if running:
-        console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(cmd[:60] for cmd in running)))
+        console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
     threading.Thread(target=server.shutdown, daemon=True).start()
@@ -287,7 +287,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._send_json_response(200, {
                 "ok": True,
                 "cwd": str(Path.cwd().resolve()),
-                "jobs": [job.summary() for job in JOBS.list() if not job.done.is_set()],
+                "jobs": [job.summary() for job in JOBS.running()],
                 "exit_on_close": EXIT_ON_CLOSE
             })
             return

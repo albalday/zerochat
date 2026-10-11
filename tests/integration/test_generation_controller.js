@@ -203,10 +203,10 @@ test('GenerationController - loopDetected reports error status and stops cleanly
     executeAgentTurnLoop: async () => ({
       success: true,
       loopDetected: true,
-      finalAssistantText: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress.',
+      finalAssistantText: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress.',
       chatHistory: [
         { role: 'user', content: 'Loop me' },
-        { role: 'assistant', content: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were repeatedly invoked with identical parameters without progress.' }
+        { role: 'assistant', content: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress.' }
       ]
     })
   };

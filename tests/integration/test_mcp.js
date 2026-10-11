@@ -1240,7 +1240,7 @@ test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha
     ];
     assert.equal(manager.syncCommandJobs(jobs, { exitOnClose: true }), true);
     // Solo los de segundo plano: un comando esperado ya se ve en su tarjeta.
-    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, key: 'inv-a', command: 'npm run dev', startedAt: 1000 }]);
+    assert.deepEqual(ChatState.get('mcp').commandJobs, [{ id: 1, command: 'npm run dev', startedAt: 1000 }]);
     assert.equal(ChatState.get('mcp').exitOnClose, true);
     // El mismo conjunto con otro tiempo transcurrido no vuelve a escribir.
     assert.equal(manager.syncCommandJobs([{ ...jobs[0], elapsed_s: 13 }], { exitOnClose: true }), false);
@@ -1250,11 +1250,12 @@ test('MCP - syncCommandJobs publica solo los comandos en segundo plano en marcha
     manager.clients.set('mcp_proxy', {
       request: async (method, params) => {
         requests.push({ method, params });
-        return method === 'zerochat/jobs/list' ? { jobs: [] } : { id: params.id, status: 'stopped' };
+        return { jobs: [] };
       }
     });
-    assert.deepEqual(await manager.stopCommandJob(1), { id: 1, status: 'stopped' });
-    assert.deepEqual(requests.map(request => request.method), ['zerochat/jobs/stop', 'zerochat/jobs/list']);
+    // Tras detener un comando, refreshCommandJobs relee la lista del servidor.
+    assert.equal(await manager.refreshCommandJobs(), true);
+    assert.deepEqual(requests.map(request => request.method), ['zerochat/jobs/list']);
     assert.deepEqual(ChatState.get('mcp').commandJobs, []);
     unsubscribe?.();
 

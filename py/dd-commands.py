@@ -217,6 +217,10 @@ def _utf8_boundary(data: bytes) -> int:
     return start
 
 
+def _discarded_marker(count: int) -> bytes:
+    return f"\n[... {count} bytes of output discarded ...]\n".encode("utf-8")
+
+
 def _powershell_runner(command: str) -> str:
     """Envuelve el comando para que PowerShell devuelva su código de salida real."""
     return (
@@ -318,7 +322,7 @@ class CommandJob:
             marker = b""
             dropped = self._tail_start - self._head_len
             if dropped > 0:
-                marker = f"\n[... {dropped} bytes of output discarded ...]\n".encode("utf-8")
+                marker = _discarded_marker(dropped)
                 self._log.write(marker)
             self._tail_file_offset = self._head_len + len(marker)
             self._log.write(bytes(self._tail))
@@ -352,7 +356,7 @@ class CommandJob:
                 pos += count
                 remaining -= count
             if remaining and self._head_len <= pos < self._tail_start:
-                pieces.append(f"\n[... {self._tail_start - self._head_len} bytes of output discarded ...]\n".encode("utf-8"))
+                pieces.append(_discarded_marker(self._tail_start - self._head_len))
                 pos = self._tail_start
             if remaining and self._tail_start <= pos < self._total:
                 count = min(remaining, self._total - pos)
@@ -438,10 +442,6 @@ class JobManager:
             _atomic_write_text(self._dir / "jobs.json", json.dumps(entries))
         except OSError:
             pass
-
-    def running_count(self) -> int:
-        with self._lock:
-            return sum(1 for job in self._jobs.values() if job.status == "running")
 
     def _prune(self):
         finished = [job for job in self._jobs.values() if job.done.is_set()]
@@ -587,14 +587,15 @@ class JobManager:
             reports.append({**job.summary(), "tail": tail, "log_file": str(job.log_path)})
         return reports
 
-    def stop_all(self, reason: str = "shutdown") -> list[CommandJob]:
-        running = [job for job in self.list() if not job.done.is_set()]
-        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in running]
+    def running(self) -> list[CommandJob]:
+        return [job for job in self.list() if not job.done.is_set()]
+
+    def stop_all(self, reason: str = "shutdown"):
+        threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running()]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(JOB_STOP_GRACE_SECONDS * 2 + 1)
-        return running
 
     def shutdown(self):
         self.stop_all("shutdown")

@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import atexit
 import base64
-import collections
 import datetime
 import fnmatch
 import functools
@@ -24,7 +23,6 @@ import importlib.metadata
 import ipaddress
 import json
 import os
-import platform
 import queue
 import re
 import secrets

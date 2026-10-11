@@ -889,6 +889,8 @@
         const sourceServer = external ? rt.metadata?.mcpServerId : this.client.id;
         const serverName = external ? sourceServer : this.serverName;
         const toolName = external ? rt.metadata?.originalName : rt.name;
+        // run_command del servidor local: tarjeta propia y detención del comando al abortar.
+        const isLocalCommand = this.client.id === 'mcp_proxy' && toolName === LOCAL_COMMAND_TOOL;
         const namespacedName = publicToolName(this.client.id === 'mcp_proxy' ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
@@ -934,7 +936,7 @@
           execute: async (args, context = {}) => {
             // Un comando del servidor local sigue vivo aunque se aborte la petición: se detiene
             // con la clave de la invocación, que el servidor conoce antes de devolver su job_id.
-            const jobKey = this.client.id === 'mcp_proxy' && toolName === LOCAL_COMMAND_TOOL ? context.invocationId : null;
+            const jobKey = isLocalCommand ? context.invocationId : null;
             const stopJob = () => {
               this.client.request('zerochat/jobs/stop', { key: jobKey }).catch(() => {});
             };
@@ -969,7 +971,7 @@
             }
           },
           displayMode: 'collapsed',
-          view: (this.client.id === 'mcp_proxy' && toolName === LOCAL_COMMAND_TOOL && getCommandCard()?.createView)
+          view: (isLocalCommand && getCommandCard()?.createView)
             ? getCommandCard().createView()
             : createMcpToolView(toolName, serverName),
           formatter: (args, result) => {
@@ -1209,7 +1211,7 @@
       const next = typeof cwd === 'string' ? cwd.trim() : '';
       if (!next || current.status !== 'connected' || !current.serverInfo || current.serverInfo.cwd === next) return false;
       getSecurity()?.manager?.setStartupDirectory?.(next);
-      State.set('mcp', { ...current, serverInfo: { ...current.serverInfo, cwd: next } });
+      State.set('mcp', { serverInfo: { ...current.serverInfo, cwd: next } });
       return true;
     }
 
@@ -1407,7 +1409,6 @@
         .filter(job => job && Number.isInteger(job.id) && job.status === 'running' && job.background === true)
         .map(job => ({
           id: job.id,
-          key: typeof job.key === 'string' ? job.key : null,
           command: typeof job.command === 'string' ? job.command : '',
           startedAt: Number.isFinite(job.started_at) ? job.started_at : Date.now()
         }));
@@ -1460,12 +1461,6 @@
       }
       lines.push('For more output, read the log file with read_file or search_files: ' + reports.map(report => `job_id ${report.id}: ${report.log_file}`).join('; ') + '.');
       return lines.join('\n');
-    }
-
-    async stopCommandJob(id) {
-      const result = await this.requestExternalControl('zerochat/jobs/stop', { id });
-      await this.refreshCommandJobs();
-      return result;
     }
 
     /** Cambia el directorio del proyecto en el servidor local a petición del usuario. */

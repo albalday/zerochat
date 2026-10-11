@@ -54,7 +54,7 @@ Las llamadas `tools/call` al host local incorporan además un sello efímero emi
 ## Nombres de herramientas
 
 El contrato público es `<herramienta>` (nombre canónico directo) para herramientas locales
-del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `execute_command`) y
+del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `run_command`) y
 `<servicio>_<herramienta>` para servicios externos, tanto directos como
 agregados por el host. Ejemplo: `browser_service_browser_navigate`.
 El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijos.

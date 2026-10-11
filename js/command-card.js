@@ -16,14 +16,14 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, escapeHtml } = Utils;
 
   // Solo una tarjeta desplegada pide su log, y con este intervalo.
   const LOG_POLL_MS = 2000;
   const FIRST_LOG_POLL_MS = 700;
   const LOG_PAGE_BYTES = 256 * 1024;
   const MAX_LOG_CHARS = 512 * 1024;
-  const FINAL_STATUSES = new Set(['exited', 'timeout', 'stopped']);
+  const FINAL_STATUSES = new Set(['exited', 'timeout', 'stopped', 'error', 'unavailable']);
 
   const controllers = new WeakMap();
 
@@ -34,7 +34,6 @@
   const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
   const getState = () => resolveDep('ChatState', './state.js');
   const t = (key, params) => getI18n()?.t?.(key, params) || key;
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const icon = (name, size = 13) => getIcons()?.get?.(name, { size }) || '';
 
   /** Resultado de run_command (texto JSON del servidor) como objeto, o null si no lo es. */
@@ -207,7 +206,7 @@
     }
 
     isFinal() {
-      return FINAL_STATUSES.has(this.state.status) || this.state.status === 'error' || this.state.status === 'unavailable';
+      return FINAL_STATUSES.has(this.state.status);
     }
 
     isExpanded() {
@@ -350,7 +349,7 @@
           untrack(this);
           this.finish();
         } else {
-          getMcp()?.refreshCommandJobs?.();
+          mcp.refreshCommandJobs?.();
         }
       } catch (error) {
         await getDialogs()?.alert?.(t('command_stop_error', { error: error?.message || String(error) }), { type: 'error' });
@@ -448,7 +447,7 @@
         const running = data?.status === 'running';
         const card = buildCard(args, ui, { collapsed: true });
         if (!card) return null;
-        const controller = new CommandCardController(card, { startedAt: null });
+        const controller = new CommandCardController(card, {});
         controller.applyResult(data, typeof message?.content === 'string' ? message.content : '');
         if (running) {
           // La duración real y el estado actual llegan con la primera consulta al servidor.

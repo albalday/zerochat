@@ -109,16 +109,16 @@ def main():
     elif is_installed:
         print("  Modo de ejecución     : Paquete PyPI (GitHub Pages)")
     else:
-        print(f"  Modo de ejecución     : Producción (Web universal)")
+        print("  Modo de ejecución     : Producción (Web universal)")
     print(f"  Servidor HTTP/SSE     : http://{ACTIVE_HOST}:{ACTIVE_PORT}")
     if exposure_warning:
         print(f"  AVISO                 : {exposure_warning}")
     print("  Token de sesión (diario): configurado")
     print(f"  Destino Web           : {ui_url}")
     if exit_on_close:
-        print(f"  Auto-cierre           : Activado (al cerrar navegador)")
+        print("  Auto-cierre           : Activado (al cerrar navegador)")
     else:
-        print(f"  Auto-cierre           : Desactivado")
+        print("  Auto-cierre           : Desactivado")
     print("=" * 64, flush=True)
 
     CONSOLE_CONTROL = ConsoleControl(server, parser, target_url=target_url)
