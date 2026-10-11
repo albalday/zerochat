@@ -52,7 +52,41 @@
      * @returns {Promise<{ success: boolean, query: string, count: number, results: Array, markdown: string, elapsedMs: number, error?: string }>}
      */
     async search(query, options = {}) {
-      throw new Error(`El método search() debe ser implementado en ${this.constructor.name}`);
+      const cleanQuery = (query || '').trim();
+      const lang = options.lang || 'es';
+
+      if (!cleanQuery) {
+        return {
+          success: false,
+          query: '',
+          count: 0,
+          results: [],
+          markdown: 'No se especificó ninguna consulta de búsqueda.',
+          elapsedMs: 0,
+          error: 'Consulta vacía'
+        };
+      }
+
+      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const rawResults = await this.fetchResults(cleanQuery, { lang, timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS });
+      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+      return {
+        success: rawResults.length > 0,
+        query: cleanQuery,
+        count: rawResults.length,
+        results: rawResults,
+        markdown: this.formatMarkdown(cleanQuery, rawResults, lang),
+        elapsedMs: parseFloat((endTime - startTime).toFixed(2))
+      };
+    }
+
+    /**
+     * Devuelve los resultados normalizados de una consulta no vacía.
+     * @returns {Promise<Array<{ title: string, url: string, snippet?: string, source?: string }>>}
+     */
+    async fetchResults(_cleanQuery, _options) {
+      throw new Error(`El método fetchResults() debe ser implementado en ${this.constructor.name}`);
     }
 
     /**
@@ -239,24 +273,7 @@
       return [];
     }
 
-    async search(query, options = {}) {
-      const cleanQuery = (query || '').trim();
-      const lang = options.lang || 'es';
-      const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-
-      if (!cleanQuery) {
-        return {
-          success: false,
-          query: '',
-          count: 0,
-          results: [],
-          markdown: 'No se especificó ninguna consulta de búsqueda.',
-          elapsedMs: 0,
-          error: 'Consulta vacía'
-        };
-      }
-
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    async fetchResults(cleanQuery, { timeoutMs }) {
       let rawResults = [];
 
       // 1. Vía Universal Reader Gateway (con bypass CORS transparente para resultados web completos)
@@ -312,18 +329,7 @@
         }
       }
 
-      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const elapsed = parseFloat((endTime - startTime).toFixed(2));
-      const mdOutput = this.formatMarkdown(cleanQuery, rawResults, lang);
-
-      return {
-        success: rawResults.length > 0,
-        query: cleanQuery,
-        count: rawResults.length,
-        results: rawResults,
-        markdown: mdOutput,
-        elapsedMs: elapsed
-      };
+      return rawResults;
     }
   }
 
@@ -353,24 +359,7 @@
       })).filter(r => !!r.url);
     }
 
-    async search(query, options = {}) {
-      const cleanQuery = (query || '').trim();
-      const lang = options.lang || 'es';
-      const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-
-      if (!cleanQuery) {
-        return {
-          success: false,
-          query: '',
-          count: 0,
-          results: [],
-          markdown: 'No se especificó ninguna consulta de búsqueda.',
-          elapsedMs: 0,
-          error: 'Consulta vacía'
-        };
-      }
-
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    async fetchResults(cleanQuery, { lang, timeoutMs }) {
       let rawResults = [];
 
       try {
@@ -384,18 +373,7 @@
         console.warn(`Error consultando SearXNG (${this.baseUrl}):`, err.message);
       }
 
-      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const elapsed = parseFloat((endTime - startTime).toFixed(2));
-      const mdOutput = this.formatMarkdown(cleanQuery, rawResults, lang);
-
-      return {
-        success: rawResults.length > 0,
-        query: cleanQuery,
-        count: rawResults.length,
-        results: rawResults,
-        markdown: mdOutput,
-        elapsedMs: elapsed
-      };
+      return rawResults;
     }
   }
 

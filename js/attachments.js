@@ -22,12 +22,6 @@
     }
   }
 
-  function getFileParser() {
-    return (typeof window !== 'undefined' && window.ChatFileParser) ? window.ChatFileParser : {
-      formatBytes: (bytes) => `${bytes} B`
-    };
-  }
-
   function getUtils() {
     if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
     if (typeof global !== 'undefined' && global.ChatUtils) return global.ChatUtils;
@@ -93,8 +87,6 @@
     container.style.display = 'flex';
     container.innerHTML = '';
 
-    const FileParser = getFileParser();
-
     files.forEach((file, index) => {
       const chip = document.createElement('div');
       chip.className = 'file-chip';
@@ -122,7 +114,7 @@
 
       const size = document.createElement('span');
       size.className = 'file-chip-size';
-      size.textContent = `(${FileParser.formatBytes(file.size)})`;
+      size.textContent = `(${getUtils().formatBytes(file.size)})`;
 
       const removeButton = document.createElement('button');
       removeButton.type = 'button';
@@ -159,8 +151,6 @@
     let imageAttachments = [];
 
     if (effectiveFiles.length > 0) {
-      const FileParser = getFileParser();
-
       imageAttachments = effectiveFiles.filter(f => f.type === 'image' && f.dataUrl).map(f => ({
         name: f.name,
         dataUrl: f.dataUrl,
@@ -169,11 +159,11 @@
 
       const attachmentsText = effectiveFiles.map(file => {
         if (file.type === 'pdf') {
-          return `\n\n--- PDF Document: ${file.name} (${FileParser.formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
+          return `\n\n--- PDF Document: ${file.name} (${getUtils().formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
         } else if (file.type === 'image') {
-          return `\n\n--- Image: ${file.name} (${FileParser.formatBytes(file.size)}) ---`;
+          return `\n\n--- Image: ${file.name} (${getUtils().formatBytes(file.size)}) ---`;
         }
-        return `\n\n--- File: ${file.name} (${FileParser.formatBytes(file.size)}) ---\n\`\`\`\n${file.content}\n\`\`\``;
+        return `\n\n--- File: ${file.name} (${getUtils().formatBytes(file.size)}) ---\n\`\`\`\n${file.content}\n\`\`\``;
       }).join('');
 
       fullPrompt = rawText ? `${rawText}\n${attachmentsText}` : `Attached files for analysis:${attachmentsText}`;

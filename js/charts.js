@@ -27,7 +27,7 @@
     '#84cc16'  // lime
   ];
 
-  const { escapeHtml } = Utils;
+  const { escapeHtml, formatShortValue } = Utils;
   const t = (key, params) => (typeof window !== 'undefined' && window.ChatI18n?.t) ? window.ChatI18n.t(key, params) : key;
 
   /**
@@ -87,7 +87,7 @@
               <title>${escapeHtml(label)} (${escapeHtml(ds.label || 'Valor')}): ${val.toLocaleString()}</title>
             </rect>
             <text x="${barX + singleBarWidth / 2}" y="${barY - 5}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
-              ${val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val}
+              ${formatShortValue(val)}
             </text>
           </g>
         `;
@@ -166,7 +166,7 @@
             <title>${escapeHtml(pt.label)}: ${pt.val.toLocaleString()}</title>
           </circle>
           <text x="${pt.x}" y="${pt.y - 8}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
-            ${pt.val >= 1000 ? (pt.val / 1000).toFixed(1) + 'k' : pt.val}
+            ${formatShortValue(pt.val)}
           </text>
         `;
       });

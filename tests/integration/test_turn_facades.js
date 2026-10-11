@@ -1,9 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const State = require('../../js/state.js');
-const Engine = require('../../js/chat-engine.js');
+const MessageTurns = require('../../js/message-turns.js');
 
-test('Turn integration facades - State y Engine aplican reglas de turnos con sus contratos específicos', () => {
+test('Turn integration facades - State y MessageTurns aplican reglas de turnos con sus contratos específicos', () => {
   const history = [
     { id: 'u1', role: 'user', content: 'Pregunta' },
     { id: 'a1', role: 'assistant', tool_calls: [{ id: 'call_1', function: { name: 'search' } }] },
@@ -20,8 +20,8 @@ test('Turn integration facades - State y Engine aplican reglas de turnos con sus
   assert.equal(stateResult.removedCount, 3);
   assert.deepEqual(store.get('messages').map(m => m.id), ['u1']);
 
-  // ChatEngine función pura de historial
-  const engineResult = Engine.removeTurnFromHistory(history, selection);
+  // Función pura de historial
+  const engineResult = MessageTurns.removeSelectedTurn(history, selection);
   assert.deepEqual(engineResult.map(m => m.id), ['u1']);
 });
 

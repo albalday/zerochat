@@ -118,6 +118,15 @@
     }
   }
 
+  /** Muestra la sesión activa tras cambiarla; en pantallas estrechas cierra la barra lateral. */
+  function showActiveSession(options, { resetComposer }) {
+    const State = getState();
+    options.renderSessionMessages?.(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []));
+    options.renderSidebarChats?.();
+    if (resetComposer) options.resetComposerInput?.();
+    if (typeof window !== 'undefined' && window.innerWidth < 900) options.closeSidebar?.();
+  }
+
   async function saveCurrentSession(options = {}) {
     const State = getState();
     const Storage = getStorage(options);
@@ -228,16 +237,7 @@
     }
 
     if (!initializeSessionState(targetConv.id, restoredHistory, 'chat_switch_blocked_generating', options)) return false;
-    if (typeof options.renderSessionMessages === 'function') {
-      options.renderSessionMessages(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []));
-    }
-    if (typeof options.renderSidebarChats === 'function') {
-      options.renderSidebarChats();
-    }
-
-    if (typeof window !== 'undefined' && window.innerWidth < 900 && typeof options.closeSidebar === 'function') {
-      options.closeSidebar();
-    }
+    showActiveSession(options, { resetComposer: false });
     return true;
   }
 
@@ -253,22 +253,7 @@
 
     const nextHistory = createInitialChatHistory(options);
     if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating', options)) return false;
-
-    const State = getState();
-    if (typeof options.renderSessionMessages === 'function') {
-      options.renderSessionMessages(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []));
-    }
-    if (typeof options.renderSidebarChats === 'function') {
-      options.renderSidebarChats();
-    }
-
-    if (typeof options.resetComposerInput === 'function') {
-      options.resetComposerInput();
-    }
-
-    if (typeof window !== 'undefined' && window.innerWidth < 900 && typeof options.closeSidebar === 'function') {
-      options.closeSidebar();
-    }
+    showActiveSession(options, { resetComposer: true });
     return true;
   }
 
@@ -473,19 +458,7 @@
       return false;
     }
     if (State?.saveSessionMetadata) State.saveSessionMetadata(branchSession);
-    if (typeof options.renderSessionMessages === 'function') {
-      options.renderSessionMessages(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []));
-    }
-    if (typeof options.renderSidebarChats === 'function') {
-      options.renderSidebarChats();
-    }
-
-    if (typeof options.resetComposerInput === 'function') {
-      options.resetComposerInput();
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 900 && typeof options.closeSidebar === 'function') {
-      options.closeSidebar();
-    }
+    showActiveSession(options, { resetComposer: true });
     return true;
   }
 
@@ -575,8 +548,6 @@
   }
 
   return {
-    extractBaseId,
-    isDateTimeInitialTurn,
     createInitialChatHistory,
     blockSessionTransitionIfBusy,
     initializeSessionState,

@@ -122,6 +122,60 @@
     return `<div class="${safeEscapeHtml(classes.join(' '))}"><div class="tool-card-header"><div class="tool-card-title">${titleHtml}</div>${titleSuffixHtml}<div class="tool-card-header-actions">${badgeHtml}${collapsible ? `<button type="button" class="btn-tool-collapse" title="${safeEscapeHtml(label)}">${ui.CHEVRON_SVG || CHEVRON_SVG}</button>` : ''}</div></div><div class="tool-card-collapsible-body">${bodyHtml}</div></div>`;
   }
 
+  /** URL de una llamada: los modelos la envían con nombres distintos. */
+  function getUrlArg(args) {
+    return args?.url || args?.URL || args?.uri || args?.link || args?.href || args?.path || args?.input || (typeof args === 'string' ? args : '');
+  }
+
+  /**
+   * Vista de las herramientas que descargan una URL (fetch_web_page, download_pdf): la misma
+   * tarjeta con el icono, los textos y la etiqueta de estado de cada una.
+   */
+  function createWebRequestView({ id, icon, className, titleKey, badgeKey, loadingKey, statusLabel }) {
+    const iconSvg = Icons.get(icon, { size: 14 });
+
+    function createLiveCard(args, ui) {
+      const cardDiv = createCardWrapper(ui);
+      const url = getUrlArg(args);
+      cardDiv.innerHTML = renderCardHtml({
+        className,
+        titleHtml: `<span>${iconSvg}</span><span>${ui.t(titleKey)}</span>`,
+        badgeHtml: `<span class="tool-card-badge status-loading">${ui.SPINNER_SVG} <span>${ui.t(badgeKey)}</span></span>`,
+        bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${ui.t('tool_web_requested_url')}</div><div class="url-badge"><a href="${ui.markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${ui.markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${ui.t('tool_web_receiving')}</div><div class="web-response-body tool-loading-placeholder">${ui.SPINNER_SVG} <span>${ui.t(loadingKey)}</span></div></div>`
+      }, ui);
+      return cardDiv;
+    }
+
+    function updateLiveCard(cardDiv, _args, result = {}, elapsedMs = 0, ui) {
+      const success = result?.success !== false && !result?.error;
+      const content = result?.content || result?.error || '';
+      const badge = cardDiv.querySelector('.tool-card-badge');
+      if (badge) {
+        badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
+        badge.innerHTML = `${success ? ui.CHECK_SVG : ui.ERROR_SVG} <span>${ui.markdown.escapeHtml(statusLabel(result, success))} (${elapsedMs || 0}ms)</span>`;
+      }
+      const label = cardDiv.querySelector('.section-response-label');
+      if (label) label.textContent = ui.t('tool_web_content_received', { size: `${content.length} chars` });
+      const body = cardDiv.querySelector('.web-response-body');
+      if (body) {
+        body.className = 'web-response-body';
+        body.innerHTML = `<code>${ui.markdown.escapeHtml(content.slice(0, 1500))}${content.length > 1500 ? '...' : ''}</code>`;
+      }
+    }
+
+    function renderHistoricalCard(args, toolMessage, ui) {
+      const cardDiv = createLiveCard(args, ui);
+      let result = {};
+      if (toolMessage?.content) {
+        try { result = JSON.parse(toolMessage.content); } catch (e) { result = { content: toolMessage.content }; }
+      }
+      updateLiveCard(cardDiv, args, result, 0, ui);
+      return cardDiv;
+    }
+
+    return { id, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard };
+  }
+
   const context = () => ({
     document: typeof document === 'undefined' ? null : document,
     markdown: getMarkdown(),
@@ -508,6 +562,8 @@
     resolveToolDisplayMode,
     createCardWrapper,
     renderCardHtml,
+    getUrlArg,
+    createWebRequestView,
     createLiveToolCard,
     updateLiveToolCard,
     renderHistoricalToolCard,

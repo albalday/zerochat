@@ -273,7 +273,7 @@
       const arrayBuffer = await res.arrayBuffer();
       const extractedText = await FileParser.extractTextFromPdf(arrayBuffer);
       const fileName = url.split('/').pop().split('?')[0] || 'documento.pdf';
-      const sizeStr = FileParser.formatBytes ? FileParser.formatBytes(arrayBuffer.byteLength) : arrayBuffer.byteLength + ' B';
+      const sizeStr = Utils.formatBytes(arrayBuffer.byteLength);
 
       const content = `[Documento PDF: ${fileName}]\n[URL: ${url}]\n[Tamaño: ${sizeStr}]\n\n--- Contenido extraído del PDF ---\n\n${extractedText}`;
 

@@ -19,6 +19,7 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const t = (key, params) => getI18n()?.t ? getI18n().t(key, params) : key;
 
   function clearSafeContent(element) {
@@ -79,10 +80,8 @@
     const Config = getConfig();
     if (!Config) return false;
     const current = Config.getActive()?.enabledTools || {};
-    const update = Config.updateRuntime || Config.update;
-    if (typeof update !== 'function') return false;
     try {
-      update.call(Config, { enabledTools: { ...current, [toolId]: enabled } });
+      Config.updateRuntime({ enabledTools: { ...current, [toolId]: enabled } });
       return true;
     } catch (error) {
       console.error('[MCP UI] Error updating enabled tool state:', error);
@@ -155,7 +154,7 @@
     const items = tools.map(tool => {
       const id = tool.id || tool.name;
       const isAvailable = tool.available !== false;
-      const isChecked = isAvailable && (currentEnabledTools[id] !== undefined ? currentEnabledTools[id] !== false : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : true));
+      const isChecked = isAvailable && getAgentCore().isToolEnabled(currentEnabledTools, { id, name: tool.name });
       const desc = escapeHtml(tool.descFallback || tool.description || '');
 
       let paramsHint = '';

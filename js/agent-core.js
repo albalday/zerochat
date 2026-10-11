@@ -97,6 +97,14 @@
     return new Error('Ejecución agéntica cancelada por el usuario.');
   }
 
+  /** Interruptor de una herramienta: por id, por nombre o su valor por defecto. */
+  function isToolEnabled(enabledTools = {}, { id, name, defaultEnabled = true }) {
+    const key = id || name;
+    if (enabledTools[key] !== undefined) return enabledTools[key] !== false;
+    if (enabledTools[name] !== undefined) return enabledTools[name] !== false;
+    return defaultEnabled !== false;
+  }
+
   function withoutReasoningReplay(message) {
     if (!message || !message.reasoningReplay) return message;
     const { reasoningReplay, ...rest } = message;
@@ -471,57 +479,28 @@
     }
 
     /**
-     * Resuelve las definiciones Function Calling de las herramientas activas según la configuración.
+     * Una herramienta está activa si está disponible en su contexto (por ejemplo, RAG exige una
+     * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido.
      */
+    isToolActive(tool, appConfig = {}) {
+      if (typeof tool.isAvailable === 'function' && !tool.isAvailable(appConfig)) return false;
+      if (!tool.settings || tool.settings.showInSettings === false) return true;
+      return isToolEnabled(appConfig.enabledTools, { id: tool.id, name: tool.name, defaultEnabled: tool.settings.defaultEnabled });
+    }
+
+    /** Definiciones Function Calling de las herramientas activas según la configuración. */
     getActiveDefinitions(appConfig = {}) {
-      const defs = [];
-      const enabledTools = appConfig.enabledTools || {};
-
-      for (const [name, tool] of this.tools.entries()) {
-        // 1. Comprobar si la herramienta está disponible por su contexto (ej. RAG requiere rama activa)
-        if (typeof tool.isAvailable === 'function' && !tool.isAvailable(appConfig)) {
-          continue;
-        }
-
-        // 2. Si la herramienta se configura en la UI, verificar si está activada
-        if (tool.settings && tool.settings.showInSettings !== false) {
-          const toolId = tool.id || tool.name;
-          const isEnabled = enabledTools[toolId] !== undefined
-            ? enabledTools[toolId] !== false
-            : (enabledTools[tool.name] !== undefined ? enabledTools[tool.name] !== false : tool.settings.defaultEnabled !== false);
-
-          if (!isEnabled) {
-            continue;
-          }
-        }
-
-        defs.push(tool.getDefinition());
-      }
-      return defs;
+      return [...this.tools.values()].filter(tool => this.isToolActive(tool, appConfig)).map(tool => tool.getDefinition());
     }
 
     /**
      * Genera la guía textual de herramientas para el System Prompt.
      */
     getActivePromptGuide(appConfig = {}) {
-      const enabledTools = appConfig.enabledTools || {};
       const guides = [];
 
       for (const tool of this.tools.values()) {
-        if (typeof tool.isAvailable === 'function' && !tool.isAvailable(appConfig)) {
-          continue;
-        }
-
-        if (tool.settings && tool.settings.showInSettings !== false) {
-          const toolId = tool.id || tool.name;
-          const isEnabled = enabledTools[toolId] !== undefined
-            ? enabledTools[toolId] !== false
-            : (enabledTools[tool.name] !== undefined ? enabledTools[tool.name] !== false : tool.settings.defaultEnabled !== false);
-
-          if (!isEnabled) {
-            continue;
-          }
-        }
+        if (!this.isToolActive(tool, appConfig)) continue;
 
         if (typeof tool.getSystemPromptGuide === 'function') {
           const guideStr = tool.getSystemPromptGuide('en');
@@ -745,6 +724,12 @@
       }
 
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const measureExecution = () => {
+        const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const elapsed = parseFloat((endTime - startTime).toFixed(2));
+        const meta = { toolId: tool.id, toolName: tool.name, contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION, executionTimeMs: elapsed, displayMode };
+        return { elapsed, meta };
+      };
 
       try {
         const authorization = await this._authorizeToolCall(tool, parsedArgs, toolCall, context);
@@ -775,16 +760,7 @@
           ? ToolRuntime.createToolExecutionContext({ displayMode, ...context, toolAuthorization: true })
           : { displayMode, ...context, toolAuthorization: true };
         const execResult = await tool.execute(parsedArgs, executionContext);
-        const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const elapsed = parseFloat((endTime - startTime).toFixed(2));
-
-        const meta = {
-          toolId: tool.id,
-          toolName: tool.name,
-          contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-          executionTimeMs: elapsed,
-          displayMode
-        };
+        const { elapsed, meta } = measureExecution();
         return {
           success: execResult?.success !== false,
           tool: tool,
@@ -797,16 +773,7 @@
           error: execResult?.error
         };
       } catch (err) {
-        const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const elapsed = parseFloat((endTime - startTime).toFixed(2));
-
-        const meta = {
-          toolId: tool.id,
-          toolName: tool.name,
-          contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-          executionTimeMs: elapsed,
-          displayMode
-        };
+        const { elapsed, meta } = measureExecution();
         return {
           success: false,
           tool: tool,
@@ -1473,6 +1440,7 @@
     TOOL_CONTRACT_VERSION,
     ToolOutcome,
     validateToolContract,
+    isToolEnabled,
     Tool,
     BaseToolProvider,
     BuiltinToolProvider,

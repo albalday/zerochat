@@ -765,8 +765,6 @@
     injectStreamingCursor,
     createAssistantBlock,
     renderAssistantBlock,
-    extractBaseId,
-    isDateTimeInitialTurn,
     scrollToBottom,
     showTypingIndicator,
     removeTypingIndicator,

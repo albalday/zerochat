@@ -9,11 +9,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'));
+    module.exports = factory(require('./message-turns.js'), require('./utils.js'));
   } else {
-    root.ChatEngine = factory(root.ChatMessageTurns);
+    root.ChatEngine = factory(root.ChatMessageTurns, root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function (MessageTurns) {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns, Utils) {
   'use strict';
 
   function getAPI() {
@@ -46,12 +46,7 @@
   }
 
 
-  function serializeContent(content) {
-    if (typeof content === 'string') return content;
-    if (content === undefined) return '';
-    if (typeof content === 'object') return JSON.stringify(content);
-    return String(content);
-  }
+  const { serializeContent } = Utils;
 
   /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local (siempre en inglés para el modelo). */
   function getConversationDateAnchor(lang = 'en', startedAt = Date.now()) {
@@ -101,32 +96,6 @@
   function getUIConversation() {
     if (typeof window !== 'undefined' && window.ChatUIConversation) return window.ChatUIConversation;
     return typeof require !== 'undefined' ? require('./ui-conversation.js') : null;
-  }
-
-  /**
-   * Extrae el identificador base de un mensaje eliminando sufijos de turnos internos o finalización.
-   * @param {string} id - Identificador del mensaje (ej: 'asst_123_turn_0_assistant', 'asst_123_final').
-   * @returns {string} - Identificador base (ej: 'asst_123').
-   */
-  const extractBaseId = MessageTurns.extractBaseId;
-
-  /**
-   * Elimina completamente un turno del historial de chat, asegurando que:
-   * 1. Se eliminen todos los mensajes del turno (asistente, herramientas y síntesis final).
-   * 2. Se eliminen todas las respuestas de herramientas asociadas a las llamadas de ese turno.
-   * 3. No queden mensajes 'tool' huérfanos sin llamada previa en el historial.
-   *
-   * @param {Array} chatHistory - Historial actual de mensajes.
-   * @param {Object} options - Parámetros de identificación del turno a eliminar.
-   * @param {string} [options.msgId] - ID principal o data-msg-id del contenedor.
-   * @param {string} [options.baseId] - Prefijo base del turno (ej: 'msg_ast_123').
-   * @param {Array<string>|Set<string>} [options.explicitIds] - Lista de IDs exactos pertenecientes al turno.
-   * @returns {Array} - Nuevo historial filtrado y saneado sin turnos ni respuestas huérfanas.
-   */
-  function removeTurnFromHistory(chatHistory = [], options = {}) {
-    const msgId = options.msgId || '';
-    const baseId = options.baseId || extractBaseId(msgId);
-    return MessageTurns.removeSelectedTurn(chatHistory, { ...options, msgId, baseId });
   }
 
   /**
@@ -588,8 +557,6 @@
     getConfiguredSystemPrompt,
     getToolsSystemPromptGuide,
     buildEffectiveMessages,
-    executeAgentTurnLoop,
-    extractBaseId,
-    removeTurnFromHistory
+    executeAgentTurnLoop
   };
 });

@@ -349,3 +349,11 @@ test('AgentCore - Tool y ToolExecutor propagan displayMode a executionContext, m
   assert.equal(result.outcome?.meta?.displayMode, 'expanded');
   assert.equal(receivedContext?.displayMode, 'expanded');
 });
+
+test('AgentCore - isToolEnabled resuelve el interruptor por id, por nombre o por defecto', () => {
+  const { isToolEnabled } = AgentCoreModule;
+  assert.equal(isToolEnabled({ a: false, b: true }, { id: 'a', name: 'b' }), false, 'El id manda sobre el nombre');
+  assert.equal(isToolEnabled({ b: false }, { id: 'a', name: 'b' }), false);
+  assert.equal(isToolEnabled({}, { id: 'a', name: 'b', defaultEnabled: false }), false);
+  assert.equal(isToolEnabled(undefined, { id: 'a', name: 'b' }), true);
+});

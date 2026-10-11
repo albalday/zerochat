@@ -24,6 +24,7 @@ describe('Browser - file_parser', () => {
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'warning' || message.type() === 'error') errors.push(message.text()); });
       await page.setContent('<!doctype html><html><body></body></html>');
+      await page.addScriptTag({ path: path.resolve(__dirname, '../../js/utils.js') });
       await page.addScriptTag({ path: path.resolve(__dirname, '../../js/file-parser.js') });
 
       const inputs = [PDF_YCCK, PDF_CMYK, PDF_CMYK_RESTART, PDF_CMYK_NO_ADOBE].map(b64 => `data:image/jpeg;base64,${b64}`);

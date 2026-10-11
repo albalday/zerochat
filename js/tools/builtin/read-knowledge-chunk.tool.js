@@ -26,28 +26,16 @@
     }
   };
 
-  function getRagService(context = {}) {
-    if (context.services?.ragService) return context.services.ragService;
-    if (typeof window !== 'undefined' && window.ChatRagService) return window.ChatRagService;
-    if (typeof require !== 'undefined') { try { return require('../../rag-service.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
-    return null;
-  }
 
-  function getBranchIds(context = {}) {
-    return context.activeRagBranchIds || context.activeRagBranchId || context.branchId || context.config?.activeRagBranchIds || context.config?.activeRagBranchId || '';
-  }
-  const getBranchId = getBranchIds;
 
 
   const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
   const DOC_ICON_SVG = Icons.get('file-text', { size: 14 });
 
-  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
   function createLiveCard(args, ui) {
     const card = getCards().createCardWrapper(ui);
     if (!card) return null;
-    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
+    const Markdown = ui.markdown;
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const title = t('tool_rag_read_title');
@@ -70,7 +58,7 @@
   function updateLiveCard(card, _args, result = {}, _elapsedMs, ui) {
     if (!card) return;
     const t = ui?.t || ((key, params) => key);
-    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
+    const Markdown = ui.markdown;
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';
     const success = result?.success !== false && !result?.error;
@@ -104,8 +92,8 @@
       settings: { showInSettings: false },
       isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {
-        const service = getRagService(context);
-        return service?.readKnowledgeChunk ? service.readKnowledgeChunk(getBranchIds(context), args) : { success: false, error: 'RAG service not available.' };
+        const service = context.services.ragService;
+        return service?.readKnowledgeChunk ? service.readKnowledgeChunk(context.activeRagBranchIds, args) : { success: false, error: 'RAG service not available.' };
       },
       result: {
         toModel: (_args, result) => result?.content || JSON.stringify(result || {}),
@@ -119,7 +107,7 @@
     });
   }
 
-  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, getRagService, getBranchId, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
+  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
   let manifestApi = null;
   if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
   else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }

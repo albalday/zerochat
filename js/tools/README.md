@@ -103,6 +103,13 @@ del nombre truncado. El plegado y la agrupación se coordinan en `ChatToolCards`
 Los gráficos son resultados principales: permanecen abiertos fuera de los grupos.
 Las capturas MCP conservan `keepExpanded` para permitir inspeccionar la imagen.
 
+Las vistas reciben siempre el contexto de `ChatToolCards` (`markdown`, `t`, `charts`,
+`createCardWrapper` y los iconos de estado), así que no buscan dependencias en
+`window` ni definen escapados propios. `fetch_web_page` y `download_pdf` comparten
+la tarjeta de `ChatToolCards.createWebRequestView`, que recibe el icono, los textos
+y la etiqueta de estado de cada una; por eso `tool-cards.js` se carga antes que las
+herramientas nativas.
+
 El cierre automático se limita a la tarjeta que termina. Actualizar el estado de
 un grupo o mover una tarjeta al historial no modifica el atributo `open` del
 agrupador ni el plegado de otras tarjetas, respetando la interacción del usuario.

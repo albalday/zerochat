@@ -106,50 +106,34 @@
   }
 
   /**
-   * Realiza una petición fetch con timeout configurable.
-   * @param {string|Request} resource 
-   * @param {Object} [options={}] 
-   * @param {number} [timeoutMs=8000] 
+   * Realiza una petición fetch con timeout configurable (0: sin plazo). Si options.signal
+   * existe, la petición se cancela con la primera de las dos señales.
+   * @param {string|Request} resource
+   * @param {Object} [options={}]
+   * @param {number} [timeoutMs=8000]
    * @returns {Promise<Response>}
    */
   async function fetchWithTimeout(resource, options = {}, timeoutMs = 8000) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
     try {
-      const response = await fetch(resource, {
-        ...options,
-        signal: controller.signal
-      });
-      return response;
+      return await fetch(resource, { ...options, signal });
     } finally {
       clearTimeout(timer);
     }
   }
 
   /**
-   * Serializa contenido multipart o texto a una cadena plana.
-   * @param {*} content 
+   * Serializa el contenido de un mensaje para la API: el texto se conserva y el resto pasa a JSON.
+   * @param {*} content
    * @returns {string}
    */
   function serializeContent(content) {
     if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content
-        .map((part) => {
-          if (!part) return '';
-          if (typeof part === 'string') return part;
-          if (typeof part.text === 'string') return part.text;
-          if (typeof part.content === 'string') return part.content;
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
-    }
-    if (content && typeof content === 'object') {
-      if (typeof content.text === 'string') return content.text;
-      if (typeof content.content === 'string') return content.content;
-    }
-    return '';
+    if (content === undefined) return '';
+    if (typeof content === 'object') return JSON.stringify(content);
+    return String(content);
   }
 
   /**
@@ -168,6 +152,23 @@
       }
     }
     return JSON.parse(JSON.stringify(value));
+  }
+
+  /**
+   * Formatea un tamaño en bytes con la unidad adecuada (ej: 1536 -> "1.5 KB").
+   * @param {number} bytes
+   * @returns {string}
+   */
+  function formatBytes(bytes) {
+    let value = Number(bytes) || 0;
+    if (value < 1024) return `${value} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let index = -1;
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024;
+      index++;
+    }
+    return `${parseFloat(value.toFixed(1))} ${units[index]}`;
   }
 
   /**
@@ -214,6 +215,7 @@
     serializeContent,
     clone,
     formatShortValue,
+    formatBytes,
     resolveDep
   };
 });

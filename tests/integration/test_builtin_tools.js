@@ -161,7 +161,7 @@ test('Builtin Tools - RAG tools consumen el servicio inyectado y propagan rama a
       return { success: true, chunkId: args.chunkId, content: 'Contenido', charCount: 9 };
     }
   };
-  const context = { config: { activeRagBranchId: 'branch-1' }, services: { ragService } };
+  const context = { activeRagBranchIds: ['branch-1'], services: { ragService } };
 
   const listResult = await ListDocumentsTool.createTool(AgentCore.Tool).execute({}, context);
   const searchArgs = { query: 'seguridad', scope: 'document', documentHint: 'manual interno', limit: 3 };
@@ -172,9 +172,9 @@ test('Builtin Tools - RAG tools consumen el servicio inyectado y propagan rama a
   assert.equal(searchResult.text, 'Coincidencia');
   assert.equal(readResult.content, 'Contenido');
   assert.deepEqual(calls, [
-    { name: 'list', branchId: 'branch-1' },
-    { name: 'search', branchId: 'branch-1', args: searchArgs },
-    { name: 'read', branchId: 'branch-1', args: { chunkId: 'doc-1:chunk:2' } }
+    { name: 'list', branchId: ['branch-1'] },
+    { name: 'search', branchId: ['branch-1'], args: searchArgs },
+    { name: 'read', branchId: ['branch-1'], args: { chunkId: 'doc-1:chunk:2' } }
   ]);
 });
 
@@ -191,7 +191,7 @@ test('Builtin Tools - read_knowledge_chunk declara parámetros para múltiples f
       return { success: true, count: 2, chunkIds: args.chunkIds, content: 'Contenido múltiple' };
     }
   };
-  const context = { config: { activeRagBranchId: 'branch-1' }, services: { ragService } };
+  const context = { activeRagBranchIds: ['branch-1'], services: { ragService } };
   const tool = ReadKnowledgeChunkTool.createTool(AgentCore.Tool);
   const res = await tool.execute({ chunkIds: ['chunk-1', 'chunk-2'] }, context);
   assert.equal(res.success, true);
@@ -220,11 +220,11 @@ test('Builtin Tools - list_documents declara parámetro filter y lo propaga a Ra
       return { success: true, count: 1, text: 'Doc', filter: args?.filter };
     }
   };
-  const context = { config: { activeRagBranchId: 'branch-1' }, services: { ragService } };
+  const context = { activeRagBranchIds: ['branch-1'], services: { ragService } };
   const tool = ListDocumentsTool.createTool(AgentCore.Tool);
   const res = await tool.execute({ filter: 'Walmart' }, context);
   assert.equal(res.success, true);
-  assert.deepEqual(calls[0], { branchIds: 'branch-1', args: { filter: 'Walmart' } });
+  assert.deepEqual(calls[0], { branchIds: ['branch-1'], args: { filter: 'Walmart' } });
 
   const mdFiltered = tool.formatDispatchMarkdown({ filter: 'Walmart' }, { count: 1 });
   assert.match(mdFiltered, /filtrado por "Walmart"/);
@@ -239,7 +239,7 @@ test('Builtin Tools - read_knowledge_image keeps the shared frame and inserts un
   const fakeDoc = {
     createElement: () => ({ className: '', innerHTML: '', querySelector: selector => selector === '.tool-card-badge' ? badge : body })
   };
-  const ui = { document: fakeDoc };
+  const ui = { document: fakeDoc, markdown: require('../../js/markdown.js'), t: key => key };
   const maliciousRef = 'rag-image://doc<img src=x onerror=alert(1)>:img1';
   const args = { imageRef: maliciousRef };
   const liveCard = ReadKnowledgeImageTool.view.createLiveCard(args, ui);
@@ -257,11 +257,11 @@ test('Builtin Tools - read_knowledge_image keeps the shared frame and inserts un
   assert.equal(history.innerHTML.includes('<script>'), false);
 });
 
-test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML con fallback seguro ante ausencia de ui.markdown', () => {
+test('Builtin Tools - render_chart y search_web escapan HTML en sus tarjetas', () => {
   const fakeDoc = {
     createElement: () => ({ className: '', innerHTML: '' })
   };
-  const uiWithoutMarkdown = { document: fakeDoc };
+  const ui = { document: fakeDoc, markdown: require('../../js/markdown.js'), t: key => key };
 
   // render_chart: la tarjeta la genera ChatCharts, que escapa el título.
   const card = RenderChartTool.view.createLiveCard({ type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['a'], datasets: [{ label: 'b', data: [1] }] }, {
@@ -272,7 +272,7 @@ test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML c
   assert.equal(card.innerHTML.includes('<img src=x'), false);
 
   // search_web
-  const swCard = SearchWebTool.view.createLiveCard({ query: '<script>alert(1)</script>' }, uiWithoutMarkdown);
+  const swCard = SearchWebTool.view.createLiveCard({ query: '<script>alert(1)</script>' }, ui);
   assert.ok(swCard.innerHTML.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
   assert.equal(swCard.innerHTML.includes('<script>'), false);
 });

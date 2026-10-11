@@ -42,9 +42,10 @@ test('ChatUtils - primitivas de DOM separan texto no confiable de HTML interno',
 
 test('ChatUtils - serializeContent, clone, formatShortValue y resolveDep', () => {
   assert.strictEqual(ChatUtils.serializeContent('Hola mundo'), 'Hola mundo');
-  assert.strictEqual(ChatUtils.serializeContent([{ text: 'Parte 1' }, { content: 'Parte 2' }, 'Parte 3']), 'Parte 1\nParte 2\nParte 3');
-  assert.strictEqual(ChatUtils.serializeContent({ text: 'Objeto texto' }), 'Objeto texto');
-  assert.strictEqual(ChatUtils.serializeContent(null), '');
+  assert.strictEqual(ChatUtils.serializeContent([{ type: 'text', text: 'Parte' }]), '[{"type":"text","text":"Parte"}]');
+  assert.strictEqual(ChatUtils.serializeContent({ ok: true }), '{"ok":true}');
+  assert.strictEqual(ChatUtils.serializeContent(undefined), '');
+  assert.strictEqual(ChatUtils.serializeContent(42), '42');
 
   const original = { a: 1, b: [2, 3], c: { d: 'test' } };
   const copia = ChatUtils.clone(original);
@@ -60,4 +61,33 @@ test('ChatUtils - serializeContent, clone, formatShortValue y resolveDep', () =>
   const resolved = ChatUtils.resolveDep('ChatUtils', '../js/utils.js');
   assert.ok(resolved);
   assert.strictEqual(typeof resolved.escapeHtml, 'function');
+});
+
+test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo', async () => {
+  const originalFetch = global.fetch;
+  const signals = [];
+  global.fetch = async (_url, options) => { signals.push(options.signal); return { ok: true }; };
+  try {
+    const caller = new AbortController();
+    await ChatUtils.fetchWithTimeout('http://x', { signal: caller.signal }, 20);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(signals[0].aborted, false, 'Terminada la petición, el plazo ya no la cancela');
+
+    global.fetch = (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    });
+    const withCaller = new AbortController();
+    await assert.rejects(ChatUtils.fetchWithTimeout('http://x', { signal: withCaller.signal }, 20), /abort/i, 'El plazo se aplica aunque haya señal propia');
+
+    const cancelled = new AbortController();
+    const pending = ChatUtils.fetchWithTimeout('http://x', { signal: cancelled.signal }, 0);
+    let settled = false;
+    pending.catch(() => {}).finally(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(settled, false, 'Con plazo 0 solo cancela quien llama');
+    cancelled.abort();
+    await assert.rejects(pending);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

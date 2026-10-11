@@ -14,6 +14,7 @@ const assert = require('node:assert/strict');
 
 // Importar ChatEngine y dependencias
 const ChatEngine = require('../../js/chat-engine.js');
+const MessageTurns = require('../../js/message-turns.js');
 
 test('ChatEngine - reenvía el razonamiento solo en los pasos del turno en curso', () => {
   const call = id => [{ id, type: 'function', function: { name: 'read_file', arguments: '{}' } }];
@@ -478,7 +479,7 @@ test('ChatEngine - executeAgentTurnLoop muestra una línea de compactación ante
   }
 });
 
-test('ChatEngine - removeTurnFromHistory elimina múltiples llamadas sucesivas a herramientas', () => {
+test('MessageTurns - removeSelectedTurn elimina múltiples llamadas sucesivas a herramientas', () => {
   const baseId = 'msg_multi_tools';
   const history = [
     { id: 'usr_1', role: 'user', content: 'Calcula y grafica' },
@@ -515,7 +516,7 @@ test('ChatEngine - removeTurnFromHistory elimina múltiples llamadas sucesivas a
     }
   ];
 
-  const updated = ChatEngine.removeTurnFromHistory(history, { msgId: baseId, baseId });
+  const updated = MessageTurns.removeSelectedTurn(history, { msgId: baseId, baseId });
   assert.equal(updated.length, 1);
   assert.equal(updated[0].id, 'usr_1');
   assert.equal(updated.filter(m => m.role === 'tool').length, 0, 'Todas las respuestas de tool deben eliminarse');
@@ -546,7 +547,7 @@ test('ChatEngine - la siguiente petición tras borrar respuesta con tools no inc
   ];
 
   // 1. Borrar la respuesta del asistente (con todas sus herramientas)
-  const cleanedHistory = ChatEngine.removeTurnFromHistory(chatHistory, { msgId: baseId, baseId });
+  const cleanedHistory = MessageTurns.removeSelectedTurn(chatHistory, { msgId: baseId, baseId });
 
   // 2. El usuario envía una siguiente petición
   cleanedHistory.push({

@@ -7,11 +7,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'), require('./text-tool-calls.js'));
+    module.exports = factory(require('./message-turns.js'), require('./text-tool-calls.js'), require('./utils.js'));
   } else {
-    root.ChatProviders = factory(root.ChatMessageTurns, root.ChatTextToolCalls);
+    root.ChatProviders = factory(root.ChatMessageTurns, root.ChatTextToolCalls, root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function (MessageTurns, TextToolCalls) {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns, TextToolCalls, Utils) {
   'use strict';
 
   /**
@@ -35,11 +35,24 @@
   // reasoning (Ollama, OpenRouter).
   const REASONING_REPLAY_FIELDS = ['reasoning_content', 'reasoning'];
 
-  function serializeContent(content) {
-    if (typeof content === 'string') return content;
-    if (content === undefined) return '';
-    if (typeof content === 'object') return JSON.stringify(content);
-    return String(content);
+  const { serializeContent } = Utils;
+
+  /** Marca como punto de caché efímero el último bloque de un contenido (Anthropic y OpenRouter). */
+  function attachCacheControl(content) {
+    if (typeof content === 'string') {
+      return [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
+    }
+    if (Array.isArray(content) && content.length > 0) {
+      const updated = [...content];
+      updated[updated.length - 1] = { ...updated[updated.length - 1], cache_control: { type: 'ephemeral' } };
+      return updated;
+    }
+    return content;
+  }
+
+  /** Último turno procesable (user o tool): ancla el punto dinámico de caché. */
+  function findLastProcessableIndex(messages) {
+    return messages.findLastIndex(m => m.role === 'user' || m.role === 'tool');
   }
 
   /**
@@ -772,6 +785,15 @@
       }
 
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      // Resultado estructurado de la inspección, sin apiKey.
+      const buildInspection = ({ discovered, ...status }) => ({
+        ...status,
+        provider: { id: this.id, label: this.label, description: this.description },
+        endpoint: { raw: apiUrl, normalized: normalizedEndpoint, base: cleanBase },
+        model: { selected: probeModel, totalDiscovered: discovered.length, discovered },
+        capabilities,
+        inspectionTimeMs: Math.round(endTime - startTime)
+      });
 
       // Si se intentó conectar mediante sondas y ninguna tuvo éxito, informar fallo de conexión
       if (runProbes && connectionAttempted && !connectionSuccess) {
@@ -795,54 +817,10 @@
           };
         });
 
-        return {
-          success: false,
-          connected: false,
-          error: errorMsg,
-          provider: {
-            id: this.id,
-            label: this.label,
-            description: this.description
-          },
-          endpoint: {
-            raw: apiUrl,
-            normalized: normalizedEndpoint,
-            base: cleanBase
-          },
-          model: {
-            selected: probeModel,
-            totalDiscovered: 0,
-            discovered: []
-          },
-          capabilities: capabilities,
-          probesRun: true,
-          inspectionTimeMs: Math.round(endTime - startTime)
-        };
+        return buildInspection({ success: false, connected: false, error: errorMsg, discovered: [], probesRun: true });
       }
 
-      // Devolver resultado estructurado de la inspección SIN apiKey
-      return {
-        success: true,
-        connected: runProbes ? true : null,
-        provider: {
-          id: this.id,
-          label: this.label,
-          description: this.description
-        },
-        endpoint: {
-          raw: apiUrl,
-          normalized: normalizedEndpoint,
-          base: cleanBase
-        },
-        model: {
-          selected: probeModel,
-          totalDiscovered: discoveredModels.length,
-          discovered: discoveredModels
-        },
-        capabilities: capabilities,
-        probesRun: probesRun,
-        inspectionTimeMs: Math.round(endTime - startTime)
-      };
+      return buildInspection({ success: true, connected: runProbes ? true : null, discovered: discoveredModels, probesRun });
     }
   }
 
@@ -1014,50 +992,9 @@
         toolsList[toolsList.length - 1].cache_control = { type: 'ephemeral' };
       }
 
-      // Localizar el último turno procesable (user o tool) para anclar el punto dinámico de caché
-      let lastProcessableIdx = -1;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user' || messages[i].role === 'tool') {
-          lastProcessableIdx = i;
-          break;
-        }
-      }
-
-      payload.messages = messages.map((m, idx) => {
-        if (m.role === 'system') {
-          if (typeof m.content === 'string') {
-            return {
-              ...m,
-              content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }]
-            };
-          } else if (Array.isArray(m.content) && m.content.length > 0) {
-            const updated = [...m.content];
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              cache_control: { type: 'ephemeral' }
-            };
-            return { ...m, content: updated };
-          }
-        }
-
-        if (idx === lastProcessableIdx) {
-          if (typeof m.content === 'string') {
-            return {
-              ...m,
-              content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }]
-            };
-          } else if (Array.isArray(m.content) && m.content.length > 0) {
-            const updated = [...m.content];
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              cache_control: { type: 'ephemeral' }
-            };
-            return { ...m, content: updated };
-          }
-        }
-
-        return m;
-      });
+      // El sistema va en payload.system con su propio punto de caché; aquí solo hay turnos.
+      const lastProcessableIdx = findLastProcessableIndex(messages);
+      payload.messages = messages.map((m, idx) => (idx === lastProcessableIdx ? { ...m, content: attachCacheControl(m.content) } : m));
     }
 
     parseStreamChunk(parsed, state) {
@@ -1408,38 +1345,9 @@
         usedBreakpoints++;
       }
 
-      // 2. Identificar el último system prompt consolidado (1 punto)
-      let lastSystemIdx = -1;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'system') {
-          lastSystemIdx = i;
-          break;
-        }
-      }
-
-      // 3. Identificar el último turno procesable (user o tool) (1 punto)
-      let lastProcessableIdx = -1;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user' || messages[i].role === 'tool') {
-          lastProcessableIdx = i;
-          break;
-        }
-      }
-
-      function attachCacheControl(content) {
-        if (typeof content === 'string') {
-          return [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
-        } else if (Array.isArray(content) && content.length > 0) {
-          const updated = [...content];
-          const lastItem = updated[updated.length - 1];
-          updated[updated.length - 1] = {
-            ...lastItem,
-            cache_control: { type: 'ephemeral' }
-          };
-          return updated;
-        }
-        return content;
-      }
+      // 2. Último system prompt consolidado (1 punto) y 3. último turno procesable (1 punto)
+      const lastSystemIdx = messages.findLastIndex(m => m.role === 'system');
+      const lastProcessableIdx = findLastProcessableIndex(messages);
 
       payload.messages = messages.map((m, idx) => {
         if (idx === lastSystemIdx && usedBreakpoints < MAX_BREAKPOINTS) {

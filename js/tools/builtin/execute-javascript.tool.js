@@ -50,11 +50,9 @@
   }
 
 
-  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
   function getUiHelpers(ui) {
     return {
-      Markdown: ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml },
+      Markdown: ui.markdown,
       t: ui?.t || ((key) => key),
       spinner: ui?.SPINNER_SVG || '',
       checkSvg: ui?.CHECK_SVG || '',

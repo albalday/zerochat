@@ -93,19 +93,14 @@
   function renderAgentToolsUI(container, currentEnabledTools = {}) {
     if (!container) return;
     const AgentCore = getAgentCore();
-    const allTools = (AgentCore?.registry && typeof AgentCore.registry.listToolsForUI === 'function')
-      ? AgentCore.registry.listToolsForUI()
-      : [];
-    const tools = allTools.filter(t => t.category !== 'mcp');
+    const tools = AgentCore.registry.listToolsForUI().filter(t => t.category !== 'mcp');
 
     container.innerHTML = '';
     const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
     if (!doc) return;
 
     tools.forEach(tool => {
-      const isChecked = currentEnabledTools[tool.id] !== undefined
-        ? currentEnabledTools[tool.id] !== false
-        : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : tool.defaultEnabled !== false);
+      const isChecked = AgentCore.isToolEnabled(currentEnabledTools, tool);
 
       const title = t(tool.titleKey);
       const desc = t(tool.descKey);
@@ -134,7 +129,7 @@
         const Config = getConfig();
         if (Config) {
           const curr = Config.getActive()?.enabledTools || {};
-          (Config.updateRuntime || Config.update)?.call(Config, { enabledTools: { ...curr, [tid]: cb.checked } });
+          Config.updateRuntime({ enabledTools: { ...curr, [tid]: cb.checked } });
         }
       });
     });

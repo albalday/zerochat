@@ -6,11 +6,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatContextManager = factory();
+    root.ChatContextManager = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
   // ==========================================================================
@@ -124,12 +124,7 @@
   const DEFAULT_MAX_ACTIVE_TOOL_CHARS = 30000;      // ~7.500 tokens para la herramienta del turno actual
   const DEFAULT_MAX_HISTORICAL_TOOL_CHARS = 1200;   // ~300 tokens para herramientas de turnos pasados
 
-  function serializeContent(content) {
-    if (typeof content === 'string') return content;
-    if (content === undefined) return '';
-    if (typeof content === 'object') return JSON.stringify(content);
-    return String(content);
-  }
+  const { serializeContent } = Utils;
 
   /**
    * Trunca de forma equilibrada una salida multisección (como múltiples fragmentos devueltos por read_knowledge_chunk).

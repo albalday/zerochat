@@ -23,12 +23,14 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatMCP = factory();
+    root.ChatMCP = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { fetchWithTimeout } = Utils;
 
   // Shared wire contract with public_tool_name in zerochat.py: keep a-y, A-Z
   // and 0-9, and escape anything else as z<hex code point>z. The lowercase z is
@@ -106,14 +108,6 @@
     return null;
   }
 
-  function getUtils() {
-    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
-    if (typeof require !== 'undefined') {
-      try { return require('./utils.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
-  }
-
   function getState() {
     if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
     if (typeof require !== 'undefined') {
@@ -136,26 +130,6 @@
       try { return require('./tool-security.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
     }
     return null;
-  }
-
-  /**
-   * Realiza una petición fetch con timeout controlado mediante AbortController.
-   */
-  async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: options.signal || (controller ? controller.signal : undefined)
-      });
-      if (timer) clearTimeout(timer);
-      return response;
-    } catch (err) {
-      if (timer) clearTimeout(timer);
-      throw err;
-    }
   }
 
   /**
@@ -528,6 +502,8 @@
       };
 
       const timeoutMs = options.timeoutMs || this.timeoutMs;
+      // Con señal propia (las herramientas) cancela quien llama: un comando puede durar minutos.
+      const fetchTimeoutMs = options.signal ? 0 : timeoutMs;
       const body = JSON.stringify(payload);
       let res;
       try {
@@ -536,7 +512,7 @@
           headers: await this.buildRequestHeaders(targetUrl, body, options),
           body,
           signal: options.signal
-        }, timeoutMs);
+        }, fetchTimeoutMs);
       } catch (fetchErr) {
         // Un timeout no es un fallo de red: reintentar desconectaría el canal y
         // reenviaría la petición, que no tiene por qué ser idempotente.
@@ -566,7 +542,7 @@
             headers: await this.buildRequestHeaders(resolved, body, options),
             body,
             signal: options.signal
-          }, timeoutMs);
+          }, fetchTimeoutMs);
         }
       }
 
@@ -795,7 +771,7 @@
     const iconSvg = getMcpIconSvg(14);
 
     const renderCard = (args, contentHtml, badgeHtml, ui, isCollapsed = false) => {
-      const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
+      const esc = ui?.markdown?.escapeHtml || Utils.escapeHtml;
       const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card') : document.createElement('div');
       card.className = 'tool-card-wrapper mcp-card';
       const argStr = args && typeof args === 'object' && Object.keys(args).length ? esc(JSON.stringify(args, null, 2)) : '';
@@ -822,7 +798,7 @@
       },
       updateLiveCard: (cardDiv, args, result = {}, elapsedMs = 0, ui) => {
         if (!cardDiv) return;
-        const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
+        const esc = ui?.markdown?.escapeHtml || Utils.escapeHtml;
         const t = ui?.t || (k => k);
         const isSuccess = result?.success !== false && !result?.error && !result?.isError;
         const badge = cardDiv.querySelector('.tool-card-badge');
@@ -841,7 +817,7 @@
       },
       renderHistoricalCard: (args, message, ui) => {
         if (typeof document === 'undefined') return null;
-        const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
+        const esc = ui?.markdown?.escapeHtml || Utils.escapeHtml;
         const t = ui?.t || (k => k);
         const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success')}</span></span>`;
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');

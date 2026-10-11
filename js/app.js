@@ -1458,7 +1458,17 @@
       });
 
       // Sistema de importación de perfiles vía postMessage desde HTML exportado
-      function setupProfileImportListener() {
+      /** Sale del modo importación: limpia el hash, quita el aviso de espera y restaura el chat. */
+  function leaveImportMode() {
+    if (window.location.hash.includes('mode=import')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    document.getElementById('import-waiting-banner')?.remove();
+    if (elements.messagesList) elements.messagesList.style.display = '';
+    if (elements.chatForm) elements.chatForm.style.display = '';
+  }
+
+  function setupProfileImportListener() {
         let importInProgress = false;
 
         function getImportTransferId() {
@@ -1580,20 +1590,7 @@
               })
             );
 
-            // Limpiar hash mode=import
-            if (window.location.hash.includes('mode=import')) {
-              if (window.history && typeof window.history.replaceState === 'function') {
-                window.history.replaceState(null, '', window.location.pathname + window.location.search);
-              }
-            }
-
-            // Quitar banner de espera
-            const banner = document.getElementById('import-waiting-banner');
-            if (banner) banner.remove();
-
-            // Restaurar UI
-            if (elements.messagesList) elements.messagesList.style.display = '';
-            if (elements.chatForm) elements.chatForm.style.display = '';
+            leaveImportMode();
 
             // Continuar con inicialización normal si no se hizo
             console.log('[Import Mode] Import completed successfully, resuming normal initialization');
@@ -1633,19 +1630,7 @@
               I18n.t('err_auto_import_failed', { err: error.message })
             );
 
-            // Limpiar hash en caso de error también
-            if (window.location.hash.includes('mode=import')) {
-              if (window.history && typeof window.history.replaceState === 'function') {
-                window.history.replaceState(null, '', window.location.pathname + window.location.search);
-              }
-            }
-
-            // Quitar banner de espera y restaurar UI
-            const banner = document.getElementById('import-waiting-banner');
-            if (banner) banner.remove();
-
-            if (elements.messagesList) elements.messagesList.style.display = '';
-            if (elements.chatForm) elements.chatForm.style.display = '';
+            leaveImportMode();
 
             // Recargar para inicializar normalmente después del error
             console.log('[Import Mode] Import failed, reloading to initialize normally');

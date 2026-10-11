@@ -16,7 +16,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, formatBytes } = Utils;
 
   // Solo una tarjeta desplegada pide su log, y con este intervalo.
   const LOG_POLL_MS = 2000;
@@ -56,13 +56,6 @@
     const m = Math.floor((whole % 3600) / 60);
     const s = String(whole % 60).padStart(2, '0');
     return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
-  }
-
-  function formatBytes(bytes) {
-    const value = Number(bytes) || 0;
-    if (value < 1024) return `${value} B`;
-    if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`;
-    return `${(value / 1024 / 1024).toFixed(1)} MB`;
   }
 
   function isFailure(state) {

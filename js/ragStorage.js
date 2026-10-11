@@ -244,30 +244,34 @@
     return { success: true, deletedBranchId: id, deletedDocumentsCount: docs.length };
   }
 
+  function storeDocumentInMemory(document, chunks, docImages) {
+    memory.documents.set(document.id, document);
+    if (docImages.length > 0) {
+      memory.images.set(document.id, { documentId: document.id, branchId: document.branchId, images: docImages });
+    }
+    chunks.forEach(chunk => memory.chunks.set(chunk.id, chunk));
+  }
+
+  function writeDocument(tx, document, chunks, docImages) {
+    tx.objectStore(STORES.ragDocuments).add(document);
+    if (docImages.length > 0) {
+      tx.objectStore(STORES.ragImages).put({ documentId: document.id, branchId: document.branchId, images: docImages });
+    }
+    for (const chunk of chunks) tx.objectStore(STORES.ragChunks).add(chunk);
+  }
+
   async function saveDocument(data, images = []) {
     const docImages = Array.isArray(images) ? images : [];
     const { document, chunks } = validateDocument({ ...data, imageCount: docImages.length });
     if (!(await getBranchById(document.branchId))) throw new NotFoundError(`No existe la rama ${document.branchId}.`);
     const db = await openDatabase();
     if (!db) {
-      memory.documents.set(document.id, document);
-      if (docImages.length > 0) {
-        memory.images.set(document.id, { documentId: document.id, branchId: document.branchId, images: docImages });
-      }
-      chunks.forEach(chunk => memory.chunks.set(chunk.id, chunk));
+      storeDocumentInMemory(document, chunks, docImages);
       return { ...document };
     }
     try {
       const tx = db.transaction([STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
-      tx.objectStore(STORES.ragDocuments).add(document);
-      if (docImages.length > 0) {
-        tx.objectStore(STORES.ragImages).put({
-          documentId: document.id,
-          branchId: document.branchId,
-          images: docImages
-        });
-      }
-      for (const chunk of chunks) tx.objectStore(STORES.ragChunks).add(chunk);
+      writeDocument(tx, document, chunks, docImages);
       await transactionDone(tx);
       await updateBranch(document.branchId, { updatedAt: Date.now() });
       return document;
@@ -285,11 +289,7 @@
     const db = await openDatabase();
     if (!db) {
       await deleteDocument(oldDocId);
-      memory.documents.set(document.id, document);
-      if (docImages.length > 0) {
-        memory.images.set(document.id, { documentId: document.id, branchId: document.branchId, images: docImages });
-      }
-      chunks.forEach(chunk => memory.chunks.set(chunk.id, chunk));
+      storeDocumentInMemory(document, chunks, docImages);
       return { ...document };
     }
     try {
@@ -297,16 +297,7 @@
       tx.objectStore(STORES.ragDocuments).delete(oldDocId);
       tx.objectStore(STORES.ragImages).delete(oldDocId);
       await deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_documentId', oldDocId);
-
-      tx.objectStore(STORES.ragDocuments).add(document);
-      if (docImages.length > 0) {
-        tx.objectStore(STORES.ragImages).put({
-          documentId: document.id,
-          branchId: document.branchId,
-          images: docImages
-        });
-      }
-      for (const chunk of chunks) tx.objectStore(STORES.ragChunks).add(chunk);
+      writeDocument(tx, document, chunks, docImages);
       await transactionDone(tx);
       await updateBranch(document.branchId, { updatedAt: Date.now() });
       return document;
@@ -466,6 +457,27 @@
     return true;
   }
 
+  async function buildDocumentExport(document) {
+    const chunks = await getChunksByDocument(document.id);
+    const images = await getDocumentImages(document.id);
+    return {
+      id: document.id,
+      title: document.title,
+      fileType: document.fileType,
+      mimeType: document.mimeType,
+      fileSize: document.fileSize,
+      imageCount: document.imageCount || (images ? images.length : 0),
+      images: (images && images.length > 0) ? images : undefined,
+      chunks: chunks.map(chunk => ({
+        order: chunk.order,
+        title: chunk.title,
+        content: chunk.content,
+        pageStart: chunk.pageStart,
+        pageEnd: chunk.pageEnd
+      }))
+    };
+  }
+
   async function exportBranch(branchId, options = {}) {
     const branch = await getBranchById(branchId);
     if (!branch) throw new NotFoundError(`No existe la rama ${branchId}.`);
@@ -475,24 +487,7 @@
     let current = 0;
     const exportedDocuments = [];
     for (const document of documents) {
-      const chunks = await getChunksByDocument(document.id);
-      const images = await getDocumentImages(document.id);
-      exportedDocuments.push({
-        id: document.id,
-        title: document.title,
-        fileType: document.fileType,
-        mimeType: document.mimeType,
-        fileSize: document.fileSize,
-        imageCount: document.imageCount || (images ? images.length : 0),
-        images: (images && images.length > 0) ? images : undefined,
-        chunks: chunks.map(chunk => ({
-          order: chunk.order,
-          title: chunk.title,
-          content: chunk.content,
-          pageStart: chunk.pageStart,
-          pageEnd: chunk.pageEnd
-        }))
-      });
+      exportedDocuments.push(await buildDocumentExport(document));
       current++;
       if (onProgress) {
         onProgress({ current, total, percent: Math.round((current / total) * 100), docTitle: document.title });
@@ -541,24 +536,7 @@
 
       let first = true;
       for (const document of documents) {
-        const chunks = await getChunksByDocument(document.id);
-        const images = await getDocumentImages(document.id);
-        const docRecord = {
-          id: document.id,
-          title: document.title,
-          fileType: document.fileType,
-          mimeType: document.mimeType,
-          fileSize: document.fileSize,
-          imageCount: document.imageCount || (images ? images.length : 0),
-          images: (images && images.length > 0) ? images : undefined,
-          chunks: chunks.map(chunk => ({
-            order: chunk.order,
-            title: chunk.title,
-            content: chunk.content,
-            pageStart: chunk.pageStart,
-            pageEnd: chunk.pageEnd
-          }))
-        };
+        const docRecord = await buildDocumentExport(document);
         const chunkJson = (first ? '' : ',\n') + JSON.stringify(docRecord);
         first = false;
         await writer.write(encoder.encode(chunkJson));

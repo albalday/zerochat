@@ -26,17 +26,10 @@
   const SEARCH_ICON_SVG = Icons.get('search', { size: 14 });
   const LINK_ICON_SVG = Icons.get('external-link', { size: 12 });
 
-  function getHtmlSafety() {
-    const Utils = (typeof window !== 'undefined' && window.ChatUtils)
-      || (typeof require !== 'undefined' ? (() => { try { return require('../../utils.js'); } catch (_) { return null; } })() : null);
-    if (Utils) return { ...Utils, renderMarkdown: value => Utils.escapeHtml(value) };
-    return { escapeHtml: () => '', sanitizeUrl: () => '#', renderMarkdown: () => '' };
-  }
-
   function createLiveCard(args, ui) {
     const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
-    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || getHtmlSafety();
+    const Markdown = ui.markdown;
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
     cardDiv.innerHTML = getCards().renderCardHtml({
@@ -50,7 +43,7 @@
 
   function updateLiveCard(cardDiv, _args, result = {}, elapsedMs = 0, ui) {
     if (!cardDiv) return;
-    const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || getHtmlSafety();
+    const Markdown = ui.markdown;
     const t = ui?.t || ((key) => key);
     const checkSvg = ui?.CHECK_SVG || '';
     const errorSvg = ui?.ERROR_SVG || '';
