@@ -2,6 +2,9 @@
  * Servicio de Dominio para Gestión de Conversaciones y Sesiones de Chat (ZeroChat).
  * Coordina el ciclo de vida de las sesiones (crear, guardar, renombrar, borrar, cambiar de sesión,
  * bifurcar ramas / branching y persistir en State y Storage).
+ *
+ * Las opciones que recibe cada operación son los callbacks de presentación de app.js:
+ * renderSessionMessages, renderSidebarChats, onSessionReset, resetComposerInput y closeSidebar.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -12,280 +15,153 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId } = Utils;
-
-  function getState() { return resolveDep('ChatState', './state.js'); }
-  function getStorage(options = {}) {
-    if (options && options.storage) return options.storage;
-    return resolveDep('ChatStorage', './cookies.js') || resolveDep('ZeroChatDB', './storage-db.js');
-  }
-  function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
-  function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
-  function getUtils() { return resolveDep('ChatUtils', './utils.js'); }
-  function getConfig() { return resolveDep('ChatConfig', './config-store.js'); }
-  function getGenerationController() { return resolveDep('ChatGenerationController', './generation-controller.js'); }
-
+  const { resolveDep, createId, clone } = Utils;
   const { t } = I18n;
 
-  const extractBaseId = MessageTurns.extractBaseId;
+  const getState = () => resolveDep('ChatState', './state.js');
+  const getStorage = () => resolveDep('ChatStorage', './cookies.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getEngine = () => resolveDep('ChatEngine', './chat-engine.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getGenerationController = () => resolveDep('ChatGenerationController', './generation-controller.js');
 
-  const isDateTimeInitialTurn = MessageTurns.isDateTimeInitialTurn;
+  const getHistory = () => getState().get('messages');
+  const getActiveSessionId = () => getState().get('sessions').activeId;
+  const getSavedSessions = () => getState().get('sessions').list;
 
-  function createInitialChatHistory(options = {}) {
+  function createInitialChatHistory() {
+    const config = getConfig().getActive();
     const Engine = getEngine();
-    const Config = getConfig();
-    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const lang = options.language || runtimeConfig.language || 'es';
-    const systemPrompt = typeof options.getConfiguredSystemPrompt === 'function'
-      ? options.getConfiguredSystemPrompt(runtimeConfig)
-      : (runtimeConfig.systemPrompt || '');
-
-    return [
-      {
-        id: 'system_root',
-        role: 'system',
-        content: systemPrompt,
-        contextDateAnchor: Engine?.getConversationDateAnchor ? Engine.getConversationDateAnchor(lang) : undefined
-      }
-    ];
+    return [{
+      id: 'system_root',
+      role: 'system',
+      content: Engine.getConfiguredSystemPrompt(config),
+      contextDateAnchor: Engine.getConversationDateAnchor()
+    }];
   }
 
   function blockSessionTransitionIfBusy(messageKey) {
-    const State = getState();
-    const isBusy = State?.isConversationBusy?.() === true;
-    if (!isBusy) return false;
-    const Dialogs = getDialogs();
-    if (Dialogs?.alert) Dialogs.alert(t(messageKey));
+    if (!getState().isConversationBusy()) return false;
+    getDialogs().alert(t(messageKey));
     return true;
   }
 
-  function initializeSessionState(sessionId, history, blockedMessageKey, options = {}) {
-    const State = getState();
-    const initialization = State?.replaceConversation
-      ? State.replaceConversation({ sessionId, messages: history })
-      : (State?.initializeConversation
-          ? State.initializeConversation({ sessionId, messages: history })
-          : { ok: true });
-
-    if (!initialization.ok) {
-      const Dialogs = getDialogs();
-      if (Dialogs?.alert) Dialogs.alert(t(blockedMessageKey));
+  function activateConversation(sessionId, history, blockedMessageKey, options) {
+    if (!getState().replaceConversation({ sessionId, messages: history }).ok) {
+      getDialogs().alert(t(blockedMessageKey));
       return false;
     }
-
-    if (typeof options.onSessionReset === 'function') {
-      options.onSessionReset();
-    }
+    options.onSessionReset();
     return true;
-  }
-
-  async function loadSessionsFromStorage(options = {}) {
-    const State = getState();
-    const Storage = getStorage(options);
-    let sessionsList = [];
-    try {
-      if (Storage?.initDB) await Storage.initDB();
-      if (Storage?.getConversationsList) {
-        sessionsList = await Storage.getConversationsList();
-      }
-    } catch (e) {
-      console.warn('Error al cargar sesiones de chat:', e);
-      sessionsList = [];
-    }
-
-    if (!Array.isArray(sessionsList)) {
-      sessionsList = [];
-    }
-
-    const nextSessionId = createId('session');
-    const initialHistory = createInitialChatHistory(options);
-
-    if (State?.initializeConversation) {
-      State.initializeConversation({ sessionId: nextSessionId, sessions: sessionsList, messages: initialHistory });
-    }
-
-    if (typeof options.renderSessionMessages === 'function') {
-      options.renderSessionMessages(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || initialHistory));
-    }
-    if (typeof options.renderSidebarChats === 'function') {
-      options.renderSidebarChats();
-    }
   }
 
   /** Muestra la sesión activa tras cambiarla; en pantallas estrechas cierra la barra lateral. */
   function showActiveSession(options, { resetComposer }) {
-    const State = getState();
-    options.renderSessionMessages?.(options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []));
-    options.renderSidebarChats?.();
-    if (resetComposer) options.resetComposerInput?.();
-    if (typeof window !== 'undefined' && window.innerWidth < 900) options.closeSidebar?.();
+    options.renderSessionMessages(getHistory());
+    options.renderSidebarChats();
+    if (resetComposer) options.resetComposerInput();
+    if (window.innerWidth < 900) options.closeSidebar();
   }
 
-  async function saveCurrentSession(options = {}) {
+  async function loadSessionsFromStorage(options) {
+    let sessions = [];
+    try {
+      sessions = await getStorage().getConversationsList();
+    } catch (error) {
+      console.warn('[ConversationService] Could not load saved conversations:', error);
+    }
+    getState().replaceConversation({ sessionId: createId('session'), sessions, messages: createInitialChatHistory() });
+    options.renderSessionMessages(getHistory());
+    options.renderSidebarChats();
+  }
+
+  function deriveTitle(history) {
+    const firstUser = history.find(message => message.role === 'user');
+    const candidate = String(firstUser?.content || '').split('\n')[0].replace(/[#*`_>[\]]/g, '').trim();
+    return candidate.length > 35 ? `${candidate.substring(0, 32)}…` : candidate;
+  }
+
+  async function saveCurrentSession(options) {
     const State = getState();
-    const Storage = getStorage(options);
-    const history = options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []);
-    const currId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
-    const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
+    const Storage = getStorage();
+    const history = getHistory();
+    const sessionId = getActiveSessionId();
 
-    const hasRealUserMessages = Array.isArray(history) && history.some(m => {
-      if (!m || m.role !== 'user') return false;
-      return !isDateTimeInitialTurn(m);
-    });
-
-    if (!hasRealUserMessages) {
-      if (State?.removeSession) {
-        State.removeSession(currId);
-      }
-      if (Storage?.deleteConversation) {
-        await Storage.deleteConversation(currId);
-      }
-      if (typeof options.renderSidebarChats === 'function') {
-        options.renderSidebarChats();
-      }
+    if (!history.some(message => message.role === 'user')) {
+      State.removeSession(sessionId);
+      await Storage.deleteConversation(sessionId);
+      options.renderSidebarChats();
       return;
     }
 
-    let sess = sessionsList.find(s => s.id === currId);
     const now = Date.now();
-    if (!sess) {
-      sess = {
-        id: currId,
-        title: t('chat_untitled'),
-        createdAt: now,
-        updatedAt: now,
-        messageCount: history.length
-      };
-    } else {
-      sess = Object.assign({}, sess, {
-        updatedAt: now,
-        messageCount: history.length
-      });
-    }
+    const existing = getSavedSessions().find(session => session.id === sessionId);
+    const session = existing
+      ? { ...existing, updatedAt: now, messageCount: history.length }
+      : { id: sessionId, title: '', createdAt: now, updatedAt: now, messageCount: history.length };
+    if (!session.title) session.title = deriveTitle(history) || t('chat_untitled');
 
-    const isUntitled = !sess.title ||
-      sess.title === t('chat_untitled') ||
-      sess.title === 'Nueva conversación' ||
-      sess.title === 'New conversation';
-
-    if (isUntitled && history.length > 1) {
-      const firstRealUser = history.find(m => m.role === 'user' && !isDateTimeInitialTurn(m));
-      if (firstRealUser && firstRealUser.content) {
-        const rawContent = typeof firstRealUser.content === 'string' ? firstRealUser.content : (firstRealUser.content[0]?.text || '');
-        const candidate = rawContent.split('\n')[0].replace(/[#*`_>\[\]]/g, '').trim();
-        if (candidate) {
-          sess.title = candidate.length > 35 ? candidate.substring(0, 32) + '…' : candidate;
-        }
-      }
-    }
-
-    if (State?.saveSessionMetadata) {
-      State.saveSessionMetadata(sess);
-    }
-    if (Storage?.saveConversation) {
-      await Storage.saveConversation(sess, history);
-    }
-
-    if (typeof options.renderSidebarChats === 'function') {
-      options.renderSidebarChats();
-    }
+    State.saveSessionMetadata(session);
+    await Storage.saveConversation(session, history);
+    options.renderSidebarChats();
   }
 
-  async function switchToSession(sessionId, options = {}) {
+  async function switchToSession(sessionId, options) {
     const { force = false, saveCurrent = true } = options;
-    const State = getState();
-    const Storage = getStorage(options);
-    const Engine = getEngine();
-    const Config = getConfig();
-    const currId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
-
-    if (!force && sessionId === currId) return;
+    if (!force && sessionId === getActiveSessionId()) return;
     if (blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
     if (saveCurrent) await saveCurrentSession(options);
 
-    let targetConv = null;
-    if (Storage?.getConversation) {
-      targetConv = await Storage.getConversation(sessionId);
-    }
+    const conversation = await getStorage().getConversation(sessionId);
+    if (!conversation) return;
+    const history = conversation.history.length > 0 ? [...conversation.history] : createInitialChatHistory();
+    getEngine().ensureConversationDate(history, conversation.createdAt);
 
-    const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
-    if (!targetConv) {
-      const found = sessionsList.find(s => s.id === sessionId);
-      if (found && found.history) targetConv = found;
-    }
-
-    if (!targetConv) return;
-
-    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (Config?.getActive?.() || {});
-    const sysPrompt = typeof options.getConfiguredSystemPrompt === 'function'
-      ? options.getConfiguredSystemPrompt(runtimeConfig)
-      : (runtimeConfig.systemPrompt || '');
-
-    const restoredHistory = targetConv.history && targetConv.history.length > 0 ? [...targetConv.history] : [
-      { id: 'system_root', role: 'system', content: sysPrompt }
-    ];
-
-    const lang = options.language || runtimeConfig.language || 'es';
-    if (Engine?.ensureConversationDate) {
-      Engine.ensureConversationDate(restoredHistory, lang, targetConv.createdAt);
-    }
-
-    if (!initializeSessionState(targetConv.id, restoredHistory, 'chat_switch_blocked_generating', options)) return false;
+    if (!activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: false });
     return true;
   }
 
-  async function createNewSession(options = {}) {
+  async function createNewSession(options) {
     const { saveCurrent = true } = options;
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
-
     if (saveCurrent) await saveCurrentSession(options);
-
-    const nextSessionId = createId('session');
-
-    const nextHistory = createInitialChatHistory(options);
-    if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating', options)) return false;
+    if (!activateConversation(createId('session'), createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: true });
     return true;
   }
 
   function getBranchBoundaryIndex(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return -1;
-    const messageIds = new Set((wrapper.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean));
-    const messageId = wrapper.getAttribute?.('data-msg-id');
-    const baseId = wrapper.getAttribute?.('data-base-id');
-    if (messageId) messageIds.add(messageId);
-    if (baseId) messageIds.add(baseId);
-
+    const messageIds = new Set((wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean));
+    for (const attribute of ['data-msg-id', 'data-base-id']) {
+      const value = wrapper.getAttribute(attribute);
+      if (value) messageIds.add(value);
+    }
     let boundary = -1;
     history.forEach((message, index) => {
-      if (!message || !message.id) return;
-      const messageBaseId = extractBaseId(message.id);
-      if (messageIds.has(message.id) || (messageBaseId && messageIds.has(messageBaseId))) {
-        boundary = index;
-      }
+      if (messageIds.has(message.id) || messageIds.has(MessageTurns.extractBaseId(message.id))) boundary = index;
     });
     return boundary;
   }
 
   function setAssistantGroupMessageIds(wrapper, history) {
-    if (!wrapper || !Array.isArray(history)) return;
     let lastUserIndex = -1;
     for (let index = history.length - 1; index >= 0; index--) {
-      if (history[index]?.role === 'user') {
+      if (history[index].role === 'user') {
         lastUserIndex = index;
         break;
       }
     }
-    const ids = history.slice(lastUserIndex + 1).map(message => message?.id).filter(Boolean);
+    const ids = history.slice(lastUserIndex + 1).map(message => message.id);
     if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
-  /** Copia profunda de los mensajes con identificadores propios de la sesión destino. */
+  /**
+   * Copia profunda de los mensajes con identificadores propios de la sesión destino. Sin su fecha
+   * original, el almacenamiento conserva el orden de la rama (el resumen va antes del anclaje).
+   */
   function renumberForSession(messages, sessionId) {
-    return getUtils().clone(messages).map((message, index) => Object.assign({}, message, {
-      id: `msg_${sessionId}_${index}`
-    }));
+    return clone(messages).map(({ createdAt, ...message }, index) => ({ ...message, id: `msg_${sessionId}_${index}` }));
   }
 
   function cloneBranchHistory(history, boundary, sessionId) {
@@ -293,66 +169,42 @@
   }
 
   function shouldOfferBranchSummary(history, boundary) {
-    if (!Array.isArray(history) || boundary < 0) return false;
-    const subHistory = history.slice(0, boundary + 1);
-    const nonSystem = subHistory.filter(m => m && m.role !== 'system');
-    const userMessages = nonSystem.filter(m => m.role === 'user');
-    return userMessages.length >= 2 || nonSystem.length >= 4;
+    const dialogue = history.slice(0, boundary + 1).filter(message => message.role !== 'system');
+    return dialogue.filter(message => message.role === 'user').length >= 2 || dialogue.length >= 4;
   }
 
-  /** Perfil con su API key descifrada; pide la contraseña si está cifrada. Los fallos se propagan. */
-  async function loadProfileUnlocked(profileId) {
-    const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js');
-    if (!profileId || !Profiles?.load) return null;
-    return resolveDep('ChatProfileBackup', './profile-backup.js').withPassword(
-      keyMaterial => Profiles.load(profileId, keyMaterial),
-      () => getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
-        inputType: 'password', title: t('crypto_password_title')
-      })
-    );
-  }
-
-  async function resolveActiveApiKey(runtimeConfig) {
-    const activeProfile = await loadProfileUnlocked(runtimeConfig?.activeProfile?.id);
-    return activeProfile?.settings?.apiKey || '';
-  }
-
-  async function defaultSummarizeHistory(params, options = {}) {
-    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+  async function summarizeHistory(params) {
+    const config = getConfig().getActive();
+    const activeProfile = await resolveDep('ChatUIProfiles', './ui-profiles.js').loadProfileUnlocked(config.activeProfile?.id);
     const summarize = getEngine().createHistorySummarizer({
-      apiUrl: runtimeConfig.apiUrl,
-      apiType: runtimeConfig.apiType,
-      apiKey: await resolveActiveApiKey(runtimeConfig),
-      model: runtimeConfig.model,
+      apiUrl: config.apiUrl,
+      apiType: config.apiType,
+      apiKey: activeProfile?.settings?.apiKey || '',
+      model: config.model,
       signal: params.signal
     });
-    return await summarize(params);
+    return summarize(params);
   }
 
   /** Historial de la rama con el contexto previo resumido; null si no se pudo resumir. */
-  async function summarizeBranchHistory(history, boundary, sessionId, signal, options = {}) {
-    const ContextManager = resolveDep('ChatContextManager', './context-manager.js');
-    const summarizeHistory = typeof options.summarizeHistory === 'function'
-      ? options.summarizeHistory
-      : (params => defaultSummarizeHistory(params, options));
-    const runtimeConfig = options.getRuntimeConfig ? options.getRuntimeConfig() : (getConfig()?.getActive?.() || {});
+  async function summarizeBranchHistory(history, boundary, sessionId, signal) {
+    const config = getConfig().getActive();
     // La respuesta de anclaje se conserva literal tras el resumen, así que no se resume.
-    const compacted = await ContextManager.compressHistory({
+    const compacted = await resolveDep('ChatContextManager', './context-manager.js').compressHistory({
       messages: history.slice(0, boundary),
       summarizeFn: params => summarizeHistory({ ...params, signal }),
       options: {
-        model: runtimeConfig.model,
-        totalContextLimit: runtimeConfig.modelContextLimit || runtimeConfig.contextLimitOverride
+        model: config.model,
+        totalContextLimit: config.modelContextLimit || config.contextLimitOverride
       }
     });
-    return compacted?.compressed && Array.isArray(compacted.messages)
+    return compacted.compressed
       ? renumberForSession([...compacted.messages, history[boundary]], sessionId)
       : null;
   }
 
   /** Decide si la rama se resume; null si el usuario cancela la bifurcación. */
-  async function askBranchMode(history, boundary, options = {}) {
-    if (typeof options.summarize === 'boolean') return { summarize: options.summarize };
+  async function askBranchMode(history, boundary) {
     if (!shouldOfferBranchSummary(history, boundary)) return { summarize: false };
     const decision = await getDialogs().confirm(t('chat_branch_dialog_message'), {
       title: t('chat_branch_dialog_title'),
@@ -368,25 +220,25 @@
    * Historial de una rama resumida. Si el resumen falla, ofrece bifurcar con el historial
    * completo; null si se cancela o la conversación quedó ocupada.
    */
-  async function buildSummarizedBranchHistory(wrapper, history, boundary, sessionId, options = {}) {
+  async function buildSummarizedBranchHistory(wrapper, history, boundary, sessionId) {
     const State = getState();
-    const UIConv = options.uiConversation || resolveDep('ChatUIConversation', './ui-conversation.js');
-    UIConv?.showBranchLoadingIndicator?.(wrapper, t('chat_branch_summarizing'));
+    const UIConversation = resolveDep('ChatUIConversation', './ui-conversation.js');
+    UIConversation.showBranchLoadingIndicator(wrapper, t('chat_branch_summarizing'));
     let cancelled = false;
     let summarized = null;
     try {
       // Mientras se resume, la conversación cuenta como ocupada y el botón de parar la cancela.
       summarized = await getGenerationController().runCancellableTask(async signal => {
-        State?.setGenerationStatus?.({ phase: 'custom', text: t('chat_branch_summarizing') });
-        const result = await summarizeBranchHistory(history, boundary, sessionId, signal, options);
+        State.setGenerationStatus({ phase: 'custom', text: t('chat_branch_summarizing') });
+        const result = await summarizeBranchHistory(history, boundary, sessionId, signal);
         cancelled = signal.aborted;
         return result;
       });
     } catch (err) {
-      console.warn('[ZeroChat] Error al generar resumen para rama:', err);
+      console.warn('[ConversationService] Could not summarize the branch history:', err);
     } finally {
-      State?.clearGenerationStatus?.();
-      UIConv?.hideBranchLoadingIndicator?.(wrapper);
+      State.clearGenerationStatus();
+      UIConversation.hideBranchLoadingIndicator(wrapper);
     }
 
     if (cancelled || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return null;
@@ -399,29 +251,24 @@
     return useFullHistory ? cloneBranchHistory(history, boundary, sessionId) : null;
   }
 
-  async function createConversationBranch(wrapper, options = {}) {
+  async function createConversationBranch(wrapper, options) {
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
-    const State = getState();
-    const Storage = getStorage(options);
-    const history = options.getChatHistory ? options.getChatHistory() : (State?.getMessages?.() || []);
+    const history = getHistory();
     const boundary = getBranchBoundaryIndex(wrapper, history);
     if (boundary < 0) return false;
 
     await saveCurrentSession(options);
     if (blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
-    const mode = await askBranchMode(history, boundary, options);
+    const mode = await askBranchMode(history, boundary);
     if (!mode || blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
 
-    const parentSessionId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
-    const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
-    const parentSession = sessionsList.find(session => session.id === parentSessionId);
-    const parentTitle = parentSession?.title || t('chat_untitled');
+    const parentSessionId = getActiveSessionId();
+    const parentTitle = getSavedSessions().find(session => session.id === parentSessionId)?.title || t('chat_untitled');
     const branchSessionId = createId('session');
-
     const branchHistory = mode.summarize
-      ? await buildSummarizedBranchHistory(wrapper, history, boundary, branchSessionId, options)
+      ? await buildSummarizedBranchHistory(wrapper, history, boundary, branchSessionId)
       : cloneBranchHistory(history, boundary, branchSessionId);
     if (!branchHistory) return false;
 
@@ -434,124 +281,79 @@
       messageCount: branchHistory.length,
       metadata: {
         parentSessionId,
-        branchedFromMessageIds: (wrapper?.getAttribute?.('data-msg-ids') || '').split(',').filter(Boolean)
+        branchedFromMessageIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
       }
     };
 
-    const Dialogs = getDialogs();
-    if (!Storage?.saveConversation || !await Storage.saveConversation(branchSession, branchHistory)) {
-      if (Dialogs?.alert) Dialogs.alert(t('chat_branch_error'), { type: 'error' });
+    const Storage = getStorage();
+    if (!await Storage.saveConversation(branchSession, branchHistory)) {
+      getDialogs().alert(t('chat_branch_error'), { type: 'error' });
       return false;
     }
-    if (!initializeSessionState(branchSessionId, branchHistory, 'chat_new_blocked_generating', options)) {
-      await Storage?.deleteConversation?.(branchSessionId);
+    if (!activateConversation(branchSessionId, branchHistory, 'chat_new_blocked_generating', options)) {
+      await Storage.deleteConversation(branchSessionId);
       return false;
     }
-    if (State?.saveSessionMetadata) State.saveSessionMetadata(branchSession);
+    getState().saveSessionMetadata(branchSession);
     showActiveSession(options, { resetComposer: true });
     return true;
   }
 
-  async function deleteSession(sessionId, event, options = {}) {
-    if (event && event.stopPropagation) event.stopPropagation();
-    const Dialogs = getDialogs();
-    if (Dialogs?.confirm && !await Dialogs.confirm(t('chat_delete_confirm'))) return;
+  async function deleteSession(sessionId, options) {
+    if (!await getDialogs().confirm(t('chat_delete_confirm'))) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
-    const State = getState();
-    const Storage = getStorage(options);
-    const currId = options.getCurrentSessionId ? options.getCurrentSessionId() : (State?.getActiveSessionId?.() || '');
-
-    if (State?.removeSession) {
-      const res = State.removeSession(sessionId);
-      if (!res.ok && res.reason === 'generation-active') {
-        if (Dialogs?.alert) Dialogs.alert(t('chat_delete_blocked_generating'));
-        return;
-      }
+    const activeId = getActiveSessionId();
+    if (!getState().removeSession(sessionId).ok) {
+      getDialogs().alert(t('chat_delete_blocked_generating'));
+      return;
     }
+    await getStorage().deleteConversation(sessionId);
 
-    if (Storage?.deleteConversation) {
-      await Storage.deleteConversation(sessionId);
-    }
-
-    const remainingSessions = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
-    if (remainingSessions.length === 0) {
+    const remaining = getSavedSessions();
+    if (remaining.length === 0) {
       await createNewSession({ ...options, saveCurrent: false });
-    } else if (currId === sessionId) {
-      const next = remainingSessions[0];
-      await switchToSession(next.id, { ...options, force: true, saveCurrent: false });
+    } else if (activeId === sessionId) {
+      await switchToSession(remaining[0].id, { ...options, force: true, saveCurrent: false });
     } else {
-      if (typeof options.renderSidebarChats === 'function') {
-        options.renderSidebarChats();
-      }
+      options.renderSidebarChats();
     }
   }
 
-  async function deleteAllSessions(options = {}) {
-    const State = getState();
-    const Storage = getStorage(options);
-    const Dialogs = getDialogs();
-    const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
-    if (!sessionsList || sessionsList.length === 0) return;
+  async function deleteAllSessions(options) {
+    if (getSavedSessions().length === 0) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    if (Dialogs?.confirm && !await Dialogs.confirm(t('chat_delete_all_confirm'))) return;
+    if (!await getDialogs().confirm(t('chat_delete_all_confirm'))) return;
     if (blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
-    const deleted = Storage?.deleteAllConversations ? await Storage.deleteAllConversations() : true;
-    if (!deleted) {
-      if (Dialogs?.alert) Dialogs.alert(t('chat_delete_history_err'), { type: 'error' });
+    if (!await getStorage().deleteAllConversations()) {
+      getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
-
-    if (State?.set) {
-      State.set('sessions', { activeId: null, list: [] });
-    }
-
+    getState().set('sessions', { activeId: null, list: [] });
     await createNewSession({ ...options, saveCurrent: false });
   }
 
-  async function renameSession(sessionId, event, options = {}) {
-    if (event && event.stopPropagation) event.stopPropagation();
-    const State = getState();
-    const Storage = getStorage(options);
-    const Dialogs = getDialogs();
-    const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
-    let sess = sessionsList.find(s => s.id === sessionId);
-    if (!sess) return;
-
-    const newTitle = Dialogs?.prompt ? await Dialogs.prompt(t('prompt_rename_conversation'), sess.title || '') : null;
-    if (newTitle !== null && newTitle.trim() !== '') {
-      sess = (options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || [])).find(s => s.id === sessionId);
-      if (!sess) return;
-      sess.title = newTitle.trim();
-      sess.updatedAt = Date.now();
-      if (State?.saveSessionMetadata) {
-        State.saveSessionMetadata(sess);
-      }
-      if (Storage?.renameConversation) {
-        await Storage.renameConversation(sessionId, sess.title);
-      }
-      if (typeof options.renderSidebarChats === 'function') {
-        options.renderSidebarChats();
-      }
-    }
+  async function renameSession(sessionId, options) {
+    const current = getSavedSessions().find(session => session.id === sessionId);
+    if (!current) return;
+    const newTitle = (await getDialogs().prompt(t('prompt_rename_conversation'), current.title))?.trim();
+    if (!newTitle) return;
+    // La sesión pudo borrarse mientras el diálogo estaba abierto.
+    const session = getSavedSessions().find(item => item.id === sessionId);
+    if (!session) return;
+    getState().saveSessionMetadata({ ...session, title: newTitle, updatedAt: Date.now() });
+    await getStorage().renameConversation(sessionId, newTitle);
+    options.renderSidebarChats();
   }
 
   return {
-    createInitialChatHistory,
     blockSessionTransitionIfBusy,
-    initializeSessionState,
     loadSessionsFromStorage,
     saveCurrentSession,
     switchToSession,
     createNewSession,
-    getBranchBoundaryIndex,
     setAssistantGroupMessageIds,
-    cloneBranchHistory,
-    shouldOfferBranchSummary,
-    renumberForSession,
-    loadProfileUnlocked,
-    defaultSummarizeHistory,
     createConversationBranch,
     deleteSession,
     deleteAllSessions,

@@ -43,7 +43,7 @@
     enableRawLogs: false, enableContextCache: true,
     apiKeyLocked: false,
     theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
-    activeRagBranchId: '', activeRagBranchIds: Object.freeze([]),
+    activeRagBranchIds: Object.freeze([]),
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     projectMode: true, projectDeclined: Object.freeze([]),
     webllmConfig: Object.freeze({

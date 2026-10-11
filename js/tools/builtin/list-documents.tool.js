@@ -76,7 +76,7 @@
       category: 'rag',
       metadata: { label: definition.name },
       settings: { showInSettings: false },
-      isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
+      isAvailable: config => config.activeRagBranchIds.length > 0,
       execute: async (args = {}, context = {}) => {
         const RagService = context.services.ragService;
         if (!RagService?.listDocuments) return { success: false, error: 'RAG service not available.' };

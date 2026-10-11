@@ -11,7 +11,7 @@ after(() => Database.closeDatabase());
 
 test('Contexto temporal - conserva fecha en IndexedDB, exportación y compactación', async () => {
   const history = [{ id: 'system_root', role: 'system', content: 'Sistema estable' }];
-  const anchor = Engine.ensureConversationDate(history, 'es', '2026-01-01T12:00:00Z');
+  const anchor = Engine.ensureConversationDate(history, '2026-01-01T12:00:00Z');
   for (let i = 0; i < 12; i++) {
     history.push({ role: 'user', content: `Pregunta ${i}` }, { role: 'assistant', content: `Respuesta ${i}` });
   }
@@ -27,12 +27,12 @@ test('Contexto temporal - conserva fecha en IndexedDB, exportación y compactaci
     summarizeFn: async () => 'Checkpoint temporal acumulativo.'
   });
   assert.equal(compacted.compressed, true);
-  assert.equal(Engine.ensureConversationDate(compacted.messages, 'en', '2027-03-03T12:00:00Z'), anchor);
-  assert.ok(Engine.buildEffectiveMessages(compacted.messages)[0].content.includes(anchor));
+  assert.equal(Engine.ensureConversationDate(compacted.messages, '2027-03-03T12:00:00Z'), anchor);
+  assert.ok(Engine.buildEffectiveMessages(compacted.messages, require('../../js/config-store.js').normalize({}))[0].content.includes(anchor));
 });
 
 test('Contexto temporal - usa el día local en el límite de medianoche', () => {
-  const code = `const e = require('./js/chat-engine.js'); process.stdout.write(e.getConversationDateAnchor('es', '2026-09-05T23:30:00Z'));`;
+  const code = `const e = require('./js/chat-engine.js'); process.stdout.write(e.getConversationDateAnchor('2026-09-05T23:30:00Z'));`;
   const anchor = execFileSync(process.execPath, ['-e', code], {
     cwd: require('node:path').resolve(__dirname, '../..'), env: { ...process.env, TZ: 'Europe/Madrid' }, encoding: 'utf8'
   });

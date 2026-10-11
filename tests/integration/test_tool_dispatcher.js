@@ -54,7 +54,7 @@ test('ToolDispatcher - dispatchToolCall ejecuta search_web con alias searchweb',
 
 test('ToolDispatcher - getActiveDefinitions excluye todas las herramientas RAG si RAG no está activo', () => {
   const defsWithoutRag = AgentCore.registry.getActiveDefinitions({
-    activeRagBranchId: ''
+    activeRagBranchIds: []
   });
 
   const listDocsTool = defsWithoutRag.find(d => d.function?.name === 'list_documents');
@@ -66,7 +66,7 @@ test('ToolDispatcher - getActiveDefinitions excluye todas las herramientas RAG s
   assert.equal(readChunkTool, undefined, 'read_knowledge_chunk NO debe enviarse si RAG está inactivo');
 
   const defsWithRag = AgentCore.registry.getActiveDefinitions({
-    activeRagBranchId: 'branch_123'
+    activeRagBranchIds: ['branch_123']
   });
 
   const listDocsActive = defsWithRag.find(d => d.function?.name === 'list_documents');

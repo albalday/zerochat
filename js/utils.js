@@ -3,7 +3,7 @@
  * ZeroChat - js/utils.js
  *
  * Centraliza funciones utilitarias esenciales (escapeHtml, fetchWithTimeout,
- * serializeContent, clone, createId, resolveDep, etc.) para eliminar
+ * serializeContent, clone, createId, copyToClipboard, resolveDep, etc.) para eliminar
  * duplicación en toda la base de código.
  */
 (function (root, factory) {
@@ -158,6 +158,35 @@
   }
 
   /**
+   * Copia texto al portapapeles y, si se indica un botón, muestra `feedbackHtml` en él durante
+   * dos segundos con la clase `copied`. Devuelve si se pudo copiar.
+   * @param {string} text
+   * @param {Element} [button]
+   * @param {string} [feedbackHtml]
+   * @returns {Promise<boolean>}
+   */
+  async function copyToClipboard(text, button = null, feedbackHtml = '') {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.warn('[ChatUtils] Clipboard write failed:', error);
+      return false;
+    }
+    if (button) {
+      clearTimeout(button._copyFeedbackTimer);
+      if (button._copyOriginalHtml === undefined) button._copyOriginalHtml = button.innerHTML;
+      button.innerHTML = feedbackHtml;
+      button.classList.add('copied');
+      button._copyFeedbackTimer = setTimeout(() => {
+        button.innerHTML = button._copyOriginalHtml;
+        button._copyOriginalHtml = undefined;
+        button.classList.remove('copied');
+      }, 2000);
+    }
+    return true;
+  }
+
+  /**
    * Formatea un tamaño en bytes con la unidad adecuada (ej: 1536 -> "1.5 KB").
    * @param {number} bytes
    * @returns {string}
@@ -210,6 +239,7 @@
     serializeContent,
     clone,
     createId,
+    copyToClipboard,
     formatShortValue,
     formatBytes,
     resolveDep

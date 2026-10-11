@@ -1,344 +1,327 @@
 /**
  * Aplicación principal del cliente de chat Web (ZeroChat).
- * Desarrollo 100% asistido por IA: colaboración entre Codex y Antigravity para implementar
- * un motor RAG local funcional utilizando la librería externa Orama como vendor autónomo,
- * iterando e implementando sin tocar una sola línea de código manual por parte del usuario.
- * Incluye:
- * - Soporte Multi-idioma (Castellano / Inglés) con autodetección por navegador y persistencia.
- * - Selector de nivel de razonamiento (Thinking/CoT) con detección automática de capacidades del modelo.
- * - Nuevo chat abriendo en una nueva pestaña.
- * - Estadísticas y acciones agrupadas en la misma línea debajo de la respuesta.
- * - Borrado de preguntas y respuestas individuales.
- * - Copia de respuesta completa al portapapeles.
- * - Estadísticas en tiempo real (tokens, tiempo, tokens/segundo).
- * - Adjuntar archivos de texto y código con vista previa y arrastrar/soltar.
- * - Compatibilidad total con file:// y http://.
+ * Arranca los módulos, reúne los elementos del DOM y cablea entre ellos los eventos de la
+ * interfaz. La lógica de cada área vive en su módulo; aquí solo queda la coordinación.
  */
 
 (function () {
   'use strict';
 
-  // Módulos globales
-  const Storage = window.ChatStorage || {};
-  const API = window.ChatAPI || {};
-  const I18n = window.ChatI18n || {};
-  const Debug = window.ChatDebug || {};
-  const ProfileBackup = window.ChatProfileBackup || {};
-  const State = window.ChatState || {};
-  const Engine = window.ChatEngine || {};
-  const UIReasoning = window.ChatUIReasoning || {};
-  const GenerationStatus = window.ChatUIGenerationStatus || {};
-  const UIInspector = window.ChatUIInspector || {};
-  const UISidebar = window.ChatUISidebar || {};
-  const UISettings = window.ChatUISettings || {};
-  const Config = window.ChatConfig;
-  const Profiles = window.ChatProfileRepository || {};
-  const Providers = window.ChatProviders || {};
-  const UIShell = window.ChatUIShell || {};
-  const UITransfer = window.ChatUITransfer || {};
-  const UIProfiles = window.ChatUIProfiles || {};
-  const UIComposer = window.ChatUIComposer || {};
-  const UICommandJobs = window.ChatUICommandJobs || {};
-  const ConversationService = window.ChatConversationService || {};
-  const UIConversation = window.ChatUIConversation || {};
-  const GenerationController = window.ChatGenerationController || {};
-  const ToolSecurity = window.ChatToolSecurity || {};
-  const ProjectContext = window.ChatProjectContext || {};
-  const MessageTurns = window.ChatMessageTurns || {};
+  const {
+    ChatStorage: Storage,
+    ChatI18n: I18n,
+    ChatDebug: Debug,
+    ChatState: State,
+    ChatEngine: Engine,
+    ChatDefaults: Defaults,
+    ChatDialogs: Dialogs,
+    ChatConfig: Config,
+    ChatProfileRepository: Profiles,
+    ChatProviders: Providers,
+    ChatMCP: MCP,
+    ChatToolSecurity: ToolSecurity,
+    ChatProjectContext: ProjectContext,
+    ChatMessageTurns: MessageTurns,
+    ChatContextManager: ContextManager,
+    ChatConversationService: ConversationService,
+    ChatGenerationController: GenerationController,
+    ChatUIReasoning: UIReasoning,
+    ChatUIInspector: UIInspector,
+    ChatUISidebar: UISidebar,
+    ChatUISettings: UISettings,
+    ChatUIShell: UIShell,
+    ChatUITransfer: UITransfer,
+    ChatUIProfiles: UIProfiles,
+    ChatUIComposer: UIComposer,
+    ChatUICommandJobs: UICommandJobs,
+    ChatUIConversation: UIConversation,
+    ChatUITelemetry: UITelemetry,
+    ChatUIMcp: UIMcp,
+    ChatRagUI: RagUI,
+    ChatExport: Export
+  } = window;
+  const { t } = I18n;
 
-  function t(key, params) {
-    return I18n.t(key, params);
-  }
+  Config.initialize();
 
-  if (typeof Config?.initialize !== 'function' || typeof Config?.getActive !== 'function') {
-    throw new Error('ZeroChat requires ChatConfig before application startup.');
-  }
+  const getRuntimeConfig = () => Config.getActive();
+  const getChatHistory = () => State.get('messages');
+  const getCurrentSessionId = () => State.get('sessions').activeId;
 
-  try {
-    Config.initialize();
-  } catch (error) {
-    console.warn('Error durante la inicialización de configuración:', error);
-  }
+  const ELEMENT_IDS = {
+    // Barra lateral de chats
+    chatSidebar: 'chat-sidebar',
+    btnToggleSidebar: 'btn-toggle-sidebar',
+    btnCloseSidebar: 'btn-close-sidebar',
+    btnSidebarNewTab: 'btn-sidebar-new-tab',
+    btnSidebarNewChat: 'btn-sidebar-new-chat',
+    sidebarSearchInput: 'sidebar-search-input',
+    sidebarChatsList: 'sidebar-chats-list',
+    btnImportChatFile: 'btn-import-chat-file',
+    importJsonInput: 'import-json-input',
+    btnDeleteAllChats: 'btn-delete-all-chats',
+    sidebarViewChat: 'sidebar-view-chat',
+    sidebarViewSettings: 'sidebar-view-settings',
+    btnSidebarBackToChats: 'btn-sidebar-back-to-chats',
+    btnCloseSidebarSettings: 'btn-close-sidebar-settings',
+    sidebarSettingsNav: 'sidebar-settings-nav',
+    sidebarEncryptionNav: 'sidebar-encryption-nav',
+    sidebarRagNav: 'sidebar-rag-nav',
+    sidebarSettingsFooter: 'sidebar-settings-footer',
+    btnEncryptionBack: 'btn-encryption-back',
+    btnEncryptionPassword: 'btn-encryption-password',
+    btnEncryptionDefault: 'btn-encryption-default',
+    btnRagBack: 'btn-rag-back',
+    btnRagBranches: 'btn-rag-branches',
+    btnRagActivate: 'btn-rag-activate',
+    sidebarBackdrop: 'sidebar-backdrop',
+    // Modal de exportación
+    exportModal: 'export-modal',
+    btnCloseExport: 'btn-close-export',
+    btnCancelExport: 'btn-cancel-export',
+    btnExportMarkdown: 'btn-export-markdown',
+    btnExportJson: 'btn-export-json',
+    btnExportPrint: 'btn-export-print',
+    // Perfil activo e inspector
+    activeProfileMenu: 'active-profile-menu',
+    activeProfileTrigger: 'active-profile-trigger',
+    activeProfileName: 'active-profile-name',
+    activeProfilePopover: 'active-profile-popover',
+    activeProfileList: 'active-profile-list',
+    inspectorDialog: 'inspector-dialog',
+    inspectorProfileName: 'inspector-profile-name',
+    btnCloseInspector: 'btn-close-inspector',
+    btnMenuNewProfile: 'btn-menu-new-profile',
+    btnMenuExportProfiles: 'btn-menu-export-profiles',
+    btnMenuCloseProfiles: 'btn-menu-close-profiles',
+    // Telemetría de contexto
+    connectionTokensBadge: 'connection-tokens-badge',
+    connectionTokensText: 'connection-tokens-text',
+    contextHubCachePill: 'context-hub-cache-pill',
+    contextHubCacheVal: 'context-hub-cache-val',
+    contextHubPopover: 'context-hub-popover',
+    btnCloseContextPopover: 'btn-close-context-popover',
+    contextProgressBar: 'context-progress-bar',
+    contextMetricUsedVal: 'context-metric-used-val',
+    contextMetricLimitVal: 'context-metric-limit-val',
+    contextMetricFreeVal: 'context-metric-free-val',
+    contextMetricStatusVal: 'context-metric-status-val',
+    contextLimitSource: 'context-limit-source',
+    contextLimitOverrideInput: 'context-limit-override-input',
+    btnSaveContextLimitOverride: 'btn-save-context-limit-override',
+    contextMetricCachedReadVal: 'context-metric-cached-read-val',
+    contextMetricCachedWriteVal: 'context-metric-cached-write-val',
+    contextMetricTurnPromptVal: 'context-metric-turn-prompt-val',
+    contextMetricTurnCompletionVal: 'context-metric-turn-completion-val',
+    contextMetricTurnSpeedVal: 'context-metric-turn-speed-val',
+    contextMetricTurnLatencyVal: 'context-metric-turn-latency-val',
+    // Conversación y compositor
+    btnOpenSettings: 'btn-open-settings',
+    messagesList: 'messages-list',
+    welcomeBanner: 'welcome-banner',
+    chatForm: 'chat-form',
+    userInput: 'user-input',
+    btnSend: 'btn-send',
+    btnStopStream: 'btn-stop-stream',
+    generationStatus: 'generation-status',
+    btnOpenRag: 'btn-open-rag',
+    btnAttachFile: 'btn-attach-file',
+    fileInput: 'file-input',
+    attachmentsContainer: 'attachments-container',
+    welcomeHelpLink: 'welcome-help-link',
+    // Razonamiento y modo proyecto
+    btnReasoning: 'btn-reasoning',
+    reasoningLabel: 'reasoning-label',
+    reasoningProjectLabel: 'reasoning-project-label',
+    reasoningMenu: 'reasoning-menu',
+    reasoningIntensity: 'reasoning-intensity',
+    reasoningIntensityValue: 'reasoning-intensity-value',
+    btnCloseReasoning: 'btn-close-reasoning',
+    projectModePanel: 'project-mode-panel',
+    // Panel de Debug & Logs
+    btnToggleDebug: 'btn-toggle-debug',
+    debugPanel: 'debug-panel',
+    debugStatusIndicator: 'debug-status-indicator',
+    btnCopyDebug: 'btn-copy-debug',
+    btnClearDebug: 'btn-clear-debug',
+    btnCloseDebug: 'btn-close-debug',
+    debugLogContent: 'debug-log-content',
+    chkEnableDebugMessages: 'chk-enable-debug-messages',
+    debugMessagesStatusBadge: 'debug-messages-status-badge',
+    // Modal de Depuración de Mensajes Salientes (Interceptor)
+    debugInterceptorDialog: 'debug-interceptor-dialog',
+    btnMaximizeDebugModal: 'btn-maximize-debug-modal',
+    debugModalEndpointBadge: 'debug-modal-endpoint-badge',
+    btnFormatDebugJson: 'btn-format-debug-json',
+    btnCopyDebugJson: 'btn-copy-debug-json',
+    txtDebugPayload: 'txt-debug-payload',
+    debugJsonError: 'debug-json-error',
+    btnDebugSendDisable: 'btn-debug-send-disable',
+    btnDebugSend: 'btn-debug-send',
+    // Modal de Configuración y perfiles
+    settingsDialog: 'settings-dialog',
+    settingsForm: 'settings-form',
+    settingsSectionTitle: 'settings-section-title',
+    btnCloseSettings: 'btn-close-settings',
+    btnSaveSettings: 'btn-save-settings',
+    btnClearAllData: 'btn-clear-all-data',
+    btnToggleKey: 'btn-toggle-key',
+    profilesDialog: 'profiles-dialog',
+    profilesForm: 'profiles-form',
+    btnCloseProfiles: 'btn-close-profiles',
+    settingProfileName: 'setting-profile-name',
+    settingProfileDescription: 'setting-profile-description',
+    profileSelectHelper: 'profile-select-helper',
+    btnSaveProfile: 'btn-save-profile',
+    profileActionFeedback: 'profile-action-feedback',
+    profileSaveQueryHint: 'profile-save-query-hint',
+    settingApiType: 'setting-api-type',
+    settingApiUrl: 'setting-api-url',
+    btnQueryServer: 'btn-query-server',
+    serverQueryStatus: 'server-query-status',
+    settingApiKey: 'setting-api-key',
+    settingApiKeyLocked: 'setting-api-key-locked',
+    apiKeyLockControl: 'api-key-lock-control',
+    apiKeyLockedStatus: 'api-key-locked-status',
+    settingModel: 'setting-model',
+    modelDatalist: 'model-datalist',
+    modelSelectHelper: 'model-select-helper',
+    webllmParamsPanel: 'webllm-params-panel',
+    settingWebllmContextWindow: 'setting-webllm-context-window',
+    settingWebllmPrefillChunk: 'setting-webllm-prefill-chunk',
+    settingSystemPrompt: 'setting-system-prompt',
+    settingSystemDataPrompt: 'setting-system-data-prompt',
+    settingTemperature: 'setting-temperature',
+    temperatureVal: 'temperature-val',
+    temperatureHint: 'temperature-hint',
+    inspectorResults: 'inspector-results',
+    agentToolsContainer: 'agent-tools-container',
+    // MCP
+    mcpToolsContainer: 'mcp-tools-container',
+    mcpServersList: 'mcp-servers-list',
+    mcpStatusBadge: 'mcp-status-badge',
+    mcpStatusText: 'mcp-status-text',
+    mcpServerDetails: 'mcp-server-details',
+    mcpReconnectHint: 'mcp-reconnect-hint',
+    mcpTerminalCommand: 'mcp-terminal-command',
+    btnMcpCopyCmd: 'btn-mcp-copy-cmd',
+    mcpBootstrapCard: 'mcp-bootstrap-card'
+  };
 
-  function getRuntimeConfig() {
-    return Config.getActive();
-  }
-
-  function getChatHistory() {
-    return State.get ? (State.get('messages') || []) : [];
-  }
-
-  function getCurrentSessionId() {
-    return State.get ? (State.get('sessions')?.activeId || '') : '';
-  }
-
-  function getSavedSessions() {
-    return State.get ? (State.get('sessions')?.list || []) : [];
-  }
-
-  // Referencias al DOM
   let elements = {};
-  let serviceWorkerUpdatePromptShown = false;
 
   function cacheDomElements() {
-    elements = {
-      // Barra lateral de chats
-      chatSidebar: document.getElementById('chat-sidebar'),
-      btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
-      btnCloseSidebar: document.getElementById('btn-close-sidebar'),
-      btnSidebarNewTab: document.getElementById('btn-sidebar-new-tab'),
-      btnSidebarNewChat: document.getElementById('btn-sidebar-new-chat'),
-      sidebarSearchInput: document.getElementById('sidebar-search-input'),
-      sidebarChatsList: document.getElementById('sidebar-chats-list'),
-      btnImportChatFile: document.getElementById('btn-import-chat-file'),
-      importJsonInput: document.getElementById('import-json-input'),
-      btnDeleteAllChats: document.getElementById('btn-delete-all-chats'),
-      sidebarViewChat: document.getElementById('sidebar-view-chat'),
-      sidebarViewSettings: document.getElementById('sidebar-view-settings'),
-      btnSidebarBackToChats: document.getElementById('btn-sidebar-back-to-chats'),
-      btnCloseSidebarSettings: document.getElementById('btn-close-sidebar-settings'),
-      sidebarSettingsNav: document.getElementById('sidebar-settings-nav'),
-      sidebarEncryptionNav: document.getElementById('sidebar-encryption-nav'),
-      sidebarRagNav: document.getElementById('sidebar-rag-nav'),
-      sidebarSettingsFooter: document.getElementById('sidebar-settings-footer'),
-      sidebarSettingsItems: document.querySelectorAll('.sidebar-settings-item'),
-      btnEncryptionBack: document.getElementById('btn-encryption-back'),
-      btnEncryptionPassword: document.getElementById('btn-encryption-password'),
-      btnEncryptionDefault: document.getElementById('btn-encryption-default'),
-      btnRagBack: document.getElementById('btn-rag-back'),
-      btnRagBranches: document.getElementById('btn-rag-branches'),
-      btnRagActivate: document.getElementById('btn-rag-activate'),
-
-      // Modal de exportación
-      exportModal: document.getElementById('export-modal'),
-      btnCloseExport: document.getElementById('btn-close-export'),
-      btnCancelExport: document.getElementById('btn-cancel-export'),
-      btnExportMarkdown: document.getElementById('btn-export-markdown'),
-      btnExportJson: document.getElementById('btn-export-json'),
-      btnExportPrint: document.getElementById('btn-export-print'),
-
-      activeProfileMenu: document.getElementById('active-profile-menu'),
-      activeProfileTrigger: document.getElementById('active-profile-trigger'),
-      activeProfileName: document.getElementById('active-profile-name'),
-      activeProfilePopover: document.getElementById('active-profile-popover'),
-      activeProfileList: document.getElementById('active-profile-list'),
-      inspectorDialog: document.getElementById('inspector-dialog'),
-      inspectorProfileName: document.getElementById('inspector-profile-name'),
-      btnCloseInspector: document.getElementById('btn-close-inspector'),
-      btnMenuNewProfile: document.getElementById('btn-menu-new-profile'),
-      btnMenuExportProfiles: document.getElementById('btn-menu-export-profiles'),
-      btnMenuImportProfiles: document.getElementById('btn-menu-import-profiles'),
-      btnMenuCloseProfiles: document.getElementById('btn-menu-close-profiles'),
-      btnEditProfiles: document.getElementById('btn-edit-profiles'),
-      connectionTokensBadge: document.getElementById('connection-tokens-badge'),
-      connectionTokensText: document.getElementById('connection-tokens-text'),
-      contextHubCachePill: document.getElementById('context-hub-cache-pill'),
-      contextHubCacheVal: document.getElementById('context-hub-cache-val'),
-      contextHubPopover: document.getElementById('context-hub-popover'),
-      btnCloseContextPopover: document.getElementById('btn-close-context-popover'),
-      contextProgressBar: document.getElementById('context-progress-bar'),
-      contextMetricUsedVal: document.getElementById('context-metric-used-val'),
-      contextMetricLimitVal: document.getElementById('context-metric-limit-val'),
-      contextMetricFreeVal: document.getElementById('context-metric-free-val'),
-      contextMetricStatusVal: document.getElementById('context-metric-status-val'),
-      contextLimitSource: document.getElementById('context-limit-source'),
-      contextLimitOverrideInput: document.getElementById('context-limit-override-input'),
-      btnSaveContextLimitOverride: document.getElementById('btn-save-context-limit-override'),
-      contextMetricCachedReadVal: document.getElementById('context-metric-cached-read-val'),
-      contextMetricCachedWriteVal: document.getElementById('context-metric-cached-write-val'),
-      contextMetricTurnPromptVal: document.getElementById('context-metric-turn-prompt-val'),
-      contextMetricTurnCompletionVal: document.getElementById('context-metric-turn-completion-val'),
-      contextMetricTurnSpeedVal: document.getElementById('context-metric-turn-speed-val'),
-      contextMetricTurnLatencyVal: document.getElementById('context-metric-turn-latency-val'),
-      btnOpenSettings: document.getElementById('btn-open-settings'),
-      messagesList: document.getElementById('messages-list'),
-      welcomeBanner: document.getElementById('welcome-banner'),
-      chatForm: document.getElementById('chat-form'),
-      userInput: document.getElementById('user-input'),
-      btnSend: document.getElementById('btn-send'),
-      btnStopStream: document.getElementById('btn-stop-stream'),
-      generationStatus: document.getElementById('generation-status'),
-      btnOpenRag: document.getElementById('btn-open-rag'),
-      btnReasoning: document.getElementById('btn-reasoning'),
-      reasoningLabel: document.getElementById('reasoning-label'),
-      reasoningProjectLabel: document.getElementById('reasoning-project-label'),
-      reasoningMenu: document.getElementById('reasoning-menu'),
-      reasoningIntensity: document.getElementById('reasoning-intensity'),
-      reasoningIntensityValue: document.getElementById('reasoning-intensity-value'),
-      btnCloseReasoning: document.getElementById('btn-close-reasoning'),
-      projectModePanel: document.getElementById('project-mode-panel'),
-
-      // Panel de Debug & Logs
-      btnToggleDebug: document.getElementById('btn-toggle-debug'),
-      debugPanel: document.getElementById('debug-panel'),
-      debugStatusIndicator: document.getElementById('debug-status-indicator'),
-      btnCopyDebug: document.getElementById('btn-copy-debug'),
-      btnClearDebug: document.getElementById('btn-clear-debug'),
-      btnCloseDebug: document.getElementById('btn-close-debug'),
-      debugLogContent: document.getElementById('debug-log-content'),
-      debugTabs: document.querySelectorAll('.debug-tab'),
-      chkEnableDebugMessages: document.getElementById('chk-enable-debug-messages'),
-      debugMessagesStatusBadge: document.getElementById('debug-messages-status-badge'),
-
-      // Modal de Depuración de Mensajes Salientes (Interceptor)
-      debugInterceptorDialog: document.getElementById('debug-interceptor-dialog'),
-      btnMaximizeDebugModal: document.getElementById('btn-maximize-debug-modal'),
-      debugModalEndpointBadge: document.getElementById('debug-modal-endpoint-badge'),
-      btnFormatDebugJson: document.getElementById('btn-format-debug-json'),
-      btnCopyDebugJson: document.getElementById('btn-copy-debug-json'),
-      txtDebugPayload: document.getElementById('txt-debug-payload'),
-      debugJsonError: document.getElementById('debug-json-error'),
-      btnDebugSendDisable: document.getElementById('btn-debug-send-disable'),
-      btnDebugSend: document.getElementById('btn-debug-send'),
-
-      // Adjuntos
-      btnAttachFile: document.getElementById('btn-attach-file'),
-      fileInput: document.getElementById('file-input'),
-      attachmentsContainer: document.getElementById('attachments-container'),
-
-      // Ayuda y documentación
-      welcomeHelpLink: document.getElementById('welcome-help-link'),
-
-      // Información sobre ejecución y almacenamiento
-      btnOpenExecutionInfo: document.getElementById('btn-open-execution-info'),
-      executionInfoDialog: document.getElementById('execution-info-dialog'),
-      executionStorageScope: document.getElementById('execution-storage-scope'),
-      btnCloseExecutionInfo: document.getElementById('btn-close-execution-info'),
-      btnCloseExecutionInfoFooter: document.getElementById('btn-close-execution-info-footer'),
-
-      // Modal de Configuración
-      settingsDialog: document.getElementById('settings-dialog'),
-      settingsForm: document.getElementById('settings-form'),
-      settingsSectionTitle: document.getElementById('settings-section-title'),
-      btnCloseSettings: document.getElementById('btn-close-settings'),
-      btnSaveSettings: document.getElementById('btn-save-settings'),
-      btnClearAllData: document.getElementById('btn-clear-all-data'),
-      btnToggleKey: document.getElementById('btn-toggle-key'),
-      profilesDialog: document.getElementById('profiles-dialog'),
-      profilesForm: document.getElementById('profiles-form'),
-      btnManageProfiles: document.getElementById('btn-manage-profiles'),
-      btnCloseProfiles: document.getElementById('btn-close-profiles'),
-      btnCancelProfiles: document.getElementById('btn-cancel-profiles'),
-      settingProfileName: document.getElementById('setting-profile-name'),
-      settingProfileDescription: document.getElementById('setting-profile-description'),
-      profileSelectHelper: document.getElementById('profile-select-helper'),
-      profileDatalist: document.getElementById('profile-datalist'),
-      btnNewProfile: document.getElementById('btn-new-profile'),
-      btnExportProfiles: document.getElementById('btn-export-profiles'),
-      btnImportProfiles: document.getElementById('btn-import-profiles'),
-      profilesImportInput: document.getElementById('profiles-import-input'),
-      btnSaveProfile: document.getElementById('btn-save-profile'),
-      btnDeleteProfile: document.getElementById('btn-delete-profile'),
-      profileActionFeedback: document.getElementById('profile-action-feedback'),
-      profileSaveQueryHint: document.getElementById('profile-save-query-hint'),
-      settingApiType: document.getElementById('setting-api-type'),
-      settingApiUrl: document.getElementById('setting-api-url'),
-      btnQueryServer: document.getElementById('btn-query-server'),
-      serverQueryStatus: document.getElementById('server-query-status'),
-      settingApiKey: document.getElementById('setting-api-key'),
-      settingApiKeyLocked: document.getElementById('setting-api-key-locked'),
-      apiKeyLockControl: document.getElementById('api-key-lock-control'),
-      apiKeyLockedStatus: document.getElementById('api-key-locked-status'),
-      settingModel: document.getElementById('setting-model'),
-      modelDatalist: document.getElementById('model-datalist'),
-      modelSelectHelper: document.getElementById('model-select-helper'),
-      webllmParamsPanel: document.getElementById('webllm-params-panel'),
-      settingWebllmContextWindow: document.getElementById('setting-webllm-context-window'),
-      settingWebllmPrefillChunk: document.getElementById('setting-webllm-prefill-chunk'),
-      settingSystemPrompt: document.getElementById('setting-system-prompt'),
-      settingSystemDataPrompt: document.getElementById('setting-system-data-prompt'),
-      settingTemperature: document.getElementById('setting-temperature'),
-      temperatureVal: document.getElementById('temperature-val'),
-      temperatureHint: document.getElementById('temperature-hint'),
-      themeButtons: document.querySelectorAll('.btn-theme-toggle'),
-      langButtons: document.querySelectorAll('.btn-lang-toggle'),
-      inspectorResults: document.getElementById('inspector-results'),
-      agentToolsContainer: document.getElementById('agent-tools-container'),
-      mcpToolsContainer: document.getElementById('mcp-tools-container'),
-      mcpServersList: document.getElementById('mcp-servers-list'),
-      mcpStatusBadge: document.getElementById('mcp-status-badge'),
-      mcpStatusText: document.getElementById('mcp-status-text'),
-      mcpServerDetails: document.getElementById('mcp-server-details'),
-      mcpReconnectHint: document.getElementById('mcp-reconnect-hint'),
-      mcpTerminalCommand: document.getElementById('mcp-terminal-command'),
-      btnMcpCopyCmd: document.getElementById('btn-mcp-copy-cmd'),
-      mcpBootstrapCard: document.getElementById('mcp-bootstrap-card'),
-      // Fase 7: backdrop para drawer en móvil
-      sidebarBackdrop: document.getElementById('sidebar-backdrop'),
-    };
+    elements = Object.fromEntries(Object.entries(ELEMENT_IDS).map(([key, id]) => [key, document.getElementById(id)]));
+    elements.sidebarSettingsItems = document.querySelectorAll('.sidebar-settings-item');
+    elements.debugTabs = document.querySelectorAll('.debug-tab');
+    elements.themeButtons = document.querySelectorAll('.btn-theme-toggle');
+    elements.langButtons = document.querySelectorAll('.btn-lang-toggle');
   }
 
-  function updateExecutionInfo() {
-    return UIShell.updateExecutionInfo(elements);
+  function ensureModalsMarkup() {
+    UISettings.ensureDialogMarkup();
+    RagUI.ensureDialogMarkup();
+    Export.ensureDialogMarkup();
+    Debug.ensureDialogMarkup();
   }
 
-  function openExecutionInfo() {
-    return UIShell.openExecutionInfo(elements);
-  }
+  // ==========================================================================
+  // Conversación
+  // ==========================================================================
 
-  function closeExecutionInfo() {
-    return UIShell.closeExecutionInfo(elements);
-  }
-
-
-
-  function applyTheme(theme) {
-    if (UISettings.applyTheme) {
-      UISettings.applyTheme(elements, getRuntimeConfig(), theme);
-    }
-  }
-
-  function applyLanguage(lang) {
-    if (UISettings.applyLanguage) {
-      UISettings.applyLanguage(elements, getRuntimeConfig(), lang, { updateReasoningUI });
-    }
+  function resetComposerInput(text = '') {
+    UIComposer.setPromptValue(elements, text);
   }
 
   function getConversationServiceOptions() {
     return {
-      storage: Storage,
-      getRuntimeConfig,
-      language: getRuntimeConfig().language || 'es',
-      getConfiguredSystemPrompt: (cfg) => Engine.getConfiguredSystemPrompt(cfg),
-      getChatHistory,
-      getCurrentSessionId,
-      getSavedSessions,
-      renderSessionMessages: (history) => renderSessionMessages(history),
-      renderSidebarChats: () => renderSidebarChats(),
+      renderSessionMessages,
+      renderSidebarChats,
       onSessionReset: () => {
-        clearAttachedFiles();
-        closeReasoningMenu();
-        clearDebugLogs();
-        setDebugStatus('idle');
-        toggleDebugPanel(false);
+        UIComposer.clearAttachedFiles(elements);
+        UIReasoning.closeReasoningMenu(elements);
+        Debug.clearLogs();
+        Debug.setStatus('idle');
+        Debug.togglePanel(false);
         resetTelemetryDisplay({ syncState: false });
       },
-      resetComposerInput: () => {
-        if (elements.userInput) {
-          elements.userInput.value = '';
-          autoResizeTextarea();
-          elements.userInput.focus();
-        }
-      },
-      closeSidebar: () => closeSidebar()
+      resetComposerInput: () => resetComposerInput(),
+      closeSidebar: () => UISidebar.closeSidebar(elements)
     };
   }
 
+  const saveCurrentSession = () => ConversationService.saveCurrentSession(getConversationServiceOptions());
+  const switchToSession = sessionId => ConversationService.switchToSession(sessionId, getConversationServiceOptions());
+  const createNewSession = () => ConversationService.createNewSession(getConversationServiceOptions());
+  const createConversationBranch = wrapper => ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
 
+  function renderSidebarChats() {
+    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), {
+      onSwitchSession: switchToSession,
+      onRenameSession: sessionId => ConversationService.renameSession(sessionId, getConversationServiceOptions()),
+      onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
+      onExportSession: sessionId => UITransfer.openExportModal(elements, sessionId, getCurrentSessionId())
+    }, { groupByDate: true });
+  }
 
+  function removeMessage(wrapper) {
+    UIConversation.removeMessage(wrapper, {
+      messagesList: elements.messagesList,
+      welcomeBanner: elements.welcomeBanner,
+      saveSession: saveCurrentSession
+    });
+  }
 
-  function blockSessionTransitionIfBusy(messageKey) {
-    return ConversationService.blockSessionTransitionIfBusy(messageKey);
+  const messageCallbacks = {
+    onReuse: text => resetComposerInput(text),
+    onDelete: removeMessage,
+    onBranch: createConversationBranch
+  };
+
+  function renderSessionMessages(history) {
+    UIConversation.renderSessionMessages(elements, history, {
+      ...messageCallbacks,
+      resetTelemetry: () => resetTelemetryDisplay(),
+      updateTelemetry: () => updateConnectionTokensBadge(null, null, { forcePopover: true })
+    });
+  }
+
+  function handleSendMessage() {
+    return GenerationController.handleSendMessage({
+      elements,
+      appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
+        elements.messagesList, elements.welcomeBanner, { text, originalPrompt, attachedImages }, messageCallbacks),
+      createAssistantMessagePlaceholder: () => UIConversation.createAssistantMessagePlaceholder(elements.messagesList, null, messageCallbacks),
+      updateConnectionTokensBadge,
+      openDebugInterceptorModal,
+      saveCurrentSession
+    });
+  }
+
+  /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
+  async function submitComposerText(text) {
+    elements.userInput.value = text;
+    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await handleSendMessage();
+  }
+
+  async function importConversationSession(newSession) {
+    Engine.ensureConversationDate(newSession.history, newSession.createdAt);
+    const result = State.importConversation(newSession, newSession.history);
+    if (!result.ok) throw new Error(result.reason);
+    renderSessionMessages(getChatHistory());
+    await saveCurrentSession();
+    Dialogs.alert(t('chat_imported_success'), { type: 'success' });
   }
 
   // ==========================================================================
-  // Modelos y Consulta al Servidor (API Query & Combobox)
+  // Modelos, perfiles e inspector
   // ==========================================================================
 
   function loadCachedModels(targetConfig) {
     const config = targetConfig || {
-      apiUrl: elements.settingApiUrl?.value || getRuntimeConfig().apiUrl,
-      apiType: elements.settingApiType?.value || getRuntimeConfig().apiType
+      apiUrl: elements.settingApiUrl.value || getRuntimeConfig().apiUrl,
+      apiType: elements.settingApiType.value || getRuntimeConfig().apiType
     };
     const models = UIInspector.loadCachedModels(elements, config);
     syncPublishedModelContextLimit();
@@ -347,96 +330,85 @@
 
   function syncPublishedModelContextLimit() {
     const config = getRuntimeConfig();
-    let publishedLimit = null;
-    if (config.apiType === 'webllm') {
-      const customSize = Number(config.webllmConfig?.context_window_size);
-      if (Number.isFinite(customSize) && customSize > 0) {
-        publishedLimit = Math.floor(customSize);
-      } else {
-        publishedLimit = window.ChatDefaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE;
-      }
-    } else {
-      publishedLimit = UIInspector.getModelContextLimit?.(config.model);
-    }
-    if (!publishedLimit || config.modelContextLimit === publishedLimit || !Config.updateRuntime) return false;
+    const publishedLimit = config.apiType === 'webllm'
+      ? Number(config.webllmConfig.context_window_size) || Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE
+      : UIInspector.getModelContextLimit(config.model);
+    if (!publishedLimit || config.modelContextLimit === publishedLimit) return;
     Config.updateRuntime({ modelContextLimit: publishedLimit });
-    return true;
-  }
-
-  async function handleQueryServer() {
-    const querySucceeded = await UIInspector.handleQueryServer(elements, getRuntimeConfig());
-    if (querySucceeded) UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
-    return querySucceeded;
-  }
-
-  // ==========================================================================
-  // Provider Inspector (Diagnóstico de Capacidades)
-  // ==========================================================================
-
-  async function handleRunInspector(profile = null) {
-    if (UIInspector.handleRunInspector) {
-      await UIInspector.handleRunInspector(elements, getRuntimeConfig(), profile);
-    }
   }
 
   async function inspectProfile(profile) {
-    if (!profile || !elements.inspectorDialog || !elements.inspectorResults) return;
-    if (elements.inspectorProfileName) elements.inspectorProfileName.textContent = profile.name || '';
+    elements.inspectorProfileName.textContent = profile.name || '';
     elements.inspectorResults.style.display = 'block';
     elements.inspectorResults.innerHTML = '';
-    if (!elements.inspectorDialog.open && typeof elements.inspectorDialog.showModal === 'function') {
-      elements.inspectorDialog.showModal();
-    }
-    await handleRunInspector(profile);
+    if (!elements.inspectorDialog.open) elements.inspectorDialog.showModal();
+    await UIInspector.handleRunInspector(elements, getRuntimeConfig(), profile);
     syncPublishedModelContextLimit();
   }
 
-  // ==========================================================================
-  // Control Dinámico de Nivel de Razonamiento (Thinking / CoT)
-  // ==========================================================================
+  function getProfilesHelperOptions() {
+    return {
+      getRuntimeConfig,
+      loadCachedModels,
+      resetTelemetryDisplay,
+      updateUIFromConfig,
+      inspectProfile,
+      closeSettingsModal: () => UISettings.closeSettingsModal(elements)
+    };
+  }
 
-  function positionReasoningMenu() {
-    if (UIReasoning.positionReasoningMenu) {
-      UIReasoning.positionReasoningMenu(elements);
+  async function saveContextLimitOverride() {
+    const contextLimitOverride = UITelemetry.parseContextCapacity(elements.contextLimitOverrideInput.value);
+    if (!contextLimitOverride) {
+      await Dialogs.alert(t('context_limit_override_invalid'));
+      return;
+    }
+    const activeProfile = getRuntimeConfig().activeProfile;
+    const profile = activeProfile && Profiles.get(activeProfile.id);
+    if (!profile) {
+      await Dialogs.alert(t('context_limit_override_profile_required'));
+      return;
+    }
+    if (profile.settings.apiKeyLocked === true) {
+      await Dialogs.alert(t('err_profile_read_only'));
+      return;
+    }
+    try {
+      const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
+      UIProfiles.activateConnectionProfile(savedProfile.id, getProfilesHelperOptions());
+      updateConnectionTokensBadge(null, null, { forcePopover: true });
+    } catch (error) {
+      console.error('[App] Could not save the context limit override:', error);
+      await Dialogs.alert(t('context_limit_override_save_error'));
     }
   }
 
-  function toggleReasoningMenu() {
-    if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig(), selectReasoningLevel);
-    }
-    renderProjectPanel();
-  }
-
   // ==========================================================================
-  // MODO PROYECTO
+  // Razonamiento y modo proyecto
   // ==========================================================================
 
-  /** Envía un texto como si el usuario lo hubiera escrito en el compositor. */
-  async function submitComposerText(text) {
-    if (!elements.userInput) return;
-    elements.userInput.value = text;
-    elements.userInput.dispatchEvent(new Event('input', { bubbles: true }));
-    await handleSendMessage();
+  function selectReasoningLevel(level) {
+    UIReasoning.updateReasoningUI(elements, level);
+    Config.updateRuntime({ reasoningEffort: level });
   }
+
+  const isBusy = () => State.isConversationBusy();
 
   const projectPanelHandlers = {
     toggle(enabled) {
-      Config.updateRuntime?.({ projectMode: Boolean(enabled) });
+      Config.updateRuntime({ projectMode: Boolean(enabled) });
     },
     async decline() {
-      const cwd = State.get?.('project')?.cwd;
+      const cwd = State.get('project').cwd;
       if (!cwd) return;
-      const confirmed = await ChatDialogs.confirm(t('project_decline_confirm', { cwd }));
+      const confirmed = await Dialogs.confirm(t('project_decline_confirm', { cwd }));
       // El servidor puede haber cambiado de directorio mientras se esperaba la respuesta.
-      if (!confirmed || State.get?.('project')?.cwd !== cwd) return;
-      const declined = Config.getActive().projectDeclined || [];
-      Config.updateRuntime?.({ projectDeclined: [...declined, cwd] });
+      if (!confirmed || State.get('project').cwd !== cwd) return;
+      Config.updateRuntime({ projectDeclined: [...getRuntimeConfig().projectDeclined, cwd] });
     },
     reactivate() {
-      const cwd = State.get?.('project')?.cwd;
-      const declined = Config.getActive().projectDeclined || [];
-      Config.updateRuntime?.({ projectDeclined: declined.filter(path => path !== cwd) });
+      const cwd = State.get('project').cwd;
+      Config.updateRuntime({ projectDeclined: getRuntimeConfig().projectDeclined.filter(path => path !== cwd) });
     },
     reload() {
       refreshProjectContext();
@@ -444,47 +416,66 @@
     async changeDirectory() {
       try {
         const result = await ProjectContext.changeDirectory({
-          askPath: cwd => ChatDialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
-          isBusy: () => State.isConversationBusy?.() === true
+          askPath: cwd => Dialogs.prompt(t('project_directory_prompt'), cwd, { title: t('project_directory_title') }),
+          isBusy
         });
         if (result?.reason === 'error') {
-          await ChatDialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
+          await Dialogs.alert(t('project_directory_error', { error: result.error }), { type: 'error' });
         }
       } catch (error) {
         console.error('[App] Project directory change failed:', error);
-        await ChatDialogs.alert(error?.message || String(error), { type: 'error' });
+        await Dialogs.alert(error?.message || String(error), { type: 'error' });
       }
     },
     async initialize() {
       try {
         await ProjectContext.initialize({
-          askConfirmation: ({ cwd, rule }) => ChatDialogs.confirm(t('project_initialize_confirm', { cwd, dir: rule.slice(3) })),
-          isBusy: () => State.isConversationBusy?.() === true,
+          askConfirmation: ({ cwd, rule }) => Dialogs.confirm(t('project_initialize_confirm', { cwd, dir: rule.slice(3) })),
+          isBusy,
           startConversation: async () => {
-            if ((State.get?.('messages') || []).some(message => message?.role && message.role !== 'system')) await createNewSession();
+            if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
           },
           sendPrompt: async prompt => {
-            UIReasoning.closeReasoningMenu?.(elements);
+            UIReasoning.closeReasoningMenu(elements);
             await submitComposerText(prompt);
           }
         });
       } catch (error) {
         console.error('[App] Project initialization failed:', error);
-        await ChatDialogs.alert(error?.message || String(error), { type: 'error' });
+        await Dialogs.alert(error?.message || String(error), { type: 'error' });
       }
     }
   };
 
+  function refreshProjectContext() {
+    ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
+  }
+
+  /** El indicador del botón siempre; el panel solo con el menú abierto (renderizado bajo demanda). */
+  function renderProjectPanel() {
+    const config = getRuntimeConfig();
+    const project = State.get('project');
+    UIReasoning.syncProjectIndicator(elements, config, project);
+    if (elements.reasoningMenu.style.display !== 'flex') return;
+    UIReasoning.renderProjectPanel(elements, {
+      config,
+      project,
+      canInitialize: ProjectContext.canInitialize(),
+      canChangeDirectory: ProjectContext.canChangeDirectory(),
+      busy: isBusy(),
+      handlers: projectPanelHandlers
+    });
+  }
+
   // ==========================================================================
-  // PREGUNTAS DEL AGENTE (ask_user)
+  // Preguntas del agente (ask_user)
   // ==========================================================================
 
   /** Solo la última pregunta, sin respuesta posterior ni generación en curso, admite elegir opción. */
   function syncAskUserCards() {
-    if (!elements.messagesList?.querySelectorAll) return;
-    const messages = State.get?.('messages') || [];
+    const messages = getChatHistory();
     const last = messages[messages.length - 1];
-    const pending = last?.role === 'tool' && last?.name === 'ask_user' && State.isConversationBusy?.() !== true;
+    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy();
     const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
     cards.forEach((card, index) => {
       const active = pending && index === cards.length - 1;
@@ -494,100 +485,25 @@
   }
 
   async function handleAskUserOption(button) {
-    if (!button || button.disabled || !elements.userInput || State.isConversationBusy?.()) return;
-    const label = button.getAttribute('data-ask-option') || '';
+    if (button.disabled || isBusy()) return;
+    const label = button.getAttribute('data-ask-option');
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
     const typed = elements.userInput.value.trim();
-    elements.messagesList?.querySelectorAll('[data-ask-option]').forEach(option => { option.disabled = true; });
+    elements.messagesList.querySelectorAll('[data-ask-option]').forEach(option => { option.disabled = true; });
     await submitComposerText(typed ? `${label}\n\n${typed}` : label);
   }
 
-  function refreshProjectContext() {
-    if (!ProjectContext.refresh) return;
-    ProjectContext.refresh().catch(error => console.warn('[App] Could not refresh project context:', error));
-  }
-
-  /** El indicador del botón siempre; el panel solo con el menú abierto (renderizado bajo demanda). */
-  function renderProjectPanel() {
-    UIReasoning.syncProjectIndicator?.(elements, Config.getActive(), State.get?.('project') || {});
-    if (!UIReasoning.renderProjectPanel || elements.reasoningMenu?.style?.display !== 'flex') return;
-    UIReasoning.renderProjectPanel(elements, {
-      config: Config.getActive(),
-      project: State.get?.('project') || {},
-      canInitialize: ProjectContext.canInitialize?.() === true,
-      canChangeDirectory: ProjectContext.canChangeDirectory?.() === true,
-      busy: State.isConversationBusy?.() === true,
-      handlers: projectPanelHandlers
-    });
-  }
-
-  function selectReasoningLevel(level) {
-    if (UIReasoning.updateReasoningUI) UIReasoning.updateReasoningUI(elements, level);
-    if (Config.updateRuntime) Config.updateRuntime({ reasoningEffort: level });
-  }
-
-  function updateReasoningUI(level) {
-    if (UIReasoning.updateReasoningUI) {
-      UIReasoning.updateReasoningUI(elements, level);
-    }
-  }
-
-  function closeReasoningMenu() {
-    if (UIReasoning.closeReasoningMenu) {
-      UIReasoning.closeReasoningMenu(elements);
-    }
-  }
-
   // ==========================================================================
+  // Depuración, telemetría y configuración visible
   // ==========================================================================
-  // Panel Lateral de Razonamiento, Streaming & Logs (Debug)
-  // ==========================================================================
-
-  function toggleDebugPanel(forceOpen) {
-    if (Debug.togglePanel) Debug.togglePanel(forceOpen);
-  }
-
-  function setDebugStatus(status, text) {
-    if (Debug.setStatus) Debug.setStatus(status, text);
-  }
-
-  function clearDebugLogs() {
-    if (Debug.clearLogs) Debug.clearLogs();
-  }
-
-  async function copyDebugLogs() {
-    if (Debug.copyLogs) await Debug.copyLogs();
-  }
-
-  function addDebugLog(type, text, rawData) {
-    if (Debug.addLog) Debug.addLog(type, text, rawData);
-  }
-
-  function setGenerationStatus(update = {}) {
-    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
-    return genStatus.setStatus?.(elements.generationStatus, update);
-  }
-
-  function clearGenerationStatus() {
-    const genStatus = window.ChatUIGenerationStatus || GenerationStatus;
-    return genStatus.clearStatus?.(elements.generationStatus);
-  }
-
-  function filterDebugLogs(tabId) {
-    if (Debug.filterLogs) Debug.filterLogs(tabId);
-  }
 
   function syncDebugMessagesState(enabled, persist = true) {
     const value = Boolean(enabled);
-    if (elements.chkEnableDebugMessages) {
-      elements.chkEnableDebugMessages.checked = value;
-    }
-    if (elements.debugMessagesStatusBadge) {
-      elements.debugMessagesStatusBadge.textContent = value ? 'ON' : 'OFF';
-      elements.debugMessagesStatusBadge.className = 'debug-status-pill ' + (value ? 'on' : 'off');
-    }
-    if (persist && Config.updateGeneral) Config.updateGeneral({ enableDebugMessages: value });
+    elements.chkEnableDebugMessages.checked = value;
+    elements.debugMessagesStatusBadge.textContent = value ? 'ON' : 'OFF';
+    elements.debugMessagesStatusBadge.className = `debug-status-pill ${value ? 'on' : 'off'}`;
+    if (persist) Config.updateRuntime({ enableDebugMessages: value });
   }
 
   function openDebugInterceptorModal({ endpoint, headers, payload }) {
@@ -595,1233 +511,388 @@
       endpoint,
       headers,
       payload,
-      onSyncDebugState: (enabled) => syncDebugMessagesState(enabled)
+      onSyncDebugState: enabled => syncDebugMessagesState(enabled)
     });
+  }
+
+  function applyTheme(theme) {
+    UISettings.applyTheme(elements, getRuntimeConfig(), theme);
+  }
+
+  function applyLanguage(lang) {
+    UISettings.applyLanguage(elements, getRuntimeConfig(), lang, { updateReasoningUI: level => UIReasoning.updateReasoningUI(elements, level) });
   }
 
   function updateUIFromConfig() {
     const config = getRuntimeConfig();
+    elements.activeProfileName.textContent = config.activeProfile?.name || '';
+    if (!elements.activeProfilePopover.hidden) {
+      UISettings.renderProfileMenu(elements, Profiles.list(), config.activeProfile?.id);
+    }
     // El diálogo contiene un borrador de perfil. Las notificaciones de la
     // configuración activa (telemetría, caché, etc.) no deben sobrescribirlo.
-    const profileEditorOpen = elements.profilesDialog?.open === true;
-    if (elements.activeProfileName) elements.activeProfileName.textContent = config.activeProfile?.name || 'Espejo';
-    if (elements.activeProfilePopover && !elements.activeProfilePopover.hidden) {
-      let profileList = [];
-      try { profileList = Profiles.list ? Profiles.list() : []; } catch (_) { /* perfiles no disponibles: el selector se muestra vacío */ }
-      UISettings.renderProfileMenu(elements, profileList, config.activeProfile?.id);
+    if (!elements.profilesDialog.open) {
+      elements.settingApiType.value = config.apiType;
+      elements.settingApiUrl.value = config.apiUrl;
+      elements.settingModel.value = config.model;
+      if (config.model) elements.modelSelectHelper.value = config.model;
     }
-    if (!profileEditorOpen) {
-      if (elements.settingApiType) {
-        elements.settingApiType.value = config.apiType || 'openai';
-      }
-      if (elements.settingApiUrl) {
-        elements.settingApiUrl.value = config.apiUrl || 'http://localhost:1234/v1';
-      }
-      if (elements.settingModel) {
-        elements.settingModel.value = config.model || '';
-      }
-      if (elements.modelSelectHelper && config.model) {
-        elements.modelSelectHelper.value = config.model;
-      }
-    }
-    updateReasoningUI(config.reasoningEffort || 'medium');
-    UIReasoning.syncProjectIndicator?.(elements, config, State.get?.('project') || {});
+    UIReasoning.updateReasoningUI(elements, config.reasoningEffort);
+    UIReasoning.syncProjectIndicator(elements, config, State.get('project'));
     applyTheme(config.theme);
-    applyLanguage(config.language || 'es');
-
+    applyLanguage(config.language);
     syncDebugMessagesState(config.enableDebugMessages, false);
     updateConnectionTokensBadge(null);
   }
 
-  function getUITelemetry() {
-    return window.ChatUITelemetry;
-  }
-
   function updateConnectionTokensBadge(stats, diagnostics, options = {}) {
-    const UITel = getUITelemetry();
-    if (!UITel || !elements.connectionTokensBadge) return;
-
-    if (stats) {
-      State.set('telemetry', prev => ({ ...(prev || {}), stats }));
-    }
-    if (diagnostics) {
-      State.set('telemetry', prev => ({ ...(prev || {}), diagnostics }));
-    }
-
-    const telState = State.get ? State.get('telemetry') : {};
-    const effectiveStats = stats || telState?.stats || null;
-    const effectiveDiag = diagnostics || telState?.diagnostics || null;
-
-    const runtimeCfg = getRuntimeConfig();
-    const CM = window.ChatContextManager;
-
-    const vm = UITel.computeTelemetryViewModel({
-      stats: effectiveStats,
-      diagnostics: effectiveDiag,
-      config: runtimeCfg,
+    if (stats) State.set('telemetry', { stats });
+    if (diagnostics) State.set('telemetry', { diagnostics });
+    const telemetry = State.get('telemetry');
+    const vm = UITelemetry.computeTelemetryViewModel({
+      stats: stats || telemetry.stats,
+      diagnostics: diagnostics || telemetry.diagnostics,
+      config: getRuntimeConfig(),
       chatHistory: getChatHistory(),
-      contextManager: CM
+      contextManager: ContextManager
     });
-
-    UITel.renderTelemetry(elements, vm, options, t);
+    UITelemetry.renderTelemetry(elements, vm, options, t);
   }
 
   function resetTelemetryDisplay({ syncState = true } = {}) {
-    const UITel = getUITelemetry();
-    if (syncState && State.set) {
-      State.set('telemetry', { stats: null, diagnostics: null, lastTurnStats: null });
-    }
-    if (UITel && elements.connectionTokensBadge) {
-      const runtimeCfg = getRuntimeConfig();
-      const CM = window.ChatContextManager;
-      UITel.resetTelemetry(elements, runtimeCfg, getChatHistory(), CM, t);
-    }
-  }
-
-  function autoResizeTextarea() {
-    return UIComposer.autoResizeTextarea(elements);
-  }
-
-  function scrollToBottom() {
-    return UIConversation.scrollToBottom(elements.messagesList);
+    if (syncState) State.set('telemetry', { stats: null, diagnostics: null });
+    UITelemetry.resetTelemetry(elements, getRuntimeConfig(), getChatHistory(), ContextManager, t);
   }
 
   // ==========================================================================
-  // Gestión de Archivos Adjuntos
+  // Navegación de ajustes en la barra lateral
   // ==========================================================================
 
-
-  function clearAttachedFiles() {
-    return UIComposer.clearAttachedFiles(elements);
-  }
-
-
-
-  // ==========================================================================
-  // Renderizado de Mensajes con Acciones y Estadísticas
-  // ==========================================================================
-
-
-
-  function removeMessage(wrapper) {
-    if (UIConversation.removeMessage) {
-      return UIConversation.removeMessage(wrapper, {
-        messagesList: elements.messagesList,
-        welcomeBanner: elements.welcomeBanner,
-        isBusy: () => State.isConversationBusy?.(),
-        removeTurn: (payload) => State.removeTurn?.(payload),
-        saveSession: () => saveCurrentSession(),
-        addDebugLog: (type, text) => (typeof addDebugLog === 'function' ? addDebugLog(type, text) : null)
-      });
-    }
-  }
-
-  function appendUserMessage(text, originalPrompt, attachedImages, existingMsgId) {
-    if (UIConversation.appendUserMessage) {
-      return UIConversation.appendUserMessage(elements.messagesList, elements.welcomeBanner, {
-        text,
-        originalPrompt,
-        attachedImages,
-        existingMsgId
-      }, {
-        onReuse: (txt) => {
-          if (elements.userInput) {
-            elements.userInput.value = txt;
-            autoResizeTextarea();
-            elements.userInput.focus();
-          }
-        },
-        onDelete: (wrapper) => removeMessage(wrapper)
-      });
-    }
-  }
-
-  function createAssistantMessagePlaceholder(existingMsgId) {
-    if (UIConversation.createAssistantMessagePlaceholder) {
-      return UIConversation.createAssistantMessagePlaceholder(elements.messagesList, existingMsgId, {
-        welcomeBanner: elements.welcomeBanner,
-        onBranch: (wrapper) => createConversationBranch(wrapper),
-        onDelete: (wrapper) => removeMessage(wrapper)
-      });
-    }
-  }
-
-  // ==========================================================================
-  // Envío de Mensaje y Streaming
-  // ==========================================================================
-
-  function getGenerationControllerOptions() {
-    return {
-      elements,
-      getRuntimeConfig,
-      getCurrentSessionId,
-      getChatHistory,
-      setGenerationStatus,
-      clearGenerationStatus,
-      showTypingIndicator,
-      removeTypingIndicator,
-      createAssistantMessagePlaceholder,
-      appendUserMessage,
-      attachListenersToContainer,
-      scrollToBottom,
-      updateConnectionTokensBadge,
-      addDebugLog,
-      setDebugStatus,
-      openDebugInterceptorModal,
-      saveCurrentSession,
-      clearAttachedFiles,
-      autoResizeTextarea,
-      closeReasoningMenu,
-      setAssistantGroupMessageIds
-    };
-  }
-
-  async function handleSendMessage() {
-    if (GenerationController.handleSendMessage) {
-      return await GenerationController.handleSendMessage(getGenerationControllerOptions());
-    }
-  }
-
-
-  function handleStopGeneration() {
-    if (GenerationController.handleStopGeneration) {
-      return GenerationController.handleStopGeneration();
-    }
-  }
-
-  // ==========================================================================
-  // Modal de Configuración & Gestión de Perfiles
-  // ==========================================================================
-
-  function getProfilesHelperOptions() {
-    return {
-      getRuntimeConfig,
-      loadCachedModels,
-      resetTelemetryDisplay,
-      updateUIFromConfig,
-      updateReasoningUI,
-      inspectProfile,
-      closeSettingsModal: () => UISettings.closeSettingsModal?.(elements)
-    };
+  function showSidebarNav(nav) {
+    elements.sidebarSettingsNav.hidden = nav !== 'settings';
+    elements.sidebarEncryptionNav.hidden = nav !== 'encryption';
+    elements.sidebarRagNav.hidden = nav !== 'rag';
+    elements.sidebarSettingsFooter.hidden = nav !== 'settings';
+    if (nav !== 'settings') UISidebar.setActiveSettingsSection(elements, '');
   }
 
   function openSettingsSection(sectionId = 'model') {
-    if (sectionId === 'encryption') {
-      openEncryptionMenu();
-      return;
-    }
-    if (sectionId === 'rag') {
-      openRagMenu();
+    if (sectionId === 'encryption' || sectionId === 'rag') {
+      showSidebarNav(sectionId);
       return;
     }
     if (sectionId === 'rag-manage') {
-      if (window.ChatRagUI && typeof window.ChatRagUI.openManageModal === 'function') {
-        window.ChatRagUI.openManageModal();
-      } else if (window.ChatRagUI && typeof window.ChatRagUI.openRagModal === 'function') {
-        window.ChatRagUI.openRagModal('manage');
-      }
+      RagUI.openManageModal();
       return;
     }
-    if (UISettings.openSettingsSection) {
-      UISettings.openSettingsSection(elements, getRuntimeConfig(), {
-        populateProfileSelector: (id) => UIProfiles.populateProfileSelector?.(elements, id),
-        loadCachedModels,
-        updateReasoningUI
-      }, sectionId);
-    }
+    UISettings.openSettingsSection(elements, getRuntimeConfig(), {
+      populateProfileSelector: id => UIProfiles.populateProfileSelector(elements, id),
+      loadCachedModels,
+      updateReasoningUI: level => UIReasoning.updateReasoningUI(elements, level)
+    }, sectionId);
     if (sectionId === 'mcp') {
-      window.ChatUIMcp?.verifyActiveConnection?.().catch(() => {});
+      UIMcp.verifyActiveConnection().catch(error => console.warn('[App] Could not verify the MCP connection:', error));
     }
-  }
-
-  function openEncryptionMenu() {
-    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = true;
-    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = false;
-    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = true;
-    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = true;
-    UISidebar.setActiveSettingsSection?.(elements, '');
-  }
-
-  function closeEncryptionMenu() {
-    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = true;
-    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = false;
-    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = false;
-  }
-
-  function openRagMenu() {
-    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = true;
-    if (elements.sidebarEncryptionNav) elements.sidebarEncryptionNav.hidden = true;
-    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = false;
-    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = true;
-    UISidebar.setActiveSettingsSection?.(elements, '');
-  }
-
-  function closeRagMenu() {
-    if (elements.sidebarRagNav) elements.sidebarRagNav.hidden = true;
-    if (elements.sidebarSettingsNav) elements.sidebarSettingsNav.hidden = false;
-    if (elements.sidebarSettingsFooter) elements.sidebarSettingsFooter.hidden = false;
-  }
-
-  // ==========================================================================
-  // Gestión de Múltiples Sesiones de Chat (Sidebar & IndexedDB Storage)
-  // ==========================================================================
-
-  async function loadSessionsFromStorage() {
-    if (ConversationService.loadSessionsFromStorage) {
-      return await ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
-    }
-  }
-
-  async function saveCurrentSession() {
-    if (ConversationService.saveCurrentSession) {
-      return await ConversationService.saveCurrentSession(getConversationServiceOptions());
-    }
-  }
-
-  function renderSidebarChats(filterText = '') {
-    if (UISidebar.renderSidebarChats) {
-      UISidebar.renderSidebarChats(elements, getSavedSessions(), getCurrentSessionId(), {
-        onSwitchSession: switchToSession,
-        onRenameSession: renameSession,
-        onDeleteSession: deleteSession,
-        onExportSession: (sessionId, e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          openExportModal(sessionId);
-        }
-      }, { groupByDate: true });
-    }
-  }
-
-  async function switchToSession(sessionId, opts = {}) {
-    if (ConversationService.switchToSession) {
-      return await ConversationService.switchToSession(sessionId, Object.assign({}, getConversationServiceOptions(), opts));
-    }
-  }
-
-  async function createNewSession(opts = {}) {
-    if (ConversationService.createNewSession) {
-      return await ConversationService.createNewSession(Object.assign({}, getConversationServiceOptions(), opts));
-    }
-  }
-
-
-  function setAssistantGroupMessageIds(wrapper, history) {
-    if (ConversationService.setAssistantGroupMessageIds) {
-      return ConversationService.setAssistantGroupMessageIds(wrapper, history);
-    }
-  }
-
-
-  async function createConversationBranch(wrapper, opts = {}) {
-    if (ConversationService.createConversationBranch) {
-      return await ConversationService.createConversationBranch(wrapper, Object.assign({}, getConversationServiceOptions(), opts));
-    }
-  }
-
-  async function deleteSession(sessionId, event) {
-    if (ConversationService.deleteSession) {
-      return await ConversationService.deleteSession(sessionId, event, getConversationServiceOptions());
-    }
-  }
-
-  async function deleteAllSessions() {
-    if (ConversationService.deleteAllSessions) {
-      return await ConversationService.deleteAllSessions(getConversationServiceOptions());
-    }
-  }
-
-  async function renameSession(sessionId, event) {
-    if (ConversationService.renameSession) {
-      return await ConversationService.renameSession(sessionId, event, getConversationServiceOptions());
-    }
-  }
-
-
-  function closeSidebar() {
-    if (UISidebar.closeSidebar) {
-      UISidebar.closeSidebar(elements);
-    }
-  }
-
-
-  function attachListenersToContainer(container) {
-    return UIConversation.attachListenersToContainer(container);
-  }
-
-  function renderSessionMessages(history) {
-    if (UIConversation.renderSessionMessages) {
-      return UIConversation.renderSessionMessages(elements, history, {
-        onBranch: (wrapper) => createConversationBranch(wrapper),
-        onDelete: (wrapper) => removeMessage(wrapper),
-        onReuse: (txt) => {
-          if (elements.userInput) {
-            elements.userInput.value = txt;
-            autoResizeTextarea();
-            elements.userInput.focus();
-          }
-        },
-        resetTelemetry: () => resetTelemetryDisplay(),
-        updateTelemetry: () => updateConnectionTokensBadge(null, null, { forcePopover: true })
-      });
-    }
-  }
-
-  // ==========================================================================
-  // Modal de Exportación e Importación de Conversaciones
-  // ==========================================================================
-
-  function getExportTransferOptions() {
-    return {
-      getActiveSessionId: () => getCurrentSessionId(),
-      getSavedSessions: () => getSavedSessions(),
-      getHistory: () => getChatHistory(),
-      getSession: async (id) => (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null,
-      getConfig: () => getRuntimeConfig(),
-      getModel: () => getRuntimeConfig().model,
-      onSwitchSession: async (id) => await switchToSession(id),
-      onImportSuccess: importConversationSession,
-      isBusy: () => blockSessionTransitionIfBusy('chat_import_blocked_generating')
-    };
-  }
-
-  async function importConversationSession(newSession) {
-    Engine.ensureConversationDate(newSession.history, getRuntimeConfig().language || 'es', newSession.createdAt);
-    if (State.importConversation) {
-      const res = State.importConversation(newSession, newSession.history);
-      if (!res.ok) throw new Error(res.reason);
-    }
-    renderSessionMessages(getChatHistory());
-    await saveCurrentSession();
-    ChatDialogs.alert(t('chat_imported_success'), { type: 'success' });
-  }
-
-  function openExportModal(targetSessionId = null) {
-    UITransfer.openExportModal(elements, targetSessionId, getCurrentSessionId());
-  }
-
-  // ==========================================================================
-  // Fase 8 — Indicador de Escritura del Asistente
-  // ==========================================================================
-
-
-  function showTypingIndicator() {
-    return UIConversation.showTypingIndicator(elements.messagesList);
-  }
-
-  function removeTypingIndicator() {
-    return UIConversation.removeTypingIndicator();
   }
 
   // ==========================================================================
   // Escuchadores de Eventos
   // ==========================================================================
 
+  function updateNewTabLink() {
+    elements.btnSidebarNewTab.href = location.pathname + location.search;
+  }
+
   function setupEventListeners() {
     UIShell.mount({
       elements,
-      onViewportChange: () => positionReasoningMenu(),
-      onDismissProfiles: () => UIProfiles.closeProfilesModal?.(elements, false, getProfilesHelperOptions())
+      onViewportChange: () => UIReasoning.positionReasoningMenu(elements),
+      onDismissProfiles: () => UIProfiles.closeProfilesModal(elements, false, getProfilesHelperOptions())
     });
 
-    if (elements.executionInfoDialog) {
-      elements.executionInfoDialog.addEventListener('click', event => {
-        if (event.target === elements.executionInfoDialog) closeExecutionInfo();
-      });
-    }
-
-    // Formulario de chat, adjuntos y arrastrar y soltar
     UIComposer.mount(elements, {
       onSendMessage: handleSendMessage,
-      onStopGeneration: handleStopGeneration,
-      getLastPrompt: () => MessageTurns.getLastUserPrompt?.(getChatHistory()) || ''
+      onStopGeneration: GenerationController.handleStopGeneration,
+      getLastPrompt: () => MessageTurns.getLastUserPrompt(getChatHistory())
     });
-
-    UICommandJobs.mount?.({ messagesList: elements.messagesList });
+    UICommandJobs.mount({ messagesList: elements.messagesList });
 
     // Parada ordenada ante cierre de página o recarga durante generación
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      const handleWindowUnload = () => {
-        if (GenerationController?.isGenerating?.()) {
-          handleStopGeneration();
-        }
-      };
-      window.addEventListener('beforeunload', handleWindowUnload);
-      window.addEventListener('pagehide', handleWindowUnload);
-    }
-
-
+    const stopOnUnload = () => {
+      if (GenerationController.isGenerating()) GenerationController.handleStopGeneration();
+    };
+    window.addEventListener('beforeunload', stopOnUnload);
+    window.addEventListener('pagehide', stopOnUnload);
 
     // Barra Lateral de Chats y navegación de configuración
-    const closeSidebarMenus = () => {
-      closeEncryptionMenu();
-      closeRagMenu();
-    };
     UISidebar.mount(elements, {
       onNewSession: createNewSession,
-      onSearchInput: (query) => renderSidebarChats(query),
-      onDeleteAllSessions: deleteAllSessions,
-      onOpenSettingsMode: closeSidebarMenus,
-      onBackToChats: closeSidebarMenus,
-      onSelectSettingsSection: (sectionId) => {
+      onSearchInput: renderSidebarChats,
+      onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
+      onOpenSettingsMode: () => showSidebarNav('settings'),
+      onBackToChats: () => showSidebarNav('settings'),
+      onSelectSettingsSection: sectionId => {
         openSettingsSection(sectionId);
-        if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile && UISidebar.isMobile()) {
-          closeSidebar();
-        }
+        if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile()) UISidebar.closeSidebar(elements);
       }
     });
+    elements.btnEncryptionBack.addEventListener('click', () => showSidebarNav('settings'));
+    elements.btnEncryptionPassword.addEventListener('click', () => UIProfiles.handleEncryptionPassword());
+    elements.btnEncryptionDefault.addEventListener('click', () => UIProfiles.handleUseDefaultEncryptionKey());
+    elements.btnRagBack.addEventListener('click', () => showSidebarNav('settings'));
+    elements.btnRagBranches.addEventListener('click', () => openSettingsSection('rag-manage'));
+    elements.btnRagActivate.addEventListener('click', () => RagUI.openActivationModal());
 
-    if (elements.btnEncryptionBack) {
-      elements.btnEncryptionBack.addEventListener('click', closeEncryptionMenu);
-    }
-    if (elements.btnEncryptionPassword) {
-      elements.btnEncryptionPassword.addEventListener('click', () => UIProfiles.handleEncryptionPassword?.());
-    }
-    if (elements.btnEncryptionDefault) {
-      elements.btnEncryptionDefault.addEventListener('click', () => UIProfiles.handleUseDefaultEncryptionKey?.());
-    }
-    if (elements.btnRagBack) {
-      elements.btnRagBack.addEventListener('click', closeRagMenu);
-    }
-    if (elements.btnRagBranches) {
-      elements.btnRagBranches.addEventListener('click', () => openSettingsSection('rag-manage'));
-    }
-    if (elements.btnRagActivate) {
-      elements.btnRagActivate.addEventListener('click', () => window.ChatRagUI?.openActivationModal?.());
-    }
-    I18n.onChange(updateExecutionInfo);
+    elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
+    elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
 
-
-    if (elements.btnSidebarNewTab) {
-      elements.btnSidebarNewTab.addEventListener('click', updateNewTabLink);
-      elements.btnSidebarNewTab.addEventListener('pointerdown', updateNewTabLink);
-    }
-
-    // Modal de Exportación (disparado desde cada chat en la barra lateral) e importación de conversaciones
-    UITransfer.mount({ elements, ...getExportTransferOptions() });
+    // Exportación (disparada desde cada chat en la barra lateral) e importación de conversaciones
+    UITransfer.mount({
+      elements,
+      getActiveSessionId: getCurrentSessionId,
+      getSavedSessions: () => State.get('sessions').list,
+      getHistory: getChatHistory,
+      getSession: id => Storage.getConversation(id),
+      getConfig: getRuntimeConfig,
+      getModel: () => getRuntimeConfig().model,
+      onSwitchSession: switchToSession,
+      onImportSuccess: importConversationSession,
+      isBusy: () => ConversationService.blockSessionTransitionIfBusy('chat_import_blocked_generating')
+    });
 
     // Razonamiento (Thinking)
-    if (elements.btnReasoning) {
-      elements.btnReasoning.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleReasoningMenu();
-      });
-    }
-
-    document.addEventListener('click', (e) => {
-      if (elements.reasoningMenu && elements.reasoningMenu.style.display !== 'none') {
-        const isClickInsideMenu = elements.reasoningMenu.contains(e.target);
-        const isClickInsideButton = elements.btnReasoning && elements.btnReasoning.contains(e.target);
-        if (!isClickInsideMenu && !isClickInsideButton) {
-          closeReasoningMenu();
-        }
+    elements.btnReasoning.addEventListener('click', event => {
+      event.stopPropagation();
+      UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig(), selectReasoningLevel);
+      renderProjectPanel();
+    });
+    document.addEventListener('click', event => {
+      if (elements.reasoningMenu.style.display === 'none') return;
+      if (!elements.reasoningMenu.contains(event.target) && !elements.btnReasoning.contains(event.target)) {
+        UIReasoning.closeReasoningMenu(elements);
       }
     });
 
     // Panel de Debug & Logs
-    if (elements.btnToggleDebug) {
-      elements.btnToggleDebug.addEventListener('click', () => {
-        toggleDebugPanel();
-      });
-    }
-
-    if (elements.btnCloseDebug) {
-      elements.btnCloseDebug.addEventListener('click', () => {
-        toggleDebugPanel(false);
-      });
-    }
-
-    if (elements.btnClearDebug) {
-      elements.btnClearDebug.addEventListener('click', clearDebugLogs);
-    }
-
-    if (elements.btnCopyDebug) {
-      elements.btnCopyDebug.addEventListener('click', copyDebugLogs);
-    }
-
-    if (elements.debugTabs && elements.debugTabs.length > 0) {
-      elements.debugTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-          elements.debugTabs.forEach(t => {
-            t.classList.remove('active');
-            t.setAttribute('aria-pressed', 'false');
-          });
-          tab.classList.add('active');
-          tab.setAttribute('aria-pressed', 'true');
-          const filter = tab.getAttribute('data-debug-tab') || 'all';
-          filterDebugLogs(filter);
+    elements.btnToggleDebug.addEventListener('click', () => Debug.togglePanel());
+    elements.btnCloseDebug.addEventListener('click', () => Debug.togglePanel(false));
+    elements.btnClearDebug.addEventListener('click', () => Debug.clearLogs());
+    elements.btnCopyDebug.addEventListener('click', () => Debug.copyLogs());
+    elements.debugTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        elements.debugTabs.forEach(other => {
+          other.classList.toggle('active', other === tab);
+          other.setAttribute('aria-pressed', String(other === tab));
         });
+        Debug.filterLogs(tab.getAttribute('data-debug-tab') || 'all');
       });
-    }
-
-    if (elements.chkEnableDebugMessages) {
-      elements.chkEnableDebugMessages.addEventListener('change', () => {
-        syncDebugMessagesState(elements.chkEnableDebugMessages.checked);
-      });
-    }
+    });
+    elements.chkEnableDebugMessages.addEventListener('change', () => syncDebugMessagesState(elements.chkEnableDebugMessages.checked));
 
     // Modal de Configuración & Perfiles
-    if (UISettings.mount) {
-      UISettings.mount({
-        elements,
-        getRuntimeConfig,
-        callbacks: {
-          loadCachedModels,
-          onConfigSaved: (savedConfig) => {
-            const currentHistory = getChatHistory();
-            if (currentHistory.length > 0 && currentHistory[0].role === 'system') {
-              currentHistory[0].content = Engine.getConfiguredSystemPrompt(savedConfig);
-              if (State.replaceMessages) {
-                State.replaceMessages(currentHistory);
-              }
-            }
-          },
-          populateProfileSelector: (id) => {
-            if (typeof UIProfiles.populateProfileSelector === 'function') {
-              UIProfiles.populateProfileSelector(elements, id);
-            }
-          }
-        }
-      });
-    }
-
-    if (UIProfiles.mount) {
-      UIProfiles.mount({
-        elements,
-        getRuntimeConfig,
+    UISettings.mount({
+      elements,
+      getRuntimeConfig,
+      callbacks: {
         loadCachedModels,
-        resetTelemetryDisplay,
-        updateUIFromConfig,
-        inspectProfile,
-        closeSettingsModal: () => UISettings.closeSettingsModal?.(elements)
-      });
-    }
-
-    if (elements.btnQueryServer) {
-      elements.btnQueryServer.addEventListener('click', (e) => {
-        e.preventDefault();
-        handleQueryServer();
-      });
-    }
-
-    if (elements.btnCloseInspector) {
-      elements.btnCloseInspector.addEventListener('click', () => elements.inspectorDialog?.close?.());
-    }
-
-    if (elements.themeButtons && elements.themeButtons.length > 0) {
-      elements.themeButtons.forEach(btn => {
-        btn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          const targetTheme = btn.getAttribute('data-theme') || 'light';
-          applyTheme(targetTheme);
-          if (Config.updateGeneral) Config.updateGeneral({ theme: targetTheme });
-        });
-      });
-    }
-
-    if (elements.langButtons && elements.langButtons.length > 0) {
-      elements.langButtons.forEach(btn => {
-        btn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          const targetLang = btn.getAttribute('data-lang') || 'es';
-          applyLanguage(targetLang);
-          if (Config.updateGeneral) Config.updateGeneral({ language: targetLang });
-        });
-      });
-    }
-
-    const UITel = getUITelemetry();
-    if (UITel && UITel.bindPopoverEvents) {
-      UITel.bindPopoverEvents(elements, () => {
-        updateConnectionTokensBadge(null, null, { forcePopover: true });
-      });
-    }
-    if (elements.btnSaveContextLimitOverride && elements.contextLimitOverrideInput) {
-      elements.btnSaveContextLimitOverride.addEventListener('click', async function () {
-        const UITel = getUITelemetry();
-        const contextLimitOverride = UITel?.parseContextCapacity?.(elements.contextLimitOverrideInput.value);
-        if (!contextLimitOverride) {
-          await ChatDialogs.alert(t('context_limit_override_invalid'));
-          return;
-        }
-        const activeProfile = getRuntimeConfig().activeProfile;
-        const profile = activeProfile && Profiles.get?.(activeProfile.id);
-        if (!profile || !Profiles.save) {
-          await ChatDialogs.alert(t('context_limit_override_profile_required'));
-          return;
-        }
-        if (profile.settings.apiKeyLocked === true) {
-          await ChatDialogs.alert(t('err_profile_read_only'));
-          return;
-        }
-        try {
-          const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
-          if (typeof UIProfiles.activateConnectionProfile === 'function') {
-            UIProfiles.activateConnectionProfile(savedProfile.id, getProfilesHelperOptions());
-          }
-          updateConnectionTokensBadge(null, null, { forcePopover: true });
-        } catch (error) {
-          console.error('Could not save context limit override:', error);
-          await ChatDialogs.alert(t('context_limit_override_save_error'));
-        }
-      });
-    }
-  }
-
-  function ensureModalsMarkup() {
-    if (UISettings && typeof UISettings.ensureDialogMarkup === 'function') UISettings.ensureDialogMarkup();
-    if (window.ChatUIMcp && typeof window.ChatUIMcp.ensureDialogMarkup === 'function') window.ChatUIMcp.ensureDialogMarkup();
-    if (window.ChatRagUI && typeof window.ChatRagUI.ensureDialogMarkup === 'function') window.ChatRagUI.ensureDialogMarkup();
-    if (window.ChatExport && typeof window.ChatExport.ensureDialogMarkup === 'function') window.ChatExport.ensureDialogMarkup();
-    if (Debug && typeof Debug.ensureDialogMarkup === 'function') Debug.ensureDialogMarkup();
-  }
-
-  const HEARTBEAT_INTERVAL_MS = 10000;
-  let heartbeatTimer = null;
-  let activeHeartbeatTarget = null;
-  let heartbeatCheckInFlight = false;
-
-  function buildHeartbeatUrl(host, port) {
-    if (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http')) {
-      const locHost = window.location.hostname;
-      const locPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-      const isSamePort = String(port) === String(locPort);
-      const isLocalHostMatch = (locHost === host) ||
-        (['127.0.0.1', 'localhost'].includes(locHost) && ['127.0.0.1', 'localhost'].includes(host));
-      if (isSamePort && isLocalHostMatch) {
-        return '/zerochat/heartbeat';
+        onConfigSaved: savedConfig => {
+          const history = getChatHistory();
+          if (history[0]?.role !== 'system') return;
+          history[0].content = Engine.getConfiguredSystemPrompt(savedConfig);
+          State.replaceMessages(history);
+        },
+        populateProfileSelector: id => UIProfiles.populateProfileSelector(elements, id)
       }
-    }
-    return `http://${host}:${port}/zerochat/heartbeat`;
-  }
+    });
+    UIProfiles.mount({ elements, ...getProfilesHelperOptions() });
 
-  async function sendHeartbeatPing() {
-    if (!activeHeartbeatTarget || typeof fetch !== 'function') return;
-    const endpoint = buildHeartbeatUrl(activeHeartbeatTarget.host, activeHeartbeatTarget.port);
-    try {
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        cache: 'no-store',
-        mode: 'cors',
-        headers: { 'X-ZeroChat-Token': activeHeartbeatTarget.token }
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
-      // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
-      window.ChatMCP?.manager?.syncProjectDirectory?.(payload.cwd);
-      window.ChatMCP?.manager?.syncCommandJobs?.(payload.jobs, { exitOnClose: payload.exit_on_close === true });
-    } catch (_) {
-      if (heartbeatCheckInFlight) return;
-      heartbeatCheckInFlight = true;
-      try {
-        await window.ChatMCP?.manager?.verifyProxyConnection?.({ timeoutMs: 1500 });
-      } finally {
-        heartbeatCheckInFlight = false;
+    elements.btnQueryServer.addEventListener('click', async event => {
+      event.preventDefault();
+      if (await UIInspector.handleQueryServer(elements, getRuntimeConfig())) {
+        UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
       }
-    }
+    });
+    elements.btnCloseInspector.addEventListener('click', () => elements.inspectorDialog.close());
+
+    const bindPreference = (buttons, attribute, apply, key) => buttons.forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const value = button.getAttribute(attribute);
+        apply(value);
+        Config.updateRuntime({ [key]: value });
+      });
+    });
+    bindPreference(elements.themeButtons, 'data-theme', applyTheme, 'theme');
+    bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
+
+    UITelemetry.bindPopoverEvents(elements, () => updateConnectionTokensBadge(null, null, { forcePopover: true }));
+    elements.btnSaveContextLimitOverride.addEventListener('click', saveContextLimitOverride);
+
+    elements.messagesList.addEventListener('click', event => {
+      const option = event.target.closest('[data-ask-option]');
+      if (option) handleAskUserOption(option);
+    });
   }
 
-  function startServerHeartbeat(host, port, token) {
-    if (!token || !host || !port) return;
-    const targetChanged = !activeHeartbeatTarget
-      || activeHeartbeatTarget.host !== host
-      || activeHeartbeatTarget.port !== port
-      || activeHeartbeatTarget.token !== token;
+  function subscribeToState() {
+    const syncGenerationControls = streaming => UIComposer.syncGenerationControls(elements, streaming.isGenerating);
+    State.subscribe('streaming', syncGenerationControls);
+    syncGenerationControls(State.get('streaming'));
 
-    activeHeartbeatTarget = { host, port, token };
-    updateNewTabLink();
+    // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
+    State.subscribe(
+      state => ({ status: state.mcp.status, cwd: state.mcp.serverInfo?.cwd || '', tools: state.mcp.tools.length }),
+      refreshProjectContext
+    );
+    State.subscribe('project', renderProjectPanel);
+    // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
+    State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }) => {
+      if (!generating && getRuntimeConfig().projectMode === true) refreshProjectContext();
+      // «Cambiar…» solo está activo sin generación en curso.
+      renderProjectPanel();
+    });
+    // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
+    refreshProjectContext();
 
-    if (targetChanged) {
-      sendHeartbeatPing();
-    }
+    // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
+    const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
+    State.subscribe('messages', scheduleAskUserSync);
+    State.subscribe('streaming', scheduleAskUserSync);
 
-    if (!heartbeatTimer) {
-      heartbeatTimer = setInterval(sendHeartbeatPing, HEARTBEAT_INTERVAL_MS);
-    }
+    Config.subscribe((nextConfig, previousConfig) => {
+      if (previousConfig.apiType !== nextConfig.apiType) {
+        Promise.resolve(Providers.registry.get(previousConfig.apiType)?.deactivate?.())
+          .catch(error => console.error('[App] Provider cleanup failed:', error));
+      }
+      updateUIFromConfig();
+      if (nextConfig.projectMode !== previousConfig.projectMode ||
+          JSON.stringify(nextConfig.projectDeclined) !== JSON.stringify(previousConfig.projectDeclined)) {
+        refreshProjectContext();
+      }
+      renderProjectPanel();
+    });
   }
 
-  function stopServerHeartbeat() {
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
+  // ==========================================================================
+  // Conexión con el servidor local
+  // ==========================================================================
+
+  // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
+  // Después la sesión se resuelve mediante una cookie del mismo origen.
+  function persistBackendSessionFromLaunchFragment() {
+    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const token = hashParams.get('token');
+    if (!token) return;
+    const session = Storage.normalizeBackendSession({
+      token,
+      host: hashParams.get('host') || Defaults.CONFIG_DEFAULTS.mcpHost,
+      port: hashParams.get('port') || Defaults.CONFIG_DEFAULTS.mcpPort
+    });
+    if (session && !Storage.setBackendSession(session)) {
+      console.warn('[App] Could not persist the initial backend session.');
     }
-    heartbeatCheckInFlight = false;
+    history.replaceState(null, '', location.pathname + location.search);
   }
 
-  function getNewTabUrl() {
-    if (typeof window === 'undefined' || !window.location) return '';
-    return (window.location.pathname || '') + (window.location.search || '') || window.location.href;
-  }
-
-  function updateNewTabLink() {
-    if (!elements?.btnSidebarNewTab) return;
-    const url = getNewTabUrl();
-    if (url) {
-      elements.btnSidebarNewTab.href = url;
+  /** Conecta con zerochat.py si hay sesión o autoconexión; devuelve el resultado de la conexión. */
+  function connectBackend() {
+    persistBackendSessionFromLaunchFragment();
+    const backendSession = Storage.getBackendSession();
+    const token = backendSession?.token || MCP.manager.getSessionToken();
+    if (token) {
+      MCP.manager.setSessionToken(token);
+      ToolSecurity.manager.setSessionToken(token);
     }
+    const config = getRuntimeConfig();
+    if (!token && !config.mcpAutoConnect) return Promise.resolve({ success: false });
+    return MCP.manager.connectProxy({
+      host: backendSession?.host || config.mcpHost,
+      port: backendSession?.port || config.mcpPort,
+      token,
+      silentOnFailure: !token,
+      notifyStartup: false
+    }).catch(error => {
+      console.warn('[App] Could not connect to the local server on startup:', error);
+      return { success: false };
+    });
   }
 
   function init() {
-    let startupMcpConnection = Promise.resolve();
     ensureModalsMarkup();
     cacheDomElements();
-    if (Debug.setElements) Debug.setElements(elements);
-    if (Debug.setRawLogsEnabled) Debug.setRawLogsEnabled(true);
-    if (Debug.registerGlobalErrorHandlers && typeof window !== 'undefined') Debug.registerGlobalErrorHandlers(window);
+    Debug.setElements(elements);
+    Debug.setRawLogsEnabled(true);
+    Debug.registerGlobalErrorHandlers(window);
 
-    if (State.subscribe) {
-      const syncGenerationControls = (streamingState) => {
-        const isGenerating = Boolean(streamingState.isGenerating);
-        if (UIComposer.syncGenerationControls) {
-          UIComposer.syncGenerationControls(elements, isGenerating, { clearGenerationStatus });
-        } else {
-          if (elements.btnSend) elements.btnSend.disabled = isGenerating;
-          if (elements.btnStopStream) elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
-          if (!isGenerating) clearGenerationStatus();
-        }
-      };
-      State.subscribe('streaming', syncGenerationControls);
-      syncGenerationControls(State.get?.('streaming') || {});
-
-      if (ProjectContext.refresh) {
-        // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
-        State.subscribe(
-          state => ({ status: state.mcp?.status, cwd: state.mcp?.serverInfo?.cwd || '', tools: state.mcp?.tools?.length || 0 }),
-          refreshProjectContext
-        );
-        State.subscribe('project', renderProjectPanel);
-        // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
-        State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }) => {
-          if (!generating && Config.getActive().projectMode === true) refreshProjectContext();
-          // «Cambiar…» solo está activo sin generación en curso.
-          renderProjectPanel();
-        });
-        // Estado inicial coherente con la configuración aunque el servidor no llegue a conectar.
-        refreshProjectContext();
-      }
-
-      // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
-      const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
-      State.subscribe('messages', scheduleAskUserSync);
-      State.subscribe('streaming', scheduleAskUserSync);
-      elements.messagesList?.addEventListener('click', event => {
-        const option = event.target?.closest?.('[data-ask-option]');
-        if (option) handleAskUserOption(option);
-      });
-    }
-
-    if (Config.subscribe) {
-      Config.subscribe((nextConfig, previousConfig) => {
-        if (previousConfig?.apiType && previousConfig.apiType !== nextConfig?.apiType) {
-          Promise.resolve(Providers.registry?.get?.(previousConfig.apiType)?.deactivate?.())
-            .catch(error => console.error('Provider cleanup failed:', error));
-        }
-        updateUIFromConfig();
-        if (nextConfig?.projectMode !== previousConfig?.projectMode ||
-            JSON.stringify(nextConfig?.projectDeclined || []) !== JSON.stringify(previousConfig?.projectDeclined || [])) {
-          refreshProjectContext();
-        }
-        renderProjectPanel();
-      });
-    }
-
+    subscribeToState();
     loadCachedModels();
     updateUIFromConfig();
-    loadSessionsFromStorage();
+    ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     setupEventListeners();
+    if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
-    if (UISidebar.isMobile && UISidebar.isMobile() && UISidebar.closeSidebar) {
-      UISidebar.closeSidebar(elements);
-    }
+    RagUI.initRagUI();
+    UIMcp.initMcpUI({
+      statusBadge: elements.mcpStatusBadge,
+      statusText: elements.mcpStatusText,
+      serverDetails: elements.mcpServerDetails,
+      reconnectHint: elements.mcpReconnectHint,
+      commandSnippet: elements.mcpTerminalCommand,
+      btnCopyCmd: elements.btnMcpCopyCmd,
+      bootstrapCard: elements.mcpBootstrapCard,
+      toolsContainer: elements.mcpToolsContainer,
+      serversList: elements.mcpServersList
+    });
 
-    if (window.ChatRagUI && window.ChatRagUI.initRagUI) {
-      window.ChatRagUI.initRagUI();
-    }
+    // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
+    if (UIProfiles.startImportMode(elements)) return;
 
-    if (window.ChatUIMcp && window.ChatUIMcp.initMcpUI) {
-      window.ChatUIMcp.initMcpUI({
-        statusBadge: elements.mcpStatusBadge,
-        statusText: elements.mcpStatusText,
-        serverDetails: elements.mcpServerDetails,
-        reconnectHint: elements.mcpReconnectHint,
-        commandSnippet: elements.mcpTerminalCommand,
-        btnCopyCmd: elements.btnMcpCopyCmd,
-        bootstrapCard: elements.mcpBootstrapCard,
-        toolsContainer: elements.mcpToolsContainer,
-        serversList: elements.mcpServersList
-      });
-
-      // Sistema de importación de perfiles vía postMessage desde HTML exportado
-      /** Sale del modo importación: limpia el hash, quita el aviso de espera y restaura el chat. */
-  function leaveImportMode() {
-    if (window.location.hash.includes('mode=import')) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
-    document.getElementById('import-waiting-banner')?.remove();
-    if (elements.messagesList) elements.messagesList.style.display = '';
-    if (elements.chatForm) elements.chatForm.style.display = '';
-  }
-
-  function setupProfileImportListener() {
-        let importInProgress = false;
-
-        function getImportTransferId() {
-          const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
-          const transferId = hashParams.get('transferId');
-          return typeof transferId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(transferId)
-            ? transferId
-            : '';
-        }
-
-        // Notificar al opener que estamos listos
-        function notifyReady() {
-          const transferId = getImportTransferId();
-          if (transferId && window.opener && !window.opener.closed) {
-            try {
-              window.opener.postMessage({ type: 'zerochat_import_ready', transferId }, '*');
-              console.log('[Import Mode] Notified opener that we are ready');
-            } catch (e) {
-              console.warn('[Import Mode] Could not notify opener:', e);
-            }
-          }
-        }
-
-        // Procesar importación
-        async function handleImportMessage(event) {
-          // Validar estructura del mensaje
-          const transferId = getImportTransferId();
-          if (!transferId || !event.data || event.data.type !== 'import_profiles' ||
-              event.data.transferId !== transferId || event.source !== window.opener) {
-            return;
-          }
-
-          // Prevenir procesamiento múltiple
-          if (importInProgress) {
-            console.warn('[Import Mode] Import already in progress, ignoring duplicate message');
-            return;
-          }
-
-          importInProgress = true;
-          console.log('[Import Mode] Received import request');
-
-          try {
-            const payload = event.data.payload;
-            const metadata = event.data.metadata || {};
-
-            if (!payload || typeof payload !== 'string') {
-              throw new Error('Invalid payload format');
-            }
-
-            console.log('[Import Mode] Payload size:', payload.length, 'bytes');
-            console.log('[Import Mode] Metadata:', metadata);
-
-            // Descifrar y validar
-            const ProfileBackup = window.ChatProfileBackup;
-            if (!ProfileBackup?.decryptProfiles) {
-              throw new Error('Profile decryption not available');
-            }
-
-            let imported;
-            try {
-              imported = await ProfileBackup.withPassword(
-                keyMaterial => ProfileBackup.decryptProfiles(payload, keyMaterial),
-                () => window.ChatDialogs.prompt(window.ChatI18n.t('crypto_current_password_prompt'), '', {
-                  inputType: 'password', title: window.ChatI18n.t('crypto_password_title')
-                })
-              );
-            } catch (error) {
-              if (error?.cancelled) throw new Error('Import cancelled by user');
-              throw error;
-            }
-            console.log('[Import Mode] Decrypted', imported.length, 'profiles');
-
-            if (!Array.isArray(imported) || imported.length === 0) {
-              throw new Error('No valid profiles found in payload');
-            }
-
-            // Confirmar con el usuario
-            const Dialogs = window.ChatDialogs;
-            const I18n = window.ChatI18n;
-            const confirmed = await Dialogs.confirm(
-              I18n.t('confirm_auto_import_profiles', { count: imported.length })
-            );
-
-            if (!confirmed) {
-              throw new Error('Import cancelled by user');
-            }
-
-            // Importar
-            const Profiles = window.ChatProfileRepository;
-            const result = Profiles.mergeImported(imported);
-            console.log('[Import Mode] Import result:', result);
-
-            // Actualizar configuración activa si es necesario
-            const Config = window.ChatConfig;
-            const activeId = Config?.getActive?.()?.activeProfile?.id;
-            if (activeId && !Profiles.get(activeId)) {
-              Config?.activateFallbackProfile?.();
-            }
-
-            // Notificar éxito al opener
-            if (event.source && !event.source.closed) {
-              event.source.postMessage({
-                type: 'import_result',
-                transferId,
-                success: true,
-                result: {
-                  added: result.added,
-                  replaced: result.replaced,
-                  total: result.total
-                }
-              }, '*');
-            }
-
-            // Mostrar feedback al usuario
-            await Dialogs.alert(
-              I18n.t('msg_profiles_auto_imported', {
-                added: result.added,
-                replaced: result.replaced
-              })
-            );
-
-            leaveImportMode();
-
-            // Continuar con inicialización normal si no se hizo
-            console.log('[Import Mode] Import completed successfully, resuming normal initialization');
-
-            // Inicializar la app normalmente si aún no lo está
-            if (!document.documentElement.classList.contains('zerochat-ready')) {
-              // Remover el flag de modo importación para que init() pueda ejecutarse
-              window.location.hash = '';
-              // Llamar a la función init que quedó pendiente
-              // Esto requiere que ejecutemos la inicialización manualmente
-              window.location.reload();
-            } else {
-              // Ya está inicializada, solo refrescar UI
-              if (typeof UIProfiles?.populateProfileSelector === 'function') {
-                const nextActive = Config?.getActive?.()?.activeProfile?.id || '';
-                UIProfiles.populateProfileSelector(nextActive);
-              }
-            }
-
-          } catch (error) {
-            console.error('[Import Mode] Profile import error:', error);
-
-            // Notificar error al opener
-            if (event.source && !event.source.closed) {
-              event.source.postMessage({
-                type: 'import_result',
-                transferId,
-                success: false,
-                error: error.message
-              }, '*');
-            }
-
-            // Mostrar error al usuario
-            const Dialogs = window.ChatDialogs;
-            const I18n = window.ChatI18n;
-            await Dialogs.alert(
-              I18n.t('err_auto_import_failed', { err: error.message })
-            );
-
-            leaveImportMode();
-
-            // Recargar para inicializar normalmente después del error
-            console.log('[Import Mode] Import failed, reloading to initialize normally');
-            window.location.reload();
-          } finally {
-            importInProgress = false;
-          }
-        }
-
-        // Registrar listener
-        window.addEventListener('message', handleImportMessage);
-
-        // Notificar que estamos listos si somos una ventana abierta para importar
-        if (window.location.hash.includes('mode=import')) {
-          console.log('[Import Mode] Detected import mode, will notify opener when ready');
-          // Notificar inmediatamente si ya estamos listos
-          if (document.readyState === 'complete') {
-            notifyReady();
-          } else {
-            window.addEventListener('load', notifyReady, { once: true });
-          }
-        }
-      }
-
-      // Detectar modo importación y mostrar UI de espera
-      function detectImportMode() {
-        if (!window.location.hash.includes('mode=import')) {
-          return false; // Flujo normal
-        }
-
-        console.log('[Import Mode] Import mode detected, showing waiting UI');
-
-        // Ocultar contenido normal temporalmente
-        if (elements.messagesList) elements.messagesList.style.display = 'none';
-        if (elements.chatForm) elements.chatForm.style.display = 'none';
-
-        // Mostrar banner de espera
-        const banner = document.createElement('div');
-        banner.id = 'import-waiting-banner';
-        banner.style.cssText = `
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--color-bg-primary);
-          z-index: 9999;
-        `;
-        banner.innerHTML = `
-          <div style="text-align: center; max-width: 400px; padding: 40px;">
-            <div style="margin-bottom: 20px; color: var(--color-text-secondary);">${window.ChatIcons?.get ? window.ChatIcons.get('download', { size: 64, className: 'ui-icon' }) : ''}</div>
-            <h2 style="margin: 0 0 10px 0; font-size: 24px;">Importando perfiles...</h2>
-            <p style="color: var(--color-text-secondary); margin: 0;">Esperando datos cifrados desde la ventana de exportación</p>
-          </div>
-        `;
-        document.body.appendChild(banner);
-
-        // Configurar listener
-        setupProfileImportListener();
-
-        return true; // Modo importación activado
-      }
-
-      // Detectar modo importación ANTES de inicializar normalmente
-      const isImportMode = detectImportMode();
-      if (isImportMode) {
-        console.log('[Import Mode] Skipping normal initialization, waiting for profile data');
-        // NO continuar con la inicialización normal
-        // El listener manejará todo y luego permitirá uso normal
-        return;
-      }
-
-      // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
-      // Después la sesión se resuelve mediante una cookie del mismo origen.
-      function persistBackendSessionFromLaunchFragment() {
-        try {
-          if (typeof window !== 'undefined' && window.location) {
-            const hashRaw = (window.location.hash || '').replace(/^#/, '');
-            const hashParams = new URLSearchParams(hashRaw);
-            const token = hashParams.get('token');
-            if (!token) return;
-            const session = Storage.normalizeBackendSession?.({
-              token,
-              host: hashParams.get('host') || '127.0.0.1',
-              port: hashParams.get('port') || 6388
-            });
-            if (session) {
-              if (!Storage.setBackendSession?.(session)) {
-                console.warn('No se pudo persistir la sesión inicial del backend.');
-              }
-            }
-            if (window.history && typeof window.history.replaceState === 'function') {
-              window.history.replaceState(null, '', window.location.pathname + window.location.search);
-            }
-          }
-        } catch (err) {
-          console.warn('Error leyendo la sesión inicial del backend:', err);
-        }
-      }
-
-      persistBackendSessionFromLaunchFragment();
-      const backendSession = Storage.getBackendSession?.();
-      const effectiveToken = backendSession?.token || window.ChatMCP?.manager?.getSessionToken();
-      if (effectiveToken && window.ChatMCP?.manager?.setSessionToken) {
-        window.ChatMCP.manager.setSessionToken(effectiveToken);
-      }
-      if (effectiveToken && ToolSecurity?.manager?.setSessionToken) {
-        ToolSecurity.manager.setSessionToken(effectiveToken);
-      }
-
-      const currentCfg = getRuntimeConfig();
-      const targetPort = backendSession?.port || (currentCfg?.mcpPort || 6388);
-      const targetHost = backendSession?.host || currentCfg?.mcpHost || '127.0.0.1';
-
-      if ((effectiveToken || currentCfg?.mcpAutoConnect) && window.ChatMCP?.manager?.connectProxy) {
-        startupMcpConnection = window.ChatMCP.manager.connectProxy({
-          host: targetHost,
-          port: targetPort,
-          token: effectiveToken,
-          silentOnFailure: !effectiveToken,
-          notifyStartup: false
-        }).catch(error => {
-          console.warn('Error conectando MCP al arrancar:', error);
-          return { success: false };
-        });
-      }
-
-      // Iniciar latido periódico al servidor local zerochat.py si hay token de sesión activo
-      if (effectiveToken) {
-        startServerHeartbeat(targetHost, targetPort, effectiveToken);
-      }
-      updateNewTabLink();
-    }
-
-    window.ChatApp = {
-      setGenerationStatus,
-      applyLanguage,
-      switchToSession,
-      createConversationBranch,
-      deleteSession,
-      openExecutionInfo,
-      startServerHeartbeat,
-      stopServerHeartbeat
-    };
+    const startupMcpConnection = connectBackend();
+    updateNewTabLink();
 
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil
-    void registerServiceWorker().then(async reloading => {
+    registerServiceWorker().then(async reloading => {
       if (reloading) return;
       const connection = await startupMcpConnection;
-      if (connection?.success) {
-        window.ChatMCP?.manager?.notifyStoppedExternalServices(State.get('mcp')?.externalServers);
-      }
-    }).catch(error => console.warn('Error comprobando MCP al arrancar:', error));
+      if (connection.success) MCP.manager.notifyStoppedExternalServices(State.get('mcp').externalServers);
+    }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
 
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
   }
 
-  async function registerServiceWorker() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) ||
-        !['http:', 'https:'].includes(location.protocol)) return false;
+  let serviceWorkerUpdatePrompt = null;
 
-    let updatePrompt = null;
-    const promptServiceWorkerUpdate = () => {
-      if (updatePrompt) return updatePrompt;
-      if (serviceWorkerUpdatePromptShown || !window.ChatDialogs?.confirm) return Promise.resolve(false);
-      serviceWorkerUpdatePromptShown = true;
-      updatePrompt = window.ChatDialogs.confirm(t('pwa_update_available'), {
-        type: 'info',
-        title: t('pwa_update_title'),
-        acceptText: t('pwa_update_reload'),
-        cancelText: t('pwa_update_later')
-      }).then(accepted => {
-        if (accepted) window.location.reload();
-        return accepted;
-      }).catch(() => false);
-      return updatePrompt;
-    };
+  function promptServiceWorkerUpdate() {
+    serviceWorkerUpdatePrompt ||= Dialogs.confirm(t('pwa_update_available'), {
+      type: 'info',
+      title: t('pwa_update_title'),
+      acceptText: t('pwa_update_reload'),
+      cancelText: t('pwa_update_later')
+    }).then(accepted => {
+      if (accepted) location.reload();
+      return accepted;
+    });
+    return serviceWorkerUpdatePrompt;
+  }
+
+  /** Registra el Service Worker; devuelve true si el usuario eligió recargar para actualizar. */
+  async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || !['http:', 'https:'].includes(location.protocol)) return false;
     if (document.readyState !== 'complete') {
       await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     }
     try {
       const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
-      registration.addEventListener?.('updatefound', () => {
+      registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
-        worker?.addEventListener?.('statechange', () => {
-          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-            void promptServiceWorkerUpdate();
-          }
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) promptServiceWorkerUpdate();
         });
       });
       if (registration.waiting) return await promptServiceWorkerUpdate();
-      await registration.update?.().catch(() => {});
+      await registration.update().catch(() => {});
       const worker = registration.installing;
       if (worker && !['installed', 'activated', 'redundant'].includes(worker.state)) {
         await new Promise(resolve => {
@@ -1833,7 +904,7 @@
       if (registration.waiting || (worker?.state === 'installed' && navigator.serviceWorker.controller)) {
         return await promptServiceWorkerUpdate();
       }
-      return await (updatePrompt || Promise.resolve(false));
+      return await (serviceWorkerUpdatePrompt || false);
     } catch (_) {
       return false;
     }

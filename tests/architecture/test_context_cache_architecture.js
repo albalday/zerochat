@@ -17,7 +17,7 @@ test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero 
     systemPrompt: 'INSTRUCCION_BASE_MAESTRA',
     systemDataPrompt: 'FORMATO_PLANO'
   };
-  const effective = ChatEngine.buildEffectiveMessages(history, config, {
+  const effective = ChatEngine.buildEffectiveMessages(history, require('../../js/config-store.js').normalize(config), {
     currentRagSystemContext: 'CONTEXTO_RAG_VARIABLE'
   });
 
@@ -38,7 +38,7 @@ test('ContextCache - Jerarquía de prefijo en system prompt coloca base primero 
 });
 
 test('ContextCache - el bloque del proyecto es estable: sigue a la base y precede a RAG y fecha', () => {
-  const sys = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Consulta' }], { systemPrompt: 'INSTRUCCION_BASE_MAESTRA' }, {
+  const sys = ChatEngine.buildEffectiveMessages([{ role: 'user', content: 'Consulta' }], require('../../js/config-store.js').normalize({ systemPrompt: 'INSTRUCCION_BASE_MAESTRA' }), {
     currentRagSystemContext: 'CONTEXTO_RAG_VARIABLE',
     projectContext: { status: 'ready', cwd: '/repo', rules: { content: 'NORMAS_PROYECTO' }, state: { content: '' } }
   }).find(m => m.role === 'system').content;

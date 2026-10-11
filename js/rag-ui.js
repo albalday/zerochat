@@ -75,13 +75,7 @@
   function setActiveBranchIds(ids) {
     const list = Array.isArray(ids) ? ids : (ids ? [ids] : []);
     activeBranchIds = new Set(list.map(id => String(id || '').trim()).filter(Boolean));
-    const config = runtimeConfig();
-    if (config?.updateGeneral) {
-      config.updateGeneral({
-        activeRagBranchIds: Array.from(activeBranchIds),
-        activeRagBranchId: getActiveBranchId()
-      });
-    }
+    runtimeConfig().updateRuntime({ activeRagBranchIds: Array.from(activeBranchIds) });
     updateToolbarStatus();
     return Array.from(activeBranchIds);
   }
@@ -844,14 +838,7 @@
   function initRagUI() {
     if (initialized || typeof document === 'undefined') return;
     initialized = true;
-    const cfg = runtimeConfig()?.getActive?.() || {};
-    if (Array.isArray(cfg.activeRagBranchIds) && cfg.activeRagBranchIds.length > 0) {
-      activeBranchIds = new Set(cfg.activeRagBranchIds.map(String).filter(Boolean));
-    } else if (cfg.activeRagBranchId) {
-      activeBranchIds = new Set([String(cfg.activeRagBranchId)]);
-    } else {
-      activeBranchIds = new Set();
-    }
+    activeBranchIds = new Set(runtimeConfig().getActive().activeRagBranchIds);
     ensureDialogMarkup();
 
     document.getElementById('btn-open-rag')?.addEventListener('click', () => openActivationModal());

@@ -1,298 +1,165 @@
+require('fake-indexeddb/auto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const GenerationController = require('../../js/generation-controller.js');
+const UIConversation = require('../../js/ui-conversation.js');
+const ChatAPI = require('../../js/api.js');
+const ChatMCP = require('../../js/mcp.js');
+const State = require('../../js/state.js');
+const Config = require('../../js/config-store.js');
+const Debug = require('../../js/debug.js');
+const I18n = require('../../js/i18n.js');
+const { installDom, getElements } = require('../helpers/dom-env.js');
 
-test('GenerationController - returned and thrown errors use the same connection view', async t => {
-  const State = require('../../js/state.js');
-  const names = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments'];
-  const previous = names.map(name => [name, global[name]]);
-  t.after(() => {
-    for (const [name, value] of previous) {
-      if (value === undefined) delete global[name];
-      else global[name] = value;
-    }
+const ELEMENT_IDS = {
+  messagesList: 'messages-list',
+  welcomeBanner: 'welcome-banner',
+  userInput: 'user-input',
+  btnSend: 'btn-send',
+  btnStopStream: 'btn-stop-stream',
+  fileInput: 'file-input',
+  attachmentsContainer: 'attachments-container',
+  generationStatus: 'generation-status',
+  reasoningMenu: 'reasoning-menu',
+  btnReasoning: 'btn-reasoning',
+  debugLogContent: 'debug-log-content',
+  debugStatusIndicator: 'debug-status-indicator'
+};
+
+/** Entorno de app.js: DOM real, configuración activa y los callbacks que cablea la aplicación. */
+function setup(t, { model = 'test-model', apiUrl = 'http://localhost:1234/v1', respond } = {}) {
+  const dom = installDom({ app: true });
+  const elements = getElements(document, ELEMENT_IDS);
+  Debug.setElements(elements);
+  State.replaceConversation({ sessionId: 'session_generation', sessions: [], messages: [{ id: 'system_root', role: 'system', content: '' }] });
+  Config.updateRuntime({ model, apiUrl, apiType: 'openai', activeProfile: null });
+  const originalStream = ChatAPI.streamChatCompletion;
+  ChatAPI.streamChatCompletion = respond || (async params => {
+    params.onDone?.('ok', null, null);
+    return { accumulatedText: 'ok', toolCalls: null, stats: null };
   });
-  t.mock.method(console, 'error', () => {});
-  global.ChatProfileRepository = { load: async () => null };
-  global.ChatAttachments = { getFiles: () => [] };
-  const rendered = [];
-  for (const throws of [false, true]) {
-    global.ChatState = State.createStore();
-    global.ChatEngine = { executeAgentTurnLoop: async () => {
-      const error = new Error('<img src=x onerror="bad()">');
-      if (throws) throw error;
-      return { error };
-    } };
-    const content = { innerHTML: '' };
-    const actions = { style: {} };
-    await GenerationController.handleSendMessage({
-      elements: { userInput: { value: 'Question' } },
-      api: { streamChatCompletion() {} },
-      getRuntimeConfig: () => ({ model: 'test', apiUrl: '<script>bad()</script>' }),
-      appendUserMessage: () => 'user-test',
-      getChatHistory: () => global.ChatState.get('messages'),
-      createAssistantMessagePlaceholder: () => ({ content, actions, wrapper: {}, row: {}, msgId: 'assistant-test' })
+  t.after(() => {
+    ChatAPI.streamChatCompletion = originalStream;
+    dom.restore();
+  });
+
+  const calls = { saved: 0, badges: [] };
+  const callbacks = { onReuse() {}, onDelete() {}, onBranch() {} };
+  const send = text => {
+    elements.userInput.value = text;
+    return GenerationController.handleSendMessage({
+      elements,
+      appendUserMessage: (displayText, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
+        elements.messagesList, elements.welcomeBanner, { text: displayText, originalPrompt, attachedImages }, callbacks),
+      createAssistantMessagePlaceholder: () => UIConversation.createAssistantMessagePlaceholder(elements.messagesList, null, callbacks),
+      updateConnectionTokensBadge: (...args) => calls.badges.push(args),
+      openDebugInterceptorModal: async request => request,
+      saveCurrentSession: () => { calls.saved++; }
     });
-    assert.equal(actions.style.display, 'inline-flex');
-    assert.equal(GenerationController.isGenerating(), false);
-    assert.doesNotMatch(content.innerHTML, /<img|<script/);
-    rendered.push(content.innerHTML);
-  }
-  assert.equal(rendered[0], rendered[1]);
+  };
+  const lastAssistant = () => [...elements.messagesList.querySelectorAll('.message-wrapper.assistant')].at(-1);
+  return { elements, send, calls, lastAssistant };
+}
+
+test('GenerationController - responde, guarda el historial y deja la generación inactiva', async t => {
+  const { send, calls, lastAssistant, elements } = setup(t);
+  await send('Hola');
+  assert.deepEqual(State.get('messages').slice(1).map(message => message.role), ['user', 'assistant']);
+  assert.match(lastAssistant().querySelector('.message-content').innerHTML, /ok/);
+  assert.equal(lastAssistant().querySelector('.message-actions').style.display, 'inline-flex');
+  assert.equal(calls.saved, 1);
+  assert.equal(GenerationController.isGenerating(), false);
+  assert.equal(elements.userInput.value, '');
 });
 
-test('GenerationController - finishGeneration resets state and calls saveCurrentSession', () => {
-  let saved = false;
-  let typingRemoved = false;
-  let statusCleared = false;
+test('GenerationController - ignora un envío sin texto ni adjuntos', async t => {
+  const { send, calls } = setup(t);
+  await send('   ');
+  assert.equal(State.get('messages').length, 1);
+  assert.equal(calls.saved, 0);
+});
 
-  GenerationController.finishGeneration({
-    skipSave: false,
-    error: null,
-    elements: {
-      btnSend: { disabled: true },
-      btnStopStream: { style: { display: 'block' } }
-    },
-    removeTypingIndicator: () => { typingRemoved = true; },
-    clearGenerationStatus: () => { statusCleared = true; },
-    saveCurrentSession: () => { saved = true; },
-    scrollToBottom: () => {}
-  });
-
-  assert.equal(typingRemoved, true);
-  assert.equal(statusCleared, true);
-  assert.equal(saved, true);
+test('GenerationController - sin modelo muestra el aviso con la URL escapada', async t => {
+  const { send, calls, lastAssistant } = setup(t, { model: '', apiUrl: 'http://x/<img src=x onerror="bad()">' });
+  await send('Hola');
+  const wrapper = lastAssistant();
+  assert.ok(wrapper.querySelector('.message-row').classList.contains('message-error'));
+  assert.match(wrapper.textContent, new RegExp(I18n.t('err_no_model_title')));
+  assert.equal(wrapper.querySelector('.message-content img'), null, 'apiUrl no debe interpretarse como HTML');
+  assert.match(wrapper.querySelector('.message-error-card-hint').textContent, /<img src=x onerror="bad\(\)">/);
+  assert.equal(calls.saved, 1);
   assert.equal(GenerationController.isGenerating(), false);
 });
 
-test('GenerationController - finishGeneration focuses composer only with fine pointer', t => {
-  const hadWindow = 'window' in global;
-  const previousWindow = global.window;
-  t.after(() => {
-    if (hadWindow) global.window = previousWindow;
-    else delete global.window;
-  });
-  const run = (coarse) => {
-    global.window = { matchMedia: (q) => ({ matches: q === '(pointer: coarse)' && coarse }) };
-    let focused = false;
-    GenerationController.finishGeneration({
-      skipSave: true,
-      elements: { userInput: { focus: () => { focused = true; } } },
-      removeTypingIndicator: () => {}
-    });
-    return focused;
-  };
-  assert.equal(run(false), true);
-  assert.equal(run(true), false);
+test('GenerationController - un error del proveedor se muestra escapado en la tarjeta de conexión', async t => {
+  t.mock.method(console, 'error', () => {});
+  const { send, lastAssistant } = setup(t, { respond: async () => { throw new Error('<img src=x onerror="bad()">'); } });
+  await send('Question');
+  const content = lastAssistant().querySelector('.message-content');
+  assert.ok(content.querySelector('.message-error-card'));
+  assert.equal(content.querySelector('img'), null);
+  assert.equal(lastAssistant().querySelector('.message-actions').style.display, 'inline-flex');
+  assert.equal(GenerationController.isGenerating(), false);
 });
 
-test('GenerationController - handleSendMessage ignores empty input with no files', async () => {
-  let appendCalled = false;
-  await GenerationController.handleSendMessage({
-    elements: { userInput: { value: '   ' } },
-    appendUserMessage: () => { appendCalled = true; }
-  });
-  assert.equal(appendCalled, false);
-});
-
-test('GenerationController - cancelar conserva las tarjetas de herramientas visibles', async t => {
-  const State = require('../../js/state.js');
-  const previous = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments']
-    .map(name => [name, global[name]]);
-  t.after(() => previous.forEach(([name, value]) => {
-    if (value === undefined) delete global[name]; else global[name] = value;
-  }));
-  global.ChatState = State.createStore();
-  global.ChatProfileRepository = { load: async () => null };
-  global.ChatAttachments = { getFiles: () => [] };
-  global.ChatEngine = { executeAgentTurnLoop: async () => ({ cancelled: true }) };
-  let removed = false;
-  const wrapper = {
-    parentNode: { removeChild: () => { removed = true; } },
-    querySelector: selector => selector === '.tool-call-group' ? {} : null
-  };
-
-  await GenerationController.handleSendMessage({
-    elements: { userInput: { value: 'Detén la tarea' } },
-    api: { streamChatCompletion() {} },
-    getRuntimeConfig: () => ({ model: 'test', apiUrl: 'http://localhost' }),
-    appendUserMessage: () => 'user-cancel-test',
-    getChatHistory: () => global.ChatState.get('messages'),
-    createAssistantMessagePlaceholder: () => ({
-      wrapper, row: {}, content: {}, actions: { style: {} }, statsContainer: { style: {} }, msgId: 'assistant-cancel-test'
+test('GenerationController - parar a mitad conserva el mensaje del usuario y no deja la conversación ocupada', async t => {
+  const { send, calls } = setup(t, {
+    respond: params => new Promise((_resolve, reject) => {
+      params.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      GenerationController.handleStopGeneration();
     })
   });
-
-  assert.equal(removed, false, 'La cancelación no debe eliminar un turno con tarjetas de herramientas');
-});
-
-test('GenerationController - handleSendMessage rejects empty model configuration gracefully', async () => {
-  let finishCalled = false;
-  let rowClasses = [];
-  const mockRow = {
-    classList: {
-      add: (c) => rowClasses.push(c)
-    }
-  };
-  const mockContent = { innerHTML: '' };
-  const mockActions = { style: {} };
-
-  await GenerationController.handleSendMessage({
-    elements: { userInput: { value: 'Hola' } },
-    api: { streamChatCompletion: () => {} },
-    getRuntimeConfig: () => ({ model: '', apiUrl: 'http://localhost:1234' }),
-    appendUserMessage: () => 'msg_usr_test',
-    createAssistantMessagePlaceholder: () => ({
-      wrapper: {},
-      row: mockRow,
-      content: mockContent,
-      actions: mockActions,
-      btnCopy: {},
-      statsContainer: { style: {} },
-      msgId: 'msg_ast_test'
-    }),
-    finishGeneration: () => { finishCalled = true; }
-  });
-
-  assert.ok(rowClasses.includes('message-error'));
-  assert.ok(mockContent.innerHTML.includes('No hay ningún modelo seleccionado') || mockContent.innerHTML.includes('err_no_model_title'));
-});
-
-test('GenerationController - el aviso de modelo vacío escapa apiUrl', async () => {
-  const content = { innerHTML: '' };
-  await GenerationController.handleSendMessage({
-    elements: { userInput: { value: 'Hola' } },
-    api: { streamChatCompletion: () => {} },
-    getRuntimeConfig: () => ({ model: '', apiUrl: '<img src=x onerror="bad()">' }),
-    appendUserMessage: () => 'msg_usr_test',
-    createAssistantMessagePlaceholder: () => ({
-      wrapper: {}, row: { classList: { add() {} } }, content, actions: { style: {} },
-      btnCopy: {}, statsContainer: { style: {} }, msgId: 'msg_ast_test'
-    }),
-    finishGeneration: () => {}
-  });
-
-  assert.ok(!content.innerHTML.includes('<img'), 'apiUrl no debe interpretarse como HTML');
-  assert.ok(content.innerHTML.includes('&lt;img src=x onerror=&quot;bad()&quot;&gt;'));
-});
-
-test('GenerationController - loopDetected reports error status and stops cleanly', async t => {
-  const State = require('../../js/state.js');
-  const store = State.createStore();
-  const previousState = global.ChatState;
-  const previousEngine = global.ChatEngine;
-  const previousProfile = global.ChatProfileRepository;
-  const previousAttachments = global.ChatAttachments;
-
-  t.after(() => {
-    global.ChatState = previousState;
-    global.ChatEngine = previousEngine;
-    global.ChatProfileRepository = previousProfile;
-    global.ChatAttachments = previousAttachments;
-  });
-
-  global.ChatState = store;
-  global.ChatProfileRepository = { load: async () => null };
-  global.ChatAttachments = { getFiles: () => [] };
-
-  let debugStatusValue = null;
-  let debugLogRecorded = null;
-  let savedSession = false;
-
-  global.ChatEngine = {
-    executeAgentTurnLoop: async () => ({
-      success: true,
-      loopDetected: true,
-      finalAssistantText: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress.',
-      chatHistory: [
-        { role: 'user', content: 'Loop me' },
-        { role: 'assistant', content: '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress.' }
-      ]
-    })
-  };
-
-  const content = { innerHTML: '' };
-  const actions = { style: {} };
-
-  await GenerationController.handleSendMessage({
-    elements: {
-      userInput: { value: 'Trigger loop' },
-      btnSend: { disabled: true },
-      btnStopStream: { style: { display: 'block' } }
-    },
-    api: { streamChatCompletion() {} },
-    getRuntimeConfig: () => ({ model: 'test-model', apiUrl: 'http://localhost:1234/v1' }),
-    appendUserMessage: () => 'user-loop-test',
-    getChatHistory: () => store.get('messages'),
-    createAssistantMessagePlaceholder: () => ({ content, actions, wrapper: {}, row: {}, msgId: 'assistant-loop-test' }),
-    setDebugStatus: (status) => { debugStatusValue = status; },
-    addDebugLog: (type, text) => { debugLogRecorded = { type, text }; },
-    saveCurrentSession: () => { savedSession = true; }
-  });
-
-  assert.equal(debugStatusValue, 'error', 'El estado de depuración debe indicar error tras bucle');
-  assert.equal(debugLogRecorded?.type, 'error', 'Debe registrar log de error con advertencia de bucle');
-  assert.equal(savedSession, true, 'Debe guardar la sesión completa tras la parada ordenada');
-  assert.equal(GenerationController.isGenerating(), false, 'La generación debe quedar inactiva');
-  assert.equal(actions.style.display, 'inline-flex', 'Las acciones del mensaje deben quedar visibles para copia');
-});
-
-test('GenerationController.runCancellableTask - marca la conversación ocupada y la libera aunque la tarea falle', async () => {
-  const Controller = require('../../js/generation-controller.js');
-  const ChatState = require('../../js/state.js');
-  await assert.rejects(Controller.runCancellableTask(async signal => {
-    assert.equal(ChatState.isConversationBusy(), true);
-    assert.equal(signal.aborted, false);
-    await assert.rejects(Controller.runCancellableTask(async () => {}), /already running/);
-    throw new Error('task failed');
-  }), /task failed/);
-  assert.equal(ChatState.isConversationBusy(), false);
-  assert.equal(Controller.isGenerating(), false);
-});
-
-test('GenerationController.runCancellableTask - el botón de parar aborta la señal de la tarea', async () => {
-  const Controller = require('../../js/generation-controller.js');
-  const aborted = await Controller.runCancellableTask(async signal => {
-    Controller.handleStopGeneration();
-    return signal.aborted;
-  });
-  assert.equal(aborted, true);
+  await send('Detén la tarea');
+  assert.equal(State.get('messages')[1].content, 'Detén la tarea');
+  assert.equal(calls.saved, 1);
+  assert.equal(State.isConversationBusy(), false);
 });
 
 test('GenerationController - guarda en el mensaje del usuario la nota de comandos terminados antes de llamar al modelo', async t => {
-  const State = require('../../js/state.js');
-  const names = ['ChatState', 'ChatEngine', 'ChatProfileRepository', 'ChatAttachments', 'ChatMCP'];
-  const previous = names.map(name => [name, global[name]]);
-  t.after(() => {
-    for (const [name, value] of previous) {
-      if (value === undefined) delete global[name];
-      else global[name] = value;
+  let requestMessages = null;
+  const { send } = setup(t, {
+    respond: async params => {
+      requestMessages = params.messages;
+      return { accumulatedText: 'ok', toolCalls: null, stats: null };
     }
   });
-  const store = State.createStore();
-  global.ChatState = store;
-  global.ChatProfileRepository = { load: async () => null };
-  global.ChatAttachments = { getFiles: () => [] };
   const seenByNotes = [];
-  global.ChatMCP = { manager: { buildCommandNotes: async messages => { seenByNotes.push(messages.map(m => m.content)); return 'Background commands that finished since your last turn: ...'; } } };
-  let historyAtCall = null;
-  global.ChatEngine = { executeAgentTurnLoop: async ({ chatHistory }) => {
-    historyAtCall = chatHistory;
-    return { success: true, chatHistory: [...chatHistory, { role: 'assistant', content: 'ok' }] };
-  } };
-
-  await GenerationController.handleSendMessage({
-    elements: { userInput: { value: 'sigue' } },
-    api: { streamChatCompletion() {} },
-    getRuntimeConfig: () => ({ model: 'test', apiUrl: 'http://localhost:1234/v1' }),
-    appendUserMessage: () => 'user-notes-test',
-    getChatHistory: () => store.get('messages'),
-    createAssistantMessagePlaceholder: () => ({ content: { innerHTML: '' }, actions: { style: {} }, wrapper: {}, row: {}, msgId: 'assistant-notes-test' })
+  t.mock.method(ChatMCP.manager, 'buildCommandNotes', async messages => {
+    seenByNotes.push(messages.filter(message => message.role === 'user').map(message => message.content));
+    return 'Background commands that finished since your last turn: ...';
   });
+  await send('sigue');
 
   assert.deepEqual(seenByNotes, [['sigue']]);
-  const user = historyAtCall.find(message => message.id === 'user-notes-test');
+  const user = State.get('messages').find(message => message.role === 'user');
   assert.equal(user.content, 'sigue', 'El texto visible no cambia');
   assert.equal(user.commandNotes, 'Background commands that finished since your last turn: ...');
-  assert.equal(store.get('messages').find(message => message.id === 'user-notes-test').commandNotes, user.commandNotes);
+  assert.match(requestMessages.find(message => message.role === 'user').content, /^Background commands/);
+});
+
+test('GenerationController - en pantallas táctiles no devuelve el foco al compositor al terminar', async t => {
+  const { send, elements } = setup(t);
+  window.matchMedia = query => ({ matches: query === '(pointer: coarse)' });
+  elements.userInput.blur();
+  await send('Hola');
+  assert.notEqual(document.activeElement, elements.userInput);
+});
+
+test('GenerationController.runCancellableTask - marca la conversación ocupada y la libera aunque la tarea falle', async () => {
+  await assert.rejects(GenerationController.runCancellableTask(async signal => {
+    assert.equal(State.isConversationBusy(), true);
+    assert.equal(signal.aborted, false);
+    await assert.rejects(GenerationController.runCancellableTask(async () => {}), /already running/);
+    throw new Error('task failed');
+  }), /task failed/);
+  assert.equal(State.isConversationBusy(), false);
+  assert.equal(GenerationController.isGenerating(), false);
+});
+
+test('GenerationController.runCancellableTask - el botón de parar aborta la señal de la tarea', async () => {
+  const aborted = await GenerationController.runCancellableTask(async signal => {
+    GenerationController.handleStopGeneration();
+    return signal.aborted;
+  });
+  assert.equal(aborted, true);
 });

@@ -52,11 +52,11 @@ test('UI Modernization - El banner de importación y el resumen de razonamiento 
   const markdownJs = read('js/markdown.js');
   assert.equal(emoji.test(markdownJs), false, 'markdown.js no debe contener emojis (summary de razonamiento)');
 
-  const appJs = read('js/app.js');
-  const banner = appJs.match(/banner\.innerHTML = `([\s\S]*?)`;/);
-  assert.ok(banner, 'app.js debe construir el banner de importación');
+  const profilesJs = read('js/ui-profiles.js');
+  const banner = profilesJs.match(/banner\.innerHTML = `([\s\S]*?)`;/);
+  assert.ok(banner, 'ui-profiles.js debe construir el banner de importación');
   assert.equal(emoji.test(banner[1]), false, 'El banner de importación no debe contener emojis');
-  assert.ok(banner[1].includes("ChatIcons.get('download'"), 'El banner de importación debe usar ChatIcons');
+  assert.ok(banner[1].includes("Icons.get('download'"), 'El banner de importación debe usar ChatIcons');
 });
 
 test('UI Modernization - zerochat.html optimiza carga con defer y CSS paralelos', () => {

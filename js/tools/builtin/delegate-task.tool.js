@@ -147,9 +147,7 @@
 
     let settings;
     try {
-      const Conversation = context.services?.conversation;
-      if (typeof Conversation?.loadProfileUnlocked !== 'function') throw new Error('profile loading is not available.');
-      const profile = await Conversation.loadProfileUnlocked(match.id);
+      const profile = await context.services.profilesUI.loadProfileUnlocked(match.id);
       if (!profile) throw new Error('the profile no longer exists.');
       settings = profile.settings || {};
     } catch (error) {

@@ -67,7 +67,7 @@ test('ChatConfig - valores por defecto: razonamiento medio y mcpAutoConnect desa
 test('ChatConfig - activar perfil reemplaza campos de perfil y conserva preferencias generales', () => {
   const { store } = createFixture();
   store.initialize();
-  store.updateGeneral({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'] });
+  store.updateRuntime({ theme: 'dark', activeRagBranchIds: ['rag-a', 'rag-b'] });
   const config = store.activateProfile('office');
 
   assert.equal(config.apiUrl, 'http://office.test/v1');
@@ -185,7 +185,7 @@ test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activ
 
   const { store } = createFixture();
   store.initialize();
-  store.updateGeneral({ projectMode: false, projectDeclined: ['/home/u/repo'] });
+  store.updateRuntime({ projectMode: false, projectDeclined: ['/home/u/repo'] });
   const config = store.activateProfile('office');
   assert.equal(config.projectMode, false);
   assert.deepEqual(config.projectDeclined, ['/home/u/repo']);

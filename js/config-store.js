@@ -18,9 +18,8 @@
 
   const { clone } = Utils;
 
-  function normalizeBranchIds(value, fallback) {
-    const values = Array.isArray(value) ? value : (value ? [value] : fallback || []);
-    return values.map(String).map(id => id.trim()).filter(Boolean);
+  function normalizeBranchIds(value) {
+    return (Array.isArray(value) ? value : []).map(String).map(id => id.trim()).filter(Boolean);
   }
 
   const MAX_DECLINED_PROJECTS = 50;
@@ -64,8 +63,7 @@
     next.mcpAutoConnect = next.mcpAutoConnect === true;
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
-    next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds, next.activeRagBranchId ? [next.activeRagBranchId] : []);
-    next.activeRagBranchId = next.activeRagBranchIds[0] || '';
+    next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
     const webllmConfig = next.webllmConfig && typeof next.webllmConfig === 'object' ? clone(next.webllmConfig) : clone(DEFAULTS.webllmConfig);
     // Solo se admiten los tamaños ofrecidos en la interfaz; los valores antiguos pasan al predeterminado.
@@ -142,10 +140,6 @@
       return commit({ ...current, ...safePatch });
     }
 
-    function updateGeneral(patch = {}) {
-      return updateRuntime(patch);
-    }
-
     function activateProfile(profileId) {
       const profile = profiles?.get?.(profileId);
       if (!profile) throw new Error('El perfil seleccionado no existe.');
@@ -180,7 +174,6 @@
       initialize,
       getActive,
       updateRuntime,
-      updateGeneral,
       activateProfile,
       activateFallbackProfile,
       subscribe

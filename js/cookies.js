@@ -640,11 +640,6 @@
     });
   }
 
-  /** Inicializa el almacenamiento IndexedDB. */
-  async function initDB() {
-    return openDatabase();
-  }
-
   return {
     // Configuración Síncrona (localStorage / cookies)
     setStorageItem,
@@ -662,7 +657,6 @@
     getLastClearAllStorageError,
 
     // Persistencia Asíncrona en IndexedDB (Conversaciones & Mensajes)
-    initDB,
     getConversationsList,
     getConversation,
     saveConversation,

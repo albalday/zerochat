@@ -2,7 +2,7 @@ const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - conversation', { concurrency: 2 }, () => {
   after(async () => {
@@ -22,14 +22,16 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
       const copied = [];
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => copied.push(text) } });
       const container = document.createElement('div');
+      const welcomeBanner = document.createElement('div');
       document.body.appendChild(container);
-      ui.appendUserMessage(container, null, { text: 'Visible text', originalPrompt: 'Original prompt' });
+      const callbacks = { onReuse() {}, onDelete() {}, onBranch() {}, resetTelemetry() {}, updateTelemetry() {} };
+      ui.appendUserMessage(container, welcomeBanner, { text: 'Visible text', originalPrompt: 'Original prompt' }, callbacks);
       await container.querySelector('.btn-copy-user').onclick();
-      ui.renderSessionMessages({ messagesList: container }, [
+      ui.renderSessionMessages({ messagesList: container, welcomeBanner }, [
         { id: 'user-1', role: 'user', content: 'Question' },
         { id: 'reply_turn_0_assistant', role: 'assistant', content: '**First**' },
         { id: 'reply_final', role: 'assistant', content: 'Final' }
-      ]);
+      ], callbacks);
       await container.querySelector('.btn-copy-full').onclick();
       const historicalBlocks = [...container.querySelectorAll('.agentic-turn-block')].map(el => el.innerHTML);
       const live = ui.createAssistantBlock(container);
@@ -38,10 +40,10 @@ test('Browser UI - mensajes nuevos e históricos comparten copia y bloques segur
       ui.renderAssistantBlock(live, '**First**');
       const sameMarkup = historicalBlocks[0] === live.innerHTML;
       const cursorAfterStream = !!live.querySelector('.streaming-cursor');
-      const content = document.createElement('div');
       const hostile = '<img src=x onerror="window.__dupliXss=true">';
-      ui.renderConnectionError({ content }, hostile, hostile);
-      const safeError = !content.querySelector('img') && content.textContent.includes(hostile);
+      const parts = ui.createAssistantMessagePlaceholder(container, 'msg_error', callbacks);
+      ui.renderConnectionError(parts, hostile, hostile);
+      const safeError = !parts.content.querySelector('img') && parts.content.textContent.includes(hostile);
       container.remove();
       return { copied, historicalCount: historicalBlocks.length, cursorDuringStream, cursorAfterStream, sameMarkup, safeError, xss: !!window.__dupliXss };
     });
@@ -491,45 +493,45 @@ test('Browser UI - importar un JSON desde la barra lateral crea una única conve
   }
 });
 
+async function seedParent(page, parent, history) {
+  await page.evaluate(({ parent, history }) => window.ChatStorage.saveConversation(parent, history), { parent, history });
+  await openSavedSession(page, parent.id);
+}
+
+async function branchFrom(page, messageId) {
+  const previousId = await page.evaluate(() => window.ChatState.get('sessions').activeId);
+  await page.locator(`.message-wrapper.assistant[data-msg-ids="${messageId}"] .btn-branch-conversation`).click();
+  return previousId;
+}
+
 test('Browser UI - crear una rama conserva el origen y corta el nuevo historial en la respuesta seleccionada', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
+    const parentId = 'session_branch_parent_test';
+    const history = [
+      { id: 'system_parent', role: 'system', content: 'System prompt' },
+      { id: 'user_parent_1', role: 'user', content: 'Pregunta inicial' },
+      { id: 'assistant_parent_1', role: 'assistant', content: 'Respuesta para bifurcar' },
+      { id: 'user_parent_2', role: 'user', content: 'Pregunta posterior' },
+      { id: 'assistant_parent_2', role: 'assistant', content: 'Respuesta posterior' }
+    ];
+    await seedParent(page, { id: parentId, title: 'Conversación origen', createdAt: Date.now(), updatedAt: Date.now() }, history);
+    await branchFrom(page, 'assistant_parent_1');
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id, parentId);
 
-    const result = await page.evaluate(async () => {
-      const parentId = 'session_branch_parent_test';
-      const history = [
-        { id: 'system_parent', role: 'system', content: 'System prompt' },
-        { id: 'user_parent_1', role: 'user', content: 'Pregunta inicial' },
-        { id: 'assistant_parent_1', role: 'assistant', content: 'Respuesta para bifurcar' },
-        { id: 'user_parent_2', role: 'user', content: 'Pregunta posterior' },
-        { id: 'assistant_parent_2', role: 'assistant', content: 'Respuesta posterior' }
-      ];
-      const parent = { id: parentId, title: 'Conversación origen', createdAt: Date.now(), updatedAt: Date.now(), messageCount: history.length };
-      window.ChatState.replaceConversation({ sessionId: parentId, messages: history });
-      window.ChatState.saveSessionMetadata(parent);
-      await window.ChatStorage.saveConversation(parent, history);
-
-      const wrapper = document.createElement('div');
-      wrapper.setAttribute('data-msg-id', 'assistant_parent_1');
-      wrapper.setAttribute('data-msg-ids', 'assistant_parent_1');
-      const created = await window.ChatApp.createConversationBranch(wrapper);
+    const result = await page.evaluate(async parentId => {
       const childId = window.ChatState.get('sessions').activeId;
-      const child = await window.ChatStorage.getConversation(childId);
-      const source = await window.ChatStorage.getConversation(parentId);
       return {
-        created,
         childId,
         childTitle: window.ChatState.get('sessions').list.find(session => session.id === childId)?.title,
-        childHistory: child?.history || [],
-        sourceHistory: source?.history || []
+        childHistory: (await window.ChatStorage.getConversation(childId)).history,
+        sourceHistory: (await window.ChatStorage.getConversation(parentId)).history
       };
-    });
+    }, parentId);
 
-    assert.equal(result.created, true, 'La rama debe crearse correctamente');
-    assert.notEqual(result.childId, 'session_branch_parent_test', 'La rama debe tener una sesión distinta');
     assert.equal(result.childTitle, 'Rama: Conversación origen', 'La rama debe identificarse a partir del chat de origen');
     assert.equal(result.childHistory.length, 3, 'La rama debe incluir solo el historial hasta la respuesta seleccionada');
     assert.equal(result.sourceHistory.length, 5, 'La conversación de origen debe conservar todos sus mensajes');
@@ -545,50 +547,32 @@ test('Browser UI - Bifurcación con resumen crea rama compactada y renderiza ban
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
-
-    const result = await page.evaluate(async () => {
-      const parentId = 'session_branch_summarize_parent';
-      const history = [
-        { id: 'system_p', role: 'system', content: 'System prompt' },
-        { id: 'user_p_1', role: 'user', content: 'Pregunta 1' },
-        { id: 'asst_p_1', role: 'assistant', content: 'Respuesta 1' },
-        { id: 'user_p_2', role: 'user', content: 'Pregunta 2' },
-        { id: 'asst_p_2', role: 'assistant', content: 'Respuesta 2 para bifurcar' }
-      ];
-      const parent = { id: parentId, title: 'Chat largo previo', createdAt: Date.now(), updatedAt: Date.now(), messageCount: history.length };
-      window.ChatState.replaceConversation({ sessionId: parentId, messages: history });
-      window.ChatState.saveSessionMetadata(parent);
-      await window.ChatStorage.saveConversation(parent, history);
-
-      const wrapper = document.createElement('div');
-      wrapper.setAttribute('data-msg-id', 'asst_p_2');
-      wrapper.setAttribute('data-msg-ids', 'asst_p_2');
-      const created = await window.ChatApp.createConversationBranch(wrapper, {
-        summarize: true,
-        summarizeHistory: async () => 'Resumen sintetizado del diálogo previo'
-      });
-      const childId = window.ChatState.get('sessions').activeId;
-      const child = await window.ChatStorage.getConversation(childId);
-      return {
-        created,
-        childId,
-        childHistory: child?.history || []
-      };
+    const parentId = 'session_branch_summarize_parent';
+    const history = [
+      { id: 'system_p', role: 'system', content: 'System prompt' },
+      { id: 'user_p_1', role: 'user', content: 'Pregunta 1' },
+      { id: 'asst_p_1', role: 'assistant', content: 'Respuesta 1' },
+      { id: 'user_p_2', role: 'user', content: 'Pregunta 2' },
+      { id: 'asst_p_2', role: 'assistant', content: 'Respuesta 2 para bifurcar' }
+    ];
+    await seedParent(page, { id: parentId, title: 'Chat largo previo', createdAt: Date.now(), updatedAt: Date.now() }, history);
+    // El proveedor es la frontera externa: devuelve el resumen sin red.
+    await page.evaluate(() => {
+      window.ChatAPI.streamChatCompletion = async () => ({ accumulatedText: 'Resumen sintetizado del diálogo previo' });
     });
+    await branchFrom(page, 'asst_p_2');
+    // El diálogo ofrece resumir con la casilla marcada por defecto.
+    await page.locator('#notice-accept').click();
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId !== id && document.querySelector('.branch-summary-banner'), parentId);
 
-    assert.equal(result.created, true, 'La rama con resumen debe crearse correctamente');
-    assert.ok(result.childHistory.some(m => m._isSummaryBlock && m.content === 'Resumen sintetizado del diálogo previo'), 'Debe contener el bloque de resumen');
-    assert.equal(result.childHistory[result.childHistory.length - 1].content, 'Respuesta 2 para bifurcar', 'Debe conservar la respuesta de anclaje');
+    const childHistory = await page.evaluate(async () => (await window.ChatStorage.getConversation(window.ChatState.get('sessions').activeId)).history);
+    assert.ok(childHistory.some(m => m._isSummaryBlock && m.content === 'Resumen sintetizado del diálogo previo'), 'Debe contener el bloque de resumen');
+    assert.equal(childHistory[childHistory.length - 1].content, 'Respuesta 2 para bifurcar', 'Debe conservar la respuesta de anclaje');
 
-    // Verificar renderizado en el DOM
-    const banner = await page.locator('.branch-summary-banner');
-    assert.equal(await banner.count(), 1, 'Debe renderizarse el banner de resumen en la UI');
-
-    const toggle = page.locator('.branch-summary-header');
+    assert.equal(await page.locator('.branch-summary-banner').count(), 1, 'Debe renderizarse el banner de resumen en la UI');
     const body = page.locator('.branch-summary-body');
     assert.equal(await body.isVisible(), false, 'El cuerpo del resumen debe estar colapsado inicialmente');
-
-    await toggle.click();
+    await page.locator('.branch-summary-header').click();
     assert.equal(await body.isVisible(), true, 'Al hacer clic debe expandirse el resumen');
     assert.match(await body.textContent(), /Resumen sintetizado/, 'Debe mostrar el contenido del resumen');
   } finally {
@@ -611,7 +595,7 @@ test('Browser UI - Bifurcar con resumen muestra indicador de carga visual en el 
 
     await page.evaluate(() => {
       const messagesList = document.getElementById('messages-list');
-      const placeholder = window.ChatUIConversation.createAssistantMessagePlaceholder(messagesList, 'test_msg_branch_load');
+      const placeholder = window.ChatUIConversation.createAssistantMessagePlaceholder(messagesList, 'test_msg_branch_load', { onBranch() {}, onDelete() {} });
       placeholder.actions.style.display = 'inline-flex';
       window.ChatUIConversation.showBranchLoadingIndicator(placeholder.wrapper, 'Resumiendo contexto previo...');
     });
@@ -649,101 +633,51 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage();
-    const filePath = getIndexUrl();
-    await page.goto(filePath, { waitUntil: 'load' });
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    const result = await page.evaluate(async () => {
-      const sessionId = 'test_session_delete_tools_' + Date.now();
-      const baseId = 'msg_ast_interactive_test';
-      const history = [
-        { id: 'usr_msg_1', role: 'user', content: '¿Qué hora es?' },
-        {
-          id: `${baseId}_turn_0_assistant`,
-          role: 'assistant',
-          content: null,
-          tool_calls: [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]
-        },
-        {
-          id: `${baseId}_turn_0_tool_call_time_ui`,
-          role: 'tool',
-          tool_call_id: 'call_time_ui',
-          name: 'execute_javascript',
-          content: '4'
-        },
-        {
-          id: `${baseId}_final`,
-          role: 'assistant',
-          content: 'Son exactamente las 12:00 UTC.'
-        }
-      ];
-
-      // Guardar conversación en el almacenamiento
-      await window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Tools' }, history);
-      window.ChatState.setState({
-        agent: { activeTurnIndex: 3, currentTool: 'execute_javascript', ragSystemContext: 'stale context' },
-        telemetry: { stats: { tokens: 99 }, diagnostics: { used: 99 }, lastTurnStats: { tokens: 42 } },
-        ui: { reasoningMenuOpen: true, debugPanelOpen: true, attachedFiles: [{ name: 'stale.txt' }] }
-      });
+    const sessionId = 'test_session_delete_tools';
+    const baseId = 'msg_ast_interactive_test';
+    const history = [
+      { id: 'usr_msg_1', role: 'user', content: '¿Qué hora es?' },
+      {
+        id: `${baseId}_turn_0_assistant`,
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]
+      },
+      { id: `${baseId}_turn_0_tool_call_time_ui`, role: 'tool', tool_call_id: 'call_time_ui', name: 'execute_javascript', content: '4' },
+      { id: `${baseId}_final`, role: 'assistant', content: 'Son exactamente las 12:00 UTC.' }
+    ];
+    await page.evaluate(({ sessionId, history }) => window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Tools' }, history), { sessionId, history });
+    await page.reload({ waitUntil: 'load' });
+    await waitForAppReady(page);
+    // Estado transitorio de la conversación anterior que no debe pasar a la restaurada.
+    await page.evaluate(() => {
+      window.ChatState.set('telemetry', { stats: { tokens: 99 }, diagnostics: { used: 99 } });
       window.ChatAttachments.addFile({ name: 'stale.txt', type: 'text', size: 1, content: 'x' });
-
-      // Cargar la conversación en la UI
-      const switched = await window.ChatApp.switchToSession(sessionId);
-
-      for (let i = 0; i < 100 && !document.querySelector('.message-wrapper.assistant .btn-delete'); i++) {
-        await new Promise(r => setTimeout(r, 20));
-      }
-      const assistantWrapper = document.querySelector('.message-wrapper.assistant');
-      const deleteBtn = assistantWrapper?.querySelector('.btn-delete');
-
-      const beforeDelete = {
-        switched,
-        hasAssistantWrapper: !!assistantWrapper,
-        hasDeleteBtn: !!deleteBtn,
-        restoredMessages: window.ChatState.get('messages'),
-        restoredAgent: window.ChatState.get('agent'),
-        restoredTelemetry: window.ChatState.get('telemetry'),
-        restoredUi: window.ChatState.get('ui'),
-        attachedFilesCount: window.ChatAttachments.getFiles().length
-      };
-
-      if (deleteBtn) {
-        deleteBtn.click();
-      }
-
-      for (let i = 0; i < 100 && (await window.ChatStorage.getConversation(sessionId))?.history.length === history.length; i++) {
-        await new Promise(r => setTimeout(r, 20));
-      }
-
-      const loadedAfter = await window.ChatStorage.getConversation(sessionId);
-      const afterHistory = loadedAfter ? loadedAfter.history : [];
-      const remainingWrappers = document.querySelectorAll('.message-wrapper');
-
-      return {
-        beforeDelete,
-        remainingWrappersCount: remainingWrappers.length,
-        hasAssistantWrapperAfter: !!document.querySelector('.message-wrapper.assistant'),
-        afterHistoryLength: afterHistory.length,
-        toolCountAfter: afterHistory.filter(m => m.role === 'tool').length,
-        assistantCountAfter: afterHistory.filter(m => m.role === 'assistant').length,
-        userCountAfter: afterHistory.filter(m => m.role === 'user').length
-      };
     });
+    await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
+    await page.waitForSelector('.message-wrapper.assistant .btn-delete');
 
-    assert.equal(result.beforeDelete.switched, true, 'La conversación guardada debe restaurarse desde el historial');
-    assert.ok(result.beforeDelete.hasAssistantWrapper, 'El asistente con tools debe renderizarse inicialmente');
-    assert.ok(result.beforeDelete.hasDeleteBtn, 'El botón de eliminar respuesta debe existir');
-    assert.equal(result.beforeDelete.restoredMessages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
-    assert.deepEqual(result.beforeDelete.restoredMessages[1].tool_calls, [{ id: 'call_time_ui', type: 'function', function: { name: 'execute_javascript', arguments: '{"code":"2+2"}' } }]);
-    assert.deepEqual(result.beforeDelete.restoredAgent, { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' });
-    assert.deepEqual(result.beforeDelete.restoredTelemetry, { stats: null, diagnostics: null, lastTurnStats: null });
-    assert.equal(result.beforeDelete.restoredUi.reasoningMenuOpen, false);
-    assert.equal(result.beforeDelete.restoredUi.debugPanelOpen, false);
-    assert.equal(result.beforeDelete.attachedFilesCount, 0, 'Los adjuntos transitorios no deben filtrarse al chat restaurado');
-    assert.equal(result.hasAssistantWrapperAfter, false, 'El wrapper del asistente debe haber desaparecido del DOM');
-    assert.equal(result.toolCountAfter, 0, 'No deben quedar respuestas de tool en el historial persistido');
-    assert.equal(result.assistantCountAfter, 0, 'No deben quedar mensajes de asistente de la respuesta eliminada');
-    assert.equal(result.userCountAfter, 1, 'Debe permanecer el mensaje de usuario');
+    const restored = await page.evaluate(() => ({
+      messages: window.ChatState.get('messages'),
+      telemetry: window.ChatState.get('telemetry'),
+      attachedFilesCount: window.ChatAttachments.getFiles().length
+    }));
+    assert.equal(restored.messages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
+    assert.deepEqual(restored.messages[1].tool_calls, history[1].tool_calls);
+    assert.deepEqual(restored.telemetry, { stats: null, diagnostics: null });
+    assert.equal(restored.attachedFilesCount, 0, 'Los adjuntos transitorios no deben filtrarse al chat restaurado');
+
+    await page.locator('.message-wrapper.assistant .btn-delete').click();
+    await page.waitForFunction(async id => (await window.ChatStorage.getConversation(id)).history.length === 1, sessionId);
+    const after = await page.evaluate(async id => ({
+      hasAssistantWrapper: !!document.querySelector('.message-wrapper.assistant'),
+      roles: (await window.ChatStorage.getConversation(id)).history.map(message => message.role)
+    }), sessionId);
+    assert.equal(after.hasAssistantWrapper, false, 'El wrapper del asistente debe haber desaparecido del DOM');
+    assert.deepEqual(after.roles, ['user'], 'Solo debe quedar el mensaje del usuario');
   } finally {
     await browser.close();
   }
@@ -757,30 +691,26 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
     await page.goto(filePath, { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    const result = await page.evaluate(async () => {
-      const sessionId = 'test_session_delete_streaming_' + Date.now();
-      const history = [
-        { id: 'usr_streaming_1', role: 'user', content: 'Mensaje que no debe borrarse' },
-        { id: 'ast_streaming_1', role: 'assistant', content: 'Respuesta previa' }
-      ];
+    const sessionId = 'test_session_delete_streaming';
+    await page.evaluate(id => window.ChatStorage.saveConversation({ id, title: 'Test Delete Streaming' }, [
+      { id: 'usr_streaming_1', role: 'user', content: 'Mensaje que no debe borrarse' },
+      { id: 'ast_streaming_1', role: 'assistant', content: 'Respuesta previa' }
+    ]), sessionId);
+    await openSavedSession(page, sessionId);
 
-      await window.ChatStorage.saveConversation({ id: sessionId, title: 'Test Delete Streaming' }, history);
-      await window.ChatApp.switchToSession(sessionId);
-      window.ChatState.set('streaming', { isGenerating: true, status: 'streaming' });
-
-      const userWrapper = document.querySelector('.message-wrapper.user');
-      userWrapper?.querySelector('.btn-delete')?.click();
+    const result = await page.evaluate(async id => {
+      window.ChatState.set('streaming', { isGenerating: true });
+      document.querySelector('.message-wrapper.user .btn-delete').click();
       await new Promise(resolve => setTimeout(resolve, 100));
-
-      const persisted = await window.ChatStorage.getConversation(sessionId);
+      const persisted = await window.ChatStorage.getConversation(id);
       const stateMessages = window.ChatState.get('messages');
-      window.ChatState.set('streaming', { isGenerating: false, status: 'idle' });
+      window.ChatState.set('streaming', { isGenerating: false });
       return {
         userWrapperPresent: !!document.querySelector('.message-wrapper.user'),
         stateIds: stateMessages.map(message => message.id),
-        persistedIds: (persisted?.history || []).map(message => message.id)
+        persistedIds: persisted.history.map(message => message.id)
       };
-    });
+    }, sessionId);
 
     assert.equal(result.userWrapperPresent, true, 'El mensaje debe permanecer visible durante streaming');
     assert.deepEqual(result.stateIds, ['usr_streaming_1', 'ast_streaming_1'], 'El estado no debe modificarse durante streaming');
@@ -801,8 +731,8 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta', 
       await page.waitForFunction(() => !!window.ChatEngine?.ensureConversationDate);
       const initial = await page.evaluate(async () => {
         const history = [{ id: 'system_root', role: 'system', content: 'Sistema' }, { role: 'user', content: 'Hola' }];
-        const anchor = ChatEngine.ensureConversationDate(history, 'es');
-        const messages = ChatEngine.buildEffectiveMessages(history);
+        const anchor = ChatEngine.ensureConversationDate(history);
+        const messages = ChatEngine.buildEffectiveMessages(history, ChatConfig.getActive());
         await ChatStorage.saveConversation({ id: 'temporal_browser', title: 'Fecha fija', createdAt: Date.now() }, history);
         return { anchor, messages };
       });
@@ -812,8 +742,8 @@ test('Browser UI - fecha inicial persistente y hora solo mediante herramienta', 
       await page.waitForFunction(() => !!window.ChatEngine?.ensureConversationDate);
       const restored = await page.evaluate(async () => {
         const session = await ChatStorage.getConversation('temporal_browser');
-        const messages = ChatEngine.buildEffectiveMessages(session.history);
-        return { messages, fresh: ChatEngine.getConversationDateAnchor('es') };
+        const messages = ChatEngine.buildEffectiveMessages(session.history, ChatConfig.getActive());
+        return { messages, fresh: ChatEngine.getConversationDateAnchor() };
       });
       assert.deepEqual(restored.messages, initial.messages, file);
       assert.equal(restored.messages[1].content, 'Hola');
@@ -886,7 +816,10 @@ test('Browser UI - ask_user habilita solo la pregunta pendiente y envía la opci
         ...ask('a2', '¿Aplico <b>el</b> cambio?', [{ label: 'Aplicar', description: 'Escribe AGENTS.md' }, { label: 'Cancelar' }])
       ];
       window.ChatState.replaceMessages(history);
-      window.ChatUIConversation.renderSessionMessages({ messagesList: document.getElementById('messages-list') }, history);
+      window.ChatUIConversation.renderSessionMessages({
+        messagesList: document.getElementById('messages-list'),
+        welcomeBanner: document.getElementById('welcome-banner')
+      }, history, { onReuse() {}, onDelete() {}, onBranch() {}, resetTelemetry() {}, updateTelemetry() {} });
     });
     await page.waitForFunction(() => document.querySelectorAll('.ask-user-card [data-ask-option]:not(:disabled)').length === 2);
     const cards = await page.evaluate(() => [...document.querySelectorAll('.ask-user-card')].map(card => ({
@@ -991,9 +924,14 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
       try {
         const loop = await window.ChatEngine.executeAgentTurnLoop({
           chatHistory: [{ role: 'user', content: 'Mensaje privado del agente principal' }],
-          appConfig: { apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: true, delegate_task: true } },
+          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: true, delegate_task: true } }),
+          assistantMsgId: 'asst_subagent',
           container,
-          attachListeners: el => window.ChatMarkdown.attachCopyCodeListeners(el)
+          onReasoningChunk() {},
+          onLog() {},
+          onStats() {},
+          onGenerationStatus() {},
+          scrollToBottom() {}
         });
         const card = [...container.querySelectorAll('.subagent-card')];
         const outer = card[0]?.closest('.tool-card-wrapper');
@@ -1082,9 +1020,14 @@ test('Browser UI - el subagente usa el perfil de conexión «Subagente» si exis
       try {
         await window.ChatEngine.executeAgentTurnLoop({
           chatHistory: [{ role: 'user', content: 'Hola' }],
-          appConfig: { apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: false, delegate_task: true } },
+          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/main', apiType: 'openai', model: 'main-model', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_pdf: false, render_chart: false, delegate_task: true } }),
+          assistantMsgId: 'asst_subagent',
           container,
-          attachListeners: el => window.ChatMarkdown.attachCopyCodeListeners(el)
+          onReasoningChunk() {},
+          onLog() {},
+          onStats() {},
+          onGenerationStatus() {},
+          scrollToBottom() {}
         });
         const label = container.querySelector('.subagent-card .subagent-model');
         return { requests, label: label?.textContent, labelTitle: label?.title, labelHidden: label?.hidden };

@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const AgentCoreModule = require('../../js/agent-core.js');
 const { AgentRuntime, Tool, ToolRegistry, ToolExecutor } = AgentCoreModule;
+// La aplicación filtra las herramientas con la configuración normalizada.
+const TOOL_CONFIG = require('../../js/config-store.js').normalize({});
 
 test('AgentRuntime - la ejecución directa de tools no omite su política', async () => {
   const registry = new ToolRegistry();
@@ -18,6 +20,7 @@ test('AgentRuntime - la ejecución directa de tools no omite su política', asyn
 
   let step = 0;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: { streamChatCompletion: async () => step++ === 0
       ? { accumulatedText: '', toolCalls: [{ id: 'call_1', function: { name: 'mcp_test_sensitive_action', arguments: '{}' } }] }
       : { accumulatedText: 'Hecho.', toolCalls: [] } },
@@ -60,6 +63,7 @@ test('AgentRuntime - compacta con el límite de contexto configurado y conserva 
   const events = [];
   const runtime = new AgentRuntime({ registry: new ToolRegistry() });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: {
       streamChatCompletion: async params => {
         assert.equal(params.messages.length, 1);
@@ -102,6 +106,7 @@ test('AgentRuntime - no reintenta una compactación fallida durante el mismo cic
   let apiCalls = 0;
   let summaryCalls = 0;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: {
       streamChatCompletion: async () => {
         apiCalls++;
@@ -175,6 +180,7 @@ test('AgentRuntime - Tool call normal con resolución y respuesta final', async 
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: '¿Cuánto es 15 + 27?' }]
   });
@@ -197,6 +203,7 @@ test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no
   const sent = [];
   let step = 0;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: {
       streamChatCompletion: async params => {
         sent.push(params.messages);
@@ -211,7 +218,7 @@ test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no
         return { accumulatedText: 'Hecho.', toolCalls: [] };
       }
     },
-    prepareMessages: messages => ChatEngine.buildEffectiveMessages(messages),
+    prepareMessages: messages => ChatEngine.buildEffectiveMessages(messages, require('../../js/config-store.js').normalize({})),
     messages: [{ role: 'user', content: 'Busca.' }]
   });
 
@@ -254,6 +261,7 @@ test('AgentRuntime - serializa el resultado para el modelo a través del contrat
   };
 
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: 'Prueba el contrato.' }]
   });
@@ -291,6 +299,7 @@ test('AgentRuntime - Múltiples pasos agénticos secuenciales', async () => {
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: 'Dame los pedidos del usuario activo' }]
   });
@@ -336,6 +345,7 @@ test('AgentRuntime - Error de herramienta capturado y recuperación en siguiente
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: 'Consulta la base de datos' }]
   });
@@ -365,6 +375,7 @@ test('AgentRuntime - Cancelación manual mediante AbortSignal', async () => {
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     signal: controller.signal,
     messages: [{ role: 'user', content: 'Hola' }]
@@ -416,7 +427,7 @@ test('AgentRuntime - permite ciclos de programación test -> editar -> test cuan
     steps.push({ tool: 'run_tests', args: { suite: 'unit' } }, { tool: 'apply_change', args: { target: 'app.js', patch: i } });
   }
   const api = scriptedApi(steps);
-  const result = await new AgentRuntime({ registry }).execute({ api, messages: [{ role: 'user', content: 'Corrige el proyecto.' }] });
+  const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api, messages: [{ role: 'user', content: 'Corrige el proyecto.' }] });
 
   assert.equal(result.status, 'completed');
   assert.equal(counts.run_tests, 8);
@@ -428,6 +439,7 @@ test('AgentRuntime - detiene el quinto lote idéntico consecutivo sin ejecutarlo
   const api = scriptedApi(Array.from({ length: 10 }, () => ({ tool: 'repeat', args: { value: 1 } })));
   let loopPeriod = null;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api,
     messages: [{ role: 'user', content: 'Repite.' }],
     appendFinalMessage: true,
@@ -452,6 +464,7 @@ test('AgentRuntime - detiene dos lotes alternados tras cinco ciclos', async () =
   const api = scriptedApi(steps);
   let loopPeriod = null;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api,
     messages: [{ role: 'user', content: 'Alterna.' }],
     callbacks: { onLoopDetected: (_call, period) => { loopPeriod = period; } }
@@ -472,7 +485,7 @@ test('AgentRuntime - no considera bucle una serie interrumpida ni un ciclo de tr
   for (let i = 0; i < 6; i++) threeCycle.push({ tool: 'a' }, { tool: 'b' }, { tool: 'c' });
 
   for (const steps of [interrupted, threeCycle]) {
-    const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Trabaja.' }] });
+    const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api: scriptedApi(steps), messages: [{ role: 'user', content: 'Trabaja.' }] });
     assert.equal(result.status, 'completed');
     assert.equal(result.stepsCount, steps.length);
   }
@@ -482,7 +495,7 @@ test('AgentRuntime - no limita el número de pasos', async () => {
   const { registry, counts } = countingRegistry(['read_page']);
   const steps = Array.from({ length: 60 }, (_, page) => ({ tool: 'read_page', args: { page } }));
   const api = scriptedApi(steps, 'Documento leído.');
-  const result = await new AgentRuntime({ registry }).execute({ api, messages: [{ role: 'user', content: 'Lee todo.' }] });
+  const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api, messages: [{ role: 'user', content: 'Lee todo.' }] });
 
   assert.equal(result.status, 'completed');
   assert.equal(counts.read_page, 60);
@@ -494,7 +507,7 @@ test('AgentRuntime - un texto nuevo para el usuario reinicia el control de bucle
   const { registry, counts } = countingRegistry(['repeat']);
   const steps = [1, 2, 3, 4].map(() => ({ tool: 'repeat' }))
     .concat([{ tool: 'repeat', text: 'Sigo esperando a que el servicio responda.' }], [1, 2, 3].map(() => ({ tool: 'repeat' })));
-  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Espera.' }] });
+  const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api: scriptedApi(steps), messages: [{ role: 'user', content: 'Espera.' }] });
 
   assert.equal(result.status, 'completed');
   assert.equal(counts.repeat, 8);
@@ -503,7 +516,7 @@ test('AgentRuntime - un texto nuevo para el usuario reinicia el control de bucle
 test('AgentRuntime - la misma frase repetida en cada paso no reinicia el control de bucles', async () => {
   const { registry, counts } = countingRegistry(['repeat']);
   const steps = Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: i % 2 ? 'Voy a  buscar...' : 'voy a buscar...' }));
-  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Busca.' }] });
+  const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api: scriptedApi(steps), messages: [{ role: 'user', content: 'Busca.' }] });
 
   assert.equal(result.status, 'loop_detected');
   assert.equal(counts.repeat, 4);
@@ -512,7 +525,7 @@ test('AgentRuntime - la misma frase repetida en cada paso no reinicia el control
 test('AgentRuntime - una tool call emitida como texto no reinicia el control de bucles', async () => {
   const { registry, counts } = countingRegistry(['repeat']);
   const steps = Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: `<tool_call>{"name":"repeat","n":${i}}</tool_call>` }));
-  const result = await new AgentRuntime({ registry }).execute({ api: scriptedApi(steps), messages: [{ role: 'user', content: 'Repite.' }] });
+  const result = await new AgentRuntime({ registry }).execute({ toolFilterOptions: TOOL_CONFIG, api: scriptedApi(steps), messages: [{ role: 'user', content: 'Repite.' }] });
 
   assert.equal(result.status, 'loop_detected');
   assert.equal(counts.repeat, 4);
@@ -542,6 +555,7 @@ test('AgentRuntime - Clean termination when model returns empty text after tools
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: 'Get the stock price' }]
   });
@@ -605,6 +619,7 @@ test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mism
 
   const runtime = new AgentRuntime({ registry });
   const result = await runtime.execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: mockApi,
     messages: [{ role: 'user', content: 'Dame métricas A y B' }]
   });
@@ -624,6 +639,7 @@ test('AgentRuntime - una herramienta con endTurn cede el turno sin más peticion
   {
     let requests = 0;
     const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
       api: {
         streamChatCompletion: async () => {
           requests++;
@@ -653,6 +669,7 @@ test('AgentRuntime - una pregunta inválida no cede el turno y el modelo puede c
   registry.registerTool(require('../../js/tools/builtin/ask-user.tool.js').createTool(Tool));
   let requests = 0;
   const result = await new AgentRuntime({ registry }).execute({
+    toolFilterOptions: TOOL_CONFIG,
     api: {
       streamChatCompletion: async () => {
         requests++;

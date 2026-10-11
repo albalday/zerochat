@@ -260,7 +260,6 @@
       reasoningTransport = 'auto',
       enableTools = false,
       toolChoice = 'auto',
-      activeRagBranchId = '',
       signal,
       onBeforeRequest,
       onChunk,
@@ -283,7 +282,7 @@
     let toolsList = [];
     if (Array.isArray(params.tools)) {
       toolsList = params.tools;
-    } else if (enableTools || (Boolean(activeRagBranchId) && enableTools !== false)) {
+    } else if (enableTools) {
       toolsList = resolveDep('ChatAgentCore', './agent-core.js').registry.getActiveDefinitions(params);
     }
 

@@ -78,6 +78,17 @@ async function waitForAppReady(page) {
     window.ChatState.get('messages').length > 0);
 }
 
+/**
+ * Abre una conversación ya guardada en IndexedDB como lo haría el usuario: recarga la página para
+ * que la barra lateral liste las sesiones guardadas y pulsa la entrada de la sesión.
+ */
+async function openSavedSession(page, sessionId) {
+  await page.reload({ waitUntil: 'load' });
+  await waitForAppReady(page);
+  await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
+  await page.waitForFunction(id => window.ChatState.get('sessions').activeId === id, sessionId);
+}
+
 // Servidor estático para los casos que necesitan un origen HTTP real (cookies, service worker, CSP de iframes).
 async function startStaticServer() {
   const server = http.createServer((req, res) => {
@@ -109,6 +120,7 @@ module.exports = {
   seedConnectionProfiles,
   getIndexUrl,
   waitForAppReady,
+  openSavedSession,
   startStaticServer,
   stopStaticServer
 };

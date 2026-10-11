@@ -117,7 +117,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
 
     // 1. Con estado DESCONECTADO: no deben incluirse en getActiveDefinitions
     ChatState.set('mcp', { status: 'disconnected' });
-    const defsDisconnected = registry.getActiveDefinitions({});
+    const defsDisconnected = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
     const mcpDefsDisconnected = defsDisconnected.filter(d =>
       d.function.name.includes('list_directory') ||
       d.function.name.includes('read_file') ||
@@ -127,7 +127,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
 
     // 2. Con estado CONECTADO: deben incluirse en getActiveDefinitions
     ChatState.set('mcp', { status: 'connected' });
-    const defsConnected = registry.getActiveDefinitions({});
+    const defsConnected = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
     const mcpDefsConnected = defsConnected.filter(d =>
       d.function.name.includes('list_directory') ||
       d.function.name.includes('read_file') ||
@@ -136,11 +136,11 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     assert.equal(mcpDefsConnected.length, 3);
 
     // 3. Con switch desactivado para 'run_command': debe excluirse
-    const defsFiltered = registry.getActiveDefinitions({
+    const defsFiltered = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
       enabledTools: {
         [execCmdTool.id]: false
       }
-    });
+    }));
     const hasExec = defsFiltered.some(d => d.function.name.includes('run_command'));
     const hasRead = defsFiltered.some(d => d.function.name.includes('read_file'));
     assert.equal(hasExec, false);

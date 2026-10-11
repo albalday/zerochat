@@ -9,8 +9,7 @@ test('ChatState - Inicialización con valores por defecto', () => {
   assert.ok(state.config);
   assert.equal(state.config.apiUrl, 'http://localhost:1234/v1');
   assert.equal(state.config.temperature, '0.7');
-  assert.equal(state.streaming.isGenerating, false);
-  assert.equal(state.streaming.status, 'idle');
+  assert.deepEqual(state.streaming, { isGenerating: false });
   assert.ok(Array.isArray(state.messages));
   assert.equal(state.messages.length, 0);
   assert.ok(state.sessions.activeId);
@@ -20,23 +19,20 @@ test('ChatState - Actualizaciones parciales y atómicas', () => {
   const store = ChatState.createStore();
 
   // Actualizar slice con store.set()
-  store.set('streaming', { isGenerating: true, status: 'streaming' });
-  const s1 = store.get('streaming');
-  assert.equal(s1.isGenerating, true);
-  assert.equal(s1.status, 'streaming');
-  assert.equal(s1.error, null); // Debe preservar el resto del slice
+  store.set('telemetry', { stats: { tokens: 10 } });
+  assert.deepEqual(store.get('telemetry'), { stats: { tokens: 10 }, diagnostics: null }, 'Debe preservar el resto del slice');
 
   // Actualizar varios slices con store.setState()
   store.setState({
     config: { model: 'llama-3.3' },
-    ui: { sidebarOpen: true }
+    ui: { attachedFiles: [{ name: 'a.txt' }] }
   });
 
   const full = store.getState();
   assert.equal(full.config.model, 'llama-3.3');
   assert.equal(full.config.apiUrl, 'http://localhost:1234/v1'); // Preservado
-  assert.equal(full.ui.sidebarOpen, true);
-  assert.equal(full.ui.reasoningMenuOpen, false); // Preservado
+  assert.equal(full.ui.attachedFiles.length, 1);
+  assert.deepEqual(full.ui.notices, []); // Preservado
 });
 
 test('ChatState - Actualización funcional con prevState', () => {
@@ -96,14 +92,14 @@ test('ChatState - Suscripciones globales, por slice y por selector', () => {
   );
 
   // Primer cambio relevante
-  store.set('streaming', { isGenerating: true, status: 'streaming' });
+  store.set('streaming', { isGenerating: true });
   assert.equal(globalCalls, 1);
   assert.equal(sliceCalls, 1);
   assert.equal(selectorCalls, 1);
   assert.equal(lastIsGenerating, true);
 
   // Cambio en otro slice (no afecta al selector de isGenerating)
-  store.set('ui', { sidebarOpen: true });
+  store.set('ui', { attachedFiles: [{ name: 'a.txt' }] });
   assert.equal(globalCalls, 2);
   assert.equal(sliceCalls, 1); // No debe llamarse
   assert.equal(selectorCalls, 1); // No debe llamarse
@@ -113,7 +109,7 @@ test('ChatState - Suscripciones globales, por slice y por selector', () => {
   unsubSlice();
   unsubSelector();
 
-  store.set('streaming', { isGenerating: false, status: 'idle' });
+  store.set('streaming', { isGenerating: false });
   assert.equal(globalCalls, 2);
   assert.equal(sliceCalls, 1);
   assert.equal(selectorCalls, 1);
@@ -147,42 +143,37 @@ test('ChatState - Reset del estado', () => {
   assert.equal(state.streaming.isGenerating, false);
 });
 
-test('ChatState - Inicializa una conversación y limpia todo el estado transitorio de turnos', () => {
+test('ChatState - Activa una conversación y limpia todo el estado transitorio de turnos', () => {
   const store = ChatState.createStore();
   store.setState({
     sessions: { activeId: 'session_old', list: [{ id: 'session_old' }] },
     messages: [{ id: 'old_user', role: 'user', content: 'Anterior' }],
-    streaming: { stats: { tokens: 40 }, status: 'done', error: new Error('previous error') },
-    agent: { activeTurnIndex: 4, currentTool: 'search_web', ragSystemContext: 'old RAG context' },
-    telemetry: { stats: { tokens: 40 }, diagnostics: { used: 40 }, lastTurnStats: { tokens: 20 } },
-    ui: { reasoningMenuOpen: true, activeModal: 'debug_interceptor', attachedFiles: [{ name: 'old.txt' }] }
+    telemetry: { stats: { tokens: 40 }, diagnostics: { used: 40 } },
+    ui: { attachedFiles: [{ name: 'old.txt' }] }
   });
 
   const messages = [{ id: 'system_root', role: 'system', content: 'Nuevo sistema' }];
-  const result = store.initializeConversation({ sessionId: 'session_new', sessions: [{ id: 'session_old' }], messages });
+  const result = store.replaceConversation({ sessionId: 'session_new', sessions: [{ id: 'session_old' }, { id: 'session_other' }], messages });
 
   assert.equal(result.ok, true);
   const state = store.getState();
   assert.equal(state.sessions.activeId, 'session_new');
+  assert.equal(state.sessions.list.length, 2);
   assert.deepEqual(state.messages, messages);
-  assert.deepEqual(state.streaming, { isGenerating: false, stats: null, status: 'idle', error: null });
-  assert.deepEqual(state.agent, { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' });
-  assert.deepEqual(state.telemetry, { stats: null, diagnostics: null, lastTurnStats: null });
-  assert.equal(state.ui.reasoningMenuOpen, false);
-  assert.equal(state.ui.debugPanelOpen, false);
-  assert.equal(state.ui.activeModal, null);
+  assert.deepEqual(state.streaming, { isGenerating: false });
+  assert.deepEqual(state.telemetry, { stats: null, diagnostics: null });
   assert.deepEqual(state.ui.attachedFiles, []);
 });
 
-test('ChatState - Deniega inicializar una conversación durante una generación', () => {
+test('ChatState - Deniega activar una conversación durante una generación', () => {
   const store = ChatState.createStore();
   store.setState({
     sessions: { activeId: 'session_active' },
     messages: [{ id: 'active_message', role: 'user', content: 'En curso' }],
-    streaming: { isGenerating: true, status: 'streaming' }
+    streaming: { isGenerating: true }
   });
 
-  const result = store.initializeConversation({ sessionId: 'session_new', sessions: [], messages: [] });
+  const result = store.replaceConversation({ sessionId: 'session_new', sessions: [], messages: [] });
 
   assert.deepEqual(result, { ok: false, reason: 'generation-active' });
   assert.equal(store.isConversationBusy(), true);
@@ -309,8 +300,8 @@ test('ChatState - Mutador replaceConversation y guardas de concurrencia', () => 
 
 test('ChatState - Mutador importConversation y reinicio transitorio', () => {
   const store = ChatState.createStore();
-  store.set('ui', { attachedFiles: [{ name: 'file.txt' }], reasoningMenuOpen: true });
-  store.set('agent', { ragSystemContext: 'rag viejo' });
+  store.set('ui', { attachedFiles: [{ name: 'file.txt' }] });
+  store.set('telemetry', { stats: { tokens: 5 } });
 
   const sessionMeta = { id: 'imported_sess', title: 'Chat Importado' };
   const history = [{ id: 'm_imp', role: 'user', content: 'Importado' }];
@@ -321,8 +312,7 @@ test('ChatState - Mutador importConversation y reinicio transitorio', () => {
   assert.equal(store.get('messages')[0].content, 'Importado');
   // Slices transitorios deben haberse reiniciado
   assert.deepEqual(store.get('ui').attachedFiles, []);
-  assert.equal(store.get('ui').reasoningMenuOpen, false);
-  assert.equal(store.get('agent').ragSystemContext, '');
+  assert.equal(store.get('telemetry').stats, null);
 });
 
 test('ChatState - Mutadores de adjuntos: setAttachments y clearAttachments', () => {
@@ -362,7 +352,7 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   assert.deepEqual(store.get('project').rules, { content: 'r', truncated: false });
   assert.deepEqual(store.get('project').state, { content: '', truncated: false });
 
-  store.initializeConversation({ sessionId: 'session_next', sessions: [], messages: [] });
+  store.replaceConversation({ sessionId: 'session_next', sessions: [], messages: [] });
   assert.equal(store.get('project').status, 'ready');
   assert.equal(store.get('project').cwd, '/repo');
 });

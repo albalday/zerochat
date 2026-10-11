@@ -75,13 +75,13 @@ permanecer en su módulo correspondiente.
 
 El estado compartido, persistente o necesario para coordinar subsistemas debe pasar
 por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messages`,
-`streaming`, `agent`, `telemetry`, `ui`, `mcp`, `toolSecurity`, `project`). Está prohibido usar variables globales de
+`streaming`, `telemetry`, `ui`, `mcp`, `toolSecurity`, `project`). Está prohibido usar variables globales de
 módulo que provoquen fugas de estado entre conversaciones.
 
 El mantenimiento y las modificaciones de `ChatState` deben realizarse exclusivamente
 mediante funciones de modificación de atributos y mutadores de dominio específicos
 (`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`,
-`replaceConversation`, `initializeConversation`, `setAttachments`, etc.) que garanticen cambios
+`replaceConversation`, `importConversation`, `setAttachments`, etc.) que garanticen cambios
 atómicos y sincronizados con el estado actual, impidiendo desincronizaciones, escrituras
 parciales no controladas o sobreescrituras arbitrarias.
 

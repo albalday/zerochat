@@ -23,7 +23,7 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
   assert.equal(registry.getTool('renderchart').name, 'render_chart');
 
   // Comprobar generación de esquemas Function Calling
-  const defs = registry.getActiveDefinitions();
+  const defs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
   assert.ok(defs.length >= 5);
   const jsDef = defs.find(d => d.function.name === 'execute_javascript');
   assert.ok(jsDef);
@@ -234,7 +234,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.ok(!ids.includes('list_documents'));
 
   // 2. getActiveDefinitions filtra según appConfig.enabledTools
-  const allDefs = registry.getActiveDefinitions({
+  const allDefs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
     enabledTools: {
       execute_javascript: true,
       search_web: true,
@@ -242,7 +242,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: true,
       render_chart: true
     }
-  });
+  }));
   const allNames = allDefs.map(d => d.function.name);
   assert.ok(allNames.includes('execute_javascript'));
   assert.ok(allNames.includes('search_web'));
@@ -251,7 +251,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.ok(allNames.includes('render_chart'));
 
   // Desactivar search_web y download_pdf
-  const filteredDefs = registry.getActiveDefinitions({
+  const filteredDefs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
     enabledTools: {
       execute_javascript: true,
       search_web: false,
@@ -259,7 +259,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: false,
       render_chart: true
     }
-  });
+  }));
   const filteredNames = filteredDefs.map(d => d.function.name);
   assert.ok(!filteredNames.includes('search_web'));
   assert.ok(!filteredNames.includes('download_pdf'));
@@ -268,7 +268,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
   assert.ok(filteredNames.includes('render_chart'));
 
   // 3. getActivePromptGuide genera la guía textual dinámica en español e inglés
-  const guideEs = registry.getActivePromptGuide({
+  const guideEs = registry.getActivePromptGuide(require('../../js/config-store.js').normalize({
     enabledTools: {
       execute_javascript: true,
       search_web: false,
@@ -276,14 +276,14 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: false,
       render_chart: true
     }
-  });
+  }));
   assert.match(guideEs, /execute_javascript/);
   assert.match(guideEs, /fetch_web_page/);
   assert.doesNotMatch(guideEs, /search_web/);
   assert.doesNotMatch(guideEs, /download_pdf/);
   assert.match(guideEs, /AVAILABLE TOOLS AND FUNCTIONS/);
 
-  const guideEn = registry.getActivePromptGuide({
+  const guideEn = registry.getActivePromptGuide(require('../../js/config-store.js').normalize({
     enabledTools: {
       execute_javascript: true,
       search_web: true,
@@ -291,7 +291,7 @@ test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, 
       download_pdf: false,
       render_chart: false
     }
-  });
+  }));
   assert.match(guideEn, /AVAILABLE TOOLS AND FUNCTIONS/);
   assert.match(guideEn, /execute_javascript/);
   assert.match(guideEn, /search_web/);

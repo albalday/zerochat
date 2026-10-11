@@ -40,11 +40,10 @@
   }
 
   function isCompactViewport() {
-    return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 640px)').matches);
+    return window.matchMedia('(max-width: 640px)').matches;
   }
 
   function render(element, status) {
-    if (!element) return;
     const view = getViewModel(status, Date.now(), { compact: isCompactViewport() });
     element.hidden = !view.active;
     if (!view.active) {
@@ -53,13 +52,10 @@
       return;
     }
     element.dataset.phase = view.phase;
-    const text = element.querySelector?.('.generation-status-text');
-    if (text) text.textContent = view.text;
-    const progress = element.querySelector?.('.generation-status-progress');
-    if (progress) {
-      progress.hidden = view.percent === null;
-      if (view.percent !== null) progress.value = view.percent;
-    }
+    element.querySelector('.generation-status-text').textContent = view.text;
+    const progress = element.querySelector('.generation-status-progress');
+    progress.hidden = view.percent === null;
+    if (view.percent !== null) progress.value = view.percent;
     if (elapsedTimer) clearInterval(elapsedTimer);
     elapsedTimer = null;
     if (view.phase === 'thinking') {
@@ -67,31 +63,21 @@
     }
   }
 
-  function resolveState() {
-    return resolveDep('ChatState', './state.js');
-  }
+  const getState = () => resolveDep('ChatState', './state.js');
 
   function setStatus(element, update = {}) {
-    const State = resolveState();
-    const raw = typeof update === 'string' ? { text: update } : (update || {});
-    const isGenerating = Boolean(State?.get?.('streaming')?.isGenerating);
+    const State = getState();
+    const raw = typeof update === 'string' ? { text: update } : update;
     const phase = String(raw.phase || (raw.text || raw.message ? 'custom' : 'idle'));
     // Si no se está procesando un ciclo de chat, el indicador permanece invisible y no se reactiva.
-    if (!isGenerating && phase !== 'idle') return;
-
-    let next;
-    if (State?.setGenerationStatus) {
-      next = State.setGenerationStatus(raw);
-    } else {
-      next = { ...raw, phase, startedAt: Date.now() };
-    }
+    if (!State.isConversationBusy() && phase !== 'idle') return;
+    const next = State.setGenerationStatus(raw);
     render(element, next);
     return next;
   }
 
   function clearStatus(element) {
-    const State = resolveState();
-    State?.clearGenerationStatus?.();
+    getState().clearGenerationStatus();
     render(element, { phase: 'idle' });
   }
 

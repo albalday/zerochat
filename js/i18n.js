@@ -52,11 +52,6 @@
       welcome_help_link: 'Ayuda y Documentación',
       welcome_help_title: 'Abrir centro de ayuda y documentación online',
       welcome_help_href: 'help/index.html',
-      execution_info_title: 'Modo de ejecución y almacenamiento',
-      execution_info_http: 'En modo servidor, los chats, perfiles y preferencias se comparten con cualquier ZeroChat del mismo protocolo, host y puerto. La ruta no los separa.',
-      execution_info_file: 'En modo archivo local, el navegador decide cómo aísla o comparte los datos. Usa siempre el mismo lugar para almacenar y ejecutar zerochat.html si quieres que permanezcan las configuraciones.',
-      execution_info_portable_tool: 'ZeroChat funciona directamente en tu navegador web. La interfaz arranca de forma estática y segura.',
-      execution_info_requirements: 'La conversación seguirá necesitando el proveedor que hayas configurado: un modelo local puede funcionar sin red; una API remota y las funciones web, no.',
 
       // Barra de herramientas superior
       profile_badge_title: 'Perfil de conexión activo',
@@ -539,6 +534,8 @@
       err_no_profiles_to_export: 'No hay perfiles para exportar (excepto el perfil Espejo).',
       err_auto_import_failed: 'Error al importar perfiles automáticamente: {err}',
       confirm_auto_import_profiles: '¿Importar {count} perfil(es) de conexión desde el archivo externo?',
+      profile_import_waiting_title: 'Importando perfiles...',
+      profile_import_waiting_desc: 'Esperando datos cifrados desde la ventana de exportación',
       btn_save_profile_title: 'Guardar todos los valores actuales en este perfil',
       btn_delete_profile_title: 'Eliminar el perfil seleccionado',
       prompt_new_profile_name: 'Nombre del nuevo perfil:',
@@ -759,11 +756,6 @@
       welcome_help_link: 'Help & Documentation',
       welcome_help_title: 'Open online help and documentation center',
       welcome_help_href: 'help/en/index.html',
-      execution_info_title: 'Execution mode and storage',
-      execution_info_http: 'In server mode, chats, profiles, and preferences are shared with every ZeroChat page using the same protocol, host, and port. The path does not separate them.',
-      execution_info_file: 'In local file mode, the browser decides how data is isolated or shared. Always store and run zerochat.html from the same location if you want settings to persist.',
-      execution_info_portable_tool: 'ZeroChat runs directly in your web browser. The interface starts statically and securely.',
-      execution_info_requirements: 'The conversation still needs the provider you configured: a local model can work offline; a remote API and web features cannot.',
 
       // Barra de herramientas superior
       profile_badge_title: 'Active connection profile',
@@ -1246,6 +1238,8 @@
       err_no_profiles_to_export: 'No profiles to export (except Mirror profile).',
       err_auto_import_failed: 'Failed to auto-import profiles: {err}',
       confirm_auto_import_profiles: 'Import {count} connection profile(s) from external file?',
+      profile_import_waiting_title: 'Importing profiles...',
+      profile_import_waiting_desc: 'Waiting for encrypted data from the export window',
       btn_save_profile_title: 'Save all current values into this profile',
       btn_delete_profile_title: 'Delete selected profile',
       prompt_new_profile_name: 'New profile name:',

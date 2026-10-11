@@ -13,266 +13,139 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
-  const { resolveDep } = Utils;
-
-  function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
-  function getFileParser() { return resolveDep('ChatFileParser', './file-parser.js'); }
-  function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
-
+  const { resolveDep, formatBytes } = Utils;
   const { t } = I18n;
 
-  let activeCleanupFns = [];
-  let cachedElements = null;
+  const getAttachments = () => resolveDep('ChatAttachments', './attachments.js');
+  const getFileParser = () => resolveDep('ChatFileParser', './file-parser.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
 
-  // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
-  // Esta función actúa como fallback para navegadores sin soporte.
+  let activeCleanupFns = [];
+
+  // field-sizing:content ajusta la altura en CSS; esto cubre los navegadores que aún no lo admiten.
   function autoResizeTextarea(elements) {
-    const els = elements || cachedElements || {};
-    if (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content')) return;
-    if (!els.userInput || !els.userInput.style) return;
-    if (!els.userInput.value) {
-      els.userInput.style.height = '';
+    if (CSS.supports('field-sizing', 'content')) return;
+    const input = elements.userInput;
+    if (!input.value) {
+      input.style.height = '';
       return;
     }
-    els.userInput.style.height = 'auto';
-    const newHeight = Math.min(els.userInput.scrollHeight, 160);
-    els.userInput.style.height = `${newHeight}px`;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
   }
 
-  function focusInput(elements) {
-    const els = elements || cachedElements || {};
-    if (els.userInput && typeof els.userInput.focus === 'function') {
-      els.userInput.focus();
-    }
-  }
-
-  function clearInput(elements) {
-    const els = elements || cachedElements || {};
-    if (els.userInput) {
-      els.userInput.value = '';
-    }
-    autoResizeTextarea(els);
-  }
-
-  function getPromptValue(elements) {
-    const els = elements || cachedElements || {};
-    return (els.userInput?.value || '').trim();
-  }
-
+  /** Escribe un texto en el compositor y le devuelve el foco, como si lo hubiera tecleado el usuario. */
   function setPromptValue(elements, text) {
-    const els = elements || cachedElements || {};
-    if (els.userInput) {
-      els.userInput.value = text || '';
-    }
-    autoResizeTextarea(els);
-    focusInput(els);
+    elements.userInput.value = text;
+    autoResizeTextarea(elements);
+    elements.userInput.focus();
   }
 
   function renderAttachedFiles(elements) {
-    const els = elements || cachedElements || {};
-    const Attachments = getAttachments();
-    if (Attachments?.renderChips) {
-      Attachments.renderChips(els.attachmentsContainer, () => autoResizeTextarea(els));
-    }
+    getAttachments().renderChips(elements.attachmentsContainer, () => autoResizeTextarea(elements));
   }
 
   function clearAttachedFiles(elements) {
-    const els = elements || cachedElements || {};
-    const Attachments = getAttachments();
-    if (Attachments?.clearFiles) {
-      Attachments.clearFiles();
-      renderAttachedFiles(els);
-    }
-    if (els.fileInput) els.fileInput.value = '';
+    getAttachments().clearFiles();
+    renderAttachedFiles(elements);
+    elements.fileInput.value = '';
   }
 
   async function processFiles(elements, files) {
-    const els = elements || cachedElements || {};
     const Attachments = getAttachments();
-    const FileParser = getFileParser();
     const Dialogs = getDialogs();
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of files) {
       const check = Attachments.validateFileSize(file);
       if (!check.valid) {
-        await Dialogs.alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
+        await Dialogs.alert(t('err_file_too_large', { name: file.name, max: formatBytes(check.maxBytes) }), { type: 'error' });
         continue;
       }
       try {
-        Attachments.addFile(await FileParser.parseFile(file));
+        Attachments.addFile(await getFileParser().parseFile(file));
       } catch (err) {
         console.error(`Error processing file ${file.name}:`, err);
-        Dialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
+        await Dialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
       }
     }
-    renderAttachedFiles(els);
-    focusInput(els);
+    renderAttachedFiles(elements);
+    elements.userInput.focus();
   }
 
-  function handlePasteEvent(e, elements) {
-    const els = elements || cachedElements || {};
-    if (!e.clipboardData || !e.clipboardData.items) return;
-    const items = e.clipboardData.items;
-    const FileParser = getFileParser();
-    const Attachments = getAttachments();
-
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type && items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
-        if (file) {
-          e.preventDefault();
-          if (FileParser?.parseFile) {
-            FileParser.parseFile(file).then(parsed => {
-              if (Attachments?.addFile) Attachments.addFile(parsed);
-              renderAttachedFiles(els);
-            }).catch(err => {
-              console.error('Error pasting image:', err);
-            });
-          }
-        }
-      }
-    }
+  function handlePasteEvent(event, elements) {
+    const images = [...(event.clipboardData?.items || [])]
+      .filter(item => item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter(Boolean);
+    if (!images.length) return;
+    event.preventDefault();
+    processFiles(elements, images);
   }
 
-
-  function syncGenerationControls(elements, isGenerating, options = {}) {
-    const els = elements || cachedElements || {};
-    const generating = Boolean(isGenerating);
-    if (els.btnSend) els.btnSend.disabled = generating;
-    if (els.btnStopStream) els.btnStopStream.style.display = generating ? 'inline-flex' : 'none';
-    if (!generating && typeof options.clearGenerationStatus === 'function') {
-      options.clearGenerationStatus();
-    }
+  function syncGenerationControls(elements, isGenerating) {
+    elements.btnSend.disabled = isGenerating;
+    elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
+    if (!isGenerating) getGenerationStatus().clearStatus(elements.generationStatus);
   }
 
-  function mount(elements, { onSendMessage, onStopGeneration, getLastPrompt } = {}) {
+  function listen(target, type, handler) {
+    target.addEventListener(type, handler);
+    activeCleanupFns.push(() => target.removeEventListener(type, handler));
+  }
+
+  function mount(elements, { onSendMessage, onStopGeneration, getLastPrompt }) {
     dispose();
-    cachedElements = elements || {};
-    const els = cachedElements;
+    const { chatForm, userInput } = elements;
 
-    if (els.chatForm) {
-      const onSubmit = function (e) {
-        e.preventDefault();
-        if (typeof onSendMessage === 'function') onSendMessage();
-      };
-      els.chatForm.addEventListener('submit', onSubmit);
-      activeCleanupFns.push(() => els.chatForm.removeEventListener('submit', onSubmit));
+    listen(chatForm, 'submit', event => {
+      event.preventDefault();
+      onSendMessage();
+    });
+    listen(chatForm, 'dragover', event => {
+      event.preventDefault();
+      chatForm.classList.add('drag-over');
+    });
+    listen(chatForm, 'dragleave', () => chatForm.classList.remove('drag-over'));
+    listen(chatForm, 'drop', event => {
+      event.preventDefault();
+      chatForm.classList.remove('drag-over');
+      if (event.dataTransfer?.files.length) processFiles(elements, Array.from(event.dataTransfer.files));
+    });
 
-      const onDragOver = function (e) {
-        e.preventDefault();
-        els.chatForm.classList.add('drag-over');
-      };
-      els.chatForm.addEventListener('dragover', onDragOver);
-      activeCleanupFns.push(() => els.chatForm.removeEventListener('dragover', onDragOver));
+    listen(userInput, 'keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        onSendMessage();
+        return;
+      }
+      const plainArrowUp = event.key === 'ArrowUp' && !event.isComposing && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      if (!plainArrowUp || userInput.value.trim()) return;
+      const lastPrompt = getLastPrompt();
+      if (!lastPrompt) return;
+      event.preventDefault();
+      setPromptValue(elements, lastPrompt);
+      userInput.setSelectionRange(lastPrompt.length, lastPrompt.length);
+    });
+    listen(userInput, 'input', () => autoResizeTextarea(elements));
+    listen(userInput, 'paste', event => handlePasteEvent(event, elements));
 
-      const onDragLeave = function () {
-        els.chatForm.classList.remove('drag-over');
-      };
-      els.chatForm.addEventListener('dragleave', onDragLeave);
-      activeCleanupFns.push(() => els.chatForm.removeEventListener('dragleave', onDragLeave));
-
-      const onDrop = function (e) {
-        e.preventDefault();
-        els.chatForm.classList.remove('drag-over');
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          processFiles(els, Array.from(e.dataTransfer.files));
-        }
-      };
-      els.chatForm.addEventListener('drop', onDrop);
-      activeCleanupFns.push(() => els.chatForm.removeEventListener('drop', onDrop));
-    }
-
-    if (els.userInput) {
-      const onKeyDown = function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          if (typeof onSendMessage === 'function') onSendMessage();
-          return;
-        }
-        const plainArrowUp = e.key === 'ArrowUp' && !e.isComposing && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey;
-        if (plainArrowUp && !els.userInput.value.trim() && typeof getLastPrompt === 'function') {
-          const lastPrompt = getLastPrompt();
-          if (!lastPrompt) return;
-          e.preventDefault();
-          setPromptValue(els, lastPrompt);
-          els.userInput.setSelectionRange?.(lastPrompt.length, lastPrompt.length);
-        }
-      };
-      els.userInput.addEventListener('keydown', onKeyDown);
-      activeCleanupFns.push(() => els.userInput.removeEventListener('keydown', onKeyDown));
-
-      const onInput = function () {
-        autoResizeTextarea(els);
-      };
-      els.userInput.addEventListener('input', onInput);
-      activeCleanupFns.push(() => els.userInput.removeEventListener('input', onInput));
-
-      const onPaste = function (e) {
-        handlePasteEvent(e, els);
-      };
-      els.userInput.addEventListener('paste', onPaste);
-      activeCleanupFns.push(() => els.userInput.removeEventListener('paste', onPaste));
-    }
-
-    if (els.btnStopStream) {
-      const onStop = function () {
-        if (typeof onStopGeneration === 'function') onStopGeneration();
-      };
-      els.btnStopStream.addEventListener('click', onStop);
-      activeCleanupFns.push(() => els.btnStopStream.removeEventListener('click', onStop));
-    }
-
-    if (els.btnAttachFile) {
-      const onAttach = function () {
-        if (els.fileInput && typeof els.fileInput.click === 'function') {
-          els.fileInput.click();
-        }
-      };
-      els.btnAttachFile.addEventListener('click', onAttach);
-      activeCleanupFns.push(() => els.btnAttachFile.removeEventListener('click', onAttach));
-    }
-
-    if (els.fileInput) {
-      const onChange = function (e) {
-        if (e.target.files && e.target.files.length > 0) {
-          processFiles(els, Array.from(e.target.files));
-        }
-      };
-      els.fileInput.addEventListener('change', onChange);
-      activeCleanupFns.push(() => els.fileInput.removeEventListener('change', onChange));
-    }
-
-    return {
-      autoResizeTextarea: () => autoResizeTextarea(els),
-      focusInput: () => focusInput(els),
-      clearInput: () => clearInput(els),
-      getPromptValue: () => getPromptValue(els),
-      setPromptValue: (text) => setPromptValue(els, text),
-      renderAttachedFiles: () => renderAttachedFiles(els),
-      clearAttachedFiles: () => clearAttachedFiles(els),
-      syncGenerationControls: (isGenerating, opts) => syncGenerationControls(els, isGenerating, opts)
-    };
+    listen(elements.btnStopStream, 'click', () => onStopGeneration());
+    listen(elements.btnAttachFile, 'click', () => elements.fileInput.click());
+    listen(elements.fileInput, 'change', event => {
+      if (event.target.files.length) processFiles(elements, Array.from(event.target.files));
+    });
   }
 
   function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUIComposer] Cleanup failed:', error); } });
+    activeCleanupFns.forEach(fn => fn());
     activeCleanupFns = [];
-    cachedElements = null;
   }
 
   return {
     autoResizeTextarea,
-    focusInput,
-    clearInput,
-    getPromptValue,
     setPromptValue,
-    renderAttachedFiles,
     clearAttachedFiles,
-    processFiles,
-    handlePasteEvent,
     syncGenerationControls,
-    mount,
-    dispose
+    mount
   };
 }));

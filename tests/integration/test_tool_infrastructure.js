@@ -58,7 +58,7 @@ test('Tool infrastructure - el ejecutor entrega el contexto estándar a la tool'
 test('Tool infrastructure - registra read_knowledge_image solo con RAG activo', () => {
   const tool = AgentCore.registry.getTool('read_knowledge_image');
   assert.ok(tool);
-  assert.equal(tool.isAvailable({}), false);
-  assert.equal(tool.isAvailable({ activeRagBranchId: 'branch_1' }), true);
+  assert.equal(tool.isAvailable({ activeRagBranchIds: [] }), false);
+  assert.equal(tool.isAvailable({ activeRagBranchIds: ['branch_1'] }), true);
   assert.match(tool.description, /native vision/);
 });

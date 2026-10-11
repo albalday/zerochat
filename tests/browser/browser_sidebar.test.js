@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - sidebar', { concurrency: 2 }, () => {
   after(async () => {
@@ -83,38 +83,28 @@ test('Browser UI - borrar la conversación activa carga la siguiente y limpia su
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    const result = await page.evaluate(async () => {
-      const suffix = Date.now().toString();
-      const activeId = `test_session_active_${suffix}`;
-      const nextId = `test_session_next_${suffix}`;
-      const activeHistory = [{ id: 'active_message', role: 'user', content: 'Conversación que se elimina' }];
-      const nextHistory = [{ id: 'next_message', role: 'user', content: 'Conversación que debe mostrarse' }];
-      const sessions = [
-        { id: activeId, title: 'Activa', createdAt: Date.now(), updatedAt: Date.now() },
-        { id: nextId, title: 'Siguiente', createdAt: Date.now() - 1, updatedAt: Date.now() - 1 }
-      ];
+    const activeId = 'test_session_active';
+    const nextId = 'test_session_next';
+    await page.evaluate(async ({ activeId, nextId }) => {
+      await window.ChatStorage.saveConversation({ id: activeId, title: 'Activa', createdAt: Date.now(), updatedAt: Date.now() },
+        [{ id: 'active_message', role: 'user', content: 'Conversación que se elimina' }]);
+      await window.ChatStorage.saveConversation({ id: nextId, title: 'Siguiente', createdAt: Date.now() - 1, updatedAt: Date.now() - 1 },
+        [{ id: 'next_message', role: 'user', content: 'Conversación que debe mostrarse' }]);
+    }, { activeId, nextId });
+    await openSavedSession(page, activeId);
 
-      await window.ChatStorage.saveConversation(sessions[0], activeHistory);
-      await window.ChatStorage.saveConversation(sessions[1], nextHistory);
-      window.ChatState.initializeConversation({ sessionId: nextId, sessions, messages: nextHistory });
-      await window.ChatApp.switchToSession(activeId);
+    // Borrar desde el menú de la entrada activa y confirmar en el diálogo.
+    await page.locator(`.sidebar-chat-item[data-session-id="${activeId}"] .btn-delete`).evaluate(button => button.click());
+    await page.locator('#notice-accept').click();
+    await page.waitForFunction(id => window.ChatState.get('sessions').activeId === id && document.getElementById('messages-list').textContent.includes('debe mostrarse'), nextId);
 
-      const originalConfirm = window.ChatDialogs.confirm;
-      window.ChatDialogs.confirm = async () => true;
-      try {
-        await window.ChatApp.deleteSession(activeId);
-      } finally {
-        window.ChatDialogs.confirm = originalConfirm;
-      }
-
-      return {
-        activeId: window.ChatState.get('sessions').activeId,
-        listedIds: window.ChatState.get('sessions').list.map(session => session.id),
-        messageIds: window.ChatState.get('messages').map(message => message.id),
-        deletedConversation: await window.ChatStorage.getConversation(activeId),
-        visibleText: document.getElementById('messages-list').textContent
-      };
-    });
+    const result = await page.evaluate(async activeId => ({
+      activeId: window.ChatState.get('sessions').activeId,
+      listedIds: window.ChatState.get('sessions').list.map(session => session.id),
+      messageIds: window.ChatState.get('messages').map(message => message.id),
+      deletedConversation: await window.ChatStorage.getConversation(activeId),
+      visibleText: document.getElementById('messages-list').textContent
+    }), activeId);
 
     assert.equal(result.activeId, result.listedIds[0], 'La siguiente sesión debe quedar activa');
     assert.equal(result.listedIds.length, 1, 'La conversación eliminada debe desaparecer de la lista');

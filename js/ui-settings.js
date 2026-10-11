@@ -303,7 +303,6 @@
       enableRawLogs: Boolean(appConfig?.enableRawLogs),
       enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
       enableContextCache: appConfig?.enableContextCache !== false,
-      activeRagBranchId: appConfig?.activeRagBranchId || '',
       activeRagBranchIds: Array.isArray(appConfig?.activeRagBranchIds) ? [...appConfig.activeRagBranchIds] : []
     };
   }

@@ -59,7 +59,7 @@
       category: 'rag',
       metadata: { label: definition.name },
       settings: { showInSettings: false },
-      isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
+      isAvailable: config => config.activeRagBranchIds.length > 0,
       execute: async (args, context = {}) => {
         const service = context.services.ragService;
         return service?.readKnowledgeImage ? service.readKnowledgeImage(context.activeRagBranchIds, args) : { success: false, error: 'RAG service not available.' };

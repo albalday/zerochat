@@ -12,17 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns, Defaults) {
   'use strict';
 
-  const { createId } = Utils;
-
-  function clone(obj) {
-    if (obj === null || typeof obj !== 'object') return obj;
-    if (Array.isArray(obj)) return obj.map(clone);
-    const copy = {};
-    for (const key of Object.keys(obj)) {
-      copy[key] = clone(obj[key]);
-    }
-    return copy;
-  }
+  const { createId, clone } = Utils;
 
   function isShallowEqual(a, b) {
     if (Object.is(a, b)) return true;
@@ -44,7 +34,6 @@
     'sessions',
     'messages',
     'streaming',
-    'agent',
     'telemetry',
     'ui',
     'mcp',
@@ -69,42 +58,22 @@
       messages: [],
 
       // 4. Estado de Generación / Streaming
-      streaming: {
-        isGenerating: false,
-        stats: null,
-        status: 'idle', // 'idle' | 'streaming' | 'thinking' | 'done' | 'error'
-        error: null
-      },
+      streaming: { isGenerating: false },
 
-      // 5. Estado Agéntico y Herramientas
-      agent: {
-        activeTurnIndex: 0,
-        currentTool: null,
-        ragSystemContext: ''
-      },
+      // 5. Telemetría de Contexto y Tokens
+      telemetry: { stats: null, diagnostics: null },
 
-      // 6. Telemetría de Contexto y Tokens
-      telemetry: {
-        stats: null,
-        diagnostics: null,
-        lastTurnStats: null
-      },
-
-      // 7. Estado de la Interfaz (UI)
+      // 6. Estado de la Interfaz (UI)
       ui: {
         notices: [],
         noticeSequence: 0,
         noticeResult: null,
-        sidebarOpen: false,
-        reasoningMenuOpen: false,
-        debugPanelOpen: false,
-        activeModal: null, // null | 'settings' | 'export' | 'debug_interceptor'
         attachedFiles: [],
         webllm: { catalog: [], contextKey: '', operation: null },
         generationStatus: { phase: 'idle', percent: null, startedAt: null }
       },
 
-      // 8. Estado de Integración MCP (mcp-proxy)
+      // 7. Estado de Integración MCP (mcp-proxy)
       mcp: {
         status: 'disconnected', // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error'
         host: '127.0.0.1',
@@ -122,14 +91,14 @@
         exitOnClose: false
       },
 
-      // 9. Políticas de Seguridad de Herramientas (MCP y Built-in)
+      // 8. Políticas de Seguridad de Herramientas (MCP y Built-in)
       toolSecurity: {
         globalMcpPolicy: 'ask',
         authorizedCount: 0,
         tools: {}
       },
 
-      // 10. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
+      // 9. Modo proyecto: común a todas las conversaciones (ver js/project-context.js)
       project: {
         cwd: '',
         status: 'disabled',
@@ -341,63 +310,31 @@
       return Boolean(state.streaming && state.streaming.isGenerating);
     }
 
-    /**
-     * Inicializa una conversación nueva sin alterar configuración ni conexiones.
-     * Se deniega durante una inferencia para evitar que callbacks pendientes
-     * escriban sobre la sesión nueva.
-     */
-    function initializeConversation({ sessionId, sessions = [], messages = [] } = {}) {
-      if (isConversationBusy()) return { ok: false, reason: 'generation-active' };
-      if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: 'invalid-session-id' };
-      if (!Array.isArray(sessions) || !Array.isArray(messages)) return { ok: false, reason: 'invalid-conversation-state' };
-
-      setState({
-        sessions: { activeId: sessionId, list: clone(sessions) },
-        messages: clone(messages),
-        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
-        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
-      });
-
-      return { ok: true, state: getState() };
+    /** Estado de una conversación recién activada: sin generación, telemetría, adjuntos ni avisos. */
+    function freshConversationSlices() {
+      return {
+        streaming: { isGenerating: false },
+        telemetry: { stats: null, diagnostics: null },
+        ui: Object.assign({}, state.ui, { attachedFiles: [], notices: [] })
+      };
     }
 
     /**
-     * Reemplaza o conmuta la conversación activa de forma atómica y segura.
-     * Acepta { sessionId, messages, sessions } o argumentos posicionales (sessionId, messages, sessions).
+     * Activa una conversación de forma atómica sin alterar configuración ni conexiones. Con
+     * `sessions` sustituye también el listado. Se deniega durante una inferencia para evitar que
+     * callbacks pendientes escriban sobre la sesión nueva.
      */
-    function replaceConversation(firstArg, optionalMessages, optionalSessions) {
-      let sessionId, messages, sessions;
-      if (firstArg && typeof firstArg === 'object' && !Array.isArray(firstArg)) {
-        sessionId = firstArg.sessionId;
-        messages = firstArg.messages;
-        sessions = firstArg.sessions;
-      } else {
-        sessionId = firstArg;
-        messages = optionalMessages;
-        sessions = optionalSessions;
-      }
-
+    function replaceConversation({ sessionId, messages, sessions } = {}) {
       if (isConversationBusy()) return { ok: false, reason: 'generation-active' };
       if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: 'invalid-session-id' };
-      if (messages !== undefined && !Array.isArray(messages)) return { ok: false, reason: 'invalid-messages' };
+      if (!Array.isArray(messages)) return { ok: false, reason: 'invalid-messages' };
       if (sessions !== undefined && !Array.isArray(sessions)) return { ok: false, reason: 'invalid-sessions' };
 
-      const nextSessions = {
-        activeId: sessionId,
-        list: sessions !== undefined ? clone(sessions) : clone(state.sessions.list)
-      };
-
       setState({
-        sessions: nextSessions,
-        messages: Array.isArray(messages) ? clone(messages) : [],
-        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
-        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
+        sessions: { activeId: sessionId, list: clone(sessions || state.sessions.list) },
+        messages: clone(messages),
+        ...freshConversationSlices()
       });
-
       return { ok: true, state: getState() };
     }
 
@@ -525,10 +462,7 @@
       setState({
         sessions: { activeId: clonedMeta.id, list },
         messages: clone(history),
-        streaming: { isGenerating: false, stats: null, status: 'idle', error: null },
-        agent: { activeTurnIndex: 0, currentTool: null, ragSystemContext: '' },
-        telemetry: { stats: null, diagnostics: null, lastTurnStats: null },
-        ui: Object.assign({}, state.ui, { reasoningMenuOpen: false, debugPanelOpen: false, activeModal: null, attachedFiles: [], notices: [] })
+        ...freshConversationSlices()
       });
 
       return { ok: true, state: getState() };
@@ -665,7 +599,6 @@
       subscribe,
       reset,
       isConversationBusy,
-      initializeConversation,
       replaceConversation,
       appendMessage,
       replaceMessages,
@@ -699,7 +632,6 @@
     subscribe: defaultStore.subscribe,
     reset: defaultStore.reset,
     isConversationBusy: defaultStore.isConversationBusy,
-    initializeConversation: defaultStore.initializeConversation,
     replaceConversation: defaultStore.replaceConversation,
     appendMessage: defaultStore.appendMessage,
     replaceMessages: defaultStore.replaceMessages,

@@ -6,37 +6,32 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('../utils.js'));
   } else {
-    root.ChatToolRuntime = factory();
+    root.ChatToolRuntime = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
+  const { resolveDep } = Utils;
+
   const SERVICE_DEFINITIONS = {
-    sandbox: { globalName: 'ChatSandbox', modulePath: '../sandbox.js' },
-    webSearch: { globalName: 'ChatWebSearch', modulePath: '../web-search.js' },
-    webBrowser: { globalName: 'ChatWebBrowser', modulePath: '../web-browser.js' },
-    charts: { globalName: 'ChatCharts', modulePath: '../charts.js' },
-    ragStorage: { globalName: 'ChatRagStorage', modulePath: '../ragStorage.js' },
-    ragService: { globalName: 'ChatRagService', modulePath: '../rag-service.js' },
-    mcp: { globalName: 'ChatMCP', modulePath: '../mcp.js' },
-    agent: { globalName: 'ChatAgentCore', modulePath: '../agent-core.js' },
-    engine: { globalName: 'ChatEngine', modulePath: '../chat-engine.js' },
-    profiles: { globalName: 'ChatProfileRepository', modulePath: '../profile-repository.js' },
-    conversation: { globalName: 'ChatConversationService', modulePath: '../conversation-service.js' }
+    sandbox: { globalName: 'ChatSandbox', modulePath: './sandbox.js' },
+    webSearch: { globalName: 'ChatWebSearch', modulePath: './web-search.js' },
+    webBrowser: { globalName: 'ChatWebBrowser', modulePath: './web-browser.js' },
+    charts: { globalName: 'ChatCharts', modulePath: './charts.js' },
+    ragStorage: { globalName: 'ChatRagStorage', modulePath: './ragStorage.js' },
+    ragService: { globalName: 'ChatRagService', modulePath: './rag-service.js' },
+    mcp: { globalName: 'ChatMCP', modulePath: './mcp.js' },
+    agent: { globalName: 'ChatAgentCore', modulePath: './agent-core.js' },
+    engine: { globalName: 'ChatEngine', modulePath: './chat-engine.js' },
+    profiles: { globalName: 'ChatProfileRepository', modulePath: './profile-repository.js' },
+    profilesUI: { globalName: 'ChatUIProfiles', modulePath: './ui-profiles.js' }
   };
 
   function resolveService(name) {
-    const definition = SERVICE_DEFINITIONS[name];
-    if (!definition) return null;
-
-    if (typeof window !== 'undefined' && window[definition.globalName]) return window[definition.globalName];
-
-    if (typeof require !== 'undefined') {
-      try { return require(definition.modulePath); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    const { globalName, modulePath } = SERVICE_DEFINITIONS[name];
+    return resolveDep(globalName, modulePath);
   }
 
   /**

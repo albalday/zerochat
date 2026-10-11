@@ -12,7 +12,7 @@ const DOM_GLOBALS = [
   'HTMLSelectElement', 'HTMLButtonElement', 'DocumentFragment', 'DOMParser', 'Event', 'CustomEvent',
   'KeyboardEvent', 'MouseEvent', 'InputEvent', 'FocusEvent', 'ClipboardEvent', 'DragEvent',
   'getComputedStyle', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame',
-  'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'FileReader', 'DataTransfer'
+  'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'FileReader', 'DataTransfer', 'CSS'
 ];
 
 let appMarkup = null;

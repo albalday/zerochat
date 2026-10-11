@@ -40,7 +40,7 @@
   const { serializeContent, resolveDep } = Utils;
 
   /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local (siempre en inglés para el modelo). */
-  function getConversationDateAnchor(lang = 'en', startedAt = Date.now()) {
+  function getConversationDateAnchor(startedAt = Date.now()) {
     let date = new Date(startedAt);
     if (Number.isNaN(date.getTime())) date = new Date();
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -53,29 +53,13 @@
   }
 
   /** Guarda el ancla una sola vez; el metadato no se transmite en el payload. */
-  function ensureConversationDate(chatHistory = [], lang = 'es', startedAt = Date.now()) {
-    const root = chatHistory.find(m => m && m.role === 'system' && !m._isSummaryBlock)
-      || chatHistory.find(m => m && m.role);
-    if (!root) return getConversationDateAnchor(lang, startedAt);
-    if (typeof root.contextDateAnchor !== 'string' || !root.contextDateAnchor.trim()) {
-      root.contextDateAnchor = getConversationDateAnchor(lang, startedAt);
-    }
+  function ensureConversationDate(chatHistory, startedAt = Date.now()) {
+    const root = chatHistory.find(m => m.role === 'system' && !m._isSummaryBlock) || chatHistory[0];
+    if (!root) return getConversationDateAnchor(startedAt);
+    if (!root.contextDateAnchor) root.contextDateAnchor = getConversationDateAnchor(startedAt);
     return root.contextDateAnchor;
   }
 
-  /**
-   * Genera la guía de herramientas en texto plano / XML para modelos que no soportan Function Calling nativo en JSON.
-   * @param {Object} [appConfig={}] - Configuración activa de herramientas.
-   * @param {string} [lang='es'] - Idioma ('es' o 'en').
-   * @returns {string} - Guía formateada para el System Prompt.
-   */
-  function getToolsSystemPromptGuide(appConfig = {}, lang = 'es') {
-    const AgentCore = getAgentCore();
-    if (AgentCore && AgentCore.registry && typeof AgentCore.registry.getActivePromptGuide === 'function') {
-      return AgentCore.registry.getActivePromptGuide(appConfig, lang);
-    }
-    return '';
-  }
 
   function getConfiguredSystemPrompt(appConfig = {}) {
     return [appConfig.systemPrompt, appConfig.systemDataPrompt]
@@ -200,39 +184,27 @@
       ? Boolean(options.enableTools)
       : Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false));
 
-    // Consultar si el adaptador envía las firmas de herramientas (nativas o como <tool_call> en texto)
-    const API = getAPI();
-    let providerReceivesToolSignatures = true;
-    if (API && API.getProviderCapabilities) {
-      const caps = API.getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);
-      // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
-      providerReceivesToolSignatures = caps ? (caps.tools !== false || caps.textTools === true) : true;
-    }
+    // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
+    const caps = getAPI().getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);
+    const providerReceivesToolSignatures = caps.tools !== false || caps.textTools === true;
 
     // 2. Instrucción de flujo para herramientas (estable)
-    const lang = appConfig.language || 'es';
+    const AgentCore = getAgentCore();
     let toolsGuide = '';
     if (isToolsEnabled) {
-      if (!providerReceivesToolSignatures) {
-        toolsGuide = getToolsSystemPromptGuide(appConfig, lang);
-      } else {
-        toolsGuide = `*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
-      }
+      toolsGuide = providerReceivesToolSignatures
+        ? AgentCore.TOOL_WORKFLOW_INSTRUCTION
+        : AgentCore.registry.getActivePromptGuide(appConfig);
     }
 
     // 3. Directiva proactiva de Base de Conocimiento activa (estable por rama)
-    const activeBranchIds = Array.isArray(options.activeRagBranchIds)
-      ? options.activeRagBranchIds
-      : (options.activeRagBranchId ? [options.activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
-    const activeBranchId = options.activeRagBranchId || (Array.isArray(activeBranchIds) ? activeBranchIds[0] : '') || (appConfig.activeRagBranchId || '');
-
-    if (activeBranchId || (Array.isArray(activeBranchIds) && activeBranchIds.length > 0)) {
+    if (appConfig.activeRagBranchIds.length > 0) {
       const ragInstruction = `*Knowledge Base active:* Follow the document-consultation protocol above. Use 'list_documents' only when you explicitly need a complete inventory.`;
       toolsGuide = toolsGuide ? `${toolsGuide}\n\n${ragInstruction}` : ragInstruction;
     }
 
     // Normas y estado del proyecto: estables mientras no cambien sus ficheros.
-    const projectBlock = options.projectContext ? (getProjectContext()?.buildPromptBlock(options.projectContext) || '') : '';
+    const projectBlock = options.projectContext ? getProjectContext().buildPromptBlock(options.projectContext) : '';
     const directoryLine = isToolsEnabled && options.projectDirectory
       ? `*Project directory:* ${options.projectDirectory}. Relative paths in local tools resolve against it.`
       : '';
@@ -242,13 +214,13 @@
 
     // 4. Inyección de contexto dinámico al final para preservar el prefijo en caché:
     // a) Contexto RAG recuperado para esta consulta
-    const ragContext = options.currentRagSystemContext || appConfig.currentRagSystemContext || '';
+    const ragContext = options.currentRagSystemContext || '';
     if (ragContext) {
       fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${ragContext}` : ragContext;
     }
 
     // b) Fecha inicial persistida de la conversación (siempre activa)
-    const dateAnchor = ensureConversationDate(chatHistory, lang);
+    const dateAnchor = ensureConversationDate(chatHistory);
     fullSystemPrompt = fullSystemPrompt ? `${fullSystemPrompt}\n\n${dateAnchor}` : dateAnchor;
 
     if (messages.length > 0 && messages[0].role === 'system' && !messages[0]._isSummaryBlock) {
@@ -274,19 +246,13 @@
     }
 
     // Optimización dinámica de contexto, presupuesto de tokens y ventana deslizante
-    const ContextManager = getContextManager();
-    if (ContextManager && ContextManager.buildOptimizedContext) {
-      const optimization = ContextManager.buildOptimizedContext(messages, {
-        model: appConfig.model,
-        providerType: appConfig.apiType,
-        totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
-        ...options
-      });
-      options.onContextPrepared?.(optimization.diagnostics || null);
-      return optimization.messages;
-    }
-
-    return messages;
+    const optimization = getContextManager().buildOptimizedContext(messages, {
+      model: appConfig.model,
+      totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
+      ...options
+    });
+    options.onContextPrepared?.(optimization.diagnostics || null);
+    return optimization.messages;
   }
 
   /**
@@ -294,44 +260,25 @@
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ success: boolean, finalAssistantText: string, accumulatedMarkdown: string, stats: Object, cancelled?: boolean, error?: any }>}
    */
-  async function executeWithAgentRuntime(params = {}) {
+  async function executeAgentTurnLoop(params) {
     const {
-      chatHistory = [],
-      appConfig = {},
-      assistantMsgId = `asst_${Date.now()}`,
-      activeRagBranchId = '',
-      activeRagBranchIds = [],
+      chatHistory,
+      appConfig,
+      assistantMsgId,
       currentRagSystemContext = '',
       projectContext = null,
       projectDirectory = '',
       container,
-      onTurnStart,
-      onChunk,
       onReasoningChunk,
       onLog,
       onStats,
       onBeforeRequest,
       onGenerationStatus,
-      onToolCallStart,
-      onToolCallEnd,
-      scrollToBottom,
-      attachListeners
+      scrollToBottom
     } = params;
     const AgentCore = getAgentCore();
-    const Markdown = getMarkdown();
-    const runtime = AgentCore?.runtime;
-    if (!runtime || !AgentCore?.registry || !AgentCore?.dispatchToolCall) {
-      return { success: false, error: new Error('El runtime agéntico no está disponible.') };
-    }
-
     const UIConversation = getUIConversation();
-    const attachEvts = attachListeners || Markdown.attachCopyCodeListeners || (() => {});
-    const scrollFn = scrollToBottom || (() => {});
     let lastContextDiagnostics = null;
-    const resolvedBranchIds = Array.isArray(activeRagBranchIds) && activeRagBranchIds.length > 0
-      ? activeRagBranchIds
-      : (activeRagBranchId ? [activeRagBranchId] : (appConfig.activeRagBranchIds || (appConfig.activeRagBranchId ? [appConfig.activeRagBranchId] : [])));
-    const resolvedBranchId = activeRagBranchId || resolvedBranchIds[0] || appConfig.activeRagBranchId || '';
     const turnBlocks = new Map();
     const turnMarkdown = new Map();
 
@@ -342,32 +289,29 @@
       return turnMarkdown.get(turnIndex);
     };
 
-    const result = await runtime.execute({
-      apiUrl: params.apiUrl || appConfig.apiUrl,
-      apiType: params.apiType || appConfig.apiType,
-      apiKey: params.apiKey || '',
-      model: params.model || appConfig.model,
-      temperature: params.temperature !== undefined ? params.temperature : appConfig.temperature,
-      reasoningEffort: params.reasoningEffort || appConfig.reasoningEffort || 'medium',
-      reasoningTransport: params.reasoningTransport || appConfig.reasoningTransport || 'auto',
+    const llm = {
+      apiUrl: appConfig.apiUrl,
+      apiType: appConfig.apiType,
+      apiKey: params.apiKey,
+      model: appConfig.model
+    };
+    const summarizerAddendum = getProjectContext().SUMMARIZER_PROJECT_ADDENDUM;
+    const renderBlock = (block, text, options) => UIConversation.renderAssistantBlock(block, text, options);
+
+    const result = await AgentCore.runtime.execute({
+      ...llm,
+      temperature: appConfig.temperature,
+      reasoningEffort: appConfig.reasoningEffort,
+      reasoningTransport: appConfig.reasoningTransport,
       messages: chatHistory,
       signal: params.signal,
       appendFinalMessage: true,
       contextOptions: {
         totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
         // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
-        ...(projectContext?.status === 'ready' && getProjectContext()?.SUMMARIZER_PROJECT_ADDENDUM
-          ? { summarizerAddendum: getProjectContext().SUMMARIZER_PROJECT_ADDENDUM }
-          : {})
+        ...(projectContext?.status === 'ready' ? { summarizerAddendum } : {})
       },
-      summarizeHistory: createHistorySummarizer({
-        apiUrl: params.apiUrl || appConfig.apiUrl,
-        apiType: params.apiType || appConfig.apiType,
-        apiKey: params.apiKey || '',
-        model: params.model || appConfig.model,
-        signal: params.signal,
-        onBeforeRequest
-      }),
+      summarizeHistory: createHistorySummarizer({ ...llm, signal: params.signal, onBeforeRequest }),
       onBeforeRequest,
       onGenerationStatus,
       createMessageId: (kind, info) => {
@@ -380,73 +324,47 @@
           currentRagSystemContext,
           projectContext,
           projectDirectory,
-          activeRagBranchId: resolvedBranchId,
-          activeRagBranchIds: resolvedBranchIds,
           onContextPrepared: diagnostics => { lastContextDiagnostics = diagnostics; }
         }),
         diagnostics: lastContextDiagnostics
       }),
-      resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions({
-        ...appConfig,
-        activeRagBranchId: resolvedBranchId,
-        activeRagBranchIds: resolvedBranchIds
-      }),
+      resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
         container,
         onLog,
-        attachListeners: attachEvts,
-        scrollToBottom: scrollFn,
-        language: appConfig.language || 'es',
-        activeRagBranchId: resolvedBranchId,
-        activeRagBranchIds: resolvedBranchIds,
+        attachListeners: getMarkdown().attachCopyCodeListeners,
+        scrollToBottom,
+        language: appConfig.language,
+        activeRagBranchIds: appConfig.activeRagBranchIds,
         ...context
       }),
       callbacks: {
-        onGenerationStatus: status => onGenerationStatus?.(status),
+        onGenerationStatus,
         onStepStart: turnIndex => {
-          if (container && typeof document !== 'undefined') {
-            if (turnIndex === 0) container.innerHTML = '';
-            const block = UIConversation.createAssistantBlock(container);
-            turnBlocks.set(turnIndex, block);
-            if (typeof onTurnStart === 'function') onTurnStart({ turnIndex, turnBlock: block });
-          }
+          if (turnIndex === 0) container.innerHTML = '';
+          turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
         },
         onCompactionStart: turnIndex => {
           // The notice occupies the block already opened for this step, so it
           // stays above the response, which continues in a fresh block.
-          const block = turnBlocks.get(turnIndex);
-          if (!block || !container) return;
-          const noticeText = I18n.t('chat_context_compacting');
-          UIConversation.renderAssistantBlock(block, noticeText, { attachListeners: attachEvts });
+          renderBlock(turnBlocks.get(turnIndex), I18n.t('chat_context_compacting'));
           turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
-          scrollFn();
+          scrollToBottom();
         },
         onChunk: (text, delta, stats, turnIndex) => {
-          const block = turnBlocks.get(turnIndex);
-          if (block) {
-            UIConversation.renderAssistantBlock(block, text, { streaming: true, attachListeners: attachEvts });
-          }
-          if (stats && typeof onStats === 'function') onStats(stats);
-          if (typeof onChunk === 'function') onChunk({ turnIndex, fullText: text, delta, stats });
-          scrollFn();
+          renderBlock(turnBlocks.get(turnIndex), text, { streaming: true });
+          if (stats) onStats(stats);
+          scrollToBottom();
         },
-        onReasoningChunk: (chunk, _accumulated, turnIndex) => {
-          if (typeof onReasoningChunk === 'function') onReasoningChunk(chunk, turnIndex);
-        },
+        onReasoningChunk: chunk => onReasoningChunk(chunk),
         onLog: logData => {
-          if (typeof onLog === 'function' && logData?.type !== 'thinking') onLog(logData.type, logData.text);
+          if (logData.type !== 'thinking') onLog(logData.type, logData.text);
         },
-        onToolStart: (toolCall, _tool, turnIndex) => {
-          const toolName = toolCall?.function?.name || _tool?.name || 'tool';
-          const statusText = I18n.t('generation_status_tool', { name: toolName });
-          onGenerationStatus?.({ phase: 'tool', text: statusText });
-          if (typeof onToolCallStart === 'function') onToolCallStart({ turnIndex, toolCall });
+        onToolStart: toolCall => {
+          onGenerationStatus({ phase: 'tool', text: I18n.t('generation_status_tool', { name: toolCall.function.name }) });
         },
         onToolComplete: (toolCall, execution, _content, turnIndex) => {
-          if (execution?.markdownBlock) {
-            getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
-          }
-          if (typeof onToolCallEnd === 'function') onToolCallEnd({ turnIndex, toolCall, result: execution });
+          if (execution?.markdownBlock) getTurnMarkdown(turnIndex).toolBlocks.push(execution.markdownBlock);
         },
         onStepDone: (turnIndex, step) => {
           const block = turnBlocks.get(turnIndex);
@@ -455,27 +373,21 @@
           } else if (step.type === 'loop_detected') {
             getTurnMarkdown(turnIndex).text = step.text || step.assistantMsg?.content || '';
           }
-          if (!block) return;
           const text = (step.type === 'final_response' || step.type === 'loop_detected') ? step.text : step.assistantMsg?.content;
           if (text) {
-            UIConversation.renderAssistantBlock(block, text, { attachListeners: attachEvts });
-          } else if (typeof block.remove === 'function') {
+            renderBlock(block, text);
+          } else {
             block.remove();
             turnBlocks.delete(turnIndex);
           }
         },
         onLoopDetected: () => {
-          const statusText = I18n.t('generation_status_loop_detected');
-          onGenerationStatus?.({ phase: 'error', text: statusText });
-          if (typeof onLog === 'function') {
-            onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas en un patrón repetido con los mismos argumentos. Interrumpiendo ciclo agéntico.');
-          }
+          onGenerationStatus({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
+          onLog('error', '[Loop protection]: tools were called repeatedly with the same arguments. Stopping the agent loop.');
         },
         onDone: finalText => {
           const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
-          if (block && finalText) {
-            UIConversation.renderAssistantBlock(block, finalText, { attachListeners: attachEvts });
-          }
+          if (block && finalText) renderBlock(block, finalText);
         }
       }
     });
@@ -504,10 +416,6 @@
       contextDiagnostics: lastContextDiagnostics,
       chatHistory: result.history
     };
-  }
-
-  async function executeAgentTurnLoop(params = {}) {
-    return executeWithAgentRuntime(params);
   }
 
   /**
@@ -542,7 +450,6 @@
     createHistorySummarizer,
     ensureConversationDate,
     getConfiguredSystemPrompt,
-    getToolsSystemPromptGuide,
     buildEffectiveMessages,
     executeAgentTurnLoop
   };

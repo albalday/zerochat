@@ -5,14 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatUIProfiles = factory(root.ChatUtils, root.ChatI18n);
+    root.ChatUIProfiles = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, createId } = Utils;
+  const { resolveDep, createId, escapeHtml } = Utils;
 
   function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
   function getProfileBackup() { return resolveDep('ChatProfileBackup', './profile-backup.js'); }
@@ -100,12 +100,7 @@
       UISettings.applyProfileToForm(els, profileData);
       syncProfileSaveState(els, opts);
       try {
-        const profile = id && Profiles?.load
-          ? await getProfileBackup().withPassword(
-            keyMaterial => Profiles.load(id, keyMaterial),
-            () => requestEncryptionPassword(t('crypto_current_password_prompt'))
-          )
-          : null;
+        const profile = await loadProfileUnlocked(id);
         const currentSelectedId = els.profileSelectHelper?.value || opts.getRuntimeConfig?.()?.activeProfile?.id;
         if (!keyInput || currentSelectedId !== id) return;
         const apiKey = profile?.settings?.apiKey || '';
@@ -387,10 +382,7 @@
     const Profiles = getProfiles();
     if (!profileId || !Profiles?.load || typeof opts.inspectProfile !== 'function') return false;
     try {
-      const profile = await getProfileBackup().withPassword(
-        keyMaterial => Profiles.load(profileId, keyMaterial),
-        () => requestEncryptionPassword(t('crypto_current_password_prompt'))
-      );
+      const profile = await loadProfileUnlocked(profileId);
       if (!profile) return false;
       closeProfileMenu(els);
       await opts.inspectProfile(profile);
@@ -481,6 +473,76 @@
     } catch (error) {
       showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
     }
+  }
+
+  /** Perfil con su API key descifrada; pide la contraseña si está cifrada. Los fallos se propagan. */
+  async function loadProfileUnlocked(profileId) {
+    if (!profileId) return null;
+    return getProfileBackup().withPassword(
+      keyMaterial => getProfiles().load(profileId, keyMaterial),
+      () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+    );
+  }
+
+  /**
+   * Modo importación: un paquete de perfiles exportado abrió esta página (#mode=import) y le envía
+   * sus datos cifrados por postMessage. Devuelve true si la página arrancó en ese modo; al terminar,
+   * bien o mal, se recarga sin el fragmento para arrancar con normalidad.
+   */
+  function startImportMode(elements) {
+    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    if (hashParams.get('mode') !== 'import') return false;
+    const transferId = hashParams.get('transferId') || '';
+    const validTransfer = /^[A-Za-z0-9_-]{16,128}$/.test(transferId);
+
+    elements.messagesList.style.display = 'none';
+    elements.chatForm.style.display = 'none';
+    const banner = document.createElement('div');
+    banner.className = 'import-waiting-banner';
+    banner.innerHTML = `<div class="import-waiting-content">${Icons.get('download', { size: 64 })}
+      <h2>${escapeHtml(t('profile_import_waiting_title'))}</h2>
+      <p>${escapeHtml(t('profile_import_waiting_desc'))}</p></div>`;
+    document.body.appendChild(banner);
+
+    let importInProgress = false;
+    window.addEventListener('message', async event => {
+      const data = event.data;
+      if (!validTransfer || importInProgress || data?.type !== 'import_profiles' ||
+          data.transferId !== transferId || event.source !== window.opener) return;
+      importInProgress = true;
+      const reply = result => {
+        if (!event.source.closed) event.source.postMessage({ type: 'import_result', transferId, ...result }, '*');
+      };
+      try {
+        if (typeof data.payload !== 'string' || !data.payload) throw new Error('Invalid payload format');
+        const Backup = getProfileBackup();
+        const imported = await Backup.withPassword(
+          keyMaterial => Backup.decryptProfiles(data.payload, keyMaterial),
+          () => requestEncryptionPassword(t('crypto_current_password_prompt'))
+        );
+        if (!Array.isArray(imported) || imported.length === 0) throw new Error('No valid profiles found in payload');
+        if (!await getDialogs().confirm(t('confirm_auto_import_profiles', { count: imported.length }))) {
+          throw new Error('Import cancelled by user');
+        }
+        const result = getProfiles().mergeImported(imported);
+        reply({ success: true, result: { added: result.added, replaced: result.replaced, total: result.total } });
+        await getDialogs().alert(t('msg_profiles_auto_imported', { added: result.added, replaced: result.replaced }));
+      } catch (error) {
+        console.error('[UIProfiles] Profile import failed:', error);
+        reply({ success: false, error: error.message });
+        await getDialogs().alert(t('err_auto_import_failed', { err: error.message }));
+      } finally {
+        history.replaceState(null, '', location.pathname + location.search);
+        location.reload();
+      }
+    });
+
+    if (validTransfer && window.opener && !window.opener.closed) {
+      const notifyReady = () => window.opener.postMessage({ type: 'zerochat_import_ready', transferId }, '*');
+      if (document.readyState === 'complete') notifyReady();
+      else window.addEventListener('load', notifyReady, { once: true });
+    }
+    return true;
   }
 
   async function requestEncryptionPassword(message) {
@@ -1089,6 +1151,8 @@
     activateConnectionProfile,
     setSelectedProfileAsDefault,
     isDownloadedWebLLMModel,
+    loadProfileUnlocked,
+    startImportMode,
     mount,
     dispose
   };

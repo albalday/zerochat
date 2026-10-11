@@ -55,6 +55,8 @@
   }
 
 
+  const TOOL_WORKFLOW_INSTRUCTION = "*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.";
+
   function createCancelledError() {
     return new Error('Ejecución agéntica cancelada por el usuario.');
   }
@@ -467,7 +469,7 @@
 
       if (guides.length === 0) return '';
 
-      return `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.`;
+      return `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n${TOOL_WORKFLOW_INSTRUCTION}`;
     }
 
     /**
@@ -1385,6 +1387,7 @@
   const globalRuntime = new AgentRuntime({ registry: globalRegistry, executor: globalExecutor });
 
   return {
+    TOOL_WORKFLOW_INSTRUCTION,
     TOOL_CONTRACT_VERSION,
     ToolOutcome,
     validateToolContract,

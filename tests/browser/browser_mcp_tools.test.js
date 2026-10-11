@@ -1,7 +1,7 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - mcp_tools', { concurrency: 2 }, () => {
   after(async () => {
@@ -748,8 +748,8 @@ test('Browser UI - Botón y cabecera para abrir/cerrar tool funcionan al recuper
         }
       ];
       await window.ChatStorage.saveConversation({ id: 'sess_tool_hist_toggle', title: 'Test Tool Toggle', createdAt: Date.now() }, history);
-      await window.ChatApp.switchToSession('sess_tool_hist_toggle');
     });
+    await openSavedSession(page, 'sess_tool_hist_toggle');
 
     // 2. Las tools históricas se restauran dentro del historial plegado del grupo.
     await page.waitForSelector('.tool-call-group-history');

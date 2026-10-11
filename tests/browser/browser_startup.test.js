@@ -10,28 +10,6 @@ describe('Browser UI - startup', { concurrency: 2 }, () => {
     await closeGlobalBrowser();
   });
 
-test('Browser UI - informa del alcance de almacenamiento en HTTP y file://', async () => {
-  const server = await startStaticServer();
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    for (const [url, scope] of [[`http://127.0.0.1:${server.address().port}/zerochat.html`, /protocol|protocolo/i], [getIndexUrl(), /file|archivo/i]]) {
-      await page.goto(url, { waitUntil: 'load' });
-      await page.waitForFunction(() => !!window.ChatApp);
-      await page.evaluate(() => window.ChatApp.openExecutionInfo());
-      const state = await page.evaluate(() => ({
-        open: document.getElementById('execution-info-dialog').open,
-        scope: document.getElementById('execution-storage-scope').textContent
-      }));
-      assert.equal(state.open, true, url);
-      assert.match(state.scope, scope, url);
-    }
-  } finally {
-    await browser.close();
-    await stopStaticServer(server);
-  }
-});
-
 test('Browser UI - sin preferencia guardada la interfaz usa el idioma del navegador', async () => {
   const browser = await createTestBrowser();
   try {
@@ -76,7 +54,7 @@ test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idi
     assert.match(stateEs.text, /Ayuda|Help/);
 
     // Cambiar idioma a inglés
-    await page.evaluate(() => window.ChatApp.applyLanguage('en'));
+    await page.locator('.btn-lang-toggle[data-lang="en"]').evaluate(button => button.click());
 
     const stateEn = await page.$eval('#welcome-help-link', el => ({
       href: el.href,
@@ -229,9 +207,9 @@ test('Browser UI - el fragmento inicial persiste la sesión en cookie, limpia la
     await waitForAppReady(page);
     assert.deepEqual(await page.evaluate(() => window.ChatStorage.getBackendSession()), expectedSession, 'F5 debe recuperar la sesión desde la cookie');
     await page.evaluate(() => {
-      window.ChatApp.stopServerHeartbeat();
-      window.ChatApp.startServerHeartbeat('127.0.0.1', 6388, 'startup-token-test-12345');
-      window.ChatApp.stopServerHeartbeat();
+      window.ChatMCP.manager.stopHeartbeat();
+      window.ChatMCP.manager.startHeartbeat('127.0.0.1', 6388);
+      window.ChatMCP.manager.stopHeartbeat();
     });
 
     const [newPage] = await Promise.all([context.waitForEvent('page'), page.click('#btn-sidebar-new-tab')]);

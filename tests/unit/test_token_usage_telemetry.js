@@ -118,7 +118,7 @@ test('TokenTelemetry - ChatEngine preserva diagnósticos de contexto en buildEff
   };
 
   let diag = null;
-  const effective = ChatEngine.buildEffectiveMessages(history, config, { onContextPrepared: value => { diag = value; } });
+  const effective = ChatEngine.buildEffectiveMessages(history, require('../../js/config-store.js').normalize(config), { onContextPrepared: value => { diag = value; } });
   assert.ok(Array.isArray(effective));
 
   assert.ok(diag, 'Debe guardar lastContextDiagnostics');

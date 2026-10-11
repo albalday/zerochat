@@ -111,20 +111,6 @@
   background-color: var(--primary-light);
 }
 
-.execution-info-body {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.execution-info-body p {
-  margin: 0;
-  line-height: 1.5;
-}
-
-.execution-info-dialog [hidden] {
-  display: none;
-}
-
 .status-dot {
   width: 7px;
   height: 7px;

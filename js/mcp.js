@@ -92,6 +92,17 @@
     }
   }
 
+  const HEARTBEAT_INTERVAL_MS = 10000;
+
+  // Con la interfaz servida por el propio zerochat.py el latido usa una ruta relativa.
+  function getHeartbeatUrl(host, port) {
+    const local = ['127.0.0.1', 'localhost'];
+    const pagePort = location.port || (location.protocol === 'https:' ? '443' : '80');
+    const samePage = location.protocol.startsWith('http') && String(port) === pagePort &&
+      (location.hostname === host || (local.includes(location.hostname) && local.includes(host)));
+    return samePage ? '/zerochat/heartbeat' : `http://${host}:${port}/zerochat/heartbeat`;
+  }
+
   function getAgentCore() {
     return resolveDep('ChatAgentCore', './agent-core.js');
   }
@@ -952,6 +963,9 @@
       this.sessionToken = null;
       this.healthCheckPromise = null;
       this.externalStartupNoticeShown = false;
+      this.heartbeatTarget = null;
+      this.heartbeatTimer = null;
+      this.heartbeatCheckInFlight = false;
       this.loadConfig();
     }
 
@@ -1139,9 +1153,7 @@
           externalServers: [], externalTools: [], lastVerified: Date.now()
         });
       }
-      if (typeof window !== 'undefined' && window.ChatApp?.stopServerHeartbeat) {
-        window.ChatApp.stopServerHeartbeat();
-      }
+      this.stopHeartbeat();
       return { success: false, error: message };
     }
 
@@ -1235,9 +1247,7 @@
       if (registerResult.success) {
         externalSync = await this.syncExternalServers(registry).catch(() => null);
         if (notifyStartup) this.notifyStoppedExternalServices(externalSync?.status?.servers);
-        if (typeof window !== 'undefined' && window.ChatApp?.startServerHeartbeat && this.sessionToken) {
-          window.ChatApp.startServerHeartbeat(host, port, this.sessionToken);
-        }
+        if (this.sessionToken) this.startHeartbeat(host, port);
       }
 
       return {
@@ -1294,6 +1304,49 @@
       const State = getState();
       if (State?.set) State.set('mcp', { status: 'disconnected', serverInfo: null, tools: [], latencyMs: null, error: null, externalServers: [], externalTools: [], commandJobs: [] });
       return { success: true };
+    }
+
+    /**
+     * Latido periódico al servidor local: publica su directorio de trabajo y sus comandos en
+     * segundo plano y, si no responde, comprueba la conexión.
+     */
+    startHeartbeat(host, port) {
+      const target = { host, port, token: this.sessionToken };
+      const changed = !this.heartbeatTarget || ['host', 'port', 'token'].some(key => this.heartbeatTarget[key] !== target[key]);
+      this.heartbeatTarget = target;
+      if (changed) this.sendHeartbeat();
+      if (!this.heartbeatTimer) this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+    }
+
+    stopHeartbeat() {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+      this.heartbeatCheckInFlight = false;
+    }
+
+    async sendHeartbeat() {
+      const { host, port, token } = this.heartbeatTarget;
+      try {
+        const response = await fetch(getHeartbeatUrl(host, port), {
+          method: 'GET',
+          cache: 'no-store',
+          mode: 'cors',
+          headers: { 'X-ZeroChat-Token': token }
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || payload?.ok !== true) throw new Error(`Heartbeat HTTP ${response.status}`);
+        // Otra pestaña o el modelo pueden haber cambiado el directorio del proyecto.
+        this.syncProjectDirectory(payload.cwd);
+        this.syncCommandJobs(payload.jobs, { exitOnClose: payload.exit_on_close === true });
+      } catch (_) {
+        if (this.heartbeatCheckInFlight) return;
+        this.heartbeatCheckInFlight = true;
+        try {
+          await this.verifyProxyConnection({ timeoutMs: 1500 });
+        } finally {
+          this.heartbeatCheckInFlight = false;
+        }
+      }
     }
 
     getExternalControlClient() {

@@ -13,75 +13,52 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId } = Utils;
-
-  function getState() { return resolveDep('ChatState', './state.js'); }
-  function getMarkdown() { return resolveDep('ChatMarkdown', './markdown.js'); }
-  function getSandbox() { return resolveDep('ChatSandbox', './sandbox.js'); }
-  function getToolCards() { return resolveDep('ChatToolCards', './tool-cards.js'); }
-
+  const { resolveDep, createId, copyToClipboard, escapeHtml, sanitizeImageUrl } = Utils;
   const { t } = I18n;
+  const { extractBaseId } = MessageTurns;
 
+  const getState = () => resolveDep('ChatState', './state.js');
+  const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
+  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
+  const getDebug = () => resolveDep('ChatDebug', './debug.js');
 
-  const extractBaseId = MessageTurns.extractBaseId;
-
-  const isDateTimeInitialTurn = MessageTurns.isDateTimeInitialTurn;
-
-  function bindMessageCopy(button, getText, titleKey = 'btn_copy_title') {
-    if (!button) return () => {};
-    let timer = null;
-    let disposed = false;
-    const restore = () => {
-      button.innerHTML = Icons.get('copy', { size: 14 });
-      button.title = t(titleKey);
-      button.setAttribute('aria-label', t(titleKey));
-      button.classList.remove('copied');
-    };
-    const copy = async () => {
-      try {
-        if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false;
-        await navigator.clipboard.writeText(getText());
-        if (disposed) return false;
-        clearTimeout(timer);
-        button.innerHTML = Icons.get('check', { size: 14 });
-        button.title = t('copied_text');
-        button.setAttribute('aria-label', t('copied_text'));
-        button.classList.add('copied');
-        timer = setTimeout(restore, 2000);
-        return true;
-      } catch (error) {
-        console.error('Error copying message:', error);
-        return false;
-      }
-    };
-    button.onclick = copy;
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      if (button.onclick === copy) {
-        button.onclick = null;
-        restore();
-      }
-    };
+  function createActionButton(doc, { className, icon, titleKey, onClick }) {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = `btn-msg-action ${className}`.trim();
+    button.innerHTML = Icons.get(icon, { size: 14 });
+    button.title = t(titleKey);
+    button.setAttribute('aria-label', t(titleKey));
+    if (onClick) button.addEventListener('click', onClick);
+    return button;
   }
 
-  function renderConnectionError({ row, content, actions }, message, url) {
-    row?.classList?.add('message-error');
-    if (content) {
-      const escape = getMarkdown().escapeHtml;
-      content.innerHTML = `
-        <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${Icons.get('alert-triangle', { size: 18 })}</span>
-          <div>
-            <strong>${t('err_server_connect_title')}</strong>
-            <p style="margin-top: 0.25rem;">${escape(message)}</p>
-            <p style="margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted);">
-              ${t('err_server_connect_hint', { url: escape(url) })}
-            </p>
-          </div>
-        </div>`;
-    }
-    if (actions) actions.style.display = 'inline-flex';
+  /** El botón copia el texto que devuelva getText en el momento del clic. */
+  function bindMessageCopy(button, getText) {
+    button.onclick = () => copyToClipboard(getText(), button, Icons.get('check', { size: 14 }));
+  }
+
+  /** Tarjeta de error dentro de un mensaje: `detail` es texto; `hintHtml`, HTML propio ya escapado. */
+  function renderErrorCard({ row, content, actions }, { title, detail = '', hintHtml = '' }) {
+    row.classList.add('message-error');
+    content.innerHTML = `
+      <div class="message-error-card">
+        <span class="message-error-card-icon">${Icons.get('alert-triangle', { size: 18 })}</span>
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+          ${hintHtml ? `<p class="message-error-card-hint">${hintHtml}</p>` : ''}
+        </div>
+      </div>`;
+    actions.style.display = 'inline-flex';
+  }
+
+  function renderConnectionError(parts, message, url) {
+    renderErrorCard(parts, {
+      title: t('err_server_connect_title'),
+      detail: message,
+      hintHtml: t('err_server_connect_hint', { url: escapeHtml(url) })
+    });
   }
 
   function injectStreamingCursor(html) {
@@ -96,20 +73,17 @@
   }
 
   function createAssistantBlock(container) {
-    if (!container) return null;
-    const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const block = doc.createElement('div');
+    const block = container.ownerDocument.createElement('div');
     block.className = 'agentic-turn-block';
     container.appendChild(block);
     return block;
   }
 
-  function renderAssistantBlock(block, text, { streaming = false, attachListeners } = {}) {
-    if (!block) return;
-    const html = getMarkdown().parseMarkdown(text);
+  function renderAssistantBlock(block, text, { streaming = false } = {}) {
+    const Markdown = getMarkdown();
+    const html = Markdown.parseMarkdown(text);
     block.innerHTML = streaming ? injectStreamingCursor(html) : html;
-    attachListeners?.(block);
+    Markdown.attachCopyCodeListeners(block);
   }
 
   const SCROLL_STICK_THRESHOLD_PX = 40;
@@ -126,9 +100,8 @@
   function getScrollState(container) {
     let state = scrollStates.get(container);
     if (state) return state;
-    state = { stick: true, lastTop: container.scrollTop || 0, touchY: null };
+    state = { stick: true, lastTop: container.scrollTop, touchY: null };
     scrollStates.set(container, state);
-    if (typeof container.addEventListener !== 'function') return state;
 
     const release = () => { state.stick = false; };
     container.addEventListener('wheel', event => {
@@ -159,361 +132,151 @@
   }
 
   function scrollToBottom(container, { force = false } = {}) {
-    if (!container) return;
     const state = getScrollState(container);
     if (force) state.stick = true;
     if (!state.stick) return;
-    const top = container.scrollHeight;
-    if (typeof container.scrollTo === 'function') {
-      // 'instant' evita que el scroll-behavior: smooth del CSS compita con el gesto del usuario.
-      container.scrollTo({ top, behavior: 'instant' });
-    } else {
-      container.scrollTop = top;
-    }
+    // 'instant' evita que el scroll-behavior: smooth del CSS compita con el gesto del usuario.
+    container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
   }
 
   let typingIndicatorEl = null;
 
   function showTypingIndicator(container) {
     if (typingIndicatorEl) return;
-    const doc = (container && container.ownerDocument) || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return;
-
-    const wrapper = doc.createElement('div');
+    const wrapper = container.ownerDocument.createElement('div');
     wrapper.id = 'typing-indicator-wrapper';
     wrapper.className = 'message-wrapper assistant';
-    const row = doc.createElement('div');
-    row.className = 'message-row assistant';
-    const indicator = doc.createElement('div');
-    indicator.className = 'typing-indicator';
-    indicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
-    row.appendChild(indicator);
-    wrapper.appendChild(row);
+    wrapper.innerHTML = '<div class="message-row assistant"><div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>';
     typingIndicatorEl = wrapper;
-
-    if (container) {
-      container.appendChild(wrapper);
-      scrollToBottom(container);
-    }
+    container.appendChild(wrapper);
+    scrollToBottom(container);
   }
 
   function removeTypingIndicator() {
-    if (typingIndicatorEl && typingIndicatorEl.parentNode) {
-      typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
-    }
+    typingIndicatorEl?.remove();
     typingIndicatorEl = null;
   }
 
-  function renderStoredToolCard(tc, toolMsg) {
-    const ToolCards = getToolCards();
-    if (ToolCards?.renderHistoricalToolCard) {
-      return ToolCards.renderHistoricalToolCard(tc, toolMsg);
-    }
-    return null;
-  }
-
-  function attachListenersToContainer(container, options = {}) {
-    if (!container) return;
-    const Markdown = getMarkdown();
-    const Sandbox = getSandbox();
-
-    if (Markdown?.attachCopyCodeListeners) {
-      Markdown.attachCopyCodeListeners(container);
-    }
-
-    if (Markdown?.attachRunJsListeners) {
-      Markdown.attachRunJsListeners(container, (code, outputEl) => {
-        if (typeof options.onRunJs === 'function') {
-          options.onRunJs(code, outputEl);
-        } else if (Sandbox?.execute) {
-          Sandbox.execute(code).then(res => {
-            if (outputEl) {
-              outputEl.textContent = res.success
-                ? (res.result || res.logs.join('\n') || 'undefined')
-                : `Error: ${res.error}`;
-            }
-          });
-        }
-      });
-    }
-  }
-
-  function removeMessage(wrapper, options = {}) {
-    if (!wrapper) return;
+  /** Borra el turno del mensaje y, si queda la conversación vacía, vuelve a mostrar la bienvenida. */
+  function removeMessage(wrapper, { messagesList, welcomeBanner, saveSession }) {
     const State = getState();
-    const isBusy = typeof options.isBusy === 'function' ? options.isBusy() : (State?.isConversationBusy?.() === true);
-    if (isBusy) return;
+    if (State.isConversationBusy()) return;
 
     const msgId = wrapper.getAttribute('data-msg-id') || '';
     const baseId = wrapper.getAttribute('data-base-id') || extractBaseId(msgId);
-    const rawMsgIds = wrapper.getAttribute('data-msg-ids') || '';
-    const explicitIds = rawMsgIds ? rawMsgIds.split(',').filter(Boolean) : [];
-
-    let removedCount = 0;
-    if (explicitIds.length > 0 || baseId || msgId) {
-      if (typeof options.removeTurn === 'function') {
-        const res = options.removeTurn({ msgId, baseId, explicitIds });
-        if (!res || !res.ok) return;
-        removedCount = res.removedCount || 0;
-      } else if (State?.removeTurn) {
-        const res = State.removeTurn({ msgId, baseId, explicitIds });
-        if (!res || !res.ok) return;
-        removedCount = res.removedCount || 0;
-      }
-    }
-    if (removedCount === 0) return;
+    const explicitIds = (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean);
+    const result = State.removeTurn({ msgId, baseId, explicitIds });
+    if (!result.ok || result.removedCount === 0) return;
 
     wrapper.remove();
-
-    if (typeof options.addDebugLog === 'function') {
-      options.addDebugLog('system', t('msg_deleted_log', { id: msgId || baseId, count: removedCount }));
+    getDebug().addLog('system', t('msg_deleted_log', { id: msgId || baseId, count: result.removedCount }));
+    if (!messagesList.querySelector('.message-wrapper')) {
+      messagesList.appendChild(welcomeBanner);
+      welcomeBanner.style.display = '';
     }
-
-    const messagesList = options.messagesList || wrapper.parentNode;
-    const welcomeBanner = options.welcomeBanner;
-    if (messagesList) {
-      const remainingMessages = messagesList.querySelectorAll('.message-wrapper');
-      if (remainingMessages.length === 0 && welcomeBanner) {
-        messagesList.appendChild(welcomeBanner);
-        welcomeBanner.style.display = '';
-      }
-    }
-
-    if (typeof options.saveSession === 'function') {
-      options.saveSession();
-    }
+    saveSession();
   }
 
-  function appendUserMessage(container, welcomeBanner, payload = {}, callbacks = {}) {
-    const text = payload.text || '';
-    const originalPrompt = payload.originalPrompt !== undefined ? payload.originalPrompt : text;
-    const attachedImages = payload.attachedImages || [];
-    const existingMsgId = payload.existingMsgId;
-
-    if (welcomeBanner && welcomeBanner.parentNode) {
-      welcomeBanner.style.display = 'none';
-    }
-
-    const doc = (container && container.ownerDocument) || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return existingMsgId || '';
-
-    const msgId = existingMsgId || createId('msg_usr');
-
+  /** Estructura común de un mensaje: wrapper > row > content-wrapper > [content, footer > actions]. */
+  function createMessageSkeleton(container, role, msgId) {
+    const doc = container.ownerDocument;
     const wrapper = doc.createElement('div');
-    wrapper.className = 'message-wrapper user';
+    wrapper.className = `message-wrapper ${role}`;
     wrapper.setAttribute('data-msg-id', msgId);
+    wrapper.innerHTML = `<div class="message-row ${role}"><div class="message-content-wrapper"><div class="message-content"></div><div class="message-footer-row"><div class="message-actions"></div></div></div></div>`;
+    return {
+      doc,
+      wrapper,
+      row: wrapper.querySelector('.message-row'),
+      content: wrapper.querySelector('.message-content'),
+      footerRow: wrapper.querySelector('.message-footer-row'),
+      actions: wrapper.querySelector('.message-actions')
+    };
+  }
 
-    const row = doc.createElement('div');
-    row.className = 'message-row user';
+  function insertMessage(container, wrapper, isNew, scrollOptions) {
+    container.appendChild(wrapper);
+    if (isNew) {
+      wrapper.classList.add('is-new-message');
+      wrapper.addEventListener('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
+    }
+    scrollToBottom(container, scrollOptions);
+  }
 
-    const contentWrapper = doc.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
+  function renderImageThumbnails(doc, content, images) {
+    const grid = doc.createElement('div');
+    grid.className = 'message-images-grid';
+    for (const image of images) {
+      const item = doc.createElement('div');
+      item.className = 'message-image-item';
+      const name = image.name || '';
+      const safeUrl = sanitizeImageUrl(image.dataUrl);
+      if (safeUrl) {
+        const img = doc.createElement('img');
+        img.src = safeUrl;
+        img.alt = name;
+        img.title = name;
+        img.className = 'message-image-thumb';
+        if (/^https?:\/\/|^blob:|^data:image\//i.test(safeUrl)) img.addEventListener('click', () => window.open(safeUrl, '_blank'));
+        item.appendChild(img);
+      }
+      const caption = doc.createElement('div');
+      caption.className = 'message-image-caption';
+      caption.textContent = name;
+      item.appendChild(caption);
+      grid.appendChild(item);
+    }
+    content.appendChild(grid);
+  }
 
-    const content = doc.createElement('div');
-    content.className = 'message-content';
+  function appendUserMessage(container, welcomeBanner, { text = '', originalPrompt = text, attachedImages = [], existingMsgId }, { onReuse, onDelete }) {
+    welcomeBanner.style.display = 'none';
+    const msgId = existingMsgId || createId('msg_usr');
+    const { doc, wrapper, content, actions } = createMessageSkeleton(container, 'user', msgId);
     content.textContent = text;
+    if (attachedImages.length > 0) renderImageThumbnails(doc, content, attachedImages);
 
-    const Markdown = getMarkdown();
+    const btnCopy = createActionButton(doc, { className: 'btn-copy-user', icon: 'copy', titleKey: 'btn_copy_user_title' });
+    bindMessageCopy(btnCopy, () => originalPrompt || text);
+    actions.append(
+      createActionButton(doc, { icon: 'edit', titleKey: 'btn_reuse_title', onClick: () => onReuse(originalPrompt || text) }),
+      btnCopy,
+      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_delete_usr_title', onClick: () => onDelete(wrapper) })
+    );
 
-    // Miniaturas visuales de imágenes adjuntas
-    if (attachedImages && attachedImages.length > 0) {
-      const imagesGrid = doc.createElement('div');
-      imagesGrid.className = 'message-images-grid';
-      attachedImages.forEach(img => {
-        const itemDiv = doc.createElement('div');
-        itemDiv.className = 'message-image-item';
-        const imgName = img.name || '';
-        const safeUrl = Markdown?.sanitizeImageUrl ? Markdown.sanitizeImageUrl(img.dataUrl) : '';
-        if (safeUrl) {
-          const imgEl = doc.createElement('img');
-          imgEl.src = safeUrl;
-          if (typeof imgEl.setAttribute === 'function') {
-            imgEl.setAttribute('src', safeUrl);
-            imgEl.setAttribute('alt', imgName);
-            imgEl.setAttribute('title', imgName);
-          }
-          imgEl.alt = imgName;
-          imgEl.className = 'message-image-thumb';
-          imgEl.title = imgName;
-          imgEl.addEventListener('click', () => {
-            if (typeof window !== 'undefined' && /^https?:\/\/|^blob:|^data:image\//i.test(safeUrl)) {
-              window.open(safeUrl, '_blank');
-            }
-          });
-          itemDiv.appendChild(imgEl);
-        }
-        const caption = doc.createElement('div');
-        caption.className = 'message-image-caption';
-        caption.textContent = imgName;
-        itemDiv.appendChild(caption);
-        imagesGrid.appendChild(itemDiv);
-      });
-      content.appendChild(imagesGrid);
-    }
-
-    const footerRow = doc.createElement('div');
-    footerRow.className = 'message-footer-row';
-
-    const actions = doc.createElement('div');
-    actions.className = 'message-actions';
-
-    const btnCopy = doc.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-user';
-    btnCopy.innerHTML = Icons.get('copy', { size: 14 });
-    btnCopy.title = t('btn_copy_user_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
-    bindMessageCopy(btnCopy, () => originalPrompt || text, 'btn_copy_user_title');
-
-    const btnReuse = doc.createElement('button');
-    btnReuse.type = 'button';
-    btnReuse.className = 'btn-msg-action';
-    btnReuse.innerHTML = Icons.get('edit', { size: 14 });
-    btnReuse.title = t('btn_reuse_title');
-    btnReuse.setAttribute('aria-label', t('btn_reuse_title'));
-    btnReuse.addEventListener('click', () => {
-      if (typeof callbacks.onReuse === 'function') {
-        callbacks.onReuse(originalPrompt || text);
-      }
-    });
-
-    const btnDelete = doc.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = Icons.get('trash', { size: 14 });
-    btnDelete.title = t('btn_delete_usr_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_usr_title'));
-    btnDelete.addEventListener('click', () => {
-      if (typeof callbacks.onDelete === 'function') {
-        callbacks.onDelete(wrapper);
-      } else {
-        removeMessage(wrapper, { messagesList: container, welcomeBanner, ...callbacks });
-      }
-    });
-
-    actions.appendChild(btnReuse);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    if (container) {
-      container.appendChild(wrapper);
-      if (!existingMsgId && wrapper.classList?.add) {
-        wrapper.classList.add('is-new-message');
-        wrapper.addEventListener?.('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
-      }
-      scrollToBottom(container, { force: true });
-    }
-
+    insertMessage(container, wrapper, !existingMsgId, { force: true });
     return msgId;
   }
 
-  function createAssistantMessagePlaceholder(container, existingMsgId, callbacks = {}) {
-    const doc = (container && container.ownerDocument) || (typeof document !== 'undefined' ? document : null);
+  function createAssistantMessagePlaceholder(container, existingMsgId, { onBranch, onDelete }) {
     const rawId = existingMsgId || createId('msg_ast');
     const baseId = extractBaseId(rawId) || rawId;
-    const msgId = existingMsgId ? rawId : baseId;
-
-    if (!doc) {
-      return { wrapper: null, row: null, content: null, footerRow: null, actions: null, btnCopy: null, statsContainer: null, msgId };
-    }
-
-    const wrapper = doc.createElement('div');
-    wrapper.className = 'message-wrapper assistant';
-    wrapper.setAttribute('data-msg-id', msgId);
+    const { doc, wrapper, row, content, footerRow, actions } = createMessageSkeleton(container, 'assistant', existingMsgId ? rawId : baseId);
     wrapper.setAttribute('data-base-id', baseId);
-
-    const row = doc.createElement('div');
-    row.className = 'message-row assistant';
-
-    const contentWrapper = doc.createElement('div');
-    contentWrapper.className = 'message-content-wrapper';
-
-    const content = doc.createElement('div');
-    content.className = 'message-content';
     content.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
-
-    const footerRow = doc.createElement('div');
-    footerRow.className = 'message-footer-row';
+    actions.style.display = 'none';
 
     const statsContainer = doc.createElement('div');
     statsContainer.className = 'message-stats';
     statsContainer.style.display = 'none';
+    footerRow.prepend(statsContainer);
 
-    const actions = doc.createElement('div');
-    actions.className = 'message-actions';
-    actions.style.display = 'none';
+    const btnBranch = createActionButton(doc, { className: 'btn-branch-conversation', icon: 'git-branch', titleKey: 'btn_branch_title', onClick: () => onBranch(wrapper) });
+    const btnCopy = createActionButton(doc, { className: 'btn-copy-full', icon: 'copy', titleKey: 'btn_copy_title' });
+    actions.append(
+      btnBranch,
+      btnCopy,
+      createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_delete_ast_title', onClick: () => onDelete(wrapper) })
+    );
 
-    const btnCopy = doc.createElement('button');
-    btnCopy.type = 'button';
-    btnCopy.className = 'btn-msg-action btn-copy-full';
-    btnCopy.innerHTML = Icons.get('copy', { size: 14 });
-    btnCopy.title = t('btn_copy_title');
-    btnCopy.setAttribute('aria-label', t('btn_copy_title'));
-
-    const btnBranch = doc.createElement('button');
-    btnBranch.type = 'button';
-    btnBranch.className = 'btn-msg-action btn-branch-conversation';
-    setBranchButtonState(btnBranch, { loading: false });
-    btnBranch.addEventListener('click', () => {
-      if (typeof callbacks.onBranch === 'function') {
-        callbacks.onBranch(wrapper);
-      }
-    });
-
-    const btnDelete = doc.createElement('button');
-    btnDelete.type = 'button';
-    btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = Icons.get('trash', { size: 14 });
-    btnDelete.title = t('btn_delete_ast_title');
-    btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
-    btnDelete.addEventListener('click', () => {
-      if (typeof callbacks.onDelete === 'function') {
-        callbacks.onDelete(wrapper);
-      } else {
-        removeMessage(wrapper, { messagesList: container, welcomeBanner: callbacks.welcomeBanner, ...callbacks });
-      }
-    });
-
-    actions.appendChild(btnBranch);
-    actions.appendChild(btnCopy);
-    actions.appendChild(btnDelete);
-
-    footerRow.appendChild(statsContainer);
-    footerRow.appendChild(actions);
-
-    contentWrapper.appendChild(content);
-    contentWrapper.appendChild(footerRow);
-
-    row.appendChild(contentWrapper);
-    wrapper.appendChild(row);
-
-    if (container) {
-      container.appendChild(wrapper);
-      if (!existingMsgId && wrapper.classList?.add) {
-        wrapper.classList.add('is-new-message');
-        wrapper.addEventListener?.('animationend', () => wrapper.classList.remove('is-new-message'), { once: true });
-      }
-      scrollToBottom(container);
-    }
-
-    return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId };
+    insertMessage(container, wrapper, !existingMsgId);
+    return { wrapper, row, content, footerRow, actions, btnCopy, statsContainer, msgId: wrapper.getAttribute('data-msg-id') };
   }
 
-  /** Resumen del contexto previo (rama resumida o conversación compactada), plegado por defecto. */
   function renderContextSummaryBanner(container, summaryBlock) {
-    if (!container || !summaryBlock?.content) return null;
-    const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const banner = doc.createElement('details');
+    const banner = container.ownerDocument.createElement('details');
     banner.className = 'branch-summary-banner';
-    banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${Icons.get('git-branch', { size: 14 })}<span>${Utils.escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
+    banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${Icons.get('git-branch', { size: 14 })}<span>${escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
       <div class="branch-summary-body">${getMarkdown().parseMarkdown(summaryBlock.content)}</div>`;
     container.appendChild(banner);
     return banner;
@@ -527,235 +290,111 @@
     button.setAttribute('aria-label', label);
   }
 
-  function showBranchLoadingIndicator(wrapper, text) {
-    if (!wrapper || typeof wrapper.querySelector !== 'function') return null;
-    const doc = wrapper.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-
-    const label = text || t('chat_branch_summarizing');
-
-    // 1. Estado de carga en el botón de acción
-    const btnBranch = wrapper.querySelector('.btn-branch-conversation');
-    if (btnBranch) setBranchButtonState(btnBranch, { loading: true, label });
-
-    // 2. Píldora de estado contextual junto al mensaje
+  function showBranchLoadingIndicator(wrapper, label = t('chat_branch_summarizing')) {
+    setBranchButtonState(wrapper.querySelector('.btn-branch-conversation'), { loading: true, label });
     let indicator = wrapper.querySelector('.branch-progress-indicator');
     if (!indicator) {
-      indicator = doc.createElement('div');
+      indicator = wrapper.ownerDocument.createElement('div');
       indicator.className = 'branch-progress-indicator';
       indicator.setAttribute('role', 'status');
       indicator.setAttribute('aria-live', 'polite');
       indicator.innerHTML = Icons.get('spinner', { size: 14, className: 'ui-icon-spin' });
-
-      const textSpan = doc.createElement('span');
+      const textSpan = wrapper.ownerDocument.createElement('span');
       textSpan.textContent = label;
       indicator.appendChild(textSpan);
-
-      const contentWrapper = wrapper.querySelector('.message-content-wrapper');
-      const footerRow = contentWrapper ? contentWrapper.querySelector('.message-footer-row') : null;
-      if (contentWrapper && footerRow && typeof contentWrapper.insertBefore === 'function') {
-        contentWrapper.insertBefore(indicator, footerRow);
-      } else if (contentWrapper && typeof contentWrapper.appendChild === 'function') {
-        contentWrapper.appendChild(indicator);
-      } else if (typeof wrapper.appendChild === 'function') {
-        wrapper.appendChild(indicator);
-      }
+      wrapper.querySelector('.message-footer-row').before(indicator);
     }
     return indicator;
   }
 
   function hideBranchLoadingIndicator(wrapper) {
-    if (!wrapper || typeof wrapper.querySelector !== 'function') return;
-
-    // 1. Retirar píldora contextual
-    const indicator = wrapper.querySelector('.branch-progress-indicator');
-    if (indicator && indicator.parentNode) {
-      indicator.parentNode.removeChild(indicator);
-    }
-
-    // 2. Restaurar botón de acción
-    const btnBranch = wrapper.querySelector('.btn-branch-conversation');
-    if (btnBranch) setBranchButtonState(btnBranch, { loading: false });
+    wrapper.querySelector('.branch-progress-indicator')?.remove();
+    setBranchButtonState(wrapper.querySelector('.btn-branch-conversation'), { loading: false });
   }
 
-  function renderSessionMessages(elements, history, options = {}) {
-    const messagesList = elements?.messagesList;
-    if (!messagesList) return;
+  /** Pinta un grupo de mensajes del asistente (turnos y herramientas) en un solo bloque. */
+  function renderAssistantGroup(messagesList, group, callbacks) {
+    const groupMsgIds = group.map(message => message.id);
+    const groupBaseId = group.map(message => extractBaseId(message.id)).find((base, index) => base !== group[index].id)
+      || extractBaseId(group[0].id);
+    const { wrapper, content, actions, btnCopy } = createAssistantMessagePlaceholder(messagesList, groupBaseId, callbacks);
+    wrapper.setAttribute('data-msg-ids', groupMsgIds.join(','));
+    content.innerHTML = '';
+
+    const ToolCards = getToolCards();
+    const markdownParts = [];
+    for (const item of group) {
+      if (item.role !== 'assistant') continue;
+      if (item.content) {
+        renderAssistantBlock(createAssistantBlock(content), item.content);
+        markdownParts.push(item.content);
+      }
+      for (const toolCall of item.tool_calls || []) {
+        const toolMsg = group.find(message => message.role === 'tool' && (message.tool_call_id === toolCall.id || message.name === toolCall.function?.name));
+        const card = ToolCards.renderHistoricalToolCard(toolCall, toolMsg);
+        const success = !toolMsg?.content || !/"success"\s*:\s*false|"error"\s*:/i.test(toolMsg.content);
+        ToolCards.appendToolCard(content, card, { completed: true, success });
+      }
+    }
+
+    if (content.children.length === 0) {
+      content.innerHTML = `<p><em>${escapeHtml(t('no_text_response'))}</em></p>`;
+    }
+    const fullAssistantMarkdown = markdownParts.join('\n\n');
+    bindMessageCopy(btnCopy, () => fullAssistantMarkdown || content.innerText);
+    actions.style.display = 'inline-flex';
+    getMarkdown().attachCopyCodeListeners(content);
+  }
+
+  function renderSessionMessages(elements, history, callbacks) {
+    const { messagesList, welcomeBanner } = elements;
     messagesList.innerHTML = '';
 
-    const summaryBlock = (history || []).find(m => m && m._isSummaryBlock);
-    if (summaryBlock) {
-      renderContextSummaryBanner(messagesList, summaryBlock);
-    }
+    const summaryBlock = history.find(message => message._isSummaryBlock);
+    if (summaryBlock) renderContextSummaryBanner(messagesList, summaryBlock);
 
-    const nonSystem = (history || []).filter(m => m && m.role !== 'system');
-    let validMessages = nonSystem;
-    if (nonSystem.length >= 2 &&
-        isDateTimeInitialTurn(nonSystem[0]) &&
-        nonSystem[1].role === 'assistant' &&
-        (nonSystem[1].content === 'OK' || nonSystem[1].content === 'OK.')) {
-      validMessages = nonSystem.slice(2);
-    }
-
-    if (validMessages.length === 0 && !summaryBlock) {
-      if (elements.welcomeBanner) {
-        messagesList.appendChild(elements.welcomeBanner);
-        elements.welcomeBanner.style.display = '';
-      }
-      if (typeof options.resetTelemetry === 'function') {
-        options.resetTelemetry();
-      }
+    const messages = history.filter(message => message.role !== 'system');
+    if (messages.length === 0 && !summaryBlock) {
+      messagesList.appendChild(welcomeBanner);
+      welcomeBanner.style.display = '';
+      callbacks.resetTelemetry();
       return;
     }
+    welcomeBanner.style.display = 'none';
 
-    if (elements.welcomeBanner) {
-      elements.welcomeBanner.style.display = 'none';
-    }
-
-    const Markdown = getMarkdown();
     let i = 0;
-
-    while (i < validMessages.length) {
-      const msg = validMessages[i];
-
+    while (i < messages.length) {
+      const msg = messages[i];
       if (msg.role === 'user') {
-        let text = '';
-        const images = msg.images ? [...msg.images] : [];
-        if (typeof msg.content === 'string') {
-          text = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          const textPart = msg.content.find(c => c.type === 'text');
-          text = textPart ? textPart.text : '';
-          msg.content.forEach(c => {
-            if (c.type === 'image_url' && c.image_url?.url) {
-              if (!images.some(img => img.dataUrl === c.image_url.url)) {
-                images.push({ name: 'Imagen adjunta', dataUrl: c.image_url.url });
-              }
-            }
-          });
-        }
-
-        appendUserMessage(messagesList, elements.welcomeBanner, {
-          text,
-          originalPrompt: text,
-          attachedImages: images,
+        appendUserMessage(messagesList, welcomeBanner, {
+          text: msg.content,
+          attachedImages: msg.images || [],
           existingMsgId: msg.id
-        }, options);
-
+        }, callbacks);
         i++;
-      } else {
-        const assistantGroup = [];
-        const firstAssistantId = msg.id || ('msg_ast_' + Date.now());
-
-        while (i < validMessages.length && validMessages[i].role !== 'user') {
-          const item = validMessages[i];
-          if (item && !item.id) {
-            item.id = createId('msg_ast');
-          }
-          assistantGroup.push(item);
-          i++;
-        }
-
-        const groupMsgIds = assistantGroup.map(m => m.id).filter(Boolean);
-        let groupBaseId = '';
-        for (const item of assistantGroup) {
-          if (item.id) {
-            const base = extractBaseId(item.id);
-            if (base && base !== item.id) {
-              groupBaseId = base;
-              break;
-            }
-          }
-        }
-        if (!groupBaseId && assistantGroup.length > 0 && assistantGroup[0].id) {
-          groupBaseId = extractBaseId(assistantGroup[0].id) || assistantGroup[0].id;
-        }
-
-        const placeholderCallbacks = {
-          welcomeBanner: elements.welcomeBanner,
-          onBranch: options.onBranch,
-          onDelete: options.onDelete,
-          ...options
-        };
-
-        const { wrapper, content, actions, btnCopy } = createAssistantMessagePlaceholder(
-          messagesList,
-          groupBaseId || firstAssistantId,
-          placeholderCallbacks
-        );
-
-        if (groupBaseId && wrapper) {
-          wrapper.setAttribute('data-base-id', groupBaseId);
-        }
-        if (groupMsgIds.length > 0 && wrapper) {
-          wrapper.setAttribute('data-msg-ids', groupMsgIds.join(','));
-        }
-        if (content) content.innerHTML = '';
-
-        let fullAssistantMarkdown = '';
-
-        for (let g = 0; g < assistantGroup.length; g++) {
-          const item = assistantGroup[g];
-
-          if (item.role === 'assistant') {
-            if (item.content) {
-              const turnBlock = createAssistantBlock(content);
-              renderAssistantBlock(turnBlock, item.content);
-              fullAssistantMarkdown += (fullAssistantMarkdown ? '\n\n' : '') + item.content;
-            }
-
-            if (Array.isArray(item.tool_calls) && item.tool_calls.length > 0) {
-              item.tool_calls.forEach(tc => {
-                const toolMsg = assistantGroup.find(m => m.role === 'tool' && (m.tool_call_id === tc.id || m.name === tc.function?.name));
-                const cardEl = renderStoredToolCard(tc, toolMsg);
-                if (cardEl && content) {
-                  const success = !toolMsg?.content || !/\"success\"\s*:\s*false|\"error\"\s*:/i.test(toolMsg.content);
-                  const ToolCards = getToolCards();
-                  if (ToolCards?.appendToolCard) ToolCards.appendToolCard(content, cardEl, { completed: true, success });
-                  else content.appendChild(cardEl);
-                }
-              });
-            }
-          }
-        }
-
-        if (content && content.children.length === 0) {
-          const emptyText = t('no_text_response');
-          const safeEmpty = Markdown?.escapeHtml ? Markdown.escapeHtml(emptyText) : emptyText;
-          content.innerHTML = `<p><em>${safeEmpty}</em></p>`;
-        }
-
-        bindMessageCopy(btnCopy, () => fullAssistantMarkdown || (content ? content.innerText : ''));
-
-        if (actions) actions.style.display = 'inline-flex';
-
-        if (content) {
-          attachListenersToContainer(content, options);
-        }
+        continue;
       }
+      const group = [];
+      while (i < messages.length && messages[i].role !== 'user') group.push(messages[i++]);
+      renderAssistantGroup(messagesList, group, callbacks);
     }
 
     scrollToBottom(messagesList, { force: true });
-    if (typeof options.updateTelemetry === 'function') {
-      options.updateTelemetry();
-    }
+    callbacks.updateTelemetry();
   }
 
   return {
     bindMessageCopy,
+    renderErrorCard,
     renderConnectionError,
-    injectStreamingCursor,
     createAssistantBlock,
     renderAssistantBlock,
     scrollToBottom,
     showTypingIndicator,
     removeTypingIndicator,
-    renderStoredToolCard,
-    attachListenersToContainer,
     removeMessage,
     appendUserMessage,
     createAssistantMessagePlaceholder,
-    renderContextSummaryBanner,
     renderSessionMessages,
     showBranchLoadingIndicator,
     hideBranchLoadingIndicator

@@ -2,6 +2,10 @@
  * Controlador del Ciclo de Vida de Generación e Inferencia (ZeroChat).
  * Orquesta el envío de mensajes, streaming SSE, llamadas a herramientas,
  * control de aborto, captura inmutable de configuración y finalización atómica.
+ *
+ * handleSendMessage recibe de app.js los elementos del DOM y los callbacks que dependen de su
+ * cableado: appendUserMessage, createAssistantMessagePlaceholder, updateConnectionTokensBadge,
+ * openDebugInterceptorModal y saveCurrentSession.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,28 +17,25 @@
   'use strict';
 
   const { resolveDep, escapeHtml } = Utils;
-
-  function getState() { return resolveDep('ChatState', './state.js'); }
-  function getAPI(options = {}) { return options.api || resolveDep('ChatAPI', './api.js'); }
-  function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
-  function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
-  function getConversationService() { return resolveDep('ChatConversationService', './conversation-service.js'); }
-  function getUIConversation() { return resolveDep('ChatUIConversation', './ui-conversation.js'); }
-
   const { t } = I18n;
 
+  const getState = () => resolveDep('ChatState', './state.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getEngine = () => resolveDep('ChatEngine', './chat-engine.js');
+  const getAttachments = () => resolveDep('ChatAttachments', './attachments.js');
+  const getUIConversation = () => resolveDep('ChatUIConversation', './ui-conversation.js');
+  const getUIComposer = () => resolveDep('ChatUIComposer', './ui-composer.js');
+  const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
+  const getDebug = () => resolveDep('ChatDebug', './debug.js');
 
   let currentAbortController = null;
 
   function isGenerating() {
-    const State = getState();
-    return State?.get?.('streaming')?.isGenerating === true || currentAbortController !== null;
+    return getState().isConversationBusy() || currentAbortController !== null;
   }
 
   function handleStopGeneration() {
-    if (currentAbortController) {
-      currentAbortController.abort();
-    }
+    currentAbortController?.abort();
   }
 
   /**
@@ -46,382 +47,201 @@
     const State = getState();
     const controller = new AbortController();
     currentAbortController = controller;
-    State?.set?.('streaming', { isGenerating: true, status: 'streaming', error: null });
+    State.set('streaming', { isGenerating: true });
     try {
       return await task(controller.signal);
     } finally {
       if (currentAbortController === controller) currentAbortController = null;
-      State?.set?.('streaming', { isGenerating: false, status: 'idle', error: null });
+      State.set('streaming', { isGenerating: false });
     }
   }
 
-  function isCoarsePointer() {
-    const mq = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)');
-    return Boolean(mq && mq.matches);
-  }
-
-  function finishGeneration(options = {}) {
-    const { skipSave = false, error = null, elements = {} } = options;
-    const State = getState();
-    const UIConversation = getUIConversation();
-
-    if (typeof options.removeTypingIndicator === 'function') {
-      options.removeTypingIndicator();
-    } else if (UIConversation?.removeTypingIndicator) {
-      UIConversation.removeTypingIndicator();
-    }
-
-    if (typeof options.clearGenerationStatus === 'function') {
-      options.clearGenerationStatus();
-    }
-
-    if (State?.set) {
-      if (error) {
-        State.set('streaming', { isGenerating: false, status: 'error', error: String(error) });
-      } else {
-        State.set('streaming', { isGenerating: false, status: 'idle', error: null });
-      }
-    }
-
-    if (elements.btnSend) elements.btnSend.disabled = false;
-    if (elements.btnStopStream) elements.btnStopStream.style.display = 'none';
-
+  function finishGeneration(elements, { skipSave, saveCurrentSession }) {
+    getUIConversation().removeTypingIndicator();
+    getGenerationStatus().clearStatus(elements.generationStatus);
+    getState().set('streaming', { isGenerating: false });
     currentAbortController = null;
 
     // En táctiles, enfocar el composer despliega el teclado virtual sin que el usuario lo pida.
-    if (elements.userInput && !isCoarsePointer()) {
-      try { elements.userInput.focus(); } catch (_) { /* el elemento puede no admitir foco en este momento */ }
-    }
-
-    if (!skipSave && typeof options.saveCurrentSession === 'function') {
-      try {
-        options.saveCurrentSession();
-      } catch (saveErr) {
-        console.warn('[ZeroChat] Error al guardar sesión en finishGeneration:', saveErr);
-      }
-    }
-
-    if (typeof options.scrollToBottom === 'function') {
-      options.scrollToBottom();
-    } else if (UIConversation?.scrollToBottom) {
-      UIConversation.scrollToBottom(elements.messagesList);
-    }
+    if (!window.matchMedia('(pointer: coarse)').matches) elements.userInput.focus();
+    if (!skipSave) saveCurrentSession();
+    getUIConversation().scrollToBottom(elements.messagesList);
   }
 
-  function updateStatsDisplay(statsContainer, stats, options = {}) {
-    if (!stats || !statsContainer) return;
+  function updateStatsDisplay(statsContainer, stats) {
     statsContainer.style.display = 'inline-flex';
     const clockSvg = Icons.get('clock', { size: 11 });
-    const zapSvg = Icons.get('zap', { size: 11 });
-    const docSvg = Icons.get('file-text', { size: 11 });
-    const dbSvg = Icons.get('database', { size: 11 });
-
-    const cacheHtml = (stats.cachedTokens && stats.cachedTokens > 0)
-      ? `<span class="stat-sep stat-sep-4">•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
+    const cacheHtml = stats.cachedTokens > 0
+      ? `<span class="stat-sep stat-sep-4">•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${Icons.get('database', { size: 11 })} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
       : '';
     statsContainer.innerHTML = `
       <span class="stat-item stat-item-ttft" title="${t('stat_ttft_title')}">${clockSvg} <span>${t('stat_ttft', { sec: stats.ttftSec })}</span></span>
       <span class="stat-sep stat-sep-1">•</span>
-      <span class="stat-item stat-item-speed" title="${t('stat_speed_title')}">${zapSvg} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
+      <span class="stat-item stat-item-speed" title="${t('stat_speed_title')}">${Icons.get('zap', { size: 11 })} <span>${t('stat_speed', { speed: stats.tokensPerSec })}</span></span>
       <span class="stat-sep stat-sep-2">•</span>
       <span class="stat-item stat-item-total" title="${t('stat_total_time_title')}">${clockSvg} <span>${t('stat_total_time', { sec: stats.totalSec })}</span></span>
       <span class="stat-sep stat-sep-3">•</span>
-      <span class="stat-item stat-item-tokens" title="${t('stat_tokens_title')}">${docSvg} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
+      <span class="stat-item stat-item-tokens" title="${t('stat_tokens_title')}">${Icons.get('file-text', { size: 11 })} <span>${t('stat_tokens', { tokens: stats.tokens })}</span></span>${cacheHtml}
     `;
+  }
 
-    if (typeof options.updateConnectionTokensBadge === 'function') {
-      options.updateConnectionTokensBadge(stats);
+  /** Contexto RAG inicial de las ramas activas; vacío si no hay ramas o si no se pudo recuperar. */
+  async function loadRagSystemContext(elements, config) {
+    if (config.activeRagBranchIds.length === 0) return '';
+    getGenerationStatus().setStatus(elements.generationStatus, { phase: 'rag', text: t('generation_status_rag') });
+    try {
+      return await resolveDep('ChatRagService', './rag-service.js').buildRagSystemContext(config.activeRagBranchIds, { lang: config.language });
+    } catch (err) {
+      console.warn('[GenerationController] Could not load the initial RAG context:', err);
+      getDebug().addLog('warning', `[RAG] Could not load the initial context: ${err?.message || String(err)}`);
+      return '';
     }
   }
 
-  async function handleSendMessage(options = {}) {
-    const elements = options.elements || {};
+  async function handleSendMessage(options) {
+    const { elements } = options;
     const State = getState();
     const Attachments = getAttachments();
-    const API = getAPI(options);
-    const Engine = getEngine();
     const UIConversation = getUIConversation();
-    const ConversationService = getConversationService();
+    const Debug = getDebug();
+    const status = getGenerationStatus();
 
-    const rawText = (elements.userInput ? elements.userInput.value : (options.text || '')).trim();
-    const currentFiles = Attachments?.getFiles ? Attachments.getFiles() : [];
-    if ((!rawText && currentFiles.length === 0) || State?.isConversationBusy?.()) return;
+    const rawText = elements.userInput.value.trim();
+    const currentFiles = Attachments.getFiles();
+    if ((!rawText && currentFiles.length === 0) || State.isConversationBusy()) return;
 
-    const runtimeConfig = typeof options.getRuntimeConfig === 'function' ? options.getRuntimeConfig() : {};
+    const config = getConfig().getActive();
+    const { fullPrompt, displayText, imageAttachments } = Attachments.buildAttachmentsPayload(rawText, currentFiles);
+    const userMsgId = options.appendUserMessage(displayText, rawText, imageAttachments);
+    State.appendMessage({ id: userMsgId, role: 'user', content: fullPrompt, ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}) });
 
-    const { fullPrompt, displayText, imageAttachments } = Attachments?.buildAttachmentsPayload
-      ? Attachments.buildAttachmentsPayload(rawText, currentFiles)
-      : { fullPrompt: rawText, displayText: rawText, imageAttachments: [] };
-
-    const appendUser = typeof options.appendUserMessage === 'function'
-      ? options.appendUserMessage
-      : (UIConversation?.appendUserMessage
-          ? (text, origPrompt, imgs) => UIConversation.appendUserMessage(elements.messagesList, elements.welcomeBanner, { text, originalPrompt: origPrompt, attachedImages: imgs }, options)
-          : () => 'msg_usr_' + Date.now());
-
-    const userMsgId = appendUser(displayText, rawText, imageAttachments);
-    const historyEntry = { id: userMsgId, role: 'user', content: fullPrompt };
-    if (imageAttachments.length > 0) {
-      historyEntry.images = imageAttachments;
-    }
-    if (State?.appendMessage) {
-      State.appendMessage(historyEntry);
-    }
-
-    const getCurrentSessionId = typeof options.getCurrentSessionId === 'function'
-      ? options.getCurrentSessionId
-      : (() => State?.getActiveSessionId?.() || '');
-    const generationSessionId = getCurrentSessionId();
+    const getSessionId = () => State.get('sessions').activeId;
+    const generationSessionId = getSessionId();
+    const isCurrentSession = () => getSessionId() === generationSessionId;
     let generationError = null;
 
-    if (elements.userInput) elements.userInput.value = '';
-    if (typeof options.clearAttachedFiles === 'function') options.clearAttachedFiles();
-    if (typeof options.autoResizeTextarea === 'function') options.autoResizeTextarea();
-    if (typeof options.closeReasoningMenu === 'function') options.closeReasoningMenu();
+    elements.userInput.value = '';
+    getUIComposer().clearAttachedFiles(elements);
+    getUIComposer().autoResizeTextarea(elements);
+    resolveDep('ChatUIReasoning', './ui-reasoning.js').closeReasoningMenu(elements);
 
-    if (State?.set) {
-      State.set('streaming', { isGenerating: true, status: 'streaming', error: null });
-    }
-    if (typeof options.setGenerationStatus === 'function') {
-      options.setGenerationStatus({ phase: 'generating' });
-    }
-
+    State.set('streaming', { isGenerating: true });
+    status.setStatus(elements.generationStatus, { phase: 'generating' });
     currentAbortController = new AbortController();
 
-    if (typeof options.showTypingIndicator === 'function') {
-      options.showTypingIndicator();
-    } else if (UIConversation?.showTypingIndicator) {
-      UIConversation.showTypingIndicator(elements.messagesList);
-    }
+    UIConversation.showTypingIndicator(elements.messagesList);
+    const parts = options.createAssistantMessagePlaceholder();
+    const { wrapper, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = parts;
+    UIConversation.removeTypingIndicator();
+    const scrollToBottom = () => UIConversation.scrollToBottom(elements.messagesList);
 
-    const createPlaceholder = typeof options.createAssistantMessagePlaceholder === 'function'
-      ? options.createAssistantMessagePlaceholder
-      : (UIConversation?.createAssistantMessagePlaceholder
-          ? (id) => UIConversation.createAssistantMessagePlaceholder(elements.messagesList, id, options)
-          : () => ({ wrapper: null, row: null, content: null, actions: null, btnCopy: null, statsContainer: null, msgId: 'ast_' + Date.now() }));
-
-    const { wrapper, row, content, actions, btnCopy, statsContainer, msgId: assistantMsgId } = createPlaceholder();
-
-    if (typeof options.removeTypingIndicator === 'function') {
-      options.removeTypingIndicator();
-    } else if (UIConversation?.removeTypingIndicator) {
-      UIConversation.removeTypingIndicator();
-    }
-
-    const attachListeners = typeof options.attachListenersToContainer === 'function'
-      ? options.attachListenersToContainer
-      : (el => UIConversation?.attachListenersToContainer ? UIConversation.attachListenersToContainer(el) : null);
-
-    const scrollToBottom = typeof options.scrollToBottom === 'function'
-      ? options.scrollToBottom
-      : (() => UIConversation?.scrollToBottom ? UIConversation.scrollToBottom(elements.messagesList) : null);
-
-    if (!API?.streamChatCompletion) {
-      if (row?.classList?.add) row.classList.add('message-error');
-      if (content) content.innerHTML = 'Error: Chat API module not loaded.';
-      finishGeneration({ error: 'Error: Chat API module not loaded.', elements, ...options });
+    if (!config.model.trim()) {
+      UIConversation.renderErrorCard(parts, {
+        title: t('err_no_model_title'),
+        hintHtml: t('err_no_model_desc', { url: escapeHtml(config.apiUrl) })
+      });
+      finishGeneration(elements, { skipSave: false, saveCurrentSession: options.saveCurrentSession });
       return;
     }
 
-    if (!runtimeConfig.model || runtimeConfig.model.trim() === '') {
-      if (row?.classList?.add) row.classList.add('message-error');
-      if (content) {
-        content.innerHTML = `
-          <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${Icons.get('alert-triangle', { size: 18 })}</span>
-            <div>
-              <strong>${t('err_no_model_title')}</strong>
-              <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: escapeHtml(runtimeConfig.apiUrl) })}</p>
-            </div>
-          </div>
-        `;
-      }
-      if (actions) actions.style.display = 'inline-flex';
-      finishGeneration({ error: t('err_no_model_title'), elements, ...options });
-      return;
-    }
-
-    const activeRagBranchIds = Array.isArray(runtimeConfig.activeRagBranchIds)
-      ? runtimeConfig.activeRagBranchIds
-      : (runtimeConfig.activeRagBranchId ? [runtimeConfig.activeRagBranchId] : []);
-    const activeRagBranchId = activeRagBranchIds[0] || runtimeConfig.activeRagBranchId || '';
-
-    const RagService = resolveDep('ChatRagService', './rag-service.js');
-    if (activeRagBranchIds.length > 0 && RagService?.buildRagSystemContext) {
-      if (typeof options.setGenerationStatus === 'function') {
-        options.setGenerationStatus({ phase: 'rag', text: t('generation_status_rag') });
-      }
-      try {
-        const ragContext = await RagService.buildRagSystemContext(activeRagBranchIds, {
-          lang: runtimeConfig.language || 'es'
-        });
-        if (State?.set) State.set('agent', { ragSystemContext: ragContext });
-      } catch (err) {
-        console.warn('Error al cargar contexto inicial de RAG:', err);
-        if (typeof options.addDebugLog === 'function') {
-          options.addDebugLog('warning', `[RAG] Error al cargar contexto inicial: ${err?.message || String(err)}`);
-        }
-        if (State?.set) State.set('agent', { ragSystemContext: '' });
-      }
-    } else {
-      if (State?.set) State.set('agent', { ragSystemContext: '' });
-    }
+    const currentRagSystemContext = await loadRagSystemContext(elements, config);
 
     // Los comandos en segundo plano que han terminado sin que el modelo lo viera se le comunican
     // con este mensaje; la nota queda guardada en él para que el historial no cambie en otros turnos.
-    const readMessages = () => (State?.get ? (State.get('messages') || []) : []);
-    const commandNotes = await resolveDep('ChatMCP', './mcp.js')?.manager?.buildCommandNotes?.(readMessages());
-    if (commandNotes && State?.replaceMessages) {
-      State.replaceMessages(readMessages().map(message => (message.id === userMsgId ? { ...message, commandNotes } : message)));
+    const commandNotes = await resolveDep('ChatMCP', './mcp.js').manager.buildCommandNotes(State.get('messages'));
+    if (commandNotes) {
+      State.replaceMessages(State.get('messages').map(message => (message.id === userMsgId ? { ...message, commandNotes } : message)));
     }
 
-    const currentRagSystemContext = State?.get ? (State.get('agent')?.ragSystemContext || '') : '';
     // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
-    const projectContext = runtimeConfig.projectMode === true && State?.get ? (State.get('project') || null) : null;
+    const projectContext = config.projectMode === true ? State.get('project') : null;
     // Base de las rutas relativas de las herramientas locales, con o sin modo proyecto.
-    const mcpState = State?.get ? (State.get('mcp') || {}) : {};
+    const mcpState = State.get('mcp');
     const projectDirectory = mcpState.status === 'connected' ? String(mcpState.serverInfo?.cwd || '') : '';
 
     try {
-      const runner = Engine || resolveDep('ChatEngine', './chat-engine.js');
-      const activeProfile = ConversationService?.loadProfileUnlocked
-        ? await ConversationService.loadProfileUnlocked(runtimeConfig.activeProfile?.id)
-        : null;
-      const getChatHistory = typeof options.getChatHistory === 'function' ? options.getChatHistory : (() => State?.getMessages?.() || []);
-
-      const loopResult = await runner.executeAgentTurnLoop({
-        apiUrl: runtimeConfig.apiUrl,
-        apiType: runtimeConfig.apiType,
+      const activeProfile = await resolveDep('ChatUIProfiles', './ui-profiles.js').loadProfileUnlocked(config.activeProfile?.id);
+      const loopResult = await getEngine().executeAgentTurnLoop({
         apiKey: activeProfile?.settings?.apiKey || '',
-        model: runtimeConfig.model,
-        temperature: runtimeConfig.temperature,
-        reasoningEffort: runtimeConfig.reasoningEffort || 'medium',
-        reasoningTransport: runtimeConfig.reasoningTransport || 'auto',
-        chatHistory: getChatHistory(),
-        appConfig: runtimeConfig,
-        assistantMsgId: assistantMsgId,
-        activeRagBranchId: activeRagBranchId,
-        activeRagBranchIds: activeRagBranchIds,
-        currentRagSystemContext: currentRagSystemContext,
+        chatHistory: State.get('messages'),
+        appConfig: config,
+        assistantMsgId,
+        currentRagSystemContext,
         projectContext,
         projectDirectory,
         signal: currentAbortController.signal,
         container: content,
-
-        onBeforeRequest: runtimeConfig.enableDebugMessages ? async function ({ endpoint, headers, payload }) {
-          if (typeof options.openDebugInterceptorModal === 'function') {
-            return await options.openDebugInterceptorModal({ endpoint, headers, payload });
-          }
-          return { endpoint, headers, payload };
-        } : null,
-
-        onReasoningChunk: function (chunk) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (typeof options.addDebugLog === 'function') options.addDebugLog('thinking', chunk);
-          if (typeof options.setDebugStatus === 'function') options.setDebugStatus('streaming', t('debug_status_thinking'));
+        onBeforeRequest: config.enableDebugMessages ? options.openDebugInterceptorModal : null,
+        onReasoningChunk: chunk => {
+          if (!isCurrentSession()) return;
+          Debug.addLog('thinking', chunk);
+          Debug.setStatus('streaming', t('debug_status_thinking'));
         },
-
-        onGenerationStatus: function (status) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (typeof options.setGenerationStatus === 'function') options.setGenerationStatus(status);
+        onGenerationStatus: update => {
+          if (isCurrentSession()) status.setStatus(elements.generationStatus, update);
         },
-
-        onLog: function (type, txt) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (typeof options.addDebugLog === 'function') options.addDebugLog(type, txt);
+        onLog: (type, text) => {
+          if (isCurrentSession()) Debug.addLog(type, text);
         },
-
-        onStats: function (stats) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          updateStatsDisplay(statsContainer, stats, options);
+        onStats: stats => {
+          if (!isCurrentSession()) return;
+          updateStatsDisplay(statsContainer, stats);
+          options.updateConnectionTokensBadge(stats);
         },
-
-        onChunk: function ({ turnIndex, fullText, delta, stats }) {
-          if (getCurrentSessionId() !== generationSessionId) return;
-          if (stats) updateStatsDisplay(statsContainer, stats, options);
-          scrollToBottom();
-        },
-
-        scrollToBottom: () => scrollToBottom(),
-        attachListeners: (el) => attachListeners(el)
+        scrollToBottom
       });
 
-      if (getCurrentSessionId() !== generationSessionId) {
-        console.warn('[ZeroChat] Inferencia descartada por cambio de sesión.');
+      if (!isCurrentSession()) {
+        console.warn('[GenerationController] Inference discarded after a session change.');
         return;
       }
 
-      if (loopResult && Array.isArray(loopResult.chatHistory) && State?.replaceMessages) {
+      if (loopResult.chatHistory) {
         State.replaceMessages(loopResult.chatHistory);
-        if (typeof options.setAssistantGroupMessageIds === 'function') {
-          options.setAssistantGroupMessageIds(wrapper, getChatHistory());
-        } else if (ConversationService?.setAssistantGroupMessageIds) {
-          ConversationService.setAssistantGroupMessageIds(wrapper, getChatHistory());
-        }
+        resolveDep('ChatConversationService', './conversation-service.js').setAssistantGroupMessageIds(wrapper, State.get('messages'));
       }
 
-      if (loopResult && loopResult.cancelled) {
-        const hasVisibleToolGroup = !!wrapper?.querySelector?.('.tool-call-group');
-        if (wrapper && !hasVisibleToolGroup && !wrapper.querySelector?.('.agentic-turn-block') && wrapper.parentNode) {
-          wrapper.parentNode.removeChild(wrapper);
-        }
-        if (typeof options.setDebugStatus === 'function') options.setDebugStatus('idle');
+      if (loopResult.cancelled) {
+        if (!wrapper.querySelector('.tool-call-group, .agentic-turn-block')) wrapper.remove();
+        Debug.setStatus('idle');
         return;
       }
 
-      if (loopResult && loopResult.loopDetected) {
-        if (typeof options.setDebugStatus === 'function') {
-          options.setDebugStatus('error', t('debug_status_loop_detected'));
-        }
-        if (typeof options.addDebugLog === 'function') {
-          options.addDebugLog('error', t('agent_loop_warning_notice'));
-        }
-      } else if (loopResult && loopResult.error) {
-        if (currentAbortController && currentAbortController.signal.aborted) {
-          return;
-        }
-        if (typeof options.setDebugStatus === 'function') options.setDebugStatus('error', t('debug_status_error'));
-        if (typeof options.addDebugLog === 'function') options.addDebugLog('error', loopResult.error.message || String(loopResult.error));
-        UIConversation.renderConnectionError({ row, content, actions },
-          loopResult.error.message || String(loopResult.error), runtimeConfig.apiUrl);
+      if (loopResult.loopDetected) {
+        Debug.setStatus('error', t('debug_status_loop_detected'));
+        Debug.addLog('error', t('agent_loop_warning_notice'));
+      } else if (loopResult.error) {
+        if (currentAbortController.signal.aborted) return;
+        const message = loopResult.error.message || String(loopResult.error);
+        Debug.setStatus('error', t('debug_status_error'));
+        Debug.addLog('error', message);
+        UIConversation.renderConnectionError(parts, message, config.apiUrl);
         return;
+      } else {
+        Debug.setStatus('done', t('debug_status_done'));
       }
 
-      if (loopResult && loopResult.stats) {
-        updateStatsDisplay(statsContainer, loopResult.stats, options);
-        if (typeof options.updateConnectionTokensBadge === 'function') {
-          options.updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
-        }
+      if (loopResult.stats) {
+        updateStatsDisplay(statsContainer, loopResult.stats);
+        options.updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
       }
-
-      if (actions) actions.style.display = 'inline-flex';
-      UIConversation.bindMessageCopy(btnCopy, () => loopResult?.accumulatedMarkdown || loopResult?.finalAssistantText || '');
-
-      if (typeof options.setDebugStatus === 'function' && !loopResult?.loopDetected) {
-        options.setDebugStatus('done', t('debug_status_done'));
-      }
+      actions.style.display = 'inline-flex';
+      UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');
     } catch (err) {
-      console.error('[ZeroChat] Error durante inferencia agéntica:', err);
-      const isAborted = Boolean(currentAbortController && currentAbortController.signal.aborted) || err?.name === 'AbortError';
-      if (!isAborted) {
+      console.error('[GenerationController] Agent inference failed:', err);
+      if (!currentAbortController.signal.aborted && err?.name !== 'AbortError') {
         generationError = err?.message || String(err);
-        if (typeof options.setDebugStatus === 'function') options.setDebugStatus('error', t('debug_status_error'));
-        if (typeof options.addDebugLog === 'function') options.addDebugLog('error', generationError);
-        UIConversation.renderConnectionError({ row, content, actions }, generationError, runtimeConfig.apiUrl);
+        Debug.setStatus('error', t('debug_status_error'));
+        Debug.addLog('error', generationError);
+        UIConversation.renderConnectionError(parts, generationError, config.apiUrl);
       }
     } finally {
-      finishGeneration({
-        skipSave: getCurrentSessionId() !== generationSessionId,
-        error: generationError,
-        elements,
-        ...options
-      });
+      finishGeneration(elements, { skipSave: !isCurrentSession(), saveCurrentSession: options.saveCurrentSession });
     }
   }
 
   return {
     handleSendMessage,
-    finishGeneration,
     handleStopGeneration,
     runCancellableTask,
     isGenerating
