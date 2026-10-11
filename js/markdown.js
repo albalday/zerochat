@@ -21,7 +21,7 @@
     if (typeof require !== 'undefined') {
       try { return require('./i18n.js'); } catch (e) { return {}; }
     }
-    return { uiText: (_key, fallback) => fallback };
+    return { t: key => key };
   }
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
@@ -202,8 +202,8 @@
     // Reglas horizontales (---, ***, ___)
     p = p.replace(/^[ \t]*(?:---|\*\*\*|___)[ \t]*$/gm, '<hr>');
 
-  const thoughtTitle = getI18n().uiText('md_thought_title', 'Proceso de razonamiento');
-  const thoughtReasoning = getI18n().uiText('md_thought_reasoning', 'Razonando...');
+  const thoughtTitle = getI18n().t('md_thought_title');
+  const thoughtReasoning = getI18n().t('md_thought_reasoning');
 
     // 1. Bloques de pensamiento <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>
     p = p.replace(/&lt;(think|thought|reasoning)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, function (match, tag, thought) {
@@ -325,10 +325,10 @@
     let codeLines = [];
     let textBuffer = [];
 
-    const runTitle = getI18n().uiText('md_run_js_title', 'Ejecutar JavaScript (en worker local)');
-    const runBtn = getI18n().uiText('md_run_js_btn', 'Ejecutar JS');
-    const copyTitle = getI18n().uiText('md_copy_code_title', 'Copiar código');
-    const copyBtn = getI18n().uiText('md_copy_code_btn', 'Copiar');
+    const runTitle = getI18n().t('md_run_js_title');
+    const runBtn = getI18n().t('md_run_js_btn');
+    const copyTitle = getI18n().t('md_copy_code_title');
+    const copyBtn = getI18n().t('md_copy_code_btn');
 
     function flushTextBuffer() {
       if (textBuffer.length === 0) return;
@@ -416,7 +416,7 @@
           await navigator.clipboard.writeText(rawCode);
           const span = button.querySelector('span');
           const originalText = span.textContent;
-          span.textContent = getI18n().uiText('copied_text', '¡Copiado!');
+          span.textContent = getI18n().t('copied_text');
           button.classList.add('copied');
 
           setTimeout(function () {
@@ -447,32 +447,32 @@
         }
 
         outputContainer.style.display = 'block';
-          outputContainer.innerHTML = '<div class="output-header"><span>' + getI18n().uiText('agent_js_title', 'Ejecutando código JavaScript...') + '</span></div>';
+          outputContainer.innerHTML = '<div class="output-header"><span>' + getI18n().t('agent_js_title') + '</span></div>';
 
         const sandboxRunner = window.ChatSandbox || Sandbox;
         if (sandboxRunner && sandboxRunner.execute) {
           const res = await sandboxRunner.execute(rawCode);
           const statusClass = res.success ? 'success' : 'error';
-          const headerTitle = res.success ? `${getI18n().uiText('md_output_title', 'Resultado')} (${res.executionTimeMs}ms)` : getI18n().uiText('md_output_error', `Error (${res.executionTimeMs}ms)`, { ms: res.executionTimeMs });
+          const headerTitle = res.success ? `${getI18n().t('md_output_title')} (${res.executionTimeMs}ms)` : getI18n().t('md_output_error', { ms: res.executionTimeMs });
 
           let outputContent = '';
           if (res.logs && res.logs.length > 0) {
-            outputContent += `<div class="output-logs"><strong>${getI18n().uiText('md_output_console', 'Consola:')}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`;
+            outputContent += `<div class="output-logs"><strong>${getI18n().t('md_output_console')}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`;
           }
           if (res.result && res.result !== 'undefined') {
-            outputContent += `<div class="output-return"><strong>${getI18n().uiText('md_output_return', 'Retorno:')}</strong> ${escapeHtml(res.result)}</div>`;
+            outputContent += `<div class="output-return"><strong>${getI18n().t('md_output_return')}</strong> ${escapeHtml(res.result)}</div>`;
           }
           if (res.error) {
             outputContent += `<div class="output-error">${escapeHtml(res.error)}</div>`;
           }
           if (!outputContent) {
-            outputContent = `<div class="output-empty">(${getI18n().uiText('empty_response', 'Ejecutado sin salida de consola ni retorno')})</div>`;
+            outputContent = `<div class="output-empty">(${getI18n().t('empty_response')})</div>`;
           }
 
           outputContainer.innerHTML = `
             <div class="output-header ${statusClass}">
               <span>${headerTitle}</span>
-              <button type="button" class="btn-close-output" title="${getI18n().uiText('md_clear_output', 'Cerrar salida')}">×</button>
+              <button type="button" class="btn-close-output" title="${getI18n().t('md_clear_output')}">×</button>
             </div>
             <pre class="output-body">${outputContent}</pre>
           `;
@@ -498,7 +498,7 @@
         const isCollapsed = card.classList.toggle('collapsed');
         const btn = card.querySelector('.btn-tool-collapse');
         if (btn) {
-          btn.title = isCollapsed ? getI18n().uiText('tool_btn_expand', 'Expandir herramienta') : getI18n().uiText('tool_btn_collapse', 'Minimizar herramienta');
+          btn.title = isCollapsed ? getI18n().t('tool_btn_expand') : getI18n().t('tool_btn_collapse');
           const span = btn.querySelector('span');
           if (span) span.textContent = isCollapsed ? '▸' : '▾';
         }

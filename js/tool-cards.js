@@ -41,10 +41,10 @@
     const isRunning = running.length > 0;
     group.classList.toggle('is-running', isRunning);
     group.classList.toggle('has-error', !isRunning && failed > 0);
-    if (label) label.textContent = t('tool_calls_group_title') || 'Tool calls';
+    if (label) label.textContent = t('tool_calls_group_title');
     if (status) status.textContent = isRunning
-      ? (t('tool_calls_group_running', { count }) || `${count} tool call${count === 1 ? '' : 's'} running`)
-      : (t('tool_calls_group_complete', { count, failed }) || `${count} tool call${count === 1 ? '' : 's'} completed`);
+      ? (t('tool_calls_group_running', { count }))
+      : (t('tool_calls_group_complete', { count, failed }));
   }
 
   function createToolCallGroup(container) {
@@ -182,7 +182,7 @@
     if (cardEl) {
       cardEl.classList.add('collapsed');
       const btn = cardEl.querySelector('.btn-tool-collapse');
-      if (btn) btn.title = t('tool_btn_expand') || 'Expandir herramienta';
+      if (btn) btn.title = t('tool_btn_expand');
     }
   }
 
@@ -196,8 +196,8 @@
       : (tool?.metadata?.iconSvg || DEFAULT_TOOL_ICON);
     const badgeClass = isCollapsed ? 'tool-card-badge status-success' : 'tool-card-badge status-loading';
     const badgeContent = isCollapsed
-      ? `${CHECK_SVG} <span>${t('tool_status_success') || 'Completado'}</span>`
-      : `${SPINNER_SVG} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span>`;
+      ? `${CHECK_SVG} <span>${t('tool_status_success')}</span>`
+      : `${SPINNER_SVG} <span>${t('tool_badge_executing')}</span>`;
     card.innerHTML = renderCardHtml({
       collapsed: isCollapsed,
       titleHtml: `<span>${icon}</span><span>${getMarkdown().escapeHtml(name)}</span>`,
@@ -218,8 +218,8 @@
         const isSuccess = result?.success !== false && !result?.error;
         badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
         badge.innerHTML = isSuccess
-          ? `${CHECK_SVG} <span>${t('tool_status_success') || 'Completado'} (${elapsedMs}ms)</span>`
-          : `${ERROR_SVG} <span>${t('tool_status_error', { ms: elapsedMs }) || `Error (${elapsedMs}ms)`}</span>`;
+          ? `${CHECK_SVG} <span>${t('tool_status_success')} (${elapsedMs}ms)</span>`
+          : `${ERROR_SVG} <span>${t('tool_status_error', { ms: elapsedMs })}</span>`;
       }
     }
     const displayMode = options?.displayMode

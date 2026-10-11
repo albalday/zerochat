@@ -191,7 +191,7 @@
         const selectedModel = (els.settingModel?.value || els.modelSelectHelper?.value || '').trim();
         const profileName = String(els.settingProfileName?.value || '').trim();
         if (!profileName) {
-          els.profileSaveQueryHint.textContent = t('field_profile_placeholder') || 'Nombre del perfil requerido.';
+          els.profileSaveQueryHint.textContent = t('field_profile_placeholder');
         } else if (!canSave) {
           els.profileSaveQueryHint.textContent = t('profile_save_changes_required');
         } else if (apiType === 'webllm' && selectedModel && isDownloadedWebLLMModel(selectedModel)) {
@@ -278,11 +278,11 @@
       return false;
     }
     if (selected && sameName && sameName.id !== selected.id) {
-      showProfileFeedback(els, t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
+      showProfileFeedback(els, t('err_profile_name_exists', { name }), 'error');
       return false;
     }
     if (!selected && sameName) {
-      showProfileFeedback(els, t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
+      showProfileFeedback(els, t('err_profile_name_exists', { name }), 'error');
       return false;
     }
 
@@ -330,7 +330,7 @@
     setProfileQueryState(els, false);
     setSelectedProfileAsDefault(saved, opts);
     syncProfileSaveState(els, opts);
-    showProfileFeedback(els, t('msg_profile_saved', { name }) || `Perfil "${name}" guardado con éxito.`, 'success');
+    showProfileFeedback(els, t('msg_profile_saved', { name }), 'success');
     return true;
   }
 
@@ -371,7 +371,7 @@
       if (typeof opts.updateUIFromConfig === 'function') opts.updateUIFromConfig();
       const UISettings = getUISettings();
       UISettings?.renderProfileMenu?.(els, Profiles?.list?.() || [], nextActiveId);
-      showProfileFeedback(els, t('msg_profile_deleted', { name: currentProfile.name }) || `Perfil "${currentProfile.name}" eliminado.`, 'success');
+      showProfileFeedback(els, t('msg_profile_deleted', { name: currentProfile.name }), 'success');
       return true;
     }
     return false;
@@ -412,7 +412,7 @@
     const name = String((Dialogs?.prompt ? await Dialogs.prompt(message) : '') || '').trim();
     if (!name) return null;
     if (Profiles?.findByName?.(name)) {
-      showProfileFeedback(null, t('err_profile_name_exists', { name }) || `Ya existe un perfil llamado "${name}".`, 'error');
+      showProfileFeedback(null, t('err_profile_name_exists', { name }), 'error');
       return null;
     }
     return name;
@@ -440,11 +440,11 @@
     const els = elements || cachedElements || {};
     const opts = options || cachedOptions || {};
     const Profiles = getProfiles();
-    const name = await requestNewProfileName(t('prompt_new_profile_name') || 'Nombre del nuevo perfil:');
+    const name = await requestNewProfileName(t('prompt_new_profile_name'));
     if (!name) return;
     const defaultSettings = Profiles?.NEW_PROFILE_SETTINGS || { apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: '' };
     const saved = await saveProfileRecord(els, name, defaultSettings, '', opts);
-    if (saved) showProfileFeedback(els, t('msg_profile_created', { name }) || `Perfil "${name}" creado.`, 'success');
+    if (saved) showProfileFeedback(els, t('msg_profile_created', { name }), 'success');
   }
 
   async function handleExportProfiles(elements) {
@@ -460,7 +460,7 @@
       const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
 
       if (profiles.length === 0) {
-        showProfileFeedback(els, t('err_no_profiles_to_export') || 'No hay perfiles para exportar.', 'error');
+        showProfileFeedback(els, t('err_no_profiles_to_export'), 'error');
         return;
       }
 
@@ -481,7 +481,7 @@
         throw new Error('No se pudo descargar el archivo.');
       }
 
-      showProfileFeedback(els, t('msg_profiles_exported_html') || 'Perfiles exportados. Abre el archivo HTML descargado para importarlos.', 'success');
+      showProfileFeedback(els, t('msg_profiles_exported_html'), 'success');
     } catch (error) {
       showProfileFeedback(els, t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
     }

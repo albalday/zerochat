@@ -107,8 +107,8 @@
         ? currentEnabledTools[tool.id] !== false
         : (currentEnabledTools[tool.name] !== undefined ? currentEnabledTools[tool.name] !== false : tool.defaultEnabled !== false);
 
-      const title = t(tool.titleKey) || tool.titleFallback || tool.name;
-      const desc = t(tool.descKey) || tool.descFallback || '';
+      const title = t(tool.titleKey);
+      const desc = t(tool.descKey);
 
       const card = doc.createElement('div');
       card.className = 'setting-toggle-card';
@@ -497,7 +497,7 @@
     if (closeModal) {
       await closeSettingsPanelOnly(elements, true);
     } else {
-      showProfileFeedback(elements, t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }) || 'Configuración actualizada.', 'success');
+      showProfileFeedback(elements, t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }), 'success');
     }
     return true;
   }
@@ -839,7 +839,7 @@ zerochat</code></pre>
       inspectBtn.className = 'btn-profile-item-action btn-profile-item-inspect';
       inspectBtn.dataset.profileAction = 'inspect';
       inspectBtn.dataset.targetId = profile.id;
-      const inspectTitle = t('btn_inspect_profile_title') || 'Inspeccionar este perfil';
+      const inspectTitle = t('btn_inspect_profile_title');
       inspectBtn.title = inspectTitle;
       inspectBtn.setAttribute('aria-label', `${inspectTitle}: ${profile.name}`);
       inspectBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>';
@@ -850,7 +850,7 @@ zerochat</code></pre>
       editBtn.className = 'btn-profile-item-action btn-profile-item-edit';
       editBtn.dataset.profileAction = 'edit';
       editBtn.dataset.targetId = profile.id;
-      const editTitle = t('btn_edit_profile_title') || 'Editar este perfil';
+      const editTitle = t('btn_edit_profile_title');
       editBtn.title = editTitle;
       editBtn.setAttribute('aria-label', `${editTitle}: ${profile.name}`);
       editBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>';
@@ -862,7 +862,7 @@ zerochat</code></pre>
         deleteBtn.className = 'btn-profile-item-action btn-profile-item-delete';
         deleteBtn.dataset.profileAction = 'delete';
         deleteBtn.dataset.targetId = profile.id;
-        const deleteTitle = t('btn_delete_profile_item_title') || t('btn_delete_profile_title') || 'Eliminar este perfil';
+        const deleteTitle = t('btn_delete_profile_item_title') || t('btn_delete_profile_title');
         deleteBtn.title = deleteTitle;
         deleteBtn.setAttribute('aria-label', `${deleteTitle}: ${profile.name}`);
         deleteBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>';

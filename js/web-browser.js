@@ -391,17 +391,6 @@
     }
 
     /**
-     * Registra o añade una estrategia al pipeline.
-     */
-    addStrategy(strategy, unshift = false) {
-      if (unshift) {
-        this.strategies.unshift(strategy);
-      } else {
-        this.strategies.push(strategy);
-      }
-    }
-
-    /**
      * Ejecuta las estrategias en orden hasta obtener una respuesta exitosa.
      */
     async fetch(rawUrl, options = {}) {

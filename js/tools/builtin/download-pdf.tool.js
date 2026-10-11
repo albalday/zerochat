@@ -37,8 +37,8 @@
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: 'web-request-card pdf-request-card',
       titleHtml: `<span>${PDF_ICON_SVG}</span><span>${t('tool_pdf_title')}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_downloading') || 'Descargando...'}</span></span>`,
-      bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving') || 'Recibiendo contenido...'}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_pdf')}</span></div></div>`
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_downloading')}</span></span>`,
+      bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving')}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_pdf')}</span></div></div>`
     }, ui);
     return cardDiv;
   }
@@ -59,7 +59,7 @@
         : `${errorSvg} <span>Error PDF (${elapsedMs || 0}ms)</span>`;
     }
     const label = cardDiv.querySelector('.section-response-label');
-    if (label) label.textContent = t('tool_web_content_received', { size: `${content.length} chars` }) || `Contenido recibido (${content.length} caracteres):`;
+    if (label) label.textContent = t('tool_web_content_received', { size: `${content.length} chars` });
     const body = cardDiv.querySelector('.web-response-body');
     if (body) { body.className = 'web-response-body'; body.innerHTML = `<code>${Markdown.escapeHtml(content.slice(0, 1500))}${content.length > 1500 ? '...' : ''}</code>`; }
   }
@@ -80,11 +80,11 @@
       definition,
       aliases: ['downloadpdf', 'fetch_pdf', 'download_pdf_document', 'fetch_pdf_document', 'download_file', 'getpdf', 'readpdf'],
       category: 'web',
-      metadata: { icon: 'file-text', label: definition.name },
+      metadata: { label: definition.name },
       settings: {
-        titleKey: 'agent_pdf_title', titleFallback: 'Descarga y Lectura de Documentos PDF',
-        descKey: 'agent_pdf_desc', descFallback: 'Permite al modelo descargar documentos PDF desde la web y extraer todo su texto al contexto en tiempo real.',
-        icon: 'file-text', defaultEnabled: true, showInSettings: true
+        titleKey: 'agent_pdf_title',
+        descKey: 'agent_pdf_desc',
+        defaultEnabled: true, showInSettings: true
       },
       promptGuide: () => '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.',
       execute: async (args, context = {}) => {

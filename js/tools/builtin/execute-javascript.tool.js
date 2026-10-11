@@ -73,11 +73,11 @@
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: '',
       titleHtml: `<span>${JS_ICON_SVG}</span>
-            <span>${t('tool_js_title_running') || 'execute_javascript'}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></span>`,
+            <span>${t('tool_js_title_running')}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing')}</span></span>`,
       bodyHtml: `<pre class="tool-card-code"><code>${Markdown.escapeHtml(code)}</code></pre>
           <div class="tool-card-result">
-            <div class="tool-loading-placeholder">${spinner} <span>${t('tool_loading_js') || 'Ejecutando código JavaScript...'}</span></div>
+            <div class="tool-loading-placeholder">${spinner} <span>${t('tool_loading_js')}</span></div>
           </div>`
     }, ui);
     return cardDiv;
@@ -91,7 +91,7 @@
     if (badgeEl) {
       badgeEl.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
       badgeEl.innerHTML = isSuccess
-        ? `${checkSvg} <span>${t('tool_status_success') || 'Completado'} (${elapsedMs || 0}ms)</span>`
+        ? `${checkSvg} <span>${t('tool_status_success')} (${elapsedMs || 0}ms)</span>`
         : `${errorSvg} <span>Error (${elapsedMs || 0}ms)</span>`;
     }
     const resContainer = cardDiv.querySelector('.tool-card-result');
@@ -100,7 +100,7 @@
         ? (result.result || (result.logs && result.logs.length > 0 ? result.logs.join('\n') : 'undefined'))
         : `Error: ${result.error || 'Error de ejecución'}`;
       const cleanOutput = String(output ?? '').trim();
-      resContainer.innerHTML = `<div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre>`;
+      resContainer.innerHTML = `<div class="tool-result-label">${t('tool_sandbox_output')}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre>`;
     }
   }
 
@@ -122,10 +122,10 @@
     const cleanOutput = String(output ?? '').trim();
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: '',
-      titleHtml: `<span>${JS_ICON_SVG}</span><span>${t('tool_js_title_running') || 'execute_javascript'}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-success">${checkSvg} <span>${t('tool_status_success') || 'Completado'}</span></span>`,
+      titleHtml: `<span>${JS_ICON_SVG}</span><span>${t('tool_js_title_running')}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-success">${checkSvg} <span>${t('tool_status_success')}</span></span>`,
       bodyHtml: `<pre class="tool-card-code"><code>${Markdown.escapeHtml(getCode(args).trim())}</code></pre>
-          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output') || 'Resultado:'}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>`
+          <div class="tool-card-result"><div class="tool-result-label">${t('tool_sandbox_output')}</div><pre class="tool-result-pre"><code>${Markdown.escapeHtml(cleanOutput)}</code></pre></div>`
     }, ui);
     return cardDiv;
   }
@@ -140,13 +140,10 @@
       definition,
       aliases: ['executejs', 'execute_js', 'run_javascript', 'run_js', 'javascript', 'evaljs'],
       category: 'computation',
-      metadata: { icon: 'zap', label: definition.name },
+      metadata: { label: definition.name },
       settings: {
         titleKey: 'agent_js_title',
-        titleFallback: 'Ejecución de JavaScript (Cálculos locales)',
         descKey: 'agent_js_desc',
-        descFallback: 'Permite al modelo invocar execute_javascript para calcular, procesar datos o validar algoritmos directamente en el navegador bajo supervisión técnica.',
-        icon: 'zap',
         defaultEnabled: true,
         showInSettings: true
       },

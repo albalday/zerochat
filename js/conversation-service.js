@@ -148,7 +148,7 @@
     if (!sess) {
       sess = {
         id: currId,
-        title: t('chat_untitled') || 'Nueva conversación',
+        title: t('chat_untitled'),
         createdAt: now,
         updatedAt: now,
         messageCount: history.length

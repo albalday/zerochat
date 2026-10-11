@@ -38,10 +38,6 @@
 
   let currentAbortController = null;
 
-  function getCurrentAbortController() {
-    return currentAbortController;
-  }
-
   function isGenerating() {
     const State = getState();
     return State?.get?.('streaming')?.isGenerating === true || currentAbortController !== null;
@@ -440,7 +436,6 @@
     finishGeneration,
     handleStopGeneration,
     runCancellableTask,
-    isGenerating,
-    getCurrentAbortController
+    isGenerating
   };
 }));

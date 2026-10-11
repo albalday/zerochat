@@ -57,9 +57,9 @@
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
     const query = args?.query || args?.q || args?.search || '';
-    const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) }) || `Conocimiento local: "${Markdown.escapeHtml(query)}"`;
-    const loading = t('tool_rag_search_loading') || 'Buscando con Orama...';
-    const building = t('tool_rag_search_building') || 'Construyendo el índice local...';
+    const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) });
+    const loading = t('tool_rag_search_loading');
+    const building = t('tool_rag_search_building');
     card.innerHTML = getCards().renderCardHtml({
       className: 'rag-execution-card',
       titleHtml: `<span>${DB_ICON_SVG}</span><span>${title}</span>`,
@@ -79,8 +79,8 @@
     const count = result?.matchesCount ?? 0;
     const text = result?.text || (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result || ''));
     const badge = card.querySelector('.tool-card-badge');
-    const matchesLabel = t('tool_rag_search_matches', { count, plural: count === 1 ? '' : 's', scope: result?.appliedScope || 'auto' }) || `${count} coincidencia${count === 1 ? '' : 's'} · ${result?.appliedScope || 'auto'}`;
-    const errorLabel = result?.error || t('tool_err_query') || 'Error al consultar';
+    const matchesLabel = t('tool_rag_search_matches', { count, plural: count === 1 ? '' : 's', scope: result?.appliedScope || 'auto' });
+    const errorLabel = result?.error || t('tool_err_query');
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
       badge.innerHTML = success ? `${checkSvg} <span>${matchesLabel} (${elapsedMs || 0}ms)</span>` : `${errorSvg} <span>${Markdown.escapeHtml(errorLabel)}</span>`;
@@ -97,7 +97,7 @@
       definition,
       aliases: ['search_kb', 'searchknowledgebase', 'search_documents', 'search_knowledge', 'buscar_en_documentos'],
       category: 'rag',
-      metadata: { icon: 'search', label: definition.name },
+      metadata: { label: definition.name },
       settings: { showInSettings: false },
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {

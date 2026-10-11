@@ -38,14 +38,6 @@
     return '';
   }
 
-  function uiText(key, fallback, params) {
-    if (typeof window !== 'undefined' && window.ChatI18n?.uiText) {
-      return window.ChatI18n.uiText(key, fallback, params);
-    }
-    const val = t(key, params);
-    return (val && val !== key) ? val : (fallback || key);
-  }
-
   function getIcon(name, options) {
     if (typeof window !== 'undefined' && window.ChatIcons?.get) {
       return window.ChatIcons.get(name, options);
@@ -76,18 +68,18 @@
       count,
       plural: count === 1 ? '' : 's',
       bytes
-    }) || `${count} documento${count === 1 ? '' : 's'} de ${bytes}`;
+    });
   }
 
   function formatBranchLanguage(lang) {
     const clean = String(lang || 'spanish').toLowerCase().trim();
     const map = {
-      spanish: t('rag_lang_spanish') || 'Español',
-      english: t('rag_lang_english') || 'Inglés',
-      french: t('rag_lang_french') || 'Francés',
-      german: t('rag_lang_german') || 'Alemán',
-      italian: t('rag_lang_italian') || 'Italiano',
-      portuguese: t('rag_lang_portuguese') || 'Portugués'
+      spanish: t('rag_lang_spanish'),
+      english: t('rag_lang_english'),
+      french: t('rag_lang_french'),
+      german: t('rag_lang_german'),
+      italian: t('rag_lang_italian'),
+      portuguese: t('rag_lang_portuguese')
     };
     return map[clean] || (clean.charAt(0).toUpperCase() + clean.slice(1));
   }
@@ -97,14 +89,14 @@
     let images;
     if (hasImageCount) {
       images = document.imageCount === 1
-        ? (t('rag_image_count_singular', { count: 1 }) || '1 imagen')
-        : (t('rag_image_count_plural', { count: document.imageCount }) || `${document.imageCount} imágenes`);
+        ? (t('rag_image_count_singular', { count: 1 }))
+        : (t('rag_image_count_plural', { count: document.imageCount }));
     } else {
-      images = t('rag_image_count_reload') || 'imágenes: recarga necesaria';
+      images = t('rag_image_count_reload');
     }
     const chunks = document?.chunkCount || 0;
     const size = formatBytes(document?.fileSize);
-    return t('rag_doc_metrics_format', { chunks, size, images }) || `${chunks} fragmentos · ${size} · ${images}`;
+    return t('rag_doc_metrics_format', { chunks, size, images });
   }
 
   function getActiveBranchIds() {
@@ -189,10 +181,10 @@
     const count = activeBranchIds.size;
     button.classList.toggle('active', count > 0);
     button.title = count === 0
-      ? (t('btn_rag_title') || 'Gestionar conocimiento local')
+      ? (t('btn_rag_title'))
       : (count === 1
-        ? (t('rag_toolbar_active_single') || 'Conocimiento local activo (1 rama)')
-        : (t('rag_toolbar_active_multi', { count }) || `Conocimiento local activo (${count} ramas)`));
+        ? (t('rag_toolbar_active_single'))
+        : (t('rag_toolbar_active_multi', { count })));
   }
 
   async function renderActivationDialog() {
@@ -207,32 +199,32 @@
     const activeCount = activeList.length;
 
     if (title) {
-      if (activeCount === 0) title.textContent = t('rag_status_disabled') || 'Conocimiento desactivado';
+      if (activeCount === 0) title.textContent = t('rag_status_disabled');
       else if (activeCount === 1) title.textContent = activeList[0].name;
-      else title.textContent = t('rag_status_active_count', { count: activeCount, list: activeList.map(b => b.name).join(', ') }) || `${activeCount} ramas activas (${activeList.map(b => b.name).join(', ')})`;
+      else title.textContent = t('rag_status_active_count', { count: activeCount, list: activeList.map(b => b.name).join(', ') });
     }
     if (description) {
-      if (activeCount === 0) description.textContent = t('rag_status_disabled_desc') || 'Selecciona una o varias ramas para que el agente pueda buscar en tus documentos.';
-      else if (activeCount === 1) description.textContent = t('rag_status_desc_single') || 'El agente puede buscar fragmentos de esta rama mediante Orama.';
-      else description.textContent = t('rag_status_desc_multi', { count: activeCount }) || `El agente consultará en paralelo las ${activeCount} ramas activas en cada búsqueda.`;
+      if (activeCount === 0) description.textContent = t('rag_status_disabled_desc');
+      else if (activeCount === 1) description.textContent = t('rag_status_desc_single');
+      else description.textContent = t('rag_status_desc_multi', { count: activeCount });
     }
     if (toggle) {
       toggle.disabled = activeCount === 0;
-      toggle.textContent = t('rag_disable_all') || 'Desactivar todas';
+      toggle.textContent = t('rag_disable_all');
     }
     if (!list) return;
     if (!branches.length) {
-      list.innerHTML = `<div class="rag-empty-state">${t('rag_no_branches_active') || 'No hay ramas. Crea la primera desde RAG en Configuración.'}</div>`;
+      list.innerHTML = `<div class="rag-empty-state">${t('rag_no_branches_active')}</div>`;
       return;
     }
     list.innerHTML = branches.map(branch => {
       const isActive = activeBranchIds.has(branch.id);
       const metrics = branchMetrics.get(branch.id);
       const formatted = formatBranchMetrics(metrics);
-      const loadedText = t('rag_branch_loaded', { summary: formatted }) || `Esta rama cargó ${formatted}`;
-      const descText = branch.description || t('rag_branch_no_desc') || 'Sin descripción';
+      const loadedText = t('rag_branch_loaded', { summary: formatted });
+      const descText = branch.description || t('rag_branch_no_desc');
       const badgeIcon = isActive ? getIcon('check', { size: 12 }) : getIcon('plus', { size: 12 });
-      const badgeText = isActive ? (t('rag_branch_active_badge') || 'Activa') : (t('rag_branch_activate_badge') || 'Activar');
+      const badgeText = isActive ? (t('rag_branch_active_badge')) : (t('rag_branch_activate_badge'));
       const langLabel = formatBranchLanguage(branch.language);
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
@@ -276,10 +268,10 @@
     ]);
     const status = parts.length ? parts.join(' · ') : t('rag_ingestion_status', { processed });
 
-    const header = t('rag_ingestion_global', { finished, total }) || `Carga global: ${finished} de ${total}`;
+    const header = t('rag_ingestion_global', { finished, total });
     const stopIcon = '<svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
     const stopBtn = isRunning
-      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-danger-outline rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion') || 'Detener')}</span></button>`
+      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-danger-outline rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion'))}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion'))}</span></button>`
       : '';
 
     return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div class="rag-ingestion-global-actions"><span>${overallPercent}%</span>${stopBtn}</div></div>`;
@@ -316,21 +308,21 @@
     const workspace = document.getElementById('rag-manage-workspace');
     if (!workspace) return;
     if (!branchId) {
-      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty') || 'Escribe un nombre arriba y pulsa "Crear rama" para empezar.'}</div>`;
+      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty')}</div>`;
       return;
     }
     const documents = await storage().getDocumentsByBranch(branchId);
     const branch = await storage().getBranchById(branchId);
-    const dropzoneTitle = t('rag_dropzone_title') || 'Arrastra o selecciona archivos';
-    const dropzoneHint = t('rag_dropzone_hint') || 'PDF o archivos de texto · guardado privado en IndexedDB';
-    const deleteDocTitle = t('rag_delete_doc_title') || 'Eliminar documento';
-    const emptyDocsText = t('rag_branch_empty_docs') || 'La rama todavía no contiene documentos.';
+    const dropzoneTitle = t('rag_dropzone_title');
+    const dropzoneHint = t('rag_dropzone_hint');
+    const deleteDocTitle = t('rag_delete_doc_title');
+    const emptyDocsText = t('rag_branch_empty_docs');
     const langLabel = formatBranchLanguage(branch?.language);
 
     workspace.innerHTML = `
       <div class="rag-workspace-header-bar">
-        <span>${escapeHtml(t('rag_branch_label') || 'Rama:')} <strong>${escapeHtml(branch?.name || '')}</strong></span>
-        <span class="rag-workspace-lang">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang') || 'Idioma de la documentación:')} <strong>${escapeHtml(langLabel)}</strong></span>
+        <span>${escapeHtml(t('rag_branch_label'))} <strong>${escapeHtml(branch?.name || '')}</strong></span>
+        <span class="rag-workspace-lang">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang'))} <strong>${escapeHtml(langLabel)}</strong></span>
       </div>
       <label class="rag-dropzone" id="rag-dropzone">
         <strong>${escapeHtml(dropzoneTitle)}</strong>
@@ -360,7 +352,7 @@
     }
     workspace.querySelectorAll('[data-delete-document]').forEach(button => button.addEventListener('click', async () => {
       const documentId = button.dataset.deleteDocument;
-      const confirmMsg = t('rag_delete_doc_confirm') || '¿Eliminar este documento y todos sus fragmentos?';
+      const confirmMsg = t('rag_delete_doc_confirm');
       if (!await ChatDialogs.confirm(confirmMsg)) return;
       const document = await storage().getDocumentById(documentId);
       if (!document || document.branchId !== branchId || !(await storage().getBranchById(branchId))) return;
@@ -406,7 +398,7 @@
         stopBtn.dataset.bound = 'true';
         stopBtn.addEventListener('click', () => {
           stopBtn.disabled = true;
-          stopBtn.textContent = t('rag_ingestion_stopping') || 'Deteniendo...';
+          stopBtn.textContent = t('rag_ingestion_stopping');
           abortController.abort();
         });
       }
@@ -417,13 +409,12 @@
       if (!Dialogs?.askDuplicate && !Dialogs?.confirm) {
         return { action: 'ignore', applyToAll: false };
       }
-      const promptMsg = t('rag_duplicate_prompt', { name: fullPath }) ||
-        `Ya existe un documento con el mismo nombre y ruta en esta rama ("${fullPath}"). ¿Deseas reemplazarlo o ignorarlo?`;
+      const promptMsg = t('rag_duplicate_prompt', { name: fullPath });
       const options = {
-        title: t('rag_duplicate_title') || 'Documento duplicado',
-        acceptText: t('rag_btn_replace') || 'Reemplazar',
-        cancelText: t('rag_btn_ignore') || 'Ignorar',
-        checkbox: t('rag_duplicate_apply_all') || 'Aplicar a todos los duplicados restantes de esta carga'
+        title: t('rag_duplicate_title'),
+        acceptText: t('rag_btn_replace'),
+        cancelText: t('rag_btn_ignore'),
+        checkbox: t('rag_duplicate_apply_all')
       };
       const res = Dialogs.askDuplicate
         ? await Dialogs.askDuplicate(promptMsg, options)
@@ -473,7 +464,7 @@
     const select = document.getElementById('rag-manage-branch-select');
     if (!select) return;
     const selected = preferredBranchId || (isCreatingBranch ? '__new__' : select.value) || branches[0]?.id || '__new__';
-    const newBranchLabel = uiText('rag_opt_new_branch', '+ Nueva rama...');
+    const newBranchLabel = t('rag_opt_new_branch');
     const options = branches.map(branch => `<option value="${escapeHtml(branch.id)}"${branch.id === selected ? ' selected' : ''}>${escapeHtml(branch.name)} (${escapeHtml(formatBranchMetrics(branchMetrics.get(branch.id)))})</option>`);
     options.push(`<option value="__new__"${selected === '__new__' ? ' selected' : ''}>${escapeHtml(newBranchLabel)}</option>`);
     select.innerHTML = options.join('');
@@ -595,7 +586,7 @@
     updateSaveButtonState();
     const workspace = document.getElementById('rag-manage-workspace');
     if (workspace) {
-      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty') || 'Escribe un nombre arriba y pulsa "Guardar" para empezar.'}</div>`;
+      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty')}</div>`;
     }
   }
 
@@ -619,7 +610,7 @@
     const language = (langSelect?.value || 'spanish').trim().toLowerCase();
 
     if (!name) {
-      showBranchFeedback(t('rag_branch_name_empty') || 'Por favor, escribe un nombre para la rama.', 'error');
+      showBranchFeedback(t('rag_branch_name_empty'), 'error');
       nameInput?.focus();
       return;
     }
@@ -635,7 +626,7 @@
       await syncActivationIfOpen();
       await updateToolbarStatus();
       updateSaveButtonState();
-      showBranchFeedback(t('rag_branch_created', { name }) || `Rama "${name}" creada con éxito.`, 'success');
+      showBranchFeedback(t('rag_branch_created', { name }), 'success');
     } else {
       const select = document.getElementById('rag-manage-branch-select');
       const id = select?.value;
@@ -650,7 +641,7 @@
         await syncActivationIfOpen();
         await updateToolbarStatus();
         updateSaveButtonState();
-        showBranchFeedback(t('rag_branch_created', { name }) || `Rama "${name}" creada con éxito.`, 'success');
+        showBranchFeedback(t('rag_branch_created', { name }), 'success');
         return;
       }
       await storage().updateBranch(id, { name, description, language });
@@ -663,14 +654,14 @@
       await syncActivationIfOpen();
       await updateToolbarStatus();
       updateSaveButtonState();
-      showBranchFeedback(t('rag_branch_updated', { name }) || `Rama "${name}" guardada con éxito.`, 'success');
+      showBranchFeedback(t('rag_branch_updated', { name }), 'success');
     }
   }
 
   async function deleteBranch() {
     const select = document.getElementById('rag-manage-branch-select');
     const id = select?.value;
-    const confirmMsg = t('rag_delete_branch_confirm') || '¿Eliminar la rama y todos sus documentos?';
+    const confirmMsg = t('rag_delete_branch_confirm');
     if (!id || id === '__new__' || !await ChatDialogs.confirm(confirmMsg)) return;
     if (!(await storage().getBranchById(id))) return;
     await storage().deleteBranch(id);
@@ -871,7 +862,7 @@
       const val = event.target.value;
       if (hasPendingBranchChanges()) {
         const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-        if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes') || 'Hay cambios sin guardar en la rama. ¿Deseas descartarlos?')) {
+        if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes'))) {
           const select = document.getElementById('rag-manage-branch-select');
           if (select) select.value = isCreatingBranch ? '__new__' : (loadedBranchId || '');
           return;

@@ -50,15 +50,15 @@
     const Markdown = ui?.markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
     const t = ui?.t || ((key, params) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const title = t('tool_rag_read_title') || 'Fragmento de conocimiento';
+    const title = t('tool_rag_read_title');
     const ids = Array.isArray(args?.chunkIds) && args.chunkIds.length > 0
       ? args.chunkIds
       : (args?.chunkId ? [args.chunkId] : []);
     const targetLabel = ids.length > 1
       ? `${ids.length} fragmentos`
       : (ids[0] || '');
-    const loading = t('tool_rag_read_loading', { chunkId: Markdown.escapeHtml(targetLabel) }) || `Leyendo ${Markdown.escapeHtml(targetLabel)}...`;
-    const retrieving = t('tool_rag_read_retrieving') || 'Recuperando texto desde IndexedDB...';
+    const loading = t('tool_rag_read_loading', { chunkId: Markdown.escapeHtml(targetLabel) });
+    const retrieving = t('tool_rag_read_retrieving');
     card.innerHTML = getCards().renderCardHtml({
       className: 'rag-execution-card',
       titleHtml: `<span>${DOC_ICON_SVG}</span><span>${title}</span>`,
@@ -78,8 +78,8 @@
     const badge = card.querySelector('.tool-card-badge');
     const count = result?.count || (result?.chunkIds?.length) || 1;
     const countLabel = count > 1 ? `${count} fragmentos recuperados` : 'Fragmento recuperado';
-    const retrievedLabel = t('tool_rag_read_retrieved', { chars: content.length }) || `${countLabel} (${content.length} caracteres)`;
-    const notFoundLabel = result?.error || t('tool_rag_read_not_found') || 'No encontrado';
+    const retrievedLabel = t('tool_rag_read_retrieved', { chars: content.length });
+    const notFoundLabel = result?.error || t('tool_rag_read_not_found');
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
       badge.innerHTML = success ? `${checkSvg} <span>${retrievedLabel}</span>` : `${errorSvg} <span>${Markdown.escapeHtml(notFoundLabel)}</span>`;
@@ -100,7 +100,7 @@
       definition,
       aliases: [],
       category: 'rag',
-      metadata: { icon: 'file-text', label: definition.name },
+      metadata: { label: definition.name },
       settings: { showInSettings: false },
       isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {

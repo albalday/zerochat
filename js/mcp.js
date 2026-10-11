@@ -816,8 +816,8 @@
         if (typeof document === 'undefined') return null;
         const t = ui?.t || (k => k);
         const spinner = ui?.SPINNER_SVG || '';
-        const badge = `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></span>`;
-        const placeholder = `<div class="tool-loading-placeholder">${spinner} <span>${t('tool_badge_executing') || 'Ejecutando...'}</span></div>`;
+        const badge = `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_executing')}</span></span>`;
+        const placeholder = `<div class="tool-loading-placeholder">${spinner} <span>${t('tool_badge_executing')}</span></div>`;
         return renderCard(args, placeholder, badge, ui, false);
       },
       updateLiveCard: (cardDiv, args, result = {}, elapsedMs = 0, ui) => {
@@ -828,7 +828,7 @@
         const badge = cardDiv.querySelector('.tool-card-badge');
         if (badge) {
           badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
-          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || ''} <span>${t('tool_status_error', { ms: elapsedMs })}</span>`;
+          badge.innerHTML = isSuccess ? `${ui?.CHECK_SVG || ''} <span>${t('tool_status_success')} (${elapsedMs}ms)</span>` : `${ui?.ERROR_SVG || ''} <span>${t('tool_status_error', { ms: elapsedMs })}</span>`;
         }
         const resEl = cardDiv.querySelector('.tool-card-result');
         if (resEl) {
@@ -843,7 +843,7 @@
         if (typeof document === 'undefined') return null;
         const esc = ui?.markdown?.escapeHtml || getUtils()?.escapeHtml || (() => '');
         const t = ui?.t || (k => k);
-        const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success') || 'OK'}</span></span>`;
+        const badge = `<span class="tool-card-badge status-success">${ui?.CHECK_SVG || ''} <span>${t('tool_status_success')}</span></span>`;
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
         const card = renderCard(args, `<pre class="tool-card-code"><code>${esc(out)}</code></pre>`, badge, ui, true);
         const screenshot = getSafeMcpImageFromMessage(message);
@@ -916,12 +916,10 @@
           settings: {
             titleFallback: toolName,
             descFallback: rt.description || '',
-            icon: 'plug',
             defaultEnabled: rt.availability?.available !== false,
             showInSettings: true
           },
           metadata: {
-            icon: 'plug',
             iconSvg: getMcpIconSvg(14),
             label: toolName,
             mcpServerName: serverName,
@@ -1179,20 +1177,6 @@
           error: err.message
         };
       }
-    }
-
-    /**
-     * Conecta y sincroniza todos los servidores habilitados con el ToolRegistry.
-     */
-    async syncAllWithRegistry(registry) {
-      const results = [];
-      for (const server of this.servers) {
-        if (server.enabled) {
-          const res = await this.connectAndRegisterServer(server.id, registry);
-          results.push({ serverId: server.id, name: server.name, ...res });
-        }
-      }
-      return results;
     }
 
     /**

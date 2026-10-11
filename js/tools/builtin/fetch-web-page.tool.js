@@ -37,8 +37,8 @@
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: 'web-request-card',
       titleHtml: `<span>${GLOBE_ICON_SVG}</span><span>${t('tool_web_title')}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_fetching') || 'Consultando...'}</span></span>`,
-      bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving') || 'Recibiendo contenido...'}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_web')}</span></div></div>`
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_fetching')}</span></span>`,
+      bodyHtml: `<div class="web-card-section web-request-section"><div class="section-label">${t('tool_web_requested_url')}</div><div class="url-badge"><a href="${Markdown.sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${Markdown.escapeHtml(url)}</a></div></div><div class="web-card-section web-response-section"><div class="section-label section-response-label">${t('tool_web_receiving')}</div><div class="web-response-body tool-loading-placeholder">${spinner} <span>${t('tool_loading_web')}</span></div></div>`
     }, ui);
     return cardDiv;
   }
@@ -60,7 +60,7 @@
         : `${errorSvg} <span>HTTP ${status} Error (${elapsedMs || 0}ms)</span>`;
     }
     const label = cardDiv.querySelector('.section-response-label');
-    if (label) label.textContent = t('tool_web_content_received', { size: `${content.length} chars` }) || `Contenido recibido (${content.length} caracteres):`;
+    if (label) label.textContent = t('tool_web_content_received', { size: `${content.length} chars` });
     const body = cardDiv.querySelector('.web-response-body');
     if (body) { body.className = 'web-response-body'; body.innerHTML = `<code>${Markdown.escapeHtml(content.slice(0, 1500))}${content.length > 1500 ? '...' : ''}</code>`; }
   }
@@ -81,11 +81,11 @@
       definition,
       aliases: ['fetchwebpage', 'fetch_web', 'fetch_url', 'get_web_page', 'read_web_page', 'web_fetch', 'browse_web', 'webpage'],
       category: 'web',
-      metadata: { icon: 'globe', label: definition.name },
+      metadata: { label: definition.name },
       settings: {
-        titleKey: 'agent_web_title', titleFallback: 'Navegación Web en Tiempo Real',
-        descKey: 'agent_web_desc', descFallback: 'Permite al modelo invocar fetch_web_page para consultar páginas web públicas y extraer su contenido textual en tiempo real.',
-        icon: 'globe', defaultEnabled: true, showInSettings: true
+        titleKey: 'agent_web_title',
+        descKey: 'agent_web_desc',
+        defaultEnabled: true, showInSettings: true
       },
       promptGuide: () => '- `fetch_web_page(url="...")`: Downloads and extracts clean text content from public web pages or HTML articles.',
       execute: async (args, context = {}) => {

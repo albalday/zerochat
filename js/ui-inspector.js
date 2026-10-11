@@ -653,7 +653,7 @@
       elements.inspectorResults.innerHTML = `
         ${modelSectionHtml}
         <div class="server-query-status status-error" style="display: block; ${modelSectionHtml ? 'margin-top: 0.85rem;' : ''}">
-          ${escapeHtml(report.error || t('inspector_conn_failed') || 'Fallo de conexión: No se pudo conectar con el servidor.')}
+          ${escapeHtml(report.error || t('inspector_conn_failed'))}
         </div>
       `;
       return;
@@ -706,14 +706,14 @@
     });
 
     const modelInfoText = m.totalDiscovered > 0
-      ? (t('inspector_discovered_models', { count: m.totalDiscovered }) || `${m.totalDiscovered} modelo(s) descubierto(s)`)
-      : (m.selected ? (t('inspector_model_selected', { model: m.selected }) || `Modelo: ${m.selected}`) : (t('inspector_no_models') || 'Sin modelos listados'));
+      ? (t('inspector_discovered_models', { count: m.totalDiscovered }))
+      : (m.selected ? (t('inspector_model_selected', { model: m.selected })) : (t('inspector_no_models')));
 
-    const metaProvider = t('inspector_meta_provider') || 'Proveedor';
-    const metaEndpoint = t('inspector_meta_endpoint') || 'Endpoint Chat';
-    const metaModels = t('inspector_meta_models') || 'Modelos';
-    const metaLatency = t('inspector_meta_latency') || 'Latencia Diagnóstico';
-    const unknownText = t('inspector_unknown') || 'Desconocido';
+    const metaProvider = t('inspector_meta_provider');
+    const metaEndpoint = t('inspector_meta_endpoint');
+    const metaModels = t('inspector_meta_models');
+    const metaLatency = t('inspector_meta_latency');
+    const unknownText = t('inspector_unknown');
 
     elements.inspectorResults.innerHTML = `
       ${modelSectionHtml}
@@ -759,7 +759,7 @@
         elements.inspectorResults.style.display = 'block';
         elements.inspectorResults.innerHTML = `
           <div class="server-query-status status-error" style="display: block;">
-            ${escapeHtml(t('err_invalid_url') || 'Por favor, introduce una URL de servidor válida.')}
+            ${escapeHtml(t('err_invalid_url'))}
           </div>
         `;
       }
@@ -771,7 +771,7 @@
         elements.inspectorResults.style.display = 'block';
         elements.inspectorResults.innerHTML = `
           <div class="server-query-status status-error" style="display: block;">
-            ${escapeHtml(t('inspector_err_no_model') || 'No se ha seleccionado ningún modelo en este perfil para inspeccionar.')}
+            ${escapeHtml(t('inspector_err_no_model'))}
           </div>
         `;
       }
@@ -898,7 +898,7 @@
       `;
 
       if (!API?.inspectProvider) {
-        throw new Error(t('inspector_module_unavailable') || 'Módulo de inspección no disponible.');
+        throw new Error(t('inspector_module_unavailable'));
       }
 
       addDebugLog('network', `Ejecutando Provider Inspector en ${apiUrl} [${apiType}]`);

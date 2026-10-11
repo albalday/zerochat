@@ -32,19 +32,14 @@ test('I18n - t() inserta los valores literalmente, sin patrones especiales de re
   assert.equal(t('field_temperature', { other: 'x' }), template);
 });
 
-test('I18n - uiText centraliza textos visibles con fallback local', () => {
-  assert.equal(I18n.uiText('rag_modal_title'), I18n.t('rag_modal_title'));
-  assert.equal(I18n.uiText('__missing_ui_key__', 'Fallback visible'), 'Fallback visible');
-});
-
 test('I18n - Traducciones del conocimiento local', () => {
   I18n.setLanguage('es', false);
-  assert.equal(I18n.t('rag_modal_title'), 'Conocimiento local');
+  assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Ramas');
   assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
   assert.match(I18n.t('rag_status_desc_single'), /mediante Orama/);
 
   I18n.setLanguage('en', false);
-  assert.equal(I18n.t('rag_modal_title'), 'Local knowledge');
+  assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Branches');
   assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
   assert.match(I18n.t('rag_status_desc_single'), /using Orama/);
 });

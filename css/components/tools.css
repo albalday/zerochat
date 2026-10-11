@@ -1368,12 +1368,6 @@
   color: var(--text-main);
 }
 
-/* Iconos de estado del plan del agente (ChatIcons usa stroke="currentColor") */
-.status-icon-completed { color: var(--success-color, #22c55e); }
-.status-icon-progress { color: var(--primary-color, #3b82f6); }
-.status-icon-pending { color: var(--text-muted, #94a3b8); }
-.status-icon-failed { color: var(--error-color, #ef4444); }
-
 /* Pregunta del agente con opciones (ask_user): resultado principal, fuera de los grupos. */
 .ask-user-card {
   margin-top: 0.85rem;

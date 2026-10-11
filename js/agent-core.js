@@ -197,7 +197,6 @@
         titleFallback: settings.titleFallback || options.metadata?.label || this.name,
         descKey: settings.descKey || `agent_${this.name}_desc`,
         descFallback: settings.descFallback || this.description,
-        icon: settings.icon || options.metadata?.icon || '⚙️',
         defaultEnabled: settings.defaultEnabled !== false,
         showInSettings: settings.showInSettings !== false
       };
@@ -464,11 +463,8 @@
             id: tool.id || tool.name,
             name: tool.name,
             category: tool.category,
-            icon: tool.settings.icon,
             titleKey: tool.settings.titleKey,
-            titleFallback: tool.settings.titleFallback,
             descKey: tool.settings.descKey,
-            descFallback: tool.settings.descFallback,
             defaultEnabled: tool.settings.defaultEnabled !== false
           });
         }

@@ -41,9 +41,9 @@
     const spinner = ui?.SPINNER_SVG || '';
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: 'web-search-card',
-      titleHtml: `<span>${SEARCH_ICON_SVG}</span><span>${t('tool_search_title') || 'Búsqueda en Internet'}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_searching') || 'Buscando...'}</span></span>`,
-      bodyHtml: `<div class="search-query-section"><div class="section-label">${t('tool_search_query')}</div><div class="query-badge">${SEARCH_ICON_SVG} <strong>${Markdown.escapeHtml(getQuery(args))}</strong></div></div><div class="search-results-section"><div class="section-label search-sources-label">${t('tool_search_searching') || 'Buscando fuentes...'}</div><div class="search-results-list tool-loading-placeholder">${spinner} <span>${t('tool_loading_search') || 'Consultando motores de búsqueda...'}</span></div></div>`
+      titleHtml: `<span>${SEARCH_ICON_SVG}</span><span>${t('tool_search_title')}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${t('tool_badge_searching')}</span></span>`,
+      bodyHtml: `<div class="search-query-section"><div class="section-label">${t('tool_search_query')}</div><div class="query-badge">${SEARCH_ICON_SVG} <strong>${Markdown.escapeHtml(getQuery(args))}</strong></div></div><div class="search-results-section"><div class="section-label search-sources-label">${t('tool_search_searching')}</div><div class="search-results-list tool-loading-placeholder">${spinner} <span>${t('tool_loading_search')}</span></div></div>`
     }, ui);
     return cardDiv;
   }
@@ -64,13 +64,13 @@
         : `${errorSvg} <span>Error búsqueda (${elapsedMs || 0}ms)</span>`;
     }
     const label = cardDiv.querySelector('.search-sources-label');
-    if (label) label.textContent = t('tool_search_sources_label') || 'Fuentes y resultados encontrados:';
+    if (label) label.textContent = t('tool_search_sources_label');
     const list = cardDiv.querySelector('.search-results-list');
     if (!list) return;
     if (result?.results?.length) {
       list.innerHTML = result.results.map(item => `<div class="search-result-item"><div><a href="${Markdown.sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">${LINK_ICON_SVG} ${Markdown.escapeHtml(item.title)}</a> <small style="opacity:0.75;">(${Markdown.escapeHtml(item.source || 'web')})</small></div>${item.snippet ? `<div class="search-result-snippet">${Markdown.escapeHtml(item.snippet)}</div>` : ''}</div>`).join('');
     } else if (result?.markdown) list.innerHTML = `<div class="search-result-snippet">${Markdown.renderMarkdown(result.markdown)}</div>`;
-    else list.innerHTML = `<div class="search-result-snippet"><em>${t('tool_search_empty') || 'No se encontraron resultados relevantes.'}</em></div>`;
+    else list.innerHTML = `<div class="search-result-snippet"><em>${t('tool_search_empty')}</em></div>`;
   }
 
   function renderHistoricalCard(args, toolMessage, ui) {
@@ -91,11 +91,11 @@
       definition,
       aliases: ['searchweb', 'web_search', 'duckduckgo_search', 'duckduckgo', 'search_internet', 'internet_search', 'search'],
       category: 'web',
-      metadata: { icon: 'search', label: definition.name },
+      metadata: { label: definition.name },
       settings: {
-        titleKey: 'agent_search_title', titleFallback: 'Búsqueda en DuckDuckGo en Tiempo Real',
-        descKey: 'agent_search_desc', descFallback: 'Permite al modelo invocar search_web para buscar información actualizada, definiciones, noticias y enlaces web mediante la API de DuckDuckGo.',
-        icon: 'search', defaultEnabled: true, showInSettings: true
+        titleKey: 'agent_search_title',
+        descKey: 'agent_search_desc',
+        defaultEnabled: true, showInSettings: true
       },
       promptGuide: () => '- `search_web(query="...")`: Searches up-to-date information, news, articles, and links on the internet using DuckDuckGo.',
       execute: async (args, context = {}) => {

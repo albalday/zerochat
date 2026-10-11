@@ -138,9 +138,8 @@ test('Builtin Tools - render_chart ejecuta de forma autocontenida', async () => 
   // Vista delegada de render_chart
   const fakeDocument = { createElement: () => ({ className: '', innerHTML: '' }) };
   const viewContext = {
-    document: fakeDocument,
-    charts: { renderChartCard: (args) => `<svg data-chart="${args.title}"></svg>` },
-    markdown: { escapeHtml: (value) => String(value) }
+    createCardWrapper: () => fakeDocument.createElement('div'),
+    charts: { renderChartCard: (args) => `<svg data-chart="${args.title}"></svg>` }
   };
   const historical = chartTool.view.renderHistoricalCard({ title: 'Evolución' }, {}, viewContext);
   const live = { innerHTML: '' };
@@ -268,8 +267,11 @@ test('Builtin Tools - render_chart y herramientas de conocimiento escapan HTML c
   };
   const uiWithoutMarkdown = { document: fakeDoc };
 
-  // render_chart
-  const card = RenderChartTool.view.createLiveCard({ title: '<img src=x onerror=alert(1)>' }, uiWithoutMarkdown);
+  // render_chart: la tarjeta la genera ChatCharts, que escapa el título.
+  const card = RenderChartTool.view.createLiveCard({ type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['a'], datasets: [{ label: 'b', data: [1] }] }, {
+    createCardWrapper: () => fakeDoc.createElement('div'),
+    charts: require('../../js/charts.js')
+  });
   assert.ok(card.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.equal(card.innerHTML.includes('<img src=x'), false);
 

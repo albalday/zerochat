@@ -76,7 +76,7 @@
       definition,
       aliases: [],
       category: 'rag',
-      metadata: { icon: 'image', label: definition.name },
+      metadata: { label: definition.name },
       settings: { showInSettings: false },
       isAvailable: config => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args, context = {}) => {

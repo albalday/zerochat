@@ -331,8 +331,8 @@
       id: definition.name,
       definition,
       category: 'agent',
-      metadata: { icon: 'bot', label: definition.name },
-      settings: { titleKey: 'agent_delegate_task_title', titleFallback: 'Subagentes', descKey: 'agent_delegate_task_desc', descFallback: 'Permite al modelo delegar una investigación a un subagente de solo lectura.', icon: 'bot', defaultEnabled: true, showInSettings: true },
+      metadata: { label: definition.name },
+      settings: { titleKey: 'agent_delegate_task_title', descKey: 'agent_delegate_task_desc', defaultEnabled: true, showInSettings: true },
       promptGuide: () => '- `delegate_task(task="...")`: Delegates a self-contained research task to a read-only subagent with a fresh context and returns only its final report. Use it for broad investigations that need many reads; it cannot see this conversation.',
       execute: runSubagent,
       result: {

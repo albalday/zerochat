@@ -31,12 +31,7 @@
     const definition = SERVICE_DEFINITIONS[name];
     if (!definition) return null;
 
-    if (typeof window !== 'undefined') {
-      if (window[definition.globalName]) return window[definition.globalName];
-      if (definition.fallbackGlobalName && window[definition.fallbackGlobalName]) {
-        return window[definition.fallbackGlobalName];
-      }
-    }
+    if (typeof window !== 'undefined' && window[definition.globalName]) return window[definition.globalName];
 
     if (typeof require !== 'undefined') {
       try { return require(definition.modulePath); } catch (e) { /* módulo opcional: no disponible en este entorno */ }

@@ -430,15 +430,6 @@
     }
 
     /**
-     * Establece el proveedor predeterminado.
-     */
-    setDefault(id) {
-      if (id && this.providers.has(String(id).toLowerCase())) {
-        this.defaultProviderId = String(id).toLowerCase();
-      }
-    }
-
-    /**
      * Ejecuta una búsqueda utilizando el proveedor indicado o el por defecto.
      */
     async search(query, options = {}) {

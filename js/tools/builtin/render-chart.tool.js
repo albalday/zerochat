@@ -21,28 +21,13 @@
     }
   };
 
-  function createCardWrapper(ui) {
-    if (ui?.createCardWrapper) return ui.createCardWrapper();
-    const doc = ui?.document || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return null;
-    const cardDiv = doc.createElement('div');
-    cardDiv.className = 'tool-card-wrapper';
-    return cardDiv;
-  }
-
-  const safeEscapeHtml = (value) => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
   function renderChart(args, ui) {
-    const Charts = ui?.charts || null;
-    if (Charts?.renderChartCard) return Charts.renderChartCard(args);
-    const escapeHtml = ui?.markdown?.escapeHtml || (typeof window !== 'undefined' && window.ChatMarkdown?.escapeHtml) || (typeof window !== 'undefined' && window.ChatUtils?.escapeHtml) || safeEscapeHtml;
-    const chartIconSvg = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>';
-    return `<div class="chat-chart-card">${chartIconSvg} ${escapeHtml(args.title || 'Gráfico')}</div>`;
+    return ui.charts.renderChartCard(args);
   }
 
   function createLiveCard(args, ui) {
-    const cardDiv = createCardWrapper(ui);
-    if (cardDiv) cardDiv.innerHTML = renderChart(args, ui);
+    const cardDiv = ui.createCardWrapper();
+    cardDiv.innerHTML = renderChart(args, ui);
     return cardDiv;
   }
 
@@ -51,9 +36,7 @@
   }
 
   function renderHistoricalCard(args, _toolMessage, ui) {
-    const cardDiv = createCardWrapper(ui);
-    if (cardDiv) cardDiv.innerHTML = renderChart(args, ui);
-    return cardDiv;
+    return createLiveCard(args, ui);
   }
 
   function createTool(Tool) {
@@ -63,13 +46,11 @@
       definition,
       aliases: ['renderchart', 'draw_chart', 'create_chart', 'plot_chart', 'generate_chart', 'show_chart', 'chart', 'grafico'],
       category: 'charts',
-      metadata: { icon: 'bar-chart', label: definition.name },
-      settings: { titleKey: 'agent_chart_title', titleFallback: 'Visualización de Datos y Gráficos Nativos (SVG)', descKey: 'agent_chart_desc', descFallback: 'Permite al modelo invocar render_chart para generar y mostrar gráficos interactivos de barras, líneas o sectores sin librerías externas.', icon: 'bar-chart', defaultEnabled: true, showInSettings: true },
+      metadata: { label: definition.name },
+      settings: { titleKey: 'agent_chart_title', descKey: 'agent_chart_desc', defaultEnabled: true, showInSettings: true },
       promptGuide: () => '- `render_chart(type="...", title="...", labels=[...], datasets=[...])`: Generates and displays native interactive SVG charts (bar, line, pie, doughnut).',
       execute: async (args, context = {}) => {
-        const Charts = context.services?.charts;
-        if (!Charts || (!Charts.renderChartCard && !Charts.renderBarChart)) return { success: false, error: 'Charts module not available.' };
-        const svgHtml = Charts.renderChartCard ? Charts.renderChartCard(args) : Charts.renderBarChart(args.labels, args.datasets);
+        const svgHtml = context.services.charts.renderChartCard(args);
         return { success: true, svg: svgHtml, chartData: args, title: args.title || 'Chart' };
       },
       result: {

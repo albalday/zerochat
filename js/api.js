@@ -13,9 +13,6 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const Sandbox = typeof window !== 'undefined' ? (window.ChatSandbox || {}) : {};
-  const WebBrowser = typeof window !== 'undefined' ? (window.ChatWebBrowser || {}) : {};
-  const WebSearch = typeof window !== 'undefined' ? (window.ChatWebSearch || {}) : {};
   const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
   const TextToolCalls = typeof window !== 'undefined' ? (window.ChatTextToolCalls || null) : (typeof require !== 'undefined' ? (() => { try { return require('./text-tool-calls.js'); } catch(e) { return null; } })() : null);

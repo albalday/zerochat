@@ -183,11 +183,6 @@
       return state.subscribe('config', listener);
     }
 
-    function resetRuntime() {
-      const mirror = profiles?.get?.(profiles?.READONLY_PROFILE_ID);
-      return commit(mirror ? applyProfile(DEFAULTS, mirror) : DEFAULTS);
-    }
-
     return {
       initialize,
       getActive,
@@ -197,8 +192,7 @@
       update: updateRuntime,
       activateProfile,
       activateFallbackProfile,
-      subscribe,
-      resetRuntime
+      subscribe
     };
   }
 

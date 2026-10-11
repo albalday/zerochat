@@ -106,8 +106,8 @@
       id: definition.name,
       definition,
       category: 'interaction',
-      metadata: { icon: 'help-circle', label: definition.name },
-      settings: { titleKey: 'agent_ask_user_title', titleFallback: 'Preguntas con opciones', descKey: 'agent_ask_user_desc', descFallback: 'Permite al modelo pedirte una decisión con opciones para elegir.', icon: 'help-circle', defaultEnabled: true, showInSettings: true },
+      metadata: { label: definition.name },
+      settings: { titleKey: 'agent_ask_user_title', descKey: 'agent_ask_user_desc', defaultEnabled: true, showInSettings: true },
       promptGuide: () => '- `ask_user(question="...", options=[{"label": "...", "description": "..."}])`: Asks the user a multiple-choice question (2-4 options) and ends your turn. Use only when blocked on a decision that belongs to the user.',
       execute: async (args) => {
         const normalized = normalizeArgs(args);

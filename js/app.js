@@ -19,24 +19,13 @@
   'use strict';
 
   // Módulos globales
-  const Utils = window.ChatUtils || {};
   const Storage = window.ChatStorage || {};
-  const Markdown = window.ChatMarkdown || {};
   const API = window.ChatAPI || {};
-  const FileParser = window.ChatFileParser || {};
-  const Sandbox = window.ChatSandbox || {};
-  const Charts = window.ChatCharts || {};
-  const WebBrowser = window.ChatWebBrowser || {};
-  const WebSearch = window.ChatWebSearch || {};
   const I18n = window.ChatI18n || {};
   const Debug = window.ChatDebug || {};
-  const ToolCards = window.ChatToolCards || {};
   const Attachments = window.ChatAttachments || {};
-  const Export = window.ChatExport || {};
   const ProfileBackup = window.ChatProfileBackup || {};
   const State = window.ChatState || {};
-  const ContextManager = window.ChatContextManager || {};
-  const AgentCore = window.ChatAgentCore || {};
   const Engine = window.ChatEngine || {};
   const UIReasoning = window.ChatUIReasoning || {};
   const GenerationStatus = window.ChatUIGenerationStatus || {};
@@ -59,8 +48,7 @@
   const MessageTurns = window.ChatMessageTurns || {};
 
   function t(key, params) {
-    if (I18n.t) return I18n.t(key, params);
-    return key;
+    return I18n.t(key, params);
   }
 
   if (typeof Config?.initialize !== 'function' || typeof Config?.getActive !== 'function') {
@@ -289,34 +277,16 @@
     };
   }
 
-  function getConfiguredSystemPrompt(config = appConfig) {
-    if (Engine.getConfiguredSystemPrompt) return Engine.getConfiguredSystemPrompt(config);
-    return [config.systemPrompt, config.systemDataPrompt].map(value => String(value || '').trim()).filter(Boolean).join('\n\n');
-  }
-
-  function isHttpExecution() {
-    if (UIShell.isHttpExecution) return UIShell.isHttpExecution();
-    return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
-  }
-
   function updateExecutionInfo() {
-    if (UIShell.updateExecutionInfo) return UIShell.updateExecutionInfo(elements);
-    const httpExecution = isHttpExecution();
-    if (elements.executionStorageScope) {
-      elements.executionStorageScope.textContent = t(httpExecution ? 'execution_info_http' : 'execution_info_file');
-    }
+    return UIShell.updateExecutionInfo(elements);
   }
 
   function openExecutionInfo() {
-    if (UIShell.openExecutionInfo) return UIShell.openExecutionInfo(elements);
-    if (!elements.executionInfoDialog) return;
-    updateExecutionInfo();
-    if (!elements.executionInfoDialog.open) elements.executionInfoDialog.showModal();
+    return UIShell.openExecutionInfo(elements);
   }
 
   function closeExecutionInfo() {
-    if (UIShell.closeExecutionInfo) return UIShell.closeExecutionInfo(elements);
-    if (elements.executionInfoDialog?.open) elements.executionInfoDialog.close();
+    return UIShell.closeExecutionInfo(elements);
   }
 
 
@@ -338,7 +308,7 @@
       storage: Storage,
       getRuntimeConfig,
       language: appConfig.language || 'es',
-      getConfiguredSystemPrompt: (cfg) => getConfiguredSystemPrompt(cfg),
+      getConfiguredSystemPrompt: (cfg) => Engine.getConfiguredSystemPrompt(cfg),
       getChatHistory,
       getCurrentSessionId,
       getSavedSessions,
@@ -367,13 +337,7 @@
 
 
   function blockSessionTransitionIfBusy(messageKey) {
-    if (ConversationService.blockSessionTransitionIfBusy) {
-      return ConversationService.blockSessionTransitionIfBusy(messageKey);
-    }
-    const isBusy = State.isConversationBusy?.() === true;
-    if (!isBusy) return false;
-    ChatDialogs.alert(t(messageKey));
-    return true;
+    return ConversationService.blockSessionTransitionIfBusy(messageKey);
   }
 
   // ==========================================================================
@@ -381,16 +345,13 @@
   // ==========================================================================
 
   function loadCachedModels(targetConfig) {
-    if (UIInspector.loadCachedModels) {
-      const config = targetConfig || {
-        apiUrl: elements.settingApiUrl?.value || appConfig?.apiUrl,
-        apiType: elements.settingApiType?.value || appConfig?.apiType
-      };
-      const models = UIInspector.loadCachedModels(elements, config);
-      syncPublishedModelContextLimit();
-      return models;
-    }
-    return [];
+    const config = targetConfig || {
+      apiUrl: elements.settingApiUrl?.value || appConfig?.apiUrl,
+      apiType: elements.settingApiType?.value || appConfig?.apiType
+    };
+    const models = UIInspector.loadCachedModels(elements, config);
+    syncPublishedModelContextLimit();
+    return models;
   }
 
   function syncPublishedModelContextLimit() {
@@ -412,16 +373,9 @@
   }
 
   async function handleQueryServer() {
-    if (UIInspector.handleQueryServer) {
-      const querySucceeded = await UIInspector.handleQueryServer(elements, appConfig);
-      if (querySucceeded) {
-        if (typeof UIProfiles.setProfileQueryState === 'function') {
-          UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
-        }
-      }
-      return querySucceeded;
-    }
-    return false;
+    const querySucceeded = await UIInspector.handleQueryServer(elements, appConfig);
+    if (querySucceeded) UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
+    return querySucceeded;
   }
 
   // ==========================================================================
@@ -646,15 +600,12 @@
   }
 
   function openDebugInterceptorModal({ endpoint, headers, payload }) {
-    if (Debug.openInterceptorModal) {
-      return Debug.openInterceptorModal({
-        endpoint,
-        headers,
-        payload,
-        onSyncDebugState: (enabled) => syncDebugMessagesState(enabled)
-      });
-    }
-    return Promise.resolve({ cancel: false, modifiedPayload: null });
+    return Debug.openInterceptorModal({
+      endpoint,
+      headers,
+      payload,
+      onSyncDebugState: (enabled) => syncDebugMessagesState(enabled)
+    });
   }
 
   function updateUIFromConfig() {
@@ -736,30 +687,12 @@
     }
   }
 
-  // field-sizing:content gestiona el auto-resize en CSS (Baseline 2024).
-  // Esta función solo actúa como fallback para navegadores sin soporte.
   function autoResizeTextarea() {
-    if (UIComposer.autoResizeTextarea) {
-      return UIComposer.autoResizeTextarea(elements);
-    }
-    if (CSS && CSS.supports && CSS.supports('field-sizing', 'content')) return;
-    if (!elements.userInput) return;
-    if (!elements.userInput.value) {
-      elements.userInput.style.height = '';
-      return;
-    }
-    elements.userInput.style.height = 'auto';
-    const newHeight = Math.min(elements.userInput.scrollHeight, 160);
-    elements.userInput.style.height = `${newHeight}px`;
+    return UIComposer.autoResizeTextarea(elements);
   }
 
   function scrollToBottom() {
-    if (UIConversation.scrollToBottom) {
-      return UIConversation.scrollToBottom(elements.messagesList);
-    }
-    if (elements.messagesList) {
-      elements.messagesList.scrollTop = elements.messagesList.scrollHeight;
-    }
+    return UIConversation.scrollToBottom(elements.messagesList);
   }
 
   // ==========================================================================
@@ -768,9 +701,7 @@
 
 
   function clearAttachedFiles() {
-    if (UIComposer.clearAttachedFiles) {
-      return UIComposer.clearAttachedFiles(elements);
-    }
+    return UIComposer.clearAttachedFiles(elements);
   }
 
 
@@ -1023,24 +954,7 @@
 
 
   function attachListenersToContainer(container) {
-    if (UIConversation.attachListenersToContainer) {
-      return UIConversation.attachListenersToContainer(container);
-    }
-    if (!container) return;
-    if (Markdown.attachCopyCodeListeners) {
-      Markdown.attachCopyCodeListeners(container);
-    }
-    if (Markdown.attachRunJsListeners) {
-      Markdown.attachRunJsListeners(container, (code, outputEl) => {
-        if (Sandbox && Sandbox.execute) {
-          Sandbox.execute(code).then(res => {
-            if (outputEl) {
-              outputEl.textContent = res.success ? (res.result || res.logs.join('\n') || 'undefined') : `Error: ${res.error}`;
-            }
-          });
-        }
-      });
-    }
+    return UIConversation.attachListenersToContainer(container);
   }
 
   function renderSessionMessages(history) {
@@ -1092,18 +1006,7 @@
   }
 
   function openExportModal(targetSessionId = null) {
-    if (UITransfer.openExportModal) {
-      UITransfer.openExportModal(elements, targetSessionId, getCurrentSessionId());
-      return;
-    }
-    if (elements.exportModal) {
-      elements.exportModal.dataset.sessionId = targetSessionId || getCurrentSessionId();
-      if (typeof elements.exportModal.showModal === 'function') {
-        elements.exportModal.showModal();
-      } else {
-        elements.exportModal.style.display = 'block';
-      }
-    }
+    UITransfer.openExportModal(elements, targetSessionId, getCurrentSessionId());
   }
 
   // ==========================================================================
@@ -1111,38 +1014,12 @@
   // ==========================================================================
 
 
-  let typingIndicatorEl = null;
-
   function showTypingIndicator() {
-    if (UIConversation.showTypingIndicator) {
-      return UIConversation.showTypingIndicator(elements.messagesList);
-    }
-    if (typingIndicatorEl) return;
-    const wrapper = document.createElement('div');
-    wrapper.id = 'typing-indicator-wrapper';
-    wrapper.className = 'message-wrapper assistant';
-    const row = document.createElement('div');
-    row.className = 'message-row assistant';
-    const indicator = document.createElement('div');
-    indicator.className = 'typing-indicator';
-    indicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
-    row.appendChild(indicator);
-    wrapper.appendChild(row);
-    typingIndicatorEl = wrapper;
-    if (elements.messagesList) {
-      elements.messagesList.appendChild(wrapper);
-      scrollToBottom();
-    }
+    return UIConversation.showTypingIndicator(elements.messagesList);
   }
 
   function removeTypingIndicator() {
-    if (UIConversation.removeTypingIndicator) {
-      UIConversation.removeTypingIndicator();
-    }
-    if (typingIndicatorEl && typingIndicatorEl.parentNode) {
-      typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
-    }
-    typingIndicatorEl = null;
+    return UIConversation.removeTypingIndicator();
   }
 
   // ==========================================================================
@@ -1304,7 +1181,7 @@
           onConfigSaved: (savedConfig) => {
             const currentHistory = getChatHistory();
             if (currentHistory.length > 0 && currentHistory[0].role === 'system') {
-              currentHistory[0].content = getConfiguredSystemPrompt(savedConfig);
+              currentHistory[0].content = Engine.getConfiguredSystemPrompt(savedConfig);
               if (State.replaceMessages) {
                 State.replaceMessages(currentHistory);
               }
@@ -1670,8 +1547,7 @@
             const Dialogs = window.ChatDialogs;
             const I18n = window.ChatI18n;
             const confirmed = await Dialogs.confirm(
-              I18n.t('confirm_auto_import_profiles', { count: imported.length }) ||
-              `¿Importar ${imported.length} perfil(es) de conexión?`
+              I18n.t('confirm_auto_import_profiles', { count: imported.length })
             );
 
             if (!confirmed) {
@@ -1709,7 +1585,7 @@
               I18n.t('msg_profiles_auto_imported', {
                 added: result.added,
                 replaced: result.replaced
-              }) || `✅ ${result.added} perfil(es) añadido(s), ${result.replaced} actualizado(s).`
+              })
             );
 
             // Limpiar hash mode=import
@@ -1762,8 +1638,7 @@
             const Dialogs = window.ChatDialogs;
             const I18n = window.ChatI18n;
             await Dialogs.alert(
-              I18n.t('err_auto_import_failed', { err: error.message }) ||
-              `❌ Error al importar perfiles: ${error.message}`
+              I18n.t('err_auto_import_failed', { err: error.message })
             );
 
             // Limpiar hash en caso de error también

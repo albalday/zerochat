@@ -45,9 +45,9 @@
     if (!card) return null;
     const t = ui?.t || ((key) => key);
     const spinner = ui?.SPINNER_SVG || '';
-    const title = t('tool_rag_list_title') || 'Base de Conocimiento (Índice de Documentos)';
-    const loading = t('tool_rag_list_loading') || 'Consultando documentos indexados...';
-    const retrieving = t('tool_rag_list_retrieving') || 'Recuperando documentos desde IndexedDB...';
+    const title = t('tool_rag_list_title');
+    const loading = t('tool_rag_list_loading');
+    const retrieving = t('tool_rag_list_retrieving');
     card.innerHTML = getCards().renderCardHtml({
       className: 'rag-execution-card',
       titleHtml: `<span>${LAYERS_ICON_SVG}</span><span>${title}</span>`,
@@ -68,8 +68,8 @@
     const success = result?.success !== false && !result?.error;
     const count = result?.count ?? 0;
     const text = result?.text || (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result || ''));
-    const indexedLabel = t('tool_rag_list_indexed', { count, plural: count === 1 ? '' : 's' }) || `${count} doc${count === 1 ? '' : 's'} indexado${count === 1 ? '' : 's'}`;
-    const errorLabel = result?.error || t('tool_err_query') || 'Error al consultar';
+    const indexedLabel = t('tool_rag_list_indexed', { count, plural: count === 1 ? '' : 's' });
+    const errorLabel = result?.error || t('tool_err_query');
     const badge = card.querySelector('.tool-card-badge');
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
@@ -87,7 +87,7 @@
       definition,
       aliases: ['listdocuments', 'list_knowledge_base', 'list_docs', 'get_documents', 'listar_documentos'],
       category: 'rag',
-      metadata: { icon: 'book-open', label: definition.name },
+      metadata: { label: definition.name },
       settings: { showInSettings: false },
       isAvailable: (config = {}) => Boolean(config.activeRagBranchId || (config.activeRagBranchIds && config.activeRagBranchIds.length > 0)),
       execute: async (args = {}, context = {}) => {

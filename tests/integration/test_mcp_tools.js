@@ -102,9 +102,9 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     assert.ok(readFileTool);
     assert.ok(execCmdTool);
 
-    assert.equal(listDirTool.metadata.icon, 'plug');
-    assert.equal(readFileTool.metadata.icon, 'plug');
-    assert.equal(execCmdTool.metadata.icon, 'plug');
+    assert.match(listDirTool.metadata.iconSvg, /<svg/);
+    assert.match(readFileTool.metadata.iconSvg, /<svg/);
+    assert.match(execCmdTool.metadata.iconSvg, /<svg/);
 
     // Comprobar vistas declaradas
     assert.ok(typeof listDirTool.view?.createLiveCard === 'function');
@@ -288,9 +288,9 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     assert.ok(sqlTool);
     assert.ok(vecTool);
 
-    // Verificamos que conserven sus descripciones nativas de MCP y el icono uniforme plug
-    assert.equal(sqlTool.metadata.icon, 'plug');
-    assert.equal(vecTool.metadata.icon, 'plug');
+    // Verificamos que conserven sus descripciones nativas de MCP y el icono MCP uniforme
+    assert.match(sqlTool.metadata.iconSvg, /<svg/);
+    assert.match(vecTool.metadata.iconSvg, /<svg/);
     assert.equal(sqlTool.metadata.description, 'Ejecuta una consulta SQL en la base de datos PostgreSQL remota.');
     assert.equal(vecTool.metadata.description, 'Busca los k vecinos más próximos en el índice vectorial.');
 

@@ -226,7 +226,7 @@
       item.setAttribute('data-session-id', s.id);
 
       const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const rawTitle = s.title || t('chat_untitled') || 'Nueva conversación';
+      const rawTitle = s.title || t('chat_untitled');
       const safeTitle = escapeHtml(rawTitle);
 
       item.innerHTML = `
@@ -235,11 +235,11 @@
           <span class="sidebar-chat-time">${timeStr}</span>
         </div>
         <div class="sidebar-chat-menu">
-          <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('sidebar_chat_options_title') || 'Más opciones de conversación')}" aria-label="${escapeHtml(t('sidebar_chat_options_title') || 'Más opciones de conversación')}">${moreSvg}</button>
+          <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('sidebar_chat_options_title'))}" aria-label="${escapeHtml(t('sidebar_chat_options_title'))}">${moreSvg}</button>
           <div class="sidebar-chat-actions" role="menu" hidden>
-            <button type="button" role="menuitem" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}">${exportSvg}<span>${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title') || 'Exportar chat')}</span></button>
-            <button type="button" role="menuitem" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}">${editSvg}<span>${escapeHtml(t('sidebar_rename_chat_title') || 'Renombrar chat')}</span></button>
-            <button type="button" role="menuitem" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}">${trashSvg}<span>${escapeHtml(t('sidebar_delete_chat_title') || 'Eliminar chat')}</span></button>
+            <button type="button" role="menuitem" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title'))}">${exportSvg}<span>${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title'))}</span></button>
+            <button type="button" role="menuitem" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title'))}">${editSvg}<span>${escapeHtml(t('sidebar_rename_chat_title'))}</span></button>
+            <button type="button" role="menuitem" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title'))}">${trashSvg}<span>${escapeHtml(t('sidebar_delete_chat_title'))}</span></button>
           </div>
         </div>
       `;
