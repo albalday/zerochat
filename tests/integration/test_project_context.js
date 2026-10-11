@@ -242,6 +242,7 @@ test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/state.md 
   });
   const files = {};
   const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Tools', url: 'http://127.0.0.1:6388/sse' });
+  client.initialize = async () => ({ success: true });
   client.request = async (method, params) => {
     if (method === 'tools/list') return { tools: [{ name: 'read_file', inputSchema: { type: 'object' } }, { name: 'write_file', inputSchema: { type: 'object' } }] };
     if (method === 'tools/call') {

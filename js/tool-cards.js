@@ -6,7 +6,8 @@
   const { escapeHtml, resolveDep } = Utils;
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const { t } = I18n;
-  const getView = name => (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name)?.view : null;
+  const getRegistry = () => resolveDep('ChatAgentCore', './agent-core.js').registry;
+  const getView = name => getRegistry().getTool(name)?.view || null;
 
   const SPINNER_SVG = Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' });
   const CHECK_SVG = Icons.get('check', { size: 12, strokeWidth: 2.5 });
@@ -177,7 +178,7 @@
   const context = () => ({
     document: typeof document === 'undefined' ? null : document,
     markdown: getMarkdown(),
-    charts: typeof window !== 'undefined' ? window.ChatCharts : null,
+    charts: resolveDep('ChatCharts', './charts.js'),
     t,
     createCardWrapper: (extraClass) => createCardWrapper({ document: typeof document === 'undefined' ? null : document }, extraClass),
     SPINNER_SVG,
@@ -189,8 +190,8 @@
   const resolveToolDisplayMode = name => {
     const view = getView(name);
     if (view?.displayMode) return view.displayMode;
-    if (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) {
-      const tool = window.ChatAgentCore.registry.getTool(name);
+    {
+      const tool = getRegistry().getTool(name);
       return tool?.displayMode || tool?.view?.displayMode || null;
     }
     return null;
@@ -241,7 +242,7 @@
     if (typeof document === 'undefined') return null;
     const card = document.createElement('div'); card.className = 'tool-card-wrapper';
     const hasArgs = args && typeof args === 'object' && Object.keys(args).length > 0;
-    const tool = (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name) : null;
+    const tool = getRegistry().getTool(name);
     const icon = Icons.has(name)
       ? Icons.get(name, { size: 14 })
       : (tool?.metadata?.iconSvg || DEFAULT_TOOL_ICON);

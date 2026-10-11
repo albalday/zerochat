@@ -162,7 +162,7 @@ test('MCP - Manejo de errores de servidor y respuestas con isError: true', async
 
     await assert.rejects(
       async () => client.request('non_existent_method'),
-      /Error MCP \(-32601\): Method not found/
+      /MCP error \(-32601\): Method not found/
     );
 
     // 2. Respuesta con isError: true en tools/call
@@ -281,43 +281,31 @@ test('MCP - conserva capturas Base64 como evidencia visual antes de truncar el t
   }
 });
 
-test('MCP - acepta para la vista de tarjeta solo imágenes Base64 válidas y acotadas', () => {
-  const valid = MCP.getSafeMcpImageDataUrl({
-    mime_type: 'image/png',
-    image_base64: 'aGVsbG8='
+test('MCP - la tarjeta solo muestra capturas Base64 válidas y acotadas', async t => {
+  const dom = require('../helpers/dom-env.js').installDom();
+  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'browser_action' }] }, { id: 'mcp_prov_screenshot_test' });
+  await provider.discoverTools();
+  AgentCore.registry.registerProvider(provider);
+  t.after(() => {
+    AgentCore.registry.unregisterProvider('mcp_prov_screenshot_test');
+    dom.restore();
   });
-  assert.equal(valid, 'data:image/png;base64,aGVsbG8=');
-  assert.equal(MCP.getSafeMcpImageDataUrl({ mime_type: 'text/html', image_base64: 'aGVsbG8=' }), null);
-  assert.equal(MCP.getSafeMcpImageDataUrl({ mime_type: 'image/png', image_base64: '<svg>' }), null);
+  const ToolCards = require('../../js/tool-cards.js');
+  const screenshot = result => {
+    const card = ToolCards.createLiveToolCard('browser_action', {});
+    ToolCards.updateLiveToolCard(card, 'browser_action', {}, { success: true, content: 'ok', ...result }, 1);
+    return card.querySelector('.mcp-screenshot-image')?.getAttribute('src') || null;
+  };
+  assert.equal(screenshot({ mime_type: 'image/png', image_base64: 'aGVsbG8=' }), 'data:image/png;base64,aGVsbG8=');
+  assert.equal(screenshot({ mime_type: 'text/html', image_base64: 'aGVsbG8=' }), null);
+  assert.equal(screenshot({ mime_type: 'image/png', image_base64: '<svg>' }), null);
 });
 
-test('MCP - McpManager añade servidores y conserva sus cabeceras en el cliente', async () => {
-  const manager = new MCP.McpManager();
-
-  // Añadir servidor
-  const before = manager.servers.length;
-  assert.throws(() => manager.addServer({ url: 'http://localhost:8000/rpc' }), /id del servidor MCP es obligatorio/);
-  assert.equal(manager.servers.length, before);
-
-  const server = manager.addServer({
-    id: 'test_local',
-    name: 'Test Local MCP',
-    url: 'http://localhost:8000/rpc',
-    headers: { 'Authorization': 'Bearer test-secret-token' },
-    enabled: true
-  });
-
-  assert.equal(server.id, 'test_local');
-  assert.equal(server.name, 'Test Local MCP');
-  assert.equal(manager.servers.some(s => s.id === server.id), true);
-
-  // Obtener cliente y verificar que las cabeceras de autorización se mantengan en el cliente
-  const client = manager.getClient(server.id);
-  assert.equal(client.headers['Authorization'], 'Bearer test-secret-token');
-
-  // Limpiar la configuración persistida para no afectar a otras pruebas
-  manager.servers = manager.servers.filter(s => s.id !== server.id);
-  manager.saveConfig();
+test('MCP - el cliente conserva sus cabeceras propias junto a las de ZeroChat', () => {
+  const client = new MCP.McpClient({ id: 'test_local', url: 'http://localhost:8000/rpc', headers: { Authorization: 'Bearer test-secret-token' }, token: 'session' });
+  const headers = client.buildHeaders();
+  assert.equal(headers.Authorization, 'Bearer test-secret-token');
+  assert.equal(headers['X-ZeroChat-Token'], 'session');
 });
 
 test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexión, URL vacía y respuestas HTTP fallidas', async () => {
@@ -358,7 +346,7 @@ test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexi
   {
     const emptyRes = await MCP.probeConnection('');
     assert.equal(emptyRes.success, false);
-    assert.ok(emptyRes.error.includes('no válida'));
+    assert.match(emptyRes.error, /Invalid or empty URL/);
 
     const originalFetch = global.fetch;
     try {
@@ -368,7 +356,7 @@ test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexi
 
       const failRes = await MCP.probeConnection('http://127.0.0.1:6388/sse', { timeoutMs: 500 });
       assert.equal(failRes.success, false);
-      assert.ok(failRes.error.includes('No se puede conectar al proxy'));
+      assert.match(failRes.error, /Cannot reach the local server/);
     } finally {
       global.fetch = originalFetch;
     }
@@ -415,7 +403,7 @@ test('MCP - una comprobación de salud fallida degrada una conexión previamente
     assert.equal(result.success, false);
     assert.equal(state.status, 'error');
     assert.equal(state.tools.length, 0);
-    assert.match(state.error, /conectar|ECONNREFUSED/i);
+    assert.match(state.error, /Cannot reach|ECONNREFUSED/i);
   } finally {
     global.fetch = originalFetch;
     ChatState.set('mcp', previousState);
@@ -458,8 +446,7 @@ test('MCP - McpManager connectProxy y disconnectProxy gestionan estado', async (
       return { ok: true, status: 200, json: async () => ({}) };
     };
 
-    const registry = new AgentCore.ToolRegistry();
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
     assert.equal(connResult.success, true);
 
     const discResult = await manager.disconnectProxy();
@@ -493,7 +480,7 @@ test('MCP - McpClient disconnect() limpia recursos y cancela peticiones pendient
   assert.equal(client.postUrl, null);
   assert.equal(client.pendingRequests.size, 0);
   assert.ok(rejectedError);
-  assert.ok(rejectedError.message.includes('cerrada'));
+  assert.match(rejectedError.message, /connection closed/);
 });
 
 test('MCP - McpClient se auto-recupera de HTTP 404 por sesión SSE expirada o reiniciada', async () => {
@@ -575,7 +562,7 @@ test('MCP - McpClient se auto-recupera de HTTP 404 por sesión SSE expirada o re
   }
 });
 
-test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permanece desconectado si no', async () => {
+test('MCP - la conexión silenciosa del arranque conecta si el servidor está activo y queda desconectada si no', async () => {
   const originalFetch = global.fetch;
 
   try {
@@ -584,10 +571,11 @@ test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permane
       throw new Error('fetch failed: ECONNREFUSED');
     };
 
-    const resInactive = await MCP.manager.autoConnectIfAvailable({
+    const resInactive = await MCP.manager.connectProxy({
       host: '127.0.0.1',
       port: 6388,
-      timeoutMs: 500
+      timeoutMs: 500,
+      silentOnFailure: true
     });
 
     assert.equal(resInactive.available, false);
@@ -648,16 +636,17 @@ test('MCP - autoConnectIfAvailable conecta si el servidor está activo y permane
       return { ok: false, status: 404, text: async () => 'Not Found' };
     };
 
-    const resActive = await MCP.manager.autoConnectIfAvailable({
+    const resActive = await MCP.manager.connectProxy({
       host: '127.0.0.1',
       port: 6388,
-      timeoutMs: 1000
+      timeoutMs: 1000,
+      silentOnFailure: true
     });
 
     assert.equal(resActive.success, true);
     assert.equal(resActive.tools.length, 1);
     assert.ok(resActive.tools[0].name.includes('auto_tool'));
-    assert.equal(resActive.tools[0].titleFallback, 'auto_tool');
+    assert.equal(resActive.tools[0].metadata.originalName, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
     await MCP.manager.disconnectProxy();
@@ -810,7 +799,7 @@ else:
   }));
   const rawTools = host({});
   const provider = new MCP.McpToolProvider({
-    id: 'mcp_external', name: 'External host', initialize: async () => {},
+    id: 'mcp_external', name: 'External host', initialize: async () => ({ success: true }),
     listTools: async () => rawTools,
     callTool: async (name, args) => host({ call: name, args })
   });
@@ -823,7 +812,7 @@ else:
   registry.registerProvider(provider);
   for (const tool of tools) {
     const direct = new MCP.McpToolProvider({
-      id: tool.metadata.mcpServerId, initialize: async () => {},
+      id: tool.metadata.mcpServerId, initialize: async () => ({ success: true }),
       listTools: async () => [{ name: tool.metadata.originalName }]
     });
     assert.equal((await direct.discoverTools())[0].name, tool.name);
@@ -865,7 +854,7 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
   const Security = require('../../js/tool-security.js');
   const provider = new MCP.McpToolProvider({
     id: 'mcp_external', name: 'ZeroChat External MCP Host',
-    initialize: async () => {},
+    initialize: async () => ({ success: true }),
     listTools: async () => [
       ['composio', 'COMPOSIO_SEARCH_TOOLS'],
       ['composio', 'COMPOSIO_MULTI_EXECUTE_TOOL'],
@@ -884,8 +873,8 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
     assert.equal(auth.serverId, tool.metadata.mcpServerId);
     assert.equal(auth.requiresApproval, true);
     assert.equal(tool.description, tool === browser ? 'Navigate to a URL' : tool.metadata.originalName);
-    assert.ok(tool.formatter({}, {}).includes(auth.serverName));
-    assert.ok(!tool.formatter({}, {}).includes('ZeroChat External MCP Host'));
+    assert.ok(tool.formatDispatchMarkdown({}, {}).includes(auth.serverName));
+    assert.ok(!tool.formatDispatchMarkdown({}, {}).includes('ZeroChat External MCP Host'));
   }
   manager.setToolPolicy(search.id, 'allow');
   assert.equal(manager.evaluateAuthorization(search, {}).status, 'allow');
@@ -902,11 +891,11 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
 
 test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitamente', async () => {
   for (const names of [[null], [''], ['x'.repeat(65)], ['read_file', 'read_file']]) {
-    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
+    const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => ({ success: true }),
       listTools: async () => names.map(name => ({ name })) });
     await assert.rejects(provider.discoverTools(), /Invalid MCP|exceeds|Duplicate/);
   }
-  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => {},
+  const provider = new MCP.McpToolProvider({ id: 'mcp_proxy', initialize: async () => ({ success: true }),
     listTools: async () => [{ name: 'read_file' }] });
   assert.equal((await provider.discoverTools())[0].name, 'read_file');
 });
@@ -914,7 +903,6 @@ test('MCP - nombres inválidos, duplicados y demasiado largos fallan explícitam
 test('MCP - syncExternalServers y connectProxy sincronizan y registran herramientas externas activas', async () => {
   const originalFetch = global.fetch;
   const manager = new MCP.McpManager();
-  const registry = new AgentCore.ToolRegistry();
   let startupNotices = 0;
   manager.notifyStoppedExternalServices = () => { startupNotices += 1; };
 
@@ -973,7 +961,7 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
       return { ok: true, status: 200, json: async () => ({}) };
     };
 
-    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, notifyStartup: false }, registry);
+    const connResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388, notifyStartup: false });
     assert.equal(connResult.success, true);
     assert.equal(startupNotices, 0);
     assert.ok(connResult.externalSync);
@@ -982,28 +970,27 @@ test('MCP - syncExternalServers y connectProxy sincronizan y registran herramien
     assert.equal(connResult.externalSync.externalTools[0].name, 'sqlite_query');
 
     // La herramienta externa debe estar en el registry
-    const tool = registry.getTool('sqlite_query');
+    const tool = AgentCore.registry.getTool('sqlite_query');
     assert.ok(tool, 'sqlite_query debe estar registrada en el registry');
 
     // Reconectar connectProxy no debe destruir las herramientas externas
-    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 }, registry);
+    const reconnectResult = await manager.connectProxy({ host: '127.0.0.1', port: 6388 });
     assert.equal(reconnectResult.success, true);
     assert.equal(startupNotices, 1);
-    assert.ok(registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
+    assert.ok(AgentCore.registry.getTool('sqlite_query'), 'sqlite_query debe seguir registrada tras reconectar');
 
-    await manager.disconnectProxy(registry);
+    await manager.disconnectProxy();
   } finally {
     global.fetch = originalFetch;
   }
 });
 
 test('MCP - ofrece una vez iniciar los servicios habilitados que siguen detenidos', () => {
-  const originalWindow = global.window;
+  const UIMcp = require('../../js/ui-mcp.js');
   const offers = [];
+  const original = UIMcp.offerStoppedExternalServices;
   try {
-    global.window = {
-      ChatUIMcp: { offerStoppedExternalServices: servers => { offers.push(servers); return Promise.resolve([]); } }
-    };
+    UIMcp.offerStoppedExternalServices = servers => { offers.push(servers); return Promise.resolve([]); };
     const manager = new MCP.McpManager();
     assert.equal(manager.notifyStoppedExternalServices([{ id: 'memory', enabled: false, status: 'stopped' }]), false);
     const servers = [
@@ -1015,8 +1002,7 @@ test('MCP - ofrece una vez iniciar los servicios habilitados que siguen detenido
     assert.equal(manager.notifyStoppedExternalServices(servers), false);
     assert.equal(offers.length, 1);
   } finally {
-    if (originalWindow === undefined) delete global.window;
-    else global.window = originalWindow;
+    UIMcp.offerStoppedExternalServices = original;
   }
 });
 
@@ -1151,7 +1137,7 @@ test('MCP - startExternalServer espera instalaciones largas y limita cada fase',
       polls += 1;
       return { servers: [{ id: 'playwright', status }] };
     };
-    const result = await manager.startExternalServer('playwright', null, (attempt, total, status) => waits.push({ attempt, total, status }));
+    const result = await manager.startExternalServer('playwright', (attempt, total, status) => waits.push({ attempt, total, status }));
     return { result, waits };
   };
   try {
@@ -1181,18 +1167,6 @@ test('MCP - avisa de mensajes JSON-RPC malformados sin resolver peticiones pendi
   assert.equal(client.pendingRequests.has(1), true);
   assert.equal(console.warn.mock.callCount(), 1);
   assert.match(String(console.warn.mock.calls[0].arguments[0]), /malformed JSON-RPC/);
-});
-
-test('MCP - avisa cuando no puede guardar la configuración de servidores', (t) => {
-  t.mock.method(console, 'warn', () => {});
-  const Storage = require('../../js/cookies.js');
-  t.mock.method(Storage, 'setStorageItem', () => { throw new Error('QuotaExceededError'); });
-  const manager = new MCP.McpManager();
-
-  manager.saveConfig();
-
-  assert.equal(console.warn.mock.callCount(), 1);
-  assert.match(String(console.warn.mock.calls[0].arguments[0]), /MCP server configuration/);
 });
 
 test('MCP - setProjectDirectory pide el cambio al servidor local y syncProjectDirectory lo publica', async () => {

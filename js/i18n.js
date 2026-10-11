@@ -5,22 +5,14 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./defaults.js'));
   } else {
-    root.ChatI18n = factory();
+    root.ChatI18n = factory(root.ChatDefaults);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Defaults) {
   'use strict';
 
-  const extractVersionFromTitle = () => {
-    if (typeof document !== 'undefined' && document.title) {
-      const match = document.title.match(/v?([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i);
-      if (match) return match[1];
-    }
-    return 'dev';
-  };
-  const APP_VERSION = (typeof globalThis !== 'undefined' && globalThis.__ZEROCHAT_VERSION__) || extractVersionFromTitle();
-  const APP_TITLE = `ZeroChat v${APP_VERSION}`;
+  const APP_TITLE = `ZeroChat v${Defaults.APP_VERSION}`;
 
   const TRANSLATIONS = {
     es: {

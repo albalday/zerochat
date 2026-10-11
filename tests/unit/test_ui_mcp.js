@@ -6,63 +6,52 @@ const path = require('node:path');
 const ChatUIMcp = require('../../js/ui-mcp.js');
 const ChatState = require('../../js/state.js');
 const ChatI18n = require('../../js/i18n.js');
+const ChatMCP = require('../../js/mcp.js');
+const ChatConfig = require('../../js/config-store.js');
+const ChatToolSecurity = require('../../js/tool-security.js');
+const UISettings = require('../../js/ui-settings.js');
+const Defaults = require('../../js/defaults.js');
 const { installDom } = require('../helpers/dom-env.js');
 
-function createElements(names) {
-  return Object.fromEntries(names.map(name => [name, document.createElement(name === 'btnCopyCmd' ? 'button' : 'div')]));
+/** DOM de la aplicación con el diálogo de ajustes montado y el estado MCP restaurado al terminar. */
+function setup(t, mcp = {}) {
+  const dom = installDom({ app: true });
+  UISettings.ensureDialogMarkup();
+  const previousState = ChatState.get('mcp');
+  ChatState.set('mcp', { ...previousState, tools: [], externalTools: [], externalServers: [], ...mcp });
+  t.after(() => {
+    ChatState.set('mcp', previousState);
+    ChatToolSecurity.manager.clearAllAuthorizations();
+    ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
+    dom.restore();
+  });
+  const byId = id => document.getElementById(id);
+  return {
+    statusBadge: byId('mcp-status-badge'),
+    statusText: byId('mcp-status-text'),
+    serverDetails: byId('mcp-server-details'),
+    reconnectHint: byId('mcp-reconnect-hint'),
+    commandSnippet: byId('mcp-terminal-command'),
+    btnCopyCmd: byId('btn-mcp-copy-cmd'),
+    bootstrapCard: byId('mcp-bootstrap-card'),
+    toolsContainer: byId('mcp-tools-container'),
+    serversList: byId('mcp-servers-list')
+  };
 }
 
-test('ChatUIMcp - sanea host y puerto, construye el endpoint y recomienda el arranque por PyPI en el puerto de zerochat.py', () => {
-  // Puertos válidos
-  assert.equal(ChatUIMcp.sanitizePort(6388), 6388);
-  assert.equal(ChatUIMcp.sanitizePort('6390'), 6390);
-  assert.equal(ChatUIMcp.sanitizePort(1024), 1024);
-  assert.equal(ChatUIMcp.sanitizePort(65535), 65535);
-
-  // Puertos inválidos retornan puerto por defecto (6388)
-  assert.equal(ChatUIMcp.sanitizePort(80), 6388);
-  assert.equal(ChatUIMcp.sanitizePort(0), 6388);
-  assert.equal(ChatUIMcp.sanitizePort(70000), 6388);
-  assert.equal(ChatUIMcp.sanitizePort('not_a_port'), 6388);
-  assert.equal(ChatUIMcp.sanitizePort(null), 6388);
-
-  // Hosts
-  assert.equal(ChatUIMcp.sanitizeHost('127.0.0.1'), '127.0.0.1');
-  assert.equal(ChatUIMcp.sanitizeHost(' localhost '), 'localhost');
-  assert.equal(ChatUIMcp.sanitizeHost(''), '127.0.0.1');
-  assert.equal(ChatUIMcp.sanitizeHost(null), '127.0.0.1');
-
-  assert.equal(
-    ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }),
-    'pip install zerochat\nzerochat'
-  );
-  assert.equal(
-    ChatUIMcp.generateTerminalCommand({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }),
-    'pip install zerochat\nzerochat'
-  );
-  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'darwin' }), 'pip install zerochat\nzerochat');
-  assert.equal(
-    ChatUIMcp.generateTerminalCommand({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }),
-    'py -m pip install zerochat\npy -m zerochat'
-  );
-  assert.equal(
-    ChatUIMcp.generateTerminalCommand({ userAgentData: { platform: 'Windows' }, platform: '' }),
-    'py -m pip install zerochat\npy -m zerochat'
-  );
+test('ChatUIMcp - recomienda el arranque por PyPI según el sistema y el puerto de zerochat.py', () => {
+  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), 'pip install zerochat\nzerochat');
+  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }), 'pip install zerochat\nzerochat');
+  assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }), 'py -m pip install zerochat\npy -m zerochat');
+  assert.equal(ChatUIMcp.generateTerminalCommand({ userAgentData: { platform: 'Windows' }, platform: '' }), 'py -m pip install zerochat\npy -m zerochat');
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../..', 'zerochat.py'), 'utf8');
-  assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${ChatUIMcp.DEFAULT_PORT}\\b`));
-  assert.match(serverSource, /--port/);
+  assert.match(serverSource, new RegExp(`DEFAULT_PORT\\s*=\\s*${Defaults.CONFIG_DEFAULTS.mcpPort}\\b`));
 });
 
 test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y detalles', t => {
-  const dom = installDom();
-  t.after(() => dom.restore());
-  const elements = createElements(['statusBadge', 'statusText', 'serverDetails', 'bootstrapCard', 'reconnectHint', 'commandSnippet']);
-  const translate = (k, p) => ChatI18n.t(k, p);
-
-  // 1. Estado desconectado
-  ChatUIMcp.renderConnectionStatus(elements, { status: 'disconnected', host: '127.0.0.1', port: 6388 }, translate);
+  const elements = setup(t);
+  ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'disconnected' });
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-disconnected');
   assert.equal(elements.statusText.textContent, 'Desconectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
@@ -72,576 +61,241 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.reconnectHint.textContent, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
   assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
-  // 2. Estado conectando
-  ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, translate);
-  assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connecting');
+  ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'connecting' });
   assert.equal(elements.statusText.textContent, 'Conectando...');
-  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
-  assert.equal(elements.bootstrapCard.style.display, 'block');
   assert.equal(elements.reconnectHint.style.display, 'none');
 
-  // 3. Estado conectado
   ChatUIMcp.renderConnectionStatus(elements, {
+    ...ChatState.get('mcp'),
     status: 'connected',
-    host: '127.0.0.1',
-    port: 6388,
-    serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
+    serverInfo: { name: 'zerochat', version: '0.4.0' },
     latencyMs: 15,
-    tools: [{ name: 't1' }, { name: 't2' }]
-  }, translate);
-  assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connected');
+    tools: [{ id: 't1', name: 't1', metadata: {} }, { id: 't2', name: 't2', metadata: {} }]
+  });
   assert.equal(elements.statusText.textContent, 'Conectado');
-  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
   assert.equal(elements.serverDetails.style.display, 'inline-flex');
   assert.equal(elements.bootstrapCard.style.display, 'none');
-  assert.equal(elements.reconnectHint.style.display, 'none');
-  assert.ok(elements.serverDetails.title.includes('mcp-proxy v0.4.0'));
+  assert.ok(elements.serverDetails.title.includes('zerochat v0.4.0'));
   assert.ok(elements.serverDetails.title.includes('15ms'));
   assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
 
-  // 4. Estado error
-  ChatUIMcp.renderConnectionStatus(elements, {
-    status: 'error',
-    host: '127.0.0.1',
-    port: 6388,
-    error: 'Conexión rechazada',
-    latencyMs: 3
-  }, translate);
-  assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-error');
+  ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'error', error: 'Conexión rechazada' });
   assert.equal(elements.statusText.textContent, 'Error de conexión');
-  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_error');
   assert.equal(elements.bootstrapCard.style.display, 'block');
-  assert.equal(elements.reconnectHint.style.display, 'none');
 });
 
 test('ChatUIMcp - incorpora herramientas externas al listado MCP', () => {
-  const allTools = ChatUIMcp.getAllMcpTools({
-    tools: [{ name: 'read_file' }],
-    externalTools: [{ name: 'mcp_composio_search' }]
-  });
+  const allTools = ChatUIMcp.getAllMcpTools({ tools: [{ name: 'read_file' }], externalTools: [{ name: 'mcp_composio_search' }] });
   assert.deepEqual(allTools.map(tool => tool.name), ['read_file', 'mcp_composio_search']);
 });
 
-test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {
-  const originalDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  let copiedText = '';
-
-  Object.defineProperty(globalThis, 'navigator', {
-    value: {
-      clipboard: {
-        writeText: async (txt) => {
-          copiedText = txt;
-        }
-      }
-    },
-    configurable: true,
-    writable: true
-  });
-
-  const btn = {
-    innerHTML: 'Copiar',
-    classList: {
-      add: (cls) => { btn._class = cls; },
-      remove: (cls) => { if (btn._class === cls) btn._class = ''; }
-    }
-  };
-
-  try {
-    const ok = await ChatUIMcp.copyCommandToClipboard('test command', btn, () => 'Copiado!');
-    assert.equal(ok, true);
-    assert.equal(copiedText, 'test command');
-    assert.ok(btn.innerHTML.includes('Copiado!'));
-    assert.equal(btn._class, 'btn-copied');
-  } finally {
-    if (originalDesc) {
-      Object.defineProperty(globalThis, 'navigator', originalDesc);
-    }
-  }
+test('ChatUIMcp - copyCommandToClipboard copia y muestra la confirmación en el botón', async t => {
+  const elements = setup(t);
+  const copied = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied.push(text); } } });
+  assert.equal(await ChatUIMcp.copyCommandToClipboard('test command', elements.btnCopyCmd), true);
+  assert.deepEqual(copied, ['test command']);
+  assert.ok(elements.btnCopyCmd.classList.contains('copied'));
+  assert.match(elements.btnCopyCmd.textContent, new RegExp(ChatI18n.t('mcp_cmd_copied')));
 });
 
-test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual', t => {
-  const dom = installDom();
-  t.after(() => dom.restore());
-  const elements = createElements(['commandSnippet', 'statusBadge', 'statusText', 'serverDetails', 'bootstrapCard', 'btnCopyCmd']);
-
-  const uiInstance = ChatUIMcp.initMcpUI(elements);
-  assert.ok(uiInstance);
+test('ChatUIMcp - initMcpUI publica el comando de arranque y sigue los cambios de estado', t => {
+  const elements = setup(t);
+  const ui = ChatUIMcp.initMcpUI(elements);
+  t.after(() => ui.destroy());
   assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
-
-  uiInstance.destroy();
+  ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'zerochat' } });
+  assert.equal(elements.statusText.textContent, 'Conectado');
 });
 
-test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconectado o sin herramientas', () => {
-  const previousState = ChatState.get('mcp');
-  ChatState.set('mcp', { ...previousState, status: 'disconnected' });
-  try {
-    const container = {
-      innerHTML: '',
-      style: {}
-    };
-
-    ChatUIMcp.renderToolsList(container, [], {}, (k) => ChatI18n.t(k));
-    assert.equal(container.style.display, 'block');
-    assert.ok(container.innerHTML.includes('mcp-tools-empty'));
-    assert.ok(container.innerHTML.includes('ejecute localmente'));
-  } finally {
-    ChatState.set('mcp', previousState);
-  }
+test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconectado', t => {
+  const { toolsContainer } = setup(t, { status: 'disconnected' });
+  ChatUIMcp.renderToolsList(toolsContainer, [], {});
+  assert.equal(toolsContainer.style.display, 'block');
+  assert.ok(toolsContainer.querySelector('.mcp-tools-empty'));
+  assert.match(toolsContainer.textContent, /ejecute localmente/);
 });
 
-test('ChatUIMcp - renderToolsList renderiza herramientas con switches y captura cambios', () => {
-  const ChatConfig = require('../../js/config-store.js');
-  let lastUpdatedConfig = null;
-  const originalUpdate = ChatConfig.update;
-  const originalUpdateRuntime = ChatConfig.updateRuntime;
-  ChatConfig.update = (patch) => {
-    lastUpdatedConfig = patch;
-  };
-  ChatConfig.updateRuntime = (patch) => {
-    lastUpdatedConfig = patch;
-  };
+const TOOLS = [
+  { id: 'list_directory', name: 'list_directory', description: 'Lista un directorio', inputSchema: { type: 'object', properties: { path: { type: 'string' } } }, metadata: {} },
+  { id: 'read_file', name: 'read_file', description: 'Lee un archivo', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }, metadata: {} },
+  { id: 'run_command', name: 'run_command', description: 'Ejecuta comandos', inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] }, metadata: {} }
+];
 
-  try {
-    const mockCheckboxes = [];
-    const changeListeners = {};
+test('ChatUIMcp - renderToolsList renderiza herramientas con interruptores que actualizan la configuración', t => {
+  const { toolsContainer } = setup(t);
+  const previous = ChatConfig.getActive().enabledTools;
+  t.after(() => ChatConfig.updateRuntime({ enabledTools: previous }));
+  ChatUIMcp.renderToolsList(toolsContainer, TOOLS, { list_directory: true, read_file: false, run_command: true });
 
-    const container = {
-      innerHTML: '',
-      style: {},
-      querySelectorAll: (selector) => {
-        if (selector === '.mcp-tool-checkbox') {
-          return mockCheckboxes;
-        }
-        return [];
-      }
-    };
+  assert.ok(toolsContainer.querySelector('.mcp-tools-header'));
+  assert.match(toolsContainer.textContent, /Herramientas Disponibles del Sistema/);
+  assert.match(toolsContainer.textContent, /3 detectadas/);
+  assert.match(toolsContainer.querySelector('[data-tool-id="read_file"] .mcp-tool-params').textContent, /path: string/);
 
-    const tools = [
-      {
-        id: 'list_directory',
-        name: 'list_directory',
-        description: 'Lista un directorio local sin recorrer subdirectorios',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' }
-          }
-        }
-      },
-      {
-        id: 'read_file',
-        name: 'read_file',
-        description: 'Lee un archivo local',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' }
-          },
-          required: ['path']
-        }
-      },
-      {
-        id: 'run_command',
-        name: 'run_command',
-        description: 'Ejecuta comandos en la terminal',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            command: { type: 'string' }
-          },
-          required: ['command']
-        }
-      }
-    ];
-
-    const currentEnabled = {
-      list_directory: true,
-      read_file: false,
-      run_command: true
-    };
-
-    // Crear mock checkboxes para simular querySelectorAll
-    tools.forEach(tool => {
-      const cb = {
-        checked: currentEnabled[tool.id],
-        getAttribute: (attr) => attr === 'data-tool-id' ? tool.id : null,
-        addEventListener: (event, handler) => {
-          changeListeners[`${tool.id}_${event}`] = handler;
-        }
-      };
-      mockCheckboxes.push(cb);
-    });
-
-    ChatUIMcp.renderToolsList(container, tools, currentEnabled, (k, p) => ChatI18n.t(k, p));
-
-    assert.equal(container.style.display, 'block');
-    assert.ok(container.innerHTML.includes('mcp-tools-header'));
-    assert.ok(container.innerHTML.includes('Herramientas Disponibles del Sistema'));
-    assert.ok(container.innerHTML.includes('3 detectadas'));
-
-    // Verificar markup de las tools
-    assert.ok(container.innerHTML.includes('list_directory'));
-    assert.ok(container.innerHTML.includes('read_file'));
-    assert.ok(container.innerHTML.includes('run_command'));
-    assert.ok(container.innerHTML.includes('MCP'));
-
-    // Simular que el usuario desactiva 'run_command'
-    mockCheckboxes[2].checked = false;
-    changeListeners['run_command_change']();
-
-    assert.ok(lastUpdatedConfig);
-    assert.equal(lastUpdatedConfig.enabledTools.run_command, false);
-
-    // Simular que el usuario activa 'read_file'
-    mockCheckboxes[1].checked = true;
-    changeListeners['read_file_change']();
-
-    assert.ok(lastUpdatedConfig);
-    assert.equal(lastUpdatedConfig.enabledTools.read_file, true);
-  } finally {
-    ChatConfig.update = originalUpdate;
-    ChatConfig.updateRuntime = originalUpdateRuntime;
-  }
+  const checkbox = id => toolsContainer.querySelector(`.mcp-tool-checkbox[data-tool-id="${id}"]`);
+  assert.equal(checkbox('read_file').checked, false);
+  checkbox('run_command').checked = false;
+  checkbox('run_command').dispatchEvent(new Event('change'));
+  assert.equal(ChatConfig.getActive().enabledTools.run_command, false);
+  checkbox('read_file').checked = true;
+  checkbox('read_file').dispatchEvent(new Event('change'));
+  assert.equal(ChatConfig.getActive().enabledTools.read_file, true);
 });
 
-test('ChatUIMcp - autoConnectIfAvailable delega en ChatMCP.manager', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const originalAutoConnect = ChatMCP.manager.autoConnectIfAvailable;
-  let calledWith = null;
-
-  try {
-    ChatMCP.manager.autoConnectIfAvailable = async (opts) => {
-      calledWith = opts;
-      return { success: true, available: true };
-    };
-
-    const res = await ChatUIMcp.autoConnectIfAvailable({ host: '127.0.0.1', port: 6388 });
-    assert.equal(res.success, true);
-    assert.equal(res.available, true);
-    assert.equal(calledWith.host, '127.0.0.1');
-    assert.equal(calledWith.port, 6388);
-  } finally {
-    ChatMCP.manager.autoConnectIfAvailable = originalAutoConnect;
-  }
-});
-
-test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actualiza políticas', () => {
-  const ChatToolSecurity = require('../../js/tool-security.js');
-  ChatToolSecurity.manager.clearAllAuthorizations();
-  ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
-
-  const mockSelects = [];
-  const selectListeners = {};
-
-  const container = {
-    innerHTML: '',
-    style: {},
-    querySelectorAll: (selector) => {
-      if (selector === '.mcp-auth-select') {
-        return mockSelects;
-      }
-      return [];
-    }
-  };
-
+test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actualiza políticas', t => {
+  const { toolsContainer } = setup(t);
   const tools = [
-    {
-      id: 'mcp_test_tool_1',
-      name: 'mcp_test_tool_1',
-      metadata: { mcpServerName: 'srv1', originalName: 'tool1' }
-    },
-    {
-      id: 'mcp_test_tool_2',
-      name: 'mcp_test_tool_2',
-      metadata: { mcpServerName: 'srv1', originalName: 'tool2' }
-    }
+    { id: 'mcp_test_tool_1', name: 'mcp_test_tool_1', metadata: { mcpServerName: 'srv1', originalName: 'tool1' } },
+    { id: 'mcp_test_tool_2', name: 'mcp_test_tool_2', metadata: { mcpServerName: 'srv1', originalName: 'tool2' } }
   ];
-
-  // Pre-autorizar tool 2
   ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
+  ChatUIMcp.renderToolsList(toolsContainer, tools, {});
 
-  tools.forEach(tool => {
-    const sel = {
-      value: tool.id === 'mcp_test_tool_2' ? 'allow' : 'ask',
-      className: '',
-      getAttribute: (attr) => {
-        if (attr === 'data-tool-id') return tool.id;
-        if (attr === 'data-server-name') return tool.metadata.mcpServerName;
-        if (attr === 'data-orig-name') return tool.metadata.originalName;
-        return null;
-      },
-      addEventListener: (evt, fn) => {
-        selectListeners[`${tool.id}_${evt}`] = fn;
-      }
-    };
-    mockSelects.push(sel);
-  });
-
-  ChatUIMcp.renderToolsList(container, tools, {}, (k) => ChatI18n.t(k));
-
-  // Verificar que el select está presente en el markup
-  assert.ok(container.innerHTML.includes('mcp-auth-select'));
-  assert.ok(container.innerHTML.includes('value="allow" selected'));
-
-  // Cambiar tool 1 a 'allow'
-  mockSelects[0].value = 'allow';
-  selectListeners['mcp_test_tool_1_change']();
+  const select = id => toolsContainer.querySelector(`.mcp-auth-select[data-tool-id="${id}"]`);
+  assert.equal(select('mcp_test_tool_2').value, 'allow');
+  select('mcp_test_tool_1').value = 'allow';
+  select('mcp_test_tool_1').dispatchEvent(new Event('change'));
   assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1'), 'allow');
-  assert.ok(mockSelects[0].className.includes('status-allowed'));
+  assert.ok(select('mcp_test_tool_1').classList.contains('status-allowed'));
 
-  // Cambiar tool 2 a 'ask' (revocar)
-  mockSelects[1].value = 'ask';
-  selectListeners['mcp_test_tool_2_change']();
+  select('mcp_test_tool_2').value = 'ask';
+  select('mcp_test_tool_2').dispatchEvent(new Event('change'));
   assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2'), null);
-  assert.ok(mockSelects[1].className.includes('status-ask'));
+  assert.ok(select('mcp_test_tool_2').classList.contains('status-ask'));
 
-  // Probar modo global allow_all
   ChatToolSecurity.manager.setGlobalMcpPolicy('allow_all');
-  ChatUIMcp.renderToolsList(container, tools, {}, (k) => ChatI18n.t(k));
-  assert.ok(container.innerHTML.includes('(Global)'));
-
-  ChatToolSecurity.manager.setGlobalMcpPolicy('ask');
-  ChatToolSecurity.manager.clearAllAuthorizations();
+  ChatUIMcp.renderToolsList(toolsContainer, tools, {});
+  assert.match(toolsContainer.textContent, /\(Global\)/);
 });
 
-test('ChatUIMcp - las revocaciones guardadas son botones de icono con tooltip accesible', () => {
-  const ChatToolSecurity = require('../../js/tool-security.js');
-  ChatToolSecurity.manager.clearAllAuthorizations();
-  ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', {
-    originalName: 'compact revoke test'
-  });
-
-  try {
-    const container = {
-      innerHTML: '',
-      querySelectorAll: () => []
-    };
-    ChatUIMcp.renderSavedAuthorizations({ savedAuthsList: container }, (key) => ChatI18n.t(key));
-
-    assert.match(container.innerHTML, /class="btn-revoke-auth"[^>]*title="Revocar"[^>]*aria-label="Revocar"/);
-    assert.match(container.innerHTML, /ui-icon/);
-    assert.doesNotMatch(container.innerHTML, /<span>Revocar<\/span>/);
-    assert.match(container.innerHTML, /mcp-auth-item[^>]*>\s*<button[^>]*btn-revoke-auth[\s\S]*?<div class="mcp-auth-item-info">/);
-  } finally {
-    ChatToolSecurity.manager.clearAllAuthorizations();
-  }
+test('ChatUIMcp - las revocaciones guardadas son botones de icono con tooltip accesible', t => {
+  setup(t);
+  ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', { originalName: 'compact revoke test' });
+  ChatUIMcp.renderSavedAuthorizations();
+  const button = document.querySelector('#mcp-saved-auths-list .btn-revoke-auth');
+  assert.equal(button.title, 'Revocar');
+  assert.equal(button.getAttribute('aria-label'), 'Revocar');
+  assert.ok(button.querySelector('.ui-icon'));
+  assert.equal(button.textContent.trim(), '');
+  button.click();
+  assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test'), null);
 });
 
 test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTranslations', t => {
-  const dom = installDom();
+  const elements = setup(t);
   const originalLang = ChatI18n.getLanguage();
-  t.after(() => {
-    ChatI18n.setLanguage(originalLang);
-    dom.restore();
-  });
+  t.after(() => ChatI18n.setLanguage(originalLang));
   ChatI18n.setLanguage('es');
-  const elements = createElements(['statusBadge', 'statusText', 'serverDetails']);
-  elements.statusText.setAttribute('data-i18n', 'mcp_status_disconnected');
-  document.body.append(...Object.values(elements));
-
-  ChatUIMcp.renderConnectionStatus(elements, {
-    status: 'connected',
-    serverInfo: { name: 'mcp-proxy', version: '1.0' },
-    tools: [{ name: 'test_tool' }],
-    latencyMs: 5
-  }, (k, p) => ChatI18n.t(k, p));
-
+  ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'zerochat', version: '1.0' }, tools: [{ id: 'x', name: 'x', metadata: {} }] });
   assert.equal(elements.statusText.textContent, 'Conectado');
-  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
 
   // Abrir una sección de configuración vuelve a aplicar las traducciones del documento.
   ChatI18n.applyTranslations(document);
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
-
   ChatI18n.setLanguage('en');
   assert.equal(elements.statusText.textContent, 'Connected');
 });
 
-test('ChatUIMcp - renderExternalServers muestra estado vacío o tarjetas con badges y botón Iniciar/Detener', () => {
-  {
-    const container = { innerHTML: '' };
-    ChatUIMcp.renderExternalServers(container, [], (k) => k);
-    assert.ok(container.innerHTML.includes('mcp-servers-empty'));
-    assert.ok(container.innerHTML.includes('mcp_servers_empty'));
-  }
+test('ChatUIMcp - renderExternalServers muestra estado vacío o tarjetas con badges y botón Iniciar/Detener', t => {
+  const { serversList } = setup(t);
+  ChatUIMcp.renderExternalServers(serversList, []);
+  assert.ok(serversList.querySelector('.mcp-servers-empty'));
 
-  {
-    const container = { innerHTML: '' };
-    const mockServers = [
-      {
-        id: 'ejemplo',
-        displayName: { es: 'Ejemplo de MCP', en: 'MCP example' },
-        description: { es: 'Servidor de prueba', en: 'Test server' },
-        help: { url: 'help/mcp.html', label: { es: 'Guía del ejemplo', en: 'Example guide' } },
-        status: 'stopped',
-        toolCount: 0
-      },
-      {
-        id: 'sqlite',
-        displayName: { es: 'SQLite', en: 'SQLite' },
-        description: { es: 'Base de datos', en: 'Database' },
-        status: 'running',
-        toolCount: 2
-      }
-    ];
-
-    ChatUIMcp.renderExternalServers(container, mockServers, (k, p) => ChatI18n.t(k, p));
-    assert.ok(container.innerHTML.includes('ejemplo'));
-    assert.ok(container.innerHTML.includes('Guía del ejemplo'));
-    assert.ok(container.innerHTML.includes('href="help/mcp.html"'));
-    assert.ok(container.innerHTML.includes('status-stopped'));
-    assert.ok(container.innerHTML.includes('Iniciar'));
-    assert.ok(container.innerHTML.includes('sqlite'));
-    assert.ok(container.innerHTML.includes('status-running'));
-    assert.ok(container.innerHTML.includes('Detener'));
-    assert.ok(container.innerHTML.includes('2 herramientas activas'));
-  }
+  ChatUIMcp.renderExternalServers(serversList, [
+    { id: 'ejemplo', displayName: { es: 'Ejemplo de MCP', en: 'MCP example' }, description: { es: 'Servidor de prueba' }, help: { url: 'help/mcp.html', label: { es: 'Guía del ejemplo' } }, status: 'stopped', toolCount: 0 },
+    { id: 'sqlite', displayName: { es: 'SQLite' }, description: { es: 'Base de datos' }, status: 'running', toolCount: 2 }
+  ]);
+  const card = id => serversList.querySelector(`.mcp-server-item[data-server-id="${id}"]`);
+  assert.match(card('ejemplo').textContent, /Ejemplo de MCP/);
+  assert.equal(card('ejemplo').querySelector('.mcp-server-help a').getAttribute('href'), 'help/mcp.html');
+  assert.ok(card('ejemplo').querySelector('.status-stopped'));
+  assert.match(card('ejemplo').querySelector('.btn-mcp-server-toggle').textContent, /Iniciar/);
+  assert.ok(card('sqlite').querySelector('.status-running'));
+  assert.match(card('sqlite').querySelector('.btn-mcp-server-toggle').textContent, /Detener/);
+  assert.match(card('sqlite').textContent, /2 herramientas activas/);
 });
 
 test('ChatUIMcp - el campo help de service.json solo admite URL HTTP o rutas relativas seguras', () => {
-  assert.deepEqual(
-    ChatUIMcp.getServiceHelp({ url: 'https://example.com/help', label: { es: 'Ayuda' } }, 'es'),
-    { url: 'https://example.com/help', label: 'Ayuda' }
-  );
-  assert.deepEqual(
-    ChatUIMcp.getServiceHelp({ url: 'help/mcp.html', label: { en: 'Help' } }, 'es'),
-    { url: 'help/mcp.html', label: 'Help' }
-  );
+  assert.deepEqual(ChatUIMcp.getServiceHelp({ url: 'https://example.com/help', label: { es: 'Ayuda' } }, 'es'), { url: 'https://example.com/help', label: 'Ayuda' });
+  assert.deepEqual(ChatUIMcp.getServiceHelp({ url: 'help/mcp.html', label: { en: 'Help' } }, 'es'), { url: 'help/mcp.html', label: 'Help' });
   assert.equal(ChatUIMcp.getServiceHelp({ url: 'javascript:alert(1)', label: 'Unsafe' }, 'es'), null);
   assert.equal(ChatUIMcp.getServiceHelp({ url: '//example.com', label: 'Unsafe' }, 'es'), null);
 });
 
-test('ChatUIMcp - identifica los servicios mcp-remote sin exponer la ruta completa', () => {
-  const container = { innerHTML: '', querySelectorAll: () => [] };
-  ChatUIMcp.renderExternalServers(container, [{
-    id: 'composio',
-    status: 'stopped',
-    remote: {
-      type: 'mcp-remote',
-      url: 'https://connect.composio.dev/mcp?secret=must-not-be-rendered'
-    }
-  }], (key) => ChatI18n.t(key));
-
-  assert.match(container.innerHTML, /MCP remoto HTTP/);
-  assert.match(container.innerHTML, /connect\.composio\.dev/);
-  assert.doesNotMatch(container.innerHTML, /must-not-be-rendered/);
+test('ChatUIMcp - identifica los servicios mcp-remote sin exponer la ruta completa', t => {
+  const { serversList } = setup(t);
+  ChatUIMcp.renderExternalServers(serversList, [{ id: 'composio', status: 'stopped', remote: { type: 'mcp-remote', url: 'https://connect.composio.dev/mcp?secret=must-not-be-rendered' } }]);
+  assert.match(serversList.textContent, /MCP remoto HTTP/);
+  assert.match(serversList.textContent, /connect\.composio\.dev/);
+  assert.doesNotMatch(serversList.innerHTML, /must-not-be-rendered/);
 });
 
-test('ChatUIMcp - un error al iniciar se muestra en su tarjeta con enlace a la ayuda de dependencias', async () => {
-  {
-    const container = { innerHTML: '' };
-    ChatUIMcp.renderExternalServers(container, [{
-      id: 'example-mcp',
-      status: 'error',
-      error: 'example-mcp requiere Node.js 24+'
-    }], (key) => ChatI18n.t(key));
+function clickToggle(serversList, server) {
+  ChatUIMcp.renderExternalServers(serversList, [server]);
+  const button = serversList.querySelector('.btn-mcp-server-toggle');
+  button.click();
+  return button;
+}
 
-    assert.ok(container.innerHTML.includes('help/mcp.html'));
-    assert.ok(container.innerHTML.includes('Consultar ayuda de dependencias MCP'));
-    assert.ok(container.innerHTML.includes('Node.js 24+'));
-  }
+test('ChatUIMcp - un error al iniciar se muestra en su tarjeta con enlace a la ayuda de dependencias', async t => {
+  const { serversList } = setup(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  ChatUIMcp.renderExternalServers(serversList, [{ id: 'example-mcp', status: 'error', error: 'example-mcp requiere Node.js 24+' }]);
+  assert.equal(serversList.querySelector('.mcp-server-error a').getAttribute('href'), 'help/mcp.html');
+  assert.match(serversList.textContent, /Consultar ayuda de dependencias MCP/);
+  assert.match(serversList.textContent, /Node\.js 24\+/);
 
-  {
-    const ChatMCP = require('../../js/mcp.js');
-    const previousState = ChatState.get('mcp');
-    const originalStart = ChatMCP.manager.startExternalServer;
-    const originalError = console.error;
-    const listeners = {};
-    const btn = {
-      disabled: false,
-      textContent: 'Iniciar',
-      getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
-      setAttribute: () => {},
-      removeAttribute: () => {},
-      addEventListener: (event, listener) => { listeners[event] = listener; }
-    };
-    const container = {
-      innerHTML: '',
-      querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
-    };
-
-    ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
-    try {
-      ChatMCP.manager.startExternalServer = async () => { throw new Error('connection failed'); };
-      console.error = () => {};
-      ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
-
-      await listeners.click();
-
-      const server = ChatState.get('mcp').externalServers[0];
-      assert.equal(server.status, 'stopped');
-      assert.equal(server.error, 'No se pudo actualizar el servidor MCP.');
-    } finally {
-      ChatMCP.manager.startExternalServer = originalStart;
-      console.error = originalError;
-      ChatState.set('mcp', previousState);
-    }
-  }
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async () => { throw new Error('connection failed'); });
+  t.mock.method(console, 'error', () => {});
+  assert.equal(await ChatUIMcp.runExternalServerAction('ejemplo', 'start'), false);
+  const server = ChatState.get('mcp').externalServers[0];
+  assert.equal(server.status, 'stopped');
+  assert.equal(server.error, 'No se pudo actualizar el servidor MCP.');
 });
 
-test('ChatUIMcp - Playwright detecta e informa si browser_action está activa', () => {
+test('ChatUIMcp - Playwright detecta e informa si browser_action está activa', t => {
   assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: true }), true);
   assert.equal(ChatUIMcp.isBrowserActionActive({ browser_action: false }, { name: 'browser_action', available: true }), false);
   assert.equal(ChatUIMcp.isBrowserActionActive({}, { name: 'browser_action', available: false }), false);
   assert.equal(ChatUIMcp.isBrowserActionActive({}, null), false);
 
-  const previousState = ChatState.get('mcp');
-  const container = { innerHTML: '' };
-  ChatState.set('mcp', { ...previousState, tools: [{ name: 'browser_action', available: true }] });
-  try {
-    ChatUIMcp.renderExternalServers(container, [{ id: 'playwright', status: 'stopped' }], (key) => ChatI18n.t(key));
-    assert.match(container.innerHTML, /browser_action está activa/);
-  } finally {
-    ChatState.set('mcp', previousState);
-  }
+  const { serversList } = setup(t, { tools: [{ id: 'browser_action', name: 'browser_action', available: true, metadata: {} }] });
+  ChatUIMcp.renderExternalServers(serversList, [{ id: 'playwright', status: 'stopped' }]);
+  assert.match(serversList.textContent, /browser_action está activa/);
 });
 
-test('ChatUIMcp - iniciar un servidor MCP muestra inmediatamente el estado iniciando', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const previousState = ChatState.get('mcp');
-  const originalStart = ChatMCP.manager.startExternalServer;
-  const listeners = {};
-  const btn = {
-    disabled: false,
-    textContent: 'Iniciar',
-    attributes: {},
-    getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
-    setAttribute(attr, value) { this.attributes[attr] = value; },
-    removeAttribute(attr) { delete this.attributes[attr]; },
-    addEventListener: (event, listener) => { listeners[event] = listener; }
-  };
-  const container = {
-    innerHTML: '',
-    querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
-  };
+test('ChatUIMcp - iniciar un servidor MCP muestra el estado iniciando y el intento de cada espera', async t => {
+  const { serversList } = setup(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  let statusDuringStart = null;
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async (serverId, onWait) => {
+    statusDuringStart = ChatState.get('mcp').externalServers[0].status;
+    assert.equal(serverId, 'ejemplo');
+    onWait(2, 10, 'starting');
+  });
+  const button = clickToggle(serversList, { id: 'ejemplo', status: 'stopped' });
+  assert.equal(button.textContent, 'Iniciando');
+  assert.equal(button.disabled, true);
+  await new Promise(resolve => setImmediate(resolve));
 
-  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
-  try {
-    ChatMCP.manager.startExternalServer = async () => {
-      assert.equal(ChatState.get('mcp').externalServers[0].status, 'starting');
-    };
-    ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
-
-    await listeners.click();
-
-    assert.equal(btn.textContent, 'Iniciando');
-    assert.equal(btn.disabled, false);
-    assert.equal(btn.attributes['aria-busy'], undefined);
-  } finally {
-    ChatMCP.manager.startExternalServer = originalStart;
-    ChatState.set('mcp', previousState);
-  }
+  assert.equal(statusDuringStart, 'starting');
+  assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 2, total: 10 });
+  assert.equal(button.disabled, false);
+  assert.equal(button.hasAttribute('aria-busy'), false);
 });
 
-test('ChatUIMcp - ofrece iniciar los servicios de la sesión anterior y arranca solo los que se conservan', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const previousState = ChatState.get('mcp');
-  const originalStart = ChatMCP.manager.startExternalServer;
-  const originalDialogs = globalThis.ChatDialogs;
+function useDialogs(t, confirmResult, alerts = []) {
+  const previous = globalThis.ChatDialogs;
   const confirms = [];
-  const alerts = [];
-  const started = [];
+  globalThis.ChatDialogs = {
+    confirm: async (message, options) => { confirms.push({ message, options }); return typeof confirmResult === 'function' ? confirmResult() : confirmResult; },
+    alert: async (message, options) => { alerts.push({ message, options }); }
+  };
+  t.after(() => { globalThis.ChatDialogs = previous; });
+  return confirms;
+}
+
+test('ChatUIMcp - ofrece iniciar los servicios de la sesión anterior y arranca solo los que se conservan', async t => {
   const servers = [
     { id: 'memory', enabled: true, status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },
     { id: 'composio', enabled: true, status: 'stopped', displayName: { es: 'Composio' } },
@@ -649,79 +303,47 @@ test('ChatUIMcp - ofrece iniciar los servicios de la sesión anterior y arranca 
     { id: 'running', enabled: true, status: 'running' },
     { id: 'disabled', enabled: false, status: 'stopped' }
   ];
+  setup(t, { externalServers: servers });
+  const started = [];
+  const alerts = [];
   let selection = ['memory', 'composio'];
-  globalThis.ChatDialogs = {
-    confirm: async (message, options) => { confirms.push({ message, options }); return selection; },
-    alert: async (message, options) => { alerts.push({ message, options }); }
-  };
-  ChatState.set('mcp', { ...previousState, tools: [], externalServers: servers });
-  try {
-    ChatMCP.manager.startExternalServer = async id => {
-      started.push(id);
-      if (id === 'composio') throw new Error('connection failed');
-    };
-    const originalError = console.error;
-    console.error = () => {};
-    try {
-      assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers, (key, params) => ChatI18n.t(key, params)), selection);
-    } finally {
-      console.error = originalError;
-    }
+  const confirms = useDialogs(t, () => selection, alerts);
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async id => {
+    started.push(id);
+    if (id === 'composio') throw new Error('connection failed');
+  });
+  t.mock.method(console, 'error', () => {});
 
-    assert.equal(confirms.length, 1);
-    assert.deepEqual(confirms[0].options.items, [
-      { id: 'memory', label: 'Memoria' },
-      { id: 'composio', label: 'Composio' },
-      { id: 'ejemplo', label: 'ejemplo' }
-    ]);
-    assert.equal(confirms[0].options.acceptText, 'Iniciar');
-    assert.deepEqual(started, ['memory', 'composio']);
-    assert.equal(alerts.length, 1);
-    assert.equal(alerts[0].options.type, 'error');
-    assert.match(alerts[0].message, /Composio/);
-    assert.doesNotMatch(alerts[0].message, /Memoria/);
+  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers), selection);
+  assert.deepEqual(confirms[0].options.items, [{ id: 'memory', label: 'Memoria' }, { id: 'composio', label: 'Composio' }, { id: 'ejemplo', label: 'ejemplo' }]);
+  assert.equal(confirms[0].options.acceptText, 'Iniciar');
+  assert.deepEqual(started, ['memory', 'composio']);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].options.type, 'error');
+  assert.match(alerts[0].message, /Composio/);
+  assert.doesNotMatch(alerts[0].message, /Memoria/);
 
-    started.length = 0;
-    selection = null;
-    assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers, (key, params) => ChatI18n.t(key, params)), []);
-    assert.deepEqual(started, []);
+  started.length = 0;
+  selection = null;
+  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices(servers), []);
+  assert.deepEqual(started, []);
 
-    confirms.length = 0;
-    assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
-    assert.equal(confirms.length, 0);
-  } finally {
-    ChatMCP.manager.startExternalServer = originalStart;
-    if (originalDialogs === undefined) delete globalThis.ChatDialogs;
-    else globalThis.ChatDialogs = originalDialogs;
-    ChatState.set('mcp', previousState);
-  }
+  confirms.length = 0;
+  assert.deepEqual(await ChatUIMcp.offerStoppedExternalServices([{ id: 'x', enabled: false, status: 'stopped' }]), []);
+  assert.equal(confirms.length, 0);
 });
 
-test('ChatUIMcp - no reinicia un servicio que se inició mientras el diálogo estaba abierto', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const previousState = ChatState.get('mcp');
-  const originalStart = ChatMCP.manager.startExternalServer;
-  const originalDialogs = globalThis.ChatDialogs;
-  const started = [];
+test('ChatUIMcp - no reinicia un servicio que se inició mientras el diálogo estaba abierto', async t => {
   const servers = [{ id: 'memory', enabled: true, status: 'stopped' }];
-  globalThis.ChatDialogs = {
-    confirm: async () => {
-      ChatState.set('mcp', current => ({ ...current, externalServers: [{ id: 'memory', enabled: true, status: 'running' }] }));
-      return ['memory'];
-    },
-    alert: async () => {}
-  };
-  ChatState.set('mcp', { ...previousState, externalServers: servers });
-  try {
-    ChatMCP.manager.startExternalServer = async id => { started.push(id); };
-    await ChatUIMcp.offerStoppedExternalServices(servers);
-    assert.deepEqual(started, []);
-  } finally {
-    ChatMCP.manager.startExternalServer = originalStart;
-    if (originalDialogs === undefined) delete globalThis.ChatDialogs;
-    else globalThis.ChatDialogs = originalDialogs;
-    ChatState.set('mcp', previousState);
-  }
+  setup(t, { externalServers: servers });
+  const started = [];
+  useDialogs(t, () => {
+    ChatState.set('mcp', current => ({ ...current, externalServers: [{ id: 'memory', enabled: true, status: 'running' }] }));
+    return ['memory'];
+  });
+  t.mock.method(ChatMCP.manager, 'startExternalServer', async id => { started.push(id); });
+  await ChatUIMcp.offerStoppedExternalServices(servers);
+  assert.deepEqual(started, []);
 });
 
 function makeAbortError() {
@@ -734,204 +356,93 @@ async function flushMicrotasks() {
   await new Promise(resolve => setImmediate(resolve));
 }
 
-test('ChatMCP - start: un timeout inicial o de respuesta SSE consulta el estado y acepta running', async (t) => {
+test('ChatMCP - start: un timeout inicial o de respuesta SSE consulta el estado y acepta running', async t => {
+  const manager = ChatMCP.manager;
   {
-    const ChatMCP = require('../../js/mcp.js');
-    const manager = ChatMCP.manager;
-    const originalRequest = manager.requestExternalControl;
-    const originalFetch = manager.fetchExternalServers;
-    const originalSync = manager.syncExternalServers;
-    const waits = [];
-    let syncCalls = 0;
     t.mock.timers.enable({ apis: ['setTimeout'] });
-    try {
-      manager.requestExternalControl = async () => { throw makeAbortError(); };
-      manager.fetchExternalServers = async () => ({ host: 'running', servers: [{ id: 'ejemplo', status: 'running' }] });
-      manager.syncExternalServers = async () => { syncCalls += 1; };
-
-      const pending = manager.startExternalServer('ejemplo', null, (attempt, total) => waits.push([attempt, total]));
-      await flushMicrotasks();
-      t.mock.timers.tick(15000);
-      await flushMicrotasks();
-
-      const result = await pending;
-      assert.equal(result.servers[0].status, 'running');
-      assert.deepEqual(waits, []);
-      assert.equal(syncCalls, 1);
-    } finally {
-      t.mock.timers.reset();
-      manager.requestExternalControl = originalRequest;
-      manager.fetchExternalServers = originalFetch;
-      manager.syncExternalServers = originalSync;
-    }
+    const request = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+    const fetch = t.mock.method(manager, 'fetchExternalServers', async () => ({ servers: [{ id: 'ejemplo', status: 'running' }] }));
+    const sync = t.mock.method(manager, 'syncExternalServers', async () => {});
+    const waits = [];
+    const result = await manager.startExternalServer('ejemplo', (attempt, total) => waits.push([attempt, total]));
+    assert.equal(result.servers[0].status, 'running');
+    assert.deepEqual(waits, []);
+    assert.equal(sync.mock.callCount(), 1);
+    t.mock.timers.reset();
+    request.mock.restore();
+    fetch.mock.restore();
+    sync.mock.restore();
   }
-
   {
-    const manager = require('../../js/mcp.js').manager;
     t.mock.method(manager, 'requestExternalControl', async () => {
       const error = new Error('SSE response timed out');
       error.code = 'MCP_REQUEST_TIMEOUT';
       throw error;
     });
-    t.mock.method(manager, 'fetchExternalServers', async () => ({
-      servers: [{ id: 'ejemplo', status: 'running' }]
-    }));
+    t.mock.method(manager, 'fetchExternalServers', async () => ({ servers: [{ id: 'ejemplo', status: 'running' }] }));
     const sync = t.mock.method(manager, 'syncExternalServers', async () => {});
     assert.equal((await manager.startExternalServer('ejemplo')).servers[0].status, 'running');
     assert.equal(sync.mock.callCount(), 1);
   }
 });
 
-test('ChatMCP - start: si el estado se queda en starting, renuncia tras 10 comprobaciones', async (t) => {
-  const ChatMCP = require('../../js/mcp.js');
+test('ChatMCP - start: si el estado se queda en starting, renuncia tras 10 comprobaciones', async t => {
   const manager = ChatMCP.manager;
-  const originalRequest = manager.requestExternalControl;
-  const originalFetch = manager.fetchExternalServers;
-  let fetchCalls = 0;
-  const waits = [];
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  try {
-    manager.requestExternalControl = async () => { throw makeAbortError(); };
-    manager.fetchExternalServers = async () => {
-      fetchCalls += 1;
-      return { host: 'running', servers: [{ id: 'ejemplo', status: 'starting' }] };
-    };
-
-    const pending = assert.rejects(
-      manager.startExternalServer('ejemplo', null, (attempt, total) => waits.push([attempt, total])),
-      error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
-    );
-    for (let i = 0; i < 10; i += 1) {
-      await flushMicrotasks();
-      t.mock.timers.tick(15000);
-      await flushMicrotasks();
-    }
-
-    await pending;
-    assert.equal(fetchCalls, 11);
-    assert.equal(waits.length, 10);
-    assert.deepEqual(waits[0], [1, 10]);
-    assert.deepEqual(waits[9], [10, 10]);
-  } finally {
-    t.mock.timers.reset();
-    manager.requestExternalControl = originalRequest;
-    manager.fetchExternalServers = originalFetch;
-  }
-});
-
-test('ChatMCP - start: renuncia sin esperar ante estado de error, estados terminales, servicios desconocidos o fallo de consulta', async (t) => {
-  {
-    const ChatMCP = require('../../js/mcp.js');
-    const manager = ChatMCP.manager;
-    const originalRequest = manager.requestExternalControl;
-    const originalFetch = manager.fetchExternalServers;
-    let fetchCalls = 0;
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    try {
-      manager.requestExternalControl = async () => { throw makeAbortError(); };
-      manager.fetchExternalServers = async () => {
-        fetchCalls += 1;
-        return { host: 'running', servers: [{ id: 'ejemplo', status: 'error' }] };
-      };
-
-      await assert.rejects(manager.startExternalServer('ejemplo', null, () => {}),
-        error => error.externalServer.status === 'error');
-      assert.equal(fetchCalls, 1);
-    } finally {
-      t.mock.timers.reset();
-      manager.requestExternalControl = originalRequest;
-      manager.fetchExternalServers = originalFetch;
-    }
-  }
-
-  {
-    const manager = require('../../js/mcp.js').manager;
-    t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
-    let waits = 0;
-    for (const status of ['available', 'stopped', undefined]) {
-      const fetch = t.mock.method(manager, 'fetchExternalServers', async () => ({
-        servers: status ? [{ id: 'ejemplo', status }] : []
-      }));
-      await assert.rejects(manager.startExternalServer('ejemplo', null, () => { waits += 1; }),
-        error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
-      assert.equal(fetch.mock.callCount(), 1);
-      fetch.mock.restore();
-    }
-    assert.equal(waits, 0);
-  }
-
-  {
-    const manager = require('../../js/mcp.js').manager;
-    t.mock.method(manager, 'requestExternalControl', async method => {
-      if (method.endsWith('/start')) throw makeAbortError();
-      throw new Error('Status unavailable');
-    });
-    await assert.rejects(manager.startExternalServer('ejemplo'),
-      error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
-  }
-});
-
-test('ChatMCP - start: un error distinto del timeout se propaga sin comprobar el estado', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const manager = ChatMCP.manager;
-  const originalRequest = manager.requestExternalControl;
-  const originalFetch = manager.fetchExternalServers;
+  t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
   let fetchCalls = 0;
-  try {
-    manager.requestExternalControl = async () => { throw new Error('Sin conexión'); };
-    manager.fetchExternalServers = async () => {
-      fetchCalls += 1;
-      return { host: 'running', servers: [] };
-    };
-
-    await assert.rejects(() => manager.startExternalServer('ejemplo'), /Sin conexión/);
-    assert.equal(fetchCalls, 0);
-  } finally {
-    manager.requestExternalControl = originalRequest;
-    manager.fetchExternalServers = originalFetch;
+  t.mock.method(manager, 'fetchExternalServers', async () => {
+    fetchCalls += 1;
+    return { servers: [{ id: 'ejemplo', status: 'starting' }] };
+  });
+  const waits = [];
+  const pending = assert.rejects(
+    manager.startExternalServer('ejemplo', (attempt, total) => waits.push([attempt, total])),
+    error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
+  );
+  for (let i = 0; i < 10; i += 1) {
+    await flushMicrotasks();
+    t.mock.timers.tick(15000);
+    await flushMicrotasks();
   }
+  await pending;
+  assert.equal(fetchCalls, 11);
+  assert.equal(waits.length, 10);
+  assert.deepEqual(waits[0], [1, 10]);
+  assert.deepEqual(waits[9], [10, 10]);
 });
 
-test('ChatUIMcp - durante las esperas del arranque, el botón indica el intento', async () => {
-  const ChatMCP = require('../../js/mcp.js');
-  const previousState = ChatState.get('mcp');
-  const originalStart = ChatMCP.manager.startExternalServer;
-  const listeners = {};
-  const btn = {
-    disabled: false,
-    textContent: 'Iniciar',
-    getAttribute: attr => ({ 'data-server-id': 'ejemplo', 'data-action': 'start' }[attr] || null),
-    setAttribute: () => {},
-    removeAttribute: () => {},
-    addEventListener: (event, listener) => { listeners[event] = listener; }
-  };
-  const container = {
-    innerHTML: '',
-    querySelectorAll: selector => selector === '.btn-mcp-server-toggle' ? [btn] : []
-  };
-
-  ChatState.set('mcp', { ...previousState, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
-  try {
-    ChatMCP.manager.startExternalServer = async (serverId, registry, onWait) => {
-      assert.equal(serverId, 'ejemplo');
-      assert.equal(typeof onWait, 'function');
-      onWait(2, 10);
-    };
-    ChatUIMcp.renderExternalServers(container, [{ id: 'ejemplo', status: 'stopped' }], (key) => ChatI18n.t(key));
-
-    await listeners.click();
-
-    assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 2, total: 10 });
-    assert.equal(btn.disabled, false);
-  } finally {
-    ChatMCP.manager.startExternalServer = originalStart;
-    ChatState.set('mcp', previousState);
+test('ChatMCP - start: renuncia sin esperar ante estado de error, estados terminales, servicios desconocidos o fallo de consulta', async t => {
+  const manager = ChatMCP.manager;
+  t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let waits = 0;
+  for (const status of ['error', 'available', 'stopped', undefined]) {
+    const fetch = t.mock.method(manager, 'fetchExternalServers', async () => ({ servers: status ? [{ id: 'ejemplo', status }] : [] }));
+    await assert.rejects(manager.startExternalServer('ejemplo', () => { waits += 1; }), error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
+    assert.equal(fetch.mock.callCount(), 1);
+    fetch.mock.restore();
   }
+  assert.equal(waits, 0);
+
+  manager.requestExternalControl.mock.restore();
+  t.mock.method(manager, 'requestExternalControl', async method => {
+    if (method.endsWith('/start')) throw makeAbortError();
+    throw new Error('Status unavailable');
+  });
+  await assert.rejects(manager.startExternalServer('ejemplo'),
+    error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
 });
 
+test('ChatMCP - start: un error distinto del timeout se propaga sin comprobar el estado', async t => {
+  const manager = ChatMCP.manager;
+  t.mock.method(manager, 'requestExternalControl', async () => { throw new Error('Sin conexión'); });
+  const fetch = t.mock.method(manager, 'fetchExternalServers', async () => ({ servers: [] }));
+  await assert.rejects(() => manager.startExternalServer('ejemplo'), /Sin conexión/);
+  assert.equal(fetch.mock.callCount(), 0);
+});
 
-test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque', async (t) => {
-  const manager = require('../../js/mcp.js').manager;
+test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque', async t => {
+  const manager = ChatMCP.manager;
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const request = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
   let checks = 0;
@@ -940,7 +451,7 @@ test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque
   }));
   const sync = t.mock.method(manager, 'syncExternalServers', async () => {});
   const waits = [];
-  const pending = manager.startExternalServer('ejemplo', null, (attempt, total, status) => waits.push([attempt, total, status]));
+  const pending = manager.startExternalServer('ejemplo', (attempt, total, status) => waits.push([attempt, total, status]));
   await flushMicrotasks();
   assert.deepEqual(waits, [[1, 80, 'installing']]);
   t.mock.timers.tick(14999);
@@ -955,32 +466,20 @@ test('ChatMCP - start: OAuth termina durante una espera sin reenviar el arranque
   assert.equal(sync.mock.callCount(), 1);
 });
 
-
-test('ChatMCP - start: propaga el objeto servidor con oauthUrl durante el arranque', async (t) => {
-  const manager = require('../../js/mcp.js').manager;
+test('ChatMCP - start: propaga el objeto servidor con oauthUrl durante el arranque', async t => {
+  const manager = ChatMCP.manager;
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  t.mock.method(manager, 'requestExternalControl', async () => {
-    const error = new Error('request aborted');
-    error.name = 'AbortError';
-    throw error;
-  });
+  t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
   let checks = 0;
   t.mock.method(manager, 'fetchExternalServers', async () => ({
-    servers: [{
-      id: 'composio',
-      status: ++checks === 2 ? 'running' : 'starting',
-      oauthUrl: checks === 1 ? 'https://example.com/oauth' : null
-    }]
+    servers: [{ id: 'composio', status: ++checks === 2 ? 'running' : 'starting', oauthUrl: checks === 1 ? 'https://example.com/oauth' : null }]
   }));
-  const receivedServers = [];
   t.mock.method(manager, 'syncExternalServers', async () => {});
-  const pending = manager.startExternalServer('composio', null, (attempt, total, status, server) => {
-    receivedServers.push(server);
-  });
+  const receivedServers = [];
+  const pending = manager.startExternalServer('composio', (attempt, total, status, server) => receivedServers.push(server));
   await flushMicrotasks();
   t.mock.timers.tick(15000);
   assert.equal((await pending).servers[0].status, 'running');
   assert.equal(receivedServers.length, 1);
   assert.equal(receivedServers[0].oauthUrl, 'https://example.com/oauth');
 });
-

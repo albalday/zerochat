@@ -8,87 +8,21 @@
   else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
-  const DEFAULT_HOST = '127.0.0.1';
-  const DEFAULT_PORT = 6388;
-  const { resolveDep, escapeHtml } = Utils;
-  const getUtils = () => resolveDep('ChatUtils', './utils.js');
+
+  const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard } = Utils;
+  const { t } = I18n;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
-  const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js').manager;
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
-  const { t } = I18n;
-
-  function clearSafeContent(element) {
-    const utils = getUtils();
-    if (utils?.clearElement) return utils.clearElement(element);
-    if (element) element.textContent = '';
-    return element;
-  }
-  function appendSafeText(parent, tagName, value, options) {
-    const utils = getUtils();
-    const child = utils?.appendTextElement?.(parent, tagName, value, options);
-    if (!child && parent) parent.textContent = `${parent.textContent || ''}${value == null ? '' : String(value)}`;
-    return child;
-  }
-  function sanitizePort(port) {
-    const parsed = parseInt(port, 10);
-    return Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535 ? parsed : DEFAULT_PORT;
-  }
-  function sanitizeHost(host) { return String(host || '').trim() || DEFAULT_HOST; }
-
-  function isBrowserActionActive(enabledTools = {}, browserTool = null) {
-    const isEnabled = enabledTools.browser_action !== false;
-    const isAvailable = !!browserTool && browserTool.available !== false;
-    return isEnabled && isAvailable;
-  }
-
-  function isBrowserActionCurrentlyActive() {
-    const enabledTools = getConfig().getActive()?.enabledTools || {};
-    const localTools = getState()?.get?.('mcp')?.tools || [];
-    const browserTool = localTools.find(tool => (tool.id || tool.name) === 'browser_action' || tool.name === 'browser_action');
-    return isBrowserActionActive(enabledTools, browserTool);
-  }
-
-  function getAllMcpTools(state = {}) {
-    const localTools = Array.isArray(state.tools) ? state.tools : [];
-    const externalTools = Array.isArray(state.externalTools) ? state.externalTools : [];
-    return [...localTools, ...externalTools];
-  }
-
-  // `help` is the standard optional service.json field shown on an MCP card.
-  // Keep arbitrary schemes out of an HTML attribute even though the value is escaped.
-  function getServiceHelp(help, language, translator = t) {
-    if (!help || typeof help !== 'object') return null;
-    const rawUrl = typeof help.url === 'string' ? help.url.trim() : '';
-    const isHttpUrl = /^https?:\/\//i.test(rawUrl);
-    const isSafeRelativeUrl = /^(?!\/\/)[a-zA-Z0-9][a-zA-Z0-9._~!$&'()*+,;=@\/?#%-]*$/.test(rawUrl);
-    if (!isHttpUrl && !isSafeRelativeUrl) return null;
-    const label = help.label?.[language] || help.label?.es || help.label?.en || help.label || translator('mcp_external_help');
-    if (typeof label !== 'string' || !label.trim()) return null;
-    return { url: rawUrl, label: label.trim() };
-  }
-
-  function updateToolEnabledState(toolId, enabled) {
-    const Config = getConfig();
-    if (!Config) return false;
-    const current = Config.getActive()?.enabledTools || {};
-    try {
-      Config.updateRuntime({ enabledTools: { ...current, [toolId]: enabled } });
-      return true;
-    } catch (error) {
-      console.error('[MCP UI] Error updating enabled tool state:', error);
-      return false;
-    }
-  }
 
   const UNIX_TERMINAL_COMMAND = 'pip install zerochat\nzerochat';
   // En Windows, `zerochat` suele no estar en el PATH y PowerShell 5 no admite `&&`; el lanzador py funciona siempre.
   const WINDOWS_TERMINAL_COMMAND = 'py -m pip install zerochat\npy -m zerochat';
 
-  function isWindowsPlatform(nav = typeof navigator !== 'undefined' ? navigator : null) {
-    if (!nav) return false;
+  function isWindowsPlatform(nav = navigator) {
     const platform = nav.userAgentData?.platform || nav.platform || '';
     return /^win/i.test(platform) || /Windows NT/.test(nav.userAgent || '');
   }
@@ -97,114 +31,121 @@
     return isWindowsPlatform(nav) ? WINDOWS_TERMINAL_COMMAND : UNIX_TERMINAL_COMMAND;
   }
 
-  async function copyCommandToClipboard(text, btnElement, translator = t) {
-    if (!text) return false;
-    let ok = false;
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* se prueba el siguiente método de copia */ }
-    }
-    if (!ok && typeof document !== 'undefined' && document.body) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.setAttribute('readonly', '');
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      try { ok = document.execCommand('copy'); } catch (e) { /* execCommand no disponible: se informa del fallo con ok = false */ }
-      textarea.remove();
-    }
-    if (btnElement && ok) {
-      const orig = btnElement.innerHTML;
-      const check = Icons.get('check', { size: 14 });
-      btnElement.innerHTML = `${check} <span>${translator('mcp_cmd_copied')}</span>`;
-      btnElement.classList.add('btn-copied');
-      const timer = setTimeout(() => { btnElement.innerHTML = orig; btnElement.classList.remove('btn-copied'); }, 2000);
-      if (typeof timer?.unref === 'function') timer.unref();
-    }
-    return ok;
+  function isBrowserActionActive(enabledTools, browserTool) {
+    return enabledTools.browser_action !== false && Boolean(browserTool) && browserTool.available !== false;
   }
 
-  function renderToolsList(container, tools, currentEnabledTools = {}, translator = t) {
-    if (!container) return;
-    container.style.display = 'block';
+  function isBrowserActionCurrentlyActive() {
+    const browserTool = getState().get('mcp').tools.find(tool => tool.id === 'browser_action');
+    return isBrowserActionActive(getConfig().getActive().enabledTools, browserTool);
+  }
 
-    if (!Array.isArray(tools) || tools.length === 0) {
-      const isConnected = getState()?.get ? getState().get('mcp')?.status === 'connected' : false;
-      const msg = isConnected ? translator('mcp_tools_empty_connected') : translator('mcp_tools_empty_disconnected');
-      const plug = Icons.get('plug', { size: 24 });
-      container.innerHTML = `<div class="mcp-tools-empty">${plug}<p>${msg}</p></div>`;
+  function getAllMcpTools(state) {
+    return [...state.tools, ...state.externalTools];
+  }
+
+  /** Herramientas de la sesión conectada; vacío sin conexión. */
+  function getConnectedTools() {
+    const state = getState().get('mcp');
+    return state.status === 'connected' ? getAllMcpTools(state) : [];
+  }
+
+  /** Texto en el idioma de la interfaz de un campo bilingüe de service.json. */
+  function localized(value, language) {
+    return value && typeof value === 'object' ? value[language] || value.es || value.en : value;
+  }
+
+  // `help` is the standard optional service.json field shown on an MCP card.
+  // Keep arbitrary schemes out of an HTML attribute even though the value is escaped.
+  function getServiceHelp(help, language) {
+    if (!help || typeof help !== 'object') return null;
+    const rawUrl = typeof help.url === 'string' ? help.url.trim() : '';
+    const isHttpUrl = /^https?:\/\//i.test(rawUrl);
+    const isSafeRelativeUrl = /^(?!\/\/)[a-zA-Z0-9][a-zA-Z0-9._~!$&'()*+,;=@\/?#%-]*$/.test(rawUrl);
+    if (!isHttpUrl && !isSafeRelativeUrl) return null;
+    const label = localized(help.label, language) || t('mcp_external_help');
+    if (typeof label !== 'string' || !label.trim()) return null;
+    return { url: rawUrl, label: label.trim() };
+  }
+
+  function getServiceName(server, language) {
+    return String(localized(server.displayName, language) || server.id || '');
+  }
+
+  function updateToolEnabledState(toolId, enabled) {
+    const Config = getConfig();
+    try {
+      Config.updateRuntime({ enabledTools: { ...Config.getActive().enabledTools, [toolId]: enabled } });
+      return true;
+    } catch (error) {
+      console.error('[MCP UI] Error updating enabled tool state:', error);
+      return false;
+    }
+  }
+
+  function copyCommandToClipboard(text, button) {
+    return copyToClipboard(text, button, `${Icons.get('check', { size: 14 })} <span>${escapeHtml(t('mcp_cmd_copied'))}</span>`);
+  }
+
+  const policyClass = policy => `status-${policy === 'allow' ? 'allowed' : (policy === 'deny' ? 'denied' : 'ask')}`;
+
+  function renderToolAuthorization(tool, serverName, originalName) {
+    const security = getSecurity();
+    const allowed = escapeHtml(t('mcp_security_badge_allowed'));
+    if (security.getGlobalMcpPolicy() === 'allow_all') {
+      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_policy_allow_all'))}">${allowed} (Global)</span>`;
+    }
+    const policy = security.getToolPolicy(tool.id) || 'ask';
+    const serverId = tool.metadata.mcpServerId;
+    if (serverId && security.getServerPolicy(serverId) === 'allow' && policy === 'ask') {
+      return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_trusted_server'))}">${allowed} (${escapeHtml(t('mcp_security_badge_server'))})</span>`;
+    }
+    const constraints = security.getToolConstraints(tool.id);
+    const constrained = Boolean(constraints && (constraints.command || constraints.path)) && policy === 'allow';
+    const selectTitle = escapeHtml(t('mcp_security_select_title'));
+    const option = (value, label) => `<option value="${value}"${policy === value ? ' selected' : ''}>${label}</option>`;
+    return `
+      <select class="mcp-auth-select ${policyClass(policy)}" data-tool-id="${escapeHtml(tool.id)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
+        ${option('ask', escapeHtml(t('mcp_security_badge_ask')))}
+        ${option('allow', `${allowed}${constrained ? ` (${escapeHtml(t('mcp_security_constrained'))})` : ''}`)}
+        ${option('deny', escapeHtml(t('tool_auth_denied_badge')))}
+      </select>`;
+  }
+
+  function renderToolsList(container, tools, enabledTools) {
+    container.style.display = 'block';
+    if (tools.length === 0) {
+      const msg = getState().get('mcp').status === 'connected' ? t('mcp_tools_empty_connected') : t('mcp_tools_empty_disconnected');
+      container.innerHTML = `<div class="mcp-tools-empty">${Icons.get('plug', { size: 24 })}<p>${escapeHtml(msg)}</p></div>`;
       return;
     }
 
     const plug16 = Icons.get('plug', { size: 16 });
-    const term16 = Icons.get('terminal', { size: 16 });
-    const badgeText = escapeHtml(translator('mcp_tool_badge'));
-
-    const Security = getSecurity();
-    const globalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
-
+    const badgeText = escapeHtml(t('mcp_tool_badge'));
+    const AgentCore = getAgentCore();
     const items = tools.map(tool => {
-      const id = tool.id || tool.name;
-      const isAvailable = tool.available !== false;
-      const isChecked = isAvailable && getAgentCore().isToolEnabled(currentEnabledTools, { id, name: tool.name });
-      const desc = escapeHtml(tool.descFallback || tool.description || '');
-
-      let paramsHint = '';
-      const props = tool.inputSchema?.properties || tool.parameters?.properties;
-      if (props && typeof props === 'object') {
-        const req = Array.isArray(tool.inputSchema?.required || tool.parameters?.required) ? (tool.inputSchema?.required || tool.parameters?.required) : [];
-        paramsHint = Object.entries(props).map(([k, v]) => `${k}${req.includes(k) ? '' : '?'}: ${v.type || 'any'}`).join(', ');
-      }
-
-      const serverName = tool.metadata?.mcpServerName || '';
-      const originalName = tool.metadata?.originalName || tool.name;
-      const toolRule = Security?.manager?.getToolPolicy ? Security.manager.getToolPolicy(id) : null;
-      const toolConstraints = Security?.manager?.getToolConstraints ? Security.manager.getToolConstraints(id) : null;
-      const hasConstraints = !!(toolConstraints && (toolConstraints.command || toolConstraints.path));
-      const effectivePolicy = toolRule || 'ask';
-
-      const serverId = tool.metadata?.mcpServerId || '';
-      const serverPolicy = serverId && Security?.manager?.getServerPolicy ? Security.manager.getServerPolicy(serverId) : null;
-
-      let authTagHtml = '';
-      if (globalPolicy === 'allow_all') {
-        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_policy_allow_all'))}">${escapeHtml(translator('mcp_security_badge_allowed'))} (Global)</span>`;
-      } else if (serverPolicy === 'allow' && effectivePolicy === 'ask') {
-        authTagHtml = `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(translator('mcp_security_trusted_server'))}">${escapeHtml(translator('mcp_security_badge_allowed'))} (${escapeHtml(translator('mcp_security_badge_server'))})</span>`;
-      } else {
-        const selectTitle = escapeHtml(translator('mcp_security_select_title'));
-        const optAsk = escapeHtml(translator('mcp_security_badge_ask'));
-        let optAllowed = escapeHtml(translator('mcp_security_badge_allowed'));
-        if (hasConstraints && effectivePolicy === 'allow') {
-          optAllowed += ` (${escapeHtml(translator('mcp_security_constrained'))})`;
-        }
-        const optDenied = escapeHtml(translator('tool_auth_denied_badge'));
-        const statusClass = effectivePolicy === 'allow' ? 'status-allowed' : (effectivePolicy === 'deny' ? 'status-denied' : 'status-ask');
-
-        authTagHtml = `
-          <select class="mcp-auth-select ${statusClass}" data-tool-id="${escapeHtml(id)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
-            <option value="ask" ${effectivePolicy === 'ask' ? 'selected' : ''}>${optAsk}</option>
-            <option value="allow" ${effectivePolicy === 'allow' ? 'selected' : ''}>${optAllowed}</option>
-            <option value="deny" ${effectivePolicy === 'deny' ? 'selected' : ''}>${optDenied}</option>
-          </select>`;
-      }
-
+      const isChecked = tool.available !== false && AgentCore.isToolEnabled(enabledTools, { id: tool.id, name: tool.name });
+      const schema = tool.inputSchema || {};
+      const required = Array.isArray(schema.required) ? schema.required : [];
+      const paramsHint = Object.entries(schema.properties || {})
+        .map(([key, value]) => `${key}${required.includes(key) ? '' : '?'}: ${value.type || 'any'}`).join(', ');
+      const serverName = tool.metadata.mcpServerName || '';
+      const originalName = tool.metadata.originalName || tool.name;
       return `
-        <div class="mcp-tool-card" data-tool-id="${escapeHtml(id)}">
+        <div class="mcp-tool-card" data-tool-id="${escapeHtml(tool.id)}">
           <div class="mcp-tool-info">
             <div class="mcp-tool-title-row">
               <span class="mcp-tool-icon">${plug16}</span>
               <span class="mcp-tool-name">${escapeHtml(tool.name)}</span>
               <span class="mcp-tool-badge">${badgeText}</span>
-              ${authTagHtml}
+              ${renderToolAuthorization(tool, serverName, originalName)}
             </div>
-            <p class="mcp-tool-desc">${desc}</p>
+            <p class="mcp-tool-desc">${escapeHtml(tool.description || '')}</p>
             ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
           </div>
           <div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(id)}" ${isChecked ? 'checked' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.id)}" ${isChecked ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
           </div>
@@ -213,700 +154,432 @@
 
     container.innerHTML = `
       <div class="mcp-tools-header">
-        <div class="mcp-tools-title">${term16}<span data-i18n="mcp_tools_section_title">${translator('mcp_tools_section_title')}</span></div>
-        <span class="mcp-tools-counter">${translator('mcp_tools_count', { count: tools.length })}</span>
+        <div class="mcp-tools-title">${Icons.get('terminal', { size: 16 })}<span data-i18n="mcp_tools_section_title">${escapeHtml(t('mcp_tools_section_title'))}</span></div>
+        <span class="mcp-tools-counter">${escapeHtml(t('mcp_tools_count', { count: tools.length }))}</span>
       </div>
       <div class="mcp-tools-list">${items}</div>`;
 
-    container.querySelectorAll?.('.mcp-auth-select').forEach(sel => {
-      sel.addEventListener?.('change', () => {
-        const tid = sel.getAttribute?.('data-tool-id');
-        if (!tid) return;
-        const newPolicy = sel.value;
-        const sName = sel.getAttribute?.('data-server-name') || '';
-        const oName = sel.getAttribute?.('data-orig-name') || tid;
-
-        if (Security?.manager) {
-          if (newPolicy === 'ask') {
-            Security.manager.revokeToolPolicy(tid);
-          } else {
-            Security.manager.setToolPolicy(tid, newPolicy, {
-              serverName: sName,
-              originalName: oName
-            });
-          }
+    container.querySelectorAll('.mcp-auth-select').forEach(select => {
+      select.addEventListener('change', () => {
+        const toolId = select.getAttribute('data-tool-id');
+        const policy = select.value;
+        if (policy === 'ask') {
+          getSecurity().revokeToolPolicy(toolId);
+        } else {
+          getSecurity().setToolPolicy(toolId, policy, {
+            serverName: select.getAttribute('data-server-name'),
+            originalName: select.getAttribute('data-orig-name')
+          });
         }
-
-        // Actualizar clase visual del select según la nueva opción
-        sel.className = `mcp-auth-select status-${newPolicy === 'allow' ? 'allowed' : (newPolicy === 'deny' ? 'denied' : 'ask')}`;
-
-        // Sincronizar lista de autorizaciones guardadas en el modal si está disponible
-        const savedListEl = typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null;
-        if (savedListEl && typeof renderSavedAuthorizations === 'function') {
-          renderSavedAuthorizations({
-            savedAuthsList: savedListEl,
-            btnClearAuths: document.getElementById('btn-mcp-clear-auths')
-          }, translator);
-        }
+        select.className = `mcp-auth-select ${policyClass(policy)}`;
+        renderSavedAuthorizations();
       });
     });
 
-    container.querySelectorAll?.('.mcp-tool-checkbox').forEach(cb => {
-      cb.addEventListener?.('change', async () => {
-        const tid = cb.getAttribute?.('data-tool-id');
-        if (!tid) return;
-        if (tid === 'browser_action' && cb.checked) {
-          const MCP = getMCP();
-          const client = MCP?.manager?.clients?.get?.('mcp_proxy');
+    container.querySelectorAll('.mcp-tool-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', async () => {
+        const toolId = checkbox.getAttribute('data-tool-id');
+        if (toolId === 'browser_action' && checkbox.checked) {
           let availability = { available: false };
           try {
-            availability = await client?.request?.('tools/availability', { name: 'browser_action' }) || availability;
+            availability = await getMCP().manager.requestExternalControl('tools/availability', { name: 'browser_action' });
           } catch (error) { /* sin respuesta del servidor: se considera no disponible */ }
           if (!availability.available) {
-            cb.checked = false;
-            await getDialogs()?.alert?.(t('browser_action_requirements_notice'), { type: 'info' });
+            checkbox.checked = false;
+            await getDialogs().alert(t('browser_action_requirements_notice'), { type: 'info' });
             return;
           }
         }
-        updateToolEnabledState(tid, cb.checked);
+        updateToolEnabledState(toolId, checkbox.checked);
       });
     });
   }
 
-  function renderExternalServers(container, servers, translator = t) {
-    if (!container) return;
-    if (!Array.isArray(servers) || servers.length === 0) {
-      container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(translator('mcp_servers_empty'))}</div>`;
+  function renderServerOptions(server, language) {
+    const options = (server.options || []).filter(option => option.type === 'boolean');
+    if (options.length === 0) return '';
+    return `<div class="mcp-server-options">${options.map(option => {
+      const description = localized(option.description, language);
+      const value = server.userOptions && option.id in server.userOptions ? server.userOptions[option.id] : option.default;
+      return `
+        <div class="mcp-server-option-row">
+          <label class="switch switch-sm">
+            <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(option.id)}" ${value ? 'checked' : ''}>
+            <span class="slider round"></span>
+          </label>
+          <div class="mcp-server-option-meta">
+            <span class="mcp-server-option-label">${escapeHtml(localized(option.label, language) || option.id)}</span>
+            ${description ? `<span class="label-hint">${escapeHtml(description)}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('')}</div>`;
+  }
+
+  function renderServer(server, language, browserActionActive) {
+    const isRunning = server.status === 'running';
+    const isBusy = server.status === 'starting' || server.status === 'installing';
+    const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
+    const statusLabel = t(`mcp_external_status_${server.status || 'stopped'}`);
+    const startLabel = server.status === 'starting' && server.startWait
+      ? t('mcp_external_start_wait_attempt', server.startWait)
+      : (isBusy ? statusLabel : t('mcp_btn_start_server'));
+    const description = localized(server.description, language) || '';
+    const help = getServiceHelp(server.help, language);
+    const remote = server.remote?.type === 'mcp-remote' ? server.remote : null;
+    let remoteEndpoint = '';
+    try {
+      const endpoint = new URL(remote?.url);
+      remoteEndpoint = endpoint.protocol === 'https:' ? endpoint.host : '';
+    } catch (_) { /* URL remota ausente o inválida: no se muestra el endpoint */ }
+    const trusted = getSecurity().getServerPolicy(server.id) === 'allow';
+    const trustText = escapeHtml(t(trusted ? 'mcp_security_trusted_server' : 'mcp_security_trust_server'));
+    const id = escapeHtml(server.id);
+
+    return `
+      <div class="mcp-server-item" data-server-id="${id}">
+        <div class="mcp-server-info">
+          <div class="mcp-server-title-row">
+            <strong class="mcp-server-name">${escapeHtml(getServiceName(server, language))}</strong>
+            <span class="mcp-server-badge ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusLabel)}</span>
+            ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(t('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
+          </div>
+          ${description ? `<p class="mcp-server-desc">${escapeHtml(description)}</p>` : ''}
+          ${remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(t('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : ''}
+          ${help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : ''}
+          ${server.id === 'playwright' ? `<p class="mcp-server-replacement-notice">${escapeHtml(t(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : ''}
+          ${server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : ''}
+          ${server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : ''}
+          ${renderServerOptions(server, language)}
+        </div>
+        <div class="mcp-server-actions">
+          <button type="button" class="btn-mcp-server-trust${trusted ? ' active' : ''}" data-server-id="${id}" title="${trustText}">
+            ${Icons.get('shield', { size: 12 })} <span>${trustText}</span>
+          </button>
+          <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger-outline' : 'btn-secondary'}" data-server-id="${id}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled aria-busy="true"' : ''}>
+            ${escapeHtml(isRunning ? t('mcp_btn_stop_server') : startLabel)}
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function renderExternalServers(container, servers) {
+    if (servers.length === 0) {
+      container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(t('mcp_servers_empty'))}</div>`;
       return;
     }
     const language = I18n.getLanguage();
-    const Security = getSecurity();
     const browserActionActive = isBrowserActionCurrentlyActive();
-    container.innerHTML = servers.map(server => {
-      const isRunning = server.status === 'running';
-      const isStarting = server.status === 'starting';
-      const isInstalling = server.status === 'installing';
-      const isBusy = isStarting || isInstalling;
-      const statusClass = isRunning ? 'status-running' : (isBusy ? 'status-starting' : (server.status === 'error' ? 'status-error' : 'status-stopped'));
-      const statusLabel = translator(`mcp_external_status_${server.status || 'stopped'}`);
-      const startLabel = isStarting && server.startWait
-        ? translator('mcp_external_start_wait_attempt', server.startWait)
-        : (isBusy ? statusLabel : translator('mcp_btn_start_server'));
-      const desc = escapeHtml(server.description?.[language] || server.description?.es || server.description || '');
-      const help = getServiceHelp(server.help, language, translator);
-      const helpHtml = help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : '';
-      const remote = server.remote?.type === 'mcp-remote' ? server.remote : null;
-      let remoteEndpoint = '';
-      if (remote?.url) {
-        try {
-          const endpoint = new URL(remote.url);
-          remoteEndpoint = endpoint.protocol === 'https:' ? endpoint.host : '';
-        } catch (_) { /* URL remota inválida: no se muestra el endpoint */ }
-      }
-      const remoteHtml = remote ? `<p class="mcp-server-remote"><span class="mcp-server-remote-badge">${escapeHtml(translator('mcp_remote_transport'))}</span>${remoteEndpoint ? ` <span>${escapeHtml(remoteEndpoint)}</span>` : ''}</p>` : '';
-      const err = server.error ? `
-        <div class="mcp-server-error">
-          <p>${escapeHtml(server.error)}</p>
-          <a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(translator('mcp_external_help'))}</a>
-        </div>` : '';
-      let optionsHtml = '';
-      if (Array.isArray(server.options) && server.options.length > 0) {
-        optionsHtml = `<div class="mcp-server-options">` + server.options.map(opt => {
-          const optLabel = escapeHtml(opt.label?.[language] || opt.label?.es || opt.label || opt.id);
-          const optDesc = opt.description ? `<span class="label-hint">${escapeHtml(opt.description?.[language] || opt.description?.es || opt.description || '')}</span>` : '';
-          const userVal = server.userOptions && opt.id in server.userOptions ? server.userOptions[opt.id] : opt.default;
-          if (opt.type === 'boolean') {
-            const isChecked = Boolean(userVal);
-            return `
-              <div class="mcp-server-option-row">
-                <label class="switch switch-sm">
-                  <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(opt.id)}" ${isChecked ? 'checked' : ''}>
-                  <span class="slider round"></span>
-                </label>
-                <div class="mcp-server-option-meta">
-                  <span class="mcp-server-option-label">${optLabel}</span>
-                  ${optDesc}
-                </div>
-              </div>`;
-          }
-          return '';
-        }).join('') + `</div>`;
-      }
+    container.innerHTML = servers.map(server => renderServer(server, language, browserActionActive)).join('');
 
-      const isServerTrusted = Security?.manager?.getServerPolicy ? Security.manager.getServerPolicy(server.id) === 'allow' : false;
-      const trustBtnText = isServerTrusted ? translator('mcp_security_trusted_server') : translator('mcp_security_trust_server');
-      const trustBtnClass = isServerTrusted ? 'btn-mcp-server-trust active' : 'btn-mcp-server-trust';
-      const shieldIcon = Icons.get('shield', { size: 12 });
-      const playwrightReplacementNotice = server.id === 'playwright' ? `
-        <p class="mcp-server-replacement-notice">${escapeHtml(translator(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : '';
-
-      const oauthHtml = server.oauthUrl ? `
-        <div class="mcp-server-oauth-banner">
-          <p class="mcp-server-oauth-msg">${escapeHtml(translator('mcp_oauth_required_msg'))}</p>
-          <a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${escapeHtml(server.id)}">${escapeHtml(translator('mcp_btn_oauth_authorize'))}</a>
-        </div>` : '';
-
-
-      return `
-        <div class="mcp-server-item" data-server-id="${escapeHtml(server.id)}">
-          <div class="mcp-server-info">
-            <div class="mcp-server-title-row">
-              <strong class="mcp-server-name">${escapeHtml(getServiceName(server, language))}</strong>
-              <span class="mcp-server-badge ${statusClass}" role="status" aria-live="polite">${escapeHtml(statusLabel)}</span>
-              ${server.toolCount ? `<span class="mcp-server-tool-count">${escapeHtml(translator('mcp_servers_count_tools', { count: server.toolCount }))}</span>` : ''}
-            </div>
-            ${desc ? `<p class="mcp-server-desc">${desc}</p>` : ''}
-            ${remoteHtml}
-            ${helpHtml}
-            ${playwrightReplacementNotice}
-            ${err}
-            ${oauthHtml}
-            ${optionsHtml}
-          </div>
-          <div class="mcp-server-actions">
-            <button type="button" class="${trustBtnClass}" data-server-id="${escapeHtml(server.id)}" title="${escapeHtml(trustBtnText)}">
-              ${shieldIcon} <span>${escapeHtml(trustBtnText)}</span>
-            </button>
-            <button type="button" class="btn-mcp-server-toggle ${isRunning ? 'btn-danger-outline' : 'btn-secondary'}" data-server-id="${escapeHtml(server.id)}" data-action="${isRunning ? 'stop' : 'start'}" ${isBusy ? 'disabled aria-busy="true"' : ''}>
-              ${escapeHtml(isRunning ? translator('mcp_btn_stop_server') : startLabel)}
-            </button>
-          </div>
-        </div>`;
-
-    }).join('');
-
-    container.querySelectorAll?.('.btn-mcp-server-trust').forEach(btn => {
-      btn.addEventListener?.('click', () => {
-        const sid = btn.getAttribute?.('data-server-id');
-        if (!sid || !Security?.manager) return;
-        const currentPolicy = Security.manager.getServerPolicy(sid);
-        if (currentPolicy === 'allow') {
-          Security.manager.revokeServerPolicy(sid);
-        } else {
-          Security.manager.setServerPolicy(sid, 'allow', { serverName: sid });
-        }
-        renderExternalServers(container, servers, translator);
-        const savedListEl = typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null;
-        if (savedListEl && typeof renderSavedAuthorizations === 'function') {
-          renderSavedAuthorizations({
-            savedAuthsList: savedListEl,
-            btnClearAuths: document.getElementById('btn-mcp-clear-auths')
-          }, translator);
-        }
+    container.querySelectorAll('.btn-mcp-server-trust').forEach(button => {
+      button.addEventListener('click', () => {
+        const serverId = button.getAttribute('data-server-id');
+        if (getSecurity().getServerPolicy(serverId) === 'allow') getSecurity().revokeServerPolicy(serverId);
+        else getSecurity().setServerPolicy(serverId, 'allow', { serverName: serverId });
+        renderExternalServers(container, servers);
+        renderSavedAuthorizations();
       });
     });
 
-    container.querySelectorAll?.('.mcp-server-option-checkbox').forEach(cb => {
-      cb.addEventListener?.('change', async () => {
-        const sid = cb.getAttribute?.('data-server-id');
-        const optId = cb.getAttribute?.('data-option-id');
-        if (!sid || !optId) return;
-        cb.disabled = true;
-        const MCP = getMCP();
+    container.querySelectorAll('.mcp-server-option-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', async () => {
+        const manager = getMCP().manager;
+        checkbox.disabled = true;
         try {
-          await MCP?.manager?.configureExternalServer?.(sid, {
-            options: { [optId]: cb.checked }
-          });
-          const updated = await MCP?.manager?.fetchExternalServers?.();
-          const State = getState();
-          if (updated && State?.set) {
-            const current = State.get('mcp') || {};
-            State.set('mcp', {
-              ...current,
-              externalHost: updated.host || 'running',
-              externalServers: updated.servers || []
-            });
-          }
-        } catch (e) {
-          console.error('[MCP UI] Error configuring server option:', e);
-          cb.checked = !cb.checked;
+          await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
+          getState().set('mcp', { externalServers: (await manager.fetchExternalServers()).servers });
+        } catch (error) {
+          console.error('[MCP UI] Error configuring server option:', error);
+          checkbox.checked = !checkbox.checked;
         } finally {
-          cb.disabled = false;
+          checkbox.disabled = false;
         }
       });
     });
 
-    container.querySelectorAll?.('.btn-mcp-server-toggle').forEach(btn => {
-      btn.addEventListener?.('click', async () => {
-        const sid = btn.getAttribute?.('data-server-id');
-        const action = btn.getAttribute?.('data-action');
-        if (!sid) return;
-        await runExternalServerAction(sid, action, translator, { browserActionActive, button: btn });
-      });
+    container.querySelectorAll('.btn-mcp-server-toggle').forEach(button => {
+      button.addEventListener('click', () => runExternalServerAction(
+        button.getAttribute('data-server-id'), button.getAttribute('data-action'), { browserActionActive, button }));
     });
+  }
+
+  function updateExternalServerState(serverId, changes) {
+    getState().set('mcp', current => ({
+      ...current,
+      externalServers: current.externalServers.map(server => (server.id === serverId ? { ...server, ...changes } : server))
+    }));
   }
 
   /**
    * Inicia o detiene un servicio MCP gestionado reflejando el progreso en su tarjeta.
    * Devuelve true si la acción terminó correctamente.
    */
-  async function runExternalServerAction(sid, action, translator = t, options = {}) {
-    const btn = options.button || null;
+  async function runExternalServerAction(serverId, action, { browserActionActive = false, button = null } = {}) {
     let browserActionDisabled = false;
-    if (sid === 'playwright' && action === 'start' && options.browserActionActive) {
-      const accepted = await getDialogs()?.confirm?.(
-        translator('mcp_playwright_replacement_confirm'),
-        {
-          type: 'warning',
-          title: translator('mcp_playwright_replacement_title'),
-          acceptText: translator('mcp_playwright_replacement_accept'),
-          cancelText: translator('notice_cancel')
-        }
-      );
+    if (serverId === 'playwright' && action === 'start' && browserActionActive) {
+      const accepted = await getDialogs().confirm(t('mcp_playwright_replacement_confirm'), {
+        type: 'warning',
+        title: t('mcp_playwright_replacement_title'),
+        acceptText: t('mcp_playwright_replacement_accept'),
+        cancelText: t('notice_cancel')
+      });
       if (!accepted) return false;
       browserActionDisabled = updateToolEnabledState('browser_action', false);
       if (!browserActionDisabled) {
-        await getDialogs()?.alert?.(translator('mcp_external_action_error'), { type: 'error' });
+        await getDialogs().alert(t('mcp_external_action_error'), { type: 'error' });
         return false;
       }
     }
     const pendingStatus = action === 'start' ? 'starting' : 'stopped';
-    if (btn) {
-      btn.disabled = true;
-      btn.setAttribute?.('aria-busy', 'true');
-      btn.textContent = translator(`mcp_external_status_${pendingStatus}`);
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = t(`mcp_external_status_${pendingStatus}`);
     }
-    updateExternalServerState(sid, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
-    const MCP = getMCP();
+    updateExternalServerState(serverId, { status: pendingStatus, error: null, startWait: null, oauthUrl: null });
     let didAutoOpenOAuth = false;
     const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
       const oauthUrl = serverData?.oauthUrl || null;
-      if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined') {
+      if (oauthUrl && !didAutoOpenOAuth) {
         didAutoOpenOAuth = true;
-        try { window.open(oauthUrl, '_blank'); } catch (_) { /* ventana emergente bloqueada: el enlace OAuth sigue visible en el panel */ }
+        window.open(oauthUrl, '_blank');
       }
-      updateExternalServerState(sid, {
-        status,
-        ...(oauthUrl ? { oauthUrl } : {}),
-        error: null,
-        startWait: { attempt, total }
-      });
+      updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
     };
+    const manager = getMCP().manager;
     try {
-      if (action === 'start') {
-        await MCP?.manager?.startExternalServer?.(sid, null, reportStartWait);
-      } else {
-        await MCP?.manager?.stopExternalServer?.(sid);
-      }
+      if (action === 'start') await manager.startExternalServer(serverId, reportStartWait);
+      else await manager.stopExternalServer(serverId);
       return true;
     } catch (error) {
       const stillPending = action === 'start' && (error.code === 'EXTERNAL_START_WAIT_TIMEOUT' ||
         (error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && !error.externalServer));
-      if (!error.code?.startsWith('EXTERNAL_START_')) {
-        console.error(`[MCP UI] Error trying to ${action} external server:`, error);
-      }
-      updateExternalServerState(sid, {
+      if (!error.code?.startsWith('EXTERNAL_START_')) console.error(`[MCP UI] Error trying to ${action} external server:`, error);
+      updateExternalServerState(serverId, {
         status: error.externalServer?.status || (stillPending ? 'starting' : (action === 'start' ? 'stopped' : 'running')),
         startWait: null,
-        error: translator(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
+        error: t(stillPending ? 'mcp_external_start_wait_timeout' : 'mcp_external_action_error'),
         ...(error.externalServer?.oauthUrl ? { oauthUrl: error.externalServer.oauthUrl } : {})
       });
-
       if (browserActionDisabled && !stillPending) updateToolEnabledState('browser_action', true);
       return false;
     } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.removeAttribute?.('aria-busy');
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
       }
     }
-  }
-
-  function getServiceName(server, language) {
-    const name = server?.displayName;
-    return String((name && typeof name === 'object' ? name[language] || name.es || name.en : name) || server?.id || '');
   }
 
   /**
    * Ofrece iniciar los servicios activos en la sesión anterior que siguen detenidos.
    * El usuario puede quitar de la lista los que no quiera iniciar.
    */
-  async function offerStoppedExternalServices(servers, translator = t) {
-    if (!Array.isArray(servers)) return [];
+  async function offerStoppedExternalServices(servers) {
     const language = I18n.getLanguage();
     const items = servers
-      .filter(server => server?.enabled === true && server?.status === 'stopped' && typeof server.id === 'string' && server.id)
+      .filter(server => server?.enabled === true && server.status === 'stopped' && typeof server.id === 'string' && server.id)
       .slice(0, 50)
       .map(server => ({ id: server.id, label: getServiceName(server, language) }));
     if (items.length === 0) return [];
     const Dialogs = getDialogs();
-    if (typeof Dialogs?.confirm !== 'function') return [];
-    const selected = await Dialogs.confirm(translator('mcp_external_restore_message'), {
+    const selected = await Dialogs.confirm(t('mcp_external_restore_message'), {
       type: 'info',
-      title: translator('mcp_external_restore_title'),
-      acceptText: translator('mcp_btn_start_server'),
-      cancelText: translator('mcp_external_restore_skip'),
+      title: t('mcp_external_restore_title'),
+      acceptText: t('mcp_btn_start_server'),
+      cancelText: t('mcp_external_restore_skip'),
       items
     });
     if (!Array.isArray(selected) || selected.length === 0) return [];
     const failed = [];
     for (const id of selected) {
-      const current = (getState()?.get?.('mcp')?.externalServers || []).find(server => server.id === id);
+      const current = getState().get('mcp').externalServers.find(server => server.id === id);
       // El usuario pudo iniciarlo desde Ajustes mientras el diálogo seguía abierto.
-      if (!current || current.status !== 'stopped') continue;
-      const ok = await runExternalServerAction(id, 'start', translator, { browserActionActive: isBrowserActionCurrentlyActive() });
-      if (!ok) failed.push(items.find(item => item.id === id)?.label || id);
+      if (current?.status !== 'stopped') continue;
+      const ok = await runExternalServerAction(id, 'start', { browserActionActive: isBrowserActionCurrentlyActive() });
+      if (!ok) failed.push(items.find(item => item.id === id).label);
     }
     if (failed.length > 0) {
-      await Dialogs.alert?.(translator('mcp_external_restore_failed', { names: failed.join(', ') }), { type: 'error' });
+      await Dialogs.alert(t('mcp_external_restore_failed', { names: failed.join(', ') }), { type: 'error' });
     }
     return selected;
   }
 
-  function updateExternalServerState(serverId, changes) {
-    const State = getState();
-    if (!State?.set) return;
-    State.set('mcp', current => ({
-      ...current,
-      externalServers: (current.externalServers || []).map(server => (
-        server.id === serverId ? { ...server, ...changes } : server
-      ))
-    }));
+  function renderConnectionStatus(elements, state) {
+    const status = state.status;
+    const isConnected = status === 'connected';
+
+    elements.statusBadge.className = `mcp-status-badge mcp-status-${status}`;
+    elements.statusText.setAttribute('data-i18n', `mcp_status_${status}`);
+    elements.statusText.textContent = t(`mcp_status_${status}`);
+
+    elements.serverDetails.style.display = isConnected ? 'inline-flex' : 'none';
+    clearElement(elements.serverDetails);
+    if (isConnected) {
+      const version = state.serverInfo?.version ? ` v${state.serverInfo.version}` : '';
+      const latency = Number(state.latencyMs) > 0 ? ` · ${state.latencyMs}ms` : '';
+      const count = getAllMcpTools(state).length;
+      elements.serverDetails.title = `${state.serverInfo?.name || 'zerochat'}${version}${latency}`;
+      appendTextElement(elements.serverDetails, 'span', count > 0 ? t('mcp_tools_discovered', { count }) : t('mcp_no_tools'), { className: 'mcp-detail-item' });
+    }
+
+    elements.bootstrapCard.style.display = isConnected ? 'none' : 'block';
+    elements.reconnectHint.style.display = status === 'disconnected' ? 'block' : 'none';
+    elements.reconnectHint.setAttribute('data-i18n', 'mcp_reconnect_after_restart');
+    elements.reconnectHint.textContent = t('mcp_reconnect_after_restart');
+    elements.commandSnippet.textContent = generateTerminalCommand();
+    renderCurrentToolsList(elements);
+    renderExternalServers(elements.serversList, isConnected ? state.externalServers : []);
   }
 
-  function renderConnectionStatus(elements, mcpState, translator = t) {
-    if (!elements) return;
-    const State = getState();
-    const state = mcpState || State?.get?.('mcp') || { status: 'disconnected', host: DEFAULT_HOST, port: DEFAULT_PORT, tools: [] };
-    const status = state.status || 'disconnected';
-    const isConn = status === 'connected';
+  function renderSavedAuthorizations() {
+    const container = document.getElementById('mcp-saved-auths-list');
+    const btnClear = document.getElementById('btn-mcp-clear-auths');
+    const security = getSecurity();
+    const tools = security.listAuthorizedTools();
+    const servers = security.listAuthorizedServers();
 
-    if (elements.statusBadge) elements.statusBadge.className = `mcp-status-badge mcp-status-${status}`;
-    if (elements.statusText) {
-      if (typeof elements.statusText.setAttribute === 'function') {
-        elements.statusText.setAttribute('data-i18n', `mcp_status_${status}`);
-      }
-      elements.statusText.textContent = translator(`mcp_status_${status}`);
-    }
-
-    if (elements.serverDetails) {
-      elements.serverDetails.style.display = isConn ? 'inline-flex' : 'none';
-      clearSafeContent(elements.serverDetails);
-      if (isConn) {
-        const name = state.serverInfo?.name || 'mcp-proxy';
-        const ver = state.serverInfo?.version ? ` v${state.serverInfo.version}` : '';
-        const latency = Number(state.latencyMs);
-        const lat = Number.isFinite(latency) && latency > 0 ? ` · ${latency}ms` : '';
-        const count = getAllMcpTools(state).length;
-        const toolLabel = count > 0 ? translator('mcp_tools_discovered', { count }) : translator('mcp_no_tools');
-        const titleStr = `${name}${ver}${lat}`.trim();
-        if (typeof elements.serverDetails.setAttribute === 'function') {
-          elements.serverDetails.setAttribute('title', titleStr);
-        }
-        elements.serverDetails.title = titleStr;
-        appendSafeText(elements.serverDetails, 'span', toolLabel, { className: 'mcp-detail-item' });
-      }
-    }
-
-    if (elements.bootstrapCard) elements.bootstrapCard.style.display = isConn ? 'none' : 'block';
-    if (elements.reconnectHint) {
-      elements.reconnectHint.style.display = status === 'disconnected' ? 'block' : 'none';
-      if (typeof elements.reconnectHint.setAttribute === 'function') {
-        elements.reconnectHint.setAttribute('data-i18n', 'mcp_reconnect_after_restart');
-      }
-      elements.reconnectHint.textContent = translator('mcp_reconnect_after_restart');
-    }
-    if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand();
-
-    if (elements.toolsContainer) {
-      const currentConfig = getConfig().getActive();
-      const allTools = isConn ? getAllMcpTools(state) : [];
-      renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
-    }
-
-    if (elements.serversList) {
-      const servers = isConn ? (state.externalServers || []) : [];
-      renderExternalServers(elements.serversList, servers, translator);
-    }
-  }
-
-  function renderSavedAuthorizations(elements, translator = t) {
-    if (!elements && typeof document === 'undefined') return;
-    const container = elements?.savedAuthsList || (typeof document !== 'undefined' ? document.getElementById('mcp-saved-auths-list') : null);
-    const btnClear = elements?.btnClearAuths || (typeof document !== 'undefined' ? document.getElementById('btn-mcp-clear-auths') : null);
-    if (!container) return;
-
-    const Security = getSecurity();
-    const authorizedTools = Security?.manager?.listAuthorizedTools ? Security.manager.listAuthorizedTools() : [];
-    const authorizedServers = Security?.manager?.listAuthorizedServers ? Security.manager.listAuthorizedServers() : [];
-
-    if (authorizedTools.length === 0 && authorizedServers.length === 0) {
-      container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(translator('mcp_security_no_saved_auths'))}</div>`;
-      if (btnClear) btnClear.style.display = 'none';
+    if (tools.length === 0 && servers.length === 0) {
+      container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(t('mcp_security_no_saved_auths'))}</div>`;
+      btnClear.style.display = 'none';
       return;
     }
-
-    if (btnClear) btnClear.style.display = 'inline-flex';
+    btnClear.style.display = 'inline-flex';
 
     const trashIcon = Icons.get('trash', { size: 12 });
-    const serverIcon = Icons.get('server', { size: 12 });
-    const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
+    const revokeLabel = escapeHtml(t('mcp_security_btn_revoke'));
+    const badge = item => {
+      const allowed = item.policy === 'allow';
+      return { className: allowed ? 'status-allowed' : 'status-denied', text: escapeHtml(t(allowed ? 'mcp_security_badge_allowed' : 'tool_auth_denied_badge')) };
+    };
+    const scopeBadge = item => (item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(t('mcp_security_scope_session'))}</span>` : '');
 
-    const serverItems = authorizedServers.map(item => {
+    const serverItems = servers.map(item => {
+      const { className, text } = badge(item);
       const serverId = escapeHtml(item.serverId);
-      const sName = escapeHtml(item.serverName || item.serverId);
-      const isAllowed = item.policy === 'allow';
-      const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
-      const badgeText = `${escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'))} (${escapeHtml(translator('mcp_security_badge_server'))})`;
-      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session'))}</span>` : '';
-
       return `
         <div class="mcp-auth-item" data-server-id="${serverId}">
-          <button type="button" class="btn-revoke-server-auth" data-server-id="${serverId}" title="${revokeLabel}" aria-label="${revokeLabel}">
-            ${trashIcon}
-          </button>
+          <button type="button" class="btn-revoke-server-auth" data-server-id="${serverId}" title="${revokeLabel}" aria-label="${revokeLabel}">${trashIcon}</button>
           <div class="mcp-auth-item-info">
-            <span class="mcp-auth-server-icon">${serverIcon}</span>
-            <strong class="mcp-auth-item-name">${sName}</strong>
-            <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
-            ${scopeBadge}
+            <span class="mcp-auth-server-icon">${Icons.get('server', { size: 12 })}</span>
+            <strong class="mcp-auth-item-name">${escapeHtml(item.serverName || item.serverId)}</strong>
+            <span class="mcp-auth-badge ${className}">${text} (${escapeHtml(t('mcp_security_badge_server'))})</span>
+            ${scopeBadge(item)}
           </div>
         </div>`;
-    }).join('');
+    });
 
-    const toolItems = authorizedTools.map(item => {
+    const toolItems = tools.map(item => {
+      const { className } = badge(item);
+      let { text } = badge(item);
+      const parts = [];
+      const prefixes = [...new Set((item.constraints?.command?.allowedPrefixes || []).map(prefix => String(prefix).trim()).filter(Boolean))];
+      if (prefixes.length) parts.push(prefixes.map(prefix => `${prefix} *`).join(', '));
+      if (item.constraints?.path?.allowedDirectories) parts.push(item.constraints.path.allowedDirectories.join(', '));
+      if (parts.length) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
+      const constraint = escapeHtml(parts.join(' | '));
       const toolId = escapeHtml(item.toolId);
-      const origName = escapeHtml(item.originalName || item.toolId);
-      const isAllowed = item.policy === 'allow';
-      const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
-      let badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
-      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session'))}</span>` : '';
-
-      let constraintTag = '';
-      if (item.constraints) {
-        const parts = [];
-        if (item.constraints.command?.allowedPrefixes) {
-          const uniquePrefixes = Array.from(new Set(
-            item.constraints.command.allowedPrefixes.map(p => typeof p === 'string' ? p.trim() : '').filter(Boolean)
-          ));
-          if (uniquePrefixes.length > 0) {
-            parts.push(uniquePrefixes.map(p => `${p} *`).join(', '));
-          }
-        }
-        if (item.constraints.path?.allowedDirectories) {
-          parts.push(item.constraints.path.allowedDirectories.join(', '));
-        }
-        if (parts.length > 0) {
-          badgeText += ` (${escapeHtml(translator('mcp_security_constrained'))})`;
-          constraintTag = `<span class="mcp-auth-constraint-tag" title="${escapeHtml(parts.join(' | '))}">${escapeHtml(parts.join(' | '))}</span>`;
-        }
-      }
-
       return `
         <div class="mcp-auth-item" data-tool-id="${toolId}">
-          <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}" aria-label="${revokeLabel}">
-            ${trashIcon}
-          </button>
+          <button type="button" class="btn-revoke-auth" data-tool-id="${toolId}" title="${revokeLabel}" aria-label="${revokeLabel}">${trashIcon}</button>
           <div class="mcp-auth-item-info">
-            <strong class="mcp-auth-item-name">${origName}</strong>
-            <span class="mcp-auth-badge ${badgeClass}">${badgeText}</span>
-            ${scopeBadge}
-            ${constraintTag}
+            <strong class="mcp-auth-item-name">${escapeHtml(item.originalName || item.toolId)}</strong>
+            <span class="mcp-auth-badge ${className}">${text}</span>
+            ${scopeBadge(item)}
+            ${parts.length ? `<span class="mcp-auth-constraint-tag" title="${constraint}">${constraint}</span>` : ''}
           </div>
         </div>`;
-    }).join('');
-
-    container.innerHTML = serverItems + toolItems;
-
-    container.querySelectorAll('.btn-revoke-auth').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tid = btn.getAttribute('data-tool-id');
-        if (tid && Security?.manager?.revokeToolPolicy) {
-          Security.manager.revokeToolPolicy(tid);
-          renderSavedAuthorizations(elements, translator);
-          if (elements?.toolsContainer) {
-            const currentConfig = getConfig().getActive();
-            const state = getState()?.get?.('mcp') || {};
-            const allTools = getAllMcpTools(state);
-            renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
-          }
-        }
-      });
     });
 
-    container.querySelectorAll('.btn-revoke-server-auth').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const sid = btn.getAttribute('data-server-id');
-        if (sid && Security?.manager?.revokeServerPolicy) {
-          Security.manager.revokeServerPolicy(sid);
-          renderSavedAuthorizations(elements, translator);
-          if (elements?.serversList) {
-            const state = getState()?.get?.('mcp') || {};
-            renderExternalServers(elements.serversList, state.externalServers || [], translator);
-          }
-          if (elements?.toolsContainer) {
-            const currentConfig = getConfig().getActive();
-            const state = getState()?.get?.('mcp') || {};
-            const allTools = getAllMcpTools(state);
-            renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
-          }
-        }
-      });
+    container.innerHTML = serverItems.join('') + toolItems.join('');
+    // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
+    container.querySelectorAll('.btn-revoke-auth').forEach(button => {
+      button.addEventListener('click', () => security.revokeToolPolicy(button.getAttribute('data-tool-id')));
+    });
+    container.querySelectorAll('.btn-revoke-server-auth').forEach(button => {
+      button.addEventListener('click', () => security.revokeServerPolicy(button.getAttribute('data-server-id')));
     });
   }
 
-  function renderCurrentToolsList(elements = {}, translator = t) {
-    const container = elements?.toolsContainer || (typeof document !== 'undefined' ? document.getElementById('mcp-tools-container') : null);
-    if (!container) return;
-    const currentCfg = getConfig().getActive();
-    const State = getState();
-    const isConn = State?.get ? State.get('mcp')?.status === 'connected' : false;
-    const st = State?.get?.('mcp') || {};
-    const allTools = isConn ? getAllMcpTools(st) : [];
-    renderToolsList(container, allTools, currentCfg.enabledTools || {}, translator);
+  function renderCurrentToolsList(elements) {
+    renderToolsList(elements.toolsContainer, getConnectedTools(), getConfig().getActive().enabledTools);
   }
 
-  function syncSecurityControls(elements = {}, translator = t) {
-    const Security = getSecurity();
-    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    const root = elements?.settingsDialog || doc;
-    const find = id => root?.querySelector?.(`#${id}`) || doc?.getElementById?.(id);
-    const radioAsk = find('mcp-policy-ask');
-    const radioWorkspaceTrust = find('mcp-policy-workspace-trust');
-    const radioAllowAll = find('mcp-policy-allow-all');
-    const btnClearAuths = find('btn-mcp-clear-auths');
-    const directoryRulesInput = find('mcp-directory-rules');
-    const directoryRulesError = find('mcp-directory-rules-error');
-
-    const currentGlobalPolicy = Security?.manager?.getGlobalMcpPolicy ? Security.manager.getGlobalMcpPolicy() : 'ask';
-    if (radioAsk) radioAsk.checked = (currentGlobalPolicy === 'ask');
-    if (radioWorkspaceTrust) radioWorkspaceTrust.checked = (currentGlobalPolicy === 'workspace_trust');
-    if (radioAllowAll) radioAllowAll.checked = (currentGlobalPolicy === 'allow_all');
-    if (directoryRulesInput && Security?.manager?.getDirectoryRules) {
-      const activeRules = Security.manager.getDirectoryRules().join('\n');
-      if (typeof document === 'undefined' || document.activeElement !== directoryRulesInput) {
-        directoryRulesInput.value = activeRules;
-      }
-    }
-
-    [
-      [radioAsk, 'ask'],
-      [radioWorkspaceTrust, 'workspace_trust'],
-      [radioAllowAll, 'allow_all']
-    ].forEach(([radio, policy]) => {
-      if (!radio || radio.dataset?.mcpBound) return;
+  function syncSecurityControls(elements) {
+    const security = getSecurity();
+    const policy = security.getGlobalMcpPolicy();
+    const radios = { ask: 'mcp-policy-ask', workspace_trust: 'mcp-policy-workspace-trust', allow_all: 'mcp-policy-allow-all' };
+    for (const [value, id] of Object.entries(radios)) {
+      const radio = document.getElementById(id);
+      radio.checked = policy === value;
+      if (radio.dataset.mcpBound) continue;
       radio.dataset.mcpBound = 'true';
       radio.addEventListener('change', () => {
-        if (radio.checked && Security?.manager?.setGlobalMcpPolicy) {
-          Security.manager.setGlobalMcpPolicy(policy);
-          renderCurrentToolsList(elements, translator);
-        }
-      });
-    });
-
-    if (btnClearAuths && !btnClearAuths.dataset?.mcpBound) {
-      btnClearAuths.dataset.mcpBound = 'true';
-      btnClearAuths.addEventListener('click', () => {
-        if (Security?.manager?.clearAllAuthorizations) {
-          Security.manager.clearAllAuthorizations();
-          renderSavedAuthorizations(elements, translator);
-          renderCurrentToolsList(elements, translator);
-        }
+        if (radio.checked) security.setGlobalMcpPolicy(value);
       });
     }
 
-    if (directoryRulesInput && !directoryRulesInput.dataset?.mcpBound) {
-      directoryRulesInput.dataset.mcpBound = 'true';
-      const handleRulesChange = () => {
-        if (typeof Security?.manager?.setDirectoryRules !== 'function') return;
-        const rules = directoryRulesInput.value.split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+    const rulesInput = document.getElementById('mcp-directory-rules');
+    const rulesError = document.getElementById('mcp-directory-rules-error');
+    if (document.activeElement !== rulesInput) rulesInput.value = security.getDirectoryRules().join('\n');
+    if (!rulesInput.dataset.mcpBound) {
+      rulesInput.dataset.mcpBound = 'true';
+      const onRulesChange = () => {
         try {
-          Security.manager.setDirectoryRules(rules);
-          if (directoryRulesError) directoryRulesError.textContent = '';
+          security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
+          rulesError.textContent = '';
         } catch (err) {
-          if (directoryRulesError) directoryRulesError.textContent = err?.message || translator('mcp_directory_rules_invalid');
+          rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
         }
       };
-      directoryRulesInput.addEventListener('change', handleRulesChange);
-      directoryRulesInput.addEventListener('input', handleRulesChange);
+      rulesInput.addEventListener('change', onRulesChange);
+      rulesInput.addEventListener('input', onRulesChange);
     }
 
-    renderSavedAuthorizations(elements, translator);
+    const btnClearAuths = document.getElementById('btn-mcp-clear-auths');
+    if (!btnClearAuths.dataset.mcpBound) {
+      btnClearAuths.dataset.mcpBound = 'true';
+      btnClearAuths.addEventListener('click', () => security.clearAllAuthorizations());
+    }
+
+    renderSavedAuthorizations();
+    renderCurrentToolsList(elements);
   }
 
-  function initMcpUI(elements, options = {}) {
-    if (!elements) return null;
+  function initMcpUI(elements) {
     const State = getState();
-    const Security = getSecurity();
+    const render = () => renderConnectionStatus(elements, State.get('mcp'));
+    const unsubscribeSecurity = getSecurity().subscribe(() => syncSecurityControls(elements));
+    elements.btnCopyCmd.addEventListener('click', () => copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd));
+    const unsubscribeState = State.subscribe('mcp', state => renderConnectionStatus(elements, state));
+    render();
+    syncSecurityControls(elements);
 
-    const unsubscribeSecurity = Security?.manager?.subscribe ? Security.manager.subscribe(() => {
-      syncSecurityControls(elements, t);
-      renderCurrentToolsList(elements, t);
-    }) : null;
-
-    elements.btnCopyCmd?.addEventListener?.('click', () => {
-      copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd, t);
-    });
-
-    const unsubscribe = State?.subscribe?.('mcp', (newState) => {
-      renderConnectionStatus(elements, newState, t);
-    });
-    renderConnectionStatus(elements, State?.get?.('mcp'), t);
-    syncSecurityControls(elements, t);
-
-    async function syncExternalServers() {
-      if (!elements.serversList) return;
-      const MCP = getMCP();
-      const State = getState();
-      if (State?.get?.('mcp')?.status !== 'connected') {
-        renderExternalServers(elements.serversList, [], t);
-        return;
+    const unsubscribeLanguage = I18n.onChange(() => {
+      render();
+      renderSavedAuthorizations();
+      if (State.get('mcp').status === 'connected') {
+        getMCP().manager.syncExternalServers().catch(error => console.warn('[MCP UI] syncExternalServers failed:', error));
       }
-      try {
-        await MCP?.manager?.syncExternalServers?.();
-      } catch (e) {
-        console.warn('[MCP UI] syncExternalServers failed:', e);
-      }
-    }
-
-    const handleLanguageChange = () => {
-      renderConnectionStatus(elements, State?.get?.('mcp'), t);
-      renderSavedAuthorizations(elements, t);
-      syncExternalServers();
-    };
-    const unsubscribeLang = I18n.onChange(handleLanguageChange);
+    });
 
     return {
-      syncSecurityControls,
-      syncExternalServers,
-      render: () => renderConnectionStatus(elements, State?.get?.('mcp'), t),
       destroy: () => {
-        if (typeof unsubscribe === 'function') unsubscribe();
-        if (typeof unsubscribeSecurity === 'function') unsubscribeSecurity();
-        if (typeof unsubscribeLang === 'function') unsubscribeLang();
+        unsubscribeState();
+        unsubscribeSecurity();
+        unsubscribeLanguage();
       }
     };
   }
 
-  async function autoConnectIfAvailable(options = {}) {
-    const Config = getConfig();
-    const MCP = getMCP();
-    const currentConfig = Config.getActive();
-    const host = sanitizeHost(options.host || currentConfig.mcpHost);
-    const port = sanitizePort(options.port || currentConfig.mcpPort || DEFAULT_PORT);
-    const timeoutMs = options.timeoutMs || 1500;
-
-    if (MCP?.manager?.autoConnectIfAvailable) {
-      return await MCP.manager.autoConnectIfAvailable({ host, port, timeoutMs });
-    }
-    return { success: false, available: false };
-  }
-
-  async function verifyActiveConnection(options = {}) {
-    const MCP = getMCP();
-    return MCP?.manager?.verifyProxyConnection
-      ? MCP.manager.verifyProxyConnection({ timeoutMs: options.timeoutMs || 1500 })
-      : { success: false, skipped: true };
+  function verifyActiveConnection() {
+    return getMCP().manager.verifyProxyConnection({ timeoutMs: 1500 });
   }
 
   return {
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    sanitizePort,
-    sanitizeHost,
+    generateTerminalCommand,
     isBrowserActionActive,
     getAllMcpTools,
-    generateTerminalCommand,
     getServiceHelp,
     copyCommandToClipboard,
     renderConnectionStatus,
@@ -914,10 +587,10 @@
     renderCurrentToolsList,
     renderExternalServers,
     renderSavedAuthorizations,
+    runExternalServerAction,
     offerStoppedExternalServices,
     syncSecurityControls,
     initMcpUI,
-    autoConnectIfAvailable,
     verifyActiveConnection
   };
 });

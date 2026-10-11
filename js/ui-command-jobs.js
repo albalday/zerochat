@@ -20,7 +20,7 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getCommandCard = () => resolveDep('ChatCommandCard', './command-card.js');
   const getConversation = () => resolveDep('ChatUIConversation', './ui-conversation.js');
-  const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
+  const getMcp = () => resolveDep('ChatMCP', './mcp.js').manager;
   const { t } = I18n;
   const icon = (name, size = 14) => Icons.get(name, { size });
 
@@ -30,13 +30,12 @@
   }
 
   function findCard(root, jobId) {
-    return root?.querySelector?.(`.command-card-wrapper[data-job-id="${Number(jobId)}"]`) || null;
+    return root.querySelector(`.command-card-wrapper[data-job-id="${Number(jobId)}"]`);
   }
 
   /** Tarjeta con los comandos en marcha y el tiempo que llevaban al crearla. */
-  function createSummaryCard(jobs, { now = Date.now(), messagesList = null } = {}) {
-    if (typeof document === 'undefined' || !Array.isArray(jobs) || !jobs.length) return null;
-    const format = getCommandCard()?.formatDuration || (seconds => `${Math.floor(seconds)} s`);
+  function createSummaryCard(jobs, messagesList, now = Date.now()) {
+    const format = getCommandCard().formatDuration;
     // Plegada por defecto: con varios comandos, la lista no debe ocupar la respuesta.
     const card = document.createElement('details');
     card.className = CARD_CLASS;
@@ -53,8 +52,8 @@
       + `<ul class="command-jobs-list">${items}</ul>`
       + `<p class="command-jobs-hint">${escapeHtml(t('command_jobs_hint'))}</p>`;
     card.addEventListener('click', event => {
-      const button = event.target.closest?.('button.command-jobs-link');
-      if (button) showCard(messagesList, Number(button.closest('[data-job-id]')?.dataset.jobId));
+      const button = event.target.closest('button.command-jobs-link');
+      if (button) showCard(messagesList, Number(button.closest('[data-job-id]').dataset.jobId));
     });
     return card;
   }
@@ -64,8 +63,8 @@
     if (!card) return false;
     const history = card.closest('details');
     if (history && !history.open) history.open = true;
-    card.querySelector('.tool-execution-card')?.classList.remove('collapsed');
-    card.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    card.querySelector('.tool-execution-card').classList.remove('collapsed');
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' });
     card.classList.add('command-card-highlight');
     setTimeout(() => card.classList.remove('command-card-highlight'), 1600);
     return true;
@@ -73,31 +72,27 @@
 
   /** Sustituye el aviso anterior por la situación actual, al final del chat. */
   async function appendSummary(messagesList) {
-    if (!messagesList) return;
-    await getMcp()?.refreshCommandJobs?.();
+    await getMcp().refreshCommandJobs();
     messagesList.querySelectorAll(`.${CARD_CLASS}`).forEach(card => card.remove());
-    const card = createSummaryCard(getState()?.get?.('mcp')?.commandJobs || [], { messagesList });
-    if (!card) return;
-    messagesList.appendChild(card);
-    getConversation()?.scrollToBottom?.(messagesList);
+    const jobs = getState().get('mcp').commandJobs;
+    if (!jobs.length) return;
+    messagesList.appendChild(createSummaryCard(jobs, messagesList));
+    getConversation().scrollToBottom(messagesList);
   }
 
-  function mount({ messagesList } = {}) {
+  function mount({ messagesList }) {
     const State = getState();
-    if (!messagesList || !State?.subscribe) return;
-    State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }, previous) => {
-      if (previous?.generating && !generating) appendSummary(messagesList);
+    State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }, previous) => {
+      if (previous.generating && !generating) appendSummary(messagesList);
     });
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('beforeunload', event => {
-        const mcp = State.get?.('mcp') || {};
-        // Cerrar la última pestaña detiene el servidor, y con él los comandos.
-        if (mcp.exitOnClose === true && (mcp.commandJobs || []).length > 0) {
-          event.preventDefault();
-          event.returnValue = '';
-        }
-      });
-    }
+    window.addEventListener('beforeunload', event => {
+      const mcp = State.get('mcp');
+      // Cerrar la última pestaña detiene el servidor, y con él los comandos.
+      if (mcp.exitOnClose === true && mcp.commandJobs.length > 0) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    });
   }
 
   return { mount };

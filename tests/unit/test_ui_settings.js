@@ -75,30 +75,20 @@ test('UISettings - desactiva la temperatura con proveedores que no la admiten', 
   assert.equal(elements.settingTemperature.disabled, true, 'Un perfil bloqueado mantiene el control desactivado');
 });
 
-test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', () => {
-  const panes = [
-    { id: 'settings-model', classList: { add: () => { panes[0].active = true; }, remove: () => { panes[0].active = false; } }, active: false },
-    { id: 'settings-mcp', classList: { add: () => { panes[1].active = true; }, remove: () => { panes[1].active = false; } }, active: false }
-  ];
-  const titleEl = { textContent: '', setAttribute: (k, v) => { titleEl[k] = v; } };
-  const fakeDoc = {
-    getElementById: (id) => panes.find(p => p.id === id) || (id === 'settings-section-title' ? titleEl : null)
-  };
-  const fakeDialog = {
-    ownerDocument: fakeDoc,
-    showModal: () => { fakeDialog.isOpen = true; },
-    querySelectorAll: (sel) => sel === '.settings-section-pane' ? panes : []
-  };
+test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', t => {
+  const dom = require('../helpers/dom-env.js').installDom({ app: true });
+  t.after(() => dom.restore());
+  UISettings.ensureDialogMarkup();
   const elements = {
-    settingsDialog: fakeDialog,
-    settingsSectionTitle: titleEl
+    settingsDialog: document.getElementById('settings-dialog'),
+    settingsSectionTitle: document.getElementById('settings-section-title'),
+    mcpToolsContainer: document.getElementById('mcp-tools-container')
   };
-
-  UISettings.openSettingsSection(elements, {}, {}, 'mcp');
-  assert.equal(panes[0].active, false);
-  assert.equal(panes[1].active, true);
-  assert.equal(titleEl['data-i18n'], 'settings_mcp');
-  assert.equal(fakeDialog.isOpen, true);
+  UISettings.openSettingsSection(elements, require('../../js/config-store.js').getActive(), { populateProfileSelector() {}, loadCachedModels() {}, updateReasoningUI() {} }, 'mcp');
+  assert.equal(document.getElementById('settings-model').classList.contains('active'), false);
+  assert.equal(document.getElementById('settings-mcp').classList.contains('active'), true);
+  assert.equal(elements.settingsSectionTitle.getAttribute('data-i18n'), 'settings_mcp');
+  assert.equal(elements.settingsDialog.open, true);
 });
 
 test('UISettings - confirma antes de cerrar ajustes con cambios sin guardar', async () => {

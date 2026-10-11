@@ -57,18 +57,19 @@ test('Browser UI - los metadatos MCP externos se renderizan como texto', async (
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const result = await page.evaluate(() => {
-      const serverDetails = document.createElement('div');
+      const byId = id => document.getElementById(id);
+      const serverDetails = byId('mcp-server-details');
       const elements = {
-        statusBadge: document.createElement('div'),
-        statusText: document.createElement('span'),
-        serverDetails
+        statusBadge: byId('mcp-status-badge'), statusText: byId('mcp-status-text'), serverDetails,
+        reconnectHint: byId('mcp-reconnect-hint'), commandSnippet: byId('mcp-terminal-command'), bootstrapCard: byId('mcp-bootstrap-card'),
+        toolsContainer: byId('mcp-tools-container'), serversList: byId('mcp-servers-list')
       };
       const payload = '<img data-xss-probe="mcp" src=x onerror="window.__mcpXss=true">';
       window.ChatUIMcp.renderConnectionStatus(elements, {
+        ...window.ChatState.get('mcp'),
         status: 'connected',
-        serverInfo: { name: payload, version: payload },
-        tools: []
-      }, key => key);
+        serverInfo: { name: payload, version: payload }
+      });
       const detailsSafe = !serverDetails.querySelector('[data-xss-probe]') && (serverDetails.textContent.includes(payload) || (serverDetails.getAttribute('title') || '').includes(payload));
       return {
         detailsSafe,
@@ -89,7 +90,7 @@ test('Browser UI - autorización de Composio muestra y devuelve únicamente su s
     const result = await page.evaluate(async () => {
       const provider = new window.ChatMCP.McpToolProvider({
         id: 'mcp_external', name: 'ZeroChat External MCP Host',
-        initialize: async () => {},
+        initialize: async () => ({ success: true }),
         listTools: async () => [{
           name: 'composio_COMPOSIO_SEARCH_TOOLS',
           metadata: { mcpServerId: 'composio', originalName: 'COMPOSIO_SEARCH_TOOLS' }
@@ -230,12 +231,12 @@ test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contado
             window.ChatI18n.setLanguage(language);
             document.documentElement.setAttribute('data-theme', theme);
             const panel = document.getElementById('settings-mcp');
+            const byId = id => document.getElementById(id);
             window.ChatUIMcp.renderConnectionStatus({
-              statusBadge: document.getElementById('mcp-status-badge'),
-              statusText: document.getElementById('mcp-status-text'),
-              serverDetails: document.getElementById('mcp-server-details'),
-              bootstrapCard: document.getElementById('mcp-bootstrap-card')
-            }, { status: 'connected', tools: Array.from({ length: 20 }, () => ({})) });
+              statusBadge: byId('mcp-status-badge'), statusText: byId('mcp-status-text'), serverDetails: byId('mcp-server-details'),
+              reconnectHint: byId('mcp-reconnect-hint'), commandSnippet: byId('mcp-terminal-command'), bootstrapCard: byId('mcp-bootstrap-card'),
+              toolsContainer: byId('mcp-tools-container'), serversList: byId('mcp-servers-list')
+            }, { ...window.ChatState.get('mcp'), status: 'connected', tools: Array.from({ length: 20 }, (_, index) => ({ id: `tool_${index}`, name: `tool_${index}`, metadata: {} })) });
             window.ChatUIMcp.renderExternalServers(document.getElementById('mcp-servers-list'), [{
               id: 'composio', displayName: { es: 'Composio Connect', en: 'Composio Connect' },
               description: { es: 'MCP remoto para acceder a aplicaciones como Gmail, Google Drive, Slack o GitHub.', en: 'Remote MCP to access applications such as Gmail, Google Drive, Slack or GitHub.' },
@@ -293,16 +294,16 @@ test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una
     const page = await browser.newPage();
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
+    await page.locator('#btn-open-settings').evaluate(button => button.click());
+    await page.locator('#sidebar-settings-nav [data-section="permissions"]').evaluate(button => button.click());
+    await page.waitForSelector('#settings-dialog[open]');
     const layout = await page.evaluate(() => {
       const security = window.ChatToolSecurity.manager;
       security.clearAllAuthorizations();
       security.setToolPolicy('mcp_compact_layout_test', 'allow', { originalName: 'compact layout test' });
 
-      const container = document.createElement('div');
-      container.className = 'mcp-saved-auths-list';
+      const container = document.getElementById('mcp-saved-auths-list');
       container.style.width = '600px';
-      document.body.appendChild(container);
-      window.ChatUIMcp.renderSavedAuthorizations({ savedAuthsList: container }, key => window.ChatI18n.t(key));
 
       const button = container.querySelector('.btn-revoke-auth');
       const info = container.querySelector('.mcp-auth-item-info');
@@ -316,7 +317,6 @@ test('Browser UI - las autorizaciones guardadas mantienen icono y detalle en una
         buttonColor: getComputedStyle(button).color
       };
       security.clearAllAuthorizations();
-      container.remove();
       return result;
     });
     assert.equal(layout.itemDisplay, 'flex');
@@ -869,13 +869,12 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const results = await page.evaluate(async () => {
-      const container = document.createElement('div');
-      document.body.append(container);
+      // La aplicación ya montó el panel MCP sobre su lista de servicios y sigue ChatState.
+      const container = document.getElementById('mcp-servers-list');
       const manager = ChatMCP.manager;
       const originalStart = manager.startExternalServer;
       const originalSync = manager.syncExternalServers;
       manager.syncExternalServers = async () => {};
-      const ui = ChatUIMcp.initMcpUI({ serversList: container });
       const results = [];
       try {
         for (const language of ['es', 'en']) {
@@ -885,7 +884,7 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
             externalServers: [{ id: 'ejemplo', status: 'stopped' }]
           });
           let reportWait, rejectStart;
-          manager.startExternalServer = async (id, registry, callback) => {
+          manager.startExternalServer = async (id, callback) => {
             reportWait = callback;
             await new Promise((resolve, reject) => { rejectStart = reject; });
           };
@@ -916,8 +915,7 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
       } finally {
         manager.startExternalServer = originalStart;
         manager.syncExternalServers = originalSync;
-        ui.destroy();
-        container.remove();
+
       }
       return results;
     });
@@ -947,14 +945,13 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     const results = await page.evaluate(async () => {
-      const container = document.createElement('div');
-      document.body.append(container);
+      // La aplicación ya montó el panel MCP sobre su lista de servicios y sigue ChatState.
+      const container = document.getElementById('mcp-servers-list');
       const manager = ChatMCP.manager;
       const originalRequest = manager.requestExternalControl;
       const originalSync = manager.syncExternalServers;
       const originalTimeout = window.setTimeout;
       manager.syncExternalServers = async () => {};
-      const ui = ChatUIMcp.initMcpUI({ serversList: container });
       const results = [];
       try {
         for (const language of ['es', 'en']) {
@@ -1002,8 +999,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
         window.setTimeout = originalTimeout;
         manager.requestExternalControl = originalRequest;
         manager.syncExternalServers = originalSync;
-        ui.destroy();
-        container.remove();
+
       }
       return results;
     });
@@ -1033,7 +1029,11 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
+      // run_command del servidor local, registrado como lo registra McpToolProvider al conectar.
+      const provider = new window.ChatMCP.McpToolProvider({ id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'run_command' }] }, { id: 'mcp_prov_command_card_test' });
+      await provider.discoverTools();
+      window.ChatAgentCore.registry.registerProvider(provider);
       // Servidor simulado: un comando en segundo plano que escribe líneas hasta que se detiene.
       const job = { id: 7, key: 'inv-tarjeta-1', status: 'running', exit_code: null, started_at: Date.now() - 5000, elapsed_s: 5, output_bytes: 0, log: '' };
       window.__jobCalls = [];
@@ -1056,14 +1056,13 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       const container = document.createElement('div');
       container.id = 'command-card-test';
       document.getElementById('chat-messages')?.appendChild(container) || document.body.appendChild(container);
-      const view = window.ChatCommandCard.createView();
       const args = { command: 'npm run dev', background: true };
-      const card = view.createLiveCard(args, {});
+      const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(container, card);
       // Igual que agent-core: actualizar la tarjeta con el resultado y archivarla como terminada.
       const result = { content: JSON.stringify({ success: true, status: 'running', job_id: 7, elapsed_s: 2.5, output: 'linea 1\n' }) };
-      view.updateLiveCard(card, args, result, 2500, {});
+      window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, result, 2500);
       window.ChatToolCards.completeToolCard(card, result);
       window.__commandCard = card;
     });
@@ -1122,9 +1121,8 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     const foreground = await page.evaluate(async () => {
       const job = window.__job;
       Object.assign(job, { id: 8, key: 'inv-tarjeta-2', status: 'running', exit_code: null, log: 'compilando\n' });
-      const view = window.ChatCommandCard.createView();
       const args = { command: 'npm run build' };
-      const card = view.createLiveCard(args, {});
+      const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
       await new Promise(resolve => setTimeout(resolve, 1300));
@@ -1135,7 +1133,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
         log: card.querySelector('.command-card-log').textContent.startsWith('compilando\n')
       };
       const result = { content: JSON.stringify({ success: false, status: 'exited', job_id: 8, exit_code: 2, duration_s: 3.1, output: 'error TS2304\n' }) };
-      view.updateLiveCard(card, args, result, 3100, {});
+      window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, result, 3100);
       return {
         during,
         after: {
@@ -1158,12 +1156,11 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       Object.assign(job, { id: 11, key: 'inv-tarjeta-3', status: 'running', exit_code: null, log: 'vigilando\n' });
       window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/tmp' }, tools: [] });
       window.ChatMCP.manager.syncCommandJobs([{ id: 11, command: 'npm run watch', status: 'running', started_at: Date.now(), background: true }]);
-      const view = window.ChatCommandCard.createView();
       const args = { command: 'npm run watch', background: true };
-      const card = view.createLiveCard(args, {});
+      const card = window.ChatToolCards.createLiveToolCard('run_command', args);
       card.dataset.invocationId = job.key;
       window.ChatToolCards.appendToolCard(document.getElementById('command-card-test'), card);
-      view.updateLiveCard(card, args, { content: JSON.stringify({ success: true, status: 'running', job_id: 11, elapsed_s: 2.5, output: 'vigilando\n' }) }, 2500, {});
+      window.ChatToolCards.updateLiveToolCard(card, 'run_command', args, { content: JSON.stringify({ success: true, status: 'running', job_id: 11, elapsed_s: 2.5, output: 'vigilando\n' }) }, 2500);
       await new Promise(resolve => setTimeout(resolve, 100));
       // Plegada (tras volver a la vista), solo pregunta por el final.
       card.querySelector('.tool-execution-card').classList.add('collapsed');
@@ -1184,11 +1181,10 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     const historical = await page.evaluate(async () => {
       const requests = [];
       window.ChatMCP.manager.requestExternalControl = async method => { requests.push(method); throw new Error('Comando no encontrado'); };
-      const view = window.ChatCommandCard.createView();
       const make = output => {
-        const card = view.renderHistoricalCard({ command: 'pytest -x' }, {
+        const card = window.ChatToolCards.renderHistoricalToolCard({ function: { name: 'run_command', arguments: JSON.stringify({ command: 'pytest -x' }) } }, {
           content: JSON.stringify({ success: true, status: 'exited', job_id: 3, exit_code: 0, duration_s: 72, output })
-        }, {});
+        });
         document.getElementById('command-card-test').appendChild(card);
         return card;
       };

@@ -295,8 +295,7 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     assert.equal(vecTool.metadata.description, 'Busca los k vecinos más próximos en el índice vectorial.');
 
     // Verificamos que el formateo de Markdown universal funcione sin conocer los nombres
-    const mdSql = sqlTool.formatter({ sql: 'SELECT * FROM users' }, { content: JSON.stringify([{ id: 1, name: 'Alice' }]) });
-    assert.ok(mdSql.includes('🔌'));
+    const mdSql = sqlTool.formatDispatchMarkdown({ sql: 'SELECT * FROM users' }, { content: JSON.stringify([{ id: 1, name: 'Alice' }]) });
     assert.ok(mdSql.includes('execute_sql_query'));
     assert.ok(mdSql.includes('Alice'));
 
@@ -305,11 +304,11 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     const previousLanguage = I18n.getLanguage();
     try {
       I18n.setLanguage('en');
-      const mdEmptyEn = sqlTool.formatter({ sql: 'SELECT 1' }, {});
+      const mdEmptyEn = sqlTool.formatDispatchMarkdown({ sql: 'SELECT 1' }, {});
       assert.ok(mdEmptyEn.includes('No output'));
       assert.ok(!mdEmptyEn.includes('Sin salida'));
       I18n.setLanguage('es');
-      assert.ok(sqlTool.formatter({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
+      assert.ok(sqlTool.formatDispatchMarkdown({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
     } finally {
       I18n.setLanguage(previousLanguage);
     }

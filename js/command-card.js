@@ -28,8 +28,8 @@
   const controllers = new WeakMap();
 
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
-  const getDialogs = () => resolveDep('ChatDialogs', null);
-  const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getMcp = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getState = () => resolveDep('ChatState', './state.js');
   const { t } = I18n;
   const icon = (name, size = 13) => Icons.get(name, { size });
@@ -93,13 +93,10 @@
   }
 
   function buildCard(args, ui, { collapsed = false } = {}) {
-    if (typeof document === 'undefined') return null;
     const command = typeof args?.command === 'string' ? args.command : '';
     const firstLine = command.split('\n')[0] + (command.includes('\n') ? ' …' : '');
-    const ToolCards = getToolCards();
-    const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card command-card-wrapper') : document.createElement('div');
-    card.className = 'tool-card-wrapper mcp-card command-card-wrapper';
-    card.innerHTML = ToolCards.renderCardHtml({
+    const card = ui.createCardWrapper('mcp-card command-card-wrapper');
+    card.innerHTML = getToolCards().renderCardHtml({
       className: 'command-card',
       collapsed,
       titleHtml: `${icon('terminal', 14)}<code class="command-card-command" title="${escapeHtml(command)}">${escapeHtml(firstLine)}</code>`,
@@ -108,9 +105,9 @@
         + `<div class="command-card-actions">`
         + `<button type="button" class="btn-command-action btn-command-stop" data-command-action="stop" hidden>${icon('stop')}<span>${escapeHtml(t('command_action_stop'))}</span></button>`
         + `</div>`
-    }, ui || {});
+    }, ui);
     card.addEventListener('click', event => {
-      const button = event.target.closest?.('[data-command-action="stop"]');
+      const button = event.target.closest('[data-command-action="stop"]');
       if (!button || !card.contains(button)) return;
       event.stopPropagation();
       controllers.get(card)?.stop();
@@ -125,7 +122,7 @@
 
   function track(controller) {
     tracked.add(controller);
-    if (clockTimer === null && typeof setInterval === 'function') {
+    if (clockTimer === null) {
       clockTimer = setInterval(() => {
         for (const item of tracked) {
           if (!item.card.isConnected) untrack(item);
@@ -133,12 +130,11 @@
         }
       }, 1000);
     }
-    const State = getState();
-    if (!jobsSubscribed && State?.subscribe) {
+    if (!jobsSubscribed) {
       jobsSubscribed = true;
       // Un comando que deja de figurar entre los que siguen en marcha ha terminado: su tarjeta
       // pregunta una vez cómo acabó.
-      State.subscribe(state => ({ ids: JSON.stringify((state.mcp?.commandJobs || []).map(job => job.id)) }), ({ ids }) => {
+      getState().subscribe(state => ({ ids: JSON.stringify(state.mcp.commandJobs.map(job => job.id)) }), ({ ids }) => {
         const running = new Set(JSON.parse(ids));
         for (const item of tracked) {
           if (item.state.toolReturned && Number.isInteger(item.state.id) && !running.has(item.state.id)) item.refreshStatus();
@@ -177,17 +173,14 @@
       this.log = { loaded: false, next: 0, loading: false };
       controllers.set(card, this);
       // El log se pide al desplegar la tarjeta, la despliegue quien la despliegue.
-      const inner = card.querySelector('.tool-execution-card');
-      if (inner && typeof MutationObserver !== 'undefined') {
-        new MutationObserver(() => {
-          if (!this.isExpanded()) {
-            this.stopLogPolling();
-            return;
-          }
-          if (!this.log.loaded) this.loadLog();
-          this.scheduleLog();
-        }).observe(inner, { attributes: true, attributeFilter: ['class'] });
-      }
+      new MutationObserver(() => {
+        if (!this.isExpanded()) {
+          this.stopLogPolling();
+          return;
+        }
+        if (!this.log.loaded) this.loadLog();
+        this.scheduleLog();
+      }).observe(card.querySelector('.tool-execution-card'), { attributes: true, attributeFilter: ['class'] });
     }
 
     ref() {
@@ -201,21 +194,18 @@
     }
 
     isExpanded() {
-      const inner = this.card.querySelector('.tool-execution-card');
-      return Boolean(inner) && !inner.classList.contains('collapsed');
+      return !this.card.querySelector('.tool-execution-card').classList.contains('collapsed');
     }
 
     renderBadge() {
-      const badge = this.card.querySelector('.tool-card-badge');
-      if (badge) badge.outerHTML = renderBadge(this.state);
+      this.card.querySelector('.tool-card-badge').outerHTML = renderBadge(this.state);
     }
 
     render() {
       const { state, card } = this;
       if (Number.isInteger(state.id)) card.dataset.jobId = String(state.id);
       this.renderBadge();
-      const stopButton = card.querySelector('[data-command-action="stop"]');
-      if (stopButton) stopButton.hidden = state.status !== 'running' || !this.ref();
+      card.querySelector('[data-command-action="stop"]').hidden = state.status !== 'running' || !this.ref();
     }
 
     applyDetails(details) {
@@ -252,7 +242,7 @@
         track(this);
         this.scheduleLog();
         // El aviso de fin de turno y el latido lo cuentan sin esperar al siguiente latido.
-        getMcp()?.refreshCommandJobs?.();
+        getMcp().refreshCommandJobs();
       } else {
         untrack(this);
         // El log se recargará entero si se vuelve a desplegar.
@@ -278,7 +268,7 @@
         untrack(this);
         return;
       }
-      if (typeof document === 'undefined' || !document.hidden) {
+      if (!document.hidden) {
         const done = await this.loadLog();
         if (done && this.state.toolReturned) {
           await this.refreshStatus();
@@ -294,10 +284,9 @@
     /** Pregunta una vez al servidor cómo está el comando. */
     async refreshStatus() {
       const ref = this.ref();
-      const mcp = getMcp();
-      if (!ref || !mcp?.requestExternalControl) return;
+      if (!ref) return;
       try {
-        this.applyDetails(await mcp.requestExternalControl('zerochat/jobs/get', ref));
+        this.applyDetails(await getMcp().requestExternalControl('zerochat/jobs/get', ref));
       } catch (_) {
         if (!this.state.toolReturned) return;
         this.state.status = 'unavailable';
@@ -314,15 +303,15 @@
     reactivate() {
       if (this.state.reactivated || !this.state.toolReturned || this.state.status !== 'running') return;
       this.state.reactivated = true;
-      this.card.querySelector('.tool-execution-card')?.classList.remove('collapsed');
-      getToolCards()?.reactivateToolCard?.(this.card);
+      this.card.querySelector('.tool-execution-card').classList.remove('collapsed');
+      getToolCards().reactivateToolCard(this.card);
     }
 
     finish() {
-      if (this.state.toolReturned) getMcp()?.refreshCommandJobs?.();
+      if (this.state.toolReturned) getMcp().refreshCommandJobs();
       if (this.state.reactivated) {
         this.state.reactivated = false;
-        getToolCards()?.completeToolCard?.(this.card, { success: !isFailure(this.state) });
+        getToolCards().completeToolCard(this.card, { success: !isFailure(this.state) });
       }
     }
 
@@ -330,8 +319,8 @@
       const ref = this.ref();
       const mcp = getMcp();
       const button = this.card.querySelector('[data-command-action="stop"]');
-      if (!ref || !mcp?.requestExternalControl) return;
-      if (button) button.disabled = true;
+      if (!ref) return;
+      button.disabled = true;
       try {
         this.applyDetails(await mcp.requestExternalControl('zerochat/jobs/stop', ref));
         if (this.isExpanded()) await this.loadLog();
@@ -340,18 +329,17 @@
           untrack(this);
           this.finish();
         } else {
-          mcp.refreshCommandJobs?.();
+          mcp.refreshCommandJobs();
         }
       } catch (error) {
-        await getDialogs()?.alert?.(t('command_stop_error', { error: error?.message || String(error) }), { type: 'error' });
+        await getDialogs().alert(t('command_stop_error', { error: error?.message || String(error) }), { type: 'error' });
       } finally {
-        if (button) button.disabled = false;
+        button.disabled = false;
       }
     }
 
     showText(text) {
       const logEl = this.card.querySelector('.command-card-log');
-      if (!logEl) return;
       logEl.querySelector('code').textContent = text || '';
       logEl.hidden = !text;
     }
@@ -374,8 +362,7 @@
       const ref = this.ref();
       const mcp = getMcp();
       const logEl = this.card.querySelector('.command-card-log');
-      if (!logEl) return false;
-      if (!ref || !mcp?.requestExternalControl) {
+      if (!ref) {
         this.showFallback();
         return false;
       }
@@ -415,7 +402,6 @@
       displayMode: 'collapsed',
       createLiveCard: (args, ui) => {
         const card = buildCard(args, ui);
-        if (!card) return null;
         const controller = new CommandCardController(card, {});
         controller.render();
         track(controller);
@@ -437,7 +423,6 @@
         const data = parseResult(message?.content);
         const running = data?.status === 'running';
         const card = buildCard(args, ui, { collapsed: true });
-        if (!card) return null;
         const controller = new CommandCardController(card, {});
         controller.applyResult(data, typeof message?.content === 'string' ? message.content : '');
         if (running) {

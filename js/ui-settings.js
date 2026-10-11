@@ -346,13 +346,7 @@
       }
     }
 
-    const UIMcp = getUIMcp();
-    if (UIMcp && typeof UIMcp.syncSecurityControls === 'function') {
-      UIMcp.syncSecurityControls(elements);
-    }
-    if (UIMcp && typeof UIMcp.renderCurrentToolsList === 'function' && elements.mcpToolsContainer) {
-      UIMcp.renderCurrentToolsList(elements);
-    }
+    getUIMcp().syncSecurityControls({ toolsContainer: elements.mcpToolsContainer });
 
     const targetId = normalizeSectionId(sectionId);
     const doc = elements.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);

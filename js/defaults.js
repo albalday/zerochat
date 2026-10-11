@@ -30,6 +30,9 @@
     return language.startsWith('en') ? 'en' : 'es';
   }
 
+  // Versión publicada en el título de zerochat.html, que actualiza `npm run bump`.
+  const APP_VERSION = (typeof document !== 'undefined' && document.title.match(/v?(\d+\.\d+(?:\.\d+)?)/)?.[1]) || 'dev';
+
   const DEFAULT_THEME = 'dark';
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
 
@@ -53,6 +56,7 @@
   });
 
   return Object.freeze({
+    APP_VERSION,
     DEFAULT_THEME,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,

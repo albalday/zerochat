@@ -76,13 +76,13 @@
       // 7. Estado de Integración MCP (mcp-proxy)
       mcp: {
         status: 'disconnected', // 'disconnected' | 'connecting' | 'checking' | 'connected' | 'error'
-        host: '127.0.0.1',
-        port: 6388,
-        endpoint: 'http://127.0.0.1:6388/sse',
+        host: Defaults.CONFIG_DEFAULTS.mcpHost,
+        port: Defaults.CONFIG_DEFAULTS.mcpPort,
+        endpoint: `http://${Defaults.CONFIG_DEFAULTS.mcpHost}:${Defaults.CONFIG_DEFAULTS.mcpPort}/sse`,
         serverInfo: null,
         tools: [],
-        lastConnected: null,
-        lastVerified: null,
+        externalServers: [],
+        externalTools: [],
         latencyMs: null,
         error: null,
         // Comandos de run_command que siguen en marcha en el servidor local.

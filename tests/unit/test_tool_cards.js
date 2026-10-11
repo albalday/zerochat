@@ -1,206 +1,57 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatToolCards = require('../../js/tool-cards.js');
+const AgentCore = require('../../js/agent-core.js');
+const { installDom } = require('../helpers/dom-env.js');
 
-test('ChatToolCards - resuelve la vista declarada por la tool registrada', () => {
-  const previousWindow = global.window;
-  const view = { createLiveCard: () => null };
-  global.window = {
-    ChatAgentCore: {
-      registry: {
-        getTool: (name) => name === 'view_tool' ? { view } : null
-      }
-    }
-  };
+/** Registra en el registro real una herramienta de prueba con su vista y la retira al terminar. */
+function registerTool(t, options) {
+  const tool = new AgentCore.Tool({ execute: async () => ({ success: true }), ...options });
+  const provider = { id: `test_provider_${options.name}`, getTools: () => [tool] };
+  AgentCore.registry.registerProvider(provider);
+  t.after(() => AgentCore.registry.unregisterProvider(provider.id));
+  return tool;
+}
 
-  try {
-    assert.equal(ChatToolCards.resolveToolView('view_tool'), view);
-    assert.equal(ChatToolCards.resolveToolView('unknown_tool'), null);
-  } finally {
-    if (previousWindow === undefined) delete global.window;
-    else global.window = previousWindow;
-  }
+function setup(t) {
+  const dom = installDom();
+  t.after(() => dom.restore());
+}
+
+const isCollapsed = card => card.querySelector('.tool-execution-card, .chat-chart-card').classList.contains('collapsed');
+
+test('ChatToolCards - resuelve la vista declarada por la tool registrada', t => {
+  const view = { id: 'view_tool', createLiveCard: () => null };
+  registerTool(t, { name: 'view_tool', view });
+  assert.equal(ChatToolCards.resolveToolView('view_tool').createLiveCard, view.createLiveCard);
+  assert.equal(ChatToolCards.resolveToolView('unknown_tool'), null);
 });
 
-test('ChatToolCards - Las herramientas aparecen minimizadas (collapsed) tras su ejecución', () => {
-  function createMockElement(tag) {
-    let _innerHtml = '';
-    const children = [];
-    const el = {
-      tagName: tag.toUpperCase(),
-      className: '',
-      children,
-      classList: {
-        contains: (cls) => (el.className || '').split(' ').includes(cls),
-        add: (cls) => {
-          const classes = (el.className || '').split(' ').filter(Boolean);
-          if (!classes.includes(cls)) classes.push(cls);
-          el.className = classes.join(' ');
-        },
-        remove: (cls) => {
-          el.className = (el.className || '').split(' ').filter(c => c !== cls).join(' ');
-        }
-      },
-      get innerHTML() { return _innerHtml; },
-      set innerHTML(val) {
-        _innerHtml = val;
-        children.length = 0;
-        if (typeof val === 'string' && val.includes('tool-execution-card')) {
-          const child = createMockElement('div');
-          child.className = val.includes('collapsed') ? 'tool-execution-card collapsed' : 'tool-execution-card';
-          children.push(child);
-        }
-      },
-      querySelector: (sel) => {
-        if (sel.includes('tool-execution-card')) {
-          for (const c of children) {
-            if (c.classList.contains('tool-execution-card')) return c;
-          }
-          if (el.classList.contains('tool-execution-card')) return el;
-          return null;
-        }
-        if (sel.includes('.tool-card-badge')) return { className: '', innerHTML: '' };
-        if (sel.includes('.btn-tool-collapse')) return { title: '' };
-        return null;
-      }
-    };
-    return el;
-  }
+test('ChatToolCards - Las herramientas aparecen minimizadas (collapsed) tras su ejecución', t => {
+  setup(t);
+  const liveCard = ChatToolCards.createLiveToolCard('generic_tool', { param: 'val' });
+  assert.equal(isCollapsed(liveCard), false, 'Live card inicial no debe estar colapsada');
 
-  const fakeDoc = {
-    createElement: (tag) => createMockElement(tag)
-  };
+  ChatToolCards.updateLiveToolCard(liveCard, 'generic_tool', { param: 'val' }, { success: true }, 50);
+  assert.equal(isCollapsed(liveCard), true, 'Live card post-ejecución debe estar colapsada');
 
-  const previousDoc = global.document;
-  global.document = fakeDoc;
-
-  try {
-    // 1. Live card fallback
-    const liveCard = ChatToolCards.createLiveToolCard('generic_tool', { param: 'val' });
-    assert.ok(liveCard);
-    const innerCard = liveCard.querySelector('.tool-execution-card');
-    assert.equal(innerCard?.classList.contains('collapsed'), false, 'Live card inicial no debe estar colapsada');
-
-    // 2. updateLiveToolCard colapsa la tarjeta post-ejecución
-    ChatToolCards.updateLiveToolCard(liveCard, 'generic_tool', { param: 'val' }, { success: true }, 50);
-    assert.equal(innerCard?.classList.contains('collapsed'), true, 'Live card post-ejecución debe estar colapsada');
-
-    // 3. renderHistoricalToolCard genera tarjeta colapsada
-    const histCard = ChatToolCards.renderHistoricalToolCard({
-      function: { name: 'generic_tool', arguments: '{"foo":"bar"}' }
-    }, { content: '{"success":true}' });
-    assert.ok(histCard);
-    const histInner = histCard.querySelector('.tool-execution-card');
-    assert.equal(histInner?.classList.contains('collapsed'), true, 'Historical card debe aparecer colapsada');
-  } finally {
-    if (previousDoc === undefined) delete global.document;
-    else global.document = previousDoc;
-  }
+  const histCard = ChatToolCards.renderHistoricalToolCard({ function: { name: 'generic_tool', arguments: '{"foo":"bar"}' } }, { content: '{"success":true}' });
+  assert.equal(isCollapsed(histCard), true, 'Historical card debe aparecer colapsada');
 });
 
-test('ChatToolCards - Herramientas con displayMode: expanded permanecen abiertas tras ejecución e histórico', () => {
-  function createMockElement(tag) {
-    let _innerHtml = '';
-    const children = [];
-    const el = {
-      tagName: tag.toUpperCase(),
-      className: '',
-      children,
-      classList: {
-        contains: (cls) => (el.className || '').split(' ').includes(cls),
-        add: (cls) => {
-          const classes = (el.className || '').split(' ').filter(Boolean);
-          if (!classes.includes(cls)) classes.push(cls);
-          el.className = classes.join(' ');
-        },
-        remove: (cls) => {
-          el.className = (el.className || '').split(' ').filter(c => c !== cls).join(' ');
-        }
-      },
-      get innerHTML() { return _innerHtml; },
-      set innerHTML(val) {
-        _innerHtml = val;
-        children.length = 0;
-        if (typeof val === 'string' && (val.includes('tool-execution-card') || val.includes('chat-chart-card'))) {
-          const child = createMockElement('div');
-          const isChart = val.includes('chat-chart-card');
-          const baseClass = isChart ? 'chat-chart-card' : 'tool-execution-card';
-          child.className = val.includes('collapsed') ? `${baseClass} collapsed` : baseClass;
-          children.push(child);
-        }
-      },
-      querySelector: (sel) => {
-        if (sel.includes('tool-execution-card') || sel.includes('chat-chart-card')) {
-          for (const c of children) {
-            if (c.classList.contains('tool-execution-card') || c.classList.contains('chat-chart-card')) return c;
-          }
-          if (el.classList.contains('tool-execution-card') || el.classList.contains('chat-chart-card')) return el;
-          return null;
-        }
-        if (sel.includes('.tool-card-badge')) return { className: '', innerHTML: '' };
-        if (sel.includes('.btn-tool-collapse')) return { title: '' };
-        return null;
-      }
-    };
-    return el;
-  }
+test('ChatToolCards - Herramientas con displayMode: expanded permanecen abiertas tras ejecución e histórico', t => {
+  setup(t);
+  assert.equal(ChatToolCards.resolveToolDisplayMode('render_chart'), 'expanded');
+  assert.equal(ChatToolCards.resolveToolDisplayMode('other_tool'), null);
 
-  const previousDoc = global.document;
-  const previousWindow = global.window;
-  global.document = { createElement: (tag) => createMockElement(tag) };
-  global.window = {
-    ChatAgentCore: {
-      registry: {
-        getTool: (name) => {
-          if (name === 'render_chart') {
-            return {
-              name: 'render_chart',
-              displayMode: 'expanded',
-              view: {
-                id: 'render_chart',
-                displayMode: 'expanded',
-                renderHistoricalCard: () => {
-                  const c = createMockElement('div');
-                  c.className = 'tool-card-wrapper';
-                  c.innerHTML = '<div class="chat-chart-card">Gráfico</div>';
-                  return c;
-                }
-              }
-            };
-          }
-          return null;
-        }
-      }
-    }
-  };
+  const args = { type: 'bar', title: 'Test', data: [{ label: 'A', value: 1 }] };
+  const liveCard = ChatToolCards.createLiveToolCard('render_chart', args);
+  ChatToolCards.updateLiveToolCard(liveCard, 'render_chart', args, { success: true }, 30, { displayMode: 'expanded' });
+  assert.equal(isCollapsed(liveCard), false, 'Tarjeta con displayMode expanded no debe estar colapsada');
 
-  try {
-    // 1. resolveToolDisplayMode
-    assert.equal(ChatToolCards.resolveToolDisplayMode('render_chart'), 'expanded');
-    assert.equal(ChatToolCards.resolveToolDisplayMode('other_tool'), null);
-
-    // 2. updateLiveToolCard con displayMode: 'expanded' NO colapsa
-    const liveCard = ChatToolCards.createLiveToolCard('render_chart', { title: 'Test' });
-    const innerCard = liveCard.querySelector('.tool-execution-card, .chat-chart-card');
-    ChatToolCards.updateLiveToolCard(liveCard, 'render_chart', { title: 'Test' }, { success: true }, 30, { displayMode: 'expanded' });
-    assert.equal(innerCard?.classList.contains('collapsed'), false, 'Tarjeta con displayMode expanded no debe estar colapsada');
-
-    // 3. renderHistoricalToolCard con displayMode: 'expanded' NO colapsa
-    const histCard = ChatToolCards.renderHistoricalToolCard({
-      function: { name: 'render_chart', arguments: '{"type":"bar"}' }
-    }, { content: '{"success":true}' });
-    assert.ok(histCard);
-    const histInner = histCard.querySelector('.tool-execution-card, .chat-chart-card');
-    assert.equal(histInner?.classList.contains('collapsed'), false, 'Tarjeta histórica con displayMode expanded debe mantenerse abierta');
-  } finally {
-    if (previousDoc === undefined) delete global.document;
-    else global.document = previousDoc;
-    if (previousWindow === undefined) delete global.window;
-    else global.window = previousWindow;
-  }
+  const histCard = ChatToolCards.renderHistoricalToolCard({ function: { name: 'render_chart', arguments: JSON.stringify(args) } }, { content: '{"success":true}' });
+  assert.equal(isCollapsed(histCard), false, 'Tarjeta histórica con displayMode expanded debe mantenerse abierta');
 });
-
-
 
 test('ChatToolCards - common frame escapes attributes and keeps internal safe slots', () => {
   const html = ChatToolCards.renderCardHtml({
@@ -217,14 +68,4 @@ test('ChatToolCards - common frame escapes attributes and keeps internal safe sl
   assert.ok(html.includes('&quot;'));
   assert.ok(!html.includes(' onclick="bad'));
   assert.ok(!html.includes('<script>'));
-});
-
-test('ChatToolCards - preserves injected wrapper factories', () => {
-  const card = {};
-  let requestedClass;
-  assert.equal(ChatToolCards.createCardWrapper({ createCardWrapper: className => {
-    requestedClass = className;
-    return card;
-  } }, 'mcp-card'), card);
-  assert.equal(requestedClass, 'mcp-card');
 });

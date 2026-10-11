@@ -217,7 +217,7 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
     const result = await page.evaluate(async () => {
       const provider = new ChatMCP.McpToolProvider({
         id: 'mobile', name: 'Long server label',
-        initialize: async () => {},
+        initialize: async () => ({ success: true }),
         listTools: async () => [{ name: 'LONG_TOOL_NAME_WITH_MANY_CHARACTERS', inputSchema: { type: 'object' } }]
       });
       const tools = await provider.discoverTools();
