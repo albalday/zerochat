@@ -187,8 +187,7 @@
     }
 
     // 4. Tooltip accesible
-    const titleText = translate('context_hub_btn_title') ||
-      `Ventana de contexto: ${vm.usedTokens.toLocaleString()} de ${vm.totalLimit.toLocaleString()} tokens (${vm.percentUsed}%)`;
+    const titleText = translate('context_hub_btn_title');
     elements.connectionTokensBadge.setAttribute('title', titleText);
     elements.connectionTokensBadge.style.display = 'inline-flex';
   }
@@ -243,13 +242,13 @@
       elements.contextMetricStatusVal.className = 'context-metric-val';
       if (vm.healthStatus === 'critical') {
         elements.contextMetricStatusVal.classList.add('status-critical');
-        elements.contextMetricStatusVal.textContent = translate('context_status_critical') || 'Crítico';
+        elements.contextMetricStatusVal.textContent = translate('context_status_critical');
       } else if (vm.healthStatus === 'warning') {
         elements.contextMetricStatusVal.classList.add('status-warning');
-        elements.contextMetricStatusVal.textContent = translate('context_status_warning') || 'Elevado';
+        elements.contextMetricStatusVal.textContent = translate('context_status_warning');
       } else {
         elements.contextMetricStatusVal.classList.add('status-ok');
-        elements.contextMetricStatusVal.textContent = translate('context_status_ok') || 'Óptimo';
+        elements.contextMetricStatusVal.textContent = translate('context_status_ok');
       }
     }
 

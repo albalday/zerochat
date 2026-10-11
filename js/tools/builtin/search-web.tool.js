@@ -30,8 +30,8 @@
     const cardDiv = getCards().createCardWrapper(ui);
     if (!cardDiv) return null;
     const Markdown = ui.markdown;
-    const t = ui?.t || ((key) => key);
-    const spinner = ui?.SPINNER_SVG || '';
+    const t = ui.t;
+    const spinner = ui.SPINNER_SVG;
     cardDiv.innerHTML = getCards().renderCardHtml({
       className: 'web-search-card',
       titleHtml: `<span>${SEARCH_ICON_SVG}</span><span>${t('tool_search_title')}</span>`,
@@ -44,17 +44,17 @@
   function updateLiveCard(cardDiv, _args, result = {}, elapsedMs = 0, ui) {
     if (!cardDiv) return;
     const Markdown = ui.markdown;
-    const t = ui?.t || ((key) => key);
-    const checkSvg = ui?.CHECK_SVG || '';
-    const errorSvg = ui?.ERROR_SVG || '';
+    const t = ui.t;
+    const checkSvg = ui.CHECK_SVG;
+    const errorSvg = ui.ERROR_SVG;
     const isSuccess = result?.success !== false && !result?.error;
     const count = result?.count || (Array.isArray(result?.results) ? result.results.length : 0);
     const badge = cardDiv.querySelector('.tool-card-badge');
     if (badge) {
       badge.className = `tool-card-badge ${isSuccess ? 'status-success' : 'status-error'}`;
       badge.innerHTML = isSuccess
-        ? `${checkSvg} <span>${count} fuentes (${elapsedMs || 0}ms)</span>`
-        : `${errorSvg} <span>Error búsqueda (${elapsedMs || 0}ms)</span>`;
+        ? `${checkSvg} <span>${t('tool_search_sources_count', { count, ms: elapsedMs || 0 })}</span>`
+        : `${errorSvg} <span>${t('tool_status_error', { ms: elapsedMs || 0 })}</span>`;
     }
     const label = cardDiv.querySelector('.search-sources-label');
     if (label) label.textContent = t('tool_search_sources_label');

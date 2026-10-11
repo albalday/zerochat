@@ -5,32 +5,19 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatAttachments = factory();
+    root.ChatAttachments = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
+  const { resolveDep } = Utils;
+
   function getState() {
-    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
-    if (typeof global !== 'undefined' && global.ChatState) return global.ChatState;
-    try {
-      return require('./state.js');
-    } catch (_) {
-      return null;
-    }
+    return resolveDep('ChatState', './state.js');
   }
 
-  function getUtils() {
-    if (typeof window !== 'undefined' && window.ChatUtils) return window.ChatUtils;
-    if (typeof global !== 'undefined' && global.ChatUtils) return global.ChatUtils;
-    try {
-      return require('./utils.js');
-    } catch (_) {
-      return null;
-    }
-  }
 
   function getFiles() {
     const State = getState();
@@ -91,21 +78,13 @@
       const chip = document.createElement('div');
       chip.className = 'file-chip';
 
-      let iconName = 'file-text';
-      if (file.type === 'pdf') iconName = 'file-text';
-      else if (file.type === 'image') iconName = 'image';
-
-      const Icons = typeof window !== 'undefined' ? window.ChatIcons : null;
-      const I18n = typeof window !== 'undefined' ? window.ChatI18n : null;
-      const iconSvg = Icons ? Icons.get(iconName, { size: 14 }) : '';
-      const closeSvg = Icons ? Icons.get('close', { size: 12 }) : '<svg class="ui-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg>';
-      const removeTitle = (I18n && typeof I18n.t === 'function') ? I18n.t('btn_delete') : 'Eliminar';
+      const Icons = resolveDep('ChatIcons', './icons.js');
+      const iconName = file.type === 'image' ? 'image' : 'file-text';
+      const removeTitle = resolveDep('ChatI18n', './i18n.js').t('btn_delete');
       const icon = document.createElement('span');
       icon.className = 'file-chip-icon';
-      // Los SVG proceden exclusivamente de ChatIcons o de esta plantilla estática.
-      const Utils = getUtils();
-      if (Utils?.setTrustedHtml) Utils.setTrustedHtml(icon, iconSvg);
-      else icon.innerHTML = iconSvg;
+      // Los SVG proceden exclusivamente de ChatIcons.
+      Utils.setTrustedHtml(icon, Icons.get(iconName, { size: 14 }));
 
       const name = document.createElement('span');
       name.className = 'file-chip-name';
@@ -114,7 +93,7 @@
 
       const size = document.createElement('span');
       size.className = 'file-chip-size';
-      size.textContent = `(${getUtils().formatBytes(file.size)})`;
+      size.textContent = `(${Utils.formatBytes(file.size)})`;
 
       const removeButton = document.createElement('button');
       removeButton.type = 'button';
@@ -122,8 +101,7 @@
       removeButton.setAttribute('data-index', String(index));
       removeButton.title = String(removeTitle);
       removeButton.setAttribute('aria-label', String(removeTitle));
-      if (Utils?.setTrustedHtml) Utils.setTrustedHtml(removeButton, closeSvg);
-      else removeButton.innerHTML = closeSvg;
+      Utils.setTrustedHtml(removeButton, Icons.get('close', { size: 12 }));
 
       removeButton.addEventListener('click', () => {
         removeFileAt(index);
@@ -159,11 +137,11 @@
 
       const attachmentsText = effectiveFiles.map(file => {
         if (file.type === 'pdf') {
-          return `\n\n--- PDF Document: ${file.name} (${getUtils().formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
+          return `\n\n--- PDF Document: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
         } else if (file.type === 'image') {
-          return `\n\n--- Image: ${file.name} (${getUtils().formatBytes(file.size)}) ---`;
+          return `\n\n--- Image: ${file.name} (${Utils.formatBytes(file.size)}) ---`;
         }
-        return `\n\n--- File: ${file.name} (${getUtils().formatBytes(file.size)}) ---\n\`\`\`\n${file.content}\n\`\`\``;
+        return `\n\n--- File: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`\n${file.content}\n\`\`\``;
       }).join('');
 
       fullPrompt = rawText ? `${rawText}\n${attachmentsText}` : `Attached files for analysis:${attachmentsText}`;

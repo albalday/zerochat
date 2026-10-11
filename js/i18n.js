@@ -361,6 +361,8 @@
       tool_err_query: 'Error al consultar',
       tool_status_success: 'Completado',
       tool_status_error: 'Error ({ms}ms)',
+      tool_search_sources_count: '{count} fuentes ({ms}ms)',
+      tool_card_truncated: '... (texto completo truncado en tarjeta)',
       tool_no_output: 'Sin salida',
 
       // Modal de Configuración
@@ -1067,6 +1069,8 @@
       tool_err_query: 'Query error',
       tool_status_success: 'Completed',
       tool_status_error: 'Error ({ms}ms)',
+      tool_search_sources_count: '{count} sources ({ms}ms)',
+      tool_card_truncated: '... (full text truncated in card)',
       tool_no_output: 'No output',
 
       // Modal de Configuración

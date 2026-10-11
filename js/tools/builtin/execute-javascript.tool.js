@@ -53,10 +53,10 @@
   function getUiHelpers(ui) {
     return {
       Markdown: ui.markdown,
-      t: ui?.t || ((key) => key),
-      spinner: ui?.SPINNER_SVG || '',
-      checkSvg: ui?.CHECK_SVG || '',
-      errorSvg: ui?.ERROR_SVG || ''
+      t: ui.t,
+      spinner: ui.SPINNER_SVG,
+      checkSvg: ui.CHECK_SVG,
+      errorSvg: ui.ERROR_SVG
     };
   }
 

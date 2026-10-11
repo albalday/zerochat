@@ -10,35 +10,24 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatAgentCore = factory();
+    root.ChatAgentCore = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
+  const { resolveDep } = Utils;
+
   // Resolutores perezosos de dependencias del entorno
-  function getBuiltinToolModule(globalName, modulePath) {
-    if (typeof window !== 'undefined' && window[globalName]) {
-      return window[globalName];
-    }
-    if (typeof require !== 'undefined') {
-      try { return require(modulePath); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
-  }
 
   function getBuiltinToolManifest() {
-    if (typeof window !== 'undefined' && window.ChatToolManifest) return window.ChatToolManifest.builtin;
-    if (typeof require !== 'undefined') {
-      try { return require('./tools/tool-manifest.js').builtin; } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatToolManifest', './tools/tool-manifest.js').builtin;
   }
 
   function createBuiltinTool(toolId, globalName, modulePath) {
     const builtinManifest = getBuiltinToolManifest();
-    const toolModule = builtinManifest?.get(toolId) || getBuiltinToolModule(globalName, modulePath);
+    const toolModule = builtinManifest?.get(toolId) || resolveDep(globalName, modulePath);
     if (!toolModule || typeof toolModule.createTool !== 'function') {
       throw new Error(`No se pudo cargar el módulo de la herramienta ${toolId}.`);
     }
@@ -46,51 +35,27 @@
   }
 
   function getAPI() {
-    if (typeof window !== 'undefined' && window.ChatAPI) return window.ChatAPI;
-    if (typeof require !== 'undefined') {
-      try { return require('./api.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatAPI', './api.js');
   }
 
   function getContextManager() {
-    if (typeof window !== 'undefined' && window.ChatContextManager) return window.ChatContextManager;
-    if (typeof require !== 'undefined') {
-      try { return require('./context-manager.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatContextManager', './context-manager.js');
   }
 
   function getToolRuntime() {
-    if (typeof window !== 'undefined' && window.ChatToolRuntime) return window.ChatToolRuntime;
-    if (typeof require !== 'undefined') {
-      try { return require('./tools/tool-runtime.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatToolRuntime', './tools/tool-runtime.js');
   }
 
   function getToolSecurity() {
-    if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
-    if (typeof require !== 'undefined') {
-      try { return require('./tool-security.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatToolSecurity', './tool-security.js');
   }
 
   function getToolCards() {
-    if (typeof window !== 'undefined' && window.ChatToolCards) return window.ChatToolCards;
-    if (typeof require !== 'undefined') {
-      try { return require('./tool-cards.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatToolCards', './tool-cards.js');
   }
 
   function getI18n() {
-    if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
-    if (typeof require !== 'undefined') {
-      try { return require('./i18n.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatI18n', './i18n.js');
   }
 
   function createCancelledError() {
@@ -755,10 +720,7 @@
           throw new Error('Ejecución de herramienta cancelada por el usuario.');
         }
 
-        const ToolRuntime = getToolRuntime();
-        const executionContext = ToolRuntime?.createToolExecutionContext
-          ? ToolRuntime.createToolExecutionContext({ displayMode, ...context, toolAuthorization: true })
-          : { displayMode, ...context, toolAuthorization: true };
+        const executionContext = getToolRuntime().createToolExecutionContext({ displayMode, ...context, toolAuthorization: true });
         const execResult = await tool.execute(parsedArgs, executionContext);
         const { elapsed, meta } = measureExecution();
         return {

@@ -158,7 +158,7 @@ test('delegate_task - un informe vacío o un error del proveedor se devuelven co
 
 test('delegate_task - la tarjeta escapa el encargo y el historial restaura el informe o el error', () => {
   const fakeDoc = { createElement: () => ({ className: '', innerHTML: '', querySelector: () => null }) };
-  const ui = { document: fakeDoc, t: key => key };
+  const ui = { document: fakeDoc, t: key => key, markdown: require('../../js/markdown.js') };
   const card = DelegateTaskTool.view.createLiveCard({ task: '<img src=x onerror=alert(1)>' }, ui);
   assert.equal(card.innerHTML.includes('<img src=x'), false);
   assert.match(card.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);

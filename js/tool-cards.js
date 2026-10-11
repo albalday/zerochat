@@ -1,13 +1,13 @@
 /** Renderer genérico: cada tool declara su propia vista con iconos vectoriales SVG. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatToolCards = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
-  const safeEscapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const getMarkdown = () => (typeof window !== 'undefined' && window.ChatMarkdown) || (typeof window !== 'undefined' && window.ChatUtils) || { escapeHtml: safeEscapeHtml };
-  const t = (key, params) => (typeof window !== 'undefined' && window.ChatI18n?.t) ? window.ChatI18n.t(key, params) : key;
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
+  else root.ChatToolCards = factory(root.ChatUtils);
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
+  const { escapeHtml, resolveDep } = Utils;
+  const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
+  const t = (key, params) => resolveDep('ChatI18n', './i18n.js').t(key, params);
   const normalizeName = name => String(name || '').trim().toLowerCase().replace(/_/g, '');
-  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('./icons.js');
+  const Icons = resolveDep('ChatIcons', './icons.js');
   const getView = name => (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name)?.view : null;
 
   const SPINNER_SVG = Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' });
@@ -119,7 +119,7 @@
     const classes = ['tool-execution-card', ...String(className).split(/\s+/).filter(c => c && c !== 'tool-execution-card' && c !== 'collapsed')];
     if (collapsed) classes.push('collapsed');
     const label = buttonTitle || translate(collapsed ? 'tool_btn_expand' : 'tool_btn_collapse');
-    return `<div class="${safeEscapeHtml(classes.join(' '))}"><div class="tool-card-header"><div class="tool-card-title">${titleHtml}</div>${titleSuffixHtml}<div class="tool-card-header-actions">${badgeHtml}${collapsible ? `<button type="button" class="btn-tool-collapse" title="${safeEscapeHtml(label)}">${ui.CHEVRON_SVG || CHEVRON_SVG}</button>` : ''}</div></div><div class="tool-card-collapsible-body">${bodyHtml}</div></div>`;
+    return `<div class="${escapeHtml(classes.join(' '))}"><div class="tool-card-header"><div class="tool-card-title">${titleHtml}</div>${titleSuffixHtml}<div class="tool-card-header-actions">${badgeHtml}${collapsible ? `<button type="button" class="btn-tool-collapse" title="${escapeHtml(label)}">${ui.CHEVRON_SVG || CHEVRON_SVG}</button>` : ''}</div></div><div class="tool-card-collapsible-body">${bodyHtml}</div></div>`;
   }
 
   /** URL de una llamada: los modelos la envían con nombres distintos. */
@@ -254,9 +254,9 @@
       : `${SPINNER_SVG} <span>${t('tool_badge_executing')}</span>`;
     card.innerHTML = renderCardHtml({
       collapsed: isCollapsed,
-      titleHtml: `<span>${icon}</span><span>${getMarkdown().escapeHtml(name)}</span>`,
+      titleHtml: `<span>${icon}</span><span>${escapeHtml(name)}</span>`,
       badgeHtml: `<span class="${badgeClass}">${badgeContent}</span>`,
-      bodyHtml: hasArgs ? `<div class="tool-card-result"><pre class="tool-card-code"><code>${getMarkdown().escapeHtml(JSON.stringify(args, null, 2))}</code></pre></div>` : ''
+      bodyHtml: hasArgs ? `<div class="tool-card-result"><pre class="tool-card-code"><code>${escapeHtml(JSON.stringify(args, null, 2))}</code></pre></div>` : ''
     });
     return card;
   }
@@ -320,8 +320,6 @@
     if (!card || typeof document === 'undefined') {
       return Promise.resolve('deny');
     }
-    const tFn = (key, params) => t(key, params);
-    const esc = getMarkdown().escapeHtml;
     const toolName = toolCall?.function?.name || options.toolName || 'tool';
     const serverName = options.serverName || '';
     const serverId = options.serverId || '';
@@ -340,7 +338,7 @@
     const badge = card.querySelector?.('.tool-card-badge');
     if (badge) {
       badge.className = 'tool-card-badge status-pending-auth';
-      badge.innerHTML = `${SHIELD_SVG} <span>${tFn('tool_auth_badge') || 'Requiere Autorización'}</span>`;
+      badge.innerHTML = `${SHIELD_SVG} <span>${t('tool_auth_badge')}</span>`;
     }
 
     // Crear o insertar el bloque de autorización dentro del cuerpo de la tarjeta
@@ -374,12 +372,12 @@
         : cmdArg.trim().split(/\s+/)[0];
       if (baseCmd && !requestedDirectoryAccess) {
         contextualButtonsHtml = `
-          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${esc(tFn('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
+          <button type="button" class="btn-auth-action btn-auth-allow-cmd" title="${escapeHtml(t('tool_auth_allow_cmd_title', { cmd: baseCmd }))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_cmd_btn', { cmd: baseCmd + ' *' }))}</span></button>
         `;
       }
       if (requestedDirectoryAccess && requestedDirectoryPath) {
         contextualButtonsHtml = `
-          <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access: requestedDirectoryAccess }))}</span></button>
+          <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access: requestedDirectoryAccess }))}</span></button>
         `;
       }
     } else if (typeof pathArg === 'string' && pathArg.trim() &&
@@ -387,7 +385,7 @@
       // Sin botón para ~, variables o ".." fuera de la raíz: la regla resultante sería inválida.
       const access = isWritePathTool ? 'W' : 'R';
       contextualButtonsHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${esc(tFn('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${esc(tFn('tool_auth_allow_path_btn', { access }))}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access }))}</span></button>
       `;
     }
 
@@ -395,32 +393,32 @@
     if (serverId) {
       const sLabel = serverName || serverId;
       serverButtonHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-server" title="${esc(tFn('tool_auth_allow_server_title', { server: sLabel }) || `Confiar permanentemente en todas las herramientas del servidor ${sLabel}`)}">${SERVER_SVG} <span>${esc(tFn('tool_auth_allow_server_btn', { server: sLabel }) || `Confiar en ${sLabel}`)}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-server" title="${escapeHtml(t('tool_auth_allow_server_title', { server: sLabel }))}">${SERVER_SVG} <span>${escapeHtml(t('tool_auth_allow_server_btn', { server: sLabel }))}</span></button>
       `;
     }
 
-    const morePermissionsLabel = tFn('tool_auth_more_permissions') || 'Más permisos';
-    const morePermissionsTitle = esc(tFn('tool_auth_more_permissions_title') || 'Elegir una autorización ampliada');
+    const morePermissionsLabel = t('tool_auth_more_permissions');
+    const morePermissionsTitle = escapeHtml(t('tool_auth_more_permissions_title'));
     authPromptEl.innerHTML = `
       <div class="tool-auth-header">
         <div class="tool-auth-title-row">
           <span class="tool-auth-shield-icon">${SHIELD_SVG}</span>
-          <strong class="tool-auth-title">${tFn('tool_auth_title') || 'Autorización de Ejecución'}</strong>
+          <strong class="tool-auth-title">${t('tool_auth_title')}</strong>
         </div>
-        <p class="tool-auth-desc">${tFn('tool_auth_desc') || 'Esta herramienta MCP requiere tu confirmación antes de interactuar con el sistema:'}</p>
+        <p class="tool-auth-desc">${t('tool_auth_desc')}</p>
       </div>
       <div class="tool-auth-actions">
-        <button type="button" class="btn-auth-action btn-auth-allow-once" title="${esc(tFn('tool_auth_allow_once') || 'Permitir solo esta llamada')}">${CHECK_SVG} <span>${tFn('tool_auth_allow_once') || 'Permitir una vez'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-once" title="${escapeHtml(t('tool_auth_allow_once'))}">${CHECK_SVG} <span>${t('tool_auth_allow_once')}</span></button>
         <div class="tool-auth-more">
           <button type="button" class="btn-auth-action btn-auth-more" title="${morePermissionsTitle}" aria-label="${morePermissionsTitle}" aria-expanded="false">${CHEVRON_SVG} <span class="btn-auth-more-label">${morePermissionsLabel}</span></button>
           <div class="tool-auth-more-menu" role="group" aria-label="${morePermissionsTitle}" hidden>
-            <button type="button" class="btn-auth-action btn-auth-allow-session" title="${esc(tFn('tool_auth_allow_session') || 'Permitir durante toda la sesión activa de chat')}">${CLOCK_SVG} <span>${tFn('tool_auth_allow_session') || 'En esta sesión'}</span></button>
-            <button type="button" class="btn-auth-action btn-auth-allow-always" title="${esc(tFn('tool_auth_allow_always') || 'Permitir siempre esta herramienta')}">${SHIELD_SVG} <span>${tFn('tool_auth_allow_always') || 'Permitir siempre'}</span></button>
+            <button type="button" class="btn-auth-action btn-auth-allow-session" title="${escapeHtml(t('tool_auth_allow_session'))}">${CLOCK_SVG} <span>${t('tool_auth_allow_session')}</span></button>
+            <button type="button" class="btn-auth-action btn-auth-allow-always" title="${escapeHtml(t('tool_auth_allow_always'))}">${SHIELD_SVG} <span>${t('tool_auth_allow_always')}</span></button>
             ${contextualButtonsHtml}
             ${serverButtonHtml}
           </div>
         </div>
-        <button type="button" class="btn-auth-action btn-auth-deny" title="${esc(tFn('tool_auth_deny') || 'Denegar')}">${ERROR_SVG} <span>${tFn('tool_auth_deny') || 'Denegar'}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-deny" title="${escapeHtml(t('tool_auth_deny'))}">${ERROR_SVG} <span>${t('tool_auth_deny')}</span></button>
       </div>
     `;
     keepAuthorizationVisible(cardEl);
@@ -451,17 +449,17 @@
         if (decisionType === 'deny') {
           if (badge) {
             badge.className = 'tool-card-badge status-error';
-            badge.innerHTML = `${ERROR_SVG} <span>${tFn('tool_auth_denied_badge') || 'Denegado'}</span>`;
+            badge.innerHTML = `${ERROR_SVG} <span>${t('tool_auth_denied_badge')}</span>`;
           }
           const resEl = card.querySelector?.('.tool-card-result');
           if (resEl) {
-            resEl.innerHTML = `<div class="tool-auth-denied-notice">${esc(tFn('tool_auth_denied_msg') || 'Ejecución denegada por el usuario.')}</div>`;
+            resEl.innerHTML = `<div class="tool-auth-denied-notice">${escapeHtml(t('tool_auth_denied_msg'))}</div>`;
           }
         } else {
           // Permitido: restaurar badge a ejecutando
           if (badge) {
             badge.className = 'tool-card-badge status-loading';
-            badge.innerHTML = `${SPINNER_SVG} <span>${tFn('tool_badge_executing') || 'Ejecutando...'}</span>`;
+            badge.innerHTML = `${SPINNER_SVG} <span>${t('tool_badge_executing')}</span>`;
           }
         }
 

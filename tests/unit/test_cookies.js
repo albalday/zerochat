@@ -48,10 +48,10 @@ function createMemoryWebStorage(entries) {
 
 test('Storage - el borrado completo solo elimina claves y cookies propias de ZeroChat', async () => {
   assert.equal(Storage.isOwnedStorageKey('zerochat_profiles_v1'), true);
-  assert.equal(Storage.isOwnedStorageKey('zc_tool_security_v3'), true);
+  assert.equal(Storage.isOwnedStorageKey('zc_tool_security_v3'), false);
   assert.equal(Storage.isOwnedStorageKey('otra_app_token'), false);
 
-  const local = createMemoryWebStorage({ zerochat_language: 'es', zc_tool_security_v3: '{}', otra_app_token: 'x' });
+  const local = createMemoryWebStorage({ zerochat_language: 'es', zerochat_tool_security: '{}', otra_app_token: 'x' });
   Storage.removeOwnedStorageKeys(local);
   assert.deepEqual(local.keys(), ['otra_app_token']);
 

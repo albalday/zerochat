@@ -1,17 +1,17 @@
 /** Connects the agent tools with IndexedDB storage and the Orama index. */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./ragStorage.js'), require('./rag-index.js'));
+    module.exports = factory(require('./ragStorage.js'), require('./rag-index.js'), require('./utils.js'));
   } else {
-    root.ChatRagService = factory(root.ChatRagStorage, root.ChatRagIndex);
+    root.ChatRagService = factory(root.ChatRagStorage, root.ChatRagIndex, root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function (RagStorage, RagIndex) {
+})(typeof self !== 'undefined' ? self : this, function (RagStorage, RagIndex, Utils) {
   'use strict';
 
+  const { resolveDep } = Utils;
+
   function getFileParser() {
-    if (typeof window !== 'undefined' && window.ChatFileParser) return window.ChatFileParser;
-    if (typeof require !== 'undefined') { try { return require('./file-parser.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
-    return null;
+    return resolveDep('ChatFileParser', './file-parser.js');
   }
 
   function parseArguments(rawArgs) {

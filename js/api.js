@@ -6,12 +6,14 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatAPI = factory();
+    root.ChatAPI = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
@@ -184,11 +186,7 @@
   }
 
   function getContextManager() {
-    if (typeof window !== 'undefined' && window.ChatContextManager) return window.ChatContextManager;
-    if (typeof require !== 'undefined') {
-      try { return require('./context-manager.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatContextManager', './context-manager.js');
   }
 
   /**

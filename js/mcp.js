@@ -30,7 +30,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { fetchWithTimeout } = Utils;
+  const { fetchWithTimeout, resolveDep } = Utils;
 
   // Shared wire contract with public_tool_name in zerochat.py: keep a-y, A-Z
   // and 0-9, and escape anything else as z<hex code point>z. The lowercase z is
@@ -93,43 +93,23 @@
   }
 
   function getAgentCore() {
-    if (typeof window !== 'undefined' && window.ChatAgentCore) return window.ChatAgentCore;
-    if (typeof require !== 'undefined') {
-      try { return require('./agent-core.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatAgentCore', './agent-core.js');
   }
 
   function getStorage() {
-    if (typeof window !== 'undefined' && window.ChatStorage) return window.ChatStorage;
-    if (typeof require !== 'undefined') {
-      try { return require('./cookies.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatStorage', './cookies.js');
   }
 
   function getState() {
-    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
-    if (typeof require !== 'undefined') {
-      try { return require('./state.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatState', './state.js');
   }
 
   function getCommandCard() {
-    if (typeof window !== 'undefined' && window.ChatCommandCard) return window.ChatCommandCard;
-    if (typeof require !== 'undefined') {
-      try { return require('./command-card.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatCommandCard', './command-card.js');
   }
 
   function getSecurity() {
-    if (typeof window !== 'undefined' && window.ChatToolSecurity) return window.ChatToolSecurity;
-    if (typeof require !== 'undefined') {
-      try { return require('./tool-security.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatToolSecurity', './tool-security.js');
   }
 
   /**
@@ -715,12 +695,7 @@
   }
 
   function getNoOutputText() {
-    let i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
-    if (!i18n && typeof require !== 'undefined') {
-      try { i18n = require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    const value = i18n?.t?.('tool_no_output');
-    return value && value !== 'tool_no_output' ? value : 'No output';
+    return resolveDep('ChatI18n', './i18n.js').t('tool_no_output');
   }
 
   function formatMcpMarkdown(toolName, args, result, outcome, serverName) {
@@ -1198,7 +1173,7 @@
       if (current.status !== 'connected') return { success: false, skipped: true };
       const endpoint = current.endpoint || `http://${current.host || '127.0.0.1'}:${current.port || 6388}/sse`;
       const run = (async () => {
-        State?.set?.('mcp', { ...current, status: 'checking', error: null });
+        State?.set?.('mcp', { status: 'checking', error: null });
         const probe = await probeConnection(endpoint, { timeoutMs, token: this.sessionToken });
         if (!probe.success) {
           await this.markProxyUnavailable(new Error(probe.error), registry);
@@ -1266,9 +1241,7 @@
       const registerResult = await this.connectAndRegisterServer('mcp_proxy', registry);
 
       if (State?.set) {
-        const currentMcp = State.get('mcp') || {};
         State.set('mcp', {
-          ...currentMcp,
           status: registerResult.success ? 'connected' : 'error',
           host, port, endpoint: targetEndpoint,
           serverInfo: probe.serverInfo,
@@ -1461,8 +1434,7 @@
       }
       const State = getState();
       if (State?.set && result.success) {
-        const current = State.get('mcp') || {};
-        State.set('mcp', { ...current, externalTools: result.tools || [] });
+        State.set('mcp', { externalTools: result.tools || [] });
       }
       return result;
     }
@@ -1499,9 +1471,7 @@
       }
 
       if (State?.set) {
-        const current = State.get('mcp') || {};
         State.set('mcp', {
-          ...current,
           externalHost: status?.host || 'running',
           externalServers: status?.servers || [],
           externalTools

@@ -17,16 +17,12 @@
 
   const Sandbox = typeof window !== 'undefined' ? (window.ChatSandbox || {}) : {};
   function getI18n() {
-    if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
-    if (typeof require !== 'undefined') {
-      try { return require('./i18n.js'); } catch (e) { return {}; }
-    }
-    return { t: key => key };
+    return resolveDep('ChatI18n', './i18n.js');
   }
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
-  const { escapeHtml, sanitizeUrl, sanitizeImageUrl } = Utils;
+  const { escapeHtml, sanitizeUrl, sanitizeImageUrl, resolveDep } = Utils;
   // Las URL de imagen se validan sobre texto ya escapado (parseTextMarkdown), así que
   // el valor de sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
 

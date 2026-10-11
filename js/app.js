@@ -635,7 +635,7 @@
   }
 
   function getUITelemetry() {
-    return window.ChatUITelemetry || (typeof require !== 'undefined' ? (() => { try { return require('./ui-telemetry.js'); } catch (e) { return null; } })() : null);
+    return window.ChatUITelemetry;
   }
 
   function updateConnectionTokensBadge(stats, diagnostics, options = {}) {

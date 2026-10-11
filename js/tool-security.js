@@ -18,7 +18,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const STORAGE_KEY = 'zc_tool_security_v3';
+  const STORAGE_KEY = 'tool_security';
   const STORAGE_VERSION = 4;
 
   const GLOBAL_POLICIES = Object.freeze({
@@ -420,16 +420,7 @@
      */
     load() {
       try {
-        const Storage = getStorage();
-        let raw = null;
-        if (typeof localStorage !== 'undefined' && localStorage?.getItem) {
-          try {
-            raw = localStorage.getItem(this.storageKey);
-          } catch (_) { /* almacenamiento bloqueado: se usa la configuración por defecto */ }
-        }
-        if (!raw && Storage?.getStorageItem) {
-          raw = Storage.getStorageItem(this.storageKey);
-        }
+        const raw = getStorage().getStorageItem(this.storageKey);
 
         if (raw) {
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -525,17 +516,7 @@
           updatedAt: Date.now()
         };
 
-        const serialized = JSON.stringify(payload);
-        if (typeof localStorage !== 'undefined' && localStorage?.setItem) {
-          try {
-            localStorage.setItem(this.storageKey, serialized);
-          } catch (error) {
-            console.warn('[ChatToolSecurity] Could not persist the tool security policy:', error);
-          }
-        }
-        if (Storage?.setStorageItem) {
-          Storage.setStorageItem(this.storageKey, serialized);
-        }
+        Storage.setStorageItem(this.storageKey, JSON.stringify(payload));
       } catch (err) {
         console.warn('[ToolSecurity] Error al persistir políticas:', err?.message || err);
       }

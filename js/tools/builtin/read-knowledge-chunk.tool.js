@@ -36,8 +36,8 @@
     const card = getCards().createCardWrapper(ui);
     if (!card) return null;
     const Markdown = ui.markdown;
-    const t = ui?.t || ((key, params) => key);
-    const spinner = ui?.SPINNER_SVG || '';
+    const t = ui.t;
+    const spinner = ui.SPINNER_SVG;
     const title = t('tool_rag_read_title');
     const ids = Array.isArray(args?.chunkIds) && args.chunkIds.length > 0
       ? args.chunkIds
@@ -57,10 +57,10 @@
   }
   function updateLiveCard(card, _args, result = {}, _elapsedMs, ui) {
     if (!card) return;
-    const t = ui?.t || ((key, params) => key);
+    const t = ui.t;
     const Markdown = ui.markdown;
-    const checkSvg = ui?.CHECK_SVG || '';
-    const errorSvg = ui?.ERROR_SVG || '';
+    const checkSvg = ui.CHECK_SVG;
+    const errorSvg = ui.ERROR_SVG;
     const success = result?.success !== false && !result?.error;
     const content = result?.content || result?.error || '';
     const badge = card.querySelector('.tool-card-badge');

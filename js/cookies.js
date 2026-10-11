@@ -181,11 +181,8 @@
 
   // El origen (albalday.github.io) es compartido con otras aplicaciones: el borrado
   // completo solo toca las claves propias de ZeroChat.
-  const OWNED_KEY_PREFIXES = [STORAGE_PREFIX, 'zc_'];
-
   function isOwnedStorageKey(key) {
-    if (typeof key !== 'string') return false;
-    return OWNED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+    return typeof key === 'string' && key.startsWith(STORAGE_PREFIX);
   }
 
   function removeOwnedStorageKeys(storage) {

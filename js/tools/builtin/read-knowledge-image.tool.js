@@ -14,11 +14,11 @@
   function createLiveCard(args, ui) {
     const card = getCards().createCardWrapper(ui);
     if (!card) return null;
-    const t = ui?.t || (key => key);
+    const t = ui.t;
     const md = ui.markdown;
     card.innerHTML = getCards().renderCardHtml({
       titleHtml: `<span>${md.escapeHtml(t('tool_rag_image_title'))}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${ui?.SPINNER_SVG || ''}<span>${md.escapeHtml(t('tool_badge_executing'))}</span></span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${ui.SPINNER_SVG}<span>${md.escapeHtml(t('tool_badge_executing'))}</span></span>`,
       bodyHtml: `<div class="tool-card-result"><code>${md.escapeHtml(args?.imageRef || '')}</code><div class="rag-image-result"></div></div>`
     }, ui);
     return card;
@@ -26,12 +26,12 @@
 
   function updateLiveCard(card, _args, result, elapsedMs, ui) {
     if (!card) return;
-    const t = ui?.t || (key => key);
+    const t = ui.t;
     const success = result?.success !== false && !result?.error;
     const badge = card.querySelector('.tool-card-badge');
     if (badge) {
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = `${success ? ui?.CHECK_SVG || '' : ui?.ERROR_SVG || ''}<span>${ui.markdown.escapeHtml(t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs || 0 }))}</span>`;
+      badge.innerHTML = `${success ? ui.CHECK_SVG : ui.ERROR_SVG}<span>${ui.markdown.escapeHtml(t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs || 0 }))}</span>`;
     }
     const body = card.querySelector('.rag-image-result');
     if (body) body.textContent = success ? result?.documentTitle || result?.imageRef || '' : result?.error || '';

@@ -38,7 +38,6 @@
   };
 
   const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
-  const getUtils = () => typeof window !== 'undefined' && window.ChatUtils || require('../../utils.js');
 
   function clip(value, max) {
     const text = typeof value === 'string' ? value.trim() : '';
@@ -72,8 +71,8 @@
    * (la última del historial, sin generación en curso).
    */
   function renderCard(args, ui, error = '') {
-    const escapeHtml = ui?.markdown?.escapeHtml || getUtils().escapeHtml;
-    const t = ui?.t || (key => key);
+    const escapeHtml = ui.markdown.escapeHtml;
+    const t = ui.t;
     const normalized = normalizeArgs(args);
     const question = normalized.question || clip(args?.question, MAX_QUESTION_LENGTH);
     const options = normalized.options || [];

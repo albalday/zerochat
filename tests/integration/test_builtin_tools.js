@@ -301,17 +301,17 @@ test('Builtin Tools - ask_user valida opciones, cede el turno y escapa el conten
   const card = AskUserTool.view.createLiveCard({
     question: '<img src=x onerror=alert(1)>?',
     options: [{ label: '"><script>bad()</script>', description: '<b>x</b>' }, { label: 'Normal' }]
-  }, { document: fakeDoc, t: key => key });
+  }, { document: fakeDoc, t: key => key, markdown: require('../../js/markdown.js') });
   assert.equal(card.className, 'tool-card-wrapper', 'Usa el contenedor común de ChatToolCards');
-  assert.equal(AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { createCardWrapper: () => ({ className: 'from-ui', innerHTML: '' }) }).className, 'from-ui');
+  assert.equal(AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { createCardWrapper: () => ({ className: 'from-ui', innerHTML: '' }), t: key => key, markdown: require('../../js/markdown.js') }).className, 'from-ui');
   assert.equal(card.innerHTML.includes('<script>'), false);
   assert.equal(card.innerHTML.includes('<img src=x'), false);
   assert.equal(card.innerHTML.includes('<b>x</b>'), false);
   assert.match(card.innerHTML, /data-ask-option="&quot;&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;"/);
   assert.equal((card.innerHTML.match(/ disabled>/g) || []).length, 2, 'Las opciones se pintan desactivadas hasta que la aplicación las habilita');
 
-  const invalid = AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { document: fakeDoc, t: key => key });
-  AskUserTool.view.updateLiveCard(invalid, { question: '¿?', options: [] }, { success: false, error: 'options must contain 2 to 4' }, 0, { t: key => key });
+  const invalid = AskUserTool.view.createLiveCard({ question: '¿?', options: [] }, { document: fakeDoc, t: key => key, markdown: require('../../js/markdown.js') });
+  AskUserTool.view.updateLiveCard(invalid, { question: '¿?', options: [] }, { success: false, error: 'options must contain 2 to 4' }, 0, { t: key => key, markdown: require('../../js/markdown.js') });
   assert.match(invalid.innerHTML, /ask-user-error[\s\S]*options must contain 2 to 4/);
 });
 

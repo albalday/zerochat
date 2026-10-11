@@ -184,7 +184,7 @@
         const optAsk = escapeHtml(translator('mcp_security_badge_ask'));
         let optAllowed = escapeHtml(translator('mcp_security_badge_allowed'));
         if (hasConstraints && effectivePolicy === 'allow') {
-          optAllowed += ` (${escapeHtml(translator('mcp_security_constrained') || 'Acotada')})`;
+          optAllowed += ` (${escapeHtml(translator('mcp_security_constrained'))})`;
         }
         const optDenied = escapeHtml(translator('tool_auth_denied_badge'));
         const statusClass = effectivePolicy === 'allow' ? 'status-allowed' : (effectivePolicy === 'deny' ? 'status-denied' : 'status-ask');
@@ -656,8 +656,8 @@
       const sName = escapeHtml(item.serverName || item.serverId);
       const isAllowed = item.policy === 'allow';
       const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
-      const badgeText = `${escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'))} (${escapeHtml(translator('mcp_security_badge_server') || 'Servidor')})`;
-      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session') || 'Sesión')}</span>` : '';
+      const badgeText = `${escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'))} (${escapeHtml(translator('mcp_security_badge_server'))})`;
+      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session'))}</span>` : '';
 
       return `
         <div class="mcp-auth-item" data-server-id="${serverId}">
@@ -679,7 +679,7 @@
       const isAllowed = item.policy === 'allow';
       const badgeClass = isAllowed ? 'status-allowed' : 'status-denied';
       let badgeText = escapeHtml(isAllowed ? translator('mcp_security_badge_allowed') : translator('tool_auth_denied_badge'));
-      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session') || 'Sesión')}</span>` : '';
+      const scopeBadge = item.scope === 'session' ? `<span class="mcp-auth-scope-badge">${escapeHtml(translator('mcp_security_scope_session'))}</span>` : '';
 
       let constraintTag = '';
       if (item.constraints) {
@@ -696,7 +696,7 @@
           parts.push(item.constraints.path.allowedDirectories.join(', '));
         }
         if (parts.length > 0) {
-          badgeText += ` (${escapeHtml(translator('mcp_security_constrained') || 'Acotada')})`;
+          badgeText += ` (${escapeHtml(translator('mcp_security_constrained'))})`;
           constraintTag = `<span class="mcp-auth-constraint-tag" title="${escapeHtml(parts.join(' | '))}">${escapeHtml(parts.join(' | '))}</span>`;
         }
       }

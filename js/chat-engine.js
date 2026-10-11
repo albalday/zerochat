@@ -17,36 +17,27 @@
   'use strict';
 
   function getAPI() {
-    return (typeof window !== 'undefined' && window.ChatAPI)
-      ? window.ChatAPI
-      : (typeof require !== 'undefined' ? (() => { try { return require('./api.js'); } catch (e) { return {}; } })() : {});
+    return resolveDep('ChatAPI', './api.js');
   }
 
   function getProjectContext() {
-    return (typeof window !== 'undefined' && window.ChatProjectContext)
-      || (typeof require !== 'undefined' ? require('./project-context.js') : null);
+    return resolveDep('ChatProjectContext', './project-context.js');
   }
 
   function getAgentCore() {
-    return (typeof window !== 'undefined' && window.ChatAgentCore)
-      ? window.ChatAgentCore
-      : (typeof require !== 'undefined' ? (() => { try { return require('./agent-core.js'); } catch (e) { return {}; } })() : {});
+    return resolveDep('ChatAgentCore', './agent-core.js');
   }
 
   function getMarkdown() {
-    return (typeof window !== 'undefined' && window.ChatMarkdown)
-      ? window.ChatMarkdown
-      : (typeof require !== 'undefined' ? (() => { try { return require('./markdown.js'); } catch (e) { return {}; } })() : {});
+    return resolveDep('ChatMarkdown', './markdown.js');
   }
 
   function getContextManager() {
-    return (typeof window !== 'undefined' && window.ChatContextManager)
-      ? window.ChatContextManager
-      : (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return {}; } })() : {});
+    return resolveDep('ChatContextManager', './context-manager.js');
   }
 
 
-  const { serializeContent } = Utils;
+  const { serializeContent, resolveDep } = Utils;
 
   /** Genera una referencia de fecha inicial, sin hora y coherente con la zona local (siempre en inglés para el modelo). */
   function getConversationDateAnchor(lang = 'en', startedAt = Date.now()) {
@@ -94,8 +85,7 @@
   }
 
   function getUIConversation() {
-    if (typeof window !== 'undefined' && window.ChatUIConversation) return window.ChatUIConversation;
-    return typeof require !== 'undefined' ? require('./ui-conversation.js') : null;
+    return resolveDep('ChatUIConversation', './ui-conversation.js');
   }
 
   /**

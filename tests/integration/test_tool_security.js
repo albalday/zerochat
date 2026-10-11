@@ -162,30 +162,17 @@ test('ChatToolSecurity - Revocación y reseteo de permisos guardados', () => {
 });
 
 test('ChatToolSecurity - Persistencia y recarga entre instancias', () => {
-  const mockStorage = {};
-  const previousLocalStorage = global.localStorage;
-  global.localStorage = {
-    getItem: (k) => mockStorage[k] || null,
-    setItem: (k, v) => { mockStorage[k] = String(v); },
-    removeItem: (k) => { delete mockStorage[k]; }
-  };
+  const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
+  manager1.setGlobalMcpPolicy('allow_all');
+  manager1.setToolPolicy('saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
+  manager1.setDirectoryRules(['RW:./workspace/**']);
 
-  try {
-    const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
-    manager1.setGlobalMcpPolicy('allow_all');
-    manager1.setToolPolicy('saved_tool', 'allow', { serverName: 'mcp-proxy', originalName: 'saved_tool' });
-    manager1.setDirectoryRules(['RW:./workspace/**']);
-
-    // Segunda instancia leyendo la misma clave
-    const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
-    assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
-    assert.equal(manager2.getToolPolicy('saved_tool'), 'allow');
-    assert.equal(manager2.listAuthorizedTools().length, 1);
-    assert.deepEqual(manager2.getDirectoryRules(), ['RW:workspace/**']);
-  } finally {
-    if (previousLocalStorage === undefined) delete global.localStorage;
-    else global.localStorage = previousLocalStorage;
-  }
+  // Segunda instancia leyendo la misma clave
+  const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist' });
+  assert.equal(manager2.getGlobalMcpPolicy(), 'allow_all');
+  assert.equal(manager2.getToolPolicy('saved_tool'), 'allow');
+  assert.equal(manager2.listAuthorizedTools().length, 1);
+  assert.deepEqual(manager2.getDirectoryRules(), ['RW:workspace/**']);
 });
 
 test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y patrones denegados', () => {
@@ -356,39 +343,26 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
 });
 
 test('ChatToolSecurity - Permisos recordados en herramientas integradas de archivo sobreviven recarga', () => {
-  const mockStorage = {};
-  const previousLocalStorage = global.localStorage;
-  global.localStorage = {
-    getItem: (k) => mockStorage[k] || null,
-    setItem: (k, v) => { mockStorage[k] = String(v); },
-    removeItem: (k) => { delete mockStorage[k]; }
-  };
+  const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+  const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
 
-  try {
-    const manager1 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
-    const readFileTool = { id: 'read_file', name: 'read_file', category: 'mcp' };
+  // 1. Sin permisos específicos ni coincidencia de directorio externo, pide autorización
+  const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
+  assert.equal(evalBefore.requiresApproval, true);
+  assert.equal(evalBefore.status, 'ask');
 
-    // 1. Sin permisos específicos ni coincidencia de directorio externo, pide autorización
-    const evalBefore = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
-    assert.equal(evalBefore.requiresApproval, true);
-    assert.equal(evalBefore.status, 'ask');
+  // 2. El usuario autoriza permanentemente la herramienta (allow)
+  manager1.setToolPolicy('read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
+  const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
+  assert.equal(evalAfterAllow.requiresApproval, false);
+  assert.equal(evalAfterAllow.status, 'allow');
 
-    // 2. El usuario autoriza permanentemente la herramienta (allow)
-    manager1.setToolPolicy('read_file', 'allow', { serverName: 'mcp-proxy', originalName: 'read_file' });
-    const evalAfterAllow = manager1.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
-    assert.equal(evalAfterAllow.requiresApproval, false);
-    assert.equal(evalAfterAllow.status, 'allow');
-
-    // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
-    const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
-    assert.equal(manager2.getToolPolicy('read_file'), 'allow');
-    const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
-    assert.equal(evalReloaded.requiresApproval, false);
-    assert.equal(evalReloaded.status, 'allow');
-  } finally {
-    if (previousLocalStorage === undefined) delete global.localStorage;
-    else global.localStorage = previousLocalStorage;
-  }
+  // 3. Nueva instancia tras recarga (F5) con el mismo almacenamiento
+  const manager2 = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_persist_files' });
+  assert.equal(manager2.getToolPolicy('read_file'), 'allow');
+  const evalReloaded = manager2.evaluateAuthorization(readFileTool, { path: '/var/data/main.js' });
+  assert.equal(evalReloaded.requiresApproval, false);
+  assert.equal(evalReloaded.status, 'allow');
 });
 
 test('ChatToolSecurity - F1: Una regla de directorio no omite restricciones de prefijo en comandos', () => {
@@ -447,53 +421,38 @@ test('ChatToolSecurity - list_directory sin path normaliza a "." y aplica reglas
 });
 
 test('ChatToolSecurity - Sesión acotada por token y preservación de autorizaciones permanentes', () => {
-  const mockStorage = {};
-  const previousLocalStorage = global.localStorage;
-  global.localStorage = {
-    getItem: (k) => mockStorage[k] || null,
-    setItem: (k, v) => { mockStorage[k] = String(v); },
-    removeItem: (k) => { delete mockStorage[k]; },
-    get length() { return Object.keys(mockStorage).length; },
-    key: (i) => Object.keys(mockStorage)[i] || null
-  };
+  const manager = new ChatToolSecurity.ToolSecurityManager({
+    storageKey: 'test_sec_v3_session_test',
+    sessionToken: 'token_active_123'
+  });
 
-  try {
-    const manager = new ChatToolSecurity.ToolSecurityManager({
-      storageKey: 'test_sec_v3_session_test',
-      sessionToken: 'token_active_123'
-    });
+  // 1. Guardar una regla permanente y otra de sesión
+  manager.setToolPolicy('perm_tool', 'allow', { scope: 'permanent' });
+  manager.setToolPolicy('session_tool', 'allow', { scope: 'session' });
+  manager.setServerPolicy('server_session', 'allow', { scope: 'session' });
+  manager.setServerPolicy('server_perm', 'allow', { scope: 'permanent' });
 
-    // 1. Guardar una regla permanente y otra de sesión
-    manager.setToolPolicy('perm_tool', 'allow', { scope: 'permanent' });
-    manager.setToolPolicy('session_tool', 'allow', { scope: 'session' });
-    manager.setServerPolicy('server_session', 'allow', { scope: 'session' });
-    manager.setServerPolicy('server_perm', 'allow', { scope: 'permanent' });
+  assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
+  assert.equal(manager.getToolPolicy('session_tool'), 'allow');
+  assert.equal(manager.getServerPolicy('server_session'), 'allow');
+  assert.equal(manager.getServerPolicy('server_perm'), 'allow');
 
-    assert.equal(manager.getToolPolicy('perm_tool'), 'allow');
-    assert.equal(manager.getToolPolicy('session_tool'), 'allow');
-    assert.equal(manager.getServerPolicy('server_session'), 'allow');
-    assert.equal(manager.getServerPolicy('server_perm'), 'allow');
+  // 2. Si cambia el token de sesión, expiran las de sesión pero se preservan las permanentes
+  manager.setSessionToken('token_new_456');
 
-    // 2. Si cambia el token de sesión, expiran las de sesión pero se preservan las permanentes
-    manager.setSessionToken('token_new_456');
+  assert.equal(manager.getToolPolicy('session_tool'), null, 'La autorización de sesión expira');
+  assert.equal(manager.getServerPolicy('server_session'), null, 'El servidor de sesión expira');
+  assert.equal(manager.getToolPolicy('perm_tool'), 'allow', 'La autorización permanente se conserva');
+  assert.equal(manager.getServerPolicy('server_perm'), 'allow', 'El servidor permanente se conserva');
 
-    assert.equal(manager.getToolPolicy('session_tool'), null, 'La autorización de sesión expira');
-    assert.equal(manager.getServerPolicy('server_session'), null, 'El servidor de sesión expira');
-    assert.equal(manager.getToolPolicy('perm_tool'), 'allow', 'La autorización permanente se conserva');
-    assert.equal(manager.getServerPolicy('server_perm'), 'allow', 'El servidor permanente se conserva');
-
-    // 3. Crear una nueva instancia con el mismo storageKey: carga las permanentes del almacenamiento
-    const manager2 = new ChatToolSecurity.ToolSecurityManager({
-      storageKey: 'test_sec_v3_session_test',
-      sessionToken: 'token_fresh_789'
-    });
-    assert.equal(manager2.getToolPolicy('perm_tool'), 'allow');
-    assert.equal(manager2.getServerPolicy('server_perm'), 'allow');
-    assert.equal(manager2.getToolPolicy('session_tool'), null);
-  } finally {
-    if (previousLocalStorage === undefined) delete global.localStorage;
-    else global.localStorage = previousLocalStorage;
-  }
+  // 3. Crear una nueva instancia con el mismo storageKey: carga las permanentes del almacenamiento
+  const manager2 = new ChatToolSecurity.ToolSecurityManager({
+    storageKey: 'test_sec_v3_session_test',
+    sessionToken: 'token_fresh_789'
+  });
+  assert.equal(manager2.getToolPolicy('perm_tool'), 'allow');
+  assert.equal(manager2.getServerPolicy('server_perm'), 'allow');
+  assert.equal(manager2.getToolPolicy('session_tool'), null);
 });
 
 test('ChatToolSecurity - check_command no pide confirmación salvo denegación expresa', () => {
@@ -757,9 +716,9 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
 });
 
 test('ChatToolSecurity - T02: una política guardada con otra versión se descarta entera', () => {
-  const storageKey = 'test_sec_t02_migration';
-  const previousLocalStorage = global.localStorage;
-  const store = new Map([[storageKey, JSON.stringify({
+  const Storage = require('../../js/cookies.js');
+  const storageKey = 'test_sec_t02_version';
+  Storage.setStorageItem(storageKey, JSON.stringify({
     version: 3,
     globalMcpPolicy: 'ask',
     tools: {
@@ -771,12 +730,7 @@ test('ChatToolSecurity - T02: una política guardada con otra versión se descar
     },
     servers: {},
     directoryRules: ['R:/home/user/proj']
-  })]]);
-  global.localStorage = {
-    getItem: key => (store.has(key) ? store.get(key) : null),
-    setItem: (key, value) => store.set(key, String(value)),
-    removeItem: key => store.delete(key)
-  };
+  }));
 
   try {
     const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
@@ -789,12 +743,11 @@ test('ChatToolSecurity - T02: una política guardada con otra versión se descar
     manager.setToolPolicy('run_command', 'allow', {
       constraints: { command: { allowedPrefixes: ['git'], allowChaining: false, allowPipes: true } }
     });
-    assert.equal(JSON.parse(store.get(storageKey)).version, 4);
+    assert.equal(JSON.parse(Storage.getStorageItem(storageKey)).version, 4);
     const reloaded = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
     assert.equal(reloaded.getToolConstraints('run_command').command.allowPipes, true);
   } finally {
-    if (previousLocalStorage === undefined) delete global.localStorage;
-    else global.localStorage = previousLocalStorage;
+    Storage.deleteStorageItem(storageKey);
   }
 });
 

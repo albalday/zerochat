@@ -1,21 +1,20 @@
 /** Deterministic, local document ingestion for the ZeroChat knowledge base. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatIngestionEngine = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
+  else root.ChatIngestionEngine = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
+  const { resolveDep } = Utils;
+
   function getRagStorage() {
-    if (typeof window !== 'undefined') return window.ChatRagStorage;
-    try { return require('./ragStorage.js'); } catch (_) { return null; }
+    return resolveDep('ChatRagStorage', './ragStorage.js');
   }
   function getRagIndex() {
-    if (typeof window !== 'undefined') return window.ChatRagIndex;
-    try { return require('./rag-index.js'); } catch (_) { return null; }
+    return resolveDep('ChatRagIndex', './rag-index.js');
   }
   function getFileParser() {
-    if (typeof window !== 'undefined') return window.ChatFileParser;
-    try { return require('./file-parser.js'); } catch (_) { return null; }
+    return resolveDep('ChatFileParser', './file-parser.js');
   }
 
   function normalizeExtractedText(rawText) {

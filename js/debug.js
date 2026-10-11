@@ -5,12 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatDebug = factory();
+    root.ChatDebug = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   function getMarkdown() {
     return (typeof window !== 'undefined' && window.ChatMarkdown) ? window.ChatMarkdown : {
@@ -19,11 +21,11 @@
   }
 
   function getIcons() {
-    return (typeof window !== 'undefined' && window.ChatIcons) || require('./icons.js');
+    return resolveDep('ChatIcons', './icons.js');
   }
 
   function getConversationUI() {
-    return (typeof window !== 'undefined' && window.ChatUIConversation) || require('./ui-conversation.js');
+    return resolveDep('ChatUIConversation', './ui-conversation.js');
   }
 
   // Sigue el final del log salvo que el usuario haya subido; force vuelve a engancharlo.

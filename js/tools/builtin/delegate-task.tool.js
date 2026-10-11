@@ -269,14 +269,14 @@
   function createLiveCard(args, ui) {
     const card = getCards().createCardWrapper(ui);
     if (!card) return null;
-    const t = ui?.t || (key => key);
-    const escapeHtml = ui?.markdown?.escapeHtml || getUtils().escapeHtml;
+    const t = ui.t;
+    const escapeHtml = ui.markdown.escapeHtml;
     const task = clip(typeof args?.task === 'string' ? args.task.trim() : '', TASK_PREVIEW_LENGTH);
     card.innerHTML = getCards().renderCardHtml({
       className: 'subagent-card',
       titleHtml: `<span>${BOT_ICON_SVG}</span><span>${escapeHtml(t('tool_delegate_title'))}</span>`,
       titleSuffixHtml: '<span class="tool-card-tag subagent-model" hidden></span>',
-      badgeHtml: `<span class="tool-card-badge status-loading">${ui?.SPINNER_SVG || ''} <span>${escapeHtml(t('tool_delegate_step', { step: 1 }))}</span></span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${ui.SPINNER_SVG} <span>${escapeHtml(t('tool_delegate_step', { step: 1 }))}</span></span>`,
       bodyHtml: `<div class="tool-card-result subagent-body">
         <div class="tool-result-label">${escapeHtml(t('tool_delegate_task_label'))}</div>
         <div class="subagent-task">${escapeHtml(task)}</div>
@@ -289,8 +289,8 @@
 
   function updateLiveCard(card, _args, result = {}, elapsedMs = 0, ui) {
     if (!card) return;
-    const t = ui?.t || (key => key);
-    const escapeHtml = ui?.markdown?.escapeHtml || getUtils().escapeHtml;
+    const t = ui.t;
+    const escapeHtml = ui.markdown.escapeHtml;
     const success = result?.success !== false && !result?.error;
     const badge = card.querySelector('.tool-card-badge');
     if (badge) {
@@ -300,12 +300,12 @@
           ? t('tool_delegate_done', { steps: result.steps, seconds: ((elapsedMs || 0) / 1000).toFixed(1) })
           : t('tool_status_success'));
       badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = `${success ? (ui?.CHECK_SVG || '') : (ui?.ERROR_SVG || '')} <span>${escapeHtml(label)}</span>`;
+      badge.innerHTML = `${success ? (ui.CHECK_SVG) : (ui.ERROR_SVG)} <span>${escapeHtml(label)}</span>`;
     }
     const report = card.querySelector('.subagent-report');
     if (!report) return;
     const body = success
-      ? renderMarkdown(String(result?.report || ''), ui?.markdown)
+      ? renderMarkdown(String(result?.report || ''), ui.markdown)
       : `<div class="subagent-error">${escapeHtml(String(result?.error || ''))}</div>`;
     report.innerHTML = `<div class="tool-result-label">${escapeHtml(t('tool_delegate_report_label'))}</div>${body}`;
     report.hidden = false;

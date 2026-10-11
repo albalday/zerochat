@@ -42,18 +42,10 @@
   const DEFAULT_TIMEOUT_MS = 12000;
 
   function getFileParser() {
-    if (typeof window !== 'undefined' && window.ChatFileParser) {
-      return window.ChatFileParser;
-    }
-    if (typeof require !== 'undefined') {
-      try {
-        return require('./file-parser.js');
-      } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    return resolveDep('ChatFileParser', './file-parser.js');
   }
 
-  const { fetchWithTimeout } = Utils;
+  const { fetchWithTimeout, resolveDep } = Utils;
 
   /**
    * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.

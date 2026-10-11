@@ -40,8 +40,8 @@
     const card = getCards().createCardWrapper(ui);
     if (!card) return null;
     const Markdown = ui.markdown;
-    const t = ui?.t || ((key, params) => key);
-    const spinner = ui?.SPINNER_SVG || '';
+    const t = ui.t;
+    const spinner = ui.SPINNER_SVG;
     const query = args?.query || args?.q || args?.search || '';
     const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) });
     const loading = t('tool_rag_search_loading');
@@ -57,10 +57,10 @@
 
   function updateLiveCard(card, _args, result = {}, elapsedMs = 0, ui) {
     if (!card) return;
-    const t = ui?.t || ((key, params) => key);
+    const t = ui.t;
     const Markdown = ui.markdown;
-    const checkSvg = ui?.CHECK_SVG || '';
-    const errorSvg = ui?.ERROR_SVG || '';
+    const checkSvg = ui.CHECK_SVG;
+    const errorSvg = ui.ERROR_SVG;
     const success = result?.success !== false && !result?.error;
     const count = result?.matchesCount ?? 0;
     const text = result?.text || (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result || ''));
@@ -72,7 +72,7 @@
       badge.innerHTML = success ? `${checkSvg} <span>${matchesLabel} (${elapsedMs || 0}ms)</span>` : `${errorSvg} <span>${Markdown.escapeHtml(errorLabel)}</span>`;
     }
     const body = card.querySelector('.tool-card-result');
-    if (body) body.innerHTML = `<pre class="tool-result-pre"><code>${Markdown.escapeHtml(text.slice(0, 3000))}${text.length > 3000 ? '\n... (texto completo truncado en tarjeta)' : ''}</code></pre>`;
+    if (body) body.innerHTML = `<pre class="tool-result-pre"><code>${Markdown.escapeHtml(text.slice(0, 3000))}${text.length > 3000 ? `\n${Markdown.escapeHtml(t('tool_card_truncated'))}` : ''}</code></pre>`;
   }
   function renderHistoricalCard(args, message, ui) { const card = createLiveCard(args, ui); if (!card) return null; let result = {}; if (message?.content) { try { result = JSON.parse(message.content); } catch (e) { result = { text: message.content }; } } updateLiveCard(card, args, result, 0, ui); return card; }
 
