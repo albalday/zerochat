@@ -1025,9 +1025,6 @@
         let raw = null;
         if (Storage && Storage.getStorageItem) {
           raw = Storage.getStorageItem(this.storageKey);
-          if (raw === null && typeof Storage.migrateLegacyStorageItem === 'function') {
-            raw = Storage.migrateLegacyStorageItem(this.storageKey);
-          }
         }
 
         if (raw) {

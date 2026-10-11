@@ -133,7 +133,7 @@
         if (!tid) return;
         const Config = getConfig();
         if (Config) {
-          const curr = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
+          const curr = Config.getActive()?.enabledTools || {};
           (Config.updateRuntime || Config.update)?.call(Config, { enabledTools: { ...curr, [tid]: cb.checked } });
         }
       });

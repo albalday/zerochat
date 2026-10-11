@@ -852,8 +852,7 @@
       const reasoningSupported = adapterCaps.reasoning !== false;
       const isReasoningModel = /(?:-r1|r1|qwq|o1|o3|reasoning|thinking|gemma-4|deepseek)/i.test(model);
       const configuredEffort = String(source?.reasoningEffort || runtimeConfig?.reasoningEffort || 'medium').toLowerCase();
-      const rawLevels = adapter?.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
-      const levels = rawLevels.filter(l => l !== 'off');
+      const levels = adapter?.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
 
       let reasoningSummary = '';
       if (adapter?.id === 'webllm' || (!reasoningSupported && !isReasoningModel)) {

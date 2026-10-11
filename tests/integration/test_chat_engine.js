@@ -86,10 +86,6 @@ test('ChatEngine - getConversationDateAnchor genera el ancla con fecha y zona ho
 
 test('ChatEngine - getToolsSystemPromptGuide genera la lista de herramientas activas', (t) => {
   const guideEs = ChatEngine.getToolsSystemPromptGuide({
-    enableAgentWeb: true,
-    enableAgentJs: true,
-    enableAgentSearch: true,
-    enableAgentChart: true
   }, 'es');
 
   assert.ok(guideEs.includes('AVAILABLE TOOLS AND FUNCTIONS'));
@@ -97,20 +93,6 @@ test('ChatEngine - getToolsSystemPromptGuide genera la lista de herramientas act
   assert.ok(guideEs.includes('search_web'));
   assert.ok(guideEs.includes('execute_javascript'));
   assert.ok(guideEs.includes('render_chart'));
-});
-
-test('ChatEngine - injectStreamingCursor inserta el cursor antes de cerrar etiquetas', (t) => {
-  const htmlWithTag = '<p>Hola mundo</p>';
-  const res = ChatEngine.injectStreamingCursor(htmlWithTag);
-  assert.equal(res, '<p>Hola mundo<span class="streaming-cursor"></span></p>');
-
-  const plainText = 'Texto sin etiquetas';
-  const resPlain = ChatEngine.injectStreamingCursor(plainText);
-  assert.equal(resPlain, 'Texto sin etiquetas<span class="streaming-cursor"></span>');
-
-  const empty = '';
-  const resEmpty = ChatEngine.injectStreamingCursor(empty);
-  assert.equal(resEmpty, '<span class="streaming-cursor"></span>');
 });
 
 test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes', (t) => {
@@ -122,8 +104,7 @@ test('ChatEngine - buildEffectiveMessages inyecta fecha, RAG y formatea mensajes
     systemPrompt: 'Eres un asistente experto.',
     systemDataPrompt: '[Format: Always use standard Markdown and plain text.]',
     language: 'es',
-    activeRagBranchId: 'branch_123',
-    enableAgentJs: true
+    activeRagBranchId: 'branch_123'
   };
 
   const options = {
@@ -251,8 +232,7 @@ test('ChatEngine - executeAgentTurnLoop ejecuta llamadas a herramientas y genera
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
     model: 'test-model',
-    language: 'es',
-    enableAgentJs: true
+    language: 'es'
   };
 
   const res = await ChatEngine.executeAgentTurnLoop({
@@ -374,8 +354,7 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
   const appConfig = {
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
-    model: 'test-model',
-    enableAgentJs: true
+    model: 'test-model'
   };
 
   let errorLogs = [];
@@ -713,7 +692,6 @@ test('ChatEngine - executeAgentTurnLoop no limita los turnos ni pide una síntes
     apiUrl: 'http://localhost:1234/v1',
     apiType: 'openai',
     model: 'test-model',
-    enableAgentJs: true,
     language: 'es'
   };
 

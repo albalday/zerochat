@@ -138,14 +138,4 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
   }
 });
 
-test('Web Tools - Esquemas de herramientas válidos para Function Calling', () => {
-  assert.equal(WebSearch.SEARCH_TOOL_DEFINITION.function.name, 'search_web');
-  assert.ok(WebSearch.SEARCH_TOOL_DEFINITION.function.parameters.required.includes('query'));
-
-  assert.equal(WebBrowser.WEB_TOOL_DEFINITION.function.name, 'fetch_web_page');
-  assert.ok(WebBrowser.WEB_TOOL_DEFINITION.function.parameters.required.includes('url'));
-
-  assert.equal(WebBrowser.PDF_TOOL_DEFINITION.function.name, 'download_pdf');
-  assert.ok(WebBrowser.PDF_TOOL_DEFINITION.function.parameters.required.includes('url'));
-});
 

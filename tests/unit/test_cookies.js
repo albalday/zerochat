@@ -21,13 +21,6 @@ test('Storage - persiste exclusivamente el documento de configuración operativa
   assert.equal(Storage.loadRuntimeConfigV2().enabledTools.search_web, false);
 });
 
-test('Storage - alias heredados conservan compatibilidad hacia atrás', () => {
-  Storage.setCookie('legacy_key', 'legacy_val');
-  assert.equal(Storage.getCookie('legacy_key'), 'legacy_val');
-  Storage.deleteCookie('legacy_key');
-  assert.equal(Storage.getCookie('legacy_key'), null);
-});
-
 test('Storage - valida el contrato restrictivo de la sesión del backend local', () => {
   assert.deepEqual(
     Storage.normalizeBackendSession({ token: 'token_seguro-123', host: 'LOCALHOST', port: '6388' }),
@@ -56,10 +49,9 @@ function createMemoryWebStorage(entries) {
 test('Storage - el borrado completo solo elimina claves y cookies propias de ZeroChat', async () => {
   assert.equal(Storage.isOwnedStorageKey('zerochat_profiles_v1'), true);
   assert.equal(Storage.isOwnedStorageKey('zc_tool_security_v3'), true);
-  assert.equal(Storage.isOwnedStorageKey('chat_mcp_servers'), true);
   assert.equal(Storage.isOwnedStorageKey('otra_app_token'), false);
 
-  const local = createMemoryWebStorage({ zerochat_language: 'es', zc_tool_security_v3: '{}', chat_mcp_servers: '[]', otra_app_token: 'x' });
+  const local = createMemoryWebStorage({ zerochat_language: 'es', zc_tool_security_v3: '{}', otra_app_token: 'x' });
   Storage.removeOwnedStorageKeys(local);
   assert.deepEqual(local.keys(), ['otra_app_token']);
 

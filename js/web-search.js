@@ -444,7 +444,7 @@
    */
   /* ... */
   /**
-   * Función de búsqueda web compatible con la interfaz histórica de ZeroChat.
+   * Busca con el proveedor predeterminado del registro.
    */
   async function search(query, lang = 'es', options = {}) {
     return registry.search(query, { lang, ...options });
@@ -452,30 +452,8 @@
 
   const registry = new SearchProviderRegistry();
 
-  /**
-   * Definición estándar de herramienta (Tool/Function Calling) para OpenAI y LLMs compatibles.
-   */
-  const SEARCH_TOOL_DEFINITION = {
-    type: 'function',
-    function: {
-      name: 'search_web',
-      description: 'Busca en internet en tiempo real información actualizada, noticias, artículos y enlaces web utilizando DuckDuckGo.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Términos o consulta de búsqueda en DuckDuckGo (ej: "INE poblacion Ceuta padron", "DeepSeek R1").'
-          }
-        },
-        required: ['query']
-      }
-    }
-  };
-
   return {
     search,
-    SEARCH_TOOL_DEFINITION,
     BaseSearchProvider,
     DuckDuckGoSearchProvider,
     SearXNGSearchProvider,

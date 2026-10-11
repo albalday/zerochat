@@ -23,7 +23,7 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
   assert.equal(registry.getTool('renderchart').name, 'render_chart');
 
   // Comprobar generación de esquemas Function Calling
-  const defs = registry.getDefinitions();
+  const defs = registry.getActiveDefinitions();
   assert.ok(defs.length >= 5);
   const jsDef = defs.find(d => d.function.name === 'execute_javascript');
   assert.ok(jsDef);

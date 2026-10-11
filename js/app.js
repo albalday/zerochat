@@ -65,14 +65,6 @@
     return Config.getActive();
   }
 
-  // Transitional read-through facade for legacy helpers inside this module.
-  // It owns no data: every read is resolved from the canonical runtime store.
-  const appConfig = new Proxy({}, {
-    get: (_target, key) => getRuntimeConfig()[key],
-    ownKeys: () => Reflect.ownKeys(getRuntimeConfig()),
-    getOwnPropertyDescriptor: (_target, key) => ({ enumerable: true, configurable: true, value: getRuntimeConfig()[key] })
-  });
-
   function getChatHistory() {
     return State.get ? (State.get('messages') || []) : [];
   }
@@ -293,13 +285,13 @@
 
   function applyTheme(theme) {
     if (UISettings.applyTheme) {
-      UISettings.applyTheme(elements, appConfig, theme);
+      UISettings.applyTheme(elements, getRuntimeConfig(), theme);
     }
   }
 
   function applyLanguage(lang) {
     if (UISettings.applyLanguage) {
-      UISettings.applyLanguage(elements, appConfig, lang, { updateReasoningUI });
+      UISettings.applyLanguage(elements, getRuntimeConfig(), lang, { updateReasoningUI });
     }
   }
 
@@ -307,7 +299,7 @@
     return {
       storage: Storage,
       getRuntimeConfig,
-      language: appConfig.language || 'es',
+      language: getRuntimeConfig().language || 'es',
       getConfiguredSystemPrompt: (cfg) => Engine.getConfiguredSystemPrompt(cfg),
       getChatHistory,
       getCurrentSessionId,
@@ -346,8 +338,8 @@
 
   function loadCachedModels(targetConfig) {
     const config = targetConfig || {
-      apiUrl: elements.settingApiUrl?.value || appConfig?.apiUrl,
-      apiType: elements.settingApiType?.value || appConfig?.apiType
+      apiUrl: elements.settingApiUrl?.value || getRuntimeConfig().apiUrl,
+      apiType: elements.settingApiType?.value || getRuntimeConfig().apiType
     };
     const models = UIInspector.loadCachedModels(elements, config);
     syncPublishedModelContextLimit();
@@ -373,7 +365,7 @@
   }
 
   async function handleQueryServer() {
-    const querySucceeded = await UIInspector.handleQueryServer(elements, appConfig);
+    const querySucceeded = await UIInspector.handleQueryServer(elements, getRuntimeConfig());
     if (querySucceeded) UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
     return querySucceeded;
   }
@@ -384,7 +376,7 @@
 
   async function handleRunInspector(profile = null) {
     if (UIInspector.handleRunInspector) {
-      await UIInspector.handleRunInspector(elements, appConfig, profile);
+      await UIInspector.handleRunInspector(elements, getRuntimeConfig(), profile);
     }
   }
 
@@ -412,7 +404,7 @@
 
   function toggleReasoningMenu() {
     if (UIReasoning.toggleReasoningMenu) {
-      UIReasoning.toggleReasoningMenu(elements, appConfig, selectReasoningLevel);
+      UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig(), selectReasoningLevel);
     }
     renderProjectPanel();
   }
@@ -439,12 +431,12 @@
       const confirmed = await ChatDialogs.confirm(t('project_decline_confirm', { cwd }));
       // El servidor puede haber cambiado de directorio mientras se esperaba la respuesta.
       if (!confirmed || State.get?.('project')?.cwd !== cwd) return;
-      const declined = Config.get?.()?.projectDeclined || [];
+      const declined = Config.getActive().projectDeclined || [];
       Config.updateRuntime?.({ projectDeclined: [...declined, cwd] });
     },
     reactivate() {
       const cwd = State.get?.('project')?.cwd;
-      const declined = Config.get?.()?.projectDeclined || [];
+      const declined = Config.getActive().projectDeclined || [];
       Config.updateRuntime?.({ projectDeclined: declined.filter(path => path !== cwd) });
     },
     reload() {
@@ -519,10 +511,10 @@
 
   /** El indicador del botón siempre; el panel solo con el menú abierto (renderizado bajo demanda). */
   function renderProjectPanel() {
-    UIReasoning.syncProjectIndicator?.(elements, Config.get?.() || appConfig || {}, State.get?.('project') || {});
+    UIReasoning.syncProjectIndicator?.(elements, Config.getActive(), State.get?.('project') || {});
     if (!UIReasoning.renderProjectPanel || elements.reasoningMenu?.style?.display !== 'flex') return;
     UIReasoning.renderProjectPanel(elements, {
-      config: Config.get?.() || appConfig || {},
+      config: Config.getActive(),
       project: State.get?.('project') || {},
       canInitialize: ProjectContext.canInitialize?.() === true,
       canChangeDirectory: ProjectContext.canChangeDirectory?.() === true,
@@ -661,8 +653,8 @@
     const effectiveStats = stats || telState?.stats || null;
     const effectiveDiag = diagnostics || telState?.diagnostics || null;
 
-    const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
-    const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
+    const runtimeCfg = getRuntimeConfig();
+    const CM = window.ChatContextManager;
 
     const vm = UITel.computeTelemetryViewModel({
       stats: effectiveStats,
@@ -681,8 +673,8 @@
       State.set('telemetry', { stats: null, diagnostics: null, lastTurnStats: null });
     }
     if (UITel && elements.connectionTokensBadge) {
-      const runtimeCfg = (State.get ? State.get('config') : (window.ChatConfig ? window.ChatConfig.getConfig() : {})) || appConfig;
-      const CM = window.ChatContextManager || (typeof require !== 'undefined' ? (() => { try { return require('./context-manager.js'); } catch (e) { return null; } })() : null);
+      const runtimeCfg = getRuntimeConfig();
+      const CM = window.ChatContextManager;
       UITel.resetTelemetry(elements, runtimeCfg, getChatHistory(), CM, t);
     }
   }
@@ -985,8 +977,8 @@
       getSavedSessions: () => getSavedSessions(),
       getHistory: () => getChatHistory(),
       getSession: async (id) => (Storage && Storage.getConversation) ? await Storage.getConversation(id) : null,
-      getConfig: () => appConfig,
-      getModel: () => appConfig.model,
+      getConfig: () => getRuntimeConfig(),
+      getModel: () => getRuntimeConfig().model,
       onSwitchSession: async (id) => await switchToSession(id),
       onImportSuccess: importConversationSession,
       isBusy: () => blockSessionTransitionIfBusy('chat_import_blocked_generating'),
@@ -995,7 +987,7 @@
   }
 
   async function importConversationSession(newSession) {
-    Engine.ensureConversationDate(newSession.history, appConfig.language || 'es', newSession.createdAt);
+    Engine.ensureConversationDate(newSession.history, getRuntimeConfig().language || 'es', newSession.createdAt);
     if (State.importConversation) {
       const res = State.importConversation(newSession, newSession.history);
       if (!res.ok) throw new Error(res.reason);
@@ -1406,7 +1398,7 @@
         State.subscribe('project', renderProjectPanel);
         // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
         State.subscribe(state => ({ generating: state.streaming?.isGenerating === true }), ({ generating }) => {
-          if (!generating && Config.get?.()?.projectMode === true) refreshProjectContext();
+          if (!generating && Config.getActive().projectMode === true) refreshProjectContext();
           // «Cambiar…» solo está activo sin generación en curso.
           renderProjectPanel();
         });

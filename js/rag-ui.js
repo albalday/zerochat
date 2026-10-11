@@ -157,7 +157,7 @@
   async function warnAboutSmallContext() {
     const RagService = typeof window !== 'undefined' ? window.ChatRagService : null;
     const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-    const config = runtimeConfig()?.get?.();
+    const config = runtimeConfig().getActive();
     const limit = RagService?.getInsufficientRagContextLimit?.(config || {});
     if (!limit || !Dialogs?.alert) return;
     await Dialogs.alert(t('rag_small_context_warning', { limit, min: RagService.RAG_MIN_CONTEXT_TOKENS }), { type: 'warning' });

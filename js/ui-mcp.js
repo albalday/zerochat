@@ -50,7 +50,7 @@
   }
 
   function isBrowserActionCurrentlyActive() {
-    const enabledTools = (getConfig()?.get?.() || getConfig()?.getActive?.())?.enabledTools || {};
+    const enabledTools = getConfig().getActive()?.enabledTools || {};
     const localTools = getState()?.get?.('mcp')?.tools || [];
     const browserTool = localTools.find(tool => (tool.id || tool.name) === 'browser_action' || tool.name === 'browser_action');
     return isBrowserActionActive(enabledTools, browserTool);
@@ -78,7 +78,7 @@
   function updateToolEnabledState(toolId, enabled) {
     const Config = getConfig();
     if (!Config) return false;
-    const current = (Config.get?.() || Config.getActive?.())?.enabledTools || {};
+    const current = Config.getActive()?.enabledTools || {};
     const update = Config.updateRuntime || Config.update;
     if (typeof update !== 'function') return false;
     try {
@@ -618,7 +618,7 @@
     if (elements.commandSnippet) elements.commandSnippet.textContent = generateTerminalCommand();
 
     if (elements.toolsContainer) {
-      const currentConfig = getConfig()?.get?.() || {};
+      const currentConfig = getConfig().getActive();
       const allTools = isConn ? getAllMcpTools(state) : [];
       renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
     }
@@ -725,7 +725,7 @@
           Security.manager.revokeToolPolicy(tid);
           renderSavedAuthorizations(elements, translator);
           if (elements?.toolsContainer) {
-            const currentConfig = getConfig()?.get?.() || {};
+            const currentConfig = getConfig().getActive();
             const state = getState()?.get?.('mcp') || {};
             const allTools = getAllMcpTools(state);
             renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
@@ -745,7 +745,7 @@
             renderExternalServers(elements.serversList, state.externalServers || [], translator);
           }
           if (elements?.toolsContainer) {
-            const currentConfig = getConfig()?.get?.() || {};
+            const currentConfig = getConfig().getActive();
             const state = getState()?.get?.('mcp') || {};
             const allTools = getAllMcpTools(state);
             renderToolsList(elements.toolsContainer, allTools, currentConfig.enabledTools || {}, translator);
@@ -758,7 +758,7 @@
   function renderCurrentToolsList(elements = {}, translator = t) {
     const container = elements?.toolsContainer || (typeof document !== 'undefined' ? document.getElementById('mcp-tools-container') : null);
     if (!container) return;
-    const currentCfg = getConfig()?.get?.() || {};
+    const currentCfg = getConfig().getActive();
     const State = getState();
     const isConn = State?.get ? State.get('mcp')?.status === 'connected' : false;
     const st = State?.get?.('mcp') || {};
@@ -898,7 +898,7 @@
   async function autoConnectIfAvailable(options = {}) {
     const Config = getConfig();
     const MCP = getMCP();
-    const currentConfig = Config?.get?.() || Config?.getActive?.() || {};
+    const currentConfig = Config.getActive();
     const host = options.host || currentConfig.mcpHost || DEFAULT_HOST;
     const port = sanitizePort(options.port || currentConfig.mcpPort || DEFAULT_PORT);
     const timeoutMs = options.timeoutMs || 1500;

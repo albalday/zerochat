@@ -433,7 +433,8 @@
 
         if (raw) {
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          if (parsed && typeof parsed === 'object') {
+          // Solo se carga el formato vigente: otra versión se descarta y rigen los valores por defecto.
+          if (parsed && typeof parsed === 'object' && parsed.version === STORAGE_VERSION) {
             if (Object.values(GLOBAL_POLICIES).includes(parsed.globalMcpPolicy)) {
               this.globalMcpPolicy = parsed.globalMcpPolicy;
             }
@@ -441,15 +442,6 @@
               Object.entries(parsed.tools).forEach(([id, item]) => {
                 if (item && typeof item === 'object') {
                   const constraints = item.constraints ? { ...item.constraints } : null;
-                  // Hasta la versión 3, "Permitir siempre <cmd>" y el prefijo cd guardaban
-                  // encadenamiento y tuberías sin que el usuario lo pidiera (T02).
-                  if (constraints?.command && !(parsed.version >= STORAGE_VERSION)) {
-                    constraints.command = {
-                      ...constraints.command,
-                      allowChaining: false,
-                      allowPipes: false
-                    };
-                  }
                   this.tools.set(id, {
                     policy: item.policy || TOOL_POLICIES.ASK,
                     scope: SCOPES.PERMANENT,

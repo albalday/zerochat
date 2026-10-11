@@ -151,8 +151,7 @@
 
   /**
    * Valida el contrato mínimo de una herramienta antes de registrarla.
-   * La validación no impone todavía una vista específica: durante la migración
-   * las herramientas existentes pueden usar el renderer genérico.
+   * La vista es opcional: sin ella se usa el renderer genérico.
    */
   function validateToolContract(tool) {
     const errors = [];
@@ -184,8 +183,7 @@
       this.contractVersion = options.contractVersion || TOOL_CONTRACT_VERSION;
       this.id = options.id || definition.id || definition.name || options.name || '';
       this.name = definition.name || options.name || '';
-      // Las tools históricas podían omitir descripción; el adaptador conserva
-      // su registro y les proporciona una descripción mínima válida.
+      // Un servidor MCP puede publicar herramientas sin descripción: se usa el nombre.
       this.description = definition.description || options.description || this.name;
       this.parameters = definition.parameters || options.parameters || { type: 'object', properties: {} };
       this.aliases = Array.isArray(options.aliases) ? options.aliases : [];
@@ -500,13 +498,6 @@
         defs.push(tool.getDefinition());
       }
       return defs;
-    }
-
-    /**
-     * Alias compatible con versiones anteriores de getDefinitions.
-     */
-    getDefinitions(filterOptions = {}) {
-      return this.getActiveDefinitions(filterOptions);
     }
 
     /**
@@ -1111,7 +1102,7 @@
         const activeToolDefs = enableTools
           ? (typeof resolveToolDefinitions === 'function'
             ? await resolveToolDefinitions({ stepIndex, workingMessages })
-            : this.registry.getDefinitions(toolFilterOptions))
+            : this.registry.getActiveDefinitions(toolFilterOptions))
           : [];
 
         let currentStepText = '';
@@ -1133,10 +1124,6 @@
             reasoningTransport,
             tools: activeToolDefs,
             enableTools: activeToolDefs.length > 0,
-            enableAgentJs: toolFilterOptions.enableAgentJs !== false,
-            enableAgentWeb: toolFilterOptions.enableAgentWeb !== false,
-            enableAgentSearch: toolFilterOptions.enableAgentSearch !== false,
-            enableAgentChart: toolFilterOptions.enableAgentChart !== false,
             signal: abortSignal,
             onBeforeRequest,
             onGenerationStatus: status => callbacks.onGenerationStatus?.(status),

@@ -46,7 +46,7 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
   } : {};
   const context = ProjectContext.createProjectContext({
     state,
-    config: { get: () => ({ projectMode: true, projectDeclined: [], ...config }) },
+    config: { getActive: () => ({ projectMode: true, projectDeclined: [], ...config }) },
     agentCore,
     security,
     mcp
@@ -271,7 +271,7 @@ test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/state.md 
     assert.deepEqual(Security.manager.getDirectoryRules(), ['R:/repo']);
     const context = ProjectContext.createProjectContext({
       state: ChatState,
-      config: { get: () => ({ projectMode: true, projectDeclined: [] }) },
+      config: { getActive: () => ({ projectMode: true, projectDeclined: [] }) },
       agentCore: { registry, executor: new AgentCore.ToolExecutor(registry) }
     });
     await context.refresh();

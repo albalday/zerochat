@@ -113,23 +113,6 @@
     memoryStorage.delete(key);
   }
 
-  // Compatibilidad para las claves MCP previas a la centralización. Ningún
-  // módulo de dominio debe acceder directamente a estas claves heredadas.
-  function migrateLegacyStorageItem(name) {
-    if (typeof name !== 'string' || !/^[a-z0-9_]+$/i.test(name)) return null;
-    const current = getStorageItem(name);
-    if (current !== null || !hasLocalStorage) return current;
-    try {
-      const legacy = localStorage.getItem(name);
-      if (legacy === null) return null;
-      setStorageItem(name, legacy);
-      localStorage.removeItem(name);
-      return legacy;
-    } catch (_) {
-      return null;
-    }
-  }
-
   function normalizeBackendSession(session) {
     if (!session || typeof session !== 'object' || Array.isArray(session)) return null;
     const token = typeof session.token === 'string' ? session.token : '';
@@ -199,11 +182,10 @@
   // El origen (albalday.github.io) es compartido con otras aplicaciones: el borrado
   // completo solo toca las claves propias de ZeroChat.
   const OWNED_KEY_PREFIXES = [STORAGE_PREFIX, 'zc_'];
-  const OWNED_LEGACY_KEYS = new Set(['chat_mcp_servers']);
 
   function isOwnedStorageKey(key) {
     if (typeof key !== 'string') return false;
-    return OWNED_LEGACY_KEYS.has(key) || OWNED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+    return OWNED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
   }
 
   function removeOwnedStorageKeys(storage) {
@@ -669,11 +651,6 @@
     setStorageItem,
     getStorageItem,
     deleteStorageItem,
-    migrateLegacyStorageItem,
-    // Alias heredados para compatibilidad hacia atrás en consola de depuración (@deprecated)
-    setCookie: setStorageItem,
-    getCookie: getStorageItem,
-    deleteCookie: deleteStorageItem,
     // Sesión efímera del backend local. Se mantiene separada de localStorage.
     normalizeBackendSession,
     setBackendSession,

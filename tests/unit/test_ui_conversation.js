@@ -523,4 +523,16 @@ test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator a
   assert.equal(wrapper.querySelector('.branch-progress-indicator'), null, 'El indicador debe haberse eliminado del DOM');
 });
 
+test('UIConversation - injectStreamingCursor inserta el cursor antes de cerrar etiquetas', () => {
+  const htmlWithTag = '<p>Hola mundo</p>';
+  const res = UIConversation.injectStreamingCursor(htmlWithTag);
+  assert.equal(res, '<p>Hola mundo<span class="streaming-cursor"></span></p>');
 
+  const plainText = 'Texto sin etiquetas';
+  const resPlain = UIConversation.injectStreamingCursor(plainText);
+  assert.equal(resPlain, 'Texto sin etiquetas<span class="streaming-cursor"></span>');
+
+  const empty = '';
+  const resEmpty = UIConversation.injectStreamingCursor(empty);
+  assert.equal(resEmpty, '<span class="streaming-cursor"></span>');
+});

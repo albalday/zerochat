@@ -52,12 +52,8 @@ test('ToolDispatcher - dispatchToolCall ejecuta search_web con alias searchweb',
   assert.equal(res.resultText, 'Resultados simulados para DeepSeek R1');
 });
 
-test('ToolDispatcher - getDefinitions excluye todas las herramientas RAG si RAG no está activo', () => {
-  const defsWithoutRag = AgentCore.registry.getDefinitions({
-    enableAgentJs: true,
-    enableAgentWeb: true,
-    enableAgentSearch: true,
-    enableAgentChart: true,
+test('ToolDispatcher - getActiveDefinitions excluye todas las herramientas RAG si RAG no está activo', () => {
+  const defsWithoutRag = AgentCore.registry.getActiveDefinitions({
     activeRagBranchId: ''
   });
 
@@ -69,11 +65,7 @@ test('ToolDispatcher - getDefinitions excluye todas las herramientas RAG si RAG 
   assert.equal(searchKbTool, undefined, 'search_knowledge_base NO debe enviarse si RAG está inactivo');
   assert.equal(readChunkTool, undefined, 'read_knowledge_chunk NO debe enviarse si RAG está inactivo');
 
-  const defsWithRag = AgentCore.registry.getDefinitions({
-    enableAgentJs: true,
-    enableAgentWeb: true,
-    enableAgentSearch: true,
-    enableAgentChart: true,
+  const defsWithRag = AgentCore.registry.getActiveDefinitions({
     activeRagBranchId: 'branch_123'
   });
 

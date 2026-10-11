@@ -82,7 +82,7 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
     assert.equal(registry.hasTool('get_weather_forecast'), false);
     assert.ok(registry.hasTool('weatherz5fzserver_get_weather_forecast'));
 
-    const defs = registry.getDefinitions();
+    const defs = registry.getActiveDefinitions();
     const weatherDef = defs.find(d => d.function.name.includes('get_weather_forecast'));
     assert.ok(weatherDef);
   } finally {

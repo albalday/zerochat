@@ -441,8 +441,7 @@
         filtered = currentMessages.filter((m, idx) => !criteria(m, idx));
       } else {
         const msgId = criteria.msgId || '';
-        const baseId = criteria.baseId || (msgId && msgId.includes('_') ? msgId.split('_').slice(0, 2).join('_') : '');
-        // Preserve the legacy State selection default; the engine uses suffix-based IDs.
+        const baseId = criteria.baseId || MessageTurns.extractBaseId(msgId);
         filtered = MessageTurns.removeSelectedTurn(currentMessages, { ...criteria, msgId, baseId });
       }
 

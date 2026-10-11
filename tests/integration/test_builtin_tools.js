@@ -98,12 +98,8 @@ test('Builtin Tools - fetch_web_page y download_pdf usan WebBrowser inyectado', 
   const services = {
     webBrowser: {
       fetchPage: async (url, options) => {
-        calls.push({ operation: 'fetch', url, options });
-        return { success: true, content: 'Página' };
-      },
-      downloadPdf: async (url, options) => {
-        calls.push({ operation: 'pdf', url, options });
-        return { success: true, text: 'PDF' };
+        calls.push({ url, options });
+        return url.endsWith('.pdf') ? { success: true, text: 'PDF' } : { success: true, content: 'Página' };
       }
     }
   };
@@ -116,8 +112,8 @@ test('Builtin Tools - fetch_web_page y download_pdf usan WebBrowser inyectado', 
   });
 
   assert.deepEqual(calls, [
-    { operation: 'fetch', url: 'https://example.com/article', options: { maxLength: 100 } },
-    { operation: 'pdf', url: 'https://example.com/document.pdf', options: { extract: true } }
+    { url: 'https://example.com/article', options: { maxLength: 100 } },
+    { url: 'https://example.com/document.pdf', options: { extract: true } }
   ]);
   assert.equal(fetchTool.serializeResultForModel({}, pageResult), JSON.stringify(pageResult));
   assert.equal(pdfTool.serializeResultForModel({}, pdfResult), JSON.stringify(pdfResult));

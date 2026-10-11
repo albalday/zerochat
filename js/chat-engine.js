@@ -103,11 +103,6 @@
     return typeof require !== 'undefined' ? require('./ui-conversation.js') : null;
   }
 
-  /** Compatibility facade for the shared response renderer. */
-  function injectStreamingCursor(html) {
-    return getUIConversation().injectStreamingCursor(html);
-  }
-
   /**
    * Extrae el identificador base de un mensaje eliminando sufijos de turnos internos o finalización.
    * @param {string} id - Identificador del mensaje (ej: 'asst_123_turn_0_assistant', 'asst_123_final').
@@ -592,7 +587,6 @@
     ensureConversationDate,
     getConfiguredSystemPrompt,
     getToolsSystemPromptGuide,
-    injectStreamingCursor,
     buildEffectiveMessages,
     executeAgentTurnLoop,
     extractBaseId,

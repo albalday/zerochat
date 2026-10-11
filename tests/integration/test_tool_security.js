@@ -756,7 +756,7 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
   }
 });
 
-test('ChatToolSecurity - T02: las autorizaciones guardadas antes de la versión 4 pierden encadenamiento y tuberías', () => {
+test('ChatToolSecurity - T02: una política guardada con otra versión se descarta entera', () => {
   const storageKey = 'test_sec_t02_migration';
   const previousLocalStorage = global.localStorage;
   const store = new Map([[storageKey, JSON.stringify({
@@ -781,12 +781,9 @@ test('ChatToolSecurity - T02: las autorizaciones guardadas antes de la versión 
   try {
     const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey, startupDirectory: '/home/user/proj' });
     const runTool = { id: 'run_command', name: 'run_command', category: 'mcp' };
-    const constraints = manager.getToolConstraints('run_command').command;
-    assert.equal(constraints.allowChaining, false);
-    assert.equal(constraints.allowPipes, false);
+    assert.equal(manager.getToolConstraints('run_command'), null);
     assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status; rm -rf ~' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git log | sh' }).status, 'ask');
-    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'allow');
+    assert.equal(manager.evaluateAuthorization(runTool, { command: 'git status' }).status, 'ask');
 
     // Una vez guardadas en la versión actual, las opciones explícitas se respetan al recargar
     manager.setToolPolicy('run_command', 'allow', {

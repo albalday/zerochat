@@ -17,7 +17,6 @@
   const DEFAULTS = Defaults.CONFIG_DEFAULTS;
 
   const { clone } = Utils;
-  const RETIRED_TOOL_IDS = Object.freeze(['agent_checkpoint', 'update_plan', 'finish_task']);
 
   function normalizeBranchIds(value, fallback) {
     const values = Array.isArray(value) ? value : (value ? [value] : fallback || []);
@@ -40,11 +39,6 @@
   function normalize(config = {}) {
     const next = { ...clone(DEFAULTS), ...clone(config) };
     delete next.activeProfileName;
-    delete next.enableAgentJs;
-    delete next.enableAgentWeb;
-    delete next.enableAgentSearch;
-    delete next.enableAgentChart;
-    delete next.sendDateTime;
     next.apiUrl = String(next.apiUrl || DEFAULTS.apiUrl).trim() || DEFAULTS.apiUrl;
     next.apiType = String(next.apiType || DEFAULTS.apiType).trim() || DEFAULTS.apiType;
     delete next.apiKey;
@@ -56,12 +50,11 @@
     next.systemPrompt = String(next.systemPrompt || '').trim();
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
-    next.reasoningEffort = ['off', 'none'].includes(String(next.reasoningEffort).toLowerCase()) ? 'none' : String(next.reasoningEffort || DEFAULTS.reasoningEffort);
+    next.reasoningEffort = String(next.reasoningEffort || DEFAULTS.reasoningEffort);
     next.reasoningTransport = ['omit', 'send-none'].includes(next.reasoningTransport) ? next.reasoningTransport : 'auto';
     next.theme = next.theme === 'dark' ? 'dark' : 'light';
     next.language = next.language === 'en' ? 'en' : 'es';
     next.enabledTools = next.enabledTools && typeof next.enabledTools === 'object' ? clone(next.enabledTools) : clone(DEFAULTS.enabledTools);
-    RETIRED_TOOL_IDS.forEach(id => delete next.enabledTools[id]);
     next.enableRawLogs = next.enableRawLogs === true;
     next.enableDebugMessages = next.enableDebugMessages === true;
     next.enableContextCache = next.enableContextCache !== false;
@@ -186,10 +179,8 @@
     return {
       initialize,
       getActive,
-      get: getActive,
       updateRuntime,
       updateGeneral,
-      update: updateRuntime,
       activateProfile,
       activateFallbackProfile,
       subscribe

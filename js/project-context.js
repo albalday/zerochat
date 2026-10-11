@@ -255,7 +255,7 @@ ${stateBody}
      */
     async function refresh(options = {}) {
       const sequence = ++refreshSequence;
-      const config = getConfig()?.get?.() || {};
+      const config = getConfig().getActive();
       const cwd = getCwd();
       const empty = { rules: { content: '', truncated: false }, state: { content: '', truncated: false } };
       const base = {

@@ -124,8 +124,7 @@
      * Aplica la configuración de razonamiento / pensamiento al payload.
      */
     applyReasoning(payload, effortLevel) {
-      let effort = String(effortLevel || 'none').toLowerCase().trim();
-      if (effort === 'off') effort = 'none';
+      const effort = String(effortLevel || 'none').toLowerCase().trim();
       payload.reasoning_effort = effort;
     }
 
@@ -206,7 +205,7 @@
         }
       }
 
-      if (capabilities.reasoning && !['none', 'off', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
+      if (capabilities.reasoning && !['none', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
         this.applyReasoning(payload, reasoningEffort);
       }
 
@@ -960,7 +959,7 @@
         payload.stream = true;
       }
 
-      if (capabilities.reasoning && !['none', 'off', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
+      if (capabilities.reasoning && !['none', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
         this.applyReasoning(payload, reasoningEffort);
       }
 
@@ -988,8 +987,7 @@
     }
 
     applyReasoning(payload, effortLevel) {
-      let effort = String(effortLevel || 'none').toLowerCase().trim();
-      if (effort === 'off') effort = 'none';
+      const effort = String(effortLevel || 'none').toLowerCase().trim();
 
       if (effort !== 'none') {
         let budget = 2048;
@@ -1390,8 +1388,7 @@
     }
 
     applyReasoning(payload, effortLevel) {
-      let effort = String(effortLevel || 'none').toLowerCase().trim();
-      if (effort === 'off') effort = 'none';
+      const effort = String(effortLevel || 'none').toLowerCase().trim();
       payload.reasoning = { effort: effort };
       payload.reasoning_effort = effort;
     }

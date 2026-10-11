@@ -16,7 +16,7 @@
 
   function getReasoningIntensity(level) {
     const normalized = String(level || 'none').toLowerCase().trim();
-    const index = INTENSITY_LEVELS.indexOf(normalized === 'off' ? 'none' : normalized);
+    const index = INTENSITY_LEVELS.indexOf(normalized);
     return index >= 0 ? index : 0;
   }
 

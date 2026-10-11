@@ -183,7 +183,7 @@
   function getActiveWebllmConfig() {
     try {
       const State = typeof ChatState !== 'undefined' ? ChatState : (typeof globalThis !== 'undefined' ? globalThis.ChatState : null);
-      const cfg = State?.get?.('config') || (typeof ChatConfig !== 'undefined' ? ChatConfig.get?.() : null);
+      const cfg = State?.get?.('config') || (typeof ChatConfig !== 'undefined' ? ChatConfig.getActive() : null);
       return cfg?.webllmConfig || null;
     } catch (_) {
       return null;
