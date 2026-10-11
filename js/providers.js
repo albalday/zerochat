@@ -392,19 +392,6 @@
     }
 
     /**
-     * Devuelve metadatos para la configuración de razonamiento.
-     */
-    getReasoningConfig() {
-      return {
-        type: this.id,
-        label: this.label,
-        levels: this.reasoningLevels,
-        transportOptions: this.capabilities.reasoning ? [] : ['omit', 'send-none'],
-        description: this.description
-      };
-    }
-
-    /**
      * Inspecciona y diagnostica el endpoint del proveedor para determinar sus capacidades reales.
      * Distingue entre:
      * - 'declared': Declarada por el ProviderAdapter.
@@ -1446,17 +1433,6 @@
     getCapabilities(rawUrlOrType, model, explicitType) {
       const adapter = this.resolve(rawUrlOrType, explicitType);
       return adapter.getCapabilities(model);
-    }
-
-    /**
-     * Obtiene todos los modos de razonamiento registrados para la UI.
-     */
-    getReasoningModes() {
-      const modes = {};
-      for (const [id, adapter] of this.adapters.entries()) {
-        modes[id] = adapter.getReasoningConfig();
-      }
-      return modes;
     }
 
     getConnectionEndpoints() {

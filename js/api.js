@@ -15,8 +15,7 @@
 
   const { resolveDep } = Utils;
 
-  const ProvidersModule = resolveDep('ChatProviders', './providers.js');
-  const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
+  const { registry } = resolveDep('ChatProviders', './providers.js');
   const TextToolCalls = resolveDep('ChatTextToolCalls', './text-tool-calls.js');
 
   const TOOL_NAME_MAP = Object.freeze({
@@ -143,48 +142,6 @@
   }
 
 
-  /**
-   * Detecta el tipo de API adecuado según la URL o tipo explícito.
-   */
-  function detectApiType(rawUrl, explicitType) {
-    if (registry) {
-      return registry.detect(rawUrl, explicitType);
-    }
-    if (explicitType && explicitType !== 'auto') return explicitType;
-    const url = (rawUrl || '').toLowerCase().trim();
-    if (url.includes('11434') || url.includes('ollama')) return 'ollama';
-    if (url.includes('openrouter.ai')) return 'openrouter';
-    if (url.includes('anthropic.com')) return 'claude';
-    if (url.includes('googleapis.com') || url.includes('gemini')) return 'gemini';
-    return 'openai';
-  }
-
-  /**
-   * Normaliza la URL base al endpoint de chat del proveedor resuelto.
-   */
-  function normalizeApiUrl(rawUrl, explicitType) {
-    if (registry) {
-      const adapter = registry.resolve(rawUrl, explicitType);
-      return adapter.normalizeEndpoint(rawUrl);
-    }
-    let url = (rawUrl || 'http://localhost:1234/v1').trim();
-    if (url.endsWith('/')) url = url.slice(0, -1);
-    const type = detectApiType(url, explicitType);
-    if (type === 'ollama') {
-      if (url.endsWith('/api/chat') || url.endsWith('/chat/completions')) return url;
-      if (url.endsWith('/v1')) return `${url}/chat/completions`;
-      return `${url}/v1/chat/completions`;
-    }
-    if (type === 'claude') {
-      if (url.endsWith('/v1/messages') || url.endsWith('/messages') || url.endsWith('/chat/completions')) return url;
-      if (url.endsWith('/v1')) return `${url}/messages`;
-      return `${url}/v1/messages`;
-    }
-    if (url.endsWith('/chat/completions')) return url;
-    if (url.endsWith('/v1')) return `${url}/chat/completions`;
-    return `${url}/v1/chat/completions`;
-  }
-
   function getContextManager() {
     return resolveDep('ChatContextManager', './context-manager.js');
   }
@@ -199,18 +156,6 @@
   }
 
   /**
-   * Modos de razonamiento estándar organizados por proveedor.
-   */
-  const STANDARD_REASONING_MODES = registry ? registry.getReasoningModes() : {
-    openai: { type: 'openai', label: 'OpenAI / LM Studio', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Estándar OpenAI / LM Studio' },
-    ollama: { type: 'ollama', label: 'Ollama', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Estándar Ollama' },
-    openrouter: { type: 'openrouter', label: 'OpenRouter', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Estándar OpenRouter' },
-    claude: { type: 'claude', label: 'Anthropic Claude', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Estándar Claude' },
-    gemini: { type: 'gemini', label: 'Google Gemini', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Estándar Gemini' },
-    custom: { type: 'custom', label: 'Personalizado', levels: ['none', 'low', 'medium', 'high', 'xhigh'], description: 'Personalizado' }
-  };
-
-  /**
    * Consulta los modelos disponibles en el servidor delegando en el adaptador.
    */
   async function fetchServerModels(rawUrl, apiKey, explicitType) {
@@ -219,22 +164,19 @@
     if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
     if (cleanUrl.endsWith('/chat/completions')) cleanUrl = cleanUrl.replace(/\/chat\/completions$/, '');
 
-    const adapter = registry ? registry.resolve(cleanUrl, explicitType) : null;
-    if (adapter) {
-      const caps = adapter.getCapabilities();
-      if (caps && caps.modelListing === false) {
-        return {
-          success: false,
-          error: 'El proveedor configurado no admite descubrimiento automático de modelos.'
-        };
-      }
+    const adapter = registry.resolve(cleanUrl, explicitType);
+    if (adapter.getCapabilities().modelListing === false) {
+      return {
+        success: false,
+        error: 'El proveedor configurado no admite descubrimiento automático de modelos.'
+      };
     }
-    if (adapter && typeof adapter.listModels === 'function') {
+    if (typeof adapter.listModels === 'function') {
       return adapter.listModels();
     }
-    const candidateEndpoints = adapter ? adapter.getModelEndpoints(cleanUrl) : [`${cleanUrl}/v1/models`];
+    const candidateEndpoints = adapter.getModelEndpoints(cleanUrl);
 
-    const headers = { ...adapter?.buildHeaders(resolvedApiKey), Accept: 'application/json' };
+    const headers = { ...adapter.buildHeaders(resolvedApiKey), Accept: 'application/json' };
 
     let lastError = null;
 
@@ -256,7 +198,7 @@
         }
 
         const data = await response.json();
-        const extractedModels = adapter ? adapter.parseModelsResponse(data) : (Array.isArray(data.data) ? data.data : []);
+        const extractedModels = adapter.parseModelsResponse(data);
 
         if (extractedModels && extractedModels.length > 0) {
           extractedModels.sort((a, b) => a.id.localeCompare(b.id));
@@ -282,24 +224,24 @@
   }
 
   async function downloadLocalModel(model, onProgress, providerId = 'webllm') {
-    const adapter = registry?.get(providerId);
-    if (!adapter || typeof adapter.downloadModel !== 'function') {
+    const adapter = registry.get(providerId);
+    if (typeof adapter.downloadModel !== 'function') {
       throw new Error('The configured provider does not support local model downloads.');
     }
     return adapter.downloadModel(model, onProgress);
   }
 
   async function deleteLocalModel(model, providerId = 'webllm') {
-    const adapter = registry?.get(providerId);
-    if (!adapter || typeof adapter.deleteModel !== 'function') {
+    const adapter = registry.get(providerId);
+    if (typeof adapter.deleteModel !== 'function') {
       throw new Error('The configured provider does not support deleting local models.');
     }
     return adapter.deleteModel(model);
   }
 
   async function cancelLocalModelOperation(model, providerId = 'webllm') {
-    const adapter = registry?.get(providerId);
-    if (!adapter || typeof adapter.cancelModelOperation !== 'function') return;
+    const adapter = registry.get(providerId);
+    if (typeof adapter.cancelModelOperation !== 'function') return;
     return adapter.cancelModelOperation(model);
   }
 
@@ -332,24 +274,21 @@
 
     const effectiveApiKey = String(apiKey || '').trim();
 
-    const adapter = registry ? registry.resolve(apiUrl, apiType) : null;
-    const endpoint = adapter ? adapter.normalizeEndpoint(apiUrl) : normalizeApiUrl(apiUrl, apiType);
-    const detectedType = adapter ? adapter.id : detectApiType(apiUrl, apiType);
-    const headers = adapter ? adapter.buildHeaders(effectiveApiKey) : { 'Content-Type': 'application/json' };
+    const adapter = registry.resolve(apiUrl, apiType);
+    const endpoint = adapter.normalizeEndpoint(apiUrl);
+    const detectedType = adapter.id;
+    const headers = adapter.buildHeaders(effectiveApiKey);
 
     // Inyectar herramientas agénticas activadas si están disponibles
     let toolsList = [];
     if (Array.isArray(params.tools)) {
       toolsList = params.tools;
     } else if (enableTools || (Boolean(activeRagBranchId) && enableTools !== false)) {
-      const AgentCore = resolveDep('ChatAgentCore', './agent-core.js');
-      if (AgentCore && AgentCore.registry && typeof AgentCore.registry.getActiveDefinitions === 'function') {
-        toolsList = AgentCore.registry.getActiveDefinitions(params);
-      }
+      toolsList = resolveDep('ChatAgentCore', './agent-core.js').registry.getActiveDefinitions(params);
     }
 
     // Construcción del payload mediante el adaptador
-    const payload = adapter ? adapter.buildPayload({
+    const payload = adapter.buildPayload({
       model,
       messages,
       temperature,
@@ -357,12 +296,7 @@
       reasoningTransport,
       toolsList,
       toolChoice: toolChoice || 'auto'
-    }) : {
-      model: (model || '').trim(),
-      messages,
-      stream: true,
-      temperature: parseFloat(temperature) || 0.7
-    };
+    });
 
     if (onBeforeRequest) {
       try {
@@ -503,7 +437,7 @@
 
     // Con herramientas activas, los bloques <tool_call> del texto se ocultan y se
     // interpretan como llamadas si el proveedor no devolvió llamadas nativas.
-    const parsesTextToolCalls = Boolean(TextToolCalls) && toolsList.length > 0;
+    const parsesTextToolCalls = toolsList.length > 0;
     let textToolCalls = null;
     let lastVisibleText = '';
 
@@ -556,7 +490,7 @@
     }
 
     try {
-      let response = adapter?.createStreamResponse
+      let response = adapter.createStreamResponse
         ? await adapter.createStreamResponse({
           payload,
           signal,
@@ -582,22 +516,20 @@
         }
 
         // Auto-recuperación delegando en el adaptador
-        if (adapter) {
-          const recovery = adapter.handleHttpError(response.status, serverErrorMsg, payload);
-          if (recovery && recovery.retry) {
-            if (onLog) {
-              onLog({
-                type: 'error',
-                text: `HTTP 400: Servidor rechazó parámetro (${recovery.reason || 'parámetro incompatible'}). Reintentando sin él...`
-              });
-            }
-            response = await fetch(endpoint, {
-              method: 'POST',
-              headers: headers,
-              body: JSON.stringify(payload),
-              signal: signal
+        const recovery = adapter.handleHttpError(response.status, serverErrorMsg, payload);
+        if (recovery && recovery.retry) {
+          if (onLog) {
+            onLog({
+              type: 'error',
+              text: `HTTP 400: Servidor rechazó parámetro (${recovery.reason || 'parámetro incompatible'}). Reintentando sin él...`
             });
           }
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(payload),
+            signal: signal
+          });
         }
 
         if (!response.ok) {
@@ -665,7 +597,7 @@
 
             try {
               const parsed = JSON.parse(dataStr);
-              const chunkData = adapter ? adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText }) : { textChunk: parsed.choices?.[0]?.delta?.content || '' };
+              const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
 
               if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
               if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
@@ -833,19 +765,7 @@
    * Obtiene las capacidades del proveedor resuelto para una URL o tipo de API.
    */
   function getProviderCapabilities(rawUrl, explicitType, model) {
-    if (registry) {
-      return registry.getCapabilities(rawUrl, model, explicitType);
-    }
-    return {
-      streaming: true,
-      vision: true,
-      tools: true,
-      reasoning: true,
-      jsonMode: true,
-      promptCaching: true,
-      embeddings: true,
-      modelListing: true
-    };
+    return registry.getCapabilities(rawUrl, model, explicitType);
   }
 
   /**
@@ -853,28 +773,14 @@
    */
   async function inspectProvider(config = {}, options = {}) {
     const { apiUrl, apiType, apiKey, model } = config;
-    const effectiveApiKey = String(apiKey || '').trim();
-    if (registry && registry.inspect) {
-      return registry.inspect(apiUrl, effectiveApiKey, model, apiType, options);
-    }
-    const adapter = registry ? registry.resolve(apiUrl, apiType) : null;
-    if (adapter && adapter.inspect) {
-      return adapter.inspect({ ...options, apiUrl, apiKey: effectiveApiKey, model });
-    }
-    return {
-      success: false,
-      error: 'No se pudo inicializar el inspector de proveedores.'
-    };
+    return registry.inspect(apiUrl, String(apiKey || '').trim(), model, apiType, options);
   }
 
   return {
-    detectApiType,
-    normalizeApiUrl,
     fetchServerModels,
     downloadLocalModel,
     deleteLocalModel,
     cancelLocalModelOperation,
-    STANDARD_REASONING_MODES,
     streamChatCompletion,
     estimateTokens,
     normalizeToolName,

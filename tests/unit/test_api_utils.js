@@ -3,14 +3,6 @@ const assert = require('node:assert/strict');
 const Api = require('../../js/api.js');
 const Storage = require('../../js/cookies.js');
 
-test('Api - Detección automática de tipo de proveedor', () => {
-  assert.equal(Api.detectApiType('http://localhost:11434'), 'ollama');
-  assert.equal(Api.detectApiType('https://api.anthropic.com/v1'), 'claude');
-  assert.equal(Api.detectApiType('https://openrouter.ai/api/v1'), 'openrouter');
-  assert.equal(Api.detectApiType('https://generativelanguage.googleapis.com/v1beta/openai'), 'gemini');
-  assert.equal(Api.detectApiType('http://localhost:1234/v1'), 'openai');
-});
-
 test('Api - Normalización de nombres de herramientas', () => {
   assert.equal(Api.normalizeToolName('search_web'), 'search_web');
   assert.equal(Api.normalizeToolName('duckduckgo'), 'search_web');
