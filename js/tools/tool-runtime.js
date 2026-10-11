@@ -24,7 +24,7 @@
     agent: { globalName: 'ChatAgentCore', modulePath: '../agent-core.js' },
     engine: { globalName: 'ChatEngine', modulePath: '../chat-engine.js' },
     profiles: { globalName: 'ChatProfileRepository', modulePath: '../profile-repository.js' },
-    profileBackup: { globalName: 'ChatProfileBackup', modulePath: '../profile-backup.js' }
+    conversation: { globalName: 'ChatConversationService', modulePath: '../conversation-service.js' }
   };
 
   function resolveService(name) {

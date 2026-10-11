@@ -803,7 +803,7 @@
       card.innerHTML = cards.renderCardHtml({
         collapsed: isCollapsed,
         titleHtml: `${iconSvg}<span>${esc(toolName)}</span>`,
-        titleSuffixHtml: `<span class="mcp-card-server-tag">${esc(serverName || 'MCP')}</span>`,
+        titleSuffixHtml: `<span class="tool-card-tag">${esc(serverName || 'MCP')}</span>`,
         badgeHtml,
         bodyHtml: `${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}<div class="tool-card-result">${contentHtml}</div>`
       }, ui);

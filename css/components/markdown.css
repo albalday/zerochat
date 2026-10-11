@@ -729,7 +729,7 @@ hr {
 }
 
 @media (max-width: 640px) {
-  .tool-card-header > .mcp-card-server-tag {
+  .tool-card-header > .tool-card-tag {
     grid-column: 1;
     grid-row: 3;
     justify-self: start;

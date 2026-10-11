@@ -362,7 +362,7 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
         directActions: Array.from(actions.children).map(el => el.className),
         menuHidden: menu.hidden,
         layout: getComputedStyle(actions).display,
-        serverTagCount: prompt.querySelectorAll('.mcp-card-server-tag').length,
+        serverTagCount: prompt.querySelectorAll('.tool-card-tag').length,
         cardOverflow: getComputedStyle(window.__permissionCard.querySelector('.tool-execution-card')).overflow,
         panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= listRect.bottom + 1
       };

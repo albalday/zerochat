@@ -942,6 +942,19 @@ test('Browser UI - inicializar el modo proyecto envía el prompt de arranque com
   } finally { await browser.close(); }
 });
 
+/** Utilidades de las pruebas del subagente: distinguen sus peticiones y simulan la respuesta del proveedor. */
+async function installSubagentTestHelpers(page) {
+  await page.evaluate(() => {
+    window.__subagentTest = {
+      isSubagent: params => params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]')),
+      reply: (params, text, toolCalls = []) => {
+        params.onDone?.(text, null, toolCalls, '');
+        return { accumulatedText: text, toolCalls, stats: null };
+      }
+    };
+  });
+}
+
 test('Browser UI - el subagente de delegate_task muestra sus herramientas en su tarjeta y devuelve solo el informe', async () => {
   const browser = await createTestBrowser();
   try {
@@ -949,19 +962,17 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await page.setViewportSize({ width: 400, height: 800 });
     await waitForAppReady(page);
+    await installSubagentTestHelpers(page);
     const result = await page.evaluate(async () => {
+      const { isSubagent, reply } = window.__subagentTest;
       const API = window.ChatAPI;
       const original = API.streamChatCompletion;
       const subagentRequests = [];
       let parentRequests = 0;
-      const reply = (params, text, toolCalls = []) => {
-        params.onDone?.(text, null, toolCalls, '');
-        return { accumulatedText: text, toolCalls, stats: null };
-      };
       API.streamChatCompletion = async params => {
-        const isSubagent = params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]'));
-        if (isSubagent) {
+        if (isSubagent(params)) {
           subagentRequests.push({ messages: params.messages.map(message => ({ role: message.role, content: message.content })), tools: params.tools.map(tool => tool.function.name) });
           return subagentRequests.length === 1
             ? reply(params, 'Calculo el valor.', [{ id: 'sub_1', type: 'function', function: { name: 'execute_javascript', arguments: JSON.stringify({ code: 'return 6 * 7;' }) } }])
@@ -1004,6 +1015,7 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
           report: card[0]?.querySelector('.subagent-report strong')?.textContent,
           badge: card[0]?.querySelector('.tool-card-badge')?.className,
           collapsed: card[0]?.classList.contains('collapsed'),
+          modelTagDisplay: getComputedStyle(card[0].querySelector('.subagent-model')).display,
           subagentRequests
         };
       } finally {
@@ -1026,6 +1038,7 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
     assert.equal(result.report, '42');
     assert.match(result.badge, /status-success/);
     assert.equal(result.collapsed, true);
+    assert.equal(result.modelTagDisplay, 'none', 'Sin perfil «Subagente» no hay etiqueta de modelo, tampoco en móvil');
     const [first] = result.subagentRequests;
     assert.deepEqual(first.tools, ['execute_javascript']);
     assert.equal(first.messages[0].role, 'system');
@@ -1049,20 +1062,20 @@ test('Browser UI - el subagente usa el perfil de conexión «Subagente» si exis
     });
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
+    await installSubagentTestHelpers(page);
     const result = await page.evaluate(async () => {
+      const { isSubagent, reply } = window.__subagentTest;
       const API = window.ChatAPI;
       const original = API.streamChatCompletion;
       const requests = [];
       let parentRequests = 0;
       API.streamChatCompletion = async params => {
-        const isSubagent = params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]'));
-        requests.push({ subagent: isSubagent, model: params.model, apiUrl: params.apiUrl });
-        const text = isSubagent ? 'Informe' : (++parentRequests === 1 ? '' : 'Listo.');
-        const toolCalls = !isSubagent && parentRequests === 1
-          ? [{ id: 'parent_1', type: 'function', function: { name: 'delegate_task', arguments: JSON.stringify({ task: 'Investigate' }) } }]
-          : [];
-        params.onDone?.(text, null, toolCalls, '');
-        return { accumulatedText: text, toolCalls, stats: null };
+        const subagent = isSubagent(params);
+        requests.push({ subagent, model: params.model, apiUrl: params.apiUrl });
+        if (subagent) return reply(params, 'Informe');
+        return ++parentRequests === 1
+          ? reply(params, '', [{ id: 'parent_1', type: 'function', function: { name: 'delegate_task', arguments: JSON.stringify({ task: 'Investigate' }) } }])
+          : reply(params, 'Listo.');
       };
       const container = document.createElement('div');
       document.getElementById('messages-list').appendChild(container);
@@ -1073,7 +1086,7 @@ test('Browser UI - el subagente usa el perfil de conexión «Subagente» si exis
           container,
           attachListeners: el => window.ChatMarkdown.attachCopyCodeListeners(el)
         });
-        const label = container.querySelector('.subagent-card .subagent-profile');
+        const label = container.querySelector('.subagent-card .subagent-model');
         return { requests, label: label?.textContent, labelTitle: label?.title, labelHidden: label?.hidden };
       } finally {
         API.streamChatCompletion = original;

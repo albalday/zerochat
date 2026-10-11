@@ -546,14 +546,22 @@
 }
 
 /* Tarjetas de Ejecución MCP en el Chat */
-.mcp-card-server-tag {
+/* Etiqueta junto al título de la tarjeta: servidor MCP o modelo del subagente. */
+.tool-card-tag {
   font-size: 0.68rem;
   color: var(--text-muted);
   background: var(--bg-hover);
   padding: 0.1rem 0.35rem;
   border-radius: var(--radius-sm);
   margin-left: 0.35rem;
+  /* Junto al título; el espacio libre queda entre la etiqueta y las acciones. */
+  margin-right: auto;
   border: 1px solid var(--border-color);
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mcp-input-summary {
@@ -1659,24 +1667,6 @@ button.command-jobs-link:focus-visible {
 /* Subagente (delegate_task): encargo, pasos con sus herramientas e informe final. */
 .subagent-body {
   font-family: var(--font-sans);
-}
-
-.subagent-profile {
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-  min-width: 0;
-  max-width: 14rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.subagent-profile[hidden] {
-  display: none;
 }
 
 .subagent-task {

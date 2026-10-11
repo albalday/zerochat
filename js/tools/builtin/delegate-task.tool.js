@@ -34,7 +34,10 @@
 
   const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
   const getUtils = () => typeof window !== 'undefined' && window.ChatUtils || require('../../utils.js');
-  const getI18n = () => (typeof window !== 'undefined' && window.ChatI18n) || null;
+  const translate = (key, params) => {
+    const i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
+    return i18n?.t ? i18n.t(key, params) : key;
+  };
   const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
   const BOT_ICON_SVG = Icons.get('bot', { size: 14 });
 
@@ -86,14 +89,12 @@
   function createProgressView(card, context = {}) {
     const steps = card?.querySelector?.('.subagent-steps');
     if (!steps) return null;
-    const i18n = getI18n();
-    const t = (key, params) => (i18n?.t ? i18n.t(key, params) : key);
     let stepBlock = null;
     return {
       steps,
       setStep(step) {
         const label = card.querySelector('.tool-card-badge.status-loading span');
-        if (label) label.textContent = t('tool_delegate_step', { step });
+        if (label) label.textContent = translate('tool_delegate_step', { step });
         const doc = steps.ownerDocument;
         if (!doc) return;
         stepBlock = doc.createElement('div');
@@ -102,10 +103,10 @@
       },
       /** El título ya dice «Subagente»: la etiqueta muestra el modelo y el perfil queda en su ayuda. */
       setProfile(name, model) {
-        const label = card.querySelector('.subagent-profile');
+        const label = card.querySelector('.subagent-model');
         if (!label || !name) return;
         label.textContent = model || name;
-        label.title = t('tool_delegate_profile_title', { name });
+        label.title = translate('tool_delegate_profile_title', { name });
         label.hidden = false;
       },
       setText(text) {
@@ -138,27 +139,28 @@
       contextOptions: context.contextOptions || {},
       summarizeHistory: context.summarizeHistory || null
     };
-    const Profiles = context.services?.profiles;
-    const match = (Profiles?.list?.() || [])
-      .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
+    let match;
+    try {
+      match = (context.services?.profiles?.list?.() || [])
+        .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
+    } catch (error) {
+      return { error: `The connection profiles could not be read: ${error?.message || String(error)}` };
+    }
     if (!match) return inherited;
 
-    const Backup = context.services?.profileBackup;
-    const load = keyMaterial => Profiles.load(match.id, keyMaterial);
-    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-    const i18n = getI18n();
-    const t = key => (i18n?.t ? i18n.t(key) : key);
-    let profile;
+    let settings;
     try {
-      profile = Backup?.withPassword
-        ? await Backup.withPassword(load, Dialogs?.prompt
-          ? () => Dialogs.prompt(t('crypto_current_password_prompt'), '', { inputType: 'password', title: t('crypto_password_title') })
-          : undefined)
-        : await load();
+      const Conversation = context.services?.conversation;
+      if (typeof Conversation?.loadProfileUnlocked !== 'function') throw new Error('profile loading is not available.');
+      const profile = await Conversation.loadProfileUnlocked(match.id);
+      if (!profile) throw new Error('the profile no longer exists.');
+      settings = profile.settings || {};
     } catch (error) {
       return { error: `The "${match.name}" connection profile could not be loaded: ${error?.message || String(error)}` };
     }
-    const settings = profile?.settings || {};
+    const missing = ['apiUrl', 'apiType', 'model'].filter(key => !settings[key]);
+    if (missing.length > 0) return { error: `The "${match.name}" connection profile is incomplete: missing ${missing.join(', ')}.` };
+
     const connection = {
       profileName: match.name,
       apiUrl: settings.apiUrl,
@@ -272,7 +274,8 @@
     const task = clip(typeof args?.task === 'string' ? args.task.trim() : '', TASK_PREVIEW_LENGTH);
     card.innerHTML = getCards().renderCardHtml({
       className: 'subagent-card',
-      titleHtml: `<span>${BOT_ICON_SVG}</span><span>${escapeHtml(t('tool_delegate_title'))}</span><span class="subagent-profile" hidden></span>`,
+      titleHtml: `<span>${BOT_ICON_SVG}</span><span>${escapeHtml(t('tool_delegate_title'))}</span>`,
+      titleSuffixHtml: '<span class="tool-card-tag subagent-model" hidden></span>',
       badgeHtml: `<span class="tool-card-badge status-loading">${ui?.SPINNER_SVG || ''} <span>${escapeHtml(t('tool_delegate_step', { step: 1 }))}</span></span>`,
       bodyHtml: `<div class="tool-card-result subagent-body">
         <div class="tool-result-label">${escapeHtml(t('tool_delegate_task_label'))}</div>
@@ -354,7 +357,6 @@
     displayMode: 'collapsed',
     createTool,
     isReadOnlyTool,
-    buildSubagentPrompt,
     view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 

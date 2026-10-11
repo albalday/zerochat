@@ -323,17 +323,20 @@
     return userMessages.length >= 2 || nonSystem.length >= 4;
   }
 
-  /** API key del perfil activo; pide la contraseña si está cifrada. Los fallos se propagan. */
-  async function resolveActiveApiKey(runtimeConfig) {
+  /** Perfil con su API key descifrada; pide la contraseña si está cifrada. Los fallos se propagan. */
+  async function loadProfileUnlocked(profileId) {
     const Profiles = resolveDep('ChatProfileRepository', './profile-repository.js');
-    const profileId = runtimeConfig?.activeProfile?.id;
-    if (!profileId || !Profiles?.load) return '';
-    const activeProfile = await resolveDep('ChatProfileBackup', './profile-backup.js').withPassword(
+    if (!profileId || !Profiles?.load) return null;
+    return resolveDep('ChatProfileBackup', './profile-backup.js').withPassword(
       keyMaterial => Profiles.load(profileId, keyMaterial),
       () => getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
         inputType: 'password', title: t('crypto_password_title')
       })
     );
+  }
+
+  async function resolveActiveApiKey(runtimeConfig) {
+    const activeProfile = await loadProfileUnlocked(runtimeConfig?.activeProfile?.id);
     return activeProfile?.settings?.apiKey || '';
   }
 
@@ -586,6 +589,7 @@
     cloneBranchHistory,
     shouldOfferBranchSummary,
     renumberForSession,
+    loadProfileUnlocked,
     defaultSummarizeHistory,
     createConversationBranch,
     deleteSession,

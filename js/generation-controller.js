@@ -19,9 +19,6 @@
   function getIcons() { return resolveDep('ChatIcons', './icons.js'); }
   function getAPI(options = {}) { return options.api || resolveDep('ChatAPI', './api.js'); }
   function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
-  function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
-  function getProfileBackup() { return resolveDep('ChatProfileBackup', './profile-backup.js'); }
-  function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
   function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
   function getConversationService() { return resolveDep('ChatConversationService', './conversation-service.js'); }
   function getUIConversation() { return resolveDep('ChatUIConversation', './ui-conversation.js'); }
@@ -159,7 +156,6 @@
     const Attachments = getAttachments();
     const API = getAPI(options);
     const Engine = getEngine();
-    const Profiles = getProfiles();
     const UIConversation = getUIConversation();
     const ConversationService = getConversationService();
 
@@ -304,13 +300,8 @@
 
     try {
       const runner = Engine || resolveDep('ChatEngine', './chat-engine.js');
-      const activeProfile = Profiles?.load
-        ? await getProfileBackup().withPassword(
-          keyMaterial => Profiles.load(runtimeConfig.activeProfile?.id, keyMaterial),
-          () => getDialogs()?.prompt(t('crypto_current_password_prompt'), '', {
-            inputType: 'password', title: t('crypto_password_title')
-          })
-        )
+      const activeProfile = ConversationService?.loadProfileUnlocked
+        ? await ConversationService.loadProfileUnlocked(runtimeConfig.activeProfile?.id)
         : null;
       const getChatHistory = typeof options.getChatHistory === 'function' ? options.getChatHistory : (() => State?.getMessages?.() || []);
 
