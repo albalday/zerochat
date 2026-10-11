@@ -45,6 +45,24 @@ El código nuevo debe:
 Antes de crear una utilidad, servicio o abstracción, debe comprobarse si ya existe
 una solución equivalente en el repositorio.
 
+### Código muerto, duplicado y de compatibilidad
+
+- Las dependencias entre módulos se inyectan en la fábrica UMD o se resuelven con
+  `ChatUtils.resolveDep`, nunca con `window.X || require(...)` escrito a mano.
+- No se añaden respaldos para lo que siempre está disponible: los módulos que carga
+  `zerochat.html` y el contexto que `ChatToolCards` entrega a las vistas (`markdown`, `t`,
+  `charts`, `createCardWrapper` e iconos de estado). Se llama directamente; si faltara, el
+  error debe verse.
+- No se escribe texto alternativo tras `t()`: devuelve la clave cuando falta la traducción,
+  así que la clave debe existir en español e inglés.
+- No se añade código de compatibilidad con versiones anteriores (alias, migraciones de
+  datos o formatos, lectura de claves antiguas) salvo petición expresa del usuario.
+- Al retirar o sustituir algo, el mismo cambio elimina lo que deja sin uso: funciones,
+  exportaciones, claves i18n, CSS, iconos, pruebas y documentación.
+- No se exportan funciones solo para probarlas: las pruebas usan la API pública y el
+  contexto real, sin versiones incompletas que obliguen a mantener respaldos.
+- Antes de copiar un módulo parecido para crear otro, se extrae lo común.
+
 ## 3. Arquitectura y presentación
 
 `app.js` coordina el arranque y la integración de módulos. La lógica específica debe
@@ -146,6 +164,11 @@ Antes de considerar terminado un cambio:
 1. deben pasar las pruebas aplicables;
 2. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
 
+Las normas de código muerto, duplicado y dependencias de la sección 2 se comprueban en
+`tests/architecture/test_code_hygiene.js` y `tests/architecture/test_i18n_literals.js`.
+Una clave i18n que el código compone con un prefijo se declara en `DYNAMIC_KEY_PREFIXES`.
+Una revisión de cambios comprueba además qué deja sin uso o duplicado el cambio revisado.
+
 ## 6. Control de versiones y Git
 
 El flujo de trabajo en el repositorio debe seguir estas pautas:
@@ -229,12 +252,13 @@ Los archivos de `/help/` (ayuda publicada en GitHub Pages), de `/docs/` (informe
 Un cambio está terminado cuando:
 
 - implementa únicamente el comportamiento solicitado;
-- conserva la compatibilidad existente, salvo decisión explícita;
+- conserva el comportamiento existente, salvo decisión explícita;
 - tiene pruebas adecuadas;
 - mantiene español e inglés cuando afecta a la interfaz;
 - actualiza y mantiene automáticamente la documentación de `/help` en formato bilingüe (español e inglés) ante cualquier actualización o cambio de funcionalidades;
 - no deja errores de consola en los tests de navegador;
 - recompila el backend (`npm run build:backend`) si se modificó el directorio `py/`, manteniendo sincronizado `zerochat.py` sin necesidad de alterar versiones;
+- no deja código sin uso, duplicado ni de compatibilidad con versiones anteriores;
 - deja la documentación coherente con el comportamiento real.
 
 ## 9. Política de documentación y colocación (colocation)

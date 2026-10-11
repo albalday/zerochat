@@ -1,0 +1,89 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+// Higiene del código fuente: dependencias resueltas con la infraestructura común, sin
+// funciones ni variables que nadie use. Las pruebas no cuentan como uso.
+
+const ROOT = path.resolve(__dirname, '../..');
+const JS_DIR = path.join(ROOT, 'js');
+
+function listJsFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listJsFiles(fullPath);
+    return entry.name.endsWith('.js') ? [fullPath] : [];
+  });
+}
+
+const SOURCES = new Map(listJsFiles(JS_DIR).map(file => [file, fs.readFileSync(file, 'utf8')]));
+const OTHER_CONSUMERS = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'sw.js')].map(file => fs.readFileSync(file, 'utf8'));
+const relative = file => path.relative(ROOT, file);
+const lineOf = (source, index) => source.slice(0, index).split('\n').length;
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const countWord = (text, name) => (text.match(new RegExp(`(?<![\\w$])${escapeRegExp(name)}(?![\\w$])`, 'g')) || []).length;
+
+test('Higiene - las dependencias se resuelven con ChatUtils.resolveDep, no con window y require a mano', () => {
+  const offenders = [];
+  for (const [file, source] of SOURCES) {
+    if (file.endsWith(`${path.sep}utils.js`)) continue;
+    source.split('\n').forEach((line, index) => {
+      if (/window\.(Chat|ZeroChat)\w*|window\[/.test(line) && /require\(/.test(line)) {
+        offenders.push(`${relative(file)}:${index + 1}`);
+      }
+    });
+    for (const match of source.matchAll(/\n {2}function (get[A-Z]\w*)\(\) \{\n([\s\S]*?)\n {2}\}\n/g)) {
+      if (/window\.(Chat|ZeroChat)/.test(match[2]) && /require\(/.test(match[2])) {
+        offenders.push(`${relative(file)}:${lineOf(source, match.index + 1)} ${match[1]}()`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `Usa resolveDep(globalName, modulePath):\n${offenders.join('\n')}`);
+});
+
+// Declaraciones de funciones, funciones flecha y métodos de clase.
+const DEFINITION = /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|^\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)|^ {4}(?:async\s+)?([a-zA-Z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$/gm;
+// Entrada de una lista de exportación: «nombre,» o «nombre: nombre,».
+const isExportEntry = (line, name) => new RegExp(`^\\s*${escapeRegExp(name)}\\s*(?::\\s*${escapeRegExp(name)}\\s*)?,?\\s*$`).test(line);
+
+test('Higiene - no hay funciones sin uso ni exportadas solo para las pruebas', () => {
+  const offenders = [];
+  for (const [file, source] of SOURCES) {
+    const others = [...[...SOURCES].filter(([other]) => other !== file).map(([, text]) => text), ...OTHER_CONSUMERS];
+    for (const match of source.matchAll(DEFINITION)) {
+      const name = match[1] || match[2] || match[3];
+      if (name === 'constructor' || others.some(text => countWord(text, name) > 0)) continue;
+      const definitionIndex = match.index + match[0].indexOf(name);
+      const uses = [...source.matchAll(new RegExp(`(?<![\\w$.])${escapeRegExp(name)}(?![\\w$])`, 'g'))]
+        .filter(use => use.index !== definitionIndex)
+        .filter(use => {
+          const start = source.lastIndexOf('\n', use.index) + 1;
+          const end = source.indexOf('\n', use.index);
+          return !isExportEntry(source.slice(start, end === -1 ? undefined : end), name);
+        });
+      const memberUses = (source.match(new RegExp(`\\.${escapeRegExp(name)}(?![\\w$])`, 'g')) || []).length;
+      if (uses.length === 0 && memberUses === 0) offenders.push(`${relative(file)}:${lineOf(source, match.index + 1)} ${name}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `Elimina el código muerto o úsalo:\n${offenders.join('\n')}`);
+});
+
+test('Higiene - no hay variables declaradas que nadie lea', () => {
+  const offenders = [];
+  for (const [file, source] of SOURCES) {
+    const names = [];
+    for (const match of source.matchAll(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/gm)) names.push([match[1], match.index]);
+    for (const match of source.matchAll(/^\s*(?:const|let)\s*\{([^}=]*)\}\s*=/gm)) {
+      for (const part of match[1].split(',')) {
+        const name = part.split(':').pop().split('=')[0].trim();
+        if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push([name, match.index]);
+      }
+    }
+    for (const [name, index] of names) {
+      // El prefijo _ marca una variable que se descarta a propósito (p. ej. al quitar una propiedad).
+      if (!name.startsWith('_') && countWord(source, name) <= 1) offenders.push(`${relative(file)}:${lineOf(source, index + 1)} ${name}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `Variables sin uso:\n${offenders.join('\n')}`);
+});
