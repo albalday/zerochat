@@ -168,10 +168,8 @@ test('UIProfiles - usar clave predeterminada informa si no hay API keys', async 
   const previousDialogs = global.ChatDialogs;
   const previousProfiles = global.ChatProfileRepository;
   const previousBackup = global.ChatProfileBackup;
-  const previousI18n = global.ChatI18n;
   const alerts = [];
   try {
-    global.ChatI18n = { t: key => key };
     global.ChatDialogs = {
       confirm: async () => true,
       alert: async message => { alerts.push(message); }
@@ -186,7 +184,7 @@ test('UIProfiles - usar clave predeterminada informa si no hay API keys', async 
     };
 
     await UIProfiles.handleUseDefaultEncryptionKey();
-    assert.deepEqual(alerts, ['crypto_default_no_api_keys']);
+    assert.deepEqual(alerts, [require('../../js/i18n.js').t('crypto_default_no_api_keys')]);
   } finally {
     if (previousDialogs === undefined) delete global.ChatDialogs;
     else global.ChatDialogs = previousDialogs;
@@ -194,8 +192,6 @@ test('UIProfiles - usar clave predeterminada informa si no hay API keys', async 
     else global.ChatProfileRepository = previousProfiles;
     if (previousBackup === undefined) delete global.ChatProfileBackup;
     else global.ChatProfileBackup = previousBackup;
-    if (previousI18n === undefined) delete global.ChatI18n;
-    else global.ChatI18n = previousI18n;
   }
 });
 

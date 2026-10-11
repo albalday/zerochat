@@ -29,11 +29,11 @@ test('RagUI - genera diálogos separados para activar y gestionar documentos', (
 function withI18n(lang, fn) {
   const previousWindow = globalThis.window;
   globalThis.window = { ChatI18n: I18n };
-  I18n.setLanguage(lang, false);
+  I18n.setLanguage(lang);
   try {
     return fn();
   } finally {
-    I18n.setLanguage('es', false);
+    I18n.setLanguage('es');
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
   }

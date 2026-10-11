@@ -1,8 +1,8 @@
 /** Tool autocontenida: list_documents. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
-  else root.ChatBuiltinListDocumentsTool = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../icons.js'));
+  else root.ChatBuiltinListDocumentsTool = factory(root.ChatUtils, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -26,7 +26,6 @@
 
 
 
-  const Icons = resolveDep('ChatIcons', './icons.js');
   const LAYERS_ICON_SVG = Icons.get('layers', { size: 14 });
 
 

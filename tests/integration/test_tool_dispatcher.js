@@ -116,7 +116,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   ChatToolSecurity.manager.setToolPolicy('mcp_testz5fzsrv_run_cmd', 'deny');
   const resDeny = await AgentCore.dispatchToolCall(toolCall);
   assert.equal(resDeny.success, false);
-  assert.ok(resDeny.error.includes('bloqueada'));
+  assert.ok(resDeny.error.includes('blocked'));
 
   // 2. Caso Ask con Denegación interactiva del usuario
   ChatToolSecurity.manager.setToolPolicy('mcp_testz5fzsrv_run_cmd', 'ask');
@@ -130,7 +130,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       container: { appendChild: () => {} }
     });
     assert.equal(resUserDeny.success, false);
-    assert.ok(resUserDeny.error.includes('denegada por el usuario'));
+    assert.ok(resUserDeny.error.includes('denied by the user'));
   } finally {
     ChatToolCards.promptToolAuthorization = origPrompt;
   }

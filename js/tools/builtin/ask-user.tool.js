@@ -1,8 +1,8 @@
 /** Tool autocontenida: ask_user. Muestra una pregunta con opciones y cede el turno al usuario. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
-  else root.ChatBuiltinAskUserTool = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../icons.js'));
+  else root.ChatBuiltinAskUserTool = factory(root.ChatUtils, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -63,7 +63,7 @@
     return { question, options };
   }
 
-  const HELP_ICON_SVG = resolveDep('ChatIcons', './icons.js').get('help-circle', { size: 15 });
+  const HELP_ICON_SVG = Icons.get('help-circle', { size: 15 });
 
   /**
    * Los botones se pintan desactivados: la aplicación habilita solo los de la pregunta pendiente

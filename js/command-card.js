@@ -9,11 +9,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatCommandCard = factory(root.ChatUtils);
+    root.ChatCommandCard = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep, escapeHtml, formatBytes } = Utils;
@@ -27,14 +27,12 @@
 
   const controllers = new WeakMap();
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getIcons = () => resolveDep('ChatIcons', './icons.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const getDialogs = () => resolveDep('ChatDialogs', null);
   const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
   const getState = () => resolveDep('ChatState', './state.js');
-  const t = (key, params) => getI18n()?.t?.(key, params) || key;
-  const icon = (name, size = 13) => getIcons()?.get?.(name, { size }) || '';
+  const { t } = I18n;
+  const icon = (name, size = 13) => Icons.get(name, { size });
 
   /** Resultado de run_command (texto JSON del servidor) como objeto, o null si no lo es. */
   function parseResult(raw) {
@@ -89,7 +87,7 @@
   function renderBadge(state) {
     const view = getBadgeView(state);
     const svg = view.icon === 'spinner'
-      ? (getIcons()?.get?.('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' }) || '')
+      ? Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' })
       : icon(view.icon, 12);
     return `<span class="tool-card-badge ${view.className}">${svg} <span>${escapeHtml(view.text)}</span></span>`;
   }

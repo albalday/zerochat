@@ -1,8 +1,8 @@
 /** Tool autocontenida: delegate_task. Delega una investigación a un subagente de solo lectura con contexto propio. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
-  else root.ChatBuiltinDelegateTaskTool = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../i18n.js'), require('../../icons.js'));
+  else root.ChatBuiltinDelegateTaskTool = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -35,8 +35,7 @@
   };
 
   const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
-  const translate = (key, params) => resolveDep('ChatI18n', './i18n.js').t(key, params);
-  const Icons = resolveDep('ChatIcons', './icons.js');
+  const translate = (key, params) => I18n.t(key, params);
   const BOT_ICON_SVG = Icons.get('bot', { size: 14 });
 
   function isReadOnlyTool(tool) {

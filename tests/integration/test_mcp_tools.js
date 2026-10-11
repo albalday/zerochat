@@ -304,14 +304,14 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     const I18n = require('../../js/i18n.js');
     const previousLanguage = I18n.getLanguage();
     try {
-      I18n.setLanguage('en', false);
+      I18n.setLanguage('en');
       const mdEmptyEn = sqlTool.formatter({ sql: 'SELECT 1' }, {});
       assert.ok(mdEmptyEn.includes('No output'));
       assert.ok(!mdEmptyEn.includes('Sin salida'));
-      I18n.setLanguage('es', false);
+      I18n.setLanguage('es');
       assert.ok(sqlTool.formatter({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
     } finally {
-      I18n.setLanguage(previousLanguage, false);
+      I18n.setLanguage(previousLanguage);
     }
   } finally {
     global.fetch = originalFetch;

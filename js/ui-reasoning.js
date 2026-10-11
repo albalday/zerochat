@@ -1,18 +1,15 @@
 /** UI del selector compacto de intensidad de razonamiento. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
-  else root.ChatUIReasoning = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+  else root.ChatUIReasoning = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { escapeHtml } = Utils;
 
-  function t(key, params) {
-    const I18n = resolveDep('ChatI18n', './i18n.js');
-    return I18n?.t ? I18n.t(key, params) : key;
-  }
+  const { t } = I18n;
 
   function getReasoningIntensity(level) {
     const normalized = String(level || 'none').toLowerCase().trim();
@@ -170,15 +167,14 @@
     const panel = elements?.projectModePanel;
     if (!panel) return;
     panel._projectHandlers = handlers;
-    const Icons = resolveDep('ChatIcons', './icons.js');
-    const icon = Icons?.get ? Icons.get('folder', { size: 13 }) : '';
+    const icon = Icons.get('folder', { size: 13 });
     const enabled = config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize: canInitialize && typeof handlers.initialize === 'function' }) : [];
     // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
     const cwd = String(project.cwd || '');
     const changeLabel = escapeHtml(t('project_action_change_directory'));
     const changeButton = canChangeDirectory && typeof handlers.changeDirectory === 'function'
-      ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons?.get ? Icons.get('edit', { size: 15 }) : ''}</button>`
+      ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons.get('edit', { size: 15 })}</button>`
       : '';
     const directoryHtml = cwd
       ? `<div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>`

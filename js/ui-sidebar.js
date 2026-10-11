@@ -4,23 +4,17 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatUISidebar = factory(root.ChatUtils);
+    root.ChatUISidebar = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { escapeHtml } = Utils;
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getIcons = () => resolveDep('ChatIcons', './icons.js');
 
-  function t(key, params) {
-    const I18n = getI18n();
-    if (I18n && typeof I18n.t === 'function') return I18n.t(key, params);
-    return key;
-  }
+  const { t } = I18n;
 
 
   function isMobile() {
@@ -193,7 +187,6 @@
       return;
     }
 
-    const Icons = getIcons();
     const exportSvg = Icons.get('download', { size: 13 });
     const editSvg = Icons.get('edit', { size: 13 });
     const trashSvg = Icons.get('trash', { size: 13 });

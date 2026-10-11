@@ -227,7 +227,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
           for (const language of ['es', 'en']) {
             for (const theme of ['light', 'dark']) {
               const layout = await page.evaluate(({ section, language, theme }) => {
-                window.ChatI18n.setLanguage(language, false);
+                window.ChatI18n.setLanguage(language);
                 document.documentElement.setAttribute('data-theme', theme);
                 if (section === 'permissions') window.ChatUIMcp.renderSavedAuthorizations();
                 const panel = document.getElementById(`settings-${section}`);

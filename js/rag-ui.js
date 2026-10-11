@@ -1,48 +1,19 @@
 /** Minimal UI for IndexedDB-backed local knowledge. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
-  else root.ChatRagUI = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+  else root.ChatRagUI = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   let activeBranchIds = new Set();
   let initialized = false;
 
-  function storage() {
-    if (typeof window !== 'undefined') return window.ChatRagStorage;
-    try { return require('./ragStorage.js'); } catch (_) { return null; }
-  }
-  function ingestion() {
-    if (typeof window !== 'undefined') return window.ChatIngestionEngine || window.IngestionEngine;
-    try { return require('./ingestionEngine.js'); } catch (_) { return null; }
-  }
-  function indexer() {
-    if (typeof window !== 'undefined') return window.ChatRagIndex;
-    try { return require('./rag-index.js'); } catch (_) { return null; }
-  }
-  function runtimeConfig() {
-    return typeof window !== 'undefined' ? window.ChatConfig : null;
-  }
-  const { escapeHtml, formatBytes } = Utils;
-
-  function t(key, params) {
-    if (typeof window !== 'undefined' && window.ChatI18n?.t) {
-      return window.ChatI18n.t(key, params);
-    }
-    return '';
-  }
-
-  function getIcon(name, options) {
-    if (typeof window !== 'undefined' && window.ChatIcons?.get) {
-      return window.ChatIcons.get(name, options);
-    }
-    try {
-      const icons = require('./icons.js');
-      return icons?.get?.(name, options) || '';
-    } catch (_) {
-      return '';
-    }
-  }
+  const { escapeHtml, formatBytes, resolveDep } = Utils;
+  const { t } = I18n;
+  const storage = () => resolveDep('ChatRagStorage', './ragStorage.js');
+  const ingestion = () => resolveDep('ChatIngestionEngine', './ingestionEngine.js');
+  const indexer = () => resolveDep('ChatRagIndex', './rag-index.js');
+  const runtimeConfig = () => resolveDep('ChatConfig', './config-store.js');
 
   async function getBranchMetrics(branches) {
     const metrics = await Promise.all((branches || []).map(async branch => {
@@ -217,12 +188,12 @@
       const formatted = formatBranchMetrics(metrics);
       const loadedText = t('rag_branch_loaded', { summary: formatted });
       const descText = branch.description || t('rag_branch_no_desc');
-      const badgeIcon = isActive ? getIcon('check', { size: 12 }) : getIcon('plus', { size: 12 });
+      const badgeIcon = isActive ? Icons.get('check', { size: 12 }) : Icons.get('plus', { size: 12 });
       const badgeText = isActive ? (t('rag_branch_active_badge')) : (t('rag_branch_activate_badge'));
       const langLabel = formatBranchLanguage(branch.language);
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
-        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline">${getIcon('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
+        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline">${Icons.get('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
         <span class="rag-branch-badge-status">${badgeIcon} <span>${escapeHtml(badgeText)}</span></span>
       </button>`;
     }).join('');
@@ -316,7 +287,7 @@
     workspace.innerHTML = `
       <div class="rag-workspace-header-bar">
         <span>${escapeHtml(t('rag_branch_label'))} <strong>${escapeHtml(branch?.name || '')}</strong></span>
-        <span class="rag-workspace-lang">${getIcon('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang'))} <strong>${escapeHtml(langLabel)}</strong></span>
+        <span class="rag-workspace-lang">${Icons.get('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang'))} <strong>${escapeHtml(langLabel)}</strong></span>
       </div>
       <label class="rag-dropzone" id="rag-dropzone">
         <strong>${escapeHtml(dropzoneTitle)}</strong>
@@ -327,7 +298,7 @@
       <div class="rag-documents-list">${documents.length ? documents.map(document => `
         <div class="rag-document-card" data-document-id="${escapeHtml(document.id)}">
           <div><strong>${escapeHtml(document.title)}</strong><div class="toggle-card-desc">${formatDocumentMetrics(document)}</div></div>
-          <button type="button" class="btn-danger-outline btn-rag-delete-document" data-delete-document="${escapeHtml(document.id)}" title="${escapeHtml(deleteDocTitle)}" aria-label="${escapeHtml(deleteDocTitle)}">${getIcon('trash', { size: 13 })}</button>
+          <button type="button" class="btn-danger-outline btn-rag-delete-document" data-delete-document="${escapeHtml(document.id)}" title="${escapeHtml(deleteDocTitle)}" aria-label="${escapeHtml(deleteDocTitle)}">${Icons.get('trash', { size: 13 })}</button>
         </div>`).join('') : `<div class="rag-empty-state">${escapeHtml(emptyDocsText)}</div>`}</div>`;
 
     const input = document.getElementById('rag-file-input');
@@ -889,17 +860,9 @@
 
     updateToolbarStatus();
 
-    if (typeof window !== 'undefined') {
-      if (window.ChatI18n?.onChange) {
-        window.ChatI18n.onChange(() => {
-          refresh().catch(() => {});
-        });
-      } else {
-        window.addEventListener('zerochat:languagechange', () => {
-          refresh().catch(() => {});
-        });
-      }
-    }
+    I18n.onChange(() => {
+      refresh().catch(error => console.warn('[RAG UI] Could not refresh after a language change:', error));
+    });
   }
 
   function getRagActivationModalHTML() {
@@ -933,7 +896,7 @@
           <a href="help/rag.html" target="_blank" rel="noopener noreferrer" class="rag-help-external-link" data-i18n="rag_help_link_label">Ver guía completa</a>
         </div>
         <div class="rag-active-tip-card">
-          <span class="rag-active-tip-icon">${getIcon('lightbulb', { size: 18 })}</span>
+          <span class="rag-active-tip-icon">${Icons.get('lightbulb', { size: 18 })}</span>
           <div class="rag-active-tip-content">
             <strong data-i18n="rag_active_tip_title">Eficacia del RAG y modelo:</strong>
             <span data-i18n-html="rag_active_tip_desc">La eficacia del RAG se basa en gran medida en la <strong>inteligencia, visión multimodal</strong> (para interpretar tablas, gráficos e imágenes) y la <strong>capacidad de razonamiento agéntico</strong> del modelo elegido: es clave para formular búsquedas precisas, examinar fragmentos contiguos y contrastar evidencias sin desorientarse. Usa un modelo con al menos <strong>32K tokens de contexto</strong>: con menos, el protocolo, las herramientas y unos pocos fragmentos llenan la ventana y la conversación se compacta casi de inmediato.</span>

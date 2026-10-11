@@ -5,25 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./i18n.js'));
   } else {
-    root.ChatUIShell = factory();
+    root.ChatUIShell = factory(root.ChatI18n);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (I18n) {
   'use strict';
 
-  function resolveI18n() {
-    if (typeof window !== 'undefined' && window.ChatI18n) return window.ChatI18n;
-    if (typeof require !== 'undefined') {
-      try { return require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
-  }
-
-  function t(key, params) {
-    const I18n = resolveI18n();
-    return I18n?.t?.(key, params) || key;
-  }
+  const { t } = I18n;
 
   let activeCleanupFns = [];
   let cachedElements = null;

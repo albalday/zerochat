@@ -1,8 +1,8 @@
 /** Tool autocontenida: search_knowledge_base. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
-  else root.ChatBuiltinSearchKnowledgeBaseTool = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../icons.js'));
+  else root.ChatBuiltinSearchKnowledgeBaseTool = factory(root.ChatUtils, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -34,7 +34,6 @@
 
 
 
-  const Icons = resolveDep('ChatIcons', './icons.js');
   const DB_ICON_SVG = Icons.get('database', { size: 14 });
 
 

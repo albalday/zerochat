@@ -4,22 +4,14 @@
  * (providers, RAG, tools, MCP, agent loop) during an active chat cycle.
  */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatUIGenerationStatus = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'));
+  else root.ChatUIGenerationStatus = factory(root.ChatUtils, root.ChatI18n);
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
+  const { resolveDep } = Utils;
+  const { t } = I18n;
   let elapsedTimer = null;
-
-  function resolveI18n() {
-    if (typeof window !== 'undefined') return window.ChatI18n;
-    if (typeof require !== 'undefined') { try { return require('./i18n.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
-    return null;
-  }
-
-  function t(key, params) {
-    return resolveI18n()?.t?.(key, params) || key;
-  }
 
   function getViewModel(status = {}, now = Date.now(), options = {}) {
     const raw = typeof status === 'string' ? { text: status } : (status || {});
@@ -76,10 +68,7 @@
   }
 
   function resolveState() {
-    if (typeof window !== 'undefined' && window.ChatState) return window.ChatState;
-    if (typeof globalThis !== 'undefined' && globalThis.ChatState) return globalThis.ChatState;
-    if (typeof require !== 'undefined') { try { return require('./state.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
-    return null;
+    return resolveDep('ChatState', './state.js');
   }
 
   function setStatus(element, update = {}) {

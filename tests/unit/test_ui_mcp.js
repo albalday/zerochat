@@ -431,10 +431,10 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
   const dom = installDom();
   const originalLang = ChatI18n.getLanguage();
   t.after(() => {
-    ChatI18n.setLanguage(originalLang, false);
+    ChatI18n.setLanguage(originalLang);
     dom.restore();
   });
-  ChatI18n.setLanguage('es', false);
+  ChatI18n.setLanguage('es');
   const elements = createElements(['statusBadge', 'statusText', 'serverDetails']);
   elements.statusText.setAttribute('data-i18n', 'mcp_status_disconnected');
   document.body.append(...Object.values(elements));
@@ -454,7 +454,7 @@ test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTran
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
 
-  ChatI18n.setLanguage('en', false);
+  ChatI18n.setLanguage('en');
   assert.equal(elements.statusText.textContent, 'Connected');
 });
 

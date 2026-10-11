@@ -9,11 +9,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'), require('./utils.js'));
+    module.exports = factory(require('./message-turns.js'), require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatEngine = factory(root.ChatMessageTurns, root.ChatUtils);
+    root.ChatEngine = factory(root.ChatMessageTurns, root.ChatUtils, root.ChatI18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (MessageTurns, Utils) {
+})(typeof self !== 'undefined' ? self : this, function (MessageTurns, Utils, I18n) {
   'use strict';
 
   function getAPI() {
@@ -416,8 +416,7 @@
           // stays above the response, which continues in a fresh block.
           const block = turnBlocks.get(turnIndex);
           if (!block || !container) return;
-          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
-          const noticeText = i18n?.t ? i18n.t('chat_context_compacting') : 'Compactando contexto.....';
+          const noticeText = I18n.t('chat_context_compacting');
           UIConversation.renderAssistantBlock(block, noticeText, { attachListeners: attachEvts });
           turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
           scrollFn();
@@ -439,8 +438,7 @@
         },
         onToolStart: (toolCall, _tool, turnIndex) => {
           const toolName = toolCall?.function?.name || _tool?.name || 'tool';
-          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
-          const statusText = i18n?.t ? i18n.t('generation_status_tool', { name: toolName }) : `Ejecutando ${toolName}...`;
+          const statusText = I18n.t('generation_status_tool', { name: toolName });
           onGenerationStatus?.({ phase: 'tool', text: statusText });
           if (typeof onToolCallStart === 'function') onToolCallStart({ turnIndex, toolCall });
         },
@@ -467,8 +465,7 @@
           }
         },
         onLoopDetected: () => {
-          const i18n = (typeof window !== 'undefined' && window.ChatI18n) || null;
-          const statusText = i18n?.t ? i18n.t('generation_status_loop_detected') : 'Parada ordenada: bucle infinito detectado';
+          const statusText = I18n.t('generation_status_loop_detected');
           onGenerationStatus?.({ phase: 'error', text: statusText });
           if (typeof onLog === 'function') {
             onLog('error', '[Protección Bucle Infinito]: Herramientas invocadas en un patrón repetido con los mismos argumentos. Interrumpiendo ciclo agéntico.');

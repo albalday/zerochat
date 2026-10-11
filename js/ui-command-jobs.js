@@ -5,11 +5,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatUICommandJobs = factory(root.ChatUtils);
+    root.ChatUICommandJobs = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep, escapeHtml } = Utils;
@@ -17,14 +17,12 @@
   const MAX_COMMAND_CHARS = 60;
   const CARD_CLASS = 'command-jobs-card';
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getIcons = () => resolveDep('ChatIcons', './icons.js');
   const getState = () => resolveDep('ChatState', './state.js');
   const getCommandCard = () => resolveDep('ChatCommandCard', './command-card.js');
   const getConversation = () => resolveDep('ChatUIConversation', './ui-conversation.js');
   const getMcp = () => resolveDep('ChatMCP', null)?.manager || null;
-  const t = (key, params) => getI18n()?.t?.(key, params) || key;
-  const icon = (name, size = 14) => getIcons()?.get?.(name, { size }) || '';
+  const { t } = I18n;
+  const icon = (name, size = 14) => Icons.get(name, { size });
 
   function shortCommand(command) {
     const firstLine = String(command || '').split('\n')[0].trim();

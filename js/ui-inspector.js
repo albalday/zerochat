@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatUIInspector = factory(root.ChatUtils);
+    root.ChatUIInspector = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   let discoveredModels = [];
@@ -16,22 +16,16 @@
 
   const { resolveDep, escapeHtml, createId } = Utils;
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getApi = () => resolveDep('ChatAPI', './api.js');
   const getStorage = () => resolveDep('ChatStorage', './cookies.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
-  const getIcons = () => resolveDep('ChatIcons', './icons.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getState = () => resolveDep('ChatState', './state.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getUITelemetry = () => resolveDep('ChatUITelemetry', './ui-telemetry.js');
 
-  function t(key, params) {
-    const I18n = getI18n();
-    if (I18n && typeof I18n.t === 'function') return I18n.t(key, params);
-    return key;
-  }
+  const { t } = I18n;
 
 
   function addDebugLog(type, text, rawData) {
@@ -343,7 +337,7 @@
         const labelText = t(labelKey);
         button.title = labelText;
         button.setAttribute('aria-label', labelText);
-        button.innerHTML = getIcons()?.get?.(icon, { size: 14 }) || labelText;
+        button.innerHTML = Icons.get(icon, { size: 14 });
         button.disabled = disabled;
         button.addEventListener('click', handler);
         return button;
@@ -367,7 +361,7 @@
           button.disabled = false;
           button.title = t('webllm_cancel');
           button.setAttribute('aria-label', t('webllm_cancel'));
-          button.innerHTML = getIcons()?.get?.('stop', { size: 14 }) || t('webllm_cancel');
+          button.innerHTML = Icons.get('stop', { size: 14 });
           label.textContent = stateLabel(t('webllm_preparing'));
           progressBar.hidden = false;
           progressBar.removeAttribute('value');
@@ -417,7 +411,7 @@
           setWebLLMState({ operation: { id: operationId, modelId: id, contextKey } });
           list.querySelectorAll('button').forEach(action => { action.disabled = true; });
           button.dataset.loading = 'true';
-          button.innerHTML = getIcons()?.get?.('spinner', { size: 14 }) || t('webllm_deleting');
+          button.innerHTML = Icons.get('spinner', { size: 14 });
           const API = getApi();
           label.textContent = stateLabel(t('webllm_deleting'));
           progressBar.hidden = false;
@@ -664,7 +658,7 @@
     const m = report.model || {};
     const caps = report.capabilities || {};
 
-    const icons = getIcons();
+    const icons = Icons;
     const capIcons = {
       streaming: icons.get('radio', { size: 14 }),
       tools: icons.get('settings', { size: 14 }),
@@ -786,7 +780,7 @@
     elements.inspectorResults.style.display = 'block';
     elements.inspectorResults.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
-        <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${getIcons().get('spinner', { size: 24 })}</span>
+        <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${Icons.get('spinner', { size: 24 })}</span>
         <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_querying_model', { model }))}</p>
       </div>
     `;
@@ -870,7 +864,7 @@
         <div class="inspector-model-section">
           <div class="inspector-model-header">
             <div class="inspector-model-title">
-              ${getIcons().get('check-circle', { size: 16 })}
+              ${Icons.get('check-circle', { size: 16 })}
               <span>${escapeHtml(t('inspector_model_title'))}: <strong>${escapeHtml(modelDisplayName)}</strong></span>
             </div>
             <span class="cap-badge cap-badge-confirmed">✓ ${escapeHtml(t('inspector_status_confirmed'))}</span>
@@ -891,7 +885,7 @@
       elements.inspectorResults.innerHTML = `
         ${modelSectionHtml}
         <div id="inspector-endpoint-loading" style="padding: 1.25rem; text-align: center; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 0.75rem;">
-          <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${getIcons().get('spinner', { size: 20 })}</span>
+          <span class="query-icon" style="display:inline-flex; align-items: center; justify-content: center; animation: spin 1s linear infinite;">${Icons.get('spinner', { size: 20 })}</span>
           <p style="margin-top: 0.5rem; font-size: 0.85rem;">${escapeHtml(t('inspector_diagnosing_endpoint'))}</p>
         </div>
       `;

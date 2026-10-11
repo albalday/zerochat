@@ -45,7 +45,7 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
   const I18n = require('../../js/i18n.js');
   const previousLanguage = I18n.getLanguage();
   try {
-    I18n.setLanguage('en', false);
+    I18n.setLanguage('en');
     const responseEn = await Api.streamChatCompletion({
       apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
     });
@@ -55,7 +55,7 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
     assert.match(responseEn.accumulatedText, /## Prepared request \(not sent\)/);
     assert.match(responseEn.accumulatedText, /\]\(help\/en\/index\.html\)/);
 
-    I18n.setLanguage('es', false);
+    I18n.setLanguage('es');
     const responseEs = await Api.streamChatCompletion({
       apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror', messages: []
     });
@@ -63,7 +63,7 @@ test('Api - Espejo localiza su mensaje de orientación', async () => {
     assert.match(responseEs.accumulatedText, /## Continúa con un perfil/);
     assert.match(responseEs.accumulatedText, /\]\(help\/index\.html\)/);
   } finally {
-    I18n.setLanguage(previousLanguage, false);
+    I18n.setLanguage(previousLanguage);
   }
 });
 

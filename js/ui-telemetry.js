@@ -12,23 +12,18 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatUITelemetry = factory(root.ChatUtils);
+    root.ChatUITelemetry = factory(root.ChatUtils, root.ChatI18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
   const { resolveDep } = Utils;
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
 
-  function t(key, params) {
-    const I18n = getI18n();
-    if (I18n && typeof I18n.t === 'function') return I18n.t(key, params);
-    return key;
-  }
+  const { t } = I18n;
 
   /**
    * Formatea un conteo numérico de tokens de manera compacta (ej: 0, 850, 12.5k, 128k, 1.2M).

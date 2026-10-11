@@ -5,24 +5,19 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatDebug = factory(root.ChatUtils);
+    root.ChatDebug = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
 
   function getMarkdown() {
-    return (typeof window !== 'undefined' && window.ChatMarkdown) ? window.ChatMarkdown : {
-      escapeHtml: (str) => String(str || '')
-    };
+    return resolveDep('ChatMarkdown', './markdown.js');
   }
 
-  function getIcons() {
-    return resolveDep('ChatIcons', './icons.js');
-  }
 
   function getConversationUI() {
     return resolveDep('ChatUIConversation', './ui-conversation.js');
@@ -33,16 +28,7 @@
     if (dom.debugLogContent) getConversationUI().scrollToBottom(dom.debugLogContent, { force });
   }
 
-  function getI18n() {
-    return (typeof window !== 'undefined' && window.ChatI18n) ? window.ChatI18n : {
-      t: (k) => k
-    };
-  }
-
-  function t(key, params) {
-    const i18n = getI18n();
-    return i18n.t ? i18n.t(key, params) : key;
-  }
+  const { t } = I18n;
 
   let dom = {};
   let activeFilter = 'all';
@@ -120,7 +106,7 @@
         await navigator.clipboard.writeText(text);
       }
       const originalHtml = dom.btnCopyDebug.innerHTML;
-      dom.btnCopyDebug.innerHTML = getIcons().get('check', { size: 13 });
+      dom.btnCopyDebug.innerHTML = Icons.get('check', { size: 13 });
       setTimeout(() => {
         dom.btnCopyDebug.innerHTML = originalHtml;
       }, 1500);
@@ -271,7 +257,7 @@
       }
 
       let isMaximized = false;
-      const MAXIMIZE_SVG = getIcons().get('shuffle', { size: 14 });
+      const MAXIMIZE_SVG = Icons.get('shuffle', { size: 14 });
       const RESTORE_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
 
       if (dom.btnMaximizeDebugModal) {

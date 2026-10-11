@@ -5,36 +5,24 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatGenerationController = factory(root.ChatUtils);
+    root.ChatGenerationController = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep, escapeHtml } = Utils;
 
   function getState() { return resolveDep('ChatState', './state.js'); }
-  function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
-  function getIcons() { return resolveDep('ChatIcons', './icons.js'); }
   function getAPI(options = {}) { return options.api || resolveDep('ChatAPI', './api.js'); }
   function getEngine() { return resolveDep('ChatEngine', './chat-engine.js'); }
   function getAttachments() { return resolveDep('ChatAttachments', './attachments.js'); }
   function getConversationService() { return resolveDep('ChatConversationService', './conversation-service.js'); }
   function getUIConversation() { return resolveDep('ChatUIConversation', './ui-conversation.js'); }
 
-  function t(key, params) {
-    const I18n = getI18n();
-    return I18n?.t ? I18n.t(key, params) : key;
-  }
+  const { t } = I18n;
 
-  function getMsgIcon(name, size = 12) {
-    const Icons = getIcons();
-    if (Icons && Icons.has && Icons.has(name)) {
-      return Icons.get(name, { size, className: 'ui-icon' });
-    }
-    return '';
-  }
 
   let currentAbortController = null;
 
@@ -123,10 +111,10 @@
   function updateStatsDisplay(statsContainer, stats, options = {}) {
     if (!stats || !statsContainer) return;
     statsContainer.style.display = 'inline-flex';
-    const clockSvg = getMsgIcon('clock', 11);
-    const zapSvg = getMsgIcon('zap', 11);
-    const docSvg = getMsgIcon('file-text', 11);
-    const dbSvg = getMsgIcon('database', 11);
+    const clockSvg = Icons.get('clock', { size: 11 });
+    const zapSvg = Icons.get('zap', { size: 11 });
+    const docSvg = Icons.get('file-text', { size: 11 });
+    const dbSvg = Icons.get('database', { size: 11 });
 
     const cacheHtml = (stats.cachedTokens && stats.cachedTokens > 0)
       ? `<span class="stat-sep stat-sep-4">•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${dbSvg} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
@@ -240,7 +228,7 @@
       if (content) {
         content.innerHTML = `
           <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
+            <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${Icons.get('alert-triangle', { size: 18 })}</span>
             <div>
               <strong>${t('err_no_model_title')}</strong>
               <p style="margin-top: 0.25rem;">${t('err_no_model_desc', { url: escapeHtml(runtimeConfig.apiUrl) })}</p>

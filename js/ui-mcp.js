@@ -4,23 +4,21 @@
  * process implementation.
  */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
-  else root.ChatUIMcp = factory(root.ChatUtils);
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+  else root.ChatUIMcp = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
   const DEFAULT_HOST = '127.0.0.1';
   const DEFAULT_PORT = 6388;
   const { resolveDep, escapeHtml } = Utils;
   const getUtils = () => resolveDep('ChatUtils', './utils.js');
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
-  const getIcons = () => resolveDep('ChatIcons', './icons.js');
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
-  const t = (key, params) => getI18n()?.t ? getI18n().t(key, params) : key;
+  const { t } = I18n;
 
   function clearSafeContent(element) {
     const utils = getUtils();
@@ -118,7 +116,7 @@
     }
     if (btnElement && ok) {
       const orig = btnElement.innerHTML;
-      const check = getIcons()?.get ? getIcons().get('check', { size: 14 }) : '';
+      const check = Icons.get('check', { size: 14 });
       btnElement.innerHTML = `${check} <span>${translator('mcp_cmd_copied')}</span>`;
       btnElement.classList.add('btn-copied');
       const timer = setTimeout(() => { btnElement.innerHTML = orig; btnElement.classList.remove('btn-copied'); }, 2000);
@@ -129,7 +127,6 @@
 
   function renderToolsList(container, tools, currentEnabledTools = {}, translator = t) {
     if (!container) return;
-    const Icons = getIcons();
     container.style.display = 'block';
 
     if (!Array.isArray(tools) || tools.length === 0) {
@@ -140,8 +137,8 @@
       return;
     }
 
-    const plug16 = Icons?.get ? Icons.get('plug', { size: 16 }) : '';
-    const term16 = Icons?.get ? Icons.get('terminal', { size: 16 }) : '';
+    const plug16 = Icons.get('plug', { size: 16 });
+    const term16 = Icons.get('terminal', { size: 16 });
     const badgeText = escapeHtml(translator('mcp_tool_badge'));
 
     const Security = getSecurity();
@@ -282,9 +279,8 @@
       container.innerHTML = `<div class="mcp-servers-empty label-hint">${escapeHtml(translator('mcp_servers_empty'))}</div>`;
       return;
     }
-    const language = getI18n()?.getLanguage?.() || 'es';
+    const language = I18n.getLanguage();
     const Security = getSecurity();
-    const Icons = getIcons();
     const browserActionActive = isBrowserActionCurrentlyActive();
     container.innerHTML = servers.map(server => {
       const isRunning = server.status === 'running';
@@ -340,7 +336,7 @@
       const isServerTrusted = Security?.manager?.getServerPolicy ? Security.manager.getServerPolicy(server.id) === 'allow' : false;
       const trustBtnText = isServerTrusted ? translator('mcp_security_trusted_server') : translator('mcp_security_trust_server');
       const trustBtnClass = isServerTrusted ? 'btn-mcp-server-trust active' : 'btn-mcp-server-trust';
-      const shieldIcon = Icons?.get ? Icons.get('shield', { size: 12 }) : '';
+      const shieldIcon = Icons.get('shield', { size: 12 });
       const playwrightReplacementNotice = server.id === 'playwright' ? `
         <p class="mcp-server-replacement-notice">${escapeHtml(translator(browserActionActive ? 'mcp_playwright_browser_action_active' : 'mcp_playwright_browser_action_inactive'))}</p>` : '';
 
@@ -527,7 +523,7 @@
    */
   async function offerStoppedExternalServices(servers, translator = t) {
     if (!Array.isArray(servers)) return [];
-    const language = getI18n()?.getLanguage?.() || 'es';
+    const language = I18n.getLanguage();
     const items = servers
       .filter(server => server?.enabled === true && server?.status === 'stopped' && typeof server.id === 'string' && server.id)
       .slice(0, 50)
@@ -642,9 +638,8 @@
 
     if (btnClear) btnClear.style.display = 'inline-flex';
 
-    const Icons = getIcons();
-    const trashIcon = Icons?.get ? Icons.get('trash', { size: 12 }) : '';
-    const serverIcon = Icons?.get ? Icons.get('server', { size: 12 }) : '';
+    const trashIcon = Icons.get('trash', { size: 12 });
+    const serverIcon = Icons.get('server', { size: 12 });
     const revokeLabel = escapeHtml(translator('mcp_security_btn_revoke'));
 
     const serverItems = authorizedServers.map(item => {
@@ -869,14 +864,7 @@
       renderSavedAuthorizations(elements, t);
       syncExternalServers();
     };
-    const I18n = getI18n();
-    let unsubscribeLang = null;
-    if (I18n?.onChange) {
-      unsubscribeLang = I18n.onChange(handleLanguageChange);
-    } else if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('zerochat:languagechange', handleLanguageChange);
-      unsubscribeLang = () => window.removeEventListener('zerochat:languagechange', handleLanguageChange);
-    }
+    const unsubscribeLang = I18n.onChange(handleLanguageChange);
 
     return {
       syncSecurityControls,

@@ -4,12 +4,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./providers.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./providers.js'));
   } else {
-    root.ChatWebLLM = factory(root.ChatProviders);
+    root.ChatWebLLM = factory(root.ChatUtils, root.ChatI18n, root.ChatProviders);
   }
-})(typeof self !== 'undefined' ? self : this, function (Providers) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Providers) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
   const COMPLETED_MODELS_STORAGE_KEY = 'webllm_completed_models_v1';
@@ -44,8 +46,7 @@
   }
 
   function getStorage() {
-    if (typeof globalThis !== 'undefined' && globalThis.ChatStorage) return globalThis.ChatStorage;
-    return typeof require !== 'undefined' ? require('./cookies.js') : null;
+    return resolveDep('ChatStorage', './cookies.js');
   }
 
   function completedModels() {
@@ -149,8 +150,7 @@
   }
 
   function gpuLossError(error) {
-    const I18n = (typeof globalThis !== 'undefined' && globalThis.ChatI18n) || (typeof require !== 'undefined' ? require('./i18n.js') : null);
-    return new Error(I18n?.t?.('webllm_gpu_lost') || 'The WebGPU device was lost during local inference.', { cause: error });
+    return new Error(I18n.t('webllm_gpu_lost'), { cause: error });
   }
 
   function extractOverrides(config) {
@@ -181,13 +181,7 @@
   }
 
   function getActiveWebllmConfig() {
-    try {
-      const State = typeof ChatState !== 'undefined' ? ChatState : (typeof globalThis !== 'undefined' ? globalThis.ChatState : null);
-      const cfg = State?.get?.('config') || (typeof ChatConfig !== 'undefined' ? ChatConfig.getActive() : null);
-      return cfg?.webllmConfig || null;
-    } catch (_) {
-      return null;
-    }
+    return resolveDep('ChatState', './state.js').get('config').webllmConfig || null;
   }
 
   function createWorkerEngine(webllm, modelId, appConfig, onProgress, signal, chatOpts = {}) {

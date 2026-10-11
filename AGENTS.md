@@ -48,7 +48,9 @@ una solución equivalente en el repositorio.
 ### Código muerto, duplicado y de compatibilidad
 
 - Las dependencias entre módulos se inyectan en la fábrica UMD o se resuelven con
-  `ChatUtils.resolveDep`, nunca con `window.X || require(...)` escrito a mano.
+  `ChatUtils.resolveDep`, nunca con `window.X || require(...)` escrito a mano. `ChatI18n` y
+  `ChatIcons` se cargan justo después de `utils.js` y se inyectan siempre en la fábrica
+  (`const { t } = I18n;`), sin envoltorios propios de `t()`.
 - No se añaden respaldos para lo que siempre está disponible: los módulos que carga
   `zerochat.html` y el contexto que `ChatToolCards` entrega a las vistas (`markdown`, `t`,
   `charts`, `createCardWrapper` e iconos de estado). Se llama directamente; si faltara, el

@@ -5,11 +5,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatAttachments = factory(root.ChatUtils);
+    root.ChatAttachments = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -78,12 +78,11 @@
       const chip = document.createElement('div');
       chip.className = 'file-chip';
 
-      const Icons = resolveDep('ChatIcons', './icons.js');
       const iconName = file.type === 'image' ? 'image' : 'file-text';
-      const removeTitle = resolveDep('ChatI18n', './i18n.js').t('btn_delete');
+      const removeTitle = I18n.t('btn_delete');
       const icon = document.createElement('span');
       icon.className = 'file-chip-icon';
-      // Los SVG proceden exclusivamente de ChatIcons.
+      // Los SVG proceden exclusivamente de Icons.
       Utils.setTrustedHtml(icon, Icons.get(iconName, { size: 14 }));
 
       const name = document.createElement('span');

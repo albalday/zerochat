@@ -24,6 +24,12 @@
     return isMobileDevice(nav) ? WEBLLM_MOBILE_CONTEXT_WINDOW_SIZE : WEBLLM_DESKTOP_CONTEXT_WINDOW_SIZE;
   }
 
+  // Idioma inicial de la interfaz: el del navegador si es inglés; en otro caso, español.
+  function getBrowserLanguage(nav = typeof navigator !== 'undefined' ? navigator : null) {
+    const language = String(nav?.languages?.[0] || nav?.language || '').toLowerCase();
+    return language.startsWith('en') ? 'en' : 'es';
+  }
+
   const DEFAULT_THEME = 'dark';
   const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
 
@@ -36,7 +42,7 @@
     enabledTools: Object.freeze({ execute_javascript: true, search_web: true, fetch_web_page: true, download_pdf: true, render_chart: true }),
     enableRawLogs: false, enableContextCache: true,
     apiKeyLocked: false,
-    theme: DEFAULT_THEME, language: 'es', enableDebugMessages: false,
+    theme: DEFAULT_THEME, language: getBrowserLanguage(), enableDebugMessages: false,
     activeRagBranchId: '', activeRagBranchIds: Object.freeze([]),
     mcpHost: '127.0.0.1', mcpPort: 6388, mcpAutoConnect: false,
     projectMode: true, projectDeclined: Object.freeze([]),

@@ -54,9 +54,6 @@
     return resolveDep('ChatToolCards', './tool-cards.js');
   }
 
-  function getI18n() {
-    return resolveDep('ChatI18n', './i18n.js');
-  }
 
   function createCancelledError() {
     return new Error('Ejecución agéntica cancelada por el usuario.');
@@ -514,15 +511,11 @@
      * @private
      */
     async _authorizeToolCall(tool, args, toolCall, context) {
-      const ToolSecurity = getToolSecurity();
-      const I18n = getI18n();
-      const t = (key, fallback) => (I18n?.t ? I18n.t(key) : fallback);
-      const authEval = ToolSecurity?.manager?.evaluateAuthorization
-        ? ToolSecurity.manager.evaluateAuthorization(tool, args, context)
-        : { status: 'deny', requiresApproval: true };
+      const security = getToolSecurity().manager;
+      const authEval = security.evaluateAuthorization(tool, args, context);
 
       if (authEval.status === 'deny') {
-        return { allowed: false, error: t('tool_security_policy_blocked', 'Herramienta bloqueada por política de seguridad.') };
+        return { allowed: false, error: 'Tool blocked by security policy.' };
       }
 
       if (!authEval.requiresApproval) {
@@ -545,8 +538,8 @@
       const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
 
       if (context.signal?.aborted) return { allowed: false, error: 'Tool execution cancelled.' };
-      if (ToolSecurity?.manager?.evaluateAuthorization(tool, args, context).status === 'deny') {
-        return { allowed: false, error: t('tool_security_policy_blocked', 'Tool blocked by security policy.') };
+      if (security.evaluateAuthorization(tool, args, context).status === 'deny') {
+        return { allowed: false, error: 'Tool blocked by security policy.' };
       }
 
       const allowedDecisions = new Set([
@@ -557,21 +550,21 @@
       ]);
 
       if (!allowedDecisions.has(decisionType)) {
-        return { allowed: false, error: t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
+        return { allowed: false, error: 'Execution denied by the user.' };
       }
 
       if (typeof decision === 'object' && decision !== null && decision.directoryRule) {
         try {
-          ToolSecurity?.manager?.addDirectoryRule?.(decision.directoryRule);
+          security.addDirectoryRule(decision.directoryRule);
         } catch (error) {
-          return { allowed: false, error: error?.message || t('tool_auth_denied_msg', 'Ejecución denegada por el usuario.') };
+          return { allowed: false, error: error?.message || 'Execution denied by the user.' };
         }
       }
 
       const targetToolId = authEval.toolId || tool.name;
 
       if (decisionType === 'allow_session') {
-        ToolSecurity?.manager?.setToolPolicy?.(targetToolId, 'allow', {
+        security.setToolPolicy(targetToolId, 'allow', {
           scope: 'session',
           serverName: authEval.serverName,
           originalName: authEval.originalName
@@ -579,14 +572,14 @@
       } else if (decisionType === 'allow_server_always') {
         const targetServerId = decision?.serverId || authEval.serverId;
         if (targetServerId) {
-          ToolSecurity?.manager?.setServerPolicy?.(targetServerId, 'allow', {
+          security.setServerPolicy(targetServerId, 'allow', {
             scope: 'permanent',
             serverName: authEval.serverName
           });
         }
       } else if (decisionType === 'allow_always') {
         const requestedConstraints = (typeof decision === 'object' && decision !== null) ? (decision.constraints || null) : null;
-        const existingConstraints = ToolSecurity.manager.getToolConstraints?.(targetToolId) || null;
+        const existingConstraints = security.getToolConstraints(targetToolId);
         let mergedPrefixes = undefined;
         if (requestedConstraints?.command?.allowedPrefixes || existingConstraints?.command?.allowedPrefixes) {
           const rawList = [
@@ -623,7 +616,7 @@
           }
           : requestedConstraints;
 
-        ToolSecurity.manager.setToolPolicy(targetToolId, 'allow', {
+        security.setToolPolicy(targetToolId, 'allow', {
           scope: 'permanent',
           serverName: authEval.serverName,
           originalName: authEval.originalName,

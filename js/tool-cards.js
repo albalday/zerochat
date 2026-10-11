@@ -1,12 +1,11 @@
 /** Renderer genérico: cada tool declara su propia vista con iconos vectoriales SVG. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'));
-  else root.ChatToolCards = factory(root.ChatUtils);
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+  else root.ChatToolCards = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   const { escapeHtml, resolveDep } = Utils;
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
-  const t = (key, params) => resolveDep('ChatI18n', './i18n.js').t(key, params);
-  const Icons = resolveDep('ChatIcons', './icons.js');
+  const { t } = I18n;
   const getView = name => (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name)?.view : null;
 
   const SPINNER_SVG = Icons.get('spinner', { size: 12, strokeWidth: 2.5, className: 'ui-icon-spin' });
@@ -243,8 +242,8 @@
     const card = document.createElement('div'); card.className = 'tool-card-wrapper';
     const hasArgs = args && typeof args === 'object' && Object.keys(args).length > 0;
     const tool = (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name) : null;
-    const icon = (typeof window !== 'undefined' && window.ChatIcons?.has(name))
-      ? window.ChatIcons.get(name, { size: 14 })
+    const icon = Icons.has(name)
+      ? Icons.get(name, { size: 14 })
       : (tool?.metadata?.iconSvg || DEFAULT_TOOL_ICON);
     const badgeClass = isCollapsed ? 'tool-card-badge status-success' : 'tool-card-badge status-loading';
     const badgeContent = isCollapsed

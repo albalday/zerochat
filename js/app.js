@@ -1088,9 +1088,7 @@
     if (elements.btnRagActivate) {
       elements.btnRagActivate.addEventListener('click', () => window.ChatRagUI?.openActivationModal?.());
     }
-    window.addEventListener('zerochat:languagechange', () => {
-      updateExecutionInfo();
-    });
+    I18n.onChange(updateExecutionInfo);
 
 
     if (elements.btnSidebarNewTab) {

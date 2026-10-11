@@ -5,16 +5,15 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./message-turns.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./message-turns.js'));
   } else {
-    root.ChatConversationService = factory(root.ChatUtils, root.ChatMessageTurns);
+    root.ChatConversationService = factory(root.ChatUtils, root.ChatI18n, root.ChatMessageTurns);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, MessageTurns) {
   'use strict';
 
   const { resolveDep, createId } = Utils;
 
-  function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getState() { return resolveDep('ChatState', './state.js'); }
   function getStorage(options = {}) {
     if (options && options.storage) return options.storage;
@@ -26,10 +25,7 @@
   function getConfig() { return resolveDep('ChatConfig', './config-store.js'); }
   function getGenerationController() { return resolveDep('ChatGenerationController', './generation-controller.js'); }
 
-  function t(key, params) {
-    const I18n = getI18n();
-    return I18n?.t?.(key, params) || key;
-  }
+  const { t } = I18n;
 
   const extractBaseId = MessageTurns.extractBaseId;
 

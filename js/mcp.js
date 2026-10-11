@@ -23,11 +23,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatMCP = factory(root.ChatUtils);
+    root.ChatMCP = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const { fetchWithTimeout, resolveDep } = Utils;
@@ -690,12 +690,11 @@
   }
 
   function getMcpIconSvg(size = 14) {
-    const Icons = resolveDep('ChatIcons', './icons.js');
     return Icons.get('plug', { size });
   }
 
   function getNoOutputText() {
-    return resolveDep('ChatI18n', './i18n.js').t('tool_no_output');
+    return I18n.t('tool_no_output');
   }
 
   function formatMcpMarkdown(toolName, args, result, outcome, serverName) {

@@ -450,7 +450,6 @@
       tool_auth_deny: 'Denegar',
       tool_auth_denied_badge: 'Denegado',
       tool_auth_denied_msg: 'Ejecución denegada por el usuario.',
-      tool_security_policy_blocked: 'Herramienta bloqueada por política de seguridad.',
       mcp_security_section_title: 'Seguridad y Autorización de Ejecución',
       mcp_security_desc: 'Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.',
       mcp_security_policy_ask: 'Pedir autorización antes de ejecutar (Recomendado)',
@@ -1158,7 +1157,6 @@
       tool_auth_deny: 'Deny',
       tool_auth_denied_badge: 'Denied',
       tool_auth_denied_msg: 'Execution denied by the user.',
-      tool_security_policy_blocked: 'Tool blocked by security policy.',
       mcp_security_section_title: 'Execution Security & Authorization',
       mcp_security_desc: 'Control when MCP server tools can execute actions on your local system.',
       mcp_security_policy_ask: 'Ask for authorization before executing (Recommended)',
@@ -1442,50 +1440,10 @@
 
   let currentLang = 'es';
 
-  /**
-   * Detecta el idioma inicial según la política:
-   * 1. Si hay preferencia guardada en storage ('es' o 'en'), usarla.
-   * 2. Si no, comprobar el idioma del navegador. Si empieza por 'en', usar 'en'.
-   * 3. En caso contrario, usar 'es' por defecto.
-   */
-  function detectInitialLanguage() {
-    try {
-      if (Storage.getStorageItem) {
-        const saved = Storage.getStorageItem('language');
-        if (saved === 'es' || saved === 'en') {
-          return saved;
-        }
-      }
-    } catch (e) { /* almacenamiento no disponible: se usa el idioma del navegador */ }
-
-    // Node.js expone un navigator global, pero no representa el idioma de una
-    // interfaz web. Solo detectamos el idioma del navegador en un contexto DOM.
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-      return 'es';
-    }
-
-    try {
-      const browserLang = (
-        (navigator.languages && navigator.languages.length ? navigator.languages[0] : null) ||
-        navigator.language ||
-        navigator.userLanguage ||
-        ''
-      ).toLowerCase();
-
-      if (browserLang.startsWith('en')) {
-        return 'en';
-      }
-    } catch (e) { /* navigator no disponible: se usa el idioma por defecto */ }
-
-    return 'es';
-  }
-
   const changeListeners = [];
 
   function onChange(callback) {
-    if (typeof callback === 'function') {
-      changeListeners.push(callback);
-    }
+    changeListeners.push(callback);
     return () => {
       const idx = changeListeners.indexOf(callback);
       if (idx !== -1) changeListeners.splice(idx, 1);
@@ -1496,23 +1454,14 @@
     return currentLang;
   }
 
-  function setLanguage(lang, persist = true) {
+  /** Cambia el idioma de la interfaz; quien lo guarda es la configuración (`language`). */
+  function setLanguage(lang) {
     const target = (lang === 'en') ? 'en' : 'es';
     currentLang = target;
-
-    if (persist && typeof Storage !== 'undefined' && Storage?.setStorageItem) {
-      Storage.setStorageItem('language', target);
-    }
 
     if (typeof document !== 'undefined') {
       document.documentElement.lang = target;
       applyTranslations(document);
-    }
-
-    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-      try {
-        window.dispatchEvent(new CustomEvent('zerochat:languagechange', { detail: { lang: target } }));
-      } catch (e) { /* CustomEvent no disponible en este entorno */ }
     }
 
     changeListeners.forEach(fn => {
@@ -1548,10 +1497,7 @@
     return str;
   }
 
-  /**
-   * Obtiene texto visible de interfaz con fallback local.
-   * Los textos dirigidos al modelo no deben pasar por esta API.
-   */
+  // Los textos dirigidos al modelo no pasan por ChatI18n: se escriben en inglés.
   const I18N_DOM_BINDINGS = [
     { attr: 'data-i18n', prop: 'textContent' },
     { attr: 'data-i18n-html', prop: 'innerHTML' },
@@ -1565,7 +1511,6 @@
    * Aplica las traducciones a todos los elementos del DOM marcados con atributos data-i18n*.
    */
   function applyTranslations(rootElement = document) {
-    if (!rootElement || typeof rootElement.querySelectorAll !== 'function') return;
 
     for (const binding of I18N_DOM_BINDINGS) {
       rootElement.querySelectorAll(`[${binding.attr}]`).forEach(el => {
@@ -1594,15 +1539,11 @@
     }
   }
 
-  // Inicialización automática de idioma
-  currentLang = detectInitialLanguage();
-
   return {
     t,
     getLanguage,
     setLanguage,
     onChange,
-    detectInitialLanguage,
     applyTranslations,
     TRANSLATIONS
   };

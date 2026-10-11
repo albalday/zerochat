@@ -113,7 +113,7 @@ test('Browser UI - composer compacto en móvil mantiene placeholder y controles 
 
     for (const language of ['es', 'en']) {
       const metrics = await page.evaluate(language => {
-        window.ChatI18n.setLanguage(language, false);
+        window.ChatI18n.setLanguage(language);
         const input = document.getElementById('user-input');
         const controls = ['btn-attach-file', 'btn-reasoning', 'btn-open-rag'];
         const buttons = controls.map(id => document.getElementById(id));

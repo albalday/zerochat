@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./defaults.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./defaults.js'));
   } else {
-    root.ChatUISettings = factory(root.ChatUtils, root.ChatDefaults);
+    root.ChatUISettings = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatDefaults);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils, Defaults) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
   const DEFAULT_THEME = Defaults.DEFAULT_THEME;
@@ -16,7 +16,6 @@
 
   const { resolveDep, escapeHtml } = Utils;
 
-  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getDataResetService = () => resolveDep('ChatDataResetService', './data-reset-service.js');
@@ -24,11 +23,7 @@
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
 
-  function t(key, params) {
-    const I18n = getI18n();
-    if (I18n && typeof I18n.t === 'function') return I18n.t(key, params);
-    return key;
-  }
+  const { t } = I18n;
 
 
   function applyTheme(elements, appConfig, theme) {
@@ -57,10 +52,7 @@
 
   function applyLanguage(elements, appConfig, lang, callbacks = {}) {
     const target = (lang === 'en') ? 'en' : 'es';
-    const I18n = getI18n();
-    if (I18n?.setLanguage) {
-      I18n.setLanguage(target, true);
-    }
+    I18n.setLanguage(target);
     if (elements?.langButtons && elements.langButtons.length > 0) {
       elements.langButtons.forEach(btn => {
         if (btn.getAttribute('data-lang') === target) {
@@ -566,11 +558,8 @@
       const onClick = () => {
         const isPass = els.settingApiKey.type === 'password';
         els.settingApiKey.type = isPass ? 'text' : 'password';
-        const ChatIcons = resolveDep('ChatIcons', './icons.js');
         const iconName = isPass ? 'eye-off' : 'eye';
-        if (ChatIcons && typeof ChatIcons.getIcon === 'function') {
-          els.btnToggleKey.innerHTML = ChatIcons.getIcon(iconName, 15);
-        }
+        els.btnToggleKey.innerHTML = Icons.get(iconName, { size: 15 });
       };
       els.btnToggleKey.addEventListener('click', onClick);
       activeCleanupFns.push(() => els.btnToggleKey.removeEventListener('click', onClick));
@@ -758,7 +747,7 @@ zerochat</code></pre>
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
-                  ${resolveDep('ChatIcons', './icons.js').get('folder', { size: 20 })}
+                  ${Icons.get('folder', { size: 20 })}
                 </span>
                 <strong data-i18n="mcp_directory_rules_title">Directorios permitidos</strong>
               </div>
@@ -775,7 +764,7 @@ zerochat</code></pre>
             <div class="mcp-status-header">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
-                  ${resolveDep('ChatIcons', './icons.js').get('check', { size: 20 })}
+                  ${Icons.get('check', { size: 20 })}
                 </span>
                 <strong data-i18n="mcp_security_saved_auths_title">Herramientas y Servidores Autorizados</strong>
               </div>

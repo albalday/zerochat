@@ -32,6 +32,21 @@ test('Browser UI - informa del alcance de almacenamiento en HTTP y file://', asy
   }
 });
 
+test('Browser UI - sin preferencia guardada la interfaz usa el idioma del navegador', async () => {
+  const browser = await createTestBrowser();
+  try {
+    for (const [locale, lang] of [['en-US', 'en'], ['fr-FR', 'es'], ['es-ES', 'es']]) {
+      const page = await browser.newPage({ locale });
+      await page.goto(getIndexUrl(), { waitUntil: 'load' });
+      await waitForAppReady(page);
+      assert.equal(await page.evaluate(() => document.documentElement.lang), lang, locale);
+      assert.equal(await page.evaluate(() => window.ChatConfig.getActive().language), lang, locale);
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - el chat vacío incluye enlace a la ayuda online según el idioma', async () => {
   const browser = await createTestBrowser();
   try {

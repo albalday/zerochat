@@ -6,11 +6,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatAPI = factory(root.ChatUtils);
+    root.ChatAPI = factory(root.ChatUtils, root.ChatI18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
   const { resolveDep } = Utils;
@@ -116,7 +116,7 @@
   });
 
   function mirrorResponse(payload) {
-    const i18n = resolveDep('ChatI18n', './i18n.js');
+    const i18n = I18n;
     const guidance = [
       i18n.t('mirror_response_intro'),
       i18n.t('mirror_response_about'),

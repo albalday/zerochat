@@ -227,7 +227,7 @@ test('Browser UI - el panel MCP aprovecha el ancho sin solapar estado ni contado
       for (const language of ['es', 'en']) {
         for (const theme of ['light', 'dark']) {
           const layout = await page.evaluate(({ language, theme }) => {
-            window.ChatI18n.setLanguage(language, false);
+            window.ChatI18n.setLanguage(language);
             document.documentElement.setAttribute('data-theme', theme);
             const panel = document.getElementById('settings-mcp');
             window.ChatUIMcp.renderConnectionStatus({
@@ -879,7 +879,7 @@ test('Browser UI - el progreso MCP sobrevive al renderizado y el timeout conserv
       const results = [];
       try {
         for (const language of ['es', 'en']) {
-          ChatI18n.setLanguage(language, false);
+          ChatI18n.setLanguage(language);
           ChatState.set('mcp', {
             ...ChatState.get('mcp'), status: 'connected',
             externalServers: [{ id: 'ejemplo', status: 'stopped' }]
@@ -958,7 +958,7 @@ test('Browser UI - tras el primer timeout MCP pasa de instalación a OAuth y act
       const results = [];
       try {
         for (const language of ['es', 'en']) {
-          ChatI18n.setLanguage(language, false);
+          ChatI18n.setLanguage(language);
           ChatState.set('mcp', {
             ...ChatState.get('mcp'), status: 'connected',
             externalServers: [{ id: 'oauth-fixture', status: 'stopped' }]

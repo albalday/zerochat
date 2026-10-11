@@ -33,7 +33,7 @@ test('ChatConfig - migra la configuración efectiva y registra el perfil aplicad
   const config = store.initialize();
 
   assert.equal(config.theme, 'dark');
-  assert.equal(config.language, 'es');
+  assert.equal(config.language, require('../../js/defaults.js').CONFIG_DEFAULTS.language);
   assert.equal(config.mcpAutoConnect, false);
   assert.equal(config.activeProfile.name, 'Servidor Oficina');
   assert.ok(config.systemDataPrompt.includes('Format:'), 'Debe conservar las instrucciones de datos de ZeroChat');

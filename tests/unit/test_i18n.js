@@ -33,24 +33,24 @@ test('I18n - t() inserta los valores literalmente, sin patrones especiales de re
 });
 
 test('I18n - Traducciones del conocimiento local', () => {
-  I18n.setLanguage('es', false);
+  I18n.setLanguage('es');
   assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Ramas');
   assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
   assert.match(I18n.t('rag_status_desc_single'), /mediante Orama/);
 
-  I18n.setLanguage('en', false);
+  I18n.setLanguage('en');
   assert.equal(I18n.t('rag_modal_title_manage'), 'RAG-Branches');
   assert.ok(I18n.t('rag_dropzone_hint').includes('IndexedDB'));
   assert.match(I18n.t('rag_status_desc_single'), /using Orama/);
 });
 
 test('I18n - Título de la aplicación solo contiene ZeroChat y la versión', () => {
-  I18n.setLanguage('es', false);
+  I18n.setLanguage('es');
   assert.match(I18n.t('app_title'), /^ZeroChat v[^\s-]+$/);
 
-  I18n.setLanguage('en', false);
+  I18n.setLanguage('en');
   assert.match(I18n.t('app_title'), /^ZeroChat v[^\s-]+$/);
-  I18n.setLanguage('es', false);
+  I18n.setLanguage('es');
 });
 
 test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
@@ -63,7 +63,7 @@ test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
   });
 
   try {
-    I18n.setLanguage('en', false);
+    I18n.setLanguage('en');
     assert.equal(callCount, 1);
     assert.equal(receivedLang, 'en');
     assert.equal(I18n.getLanguage(), 'en');
@@ -72,7 +72,7 @@ test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
     const enText = I18n.t('rag_branch_summary_format', { count: 5, plural: 's', bytes: '12 MB' });
     assert.equal(enText, '5 documents of 12 MB');
 
-    I18n.setLanguage('es', false);
+    I18n.setLanguage('es');
     assert.equal(callCount, 2);
     assert.equal(receivedLang, 'es');
     assert.equal(I18n.getLanguage(), 'es');
@@ -85,11 +85,11 @@ test('I18n - Listener reactivo onChange se ejecuta al cambiar idioma', () => {
   }
 
   // Tras cancelar suscripción, no debe invocarse
-  I18n.setLanguage('en', false);
+  I18n.setLanguage('en');
   assert.equal(callCount, 2, 'El listener desuscrito no debe ejecutarse');
 
   // Restaurar idioma por defecto
-  I18n.setLanguage('es', false);
+  I18n.setLanguage('es');
 });
 
 test('I18n - Simetría completa de diccionarios es y en y claves de auditoría', () => {

@@ -34,17 +34,18 @@ async function closeGlobalBrowser() {
   }
 }
 
+// La interfaz arranca en el idioma del navegador: las pruebas fijan español salvo que pidan otro.
 async function createTestBrowser() {
   const realBrowser = await getBrowser();
   const contexts = [];
   return {
     async newContext(options) {
-      const context = await realBrowser.newContext(options);
+      const context = await realBrowser.newContext({ locale: 'es-ES', ...options });
       contexts.push(context);
       return context;
     },
     async newPage(options) {
-      const context = await realBrowser.newContext(options);
+      const context = await realBrowser.newContext({ locale: 'es-ES', ...options });
       contexts.push(context);
       return context.newPage();
     },

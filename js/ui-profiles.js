@@ -5,16 +5,15 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatUIProfiles = factory(root.ChatUtils);
+    root.ChatUIProfiles = factory(root.ChatUtils, root.ChatI18n);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
   const { resolveDep, createId } = Utils;
 
-  function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
   function getProfileBackup() { return resolveDep('ChatProfileBackup', './profile-backup.js'); }
   function getProfileExportBundle() { return resolveDep('ChatProfileExportBundle', './profile-export-bundle.js'); }
@@ -24,10 +23,7 @@
   function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
   function getUISettings() { return resolveDep('ChatUISettings', './ui-settings.js'); }
 
-  function t(key, params) {
-    const I18n = getI18n();
-    return I18n?.t?.(key, params) || key;
-  }
+  const { t } = I18n;
 
   let activeCleanupFns = [];
   let cachedElements = null;

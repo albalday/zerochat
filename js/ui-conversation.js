@@ -6,34 +6,22 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./message-turns.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'), require('./message-turns.js'));
   } else {
-    root.ChatUIConversation = factory(root.ChatUtils, root.ChatMessageTurns);
+    root.ChatUIConversation = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons, root.ChatMessageTurns);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, MessageTurns) {
   'use strict';
 
   const { resolveDep, createId } = Utils;
 
-  function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
-  function getIcons() { return resolveDep('ChatIcons', './icons.js'); }
   function getState() { return resolveDep('ChatState', './state.js'); }
   function getMarkdown() { return resolveDep('ChatMarkdown', './markdown.js'); }
   function getSandbox() { return resolveDep('ChatSandbox', './sandbox.js'); }
   function getToolCards() { return resolveDep('ChatToolCards', './tool-cards.js'); }
 
-  function t(key, params) {
-    const I18n = getI18n();
-    return I18n?.t ? I18n.t(key, params) : key;
-  }
+  const { t } = I18n;
 
-  function getMsgIcon(name, size = 14, className = '') {
-    const Icons = getIcons();
-    if (Icons && Icons.has && Icons.has(name)) {
-      return Icons.get(name, { size, className });
-    }
-    return '';
-  }
 
   const extractBaseId = MessageTurns.extractBaseId;
 
@@ -44,7 +32,7 @@
     let timer = null;
     let disposed = false;
     const restore = () => {
-      button.innerHTML = getMsgIcon('copy', 14);
+      button.innerHTML = Icons.get('copy', { size: 14 });
       button.title = t(titleKey);
       button.setAttribute('aria-label', t(titleKey));
       button.classList.remove('copied');
@@ -55,7 +43,7 @@
         await navigator.clipboard.writeText(getText());
         if (disposed) return false;
         clearTimeout(timer);
-        button.innerHTML = getMsgIcon('check', 14);
+        button.innerHTML = Icons.get('check', { size: 14 });
         button.title = t('copied_text');
         button.setAttribute('aria-label', t('copied_text'));
         button.classList.add('copied');
@@ -83,7 +71,7 @@
       const escape = getMarkdown().escapeHtml;
       content.innerHTML = `
         <div class="network-error-card" style="display:flex; align-items:flex-start; gap:0.5rem;">
-          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${getMsgIcon('alert-triangle', 18)}</span>
+          <span style="flex-shrink: 0; display: inline-flex; align-items: center; color: var(--error, #ef4444);">${Icons.get('alert-triangle', { size: 18 })}</span>
           <div>
             <strong>${t('err_server_connect_title')}</strong>
             <p style="margin-top: 0.25rem;">${escape(message)}</p>
@@ -372,7 +360,7 @@
     const btnCopy = doc.createElement('button');
     btnCopy.type = 'button';
     btnCopy.className = 'btn-msg-action btn-copy-user';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
+    btnCopy.innerHTML = Icons.get('copy', { size: 14 });
     btnCopy.title = t('btn_copy_user_title');
     btnCopy.setAttribute('aria-label', t('btn_copy_user_title'));
     bindMessageCopy(btnCopy, () => originalPrompt || text, 'btn_copy_user_title');
@@ -380,7 +368,7 @@
     const btnReuse = doc.createElement('button');
     btnReuse.type = 'button';
     btnReuse.className = 'btn-msg-action';
-    btnReuse.innerHTML = getMsgIcon('edit', 14);
+    btnReuse.innerHTML = Icons.get('edit', { size: 14 });
     btnReuse.title = t('btn_reuse_title');
     btnReuse.setAttribute('aria-label', t('btn_reuse_title'));
     btnReuse.addEventListener('click', () => {
@@ -392,7 +380,7 @@
     const btnDelete = doc.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
+    btnDelete.innerHTML = Icons.get('trash', { size: 14 });
     btnDelete.title = t('btn_delete_usr_title');
     btnDelete.setAttribute('aria-label', t('btn_delete_usr_title'));
     btnDelete.addEventListener('click', () => {
@@ -465,7 +453,7 @@
     const btnCopy = doc.createElement('button');
     btnCopy.type = 'button';
     btnCopy.className = 'btn-msg-action btn-copy-full';
-    btnCopy.innerHTML = getMsgIcon('copy', 14);
+    btnCopy.innerHTML = Icons.get('copy', { size: 14 });
     btnCopy.title = t('btn_copy_title');
     btnCopy.setAttribute('aria-label', t('btn_copy_title'));
 
@@ -482,7 +470,7 @@
     const btnDelete = doc.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'btn-msg-action btn-delete';
-    btnDelete.innerHTML = getMsgIcon('trash', 14);
+    btnDelete.innerHTML = Icons.get('trash', { size: 14 });
     btnDelete.title = t('btn_delete_ast_title');
     btnDelete.setAttribute('aria-label', t('btn_delete_ast_title'));
     btnDelete.addEventListener('click', () => {
@@ -525,7 +513,7 @@
     if (!doc) return null;
     const banner = doc.createElement('details');
     banner.className = 'branch-summary-banner';
-    banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${getMsgIcon('git-branch', 14)}<span>${Utils.escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
+    banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${Icons.get('git-branch', { size: 14 })}<span>${Utils.escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
       <div class="branch-summary-body">${getMarkdown().parseMarkdown(summaryBlock.content)}</div>`;
     container.appendChild(banner);
     return banner;
@@ -534,7 +522,7 @@
   function setBranchButtonState(button, { loading, label = t('btn_branch_title') }) {
     button.disabled = loading;
     button.classList.toggle('is-loading', loading);
-    button.innerHTML = loading ? getMsgIcon('spinner', 14, 'ui-icon-spin') : getMsgIcon('git-branch', 14);
+    button.innerHTML = loading ? Icons.get('spinner', { size: 14, className: 'ui-icon-spin' }) : Icons.get('git-branch', { size: 14 });
     button.title = label;
     button.setAttribute('aria-label', label);
   }
@@ -557,7 +545,7 @@
       indicator.className = 'branch-progress-indicator';
       indicator.setAttribute('role', 'status');
       indicator.setAttribute('aria-live', 'polite');
-      indicator.innerHTML = getMsgIcon('spinner', 14, 'ui-icon-spin');
+      indicator.innerHTML = Icons.get('spinner', { size: 14, className: 'ui-icon-spin' });
 
       const textSpan = doc.createElement('span');
       textSpan.textContent = label;

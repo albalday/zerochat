@@ -7,11 +7,11 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   } else {
-    root.ChatCharts = factory(root.ChatUtils);
+    root.ChatCharts = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
   }
-})(typeof self !== 'undefined' ? self : this, function (Utils) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
   const COLOR_PALETTE = [
@@ -28,7 +28,7 @@
   ];
 
   const { escapeHtml, formatShortValue } = Utils;
-  const t = (key, params) => (typeof window !== 'undefined' && window.ChatI18n?.t) ? window.ChatI18n.t(key, params) : key;
+  const { t } = I18n;
 
   /**
    * Genera un gráfico de barras verticales en SVG.
@@ -287,7 +287,7 @@
     }
 
     const chartIconSvg = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>';
-    const chevronSvg = Utils.resolveDep('ChatIcons', './icons.js').get('chevron-down', { size: 12 });
+    const chevronSvg = Icons.get('chevron-down', { size: 12 });
 
     return `
       <div class="chat-chart-card">
