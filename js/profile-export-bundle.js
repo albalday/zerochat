@@ -320,12 +320,7 @@
       let activeTransferId = '';
 
       function createTransferId() {
-        const bytes = new Uint8Array(16);
-        if (window.crypto?.getRandomValues) {
-          window.crypto.getRandomValues(bytes);
-          return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-        }
-        return (String(Date.now()) + Math.random().toString(36).slice(2).padEnd(16, '0')).slice(0, 32);
+        return crypto.randomUUID().replace(/-/g, '');
       }
 
       function getImportUrl(transferId) {

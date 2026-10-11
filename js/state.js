@@ -5,12 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./message-turns.js'), require('./defaults.js'));
+    module.exports = factory(require('./utils.js'), require('./message-turns.js'), require('./defaults.js'));
   } else {
-    root.ChatState = factory(root.ChatMessageTurns, root.ChatDefaults);
+    root.ChatState = factory(root.ChatUtils, root.ChatMessageTurns, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (MessageTurns, Defaults) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns, Defaults) {
   'use strict';
+
+  const { createId } = Utils;
 
   function clone(obj) {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -59,7 +61,7 @@
 
       // 2. Sesiones y Conversación Activa
       sessions: {
-        activeId: typeof crypto !== 'undefined' && crypto.randomUUID ? ('session_' + crypto.randomUUID()) : ('session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)),
+        activeId: createId('session'),
         list: []
       },
 
@@ -411,7 +413,7 @@
       }
       const cloned = clone(message);
       if (!cloned.id) {
-        cloned.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        cloned.id = createId('msg');
       }
       setState({ messages: [...state.messages, cloned] });
       return cloned;

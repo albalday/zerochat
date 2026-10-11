@@ -6,6 +6,11 @@ const path = require('node:path');
 const ChatUIMcp = require('../../js/ui-mcp.js');
 const ChatState = require('../../js/state.js');
 const ChatI18n = require('../../js/i18n.js');
+const { installDom } = require('../helpers/dom-env.js');
+
+function createElements(names) {
+  return Object.fromEntries(names.map(name => [name, document.createElement(name === 'btnCopyCmd' ? 'button' : 'div')]));
+}
 
 test('ChatUIMcp - sanea host y puerto, construye el endpoint y recomienda el arranque por PyPI en el puerto de zerochat.py', () => {
   // Puertos válidos
@@ -50,29 +55,14 @@ test('ChatUIMcp - sanea host y puerto, construye el endpoint y recomienda el arr
   assert.match(serverSource, /--port/);
 });
 
-test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y detalles', () => {
-  function createMockElements() {
-    const attrs = {};
-    const reconnectAttrs = {};
-    return {
-      statusBadge: { className: '' },
-      statusText: {
-        textContent: '',
-        setAttribute: (k, v) => { attrs[k] = v; },
-        getAttribute: (k) => attrs[k]
-      },
-      serverDetails: { style: {}, innerHTML: '', textContent: '', title: '' },
-      bootstrapCard: { style: {} },
-      reconnectHint: { style: {}, textContent: '', setAttribute: (k, v) => { reconnectAttrs[k] = v; } },
-      commandSnippet: { textContent: '' }
-    };
-  }
-
-  const elements = createMockElements();
-  const t = (k, p) => ChatI18n.t(k, p);
+test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y detalles', t => {
+  const dom = installDom();
+  t.after(() => dom.restore());
+  const elements = createElements(['statusBadge', 'statusText', 'serverDetails', 'bootstrapCard', 'reconnectHint', 'commandSnippet']);
+  const translate = (k, p) => ChatI18n.t(k, p);
 
   // 1. Estado desconectado
-  ChatUIMcp.renderConnectionStatus(elements, { status: 'disconnected', host: '127.0.0.1', port: 6388 }, t);
+  ChatUIMcp.renderConnectionStatus(elements, { status: 'disconnected', host: '127.0.0.1', port: 6388 }, translate);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-disconnected');
   assert.equal(elements.statusText.textContent, 'Desconectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
@@ -83,7 +73,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
   // 2. Estado conectando
-  ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, t);
+  ChatUIMcp.renderConnectionStatus(elements, { status: 'connecting', host: '127.0.0.1', port: 6388 }, translate);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connecting');
   assert.equal(elements.statusText.textContent, 'Conectando...');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connecting');
@@ -98,7 +88,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
     serverInfo: { name: 'mcp-proxy', version: '0.4.0' },
     latencyMs: 15,
     tools: [{ name: 't1' }, { name: 't2' }]
-  }, t);
+  }, translate);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-connected');
   assert.equal(elements.statusText.textContent, 'Conectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
@@ -116,7 +106,7 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
     port: 6388,
     error: 'Conexión rechazada',
     latencyMs: 3
-  }, t);
+  }, translate);
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-error');
   assert.equal(elements.statusText.textContent, 'Error de conexión');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_error');
@@ -169,21 +159,14 @@ test('ChatUIMcp - copyCommandToClipboard gestiona feedback', async () => {
   }
 });
 
-test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual', () => {
-  const mockCommandSnippet = { textContent: '' };
-
-  const elements = {
-    commandSnippet: mockCommandSnippet,
-    statusBadge: { className: '' },
-    statusText: { textContent: '' },
-    serverDetails: { style: {}, innerHTML: '' },
-    bootstrapCard: { style: {} },
-    btnCopyCmd: { addEventListener: () => {} }
-  };
+test('ChatUIMcp - initMcpUI publica el comando de arranque sin conexión manual', t => {
+  const dom = installDom();
+  t.after(() => dom.restore());
+  const elements = createElements(['commandSnippet', 'statusBadge', 'statusText', 'serverDetails', 'bootstrapCard', 'btnCopyCmd']);
 
   const uiInstance = ChatUIMcp.initMcpUI(elements);
   assert.ok(uiInstance);
-  assert.equal(mockCommandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
+  assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
   uiInstance.destroy();
 });
@@ -444,58 +427,35 @@ test('ChatUIMcp - las revocaciones guardadas son botones de icono con tooltip ac
   }
 });
 
-test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTranslations', () => {
-  const originalLang = ChatI18n.getLanguage ? ChatI18n.getLanguage() : 'es';
+test('ChatUIMcp - mantiene data-i18n y no revierte a desconectado tras applyTranslations', t => {
+  const dom = installDom();
+  const originalLang = ChatI18n.getLanguage();
+  t.after(() => {
+    ChatI18n.setLanguage(originalLang, false);
+    dom.restore();
+  });
   ChatI18n.setLanguage('es', false);
+  const elements = createElements(['statusBadge', 'statusText', 'serverDetails']);
+  elements.statusText.setAttribute('data-i18n', 'mcp_status_disconnected');
+  document.body.append(...Object.values(elements));
 
-  const mockAttrs = { 'data-i18n': 'mcp_status_disconnected' };
-  const mockStatusText = {
-    textContent: 'Desconectado',
-    setAttribute(k, v) { mockAttrs[k] = v; },
-    getAttribute(k) { return mockAttrs[k]; }
-  };
-  const mockElements = {
-    statusBadge: { className: 'mcp-status-badge mcp-status-disconnected' },
-    statusText: mockStatusText,
-    btnConnect: { style: {}, disabled: false, innerHTML: '', addEventListener: () => {} },
-
-    serverDetails: { style: {}, innerHTML: '' },
-    errorMessage: { style: {}, innerHTML: '' }
-  };
-
-  // Simular conexión establecida
-  ChatUIMcp.renderConnectionStatus(mockElements, {
+  ChatUIMcp.renderConnectionStatus(elements, {
     status: 'connected',
     serverInfo: { name: 'mcp-proxy', version: '1.0' },
     tools: [{ name: 'test_tool' }],
     latencyMs: 5
   }, (k, p) => ChatI18n.t(k, p));
 
-  assert.equal(mockStatusText.textContent, 'Conectado');
-  assert.equal(mockStatusText.getAttribute('data-i18n'), 'mcp_status_connected');
+  assert.equal(elements.statusText.textContent, 'Conectado');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
 
-  // Simular escaneo de data-i18n al abrir una sección de configuración
-  const mockRoot = {
-    querySelectorAll(selector) {
-      if (selector === '[data-i18n]') {
-        return [mockStatusText];
-      }
-      return [];
-    }
-  };
-  ChatI18n.applyTranslations(mockRoot);
+  // Abrir una sección de configuración vuelve a aplicar las traducciones del documento.
+  ChatI18n.applyTranslations(document);
+  assert.equal(elements.statusText.textContent, 'Conectado');
+  assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_connected');
 
-  // Debe mantenerse Conectado, no volver a Desconectado
-  assert.equal(mockStatusText.textContent, 'Conectado');
-  assert.equal(mockStatusText.getAttribute('data-i18n'), 'mcp_status_connected');
-
-  // Si se cambia a inglés, debe traducirse a Connected
   ChatI18n.setLanguage('en', false);
-  ChatI18n.applyTranslations(mockRoot);
-  assert.equal(mockStatusText.textContent, 'Connected');
-
-  // Restaurar idioma
-  ChatI18n.setLanguage(originalLang, false);
+  assert.equal(elements.statusText.textContent, 'Connected');
 });
 
 test('ChatUIMcp - renderExternalServers muestra estado vacío o tarjetas con badges y botón Iniciar/Detener', () => {

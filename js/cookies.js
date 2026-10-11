@@ -8,12 +8,14 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./storage-db.js'));
+    module.exports = factory(require('./utils.js'), require('./storage-db.js'));
   } else {
-    root.ChatStorage = factory(root.ZeroChatDB);
+    root.ChatStorage = factory(root.ChatUtils, root.ZeroChatDB);
   }
-})(typeof self !== 'undefined' ? self : this, function (Database) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
+
+  const { createId } = Utils;
 
   const DB_NAME = Database?.DB_NAME || 'ZeroChatDB';
   const DB_VERSION = Database?.DB_VERSION || 2;
@@ -467,7 +469,7 @@
             messages.forEach((m, idx) => {
               let msgId = m.id;
               if (!msgId || seenMsgIds.has(msgId)) {
-                msgId = `msg_${sessionId}_${idx}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                msgId = createId(`msg_${sessionId}`);
               }
               seenMsgIds.add(msgId);
 

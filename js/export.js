@@ -4,12 +4,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatExport = factory();
+    root.ChatExport = factory(root.ChatUtils);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { createId } = Utils;
 
   function downloadFile(content, filename, mimeType) {
     if (typeof document === 'undefined' || typeof URL === 'undefined') return false;
@@ -88,7 +90,7 @@
       throw new Error('El archivo no contiene un historial de chat válido (propiedad history ausente).');
     }
 
-    const newId = 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const newId = createId('session');
     return {
       id: newId,
       title: importedSession.title || defaultTitle,

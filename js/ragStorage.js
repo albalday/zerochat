@@ -5,12 +5,14 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./storage-db.js'));
+    module.exports = factory(require('./utils.js'), require('./storage-db.js'));
   } else {
-    root.ChatRagStorage = factory(root.ZeroChatDB);
+    root.ChatRagStorage = factory(root.ChatUtils, root.ZeroChatDB);
   }
-})(typeof self !== 'undefined' ? self : this, function (Database) {
+})(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
+
+  const { createId } = Utils;
 
   const STORES = Database ? Database.STORES : {
     ragBranches: 'rag_branches', ragDocuments: 'rag_documents',
@@ -36,8 +38,7 @@
   }
 
   function generateId(prefix) {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return `${prefix}_${crypto.randomUUID()}`;
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    return createId(prefix);
   }
 
   function isQuotaError(error) {

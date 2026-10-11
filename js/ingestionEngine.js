@@ -5,7 +5,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, createId } = Utils;
 
   function getRagStorage() {
     return resolveDep('ChatRagStorage', './ragStorage.js');
@@ -363,9 +363,7 @@
         if (!extracted) throw new Error('El archivo no contiene texto extraíble.');
 
         emit(fileIndex, fileName, 'chunking', `Particionando ${fileName}…`, 45);
-        const documentId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? `doc_${crypto.randomUUID()}`
-          : `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const documentId = createId('doc');
         const preparedText = extracted.replace(/rag-image:\/\/__DOC_ID__:/g, `rag-image://${documentId}:`);
 
         const chunks = partitionTextIntoChunks(preparedText, options);

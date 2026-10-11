@@ -3,7 +3,7 @@
  * ZeroChat - js/utils.js
  *
  * Centraliza funciones utilitarias esenciales (escapeHtml, fetchWithTimeout,
- * serializeContent, clone, formatShortValue, resolveDep, etc.) para eliminar
+ * serializeContent, clone, createId, resolveDep, etc.) para eliminar
  * duplicación en toda la base de código.
  */
 (function (root, factory) {
@@ -65,28 +65,24 @@
 
   /**
    * Elimina el contenido de un contenedor sin analizar HTML.
-   * @param {Element|Object|null|undefined} element
-   * @returns {Element|Object|null|undefined}
+   * @param {Element} element
+   * @returns {Element}
    */
   function clearElement(element) {
-    if (!element) return element;
-    if (typeof element.replaceChildren === 'function') element.replaceChildren();
-    else setText(element, '');
+    element.replaceChildren();
     return element;
   }
 
   /**
    * Añade un elemento cuyo contenido se asigna siempre mediante textContent.
-   * @param {Element|null|undefined} parent
+   * @param {Element} parent
    * @param {string} tagName
    * @param {*} value
    * @param {{ className?: string }} [options]
-   * @returns {Element|null}
+   * @returns {Element}
    */
   function appendTextElement(parent, tagName, value, options = {}) {
-    const doc = parent?.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!parent || !doc?.createElement || typeof parent.appendChild !== 'function') return null;
-    const element = doc.createElement(tagName);
+    const element = parent.ownerDocument.createElement(tagName);
     if (options.className) element.className = options.className;
     setText(element, value);
     parent.appendChild(element);
@@ -144,14 +140,21 @@
    */
   function clone(value) {
     if (value === undefined || value === null) return value;
-    if (typeof structuredClone === 'function') {
-      try {
-        return structuredClone(value);
-      } catch (_) {
-        // Fallback a JSON si contiene tipos no clonables nativamente
-      }
+    try {
+      return structuredClone(value);
+    } catch (_) {
+      // Las funciones no se pueden clonar: la copia JSON las omite.
+      return JSON.parse(JSON.stringify(value));
     }
-    return JSON.parse(JSON.stringify(value));
+  }
+
+  /**
+   * Identificador único con prefijo opcional (`session_…`, `msg_usr_…`).
+   * @param {string} [prefix]
+   * @returns {string}
+   */
+  function createId(prefix = '') {
+    return prefix ? `${prefix}_${crypto.randomUUID()}` : crypto.randomUUID();
   }
 
   /**
@@ -183,24 +186,16 @@
   }
 
   /**
-   * Resuelve dependencias de forma segura en entornos UMD (Browser / Node.js).
-   * @param {string} globalName - Nombre en window/globalThis.
-   * @param {string} [modulePath] - Ruta para require() en Node.js.
+   * Resuelve un módulo en tiempo de llamada: el global del navegador o, en Node.js, require().
+   * Si no existe, el error se propaga: ningún módulo de ZeroChat es opcional.
+   * @param {string} globalName - Nombre en globalThis.
+   * @param {string} modulePath - Ruta para require() en Node.js, relativa a js/.
    * @returns {*}
    */
   function resolveDep(globalName, modulePath) {
-    if (typeof window !== 'undefined' && window[globalName]) {
-      return window[globalName];
-    }
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) {
-      return globalThis[globalName];
-    }
-    if (modulePath && typeof require === 'function') {
-      try {
-        return require(modulePath);
-      } catch (_) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    return null;
+    if (globalThis[globalName]) return globalThis[globalName];
+    if (typeof module === 'object' && module.exports) return require(modulePath);
+    throw new Error(`Missing module ${globalName}`);
   }
 
   return {
@@ -214,6 +209,7 @@
     fetchWithTimeout,
     serializeContent,
     clone,
+    createId,
     formatShortValue,
     formatBytes,
     resolveDep

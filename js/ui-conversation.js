@@ -13,7 +13,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, createId } = Utils;
 
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getIcons() { return resolveDep('ChatIcons', './icons.js'); }
@@ -309,9 +309,7 @@
     const doc = (container && container.ownerDocument) || (typeof document !== 'undefined' ? document : null);
     if (!doc) return existingMsgId || '';
 
-    const msgId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_usr_' + crypto.randomUUID()
-      : 'msg_usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
+    const msgId = existingMsgId || createId('msg_usr');
 
     const wrapper = doc.createElement('div');
     wrapper.className = 'message-wrapper user';
@@ -430,9 +428,7 @@
 
   function createAssistantMessagePlaceholder(container, existingMsgId, callbacks = {}) {
     const doc = (container && container.ownerDocument) || (typeof document !== 'undefined' ? document : null);
-    const rawId = existingMsgId || ((typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'msg_ast_' + crypto.randomUUID()
-      : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9));
+    const rawId = existingMsgId || createId('msg_ast');
     const baseId = extractBaseId(rawId) || rawId;
     const msgId = existingMsgId ? rawId : baseId;
 
@@ -666,9 +662,7 @@
         while (i < validMessages.length && validMessages[i].role !== 'user') {
           const item = validMessages[i];
           if (item && !item.id) {
-            item.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-              ? 'msg_ast_' + crypto.randomUUID()
-              : 'msg_ast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+            item.id = createId('msg_ast');
           }
           assistantGroup.push(item);
           i++;

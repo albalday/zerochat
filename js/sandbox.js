@@ -16,12 +16,14 @@
 
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'));
   } else {
-    root.ChatSandbox = factory();
+    root.ChatSandbox = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { createId } = Utils;
 
   const DEFAULT_TIMEOUT_MS = 2500;
   const MAX_OUTPUT_LENGTH = 30000;
@@ -433,7 +435,7 @@
         return resolve(executeWithFallback(code, timeoutMs));
       }
 
-      const id = 'exec_' + Math.random().toString(36).slice(2) + '_' + Date.now();
+      const id = createId('exec');
       const startTime = performance.now();
       let isResolved = false;
       let iframe = doc.createElement('iframe');

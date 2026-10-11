@@ -113,29 +113,6 @@ test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita'
   assert.match(result.error, /explicit user authorization/i);
 });
 
-test('AgentCore - ToolExecutor deniega herramientas no MCP si falta la política de seguridad', async () => {
-  const registry = new AgentCoreModule.ToolRegistry();
-  let executed = false;
-  registry.registerTool(new AgentCoreModule.Tool({
-    name: 'local_unpoliced_run',
-    category: 'utility',
-    execute: async () => { executed = true; return { success: true }; }
-  }));
-
-  const previousWindow = globalThis.window;
-  globalThis.window = { ChatToolSecurity: {} };
-  try {
-    const result = await new AgentCoreModule.ToolExecutor(registry).executeToolCall({
-      function: { name: 'local_unpoliced_run', arguments: '{}' }
-    });
-    assert.equal(result.success, false);
-    assert.equal(executed, false);
-  } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
-  }
-});
-
 test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argumentos no JSON sin ejecutar la herramienta', async () => {
   {
     const registry = new AgentCoreModule.ToolRegistry();

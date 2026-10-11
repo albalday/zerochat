@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, createId } = Utils;
 
   // Resolutores perezosos de dependencias del entorno
 
@@ -77,8 +77,7 @@
   }
 
   function createInvocationId() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    return `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    return createId();
   }
 
   /**

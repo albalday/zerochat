@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, createId } = Utils;
 
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getProfiles() { return resolveDep('ChatProfileRepository', './profile-repository.js'); }
@@ -300,7 +300,7 @@
     const apiKeyLocked = els.settingApiKeyLocked?.checked === true;
 
     const saved = await Profiles.saveEditable({
-      id: existing?.id || `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: existing?.id || createId('profile'),
       name,
       description,
       settings: {
@@ -424,7 +424,7 @@
     const opts = options || cachedOptions || {};
     if (!Profiles?.saveEditable) return null;
     const saved = await Profiles.saveEditable({
-      id: `profile:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: createId('profile'),
       name,
       description,
       settings: { ...settings, apiKey: '' }

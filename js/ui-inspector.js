@@ -14,7 +14,7 @@
   let discoveredModels = [];
   const MODEL_CACHE_VERSION = 1;
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, createId } = Utils;
 
   const getI18n = () => resolveDep('ChatI18n', './i18n.js');
   const getApi = () => resolveDep('ChatAPI', './api.js');
@@ -361,7 +361,7 @@
             return;
           }
           const contextKey = getEditorContextKey(elements);
-          const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const operationId = createId();
           setWebLLMState({ operation: { id: operationId, modelId: id, contextKey } });
           list.querySelectorAll('button').forEach(action => { action.disabled = true; });
           button.disabled = false;
@@ -413,7 +413,7 @@
           const Dialogs = getDialogs();
           if (!Dialogs?.confirm || !await Dialogs.confirm(t('confirm_webllm_delete', { model: id }))) return;
           const contextKey = getEditorContextKey(elements);
-          const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const operationId = createId();
           setWebLLMState({ operation: { id: operationId, modelId: id, contextKey } });
           list.querySelectorAll('button').forEach(action => { action.disabled = true; });
           button.dataset.loading = 'true';

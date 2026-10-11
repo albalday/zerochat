@@ -12,7 +12,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, MessageTurns) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, createId } = Utils;
 
   function getI18n() { return resolveDep('ChatI18n', './i18n.js'); }
   function getState() { return resolveDep('ChatState', './state.js'); }
@@ -101,9 +101,7 @@
       sessionsList = [];
     }
 
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const nextSessionId = createId('session');
     const initialHistory = createInitialChatHistory(options);
 
     if (State?.initializeConversation) {
@@ -247,9 +245,7 @@
 
     if (saveCurrent) await saveCurrentSession(options);
 
-    const nextSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const nextSessionId = createId('session');
 
     const nextHistory = createInitialChatHistory(options);
     if (!initializeSessionState(nextSessionId, nextHistory, 'chat_new_blocked_generating', options)) return false;
@@ -426,9 +422,7 @@
     const sessionsList = options.getSavedSessions ? options.getSavedSessions() : (State?.getSavedSessions?.() || []);
     const parentSession = sessionsList.find(session => session.id === parentSessionId);
     const parentTitle = parentSession?.title || t('chat_untitled');
-    const branchSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? 'session_' + crypto.randomUUID()
-      : 'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const branchSessionId = createId('session');
 
     const branchHistory = mode.summarize
       ? await buildSummarizedBranchHistory(wrapper, history, boundary, branchSessionId, options)
