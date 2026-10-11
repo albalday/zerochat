@@ -34,7 +34,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "edit_file": {
             "path": (str, MAX_PATH_LENGTH),
             "old_str": (str, MAX_HTTP_BODY_BYTES),
-            "new_str": (str, MAX_HTTP_BODY_BYTES)
+            "new_str": (str, MAX_HTTP_BODY_BYTES),
+            "replace_all": (bool, None)
         },
         "run_command": {
             "command": (str, MAX_COMMAND_LENGTH),

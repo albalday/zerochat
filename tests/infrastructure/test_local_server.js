@@ -197,8 +197,10 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
     const editFile = tools.find(t => t.name === 'edit_file');
-    assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path'],
+    assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path', 'replace_all'],
       'edit_file solo publica el reemplazo exacto; write_file cubre la escritura completa');
+    assert.match(editFile.description, /several edit_file calls in the same response/,
+      'edit_file indica al modelo que varias ediciones van en varias llamadas de la misma respuesta');
     assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
 
     const availabilityRes = await fetch(baseUrl, {
@@ -417,6 +419,29 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
       assert.match(JSON.stringify(json), expected);
     }
     assert.match(fs.readFileSync(testFilePath, 'utf8'), /segunda linea modificada/, 'El fichero no cambia con argumentos rechazados');
+
+    // replace_all: sin él, varias coincidencias son un error; con él, se sustituyen todas.
+    const callEdit = async (id, args) => {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Origin': 'https://albalday.github.io', 'Authorization': `Bearer ${testToken}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'edit_file', arguments: args } })
+      });
+      return res.json();
+    };
+    const ambiguous = (await callEdit(64, { path: testFilePath, old_str: 'linea', new_str: 'fila' })).result;
+    assert.equal(ambiguous?.isError, true);
+    assert.match(ambiguous?.content?.[0]?.text || '', /Found 3 matches[\s\S]*replace_all/);
+    const replacedAll = JSON.parse((await callEdit(65, { path: testFilePath, old_str: 'linea', new_str: 'fila', replace_all: true })).result?.content?.[0]?.text);
+    assert.equal(replacedAll.success, true);
+    assert.equal(replacedAll.replacements, 3);
+    assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n');
+    const emptyOld = (await callEdit(66, { path: testFilePath, old_str: '', new_str: 'x', replace_all: true })).result;
+    assert.equal(emptyOld?.isError, true, 'old_str vacío no debe insertar texto entre cada carácter');
+    assert.match(JSON.stringify(await callEdit(67, { path: testFilePath, old_str: 'fila', new_str: 'x', replace_all: 'true' })),
+      /Tipo inválido para 'replace_all'/);
+    assert.equal(fs.readFileSync(testFilePath, 'utf8'), 'primera fila\nsegunda fila modificada\ntercera fila\n',
+      'Las ediciones rechazadas no cambian el fichero');
 
     try { fs.unlinkSync(testFilePath); } catch (_) {}
 

@@ -1272,8 +1272,8 @@ def write_file(path: str, content: str) -> str:
         return _tool_error(str(e))
 
 
-def edit_file(path: str, old_str: str, new_str: str) -> str:
-    """Replace the single occurrence of old_str with new_str in an existing file."""
+def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
+    """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -1284,19 +1284,21 @@ def edit_file(path: str, old_str: str, new_str: str) -> str:
         with open(target, "r", encoding="utf-8", errors="replace") as f:
             file_text = f.read()
 
+        if not old_str:
+            return _tool_error("old_str is empty. Provide the exact text to replace.")
         occurrences = file_text.count(old_str)
         if occurrences == 0:
             return _tool_error(f"Target text was not found in '{path}'. Check exact file content with read_file.")
-        if occurrences > 1:
-            return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match.")
+        if occurrences > 1 and not replace_all:
+            return _tool_error(f"Found {occurrences} matches for the snippet in '{path}'. Provide more surrounding context in old_str to ensure a unique match, or set replace_all to replace every match.")
 
-        updated_text = file_text.replace(old_str, new_str, 1)
+        updated_text = file_text.replace(old_str, new_str) if replace_all else file_text.replace(old_str, new_str, 1)
         _atomic_write_text(target, updated_text)
         return json.dumps({
             "success": True,
             "path": str(target),
             "bytes_written": len(updated_text.encode("utf-8")),
-            "replacements": 1
+            "replacements": occurrences if replace_all else 1
         }, ensure_ascii=False, indent=2)
     except Exception as e:
         return _tool_error(str(e))
@@ -1780,13 +1782,18 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "edit_file",
-        "description": "Replace old_str with new_str in an existing file.",
+        "description": (
+            "Replace old_str with new_str in an existing file. "
+            "For several changes, in this file or in others, emit several edit_file calls in the same response; "
+            "they are applied in order, each one on the result of the previous one."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path"},
-                "old_str": {"type": "string", "description": "Exact text to replace; must occur once"},
-                "new_str": {"type": "string", "description": "Replacement text"}
+                "old_str": {"type": "string", "description": "Exact text to replace; must occur once unless replace_all is true"},
+                "new_str": {"type": "string", "description": "Replacement text"},
+                "replace_all": {"type": "boolean", "description": "Replace every occurrence of old_str (e.g. to rename an identifier)", "default": False}
             },
             "required": ["path", "old_str", "new_str"]
         }
@@ -1927,7 +1934,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
         "edit_file": {
             "path": (str, MAX_PATH_LENGTH),
             "old_str": (str, MAX_HTTP_BODY_BYTES),
-            "new_str": (str, MAX_HTTP_BODY_BYTES)
+            "new_str": (str, MAX_HTTP_BODY_BYTES),
+            "replace_all": (bool, None)
         },
         "run_command": {
             "command": (str, MAX_COMMAND_LENGTH),
