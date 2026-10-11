@@ -1,9 +1,11 @@
 /** Tool autocontenida: render_chart. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatBuiltinRenderChartTool = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
+  else root.ChatBuiltinRenderChartTool = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   const definition = {
     name: 'render_chart',
@@ -63,9 +65,7 @@
   }
 
   const toolModule = { id: definition.name, definition, displayMode: 'expanded', createTool, view: { id: definition.name, displayMode: 'expanded', createLiveCard, updateLiveCard, renderHistoricalCard } };
-  let manifestApi = null;
-  if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ } }
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

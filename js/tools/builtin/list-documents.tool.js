@@ -1,11 +1,13 @@
 /** Tool autocontenida: list_documents. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatBuiltinListDocumentsTool = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
+  else root.ChatBuiltinListDocumentsTool = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+  const { resolveDep } = Utils;
+
+  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   const definition = {
     name: 'list_documents',
@@ -24,7 +26,7 @@
 
 
 
-  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const Icons = resolveDep('ChatIcons', './icons.js');
   const LAYERS_ICON_SVG = Icons.get('layers', { size: 14 });
 
 
@@ -94,9 +96,7 @@
   }
 
   const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
-  let manifestApi = null;
-  if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ } }
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

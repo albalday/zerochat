@@ -15,9 +15,9 @@
 
   const { resolveDep } = Utils;
 
-  const ProvidersModule = typeof window !== 'undefined' ? (window.ChatProviders || {}) : (typeof require !== 'undefined' ? (() => { try { return require('./providers.js'); } catch(e) { return {}; } })() : {});
+  const ProvidersModule = resolveDep('ChatProviders', './providers.js');
   const registry = ProvidersModule.registry || (ProvidersModule.ProviderRegistry ? new ProvidersModule.ProviderRegistry() : null);
-  const TextToolCalls = typeof window !== 'undefined' ? (window.ChatTextToolCalls || null) : (typeof require !== 'undefined' ? (() => { try { return require('./text-tool-calls.js'); } catch(e) { return null; } })() : null);
+  const TextToolCalls = resolveDep('ChatTextToolCalls', './text-tool-calls.js');
 
   const TOOL_NAME_MAP = Object.freeze({
     // 1. Descarga y extracción de PDF
@@ -117,7 +117,7 @@
   });
 
   function mirrorResponse(payload) {
-    const i18n = typeof window !== 'undefined' ? window.ChatI18n : require('./i18n.js');
+    const i18n = resolveDep('ChatI18n', './i18n.js');
     const guidance = [
       i18n.t('mirror_response_intro'),
       i18n.t('mirror_response_about'),
@@ -342,7 +342,7 @@
     if (Array.isArray(params.tools)) {
       toolsList = params.tools;
     } else if (enableTools || (Boolean(activeRagBranchId) && enableTools !== false)) {
-      const AgentCore = typeof window !== 'undefined' ? window.ChatAgentCore : (typeof require !== 'undefined' ? (() => { try { return require('./agent-core.js'); } catch(e){ return null; } })() : null);
+      const AgentCore = resolveDep('ChatAgentCore', './agent-core.js');
       if (AgentCore && AgentCore.registry && typeof AgentCore.registry.getActiveDefinitions === 'function') {
         toolsList = AgentCore.registry.getActiveDefinitions(params);
       }

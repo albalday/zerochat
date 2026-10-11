@@ -690,7 +690,7 @@
   }
 
   function getMcpIconSvg(size = 14) {
-    const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('./icons.js');
+    const Icons = resolveDep('ChatIcons', './icons.js');
     return Icons.get('plug', { size });
   }
 
@@ -750,7 +750,7 @@
       const card = ui?.createCardWrapper ? ui.createCardWrapper('mcp-card') : document.createElement('div');
       card.className = 'tool-card-wrapper mcp-card';
       const argStr = args && typeof args === 'object' && Object.keys(args).length ? esc(JSON.stringify(args, null, 2)) : '';
-      const cards = typeof window !== 'undefined' && window.ChatToolCards || require('./tool-cards.js');
+      const cards = resolveDep('ChatToolCards', './tool-cards.js');
       card.innerHTML = cards.renderCardHtml({
         collapsed: isCollapsed,
         titleHtml: `${iconSvg}<span>${esc(toolName)}</span>`,

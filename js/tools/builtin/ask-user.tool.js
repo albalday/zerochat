@@ -1,9 +1,11 @@
 /** Tool autocontenida: ask_user. Muestra una pregunta con opciones y cede el turno al usuario. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatBuiltinAskUserTool = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
+  else root.ChatBuiltinAskUserTool = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   const MIN_OPTIONS = 2;
   const MAX_OPTIONS = 4;
@@ -37,7 +39,7 @@
     }
   };
 
-  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   function clip(value, max) {
     const text = typeof value === 'string' ? value.trim() : '';
@@ -61,10 +63,7 @@
     return { question, options };
   }
 
-  function getIcon(ui) {
-    const Icons = ui?.icons || (typeof window !== 'undefined' && window.ChatIcons) || (typeof require !== 'undefined' ? require('../../icons.js') : null);
-    return Icons?.get ? Icons.get('help-circle', { size: 15 }) : '';
-  }
+  const HELP_ICON_SVG = resolveDep('ChatIcons', './icons.js').get('help-circle', { size: 15 });
 
   /**
    * Los botones se pintan desactivados: la aplicación habilita solo los de la pregunta pendiente
@@ -79,7 +78,7 @@
     const problem = error || normalized.error || '';
     const buttons = options.map(option => `<button type="button" class="ask-user-option" data-ask-option="${escapeHtml(option.label)}" disabled><span class="ask-user-option-label">${escapeHtml(option.label)}</span>${option.description ? `<span class="ask-user-option-desc">${escapeHtml(option.description)}</span>` : ''}</button>`).join('');
     return `<div class="ask-user-card" role="group" aria-label="${escapeHtml(question)}">
-      <div class="ask-user-question">${getIcon(ui)}<span>${escapeHtml(question)}</span></div>
+      <div class="ask-user-question">${HELP_ICON_SVG}<span>${escapeHtml(question)}</span></div>
       ${buttons ? `<div class="ask-user-options">${buttons}</div>` : ''}
       <div class="ask-user-hint${problem ? ' ask-user-error' : ''}">${escapeHtml(problem || t('tool_ask_user_hint'))}</div>
     </div>`;
@@ -137,9 +136,7 @@
     view: { id: definition.name, displayMode: 'expanded', createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 
-  let manifestApi = null;
-  if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ } }
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

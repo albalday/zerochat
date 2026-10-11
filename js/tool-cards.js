@@ -179,7 +179,6 @@
     document: typeof document === 'undefined' ? null : document,
     markdown: getMarkdown(),
     charts: typeof window !== 'undefined' ? window.ChatCharts : null,
-    icons: typeof window !== 'undefined' ? window.ChatIcons : null,
     t,
     createCardWrapper: (extraClass) => createCardWrapper({ document: typeof document === 'undefined' ? null : document }, extraClass),
     SPINNER_SVG,

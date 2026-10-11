@@ -6,14 +6,16 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('../../utils.js'));
   } else {
-    root.ChatBuiltinExecuteJavascriptTool = factory();
+    root.ChatBuiltinExecuteJavascriptTool = factory(root.ChatUtils);
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+  const { resolveDep } = Utils;
+
+  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   const definition = {
     name: 'execute_javascript',
@@ -60,7 +62,7 @@
     };
   }
 
-  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const Icons = resolveDep('ChatIcons', './icons.js');
   const JS_ICON_SVG = Icons.get('terminal', { size: 14 });
 
   function createLiveCard(args, ui) {
@@ -173,18 +175,7 @@
     view: { id: 'execute_javascript', displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 
-  function registerWithBuiltinManifest() {
-    let manifestApi = null;
-    if (typeof window !== 'undefined' && window.ChatToolManifest) {
-      manifestApi = window.ChatToolManifest;
-    } else if (typeof require !== 'undefined') {
-      try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ }
-    }
-    if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) {
-      manifestApi.builtin.register(toolModule);
-    }
-  }
-
-  registerWithBuiltinManifest();
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
+  if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

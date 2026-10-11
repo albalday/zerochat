@@ -1,9 +1,11 @@
 /** Tool autocontenida: delegate_task. Delega una investigación a un subagente de solo lectura con contexto propio. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatBuiltinDelegateTaskTool = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
+  else root.ChatBuiltinDelegateTaskTool = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
 
   const MAX_TASK_LENGTH = 8000;
   const MAX_REPORT_LENGTH = 20000;
@@ -32,13 +34,9 @@
     }
   };
 
-  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
-  const getUtils = () => typeof window !== 'undefined' && window.ChatUtils || require('../../utils.js');
-  const translate = (key, params) => {
-    const i18n = typeof window !== 'undefined' ? window.ChatI18n : null;
-    return i18n?.t ? i18n.t(key, params) : key;
-  };
-  const Icons = (typeof window !== 'undefined' && window.ChatIcons) || require('../../icons.js');
+  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
+  const translate = (key, params) => resolveDep('ChatI18n', './i18n.js').t(key, params);
+  const Icons = resolveDep('ChatIcons', './icons.js');
   const BOT_ICON_SVG = Icons.get('bot', { size: 14 });
 
   function isReadOnlyTool(tool) {
@@ -76,9 +74,9 @@
   }
 
   function renderMarkdown(text, markdown) {
-    const Markdown = markdown || (typeof window !== 'undefined' && window.ChatMarkdown) || null;
+    const Markdown = markdown || resolveDep('ChatMarkdown', './markdown.js');
     if (typeof Markdown?.parseMarkdown === 'function') return Markdown.parseMarkdown(text);
-    return `<pre class="tool-result-pre"><code>${getUtils().escapeHtml(text)}</code></pre>`;
+    return `<pre class="tool-result-pre"><code>${Utils.escapeHtml(text)}</code></pre>`;
   }
 
   /**
@@ -360,9 +358,7 @@
     view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 
-  let manifestApi = null;
-  if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (e) { /* módulo opcional: no disponible en este entorno */ } }
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });

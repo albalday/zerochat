@@ -1,15 +1,17 @@
 /** Tool module: read_knowledge_image. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory();
-  else root.ChatBuiltinReadKnowledgeImageTool = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
+  else root.ChatBuiltinReadKnowledgeImageTool = factory(root.ChatUtils);
+})(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
+
+  const { resolveDep } = Utils;
   const definition = {
     name: 'read_knowledge_image',
     description: 'Retrieves an image from a RAG document to inspect it visually. Use only if you have native vision capability and the image may provide relevant information. Provide a full rag-image://docId:imgId reference obtained from the document; do not invent identifiers. If you cannot process images, do not use this tool.',
     parameters: { type: 'object', properties: { imageRef: { type: 'string', description: 'Full rag-image://docId:imgId reference obtained from a RAG document.' } }, required: ['imageRef'] }
   };
-  const getCards = () => typeof window !== 'undefined' && window.ChatToolCards || require('../../tool-cards.js');
+  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   function createLiveCard(args, ui) {
     const card = getCards().createCardWrapper(ui);
@@ -71,9 +73,7 @@
     });
   }
   const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
-  let manifestApi = null;
-  if (typeof window !== 'undefined' && window.ChatToolManifest) manifestApi = window.ChatToolManifest;
-  else if (typeof require !== 'undefined') { try { manifestApi = require('../tool-manifest.js'); } catch (_) { /* módulo opcional: no disponible en este entorno */ } }
+  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
   if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
   return toolModule;
 });
