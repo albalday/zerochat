@@ -18,7 +18,7 @@ tests/
 
 ### Criterios por nivel
 
-- **`unit/`**: comportamiento de un módulo aislado. Las dependencias externas se sustituyen por mocks ligeros o implementaciones en memoria.
+- **`unit/`**: comportamiento de un módulo aislado. Las dependencias externas se sustituyen por implementaciones en memoria; el DOM es siempre real (`tests/helpers/dom-env.js`, con happy-dom), nunca objetos que imiten elementos.
 - **`integration/`**: interacción entre varios módulos, estado compartido, servicios o flujos completos que no requieran un navegador real.
 - **`browser/`**: comportamiento observable de la interfaz en Chromium headless: DOM, interacción, accesibilidad, temas y carga de la aplicación.
 - **`architecture/`**: restricciones estáticas y contratos transversales que deben mantenerse independientemente de un flujo de usuario concreto.

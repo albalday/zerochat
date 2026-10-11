@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatAttachments = require('../../js/attachments.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 test('ChatAttachments - Gestión del estado de adjuntos y formateo de payload', () => {
   ChatAttachments.clearFiles();
@@ -63,35 +64,20 @@ test('ChatAttachments - Validación de tamaño máximo de archivo', () => {
 });
 
 test('ChatAttachments - renderChips escapa caracteres peligrosos y comillas en nombres de archivo', () => {
-  const container = {
-    innerHTML: '',
-    style: {},
-    children: [],
-    appendChild: (child) => container.children.push(child)
-  };
-  const createElement = () => ({
-    className: '',
-    innerHTML: '',
-    textContent: '',
-    title: '',
-    children: [],
-    attributes: {},
-    appendChild(child) { this.children.push(child); },
-    setAttribute(name, value) { this.attributes[name] = String(value); },
-    addEventListener: () => {}
-  });
-  global.document = {
-    createElement
-  };
+  const dom = installDom();
+  try {
+    const container = document.createElement('div');
+    ChatAttachments.clearFiles();
+    ChatAttachments.addFile({ name: "archivo<script>'\"&.pdf", size: 1024, type: 'pdf' });
+    ChatAttachments.renderChips(container);
 
-  ChatAttachments.clearFiles();
-  ChatAttachments.addFile({ name: "archivo<script>'\"&.pdf", size: 1024, type: 'pdf' });
-  ChatAttachments.renderChips(container);
-
-  assert.equal(container.children.length, 1);
-  const chip = container.children[0];
-  const name = chip.children.find(child => child.className === 'file-chip-name');
-  assert.equal(name.textContent, "archivo<script>'\"&.pdf");
-  assert.equal(name.title, "archivo<script>'\"&.pdf");
-  assert.equal(chip.innerHTML, '', 'El nombre externo no debe interpolarse en HTML');
+    assert.equal(container.children.length, 1);
+    const name = container.querySelector('.file-chip-name');
+    assert.equal(name.textContent, "archivo<script>'\"&.pdf");
+    assert.equal(name.title, "archivo<script>'\"&.pdf");
+    assert.equal(container.querySelector('script'), null, 'El nombre externo no debe interpolarse en HTML');
+  } finally {
+    dom.restore();
+    ChatAttachments.clearFiles();
+  }
 });

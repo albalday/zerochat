@@ -59,6 +59,9 @@ una solución equivalente en el repositorio.
   datos o formatos, lectura de claves antiguas) salvo petición expresa del usuario.
 - Al retirar o sustituir algo, el mismo cambio elimina lo que deja sin uso: funciones,
   exportaciones, claves i18n, CSS, iconos, pruebas y documentación.
+- Las pruebas sin navegador usan un DOM real (`installDom` de `tests/helpers/dom-env.js`; con
+  `{ app: true }` carga el marcado de `zerochat.html`). No se simulan elementos con objetos: un
+  elemento incompleto obliga a escribir respaldos en el código.
 - No se exportan funciones solo para probarlas: las pruebas usan la API pública y el
   contexto real, sin versiones incompletas que obliguen a mantener respaldos.
 - Antes de copiar un módulo parecido para crear otro, se extrae lo común.

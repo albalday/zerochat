@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const ChatUtils = require('../../js/utils.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables', () => {
   assert.strictEqual(ChatUtils.escapeHtml('<script>alert("XSS")&\'test\'</script>'), '&lt;script&gt;alert(&quot;XSS&quot;)&amp;&#39;test&#39;&lt;/script&gt;');
@@ -22,22 +23,19 @@ test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables',
 });
 
 test('ChatUtils - primitivas de DOM separan texto no confiable de HTML interno', () => {
-  const documentMock = {
-    createElement: (tagName) => ({ tagName, className: '', textContent: '' })
-  };
-  const parent = {
-    ownerDocument: documentMock,
-    children: [],
-    appendChild(child) { this.children.push(child); },
-    replaceChildren() { this.children = []; }
-  };
-
-  const child = ChatUtils.appendTextElement(parent, 'span', '<img src=x onerror=alert(1)>', { className: 'safe-text' });
-  assert.equal(child.textContent, '<img src=x onerror=alert(1)>');
-  assert.equal(child.className, 'safe-text');
-  assert.equal(parent.children.length, 1);
-  ChatUtils.clearElement(parent);
-  assert.equal(parent.children.length, 0);
+  const dom = installDom();
+  try {
+    const parent = document.createElement('div');
+    const child = ChatUtils.appendTextElement(parent, 'span', '<img src=x onerror=alert(1)>', { className: 'safe-text' });
+    assert.equal(child.textContent, '<img src=x onerror=alert(1)>');
+    assert.equal(child.className, 'safe-text');
+    assert.equal(parent.querySelector('img'), null);
+    assert.equal(parent.children.length, 1);
+    ChatUtils.clearElement(parent);
+    assert.equal(parent.children.length, 0);
+  } finally {
+    dom.restore();
+  }
 });
 
 test('ChatUtils - serializeContent, clone, formatShortValue y resolveDep', () => {

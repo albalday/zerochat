@@ -25,6 +25,7 @@
   "devDependencies": {
     "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.5",
+    "happy-dom": "^20.14.6",
     "playwright": "^1.62.1"
   }
 }
