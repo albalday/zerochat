@@ -7,15 +7,15 @@
 
   const definition = {
     name: 'render_chart',
-    description: 'Generates and displays an interactive chart (bar, line, donut, or pie) from numerical data or tables.',
+    description: 'Show an interactive chart from numeric data.',
     parameters: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['bar', 'line', 'pie', 'doughnut'], description: 'Chart type.' },
-        title: { type: 'string', description: 'Descriptive chart title.' },
-        description: { type: 'string', description: 'Brief explanation of the data.' },
-        labels: { type: 'array', items: { type: 'string' }, description: 'X-axis labels or categories.' },
-        datasets: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } }, color: { type: 'string' } }, required: ['label', 'data'] }, description: 'Numerical data series.' }
+        type: { type: 'string', enum: ['bar', 'line', 'pie', 'doughnut'] },
+        title: { type: 'string' },
+        description: { type: 'string', description: 'Short note on the data.' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Categories or X-axis labels.' },
+        datasets: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, data: { type: 'array', items: { type: 'number' } }, color: { type: 'string' } }, required: ['label', 'data'] }, description: 'Series; one value per label.' }
       },
       required: ['type', 'title', 'labels', 'datasets']
     }

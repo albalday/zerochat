@@ -196,6 +196,10 @@ test('Servidor local zerochat.py: token de sesión, herramientas core y aislamie
     const listDirectory = tools.find(t => t.name === 'list_directory');
     assert.equal(listDirectory?.inputSchema?.properties?.max_depth, undefined,
       'list_directory no debe publicar una profundidad recursiva inexistente');
+    const editFile = tools.find(t => t.name === 'edit_file');
+    assert.deepEqual(Object.keys(editFile.inputSchema.properties).sort(), ['new_str', 'old_str', 'path'],
+      'edit_file solo publica el reemplazo exacto; write_file cubre la escritura completa');
+    assert.deepEqual(editFile.inputSchema.required.sort(), ['new_str', 'old_str', 'path']);
 
     const availabilityRes = await fetch(baseUrl, {
       method: 'POST',

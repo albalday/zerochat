@@ -684,15 +684,15 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read text content from a local file with safe ranges and bounds.",
+        "description": "Read a text file, whole or by line range.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the file to read"},
-                "start_line": {"type": "integer", "description": "Starting line number (1-indexed)", "default": 1},
-                "end_line": {"type": "integer", "description": "Ending line number (inclusive)"},
-                "max_lines": {"type": "integer", "description": "Maximum number of lines to read when end_line is omitted", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Maximum byte budget", "default": 100000}
+                "path": {"type": "string", "description": "File path"},
+                "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
+                "end_line": {"type": "integer", "description": "Last line (inclusive)"},
+                "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
+                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000}
             },
             "required": ["path"]
         }
@@ -711,18 +711,15 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "edit_file",
-        "description": "Edit an existing file surgically by replacing old_str with new_str (must match exactly once).",
+        "description": "Replace old_str with new_str in an existing file.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the file to edit"},
-                "old_str": {"type": "string", "description": "Exact snippet to replace (must appear exactly once in the file)"},
-                "new_str": {"type": "string", "description": "Replacement snippet"},
-                "content": {"type": "string", "description": "Content to write in legacy/compatible mode"},
-                "mode": {"type": "string", "enum": ["surgical", "write", "append", "replace_chunk"], "default": "surgical"},
-                "target_content": {"type": "string", "description": "Exact target content in replace_chunk mode"}
+                "path": {"type": "string", "description": "File path"},
+                "old_str": {"type": "string", "description": "Exact text to replace; must occur once"},
+                "new_str": {"type": "string", "description": "Replacement text"}
             },
-            "required": ["path"]
+            "required": ["path", "old_str", "new_str"]
         }
     },
     {

@@ -13,21 +13,21 @@
 
   const definition = {
     name: 'ask_user',
-    description: 'Asks the user a multiple-choice question and ends your turn; the chosen option arrives as the next user message. Use it only when you are blocked on a decision that genuinely belongs to the user (approving a proposal, choosing between incompatible approaches). Do not use it to ask permission to continue, for questions you can answer from the context, or for open-ended questions.',
+    description: 'Ask a multiple-choice question and end your turn; the pick arrives as the next user message. Use only when blocked on a decision that is the user\'s (approve a plan, pick between incompatible options). Not for permission to go on, answers you can find, or open questions.',
     parameters: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'Clear, specific question ending with a question mark.' },
+        question: { type: 'string', description: 'Clear, specific question ending in ?' },
         options: {
           type: 'array',
           minItems: MIN_OPTIONS,
           maxItems: MAX_OPTIONS,
-          description: `${MIN_OPTIONS} to ${MAX_OPTIONS} mutually exclusive choices. The user can always type a different answer instead.`,
+          description: `${MIN_OPTIONS}-${MAX_OPTIONS} exclusive choices; the user may type another answer.`,
           items: {
             type: 'object',
             properties: {
-              label: { type: 'string', description: 'Short choice text (1-6 words), sent as the user reply when chosen.' },
-              description: { type: 'string', description: 'Optional one-line explanation of the choice and its consequences.' }
+              label: { type: 'string', description: '1-6 words; sent as the reply.' },
+              description: { type: 'string', description: 'Optional one-line consequence.' }
             },
             required: ['label']
           }
