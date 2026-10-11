@@ -895,10 +895,8 @@
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
 
-        const descPrefix = external ? `[MCP: ${serverName}] ` : '';
-        const toolDesc = rt.description
-          ? `${descPrefix}${rt.description}`
-          : (external ? `[MCP: ${serverName}] Herramienta ${toolName}` : toolName);
+        // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
+        const toolDesc = rt.description || toolName;
 
         const tool = new AgentCore.Tool({
           id: namespacedName,
@@ -1073,8 +1071,11 @@
       if (!serverConfig || !serverConfig.url) {
         throw new Error('La URL del servidor MCP es obligatoria.');
       }
+      if (typeof serverConfig.id !== 'string' || !serverConfig.id) {
+        throw new Error('El id del servidor MCP es obligatorio.');
+      }
 
-      const id = serverConfig.id || `mcp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const id = serverConfig.id;
       const existingIdx = this.servers.findIndex(s => s.id === id);
 
       const serverData = {

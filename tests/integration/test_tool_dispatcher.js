@@ -94,7 +94,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   const fakeMcpTool = new AgentCore.Tool({
     definition: {
       name: 'mcp_testz5fzsrv_run_cmd',
-      description: '[MCP: test-srv] Ejecuta comando',
+      description: 'Ejecuta comando',
       parameters: {
         type: 'object',
         properties: { cmd: { type: 'string' } }

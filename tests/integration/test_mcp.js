@@ -295,14 +295,19 @@ test('MCP - McpManager administración de servidores y sincronización', async (
   const manager = new MCP.McpManager();
 
   // Añadir servidor
+  const before = manager.getServers().length;
+  assert.throws(() => manager.addServer({ url: 'http://localhost:8000/rpc' }), /id del servidor MCP es obligatorio/);
+  assert.equal(manager.getServers().length, before);
+
   const server = manager.addServer({
+    id: 'test_local',
     name: 'Test Local MCP',
     url: 'http://localhost:8000/rpc',
     headers: { 'Authorization': 'Bearer test-secret-token' },
     enabled: true
   });
 
-  assert.ok(server.id);
+  assert.equal(server.id, 'test_local');
   assert.equal(server.name, 'Test Local MCP');
   assert.equal(manager.getServers().length >= 1, true);
 
@@ -867,6 +872,7 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
       ['playwright', 'browser_navigate']
     ].map(([server, name]) => ({
       name: `${server}_${name}`,
+      description: name === 'browser_navigate' ? 'Navigate to a URL' : undefined,
       metadata: { mcpServerId: server, originalName: name }
     }))
   });
@@ -877,7 +883,7 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
     assert.equal(auth.serverName, tool.metadata.mcpServerId);
     assert.equal(auth.serverId, tool.metadata.mcpServerId);
     assert.equal(auth.requiresApproval, true);
-    assert.ok(tool.description.includes(`[MCP: ${auth.serverName}]`));
+    assert.equal(tool.description, tool === browser ? 'Navigate to a URL' : tool.metadata.originalName);
     assert.ok(tool.formatter({}, {}).includes(auth.serverName));
     assert.ok(!tool.formatter({}, {}).includes('ZeroChat External MCP Host'));
   }
