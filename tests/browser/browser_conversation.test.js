@@ -995,7 +995,9 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
           delegated: loop.chatHistory.find(message => message.role === 'tool' && message.name === 'delegate_task')?.content,
           parentSawSubagentTool: loop.chatHistory.some(message => message.tool_call_id === 'sub_1'),
           cards: card.length,
-          outerInTopGroup: outer?.parentElement?.closest('.tool-call-group')?.parentElement === container,
+          outerStandalone: outer?.parentElement === container && !outer.closest('.tool-call-group'),
+          stepTextBeforeTools: steps?.firstElementChild?.classList.contains('subagent-step-text') && steps.firstElementChild.nextElementSibling?.classList.contains('tool-call-group'),
+          emptyStepBlocks: [...(steps?.querySelectorAll('.subagent-step-text') || [])].filter(block => !block.textContent.trim()).length,
           nestedCards: steps?.querySelectorAll('.tool-call-group .tool-card-wrapper').length,
           stepText: steps?.querySelector('.subagent-step-text')?.textContent.trim(),
           task: card[0]?.querySelector('.subagent-task')?.innerHTML,
@@ -1013,9 +1015,11 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
     assert.equal(result.delegated, 'El valor es **42**.');
     assert.equal(result.parentSawSubagentTool, false, 'Los pasos del subagente no entran en el historial principal');
     assert.equal(result.cards, 1);
-    assert.equal(result.outerInTopGroup, true);
-    assert.match(result.topGroupStatus, /^2\b/, 'El grupo principal no cuenta las herramientas del subagente');
-    assert.equal(result.parentCardsInTopGroup, 2, 'La llamada siguiente del agente principal no cae dentro de la tarjeta del subagente');
+    assert.equal(result.outerStandalone, true, 'El subagente no se mete en el grupo de llamadas: ya agrupa las suyas');
+    assert.match(result.topGroupStatus, /^1\b/, 'El grupo principal no cuenta las herramientas del subagente');
+    assert.equal(result.parentCardsInTopGroup, 1, 'La llamada siguiente del agente principal no cae dentro de la tarjeta del subagente');
+    assert.equal(result.stepTextBeforeTools, true, 'El texto de cada paso precede a sus herramientas');
+    assert.equal(result.emptyStepBlocks, 0);
     assert.equal(result.nestedCards, 1, 'La herramienta del subagente se pinta dentro de su tarjeta');
     assert.equal(result.stepText, 'Calculo el valor.');
     assert.equal(result.task, 'Compute 6 * 7 &lt;b&gt;now&lt;/b&gt;.');

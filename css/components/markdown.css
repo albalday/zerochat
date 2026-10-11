@@ -345,7 +345,7 @@
   transform: rotate(45deg) translateY(-2px);
   transition: transform 0.15s ease;
 }
-.tool-call-group-history[open] .tool-call-group-summary::after { transform: rotate(225deg) translate(-2px, -2px); }
+.tool-call-group-history[open] > .tool-call-group-summary::after { transform: rotate(225deg) translate(-2px, -2px); }
 .tool-call-group-status { color: var(--text-muted); font-weight: 500; }
 .tool-call-group.is-running { border-color: var(--primary); }
 .tool-call-group.is-running .tool-call-group-summary > .ui-icon { color: var(--primary); animation: pulse-tool-badge 1.4s infinite ease-in-out; }

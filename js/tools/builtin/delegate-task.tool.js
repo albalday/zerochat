@@ -79,25 +79,34 @@
   /**
    * Progreso del subagente en su tarjeta: la insignia indica el paso y cada texto intermedio se
    * añade al terminar su paso. Las tarjetas de sus herramientas se crean en el mismo contenedor.
+   * El bloque de texto se reserva al empezar el paso para que quede encima de sus herramientas.
    */
   function createProgressView(card, context = {}) {
     const steps = card?.querySelector?.('.subagent-steps');
     if (!steps) return null;
     const i18n = getI18n();
     const t = (key, params) => (i18n?.t ? i18n.t(key, params) : key);
+    let stepBlock = null;
     return {
       steps,
       setStep(step) {
         const label = card.querySelector('.tool-card-badge.status-loading span');
         if (label) label.textContent = t('tool_delegate_step', { step });
-      },
-      appendText(text) {
         const doc = steps.ownerDocument;
-        if (!doc || !text) return;
-        const block = doc.createElement('div');
-        block.className = 'subagent-step-text';
+        if (!doc) return;
+        stepBlock = doc.createElement('div');
+        stepBlock.className = 'subagent-step-text';
+        steps.appendChild(stepBlock);
+      },
+      setText(text) {
+        const block = stepBlock;
+        stepBlock = null;
+        if (!block) return;
+        if (!text) {
+          block.remove();
+          return;
+        }
         block.innerHTML = renderMarkdown(text);
-        steps.appendChild(block);
         context.attachListeners?.(block);
       }
     };
@@ -157,7 +166,7 @@
       callbacks: {
         onStepStart: stepIndex => progress?.setStep(stepIndex + 1),
         onStepDone: (_stepIndex, step) => {
-          if (step?.type === 'tool_execution') progress?.appendText(step.assistantMsg?.content || '');
+          progress?.setText(step?.type === 'tool_execution' ? step.assistantMsg?.content || '' : '');
         }
       }
     });

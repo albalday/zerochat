@@ -60,7 +60,9 @@
   function appendToolCard(container, card, options = {}) {
     if (!container || !card) return null;
     // Las visualizaciones y las preguntas al usuario son resultado principal, no ruido de ejecución.
-    if (card.querySelector?.('.chat-chart-card, .ask-user-card')) {
+    // El subagente ya agrupa sus propias herramientas: dentro de un grupo quedaría doblemente
+    // enmarcado y, mientras se ejecuta, el grupo no podría ocultarlo.
+    if (card.querySelector?.('.chat-chart-card, .ask-user-card, .subagent-card')) {
       container.appendChild(card);
       return null;
     }

@@ -1676,6 +1676,10 @@ button.command-jobs-link:focus-visible {
   margin: 0.35rem 0;
 }
 
+.subagent-step-text:empty {
+  display: none;
+}
+
 .subagent-report {
   margin-top: 0.5rem;
 }
