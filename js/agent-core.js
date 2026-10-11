@@ -374,12 +374,6 @@
       return null;
     }
 
-    /**
-     * Comprueba si una herramienta está registrada.
-     */
-    hasTool(name) {
-      return !!this.getTool(name);
-    }
 
     /**
      * Desregistra un proveedor y todas las herramientas que expone.

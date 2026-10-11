@@ -2,43 +2,6 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITransfer = require('../../js/ui-transfer.js');
 
-test('UITransfer - parseConversationJson acepta objetos y arrays y rechaza estructuras inválidas', () => {
-  {
-    const jsonStr = JSON.stringify({
-      title: 'Chat Test',
-      messages: [
-        { role: 'user', content: 'Hola' },
-        { role: 'assistant', content: 'Mundo' }
-      ]
-    });
-
-    const parsed = UITransfer.parseConversationJson(jsonStr);
-    assert.equal(parsed.messages.length, 2);
-    assert.equal(parsed.messages[0].content, 'Hola');
-    assert.equal(parsed.messages[1].content, 'Mundo');
-  }
-
-  {
-    const jsonStr = JSON.stringify([
-      { role: 'user', content: 'Solo array' }
-    ]);
-
-    const parsed = UITransfer.parseConversationJson(jsonStr);
-    assert.equal(parsed.messages.length, 1);
-    assert.equal(parsed.messages[0].content, 'Solo array');
-  }
-
-  {
-    assert.throws(() => {
-      UITransfer.parseConversationJson('{"invalid": true}');
-    }, /Estructura de conversación no válida/);
-
-    assert.throws(() => {
-      UITransfer.parseConversationJson('null');
-    });
-  }
-});
-
 test('UITransfer - openExportModal and closeExportModal manage dialog open state', () => {
   let modalOpened = false;
   let modalClosed = false;
@@ -71,7 +34,7 @@ test('UITransfer - resolveSessionForExport returns active session when matching 
   assert.deepEqual(session.messages, mockMessages);
 });
 
-test('UITransfer - mount limpia la sesión de destino al cerrar el modal y aplica maxBytes', async () => {
+test('UITransfer - mount limpia la sesión de destino al cerrar el modal y rechaza archivos demasiado grandes', async () => {
   const listeners = {};
   const makeTarget = (name, extra = {}) => ({
     ...extra,
@@ -87,12 +50,12 @@ test('UITransfer - mount limpia la sesión de destino al cerrar el modal y aplic
   const alerts = [];
   globalThis.ChatDialogs = { alert: async (message, options) => { alerts.push(options?.type); } };
   try {
-    UITransfer.mount({ elements, maxBytes: 10, onImportSuccess: () => { imported = true; } });
+    UITransfer.mount({ elements, onImportSuccess: () => { imported = true; } });
 
     listeners['modal:close']();
     assert.equal(elements.exportModal.dataset.sessionId, undefined);
 
-    await listeners['input:change']({ target: { files: [{ name: 'big.json', size: 11 }] } });
+    await listeners['input:change']({ target: { files: [{ name: 'big.json', size: 51 * 1024 * 1024 }] } });
     assert.equal(imported, false);
     assert.deepEqual(alerts, ['error']);
     assert.equal(elements.importJsonInput.value, '');

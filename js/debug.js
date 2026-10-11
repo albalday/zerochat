@@ -58,9 +58,6 @@
     rawLogsEnabled = Boolean(enabled);
   }
 
-  function isRawLogsEnabled() {
-    return rawLogsEnabled;
-  }
 
   function getFormattedTime() {
     const now = new Date();
@@ -490,7 +487,6 @@
   return {
     setElements,
     setRawLogsEnabled,
-    isRawLogsEnabled,
     getFormattedTime,
     togglePanel,
     setStatus,

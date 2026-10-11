@@ -123,14 +123,6 @@
     }, 200);
   }
 
-  function parseConversationJson(rawText) {
-    const data = JSON.parse(rawText);
-    if (!data || (!data.messages && !Array.isArray(data))) {
-      throw new Error('Estructura de conversación no válida.');
-    }
-    const messages = Array.isArray(data) ? data : (data.messages || []);
-    return { messages, raw: data };
-  }
 
   async function handleImportFileSelected(e, elements, options = {}) {
     const file = e.target?.files && e.target.files[0];
@@ -141,12 +133,10 @@
       return;
     }
 
-    const maxBytes = options.maxBytes || (50 * 1024 * 1024);
     const Dialogs = getDialogs();
-    if (file.size > maxBytes) {
-      if (Dialogs?.alert) {
-        await Dialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
-      }
+    const check = resolveDep('ChatAttachments', './attachments.js').validateFileSize(file);
+    if (!check.valid) {
+      await Dialogs.alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
       if (elements?.importJsonInput) elements.importJsonInput.value = '';
       return;
     }
@@ -177,10 +167,10 @@
     }
   }
 
-  function mount({ elements, getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy, maxBytes } = {}) {
+  function mount({ elements, getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy } = {}) {
     dispose();
     cachedElements = elements || {};
-    cachedOptions = { getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy, maxBytes };
+    cachedOptions = { getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy };
 
     const els = cachedElements;
 
@@ -233,8 +223,7 @@
       exportConversationAsMarkdown: () => exportConversationAsMarkdown(els, cachedOptions),
       exportConversationAsJson: () => exportConversationAsJson(els, cachedOptions),
       exportConversationAsPrint: () => exportConversationAsPrint(els, cachedOptions),
-      handleImportFileSelected: (e) => handleImportFileSelected(e, els, cachedOptions),
-      parseConversationJson
+      handleImportFileSelected: (e) => handleImportFileSelected(e, els, cachedOptions)
     };
   }
 
@@ -253,7 +242,6 @@
     exportConversationAsMarkdown,
     exportConversationAsJson,
     exportConversationAsPrint,
-    parseConversationJson,
     handleImportFileSelected,
     mount,
     dispose

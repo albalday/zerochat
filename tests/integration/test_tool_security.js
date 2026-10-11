@@ -261,8 +261,8 @@ test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y
   assert.equal(evalOutside.status, 'ask');
   assert.equal(evalOutside.requiresApproval, true);
 
-  // 5. Actualizar restricciones mediante setToolConstraints
-  manager.setToolConstraints(tool.id, null);
+  // 5. Actualizar restricciones mediante setToolPolicy
+  manager.setToolPolicy(tool.id, 'allow', { constraints: null });
   assert.equal(manager.getToolConstraints(tool.id), null);
   const evalNowAllowed = manager.evaluateAuthorization(tool, { path: '/var/log/syslog' });
   assert.equal(evalNowAllowed.status, 'allow');
@@ -298,25 +298,25 @@ test('ChatToolSecurity - Autorización contextual de comandos con pipes y permis
   assert.equal(evalPiped.requiresApproval, false);
 
   // 2. Si allowPipes es false, los pipes sí requieren confirmación
-  manager.setToolConstraints(canonicalTool.id, {
+  manager.setToolPolicy(canonicalTool.id, 'allow', { constraints: {
     command: {
       allowedPrefixes: ['du ', 'du'],
       allowChaining: false,
       allowPipes: false
     }
-  });
+  } });
   const evalPipedBlocked = manager.evaluateAuthorization(canonicalTool, { command: 'du -sh * | sort -hr' });
   assert.equal(evalPipedBlocked.status, 'ask');
   assert.equal(evalPipedBlocked.requiresApproval, true);
 
   // Restaurar allowPipes: true
-  manager.setToolConstraints(canonicalTool.id, {
+  manager.setToolPolicy(canonicalTool.id, 'allow', { constraints: {
     command: {
       allowedPrefixes: ['du ', 'du'],
       allowChaining: false,
       allowPipes: true
     }
-  });
+  } });
 
   // Los nombres no autorizados no heredan permisos del nombre canónico.
   assert.equal(manager.getToolPolicy('other_command'), null);

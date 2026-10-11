@@ -23,7 +23,6 @@
   const API = window.ChatAPI || {};
   const I18n = window.ChatI18n || {};
   const Debug = window.ChatDebug || {};
-  const Attachments = window.ChatAttachments || {};
   const ProfileBackup = window.ChatProfileBackup || {};
   const State = window.ChatState || {};
   const Engine = window.ChatEngine || {};
@@ -981,8 +980,7 @@
       getModel: () => getRuntimeConfig().model,
       onSwitchSession: async (id) => await switchToSession(id),
       onImportSuccess: importConversationSession,
-      isBusy: () => blockSessionTransitionIfBusy('chat_import_blocked_generating'),
-      maxBytes: Attachments.MAX_FILE_SIZE
+      isBusy: () => blockSessionTransitionIfBusy('chat_import_blocked_generating')
     };
   }
 
@@ -1195,7 +1193,6 @@
         loadCachedModels,
         resetTelemetryDisplay,
         updateUIFromConfig,
-        updateReasoningUI,
         inspectProfile,
         closeSettingsModal: () => UISettings.closeSettingsModal?.(elements)
       });

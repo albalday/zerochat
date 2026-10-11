@@ -90,49 +90,24 @@
     if (els.fileInput) els.fileInput.value = '';
   }
 
-  function readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-  }
-
   async function processFiles(elements, files) {
     const els = elements || cachedElements || {};
     const Attachments = getAttachments();
     const FileParser = getFileParser();
     const Dialogs = getDialogs();
-    const maxBytes = Attachments?.MAX_FILE_SIZE || (50 * 1024 * 1024);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (file && typeof file.size === 'number' && file.size > maxBytes) {
-        if (Dialogs?.alert) {
-          await Dialogs.alert(t('err_file_too_large', { name: file.name, max: '50 MB' }), { type: 'error' });
-        }
+      const check = Attachments.validateFileSize(file);
+      if (!check.valid) {
+        await Dialogs.alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
         continue;
       }
       try {
-        let parsed;
-        if (FileParser?.parseFile) {
-          parsed = await FileParser.parseFile(file);
-        } else {
-          const text = await readFileAsText(file);
-          parsed = {
-            name: file.name,
-            size: file.size,
-            type: 'text',
-            content: text
-          };
-        }
-        if (Attachments?.addFile) Attachments.addFile(parsed);
+        Attachments.addFile(await FileParser.parseFile(file));
       } catch (err) {
         console.error(`Error processing file ${file.name}:`, err);
-        if (Dialogs?.alert) {
-          Dialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
-        }
+        Dialogs.alert(t('err_file_process', { name: file.name, err: err.message || err }), { type: 'error' });
       }
     }
     renderAttachedFiles(els);
@@ -298,7 +273,6 @@
     setPromptValue,
     renderAttachedFiles,
     clearAttachedFiles,
-    readFileAsText,
     processFiles,
     handlePasteEvent,
     syncGenerationControls,

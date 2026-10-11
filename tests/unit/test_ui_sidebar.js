@@ -261,7 +261,7 @@ test('UISidebar - mount attaches events and dispose cleans them up', () => {
   assert.equal(listeners['deleteAll:click'], undefined);
 });
 
-test('UISidebar - getSidebarMode y setSidebarMode alternan entre chat y settings', () => {
+test('UISidebar - setSidebarMode alterna entre chat y settings', () => {
   const fakeChatView = { hidden: false, style: { display: 'flex' } };
   const fakeSettingsView = { hidden: true, style: { display: 'none' } };
   const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
@@ -271,21 +271,21 @@ test('UISidebar - getSidebarMode y setSidebarMode alternan entre chat y settings
     sidebarViewSettings: fakeSettingsView
   };
 
-  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+  assert.equal(elements.sidebarViewSettings.hidden, true);
 
   UISidebar.setSidebarMode(elements, 'settings');
   assert.equal(fakeChatView.hidden, true);
   assert.equal(fakeChatView.style.display, 'none');
   assert.equal(fakeSettingsView.hidden, false);
   assert.equal(fakeSettingsView.style.display, 'flex');
-  assert.equal(UISidebar.getSidebarMode(elements), 'settings');
+  assert.equal(elements.sidebarViewSettings.hidden, false);
 
   UISidebar.setSidebarMode(elements, 'chat');
   assert.equal(fakeChatView.hidden, false);
   assert.equal(fakeChatView.style.display, 'flex');
   assert.equal(fakeSettingsView.hidden, true);
   assert.equal(fakeSettingsView.style.display, 'none');
-  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+  assert.equal(elements.sidebarViewSettings.hidden, true);
 });
 
 test('UISidebar - mount gestiona navegación de configuración y selección de sección', () => {
@@ -340,7 +340,7 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   // Pulsar abrir settings en el sidebar cambia a modo settings
   listeners['openSettings:click']();
   assert.equal(fakeSettingsView.hidden, false);
-  assert.equal(UISidebar.getSidebarMode(elements), 'settings');
+  assert.equal(elements.sidebarViewSettings.hidden, false);
 
   // Pulsar una sección ejecuta el callback correspondiente
   listeners['itemMcp:click']();
@@ -352,7 +352,7 @@ test('UISidebar - mount gestiona navegación de configuración y selección de s
   assert.equal(fakeSettingsView.hidden, true);
   assert.equal(fakeChatView.hidden, false);
   assert.equal(backToChatsCalled, true);
-  assert.equal(UISidebar.getSidebarMode(elements), 'chat');
+  assert.equal(elements.sidebarViewSettings.hidden, true);
 
   UISidebar.dispose();
   assert.equal(listeners['openSettings:click'], undefined);

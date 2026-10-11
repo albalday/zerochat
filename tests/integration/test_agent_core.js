@@ -8,11 +8,11 @@ test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y a
   const registry = new AgentCoreModule.ToolRegistry();
 
   // Comprobar que las herramientas nativas están registradas
-  assert.ok(registry.hasTool('execute_javascript'));
-  assert.ok(registry.hasTool('search_web'));
-  assert.ok(registry.hasTool('fetch_web_page'));
-  assert.ok(registry.hasTool('download_pdf'));
-  assert.ok(registry.hasTool('render_chart'));
+  assert.ok(registry.getTool('execute_javascript'));
+  assert.ok(registry.getTool('search_web'));
+  assert.ok(registry.getTool('fetch_web_page'));
+  assert.ok(registry.getTool('download_pdf'));
+  assert.ok(registry.getTool('render_chart'));
 
   // Comprobar resolución por alias
   assert.equal(registry.getTool('executejs').name, 'execute_javascript');
@@ -62,7 +62,7 @@ test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparad
 
   registry.registerProvider(new CustomMcpMockProvider());
 
-  assert.ok(registry.hasTool('read_file'));
+  assert.ok(registry.getTool('read_file'));
   const executor = new AgentCoreModule.ToolExecutor(registry);
   ToolSecurity.manager.setToolPolicy('read_file', 'allow');
 

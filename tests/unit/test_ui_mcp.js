@@ -28,19 +28,6 @@ test('ChatUIMcp - sanea host y puerto, construye el endpoint y recomienda el arr
   assert.equal(ChatUIMcp.sanitizeHost(null), '127.0.0.1');
 
   assert.equal(
-    ChatUIMcp.buildMcpEndpoint('127.0.0.1', 6388),
-    'http://127.0.0.1:6388/sse'
-  );
-  assert.equal(
-    ChatUIMcp.buildMcpEndpoint('localhost', '6399', '/custom-sse'),
-    'http://localhost:6399/custom-sse'
-  );
-  assert.equal(
-    ChatUIMcp.buildMcpEndpoint('', '', 'sse'),
-    'http://127.0.0.1:6388/sse'
-  );
-
-  assert.equal(
     ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }),
     'pip install zerochat\nzerochat'
   );

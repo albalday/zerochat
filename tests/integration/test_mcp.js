@@ -79,8 +79,8 @@ test('MCP - Descubrimiento y Mapeo de Herramientas (tools/list)', async () => {
     registry.registerProvider(provider);
 
     // Solo debe resolver por el nombre público completo.
-    assert.equal(registry.hasTool('get_weather_forecast'), false);
-    assert.ok(registry.hasTool('weatherz5fzserver_get_weather_forecast'));
+    assert.equal(Boolean(registry.getTool('get_weather_forecast')), false);
+    assert.ok(registry.getTool('weatherz5fzserver_get_weather_forecast'));
 
     const defs = registry.getActiveDefinitions();
     const weatherDef = defs.find(d => d.function.name.includes('get_weather_forecast'));
@@ -291,13 +291,13 @@ test('MCP - acepta para la vista de tarjeta solo imágenes Base64 válidas y aco
   assert.equal(MCP.getSafeMcpImageDataUrl({ mime_type: 'image/png', image_base64: '<svg>' }), null);
 });
 
-test('MCP - McpManager administración de servidores y sincronización', async () => {
+test('MCP - McpManager añade servidores y conserva sus cabeceras en el cliente', async () => {
   const manager = new MCP.McpManager();
 
   // Añadir servidor
-  const before = manager.getServers().length;
+  const before = manager.servers.length;
   assert.throws(() => manager.addServer({ url: 'http://localhost:8000/rpc' }), /id del servidor MCP es obligatorio/);
-  assert.equal(manager.getServers().length, before);
+  assert.equal(manager.servers.length, before);
 
   const server = manager.addServer({
     id: 'test_local',
@@ -309,15 +309,15 @@ test('MCP - McpManager administración de servidores y sincronización', async (
 
   assert.equal(server.id, 'test_local');
   assert.equal(server.name, 'Test Local MCP');
-  assert.equal(manager.getServers().length >= 1, true);
+  assert.equal(manager.servers.some(s => s.id === server.id), true);
 
   // Obtener cliente y verificar que las cabeceras de autorización se mantengan en el cliente
   const client = manager.getClient(server.id);
   assert.equal(client.headers['Authorization'], 'Bearer test-secret-token');
 
-  // Limpiar
-  manager.removeServer(server.id);
-  assert.equal(manager.getServers().some(s => s.id === server.id), false);
+  // Limpiar la configuración persistida para no afectar a otras pruebas
+  manager.servers = manager.servers.filter(s => s.id !== server.id);
+  manager.saveConfig();
 });
 
 test('MCP - probeConnection acepta un endpoint activo y rechaza fallos de conexión, URL vacía y respuestas HTTP fallidas', async () => {

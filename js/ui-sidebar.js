@@ -92,13 +92,6 @@
       closeSidebar(elements);
     }
   }
-  function getSidebarMode(elements) {
-    const settingsView = elements?.sidebarViewSettings || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-settings') : null);
-    if (settingsView && !settingsView.hidden && settingsView.style?.display !== 'none') {
-      return 'settings';
-    }
-    return 'chat';
-  }
 
   function setSidebarMode(elements, mode = 'chat') {
     if (!elements) return;
@@ -414,7 +407,6 @@
 
   return {
     isMobile,
-    getSidebarMode,
     setSidebarMode,
     setActiveSettingsSection,
     toggleSidebar,

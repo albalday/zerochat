@@ -1003,12 +1003,6 @@
       }
     }
 
-    /**
-     * Obtiene la lista de servidores configurados.
-     */
-    getServers() {
-      return [...this.servers];
-    }
 
     /**
      * Añade o actualiza un servidor MCP.
@@ -1044,20 +1038,6 @@
       return serverData;
     }
 
-    /**
-     * Elimina un servidor MCP configurado.
-     */
-    removeServer(id) {
-      this.servers = this.servers.filter(s => s.id !== id);
-      if (this.clients.has(id)) {
-        try {
-          this.clients.get(id).disconnect();
-        } catch (e) { /* la conexión puede estar ya cerrada */ }
-        this.clients.delete(id);
-      }
-      this.providers.delete(id);
-      this.saveConfig();
-    }
 
     /**
      * Obtiene o crea una instancia de McpClient para un servidor.

@@ -39,10 +39,6 @@
     return Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535 ? parsed : DEFAULT_PORT;
   }
   function sanitizeHost(host) { return String(host || '').trim() || DEFAULT_HOST; }
-  function buildMcpEndpoint(host, port, path = '/sse') {
-    const suffix = path ? (path.startsWith('/') ? path : `/${path}`) : '/sse';
-    return `http://${sanitizeHost(host)}:${sanitizePort(port)}${suffix}`;
-  }
 
   function isBrowserActionActive(enabledTools = {}, browserTool = null) {
     const isEnabled = enabledTools.browser_action !== false;
@@ -898,7 +894,7 @@
     const Config = getConfig();
     const MCP = getMCP();
     const currentConfig = Config.getActive();
-    const host = options.host || currentConfig.mcpHost || DEFAULT_HOST;
+    const host = sanitizeHost(options.host || currentConfig.mcpHost);
     const port = sanitizePort(options.port || currentConfig.mcpPort || DEFAULT_PORT);
     const timeoutMs = options.timeoutMs || 1500;
 
@@ -920,7 +916,6 @@
     DEFAULT_PORT,
     sanitizePort,
     sanitizeHost,
-    buildMcpEndpoint,
     isBrowserActionActive,
     getAllMcpTools,
     generateTerminalCommand,

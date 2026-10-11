@@ -693,10 +693,10 @@
     return true;
   }
 
-  function mount({ elements, getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText, inspectProfile } = {}) {
+  function mount({ elements, getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, inspectProfile } = {}) {
     dispose();
     cachedElements = elements || {};
-    cachedOptions = { getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, readFileAsText, inspectProfile };
+    cachedOptions = { getRuntimeConfig, updateUIFromConfig, loadCachedModels, resetTelemetryDisplay, closeSettingsModal, inspectProfile };
 
     const els = cachedElements;
 

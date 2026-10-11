@@ -64,8 +64,6 @@
     const success = result?.success !== false && !result?.error;
     const content = result?.content || result?.error || '';
     const badge = card.querySelector('.tool-card-badge');
-    const count = result?.count || (result?.chunkIds?.length) || 1;
-    const countLabel = count > 1 ? `${count} fragmentos recuperados` : 'Fragmento recuperado';
     const retrievedLabel = t('tool_rag_read_retrieved', { chars: content.length });
     const notFoundLabel = result?.error || t('tool_rag_read_not_found');
     if (badge) {

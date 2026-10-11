@@ -686,15 +686,6 @@
       return found ? (found.entry.constraints || null) : null;
     }
 
-    setToolConstraints(toolId, constraints) {
-      const found = this.findToolEntry(toolId);
-      if (found) {
-        found.entry.constraints = constraints || null;
-        this.save();
-        return true;
-      }
-      return false;
-    }
 
     setToolPolicy(toolId, policy, meta = {}) {
       if (!toolId) return;

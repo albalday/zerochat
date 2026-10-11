@@ -6,7 +6,6 @@
   const { escapeHtml, resolveDep } = Utils;
   const getMarkdown = () => resolveDep('ChatMarkdown', './markdown.js');
   const t = (key, params) => resolveDep('ChatI18n', './i18n.js').t(key, params);
-  const normalizeName = name => String(name || '').trim().toLowerCase().replace(/_/g, '');
   const Icons = resolveDep('ChatIcons', './icons.js');
   const getView = name => (typeof window !== 'undefined' && window.ChatAgentCore?.registry?.getTool) ? window.ChatAgentCore.registry.getTool(name)?.view : null;
 
@@ -555,7 +554,6 @@
   }
 
   return {
-    normalizeName,
     resolveToolView: getView,
     resolveToolDisplayMode,
     createCardWrapper,

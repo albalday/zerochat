@@ -148,9 +148,9 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
 
     // 4. Desregistro de proveedor
     registry.unregisterProvider('mcp_prov_mcp_proxy');
-    assert.equal(registry.hasTool('list_directory'), false);
-    assert.equal(registry.hasTool('read_file'), false);
-    assert.equal(registry.hasTool('run_command'), false);
+    assert.equal(Boolean(registry.getTool('list_directory')), false);
+    assert.equal(Boolean(registry.getTool('read_file')), false);
+    assert.equal(Boolean(registry.getTool('run_command')), false);
   } finally {
     global.fetch = originalFetch;
     ChatState.set('mcp', { status: 'disconnected' });
