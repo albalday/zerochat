@@ -5,7 +5,6 @@
   /* Paleta Base y Acentos */
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
-  --primary-light: #eff6ff;
   --primary-rgb: 37, 99, 235;
 
   /* Fondos y Superficies (Modo Claro) */
@@ -39,6 +38,44 @@
   --danger-hover: #dc2626;
   --success: #10b981;
   --warning: #f59e0b;
+
+  /* Estados: color base, texto sobre fondo tintado y tintes derivados (ver más abajo) */
+  --success-text: #047857;
+  --warning-text: #b45309;
+  --danger-text: #b91c1c;
+  --primary-text: #1d4ed8;
+  --info: #0284c7;
+  --info-text: #0369a1;
+  --accent: #7c3aed;
+  --accent-text: #6d28d9;
+  --teal: #0d9488;
+  --teal-text: #0f766e;
+  --text-on-primary: #ffffff;
+
+  /* Intensidad de los tintes de estado: fondo, fondo al pasar el ratón y borde */
+  --tint-soft: 10%;
+  --tint-hover: 18%;
+  --tint-border: 30%;
+
+  /* Capas translúcidas sobre la superficie */
+  --overlay-hover: rgba(0, 0, 0, 0.04);
+  --overlay-stripe: rgba(0, 0, 0, 0.02);
+  --overlay-strong: rgba(0, 0, 0, 0.06);
+  --overlay-backdrop: rgba(15, 23, 42, 0.55);
+
+  /* Consola: bloques de código, salidas y editor de depuración, oscuros en ambos temas */
+  --console-bg: #0f172a;
+  --console-bg-deep: #0b1120;
+  --console-surface: #1e293b;
+  --console-border: #334155;
+  --console-text: #e2e8f0;
+  --console-text-muted: #94a3b8;
+  --console-overlay: rgba(255, 255, 255, 0.08);
+  --console-overlay-hover: rgba(255, 255, 255, 0.18);
+  --console-info: #38bdf8;
+  --console-success: #4ade80;
+  --console-warning: #fbbf24;
+  --console-danger: #f87171;
 
   /* Transiciones */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -91,7 +128,6 @@
 [data-theme="dark"] {
   --primary: #3b82f6;
   --primary-hover: #60a5fa;
-  --primary-light: rgba(59, 130, 246, 0.18);
   --primary-rgb: 59, 130, 246;
 
   --bg-app: #090d16;
@@ -122,6 +158,25 @@
   --success: #34d399;
   --warning: #fbbf24;
 
+  --success-text: #6ee7b7;
+  --warning-text: #fcd34d;
+  --danger-text: #fca5a5;
+  --primary-text: #93c5fd;
+  --info: #38bdf8;
+  --info-text: #7dd3fc;
+  --accent: #a78bfa;
+  --accent-text: #c4b5fd;
+  --teal: #2dd4bf;
+  --teal-text: #5eead4;
+
+  --tint-soft: 16%;
+  --tint-hover: 24%;
+  --tint-border: 35%;
+
+  --overlay-hover: rgba(255, 255, 255, 0.06);
+  --overlay-stripe: rgba(255, 255, 255, 0.02);
+  --overlay-strong: rgba(255, 255, 255, 0.12);
+
   --scrollbar-thumb: rgba(100, 116, 139, 0.4);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.7);
 
@@ -138,4 +193,30 @@
   /* Tokens para glassmorphism modo oscuro */
   --bg-surface-rgb: 19, 27, 46;   /* #131b2e descompuesto */
   --header-bg-alpha: 0.85;
+}
+
+/* Tintes de estado: se calculan sobre el color base del tema activo. */
+:root {
+  --primary-soft: color-mix(in srgb, var(--primary) var(--tint-soft), transparent);
+  --primary-soft-hover: color-mix(in srgb, var(--primary) var(--tint-hover), transparent);
+  --primary-border: color-mix(in srgb, var(--primary) var(--tint-border), transparent);
+  --success-soft: color-mix(in srgb, var(--success) var(--tint-soft), transparent);
+  --success-soft-hover: color-mix(in srgb, var(--success) var(--tint-hover), transparent);
+  --success-border: color-mix(in srgb, var(--success) var(--tint-border), transparent);
+  --warning-soft: color-mix(in srgb, var(--warning) var(--tint-soft), transparent);
+  --warning-soft-hover: color-mix(in srgb, var(--warning) var(--tint-hover), transparent);
+  --warning-border: color-mix(in srgb, var(--warning) var(--tint-border), transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) var(--tint-soft), transparent);
+  --danger-soft-hover: color-mix(in srgb, var(--danger) var(--tint-hover), transparent);
+  --danger-border: color-mix(in srgb, var(--danger) var(--tint-border), transparent);
+  --info-soft: color-mix(in srgb, var(--info) var(--tint-soft), transparent);
+  --info-soft-hover: color-mix(in srgb, var(--info) var(--tint-hover), transparent);
+  --info-border: color-mix(in srgb, var(--info) var(--tint-border), transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) var(--tint-soft), transparent);
+  --accent-soft-hover: color-mix(in srgb, var(--accent) var(--tint-hover), transparent);
+  --accent-border: color-mix(in srgb, var(--accent) var(--tint-border), transparent);
+  --teal-soft: color-mix(in srgb, var(--teal) var(--tint-soft), transparent);
+  --teal-border: color-mix(in srgb, var(--teal) var(--tint-border), transparent);
+  --neutral-soft: color-mix(in srgb, var(--text-muted) var(--tint-soft), transparent);
+  --neutral-border: color-mix(in srgb, var(--text-muted) var(--tint-border), transparent);
 }

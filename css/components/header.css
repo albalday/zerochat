@@ -82,13 +82,13 @@
 }
 
 .btn-header-icon.active {
-  background-color: var(--primary-light);
+  background-color: var(--primary-soft);
   color: var(--primary);
   border-color: var(--primary);
 }
 
 .btn-header-icon.btn-debug-toggle.active {
-  background-color: var(--primary-light);
+  background-color: var(--primary-soft);
   color: var(--primary);
   border-color: var(--primary);
   font-weight: 600;

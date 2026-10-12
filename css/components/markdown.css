@@ -55,15 +55,11 @@
 }
 
 .markdown-table tbody tr:nth-child(even) {
-  background-color: rgba(0, 0, 0, 0.02);
-}
-
-[data-theme="dark"] .markdown-table tbody tr:nth-child(even) {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--overlay-stripe);
 }
 
 .markdown-table tbody tr:hover {
-  background-color: rgba(99, 102, 241, 0.06);
+  background-color: var(--accent-soft);
 }
 
 
@@ -128,7 +124,7 @@
   border-radius: var(--radius-md);
   overflow: hidden;
   background-color: var(--code-bg);
-  border: 1px solid #334155;
+  border: 1px solid var(--console-border);
   box-shadow: var(--shadow-sm);
   width: 100%;
   max-width: 100%;
@@ -140,11 +136,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #0f172a;
+  background-color: var(--console-bg);
   padding: 0.45rem 1rem;
   font-size: 0.8rem;
-  color: #94a3b8;
-  border-bottom: 1px solid #334155;
+  color: var(--console-text-muted);
+  border-bottom: 1px solid var(--console-border);
   font-family: var(--font-mono);
   max-width: 100%;
   min-width: 0;
@@ -154,7 +150,7 @@
 .code-lang {
   font-weight: 600;
   text-transform: lowercase;
-  color: #38bdf8;
+  color: var(--console-info);
 }
 
 .code-block-actions {
@@ -168,9 +164,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  background-color: rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: var(--console-overlay);
+  color: var(--console-text);
+  border: 1px solid var(--console-border);
   font-size: 0.775rem;
   padding: 0.25rem 0.6rem;
   border-radius: var(--radius-sm);
@@ -188,20 +184,20 @@
 }
 
 .btn-run-code {
-  color: #86efac;
-  border-color: rgba(134, 239, 172, 0.3);
-  background-color: rgba(34, 197, 94, 0.12);
+  color: var(--console-success);
+  border-color: color-mix(in srgb, var(--console-success) 30%, transparent);
+  background-color: color-mix(in srgb, var(--console-success) 12%, transparent);
 }
 
 .btn-run-code:hover {
-  background-color: rgba(34, 197, 94, 0.25);
-  color: #bbf7d0;
-  border-color: #86efac;
+  background-color: color-mix(in srgb, var(--console-success) 25%, transparent);
+  color: var(--console-success);
+  border-color: var(--console-success);
 }
 
 .btn-copy-code:hover {
-  background-color: rgba(255, 255, 255, 0.18);
-  color: #f8fafc;
+  background-color: var(--console-overlay-hover);
+  color: var(--console-text);
 }
 
 .btn-copy-code.copied {
@@ -230,8 +226,8 @@
 
 /* Salida de Ejecución en Sandbox Local */
 .code-output-container {
-  border-top: 1px solid #334155;
-  background-color: #0b1120;
+  border-top: 1px solid var(--console-border);
+  background-color: var(--console-bg);
   padding: 0.6rem 1rem;
   font-family: var(--font-mono);
   font-size: 0.825rem;
@@ -244,22 +240,22 @@
   align-items: center;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #38bdf8;
+  color: var(--console-info);
   margin-bottom: 0.4rem;
 }
 
 .output-header.success {
-  color: #4ade80;
+  color: var(--console-success);
 }
 
 .output-header.error {
-  color: #f87171;
+  color: var(--console-danger);
 }
 
 .btn-close-output {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--console-text-muted);
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
@@ -268,32 +264,32 @@
 }
 
 .btn-close-output:hover {
-  color: #f8fafc;
-  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--console-text);
+  background-color: var(--console-overlay);
 }
 
 .output-body {
   margin: 0;
   padding: 0.4rem 0.6rem;
-  background-color: #020617;
+  background-color: var(--console-bg-deep);
   border-radius: var(--radius-sm);
-  color: #e2e8f0;
+  color: var(--console-text);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.45;
 }
 
 .output-logs {
-  color: #cbd5e1;
+  color: var(--console-text);
 }
 
 .output-return {
-  color: #38bdf8;
+  color: var(--console-info);
   margin-top: 0.25rem;
 }
 
 .output-error {
-  color: #f87171;
+  color: var(--console-danger);
 }
 
 /* Tarjeta Agentica de Ejecución de Herramienta */
@@ -430,22 +426,22 @@
 }
 
 .tool-card-badge.status-success {
-  background-color: #f0fdf4;
-  color: #166534;
-  border-color: #bbf7d0;
+  background-color: var(--success-soft);
+  color: var(--success-text);
+  border-color: var(--success-border);
 }
 
 .tool-card-badge.status-loading {
-  background-color: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
+  background-color: var(--primary-soft);
+  color: var(--primary-text);
+  border-color: var(--primary-border);
   animation: pulse-tool-badge 1.4s infinite ease-in-out;
 }
 
 .tool-card-badge.status-error {
-  background-color: #fef2f2;
-  color: #991b1b;
-  border-color: #fecaca;
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 
 .btn-tool-collapse {
@@ -503,18 +499,14 @@
   font-style: italic;
   color: var(--text-muted);
   font-size: 0.825rem;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--overlay-hover);
   border-radius: var(--radius-sm);
-}
-
-[data-theme="dark"] .tool-loading-placeholder {
-  background: rgba(255, 255, 255, 0.04);
 }
 
 .tool-card-code {
   padding: 0.6rem 0.85rem;
-  background: #1e293b;
-  color: #f8fafc;
+  background: var(--console-surface);
+  color: var(--console-text);
   margin: 0;
   font-size: 0.85rem;
   overflow-x: auto;
@@ -523,16 +515,16 @@
 .tool-card-result {
   padding: 0.5rem 0.85rem;
   font-size: 0.825rem;
-  background: #f1f5f9;
-  border-top: 1px solid #e2e8f0;
-  color: #1e293b;
+  background: var(--bg-surface-subtle);
+  border-top: 1px solid var(--border-color);
+  color: var(--text-main);
   font-family: var(--font-mono);
 }
 
 .tool-result-label {
   font-size: 0.725rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--text-muted);
   margin: 0 0 0.25rem 0;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -621,15 +613,15 @@ hr {
 .web-card-section {
   padding: 0.5rem 0.85rem;
   font-size: 0.825rem;
-  border-top: 1px solid #e0f2fe;
+  border-top: 1px solid var(--info-border);
 }
 
 .web-card-section.web-request-section {
-  background: #ffffff;
+  background: var(--bg-surface);
 }
 
 .web-card-section.web-response-section {
-  background: #f8fafc;
+  background: var(--bg-app);
 }
 
 .section-label {
@@ -645,11 +637,11 @@ hr {
   font-family: var(--font-mono);
   font-size: 0.825rem;
   word-break: break-all;
-  color: #0369a1;
+  color: var(--info-text);
 }
 
 .url-badge a {
-  color: #0284c7;
+  color: var(--info-text);
   text-decoration: underline;
 }
 
@@ -658,8 +650,8 @@ hr {
   max-height: 180px;
   overflow-y: auto;
   padding: 0.45rem 0.65rem;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--console-bg);
+  color: var(--console-text);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -674,25 +666,25 @@ hr {
 .search-results-section {
   padding: 0.5rem 0.85rem;
   font-size: 0.825rem;
-  border-top: 1px solid #ccfbf1;
+  border-top: 1px solid var(--teal-border);
   width: 100%;
   box-sizing: border-box;
   text-align: left;
 }
 
 .search-query-section {
-  background: #ffffff;
+  background: var(--bg-surface);
 }
 
 .search-results-section {
-  background: #f0fdfa;
+  background: var(--teal-soft);
 }
 
 .web-search-card .query-badge {
   font-family: var(--font-sans);
   font-size: 0.875rem;
   font-weight: 600;
-  color: #0f766e;
+  color: var(--teal-text);
   text-align: left;
 }
 
@@ -707,8 +699,8 @@ hr {
 }
 
 .search-result-item {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.6rem;
   font-size: 0.8rem;
@@ -718,7 +710,7 @@ hr {
 }
 
 .search-result-item a {
-  color: #0d9488;
+  color: var(--teal-text);
   font-weight: 600;
   text-decoration: underline;
 }

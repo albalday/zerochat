@@ -162,7 +162,7 @@
 
       points.forEach(pt => {
         dots += `
-          <circle cx="${pt.x}" cy="${pt.y}" r="4.5" fill="${color}" stroke="#ffffff" stroke-width="1.5">
+          <circle cx="${pt.x}" cy="${pt.y}" r="4.5" fill="${color}" stroke-width="1.5">
             <title>${escapeHtml(pt.label)}: ${pt.val.toLocaleString()}</title>
           </circle>
           <text x="${pt.x}" y="${pt.y - 8}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
@@ -226,7 +226,7 @@
       }
 
       slices += `
-        <path d="${pathD}" fill="${color}" stroke="#ffffff" stroke-width="1.5" opacity="0.95">
+        <path d="${pathD}" fill="${color}" stroke-width="1.5" opacity="0.95">
           <title>${escapeHtml(label)}: ${val.toLocaleString()} (${percentage.toFixed(1)}%)</title>
         </path>
       `;

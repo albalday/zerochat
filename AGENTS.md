@@ -122,8 +122,12 @@ Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catál
 admisibles en contenido textual explicativo o mensajes del chat.
 
 Los colores, radios, sombras y capas salen de los tokens de `css/tokens.css`, sin valor de
-respaldo en `var()`; los ajustes del modo oscuro solo redefinen lo que cambia respecto a la
-regla base. Los elementos se muestran y ocultan con el atributo `hidden` (la regla global de
+respaldo en `var()`; fuera de ese fichero no se escriben colores literales (salvo la hoja de
+impresión). Los estados usan su familia semántica (`--success`, `--warning`, `--danger`,
+`--info`, `--accent`, `--teal`, `--primary`, `--neutral`) con sus variantes `-text`, `-soft`,
+`-soft-hover` y `-border`, que se adaptan solas al tema; las superficies oscuras en ambos
+temas (código, salidas, interceptor de depuración) usan los tokens `--console-*`. Los ajustes
+del modo oscuro solo redefinen lo que cambia respecto a la regla base. Los elementos se muestran y ocultan con el atributo `hidden` (la regla global de
 `css/base.css` prevalece sobre el `display` de cada clase), nunca con `style.display` ni
 estilos en línea; solo se admiten estilos en línea para valores que dependen de los datos,
 como el ancho de una barra de progreso o el color de una serie.

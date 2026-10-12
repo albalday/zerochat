@@ -81,7 +81,7 @@
 
 .file-chip-remove:hover {
   background-color: var(--danger);
-  color: white;
+  color: var(--text-on-primary);
 }
 
 /* Formulario Omnibox Flotante */
@@ -109,8 +109,8 @@
 
 .chat-input-container.drag-over {
   border-color: var(--primary);
-  background-color: var(--primary-light);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+  background-color: var(--primary-soft);
+  box-shadow: 0 0 0 3px var(--primary-border);
 }
 
 /* Fila Superior: Área de Prompt a ancho completo */
@@ -186,7 +186,7 @@
 
 .btn-composer-chip.active,
 .btn-composer-chip.btn-rag-mini.active {
-  background-color: var(--primary-light);
+  background-color: var(--primary-soft);
   color: var(--primary);
   border-color: var(--primary);
   font-weight: 600;
@@ -300,27 +300,27 @@
 }
 
 .btn-reasoning.active-low {
-  border-color: #86efac;
-  background-color: #f0fdf4;
-  color: #166534;
+  border-color: var(--success-border);
+  background-color: var(--success-soft);
+  color: var(--success-text);
 }
 
 .btn-reasoning.active-medium {
-  border-color: #86efac;
-  background-color: #f0fdf4;
-  color: #166534;
+  border-color: var(--success-border);
+  background-color: var(--success-soft);
+  color: var(--success-text);
 }
 
 .btn-reasoning.active-high {
-  border-color: #fde047;
-  background-color: #fefce8;
-  color: #854d0e;
+  border-color: var(--warning-border);
+  background-color: var(--warning-soft);
+  color: var(--warning-text);
 }
 
 .btn-reasoning.active-xhigh {
-  border-color: #c084fc;
-  background-color: #faf5ff;
-  color: #6b21a8;
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
 }
 
 /* Menú desplegable de niveles de razonamiento */
@@ -669,7 +669,7 @@
 /* Botón Circular de Envío */
 .btn-send {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--text-on-primary);
   border: none;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--shadow-xs);
@@ -698,12 +698,12 @@
 .btn-stop-stream {
   gap: 0.35rem;
   background-color: var(--danger);
-  color: #ffffff;
+  color: var(--text-on-primary);
   border: none;
   padding: 0;
   transition: all 0.15s ease;
   animation: pulseStop 1.5s infinite;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  box-shadow: 0 0 0 3px var(--danger-border);
 }
 
 .btn-stop-stream:hover {
@@ -712,8 +712,8 @@
 }
 
 @keyframes pulseStop {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2); }
-  50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.4); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--danger-border); }
+  50% { box-shadow: 0 0 0 5px var(--danger-border); }
 }
 
 /* Metamorfosis: cuando stop está activo, oculta el botón de send */
@@ -791,21 +791,17 @@
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
-  color: #0284c7;
+  color: var(--info-text);
   font-size: 0.65rem;
-}
-
-[data-theme="dark"] .composer-tokens-cache {
-  color: #38bdf8;
 }
 
 /* Indicadores de advertencia o crítico (sutil cambio de tono sin remarcar ni alterar fondo) */
 .composer-telemetry-btn.status-warning .composer-tokens-text {
-  color: #d97706;
+  color: var(--warning-text);
 }
 
 .composer-telemetry-btn.status-critical .composer-tokens-text {
-  color: #dc2626;
+  color: var(--danger-text);
   font-weight: 600;
 }
 
@@ -821,7 +817,7 @@
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-xl);
   z-index: var(--z-modal);
   padding: 0.85rem;
   display: flex;
@@ -965,11 +961,11 @@
 }
 
 .context-progress-bar.warning {
-  background-color: #f59e0b;
+  background-color: var(--warning);
 }
 
 .context-progress-bar.critical {
-  background-color: #ef4444;
+  background-color: var(--danger);
 }
 
 .context-metrics-grid {
@@ -1004,23 +1000,19 @@
 }
 
 .context-metric-val.accent {
-  color: #0284c7;
-}
-
-[data-theme="dark"] .context-metric-val.accent {
-  color: #38bdf8;
+  color: var(--info-text);
 }
 
 .context-metric-val.status-ok {
-  color: #10b981;
+  color: var(--success-text);
 }
 
 .context-metric-val.status-warning {
-  color: #f59e0b;
+  color: var(--warning-text);
 }
 
 .context-metric-val.status-critical {
-  color: #ef4444;
+  color: var(--danger-text);
 }
 
 /* ==========================================================================
@@ -1124,7 +1116,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
-  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-xl);
 }
 
 

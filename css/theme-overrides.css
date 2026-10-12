@@ -33,12 +33,7 @@
 .btn-theme-toggle:hover,
 .btn-lang-toggle:hover {
   color: var(--text-main);
-  background-color: rgba(0, 0, 0, 0.04);
-}
-
-[data-theme="dark"] .btn-theme-toggle:hover,
-[data-theme="dark"] .btn-lang-toggle:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: var(--overlay-hover);
 }
 
 .btn-theme-toggle.active,
@@ -53,8 +48,8 @@
 [data-theme="dark"] .btn-theme-toggle.active,
 [data-theme="dark"] .btn-lang-toggle.active {
   background-color: var(--bg-hover);
-  color: #60a5fa;
-  border-color: #334155;
+  color: var(--primary-text);
+  border-color: var(--border-hover);
 }
 
 [data-theme="dark"] .chat-input-container {
@@ -62,42 +57,7 @@
 }
 
 [data-theme="dark"] .chat-input-container:focus-within {
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(var(--primary-rgb), 0.2);
-}
-
-[data-theme="dark"] .btn-reasoning {
-  border-color: var(--border-color);
-  color: var(--text-muted);
-}
-
-[data-theme="dark"] .btn-reasoning:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-main);
-  border-color: #475569;
-}
-
-[data-theme="dark"] .btn-reasoning.active-low {
-  border-color: #22c55e;
-  background-color: rgba(34, 197, 94, 0.2);
-  color: #86efac;
-}
-
-[data-theme="dark"] .btn-reasoning.active-medium {
-  border-color: #22c55e;
-  background-color: rgba(34, 197, 94, 0.2);
-  color: #86efac;
-}
-
-[data-theme="dark"] .btn-reasoning.active-high {
-  border-color: #eab308;
-  background-color: rgba(234, 179, 8, 0.2);
-  color: #fef08a;
-}
-
-[data-theme="dark"] .btn-reasoning.active-xhigh {
-  border-color: #f43f5e;
-  background-color: rgba(244, 63, 94, 0.2);
-  color: #fda4af;
+  box-shadow: var(--shadow-composer), 0 0 0 2px var(--primary-soft-hover);
 }
 
 [data-theme="dark"] .reasoning-menu {
@@ -105,17 +65,17 @@
 }
 
 [data-theme="dark"] .reasoning-menu-header {
-  background-color: #0b1120;
+  background-color: var(--bg-app);
   border-color: var(--border-color);
 }
 
 [data-theme="dark"] .reasoning-menu-footer {
-  background-color: #0b1120;
+  background-color: var(--bg-app);
   border-color: var(--border-color);
 }
 
 [data-theme="dark"] .thought-block {
-  background-color: rgba(11, 17, 32, 0.6);
+  background-color: var(--bg-app);
   border-color: var(--border-color);
 }
 
@@ -125,7 +85,7 @@
 }
 
 [data-theme="dark"] .thought-summary:hover {
-  background-color: #1e2d4a;
+  background-color: var(--bg-hover);
   color: var(--text-main);
 }
 
@@ -146,15 +106,9 @@
 }
 
 [data-theme="dark"] .btn-secondary:hover {
-  background-color: #1e2d4a;
+  background-color: var(--bg-hover);
   color: var(--text-main);
-  border-color: #475569;
-}
-
-[data-theme="dark"] .cookie-notice {
-  background-color: rgba(30, 58, 138, 0.25);
-  border-color: #1e40af;
-  color: #93c5fd;
+  border-color: var(--border-hover);
 }
 
 [data-theme="dark"] .btn-close:hover {
@@ -162,23 +116,16 @@
 }
 
 [data-theme="dark"] .label-hint code {
-  background-color: #0b1120;
-  color: #93c5fd;
+  color: var(--primary-text);
 }
 
 [data-theme="dark"] .tool-execution-card {
-  border-color: #4f46e5;
-  background-color: #0f172a;
+  border-color: var(--accent);
+  background-color: var(--bg-app);
 }
 
 [data-theme="dark"] .tool-card-result {
   background-color: var(--bg-app);
-  border-top-color: var(--border-color);
-  color: #e2e8f0;
-}
-
-[data-theme="dark"] .tool-result-label {
-  color: var(--text-muted);
 }
 
 /* Estadísticas de respuesta en Modo Oscuro — usando tokens semánticos */
@@ -188,98 +135,20 @@
   border-color: var(--border-color);
 }
 
-/* Modo Oscuro: Tarjeta de consulta web */
-
-[data-theme="dark"] .web-card-section.web-request-section {
-  background-color: #0c1829;
-  border-top-color: #1e3a5f;
-}
-
-[data-theme="dark"] .web-card-section.web-response-section {
-  background-color: #091322;
-  border-top-color: #1e3a5f;
-}
-
-[data-theme="dark"] .url-badge {
-  color: #38bdf8;
-}
-
-[data-theme="dark"] .url-badge a {
-  color: #38bdf8;
-}
-
-[data-theme="dark"] .web-response-body {
-  background-color: #030712;
-  color: var(--text-main);
-}
-
-/* Modo Oscuro: Tarjeta de búsqueda web */
-
-[data-theme="dark"] .search-query-section,
-[data-theme="dark"] .search-results-section {
-  background-color: #071f1e;
-  border-top-color: #115e59;
-}
-
-[data-theme="dark"] .web-search-card .query-badge {
-  color: #2dd4bf;
-}
-
-[data-theme="dark"] .search-result-item {
-  background-color: #0d2827;
-  border-color: #134e4a;
-}
-
-[data-theme="dark"] .search-result-item a {
-  color: #2dd4bf;
-}
-
 [data-theme="dark"] .search-result-snippet {
-  color: #99f6e4;
+  color: var(--teal-text);
 }
 
 [data-theme="dark"] .toggle-card-desc code {
   background-color: var(--bg-hover);
-  color: #93c5fd;
+  color: var(--primary-text);
 }
 
-[data-theme="dark"] .slider {
-  background-color: #334155;
-}
-
-[data-theme="dark"] input:checked + .slider {
-  background-color: #3b82f6;
-}
-
-/* Modo Oscuro: Botón Query del Servidor y Estado */
+/* Modo Oscuro: Botón Query del Servidor */
 [data-theme="dark"] .btn-query-server {
-  background-color: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-[data-theme="dark"] .btn-query-server:hover {
-  background-color: #2563eb;
-  color: #ffffff;
-  border-color: #3b82f6;
-}
-
-[data-theme="dark"] .server-query-status.status-loading {
-  background-color: #0c1f38;
-  border-color: #0369a1;
-  color: #38bdf8;
-}
-
-[data-theme="dark"] .server-query-status.status-success {
-  background-color: #06281e;
-  border-color: #059669;
-  color: #34d399;
-}
-
-[data-theme="dark"] .server-query-status.status-error {
-  background-color: #311317;
-  border-color: #b91c1c;
-  color: #f87171;
+  background-color: var(--primary-soft-hover);
+  color: var(--primary-text);
+  border-color: var(--primary-border);
 }
 
 /* Modo Oscuro: Flecha SVG para Selects y Combos */
@@ -300,7 +169,7 @@
 
 [data-theme="dark"] .btn-toggle-visibility:hover {
   color: var(--text-main);
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--overlay-hover);
 }
 
 /* Iconos en botones de la Sidebar */
@@ -345,10 +214,6 @@
   color: var(--text-secondary);
 }
 
-[data-theme="dark"] .file-chip-remove:hover {
-  color: white;
-}
-
 /* Botones de acciones en mensajes (copiar, regenerar, eliminar) */
 [data-theme="dark"] .btn-msg-action {
   color: var(--text-secondary);
@@ -383,7 +248,7 @@
 }
 
 [data-theme="dark"] .btn-reasoning-close:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--overlay-hover);
 }
 
 /* Botón de envío del compositor */

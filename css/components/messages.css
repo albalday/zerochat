@@ -77,7 +77,7 @@
 
 [data-theme="dark"] .message-row.user .message-content {
   background-color: var(--bg-hover);
-  border-color: #334155;
+  border-color: var(--border-hover);
 }
 
 /* Mensaje del Asistente: Sin enmarcado, estilo limpio ChatGPT / Gemini */
@@ -105,17 +105,11 @@
 
 /* Mensaje de Error */
 .message-error .message-content {
-  background-color: #fee2e2;
-  border: 1px solid #fca5a5;
-  color: #991b1b;
+  background-color: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
   border-radius: var(--radius-md);
   padding: 0.75rem 1rem;
-}
-
-[data-theme="dark"] .message-error .message-content {
-  background-color: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
 }
 
 .message-error-card {
@@ -185,7 +179,7 @@
 }
 
 .stat-item.stat-item-cache {
-  color: #0284c7;
+  color: var(--info-text);
   font-weight: 600;
 }
 
@@ -269,13 +263,8 @@
 
 .btn-msg-action.btn-delete:hover {
   color: var(--danger);
-  background-color: #fee2e2;
-  border-color: #fca5a5;
-}
-
-[data-theme="dark"] .btn-msg-action.btn-delete:hover {
-  background-color: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.4);
+  background-color: var(--danger-soft);
+  border-color: var(--danger-border);
 }
 
 .btn-msg-action.copied {
@@ -462,15 +451,9 @@
 }
 
 .message-row.user .message-content code:not(pre code) {
-  background-color: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.08);
+  background-color: var(--overlay-strong);
+  border-color: var(--border-color);
   color: var(--text-main);
-}
-
-[data-theme="dark"] .message-row.user .message-content code:not(pre code) {
-  background-color: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
 }
 
 /* ==========================================================================

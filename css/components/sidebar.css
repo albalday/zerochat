@@ -228,15 +228,15 @@
 }
 
 [data-theme="dark"] .sidebar-choice-toggle-group {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--overlay-hover);
+  border-color: var(--border-color);
 }
 
 [data-theme="dark"] .sidebar-choice-toggle-group .btn-lang-toggle.active,
 [data-theme="dark"] .sidebar-choice-toggle-group .btn-theme-toggle.active {
   background: var(--bg-surface-elevated);
-  color: var(--primary-light);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  color: var(--primary-text);
+  box-shadow: var(--shadow-xs);
 }
 
 
@@ -281,7 +281,7 @@
   gap: 0.45rem;
   padding: 0.55rem 0.85rem;
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--text-on-primary);
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   font-size: 0.825rem;
@@ -422,7 +422,7 @@
 }
 
 .sidebar-chat-item.active {
-  background-color: var(--primary-light);
+  background-color: var(--primary-soft);
   border-color: rgba(var(--primary-rgb), 0.25);
   color: var(--primary);
   font-weight: 600;
@@ -521,11 +521,7 @@
 
 .btn-chat-action.btn-delete:hover {
   color: var(--danger);
-  background-color: #fee2e2;
-}
-
-[data-theme="dark"] .btn-chat-action.btn-delete:hover {
-  background-color: rgba(239, 68, 68, 0.2);
+  background-color: var(--danger-soft);
 }
 
 @media (max-width: 768px) {
@@ -576,12 +572,8 @@
 }
 
 .btn-sidebar-danger:hover {
-  background-color: #fee2e2;
+  background-color: var(--danger-soft);
   color: var(--danger);
-}
-
-[data-theme="dark"] .btn-sidebar-danger:hover {
-  background-color: rgba(239, 68, 68, 0.2);
 }
 
 /* Pie de Barra Lateral en Modo Configuración */
@@ -602,9 +594,9 @@
   min-height: 38px;
   padding: 0.45rem 0.75rem;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid var(--danger-border);
   background-color: transparent;
-  color: #ef4444;
+  color: var(--danger-text);
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
@@ -614,21 +606,9 @@
 }
 
 .btn-sidebar-settings-clear:hover {
-  background-color: #fee2e2;
-  border-color: #ef4444;
-  color: #dc2626;
-}
-
-[data-theme="dark"] .btn-sidebar-settings-clear {
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.35);
-  background-color: rgba(239, 68, 68, 0.08);
-}
-
-[data-theme="dark"] .btn-sidebar-settings-clear:hover {
-  background-color: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
-  color: #fca5a5;
+  background-color: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* Adaptación Responsive para Móviles (Drawer Drawer Mode) */
@@ -660,7 +640,7 @@
   position: fixed;
   inset: 0;
   z-index: calc(var(--z-sidebar) - 1);
-  background-color: rgba(15, 23, 42, 0.45);
+  background-color: var(--overlay-backdrop);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   transition: opacity 0.22s ease;

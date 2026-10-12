@@ -48,6 +48,19 @@ test('Estilos - los tokens siempre definidos no llevan valor de respaldo en var(
   assert.deepEqual(offenders, []);
 });
 
+// La hoja de impresión fija colores de papel que no dependen del tema activo.
+test('Estilos - los colores solo se definen en tokens.css', () => {
+  const offenders = [];
+  for (const [file, source] of CSS) {
+    if (/tokens\.css$|print\.css$/.test(file)) continue;
+    const lines = source.replace(/url\([^)]*\)/g, 'url()').split('\n');
+    lines.forEach((line, index) => {
+      if (/#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d|hsla?\(\s*\d|:\s*(white|black)\s*[;!]/.test(line)) offenders.push(`${relative(file)}:${index + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test('Estilos - los elementos se ocultan con hidden, no con style.display ni estilos en línea', () => {
   const offenders = [];
   for (const [file, source] of JS) {

@@ -28,9 +28,9 @@
   text-transform: uppercase;
   padding: 0.15rem 0.45rem;
   border-radius: var(--radius-sm);
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--primary-soft-hover);
+  color: var(--primary-text);
+  border: 1px solid var(--primary-border);
 }
 
 .chat-chart-description {
@@ -72,12 +72,17 @@
   width: 100%;
   height: auto;
   max-height: 360px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.05));
   transition: all 0.2s ease;
 }
 
 .chat-chart-svg-pie {
   max-height: 320px;
+}
+
+/* Contorno de puntos y sectores del color de la superficie para separarlos. */
+.chat-chart-svg circle,
+.chat-chart-svg-pie path {
+  stroke: var(--bg-surface);
 }
 
 .chart-bar-group rect {
@@ -218,7 +223,7 @@
 }
 
 .inspector-cap-card:hover {
-  border-color: #cbd5e1;
+  border-color: var(--border-hover);
   box-shadow: var(--shadow-sm);
 }
 
@@ -257,33 +262,33 @@
 }
 
 .cap-badge-confirmed {
-  background-color: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background-color: var(--success-soft);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
 }
 
 .cap-badge-inferred {
-  background-color: rgba(139, 92, 246, 0.12);
-  color: #7c3aed;
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-border);
 }
 
 .cap-badge-declared {
-  background-color: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  background-color: var(--primary-soft);
+  color: var(--primary-text);
+  border: 1px solid var(--primary-border);
 }
 
 .cap-badge-unsupported {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
 }
 
 .cap-badge-unknown {
-  background-color: rgba(107, 114, 128, 0.1);
-  color: #6b7280;
-  border: 1px solid rgba(107, 114, 128, 0.2);
+  background-color: var(--neutral-soft);
+  color: var(--text-muted);
+  border: 1px solid var(--neutral-border);
 }
 
 /* ==========================================================================
@@ -380,27 +385,27 @@
 }
 
 .mcp-status-disconnected {
-  background-color: rgba(100, 116, 139, 0.12);
+  background-color: var(--neutral-soft);
   color: var(--text-muted);
   border-color: var(--border-color);
 }
 
 .mcp-status-connecting {
-  background-color: rgba(234, 179, 8, 0.14);
-  color: #ca8a04;
-  border-color: rgba(234, 179, 8, 0.3);
+  background-color: var(--warning-soft-hover);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
 }
 
 .mcp-status-connected {
-  background-color: rgba(34, 197, 94, 0.14);
-  color: #16a34a;
-  border-color: rgba(34, 197, 94, 0.3);
+  background-color: var(--success-soft-hover);
+  color: var(--success-text);
+  border-color: var(--success-border);
 }
 
 .mcp-status-error {
-  background-color: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
-  border-color: rgba(239, 68, 68, 0.3);
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 
 .mcp-server-details {
@@ -426,8 +431,8 @@
 }
 
 .mcp-command-box {
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--console-bg);
+  color: var(--console-text);
   padding: 0.85rem 1rem;
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
@@ -438,11 +443,6 @@
   word-break: break-all;
   border: 1px solid var(--border-color);
   margin: 0;
-}
-
-[data-theme="dark"] .mcp-command-box {
-  background-color: #020617;
-  border-color: #1e293b;
 }
 
 .btn-copy-mcp-cmd {
@@ -548,14 +548,9 @@
   letter-spacing: 0.03em;
   padding: 0.1rem 0.4rem;
   border-radius: var(--radius-sm);
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.25);
-}
-
-[data-theme="dark"] .mcp-tool-badge {
-  background-color: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-border);
 }
 
 .mcp-tool-desc {
@@ -638,16 +633,10 @@
    Autorización de Ejecución de Tools y Seguridad MCP
    ========================================================================== */
 .tool-card-badge.status-pending-auth {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: var(--warning-soft-hover);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
   animation: pulseAuth 2s infinite ease-in-out;
-}
-
-[data-theme="dark"] .tool-card-badge.status-pending-auth {
-  background: rgba(245, 158, 11, 0.22);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.45);
 }
 
 @keyframes pulseAuth {
@@ -657,7 +646,7 @@
 
 .tool-card-auth-prompt {
   background: var(--bg-surface);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid var(--warning-border);
   border-radius: var(--radius-md);
   padding: 0.85rem 1rem;
   margin: 0.5rem;
@@ -681,12 +670,8 @@
 }
 
 .tool-auth-shield-icon {
-  color: #d97706;
+  color: var(--warning-text);
   display: inline-flex;
-}
-
-[data-theme="dark"] .tool-auth-shield-icon {
-  color: #fbbf24;
 }
 
 .tool-auth-desc {
@@ -722,7 +707,7 @@
 
 .btn-auth-allow-once {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-primary);
   border-color: var(--primary);
 }
 
@@ -766,7 +751,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-lg);
 }
 
 
@@ -776,36 +761,24 @@
 }
 
 .btn-auth-allow-server {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.3);
+  background: var(--success-soft);
+  color: var(--success-text);
+  border-color: var(--success-border);
 }
 
 .btn-auth-allow-server:hover {
-  background: rgba(16, 185, 129, 0.22);
-}
-
-[data-theme="dark"] .btn-auth-allow-server {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.35);
+  background: var(--success-soft-hover);
 }
 
 .btn-auth-deny {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.25);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 
 .btn-auth-deny:hover {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-[data-theme="dark"] .btn-auth-deny {
-  background: rgba(239, 68, 68, 0.18);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.35);
+  background: var(--danger-soft-hover);
+  border-color: var(--danger-border);
 }
 
 @media (max-width: 640px) {
@@ -850,16 +823,11 @@
 .tool-auth-denied-notice {
   padding: 0.75rem 1rem;
   font-size: 0.8rem;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.06);
+  color: var(--danger-text);
+  background: var(--danger-soft);
   border-radius: var(--radius-sm);
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--danger);
   margin: 0.5rem;
-}
-
-[data-theme="dark"] .tool-auth-denied-notice {
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.12);
 }
 
 /* Badges de autorización en lista MCP */
@@ -872,36 +840,21 @@
 }
 
 .mcp-auth-badge.status-allowed {
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-}
-
-[data-theme="dark"] .mcp-auth-badge.status-allowed {
-  background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
+  background: var(--success-soft);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
 }
 
 .mcp-auth-badge.status-denied {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-}
-
-[data-theme="dark"] .mcp-auth-badge.status-denied {
-  background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
 }
 
 .mcp-auth-badge.status-ask {
-  background: rgba(245, 158, 11, 0.12);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.25);
-}
-
-[data-theme="dark"] .mcp-auth-badge.status-ask {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
 }
 
 /* Selectores interactivos de autorización en lista MCP */
@@ -929,44 +882,35 @@
 }
 
 .mcp-auth-select.status-allowed {
-  background-color: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.3);
+  background-color: var(--success-soft);
+  color: var(--success-text);
+  border-color: var(--success-border);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] .mcp-auth-select.status-allowed {
-  background-color: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  border-color: rgba(16, 185, 129, 0.35);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236ee7b7' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .mcp-auth-select.status-denied {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  border-color: rgba(239, 68, 68, 0.3);
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23dc2626' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] .mcp-auth-select.status-denied {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.35);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23fca5a5' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 .mcp-auth-select.status-ask {
-  background-color: rgba(245, 158, 11, 0.12);
-  color: #d97706;
-  border-color: rgba(245, 158, 11, 0.3);
+  background-color: var(--warning-soft);
+  color: var(--warning-text);
+  border-color: var(--warning-border);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 [data-theme="dark"] .mcp-auth-select.status-ask {
-  background-color: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.35);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23fbbf24' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
@@ -1064,8 +1008,8 @@
   height: 1.75rem;
   padding: 0;
   background: transparent;
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1073,21 +1017,9 @@
 
 .btn-revoke-auth:hover,
 .btn-revoke-server-auth:hover {
-  color: #dc2626;
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-
-[data-theme="dark"] .btn-revoke-auth,
-[data-theme="dark"] .btn-revoke-server-auth {
-  color: #f87171;
-  border-color: rgba(248, 113, 113, 0.35);
-}
-
-[data-theme="dark"] .btn-revoke-auth:hover,
-[data-theme="dark"] .btn-revoke-server-auth:hover {
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.18);
+  color: var(--danger-text);
+  border-color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .mcp-auth-scope-badge {
@@ -1120,15 +1052,9 @@
 }
 
 .btn-mcp-server-trust.active {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.35);
-}
-
-[data-theme="dark"] .btn-mcp-server-trust.active {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.4);
+  background: var(--success-soft);
+  color: var(--success-text);
+  border-color: var(--success-border);
 }
 
 .mcp-auth-constraint-tag {
@@ -1208,27 +1134,27 @@
 }
 
 .mcp-server-badge.status-running {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--success-soft-hover);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
 }
 
 .mcp-server-badge.status-starting {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--warning-soft-hover);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
 }
 
 .mcp-server-badge.status-stopped {
-  background: rgba(100, 116, 139, 0.15);
+  background: var(--neutral-border);
   color: var(--text-muted);
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  border: 1px solid var(--neutral-border);
 }
 
 .mcp-server-badge.status-error {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--danger-soft-hover);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
 }
 
 .mcp-server-tool-count {
@@ -1255,10 +1181,10 @@
 }
 
 .mcp-server-remote-badge {
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  border: 1px solid var(--primary-border);
   border-radius: 9999px;
-  background: rgba(59, 130, 246, 0.12);
-  color: #60a5fa;
+  background: var(--primary-soft);
+  color: var(--primary-text);
   font-family: var(--font-sans);
   font-weight: 600;
   padding: 0.08rem 0.4rem;
@@ -1266,7 +1192,7 @@
 
 .mcp-server-error {
   font-size: 0.75rem;
-  color: #ef4444;
+  color: var(--danger-text);
   margin: 0.2rem 0 0 0;
 }
 
