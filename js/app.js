@@ -187,6 +187,12 @@
     modelDatalist: 'model-datalist',
     modelSelectHelper: 'model-select-helper',
     webllmParamsPanel: 'webllm-params-panel',
+    webllmLocalHint: 'webllm-local-hint',
+    webllmHelpLink: 'webllm-help-link',
+    apiKeyHintText: 'api-key-hint-text',
+    apiKeyFreeHelpLink: 'api-key-free-help-link',
+    mcpDirectoryRules: 'mcp-directory-rules',
+    mcpDirectoryRulesError: 'mcp-directory-rules-error',
     settingWebllmContextWindow: 'setting-webllm-context-window',
     settingWebllmPrefillChunk: 'setting-webllm-prefill-chunk',
     settingSystemPrompt: 'setting-system-prompt',
@@ -505,11 +511,12 @@
   }
 
   function applyTheme(theme) {
-    UISettings.applyTheme(elements, getRuntimeConfig(), theme);
+    UISettings.applyTheme(elements, theme);
   }
 
   function applyLanguage(lang) {
-    UISettings.applyLanguage(elements, getRuntimeConfig(), lang, { updateReasoningUI: level => UIReasoning.updateReasoningUI(elements, level) });
+    UISettings.applyLanguage(elements, lang);
+    UIReasoning.updateReasoningUI(elements, getRuntimeConfig().reasoningEffort);
   }
 
   function updateUIFromConfig() {
@@ -574,11 +581,7 @@
       RagUI.openManageModal();
       return;
     }
-    UISettings.openSettingsSection(elements, getRuntimeConfig(), {
-      populateProfileSelector: id => UIProfiles.populateProfileSelector(id),
-      loadCachedModels,
-      updateReasoningUI: level => UIReasoning.updateReasoningUI(elements, level)
-    }, sectionId);
+    UISettings.openSettingsSection(elements, getRuntimeConfig(), sectionId);
     if (sectionId === 'mcp') {
       UIMcp.verifyActiveConnection().catch(error => console.warn('[App] Could not verify the MCP connection:', error));
     }

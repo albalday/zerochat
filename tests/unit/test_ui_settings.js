@@ -1,437 +1,177 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UISettings = require('../../js/ui-settings.js');
+const Config = require('../../js/config-store.js');
+const ToolSecurity = require('../../js/tool-security.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
-test('UISettings - sitúa los permisos de ejecución MCP en su propia sección sin navegación por pestañas', () => {
-  const settingsHtml = UISettings.getSettingsDialogHTML();
-  assert.equal(settingsHtml.includes('modal-tabs-nav'), false, 'No debe existir la barra de pestañas modal-tabs-nav');
-  assert.equal(settingsHtml.includes('id="tab-general"'), false, 'No debe existir el panel tab-general');
-  assert.equal(settingsHtml.includes('id="tab-appearance"'), false, 'No debe existir el panel tab-appearance');
-  assert.equal(settingsHtml.includes('id="btn-clear-all-data"'), false, 'No debe existir el botón de borrar todo dentro de settings-dialog');
-  assert.equal(settingsHtml.includes('id="btn-reset-settings"'), false, 'No debe existir el botón de restaurar dentro de settings-dialog');
-  assert.equal(settingsHtml.includes('id="btn-cancel-settings"'), false, 'No debe existir el botón de cancelar dentro de settings-dialog');
-  assert.equal(settingsHtml.includes('class="modal-footer"'), false, 'No debe existir la botonera inferior modal-footer en settings-dialog');
-  assert.match(settingsHtml, /id="settings-permissions" class="settings-section-pane"/);
-  assert.match(settingsHtml, /id="mcp-policy-ask"/);
-  assert.match(settingsHtml, /id="mcp-directory-rules"/);
-  assert.equal(settingsHtml.includes('id="btn-mcp-save-directory-rules"'), false, 'Las reglas de directorios se guardan con el formulario general');
-  assert.match(settingsHtml, /id="mcp-saved-auths-list"/);
-  assert.match(settingsHtml, /id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths"/);
-  assert.match(settingsHtml, /id="btn-mcp-clear-auths"[\s\S]*?<svg class="ui-icon"/);
-  assert.equal(settingsHtml.includes('id="btn-settings-back"'), false, 'No debe existir el botón de volver dentro de settings-dialog');
-  assert.match(settingsHtml, /id="settings-section-title"/);
-  assert.match(settingsHtml, /id="btn-save-settings"[^>]*class="btn-primary btn-save-header"/);
-  assert.match(settingsHtml, /id="btn-close-settings"/);
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+/** Diálogos de ajustes y de perfil con el marcado real; `confirm` sustituye la confirmación. */
+function setup(t, { confirm = async () => true } = {}) {
+  const dom = installDom({ app: true });
+  UISettings.ensureDialogMarkup();
+  const elements = getAppElements(document);
+  elements.themeButtons = document.querySelectorAll('.btn-theme-toggle');
+  elements.langButtons = document.querySelectorAll('.btn-lang-toggle');
+  const previousDialogs = globalThis.ChatDialogs;
+  globalThis.ChatDialogs = { confirm };
+  const calls = { loadCachedModels: 0, saved: [], profileSelector: [] };
+  UISettings.mount({
+    elements,
+    getRuntimeConfig: () => Config.getActive(),
+    callbacks: {
+      loadCachedModels: () => { calls.loadCachedModels++; },
+      onConfigSaved: config => calls.saved.push(config),
+      populateProfileSelector: id => calls.profileSelector.push(id)
+    }
+  });
+  t.after(() => {
+    if (previousDialogs === undefined) delete globalThis.ChatDialogs;
+    else globalThis.ChatDialogs = previousDialogs;
+    dom.restore();
+  });
+  return { elements, calls };
+}
+
+const submit = elements => elements.settingsForm.dispatchEvent(new Event('submit', { cancelable: true }));
+const isActive = id => document.getElementById(id).classList.contains('active');
+
+test('UISettings - los permisos MCP tienen su sección y los ajustes no tienen pestañas ni botonera', t => {
+  const { elements } = setup(t);
+  assert.equal(elements.settingsDialog.querySelector('.modal-tabs-nav, #tab-general, .modal-footer, #btn-settings-back'), null);
+  assert.ok(elements.settingsPermissions.classList.contains('settings-section-pane'));
+  assert.ok(elements.mcpPolicyAsk);
+  assert.ok(elements.mcpDirectoryRules);
+  assert.equal(elements.btnMcpSaveDirectoryRules, undefined, 'Las reglas se guardan con el formulario general');
+  assert.ok(elements.btnMcpClearAuths.querySelector('svg.ui-icon'));
+  assert.ok(elements.btnSaveSettings.classList.contains('btn-save-header'));
 });
 
-test('UISettings - exige API key para proveedores remotos y enlaza las guías gratuitas correspondientes', () => {
-  const hint = { dataset: {}, textContent: '' };
-  const helpLink = { hidden: true, href: '' };
-  const apiKeyField = {
-    hidden: false,
-    querySelector: (selector) => selector === '#api-key-hint-text'
-      ? hint
-      : (selector === '#api-key-free-help-link' ? helpLink : null)
-  };
-  const elements = {
-    settingApiType: { value: 'openrouter' },
-    settingApiKey: { disabled: false, closest: () => apiKeyField }
-  };
+test('UISettings - abrir una sección la activa, pone su título y abre el diálogo', t => {
+  const { elements } = setup(t);
+  UISettings.openSettingsSection(elements, Config.getActive(), 'mcp');
+  assert.equal(isActive('settings-model'), false);
+  assert.equal(isActive('settings-mcp'), true);
+  assert.equal(elements.settingsSectionTitle.getAttribute('data-i18n'), 'settings_mcp');
+  assert.ok(elements.settingsDialog.open);
+  assert.ok(elements.agentToolsContainer.querySelector('.agent-tool-checkbox[data-tool-id="search_web"]'), 'Se listan las herramientas configurables');
+  assert.equal(elements.agentToolsContainer.querySelector('[data-tool-id="list_documents"]'), null, 'Las de conocimiento local no tienen interruptor');
 
-  UISettings.syncProviderFields(elements);
-  assert.equal(hint.dataset.i18n, 'field_api_key_required_hint');
-  assert.equal(helpLink.hidden, false);
-  assert.equal(helpLink.href, 'help/openrouter-free.html');
+  UISettings.openSettingsSection(elements, Config.getActive(), 'unknown');
+  assert.equal(isActive('settings-model'), true, 'Una sección desconocida abre la del modelo');
+});
 
+test('UISettings - cerrar con cambios sin guardar pide confirmación', async t => {
+  let accept = false;
+  const { elements } = setup(t, { confirm: async () => accept });
+  UISettings.openSettingsSection(elements, Config.getActive(), 'model');
+  elements.settingSystemDataPrompt.dispatchEvent(new Event('input', { bubbles: true }));
+
+  assert.equal(await UISettings.closeSettingsModal(elements), false);
+  assert.ok(elements.settingsDialog.open);
+  accept = true;
+  assert.equal(await UISettings.closeSettingsModal(elements), true);
+  assert.equal(elements.settingsDialog.open, false);
+});
+
+test('UISettings - el tema y el idioma marcan su botón activo', t => {
+  const { elements } = setup(t);
+  assert.equal(UISettings.applyTheme(elements, 'dark'), 'dark');
+  assert.equal(document.documentElement.getAttribute('data-theme'), 'dark');
+  assert.deepEqual([...elements.themeButtons].filter(button => button.classList.contains('active')).map(button => button.dataset.theme), ['dark']);
+  assert.equal(UISettings.applyTheme(elements, 'other'), 'light');
+  assert.equal(document.documentElement.hasAttribute('data-theme'), false);
+
+  assert.equal(UISettings.applyLanguage(elements, 'en'), 'en');
+  assert.deepEqual([...elements.langButtons].filter(button => button.classList.contains('active')).map(button => button.dataset.lang), ['en']);
+  assert.equal(elements.settingsSectionTitle.textContent, 'Model', 'ChatI18n traduce el marcado');
+  UISettings.applyLanguage(elements, 'es');
+});
+
+test('UISettings - el editor exige API key a los proveedores remotos y enlaza sus guías gratuitas', t => {
+  const { elements } = setup(t);
+  for (const [apiType, hintKey, help] of [['openrouter', 'field_api_key_required_hint', 'help/openrouter-free.html'], ['gemini', 'field_api_key_required_hint', 'help/gemini-free.html'], ['ollama', 'field_api_key_hint', null]]) {
+    elements.settingApiType.value = apiType;
+    UISettings.syncProviderFields(elements);
+    assert.equal(elements.apiKeyHintText.dataset.i18n, hintKey, apiType);
+    assert.equal(elements.apiKeyFreeHelpLink.hidden, !help, apiType);
+    if (help) assert.equal(elements.apiKeyFreeHelpLink.getAttribute('href'), help);
+  }
+});
+
+test('UISettings - la temperatura se desactiva si el proveedor no la admite o el perfil está bloqueado', t => {
+  const { elements } = setup(t);
   elements.settingApiType.value = 'gemini';
   UISettings.syncProviderFields(elements);
-  assert.equal(helpLink.href, 'help/gemini-free.html');
-
-  elements.settingApiType.value = 'ollama';
-  UISettings.syncProviderFields(elements);
-  assert.equal(hint.dataset.i18n, 'field_api_key_hint');
-  assert.equal(helpLink.hidden, true);
-});
-
-test('UISettings - desactiva la temperatura con proveedores que no la admiten', () => {
-  const temperatureHint = { dataset: {}, textContent: '' };
-  const elements = {
-    settingApiType: { value: 'gemini' },
-    settingTemperature: { disabled: false },
-    temperatureHint
-  };
-
-  UISettings.syncProviderFields(elements);
   assert.equal(elements.settingTemperature.disabled, true);
-  assert.equal(temperatureHint.dataset.i18n, 'field_temperature_unsupported_hint');
+  assert.equal(elements.temperatureHint.dataset.i18n, 'field_temperature_unsupported_hint');
 
   elements.settingApiType.value = 'openai';
   UISettings.syncProviderFields(elements);
   assert.equal(elements.settingTemperature.disabled, false);
-  assert.equal(temperatureHint.dataset.i18n, 'field_temperature_hint');
+  assert.equal(elements.temperatureHint.dataset.i18n, 'field_temperature_hint');
 
-  elements.profilesDialog = { dataset: { profileLocked: 'true' } };
+  elements.profilesDialog.dataset.profileLocked = 'true';
   UISettings.syncProviderFields(elements);
-  assert.equal(elements.settingTemperature.disabled, true, 'Un perfil bloqueado mantiene el control desactivado');
+  assert.equal(elements.settingTemperature.disabled, true);
 });
 
-test('UISettings - openSettingsSection activa la sección indicada y actualiza el título', t => {
-  const dom = require('../helpers/dom-env.js').installDom({ app: true });
-  t.after(() => dom.restore());
-  UISettings.ensureDialogMarkup();
-  const elements = {
-    settingsDialog: document.getElementById('settings-dialog'),
-    settingsSectionTitle: document.getElementById('settings-section-title'),
-    mcpToolsContainer: document.getElementById('mcp-tools-container')
-  };
-  UISettings.openSettingsSection(elements, require('../../js/config-store.js').getActive(), { populateProfileSelector() {}, loadCachedModels() {}, updateReasoningUI() {} }, 'mcp');
-  assert.equal(document.getElementById('settings-model').classList.contains('active'), false);
-  assert.equal(document.getElementById('settings-mcp').classList.contains('active'), true);
-  assert.equal(elements.settingsSectionTitle.getAttribute('data-i18n'), 'settings_mcp');
-  assert.equal(elements.settingsDialog.open, true);
+test('UISettings - cargar un perfil rellena el editor, usa el endpoint por defecto y muestra WebLLM', t => {
+  const { elements } = setup(t);
+  UISettings.applyProfileToForm(elements, { apiType: 'claude', apiUrl: 'https://api.anthropic.com/v1', model: 'claude-3-7-sonnet', systemPrompt: 'Eres un asistente experto.', temperature: '0.2', apiKeyLocked: true });
+  assert.equal(elements.settingApiType.value, 'claude');
+  assert.equal(elements.settingApiUrl.value, 'https://api.anthropic.com/v1');
+  assert.equal(elements.settingModel.value, 'claude-3-7-sonnet');
+  assert.equal(elements.settingSystemPrompt.value, 'Eres un asistente experto.');
+  assert.equal(elements.temperatureVal.textContent, '0.2');
+  assert.equal(elements.settingApiKey.value, '', 'La clave solo se carga desde el repositorio cifrado');
+  assert.equal(elements.profilesDialog.dataset.profileLocked, 'true');
+  assert.equal(elements.settingModel.disabled, true, 'Un perfil bloqueado no se edita');
+  assert.equal(elements.apiKeyLockedStatus.hidden, false);
+
+  UISettings.applyProfileToForm(elements, { apiType: 'openai', apiUrl: '', model: '' });
+  assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
+  assert.equal(elements.settingApiUrl.placeholder, 'http://localhost:1234/v1');
+  assert.equal(elements.webllmParamsPanel.hidden, true);
+
+  UISettings.applyProfileToForm(elements, { apiType: 'webllm', webllmConfig: { context_window_size: '16384', prefill_chunk_size: 'default' } });
+  assert.equal(elements.settingWebllmContextWindow.value, '16384');
+  assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
+  assert.equal(elements.webllmParamsPanel.hidden, false);
+  assert.equal(elements.webllmHelpLink.hidden, false);
+  assert.deepEqual(UISettings.gatherCurrentFormConfig(elements, Config.getActive()).webllmConfig, { context_window_size: '16384', prefill_chunk_size: 'default' });
 });
 
-test('UISettings - confirma antes de cerrar ajustes con cambios sin guardar', async () => {
-  const originalDialogs = global.ChatDialogs;
-  const dialog = { dataset: {}, close: () => { dialog.closed = true; } };
-  const elements = { settingsDialog: dialog };
+test('UISettings - guardar aplica reglas, política MCP y herramientas y vuelve a la lista de secciones', async t => {
+  const { elements, calls } = setup(t);
+  const previousRules = ToolSecurity.manager.getDirectoryRules();
+  t.after(() => ToolSecurity.manager.setDirectoryRules(previousRules));
+  UISettings.openSettingsSection(elements, Config.getActive(), 'agent');
 
-  try {
-    UISettings.setSettingsFormDirty(elements, true);
-    global.ChatDialogs = { confirm: async () => false };
-    assert.equal(await UISettings.closeSettingsModal(elements), false);
-    assert.equal(dialog.closed, undefined);
+  const search = elements.agentToolsContainer.querySelector('[data-tool-id="search_web"]');
+  search.checked = false;
+  search.dispatchEvent(new Event('change', { bubbles: true }));
+  assert.equal(Config.getActive().enabledTools.search_web, false, 'El interruptor se aplica al momento');
+  elements.mcpDirectoryRules.value = 'R:/home/user\nW:/tmp\n\n';
+  elements.mcpPolicyWorkspaceTrust.checked = true;
+  elements.settingSystemDataPrompt.value = 'Datos propios';
 
-    global.ChatDialogs = { confirm: async () => true };
-    assert.equal(await UISettings.closeSettingsModal(elements), true);
-    assert.equal(dialog.closed, true);
-    assert.equal(UISettings.isSettingsFormDirty(elements), false);
-  } finally {
-    if (originalDialogs === undefined) delete global.ChatDialogs;
-    else global.ChatDialogs = originalDialogs;
-  }
-});
+  submit(elements);
+  await settle();
+  assert.deepEqual(ToolSecurity.manager.getDirectoryRules(), ['R:/home/user', 'W:/tmp']);
+  assert.equal(elements.mcpDirectoryRules.value, 'R:/home/user\nW:/tmp', 'El campo muestra las reglas guardadas');
+  assert.equal(ToolSecurity.manager.getGlobalMcpPolicy(), 'workspace_trust');
+  assert.equal(Config.getActive().systemDataPrompt, 'Datos propios');
+  assert.equal(calls.loadCachedModels, 1);
+  assert.equal(calls.saved.length, 1);
+  assert.equal(elements.settingsDialog.open, false);
 
-test('UISettings - applyTheme actualiza data-theme y botones activos', () => {
-  const btnLight = {
-    className: '',
-    getAttribute: (name) => name === 'data-theme' ? 'light' : null,
-    classList: {
-      add: (cls) => { btnLight.className = cls; },
-      remove: () => { btnLight.className = ''; }
-    }
-  };
-  const btnDark = {
-    className: '',
-    getAttribute: (name) => name === 'data-theme' ? 'dark' : null,
-    classList: {
-      add: (cls) => { btnDark.className = cls; },
-      remove: () => { btnDark.className = ''; }
-    }
-  };
-
-  const elements = { themeButtons: [btnLight, btnDark] };
-  const appConfig = { theme: 'light' };
-
-  const themeDark = UISettings.applyTheme(elements, appConfig, 'dark');
-  assert.equal(themeDark, 'dark');
-  assert.equal(appConfig.theme, 'light');
-  assert.equal(btnDark.className, 'active');
-  assert.equal(btnLight.className, '');
-
-  const themeLight = UISettings.applyTheme(elements, appConfig, 'light');
-  assert.equal(themeLight, 'light');
-  assert.equal(appConfig.theme, 'light');
-  assert.equal(btnLight.className, 'active');
-});
-
-test('UISettings - gatherEnabledToolsFromUI extrae mapa booleano de checkboxes', () => {
-  const checkboxes = [
-    { getAttribute: () => 'search_web', checked: true },
-    { getAttribute: () => 'execute_javascript', checked: false }
-  ];
-
-  const fakeContainer = {
-    querySelectorAll: (sel) => sel === '.agent-tool-checkbox' ? checkboxes : []
-  };
-
-  const map = UISettings.gatherEnabledToolsFromUI(fakeContainer);
-  assert.deepEqual(map, {
-    search_web: true,
-    execute_javascript: false
-  });
-});
-
-test('UISettings - applyProfileToForm rellena inputs, asigna endpoint por defecto y mapea webllmConfig', () => {
-  {
-    const elements = {
-      settingApiType: { value: '' },
-      settingApiUrl: { value: '' },
-      settingApiKey: { value: '' },
-      settingModel: { value: '' },
-      modelSelectHelper: { value: '' },
-      settingSystemPrompt: { value: '' },
-      settingSystemDataPrompt: { value: '' },
-      settingTemperature: { value: '' },
-      temperatureVal: { textContent: '' }
-    };
-
-    const profileData = {
-      apiType: 'anthropic',
-      apiUrl: 'https://api.anthropic.com/v1',
-      model: 'claude-3-7-sonnet',
-      systemPrompt: 'Eres un asistente experto.',
-      systemDataPrompt: 'Formato ZeroChat.',
-      temperature: '0.2'
-    };
-
-    UISettings.applyProfileToForm(elements, profileData);
-
-    assert.equal(elements.settingApiType.value, 'anthropic');
-    assert.equal(elements.settingApiUrl.value, 'https://api.anthropic.com/v1');
-    assert.equal(elements.settingApiKey.value, '', 'La clave solo se carga desde el repositorio cifrado');
-    assert.equal(elements.settingModel.value, 'claude-3-7-sonnet');
-    assert.equal(elements.settingSystemPrompt.value, 'Eres un asistente experto.');
-    assert.equal(elements.settingSystemDataPrompt.value, 'Formato ZeroChat.');
-    assert.equal(elements.settingTemperature.value, '0.2');
-    assert.equal(elements.temperatureVal.textContent, '0.2');
-  }
-
-  {
-    const elements = {
-      settingApiType: { value: '' },
-      settingApiUrl: { value: '', placeholder: '' },
-      settingApiKey: { value: '' },
-      settingModel: { value: '' },
-      modelSelectHelper: { value: '' },
-      settingSystemPrompt: { value: '' },
-      settingTemperature: { value: '' }
-    };
-
-    const profileData = {
-      apiType: 'openai',
-      apiUrl: '',
-      model: ''
-    };
-
-    UISettings.applyProfileToForm(elements, profileData);
-
-    assert.equal(elements.settingApiUrl.value, 'http://localhost:1234/v1');
-    assert.equal(elements.settingApiUrl.placeholder, 'http://localhost:1234/v1');
-  }
-
-  {
-    const elements = {
-      settingApiType: { value: 'webllm' },
-      settingWebllmContextWindow: { value: '' },
-      settingWebllmPrefillChunk: { value: '' },
-      webllmParamsPanel: { hidden: true }
-    };
-    const profileData = {
-      webllmConfig: {
-        context_window_size: '16384',
-        prefill_chunk_size: 'default'
-      }
-    };
-    UISettings.applyProfileToForm(elements, profileData);
-    assert.equal(elements.settingWebllmContextWindow.value, '16384');
-    assert.equal(elements.settingWebllmPrefillChunk.value, 'default');
-    assert.equal(elements.webllmParamsPanel.hidden, false);
-  }
-});
-
-test('UISettings - gatherCurrentFormConfig extrae webllmConfig con default si está vacío', () => {
-  {
-    const elements = {
-      settingModel: { value: 'Llama-3.2-1B' },
-      settingWebllmContextWindow: { value: '8192' },
-      settingWebllmPrefillChunk: { value: '2048' }
-    };
-    const config = UISettings.gatherCurrentFormConfig(elements, {});
-    assert.deepEqual(config.webllmConfig, {
-      context_window_size: '8192',
-      prefill_chunk_size: '2048'
-    });
-  }
-});
-
-test('UISettings - saveDirectoryRulesFromSettings valida y aplica reglas al ToolSecurityManager', () => {
-  const originalToolSecurity = global.ChatToolSecurity;
-  let receivedRules = null;
-  global.ChatToolSecurity = {
-    manager: {
-      setDirectoryRules: (rules) => {
-        receivedRules = rules;
-      }
-    }
-  };
-
-  try {
-    const input = { value: 'R:/home/user\nW:/tmp\n\n' };
-    const errorEl = { textContent: 'previous error' };
-    const elements = {
-      settingsDialog: {
-        ownerDocument: {
-          getElementById: (id) => id === 'mcp-directory-rules' ? input : (id === 'mcp-directory-rules-error' ? errorEl : null)
-        }
-      }
-    };
-
-    const result = UISettings.saveDirectoryRulesFromSettings(elements);
-    assert.equal(result, true);
-    assert.deepEqual(receivedRules, ['R:/home/user', 'W:/tmp']);
-    assert.equal(errorEl.textContent, '');
-
-    // Error case
-    global.ChatToolSecurity.manager.setDirectoryRules = () => {
-      throw new Error('Regla inválida');
-    };
-    const failResult = UISettings.saveDirectoryRulesFromSettings(elements);
-    assert.equal(failResult, false);
-    assert.equal(errorEl.textContent, 'Regla inválida');
-  } finally {
-    if (originalToolSecurity === undefined) delete global.ChatToolSecurity;
-    else global.ChatToolSecurity = originalToolSecurity;
-  }
-});
-
-test('UISettings - closeSettingsPanelOnly cierra el modal y conmuta la barra lateral a settings', async () => {
-  const originalSidebar = global.ChatUISidebar;
-  let sidebarMode = null;
-  global.ChatUISidebar = {
-    setSidebarMode: (els, mode) => { sidebarMode = mode; },
-    isMobile: () => false
-  };
-
-  const dialog = { close: () => { dialog.closed = true; } };
-  const elements = { settingsDialog: dialog };
-
-  try {
-    const closed = await UISettings.closeSettingsPanelOnly(elements, true);
-    assert.equal(closed, true);
-    assert.equal(dialog.closed, true);
-    assert.equal(sidebarMode, 'settings');
-  } finally {
-    if (originalSidebar === undefined) delete global.ChatUISidebar;
-    else global.ChatUISidebar = originalSidebar;
-  }
-});
-
-test('UISettings - saveCurrentSettings orquesta guardado de reglas, recolección de configuración y callbacks', async () => {
-  const originalConfig = global.ChatConfig;
-  const originalSidebar = global.ChatUISidebar;
-  let updatedConfig = null;
-  let loadedModelsCalled = false;
-  let savedCallbackConfig = null;
-  let profileSelectorTarget = null;
-  let sidebarMode = null;
-
-  global.ChatConfig = {
-    updateRuntime: (cfg) => {
-      updatedConfig = cfg;
-      return { ...cfg, activeProfile: { id: 'prof_1', name: 'Profile 1' } };
-    }
-  };
-  global.ChatUISidebar = {
-    setSidebarMode: (els, mode) => { sidebarMode = mode; },
-    isMobile: () => false
-  };
-
-  const dialog = { dataset: {}, close: () => { dialog.closed = true; } };
-  const elements = {
-    settingsDialog: dialog,
-    settingModel: { value: 'gpt-4o' }
-  };
-
-  try {
-    UISettings.setSettingsFormDirty(elements, true);
-    const success = await UISettings.saveCurrentSettings(elements, {}, {
-      loadCachedModels: () => { loadedModelsCalled = true; },
-      onConfigSaved: (cfg) => { savedCallbackConfig = cfg; },
-      populateProfileSelector: (id) => { profileSelectorTarget = id; }
-    }, true);
-
-    assert.equal(success, true);
-    assert.ok(updatedConfig);
-    assert.equal(updatedConfig.model, 'gpt-4o');
-    assert.equal(UISettings.isSettingsFormDirty(elements), false);
-    assert.equal(loadedModelsCalled, true);
-    assert.equal(savedCallbackConfig?.activeProfile?.id, 'prof_1');
-    assert.equal(profileSelectorTarget, 'prof_1');
-    assert.equal(dialog.closed, true);
-    assert.equal(sidebarMode, 'settings');
-  } finally {
-    if (originalConfig === undefined) delete global.ChatConfig;
-    else global.ChatConfig = originalConfig;
-    if (originalSidebar === undefined) delete global.ChatUISidebar;
-    else global.ChatUISidebar = originalSidebar;
-  }
-});
-
-test('UISettings - mount enlaza eventos del formulario y dispose los desvincula', () => {
-  let submitted = false;
-  const listeners = {};
-  const form = {
-    addEventListener: (evt, fn) => { listeners[evt] = fn; },
-    removeEventListener: (evt) => { delete listeners[evt]; }
-  };
-  const elements = {
-    settingsForm: form,
-    settingsDialog: { addEventListener: () => {}, removeEventListener: () => {} }
-  };
-
-  const controller = UISettings.mount({
-    elements,
-    getRuntimeConfig: () => ({}),
-    callbacks: {}
-  });
-
-  assert.ok(typeof listeners.submit === 'function');
-  assert.ok(typeof controller.saveCurrentSettings === 'function');
-  assert.ok(typeof controller.closeSettingsPanelOnly === 'function');
-  assert.ok(typeof controller.closeSettingsModal === 'function');
-
-  UISettings.dispose();
-  assert.equal(listeners.submit, undefined);
-});
-
-test('UISettings - saveCurrentSettings persiste la política global MCP seleccionada', async () => {
-  const originalToolSecurity = global.ChatToolSecurity;
-  const originalConfig = global.ChatConfig;
-  let savedPolicy = null;
-
-  global.ChatToolSecurity = {
-    manager: {
-      setGlobalMcpPolicy: (policy) => { savedPolicy = policy; },
-      setDirectoryRules: () => []
-    }
-  };
-  global.ChatConfig = {
-    updateRuntime: (cfg) => cfg
-  };
-
-  const dialog = {
-    dataset: {},
-    close: () => {},
-    querySelector: (selector) => {
-      if (selector === 'input[name="mcp-global-policy"]:checked') {
-        return { value: 'ask' };
-      }
-      return null;
-    }
-  };
-  const elements = {
-    settingsDialog: dialog
-  };
-
-  try {
-    const success = await UISettings.saveCurrentSettings(elements, {}, {}, true);
-    assert.equal(success, true);
-    assert.equal(savedPolicy, 'ask');
-  } finally {
-    if (originalToolSecurity === undefined) delete global.ChatToolSecurity;
-    else global.ChatToolSecurity = originalToolSecurity;
-    if (originalConfig === undefined) delete global.ChatConfig;
-    else global.ChatConfig = originalConfig;
-  }
+  UISettings.openSettingsSection(elements, Config.getActive(), 'permissions');
+  elements.mcpDirectoryRules.value = 'X:/invalid';
+  submit(elements);
+  await settle();
+  assert.notEqual(elements.mcpDirectoryRulesError.textContent, '', 'Una regla inválida muestra el error');
+  assert.ok(elements.settingsDialog.open, 'y no cierra los ajustes');
+  ToolSecurity.manager.setGlobalMcpPolicy('ask');
 });

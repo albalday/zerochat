@@ -292,6 +292,15 @@ input:checked + .slider:before {
   gap: 0.28rem;
 }
 
+.form-field.form-field-last {
+  margin-bottom: 0;
+}
+
+.setting-api-type {
+  width: 100%;
+  max-width: 100%;
+}
+
 .form-field label {
   font-size: 0.83rem;
   display: flex;

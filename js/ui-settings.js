@@ -1,6 +1,6 @@
 /**
- * Módulo de Interfaz de Usuario para Configuración, Perfiles y Herramientas.
- * ZeroChat - js/ui-settings.js
+ * Diálogo de ajustes (modelo, herramientas, servidor local y permisos), tema e idioma, y las piezas
+ * del editor de perfiles que comparte con ChatUIProfiles: formulario, menú y campos del proveedor.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -11,10 +11,8 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const DEFAULT_THEME = Defaults.DEFAULT_THEME;
-  const WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE = Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE;
-
   const { resolveDep, escapeHtml } = Utils;
+  const { t } = I18n;
 
   const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
@@ -22,561 +20,294 @@
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getUIMcp = () => resolveDep('ChatUIMcp', './ui-mcp.js');
+  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getSidebar = () => resolveDep('ChatUISidebar', './ui-sidebar.js');
 
-  const { t } = I18n;
+  const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
+  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', mcp: 'settings_mcp', permissions: 'settings_permissions' };
 
+  const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
+  const getAdapter = elements => getProviders().registry.get(elements.settingApiType.value || 'openai');
+  const isProfileLocked = elements => elements.profilesDialog.dataset.profileLocked === 'true';
 
-  function applyTheme(elements, appConfig, theme) {
-    const doc = (typeof document !== 'undefined') ? document : null;
-    const root = doc ? doc.documentElement : null;
-    const effective = (theme === 'dark') ? 'dark' : 'light';
-    if (root) {
-      if (effective === 'dark') {
-        root.setAttribute('data-theme', 'dark');
-      } else {
-        root.removeAttribute('data-theme');
-      }
-    }
-
-    if (elements?.themeButtons && elements.themeButtons.length > 0) {
-      elements.themeButtons.forEach(btn => {
-        if (btn.getAttribute('data-theme') === effective) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
-      });
-    }
+  function applyTheme(elements, theme) {
+    const effective = theme === 'dark' ? 'dark' : 'light';
+    if (effective === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    markActive(elements.themeButtons, 'data-theme', effective);
     return effective;
   }
 
-  function applyLanguage(elements, appConfig, lang, callbacks = {}) {
-    const target = (lang === 'en') ? 'en' : 'es';
-    I18n.setLanguage(target);
-    if (elements?.langButtons && elements.langButtons.length > 0) {
-      elements.langButtons.forEach(btn => {
-        if (btn.getAttribute('data-lang') === target) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
-      });
-    }
-
-    if (typeof callbacks.updateReasoningUI === 'function' && appConfig) {
-      callbacks.updateReasoningUI(appConfig.reasoningEffort);
-    }
-
-    if (elements?.settingSystemPrompt) {
-      elements.settingSystemPrompt.setAttribute('placeholder', t('field_system_prompt_placeholder'));
-    }
-    if (elements?.settingSystemDataPrompt) {
-      elements.settingSystemDataPrompt.setAttribute('placeholder', t('field_system_data_prompt_placeholder'));
-    }
-    const welcomeHelp = elements?.welcomeHelpLink || (typeof document !== 'undefined' ? document.getElementById('welcome-help-link') : null);
-    if (welcomeHelp) {
-      welcomeHelp.href = (target === 'en')
-        ? 'help/en/index.html'
-        : 'help/index.html';
-    }
+  /** Cambia el idioma de la interfaz; ChatI18n traduce los textos marcados con data-i18n*. */
+  function applyLanguage(elements, lang) {
+    const target = I18n.setLanguage(lang === 'en' ? 'en' : 'es');
+    markActive(elements.langButtons, 'data-lang', target);
     return target;
   }
 
-  function renderAgentToolsUI(container, currentEnabledTools = {}) {
-    if (!container) return;
+  /** Interruptores de las herramientas nativas que se configuran en los ajustes. */
+  function renderAgentToolsUI(container, enabledTools) {
     const AgentCore = getAgentCore();
     const tools = AgentCore.registry.listTools().filter(tool => tool.category !== 'mcp' && tool.settings.showInSettings);
-
-    container.innerHTML = '';
-    tools.forEach(tool => {
+    container.innerHTML = tools.map(tool => {
       const { titleKey, descKey, defaultEnabled } = tool.settings;
-      const isChecked = AgentCore.isToolEnabled(currentEnabledTools, tool.name, defaultEnabled);
-      const title = t(titleKey);
-      const desc = t(descKey);
-
-      const card = document.createElement('div');
-      card.className = 'setting-toggle-card';
-      card.innerHTML = `
+      const checked = AgentCore.isToolEnabled(enabledTools, tool.name, defaultEnabled);
+      return `<div class="setting-toggle-card">
         <div class="toggle-card-info">
-          <div class="toggle-card-title">
-            <span data-i18n="${escapeHtml(titleKey)}">${escapeHtml(title)}</span>
-          </div>
-          <p class="toggle-card-desc" data-i18n="${escapeHtml(descKey)}">${escapeHtml(desc)}</p>
+          <div class="toggle-card-title"><span data-i18n="${escapeHtml(titleKey)}">${escapeHtml(t(titleKey))}</span></div>
+          <p class="toggle-card-desc" data-i18n="${escapeHtml(descKey)}">${escapeHtml(t(descKey))}</p>
         </div>
         <label class="switch">
-          <input type="checkbox" class="agent-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}>
+          <input type="checkbox" class="agent-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${checked ? 'checked' : ''}>
           <span class="slider"></span>
         </label>
-      `;
-      container.appendChild(card);
-    });
-
-    container.querySelectorAll('.agent-tool-checkbox').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const tid = cb.getAttribute('data-tool-id');
-        if (!tid) return;
-        const Config = getConfig();
-        if (Config) {
-          const curr = Config.getActive()?.enabledTools || {};
-          Config.updateRuntime({ enabledTools: { ...curr, [tid]: cb.checked } });
-        }
-      });
-    });
+      </div>`;
+    }).join('');
   }
 
   function gatherEnabledToolsFromUI(container) {
-    const map = {};
-    if (!container) return map;
-    container.querySelectorAll('.agent-tool-checkbox').forEach(cb => {
-      const tid = cb.getAttribute('data-tool-id');
-      if (tid) map[tid] = cb.checked;
-    });
-    return map;
+    return Object.fromEntries([...container.querySelectorAll('.agent-tool-checkbox')].map(checkbox => [checkbox.dataset.toolId, checkbox.checked]));
   }
 
+  /** Carga en el editor de perfiles los ajustes de conexión de un perfil. */
   function applyProfileToForm(elements, profileData) {
-    if (!elements || !profileData) return;
-
-    if (elements.settingApiType && profileData.apiType !== undefined) {
-      elements.settingApiType.value = profileData.apiType;
-    }
-    if (elements.settingApiUrl) {
-      const apiType = elements.settingApiType?.value || profileData.apiType || 'openai';
-      const defaultEndpoint = getProviders()?.registry?.get?.(apiType)?.getConnectionConfig?.().endpoint || 'http://localhost:1234/v1';
-      elements.settingApiUrl.value = (profileData.apiUrl !== undefined && profileData.apiUrl !== '') ? profileData.apiUrl : defaultEndpoint;
-    }
-    if (elements.settingApiKeyLocked) elements.settingApiKeyLocked.checked = profileData.apiKeyLocked === true;
-    if (elements.profilesDialog) elements.profilesDialog.dataset.profileLocked = String(profileData.apiKeyLocked === true);
-    if (elements.apiKeyLockControl) elements.apiKeyLockControl.hidden = profileData.apiKeyLocked === true;
-    if (elements.apiKeyLockedStatus) elements.apiKeyLockedStatus.hidden = profileData.apiKeyLocked !== true;
-    if (elements.settingModel && profileData.model !== undefined) {
+    if (profileData.apiType !== undefined) elements.settingApiType.value = profileData.apiType;
+    const defaultEndpoint = getAdapter(elements).getConnectionConfig().endpoint || '';
+    elements.settingApiUrl.value = profileData.apiUrl || defaultEndpoint;
+    const locked = profileData.apiKeyLocked === true;
+    elements.settingApiKeyLocked.checked = locked;
+    elements.profilesDialog.dataset.profileLocked = String(locked);
+    elements.apiKeyLockControl.hidden = locked;
+    elements.apiKeyLockedStatus.hidden = !locked;
+    if (profileData.model !== undefined) {
       elements.settingModel.value = profileData.model;
-    }
-    if (elements.modelSelectHelper && profileData.model !== undefined) {
       elements.modelSelectHelper.value = profileData.model;
     }
-    if (elements.settingSystemPrompt && profileData.systemPrompt !== undefined) {
-      elements.settingSystemPrompt.value = profileData.systemPrompt;
-    }
-    if (elements.settingSystemDataPrompt && profileData.systemDataPrompt !== undefined) {
-      elements.settingSystemDataPrompt.value = profileData.systemDataPrompt;
-    }
-    if (elements.settingTemperature && profileData.temperature !== undefined) {
+    if (profileData.systemPrompt !== undefined) elements.settingSystemPrompt.value = profileData.systemPrompt;
+    if (profileData.temperature !== undefined) {
       elements.settingTemperature.value = profileData.temperature;
-      if (elements.temperatureVal) {
-        elements.temperatureVal.textContent = profileData.temperature;
-      }
+      elements.temperatureVal.textContent = profileData.temperature;
     }
-    if (elements.agentToolsContainer) {
-      renderAgentToolsUI(elements.agentToolsContainer, profileData.enabledTools || {});
-    }
-    const webllmCfg = profileData.webllmConfig || {};
-    const setParamSelect = (el, val, fallback = 'default') => {
-      if (!el) return;
-      const cleanVal = (val && val !== 'default') ? String(val) : fallback;
-      el.value = cleanVal;
-      if (!el.value) el.value = fallback;
+    const webllmConfig = profileData.webllmConfig || {};
+    const selectValue = (select, value, fallback) => {
+      select.value = value && value !== 'default' ? String(value) : fallback;
+      if (!select.value) select.value = fallback;
     };
-    setParamSelect(elements.settingWebllmContextWindow, webllmCfg.context_window_size, String(WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
-    setParamSelect(elements.settingWebllmPrefillChunk, webllmCfg.prefill_chunk_size);
+    selectValue(elements.settingWebllmContextWindow, webllmConfig.context_window_size, String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE));
+    selectValue(elements.settingWebllmPrefillChunk, webllmConfig.prefill_chunk_size, 'default');
     syncProviderFields(elements);
     syncApiKeyLock(elements);
   }
 
+  const providerSupportsTemperature = elements => getAdapter(elements).getCapabilities().temperature !== false;
+
+  /**
+   * Activa los campos del editor según el bloqueo del perfil: con `readOnly` (Espejo) o bloqueado no
+   * se edita nada; la clave oculta y la temperatura no admitida quedan siempre desactivadas.
+   */
   function syncApiKeyLock(elements, readOnly = false) {
-    const locked = elements?.profilesDialog?.dataset.profileLocked === 'true';
-    elements?.profilesDialog?.querySelectorAll('.modal-body input, .modal-body textarea, .modal-body select, .modal-body button').forEach(control => {
-      if (control === elements.profileSelectHelper || control.hasAttribute('data-profile-global-action')) return;
-      control.disabled = readOnly || locked
-        || (control === elements.settingApiKey && control.closest('.api-key-field')?.hidden === true)
+    const disabled = readOnly || isProfileLocked(elements);
+    elements.profilesDialog.querySelectorAll('.modal-body input, .modal-body textarea, .modal-body select, .modal-body button').forEach(control => {
+      if (control === elements.profileSelectHelper) return;
+      control.disabled = disabled
+        || (control === elements.settingApiKey && control.closest('.api-key-field').hidden)
         || (control === elements.settingTemperature && !providerSupportsTemperature(elements));
     });
-    if (elements?.settingApiKeyLocked) elements.settingApiKeyLocked.disabled = readOnly || locked;
+    elements.settingApiKeyLocked.disabled = disabled;
   }
 
-  function providerSupportsTemperature(elements) {
-    const providerId = elements?.settingApiType?.value || 'openai';
-    return getProviders()?.registry?.get?.(providerId)?.getCapabilities?.().temperature !== false;
-  }
-
+  /** Ajusta el editor al proveedor elegido: endpoint, credenciales, temperatura y campos de WebLLM. */
   function syncProviderFields(elements) {
-    const providerId = elements?.settingApiType?.value || 'openai';
-    const adapter = getProviders()?.registry?.get?.(providerId);
-    const connection = adapter?.getConnectionConfig?.() || {};
-    const isWebLLM = providerId === 'webllm';
-    if (elements?.settingApiUrl) {
-      if (connection.endpoint) {
-        elements.settingApiUrl.placeholder = connection.endpoint;
-      }
-      if (connection.endpointReadOnly && connection.endpoint) {
-        elements.settingApiUrl.value = connection.endpoint;
-      } else if (!elements.settingApiUrl.value.trim() && connection.endpoint) {
-        elements.settingApiUrl.value = connection.endpoint;
-      }
-      elements.settingApiUrl.readOnly = connection.endpointReadOnly === true;
-      elements.settingApiUrl.required = connection.endpointReadOnly !== true;
+    const providerId = elements.settingApiType.value || 'openai';
+    const connection = getAdapter(elements).getConnectionConfig();
+    const urlInput = elements.settingApiUrl;
+    if (connection.endpoint) {
+      urlInput.placeholder = connection.endpoint;
+      if (connection.endpointReadOnly || !urlInput.value.trim()) urlInput.value = connection.endpoint;
     }
-    if (elements?.settingApiKey) elements.settingApiKey.disabled = connection.credentials === false;
-    if (elements?.settingTemperature) {
-      const supportsTemperature = providerSupportsTemperature(elements);
-      const locked = elements.profilesDialog?.dataset.profileLocked === 'true';
-      elements.settingTemperature.disabled = locked || !supportsTemperature;
-      const temperatureHint = elements.temperatureHint || (typeof document !== 'undefined' ? document.getElementById('temperature-hint') : null);
-      if (temperatureHint) {
-        const hintKey = supportsTemperature ? 'field_temperature_hint' : 'field_temperature_unsupported_hint';
-        temperatureHint.dataset.i18n = hintKey;
-        temperatureHint.textContent = t(hintKey);
-      }
-    }
-    const apiKeyField = elements?.settingApiKey?.closest?.('.api-key-field');
-    if (apiKeyField) apiKeyField.hidden = connection.credentials === false;
-    const apiKeyHintText = apiKeyField?.querySelector?.('#api-key-hint-text');
-    const apiKeyFreeHelpLink = apiKeyField?.querySelector?.('#api-key-free-help-link');
-    const freeTierHelp = {
-      openrouter: 'help/openrouter-free.html',
-      gemini: 'help/gemini-free.html'
-    };
-    if (apiKeyHintText) {
-      const hintKey = ['openai', 'ollama'].includes(providerId)
-        ? 'field_api_key_hint'
-        : 'field_api_key_required_hint';
-      apiKeyHintText.dataset.i18n = hintKey;
-      apiKeyHintText.textContent = t(hintKey);
-    }
-    if (apiKeyFreeHelpLink) {
-      const helpUrl = freeTierHelp[providerId];
-      apiKeyFreeHelpLink.hidden = !helpUrl;
-      if (helpUrl) apiKeyFreeHelpLink.href = helpUrl;
-    }
-    const field = typeof elements?.settingApiUrl?.closest === 'function'
-      ? elements.settingApiUrl.closest('.form-field') : null;
-    const hint = field?.querySelector('.webllm-local-hint') || elements?.webllmLocalHint;
-    if (hint) hint.hidden = !isWebLLM;
-    const helpLink = field?.querySelector('.webllm-help-link') || elements?.webllmHelpLink || (typeof document !== 'undefined' ? document.getElementById('webllm-help-link') : null);
-    if (helpLink) helpLink.hidden = providerId !== 'webllm';
+    urlInput.readOnly = connection.endpointReadOnly === true;
+    urlInput.required = connection.endpointReadOnly !== true;
 
-    const webllmParamsPanel = elements?.webllmParamsPanel || (typeof document !== 'undefined' ? document.getElementById('webllm-params-panel') : null);
-    if (webllmParamsPanel) webllmParamsPanel.hidden = !isWebLLM;
+    const supportsTemperature = providerSupportsTemperature(elements);
+    elements.settingTemperature.disabled = isProfileLocked(elements) || !supportsTemperature;
+    const temperatureHintKey = supportsTemperature ? 'field_temperature_hint' : 'field_temperature_unsupported_hint';
+    elements.temperatureHint.dataset.i18n = temperatureHintKey;
+    elements.temperatureHint.textContent = t(temperatureHintKey);
+
+    const credentials = connection.credentials !== false;
+    elements.settingApiKey.disabled = !credentials;
+    elements.settingApiKey.closest('.api-key-field').hidden = !credentials;
+    const apiKeyHintKey = ['openai', 'ollama'].includes(providerId) ? 'field_api_key_hint' : 'field_api_key_required_hint';
+    elements.apiKeyHintText.dataset.i18n = apiKeyHintKey;
+    elements.apiKeyHintText.textContent = t(apiKeyHintKey);
+    const helpUrl = FREE_TIER_HELP[providerId];
+    elements.apiKeyFreeHelpLink.hidden = !helpUrl;
+    if (helpUrl) elements.apiKeyFreeHelpLink.href = helpUrl;
+
+    const isWebLLM = providerId === 'webllm';
+    elements.webllmLocalHint.hidden = !isWebLLM;
+    elements.webllmHelpLink.hidden = !isWebLLM;
+    elements.webllmParamsPanel.hidden = !isWebLLM;
   }
 
+  /** Configuración resultante del formulario sobre la configuración en ejecución. */
   function gatherCurrentFormConfig(elements, appConfig) {
-    const profileName = (elements?.settingProfileName && elements.settingProfileName.value.trim())
-      ? elements.settingProfileName.value.trim()
-      : ((elements?.profileSelectHelper && elements.profileSelectHelper.value)
-        ? elements.profileSelectHelper.value
-        : (appConfig?.activeProfile?.name || 'Local chat'));
-    const selectedModel = elements?.settingModel ? elements.settingModel.value.trim() : '';
-    const getParamVal = (el, fallback) => {
-      const v = el?.value ? el.value.trim() : '';
-      return v || fallback || 'default';
-    };
-    const prevWebllmConfig = appConfig?.webllmConfig || {};
-    const webllmConfig = {
-      context_window_size: getParamVal(elements?.settingWebllmContextWindow, prevWebllmConfig.context_window_size),
-      prefill_chunk_size: getParamVal(elements?.settingWebllmPrefillChunk, prevWebllmConfig.prefill_chunk_size)
-    };
+    const valueOr = (select, fallback) => select.value.trim() || fallback || 'default';
     return {
-      activeProfileName: profileName,
-      apiUrl: elements?.settingApiUrl ? elements.settingApiUrl.value.trim() : (appConfig?.apiUrl || 'http://localhost:1234/v1'),
-      apiType: elements?.settingApiType ? elements.settingApiType.value : (appConfig?.apiType || 'openai'),
-      model: selectedModel,
-      webllmConfig,
+      ...appConfig,
+      apiUrl: elements.settingApiUrl.value.trim(),
+      apiType: elements.settingApiType.value,
+      model: elements.settingModel.value.trim(),
+      webllmConfig: {
+        context_window_size: valueOr(elements.settingWebllmContextWindow, appConfig.webllmConfig?.context_window_size),
+        prefill_chunk_size: valueOr(elements.settingWebllmPrefillChunk, appConfig.webllmConfig?.prefill_chunk_size)
+      },
       // El límite publicado pertenece a la conexión en ejecución, no al formulario.
       modelContextLimit: null,
-      contextLimitOverride: appConfig?.contextLimitOverride || null,
-      systemPrompt: elements?.settingSystemPrompt ? elements.settingSystemPrompt.value.trim() : (appConfig?.systemPrompt || ''),
-      systemDataPrompt: elements?.settingSystemDataPrompt ? elements.settingSystemDataPrompt.value.trim() : (appConfig?.systemDataPrompt || ''),
-      temperature: elements?.settingTemperature ? elements.settingTemperature.value : (appConfig?.temperature || '0.7'),
-      reasoningEffort: appConfig?.reasoningEffort || 'medium',
-      reasoningTransport: appConfig?.reasoningTransport || 'auto',
-      modelReasoningConfig: appConfig?.modelReasoningConfig || null,
-      theme: appConfig?.theme || DEFAULT_THEME,
-      language: appConfig?.language || 'es',
+      systemPrompt: elements.settingSystemPrompt.value.trim(),
+      systemDataPrompt: elements.settingSystemDataPrompt.value.trim(),
+      temperature: elements.settingTemperature.value,
       enabledTools: {
-        ...(appConfig?.enabledTools || {}),
-        ...gatherEnabledToolsFromUI(elements?.agentToolsContainer),
-        ...gatherEnabledToolsFromUI(elements?.mcpToolsContainer)
+        ...appConfig.enabledTools,
+        ...gatherEnabledToolsFromUI(elements.agentToolsContainer),
+        ...gatherEnabledToolsFromUI(elements.mcpToolsContainer)
       },
-      enableRawLogs: Boolean(appConfig?.enableRawLogs),
-      enableDebugMessages: Boolean(appConfig?.enableDebugMessages),
-      enableContextCache: appConfig?.enableContextCache !== false,
-      activeRagBranchIds: Array.isArray(appConfig?.activeRagBranchIds) ? [...appConfig.activeRagBranchIds] : []
+      activeRagBranchIds: [...appConfig.activeRagBranchIds]
     };
   }
 
-  function showProfileFeedback(elements, msg, type = 'success') {
-    if (!elements || !elements.profileActionFeedback) return;
-    elements.profileActionFeedback.style.display = 'block';
-    elements.profileActionFeedback.className = `server-query-status status-${type}`;
-    elements.profileActionFeedback.textContent = msg;
-    const timer = setTimeout(() => {
-      if (elements.profileActionFeedback) {
-        elements.profileActionFeedback.style.display = 'none';
-      }
-    }, 4000);
-    if (typeof timer?.unref === 'function') timer.unref();
+  function showProfileFeedback(elements, message, type = 'success') {
+    const feedback = elements.profileActionFeedback;
+    feedback.style.display = 'block';
+    feedback.className = `server-query-status status-${type}`;
+    feedback.textContent = message;
+    const timer = setTimeout(() => { feedback.style.display = 'none'; }, 4000);
+    timer.unref?.();
   }
 
-  const SECTION_TITLES = {
-    model: 'settings_model',
-    agent: 'settings_agent',
-    mcp: 'settings_mcp',
-    permissions: 'settings_permissions'
-  };
+  const setSettingsFormDirty = (elements, dirty) => { elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty)); };
+  const isSettingsFormDirty = elements => elements.settingsDialog.dataset.settingsDirty === 'true';
 
-  function normalizeSectionId(sectionId) {
-    return SECTION_TITLES[sectionId] ? sectionId : 'model';
-  }
-
-  function openSettingsSection(elements, appConfig, callbacks = {}, sectionId = 'model') {
-    ensureDialogMarkup();
-    if (!elements || !elements.settingsDialog) return;
+  /**
+   * Abre los ajustes en una sección. Si ya estaban abiertos con cambios sin guardar, los conserva y
+   * solo cambia de sección.
+   */
+  function openSettingsSection(elements, appConfig, sectionId = 'model') {
     const preservePendingChanges = elements.settingsDialog.open && isSettingsFormDirty(elements);
-    if (!preservePendingChanges && elements.settingSystemDataPrompt) elements.settingSystemDataPrompt.value = appConfig?.systemDataPrompt || '';
-
     if (!preservePendingChanges) {
-      applyTheme(elements, appConfig, appConfig?.theme || DEFAULT_THEME);
-      applyLanguage(elements, appConfig, appConfig?.language || 'es', callbacks);
-
-      if (elements.agentToolsContainer) {
-        renderAgentToolsUI(elements.agentToolsContainer, appConfig?.enabledTools || {});
-      }
+      elements.settingSystemDataPrompt.value = appConfig.systemDataPrompt || '';
+      applyTheme(elements, appConfig.theme);
+      applyLanguage(elements, appConfig.language);
+      renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
     }
-
     getUIMcp().syncSecurityControls({ toolsContainer: elements.mcpToolsContainer });
 
-    const targetId = normalizeSectionId(sectionId);
-    const doc = elements.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const targetId = SECTION_TITLES[sectionId] ? sectionId : 'model';
+    elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
+      section.classList.toggle('active', section.id === `settings-${targetId}`);
+    });
+    elements.settingsSectionTitle.setAttribute('data-i18n', SECTION_TITLES[targetId]);
+    elements.settingsSectionTitle.textContent = t(SECTION_TITLES[targetId]);
+    getSidebar().setActiveSettingsSection(elements, targetId);
 
-    const settingsSections = elements.settingsDialog?.querySelectorAll?.('.settings-section-pane');
-
-    if (settingsSections && settingsSections.length > 0) {
-      settingsSections.forEach(section => section.classList.remove('active'));
-      const targetPane = doc ? (doc.getElementById(`settings-${targetId}`) || doc.getElementById(targetId)) : null;
-      if (targetPane) {
-        targetPane.classList.add('active');
-      } else if (settingsSections[0]) {
-        settingsSections[0].classList.add('active');
-      }
-    }
-
-    const titleEl = elements.settingsSectionTitle || (doc ? doc.getElementById('settings-section-title') : null);
-    if (titleEl) {
-      const titleKey = SECTION_TITLES[targetId] || 'settings_model';
-      titleEl.setAttribute('data-i18n', titleKey);
-      titleEl.textContent = t(titleKey);
-    }
-
-    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
-    if (Sidebar && typeof Sidebar.setActiveSettingsSection === 'function') {
-      Sidebar.setActiveSettingsSection(elements, targetId);
-    }
-
-    if (typeof elements.settingsDialog.showModal === 'function') {
-      elements.settingsDialog.showModal();
-    }
+    if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
     if (!preservePendingChanges) setSettingsFormDirty(elements, false);
   }
 
-  function setSettingsFormDirty(elements, dirty) {
-    if (elements?.settingsDialog?.dataset) {
-      elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty));
-    }
-  }
-
-  function isSettingsFormDirty(elements) {
-    return elements?.settingsDialog?.dataset?.settingsDirty === 'true';
-  }
-
+  /** Guarda las reglas de directorios; si alguna no es válida muestra el error y devuelve false. */
   function saveDirectoryRulesFromSettings(elements) {
-    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    const root = elements?.settingsDialog || doc;
-    const find = id => root?.querySelector?.(`#${id}`) || doc?.getElementById?.(id) || null;
-    const input = find('mcp-directory-rules');
-    const errorMessage = find('mcp-directory-rules-error');
-    const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
-    if (!input || typeof ToolSecurity?.manager?.setDirectoryRules !== 'function') return true;
-
+    const input = elements.mcpDirectoryRules;
     const rules = input.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean);
     try {
-      const savedRules = ToolSecurity.manager.setDirectoryRules(rules);
-      if (Array.isArray(savedRules)) {
-        input.value = savedRules.join('\n');
-      }
-      if (errorMessage) errorMessage.textContent = '';
+      input.value = getToolSecurity().manager.setDirectoryRules(rules).join('\n');
+      elements.mcpDirectoryRulesError.textContent = '';
       return true;
     } catch (error) {
-      if (errorMessage) errorMessage.textContent = error?.message || t('mcp_directory_rules_invalid');
+      elements.mcpDirectoryRulesError.textContent = error?.message || t('mcp_directory_rules_invalid');
       return false;
     }
   }
 
   function saveMcpGlobalPolicyFromSettings(elements) {
-    const doc = elements?.settingsDialog?.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    const root = elements?.settingsDialog || doc;
-    const checked = root?.querySelector ? root.querySelector('input[name="mcp-global-policy"]:checked') : null;
-    if (!checked || !checked.value) return;
-    const ToolSecurity = resolveDep('ChatToolSecurity', './tool-security.js');
-    if (ToolSecurity?.manager?.setGlobalMcpPolicy) {
-      ToolSecurity.manager.setGlobalMcpPolicy(checked.value);
-    }
+    const checked = elements.settingsDialog.querySelector('input[name="mcp-global-policy"]:checked');
+    if (checked) getToolSecurity().manager.setGlobalMcpPolicy(checked.value);
   }
 
+  /** Cierra los ajustes; con cambios sin guardar pide confirmación salvo con `force`. */
   async function closeSettingsModal(elements, force = false) {
-    if (!force && isSettingsFormDirty(elements)) {
-      const Dialogs = getDialogs();
-      const discard = Dialogs?.confirm
-        ? await Dialogs.confirm(t('confirm_settings_unsaved_changes'))
-        : false;
-      if (!discard) return false;
-    }
-    if (elements?.settingsDialog && typeof elements.settingsDialog.close === 'function') {
-      elements.settingsDialog.close();
-    }
+    if (!force && isSettingsFormDirty(elements) && !await getDialogs().confirm(t('confirm_settings_unsaved_changes'))) return false;
+    elements.settingsDialog.close();
     setSettingsFormDirty(elements, false);
-    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
-    if (Sidebar && typeof Sidebar.setSidebarMode === 'function') {
-      Sidebar.setSidebarMode(elements, 'chat');
-    }
+    getSidebar().setSidebarMode(elements, 'chat');
     return true;
   }
 
+  /** Cierra los ajustes y vuelve a la lista de secciones de la barra lateral. */
   async function closeSettingsPanelOnly(elements, force = false) {
-    const closed = await closeSettingsModal(elements, force);
-    if (!closed) return false;
-    const Sidebar = resolveDep('ChatUISidebar', './ui-sidebar.js');
-    if (Sidebar && typeof Sidebar.setSidebarMode === 'function') {
-      Sidebar.setSidebarMode(elements, 'settings');
-    }
-    if (Sidebar && typeof Sidebar.isMobile === 'function' && Sidebar.isMobile() && typeof Sidebar.openSidebar === 'function') {
-      Sidebar.openSidebar(elements);
-    }
+    if (!await closeSettingsModal(elements, force)) return false;
+    const Sidebar = getSidebar();
+    Sidebar.setSidebarMode(elements, 'settings');
+    if (Sidebar.isMobile()) Sidebar.openSidebar(elements);
     return true;
   }
 
-  async function saveCurrentSettings(elements, appConfig, callbacks = {}, closeModal = true) {
+  async function saveCurrentSettings(elements, appConfig, callbacks) {
     if (!saveDirectoryRulesFromSettings(elements)) return false;
     saveMcpGlobalPolicyFromSettings(elements);
-    const newConfig = gatherCurrentFormConfig(elements, appConfig);
-    const Config = getConfig();
-    const savedConfig = Config?.updateRuntime ? Config.updateRuntime(newConfig) : newConfig;
+    const savedConfig = getConfig().updateRuntime(gatherCurrentFormConfig(elements, appConfig));
     setSettingsFormDirty(elements, false);
-    if (typeof callbacks.loadCachedModels === 'function') {
-      callbacks.loadCachedModels();
-    }
-    if (typeof callbacks.onConfigSaved === 'function') {
-      callbacks.onConfigSaved(savedConfig);
-    }
-    if (typeof callbacks.populateProfileSelector === 'function') {
-      callbacks.populateProfileSelector(savedConfig.activeProfile?.id || '');
-    }
-
-    if (closeModal) {
-      await closeSettingsPanelOnly(elements, true);
-    } else {
-      showProfileFeedback(elements, t('msg_profile_saved', { name: savedConfig.activeProfile?.name || 'actual' }), 'success');
-    }
+    callbacks.loadCachedModels();
+    callbacks.onConfigSaved(savedConfig);
+    callbacks.populateProfileSelector(savedConfig.activeProfile?.id || '');
+    await closeSettingsPanelOnly(elements, true);
     return true;
   }
 
-  let activeCleanupFns = [];
-  let cachedElements = null;
-  let cachedCallbacks = {};
+  let cleanups = [];
 
-  function mount({ elements, getRuntimeConfig, callbacks = {} } = {}) {
-    dispose();
-    cachedElements = elements || {};
-    cachedCallbacks = callbacks || {};
-    const els = cachedElements;
-
-    if (els.btnCloseSettings) {
-      const onClick = () => closeSettingsPanelOnly(els);
-      els.btnCloseSettings.addEventListener('click', onClick);
-      activeCleanupFns.push(() => els.btnCloseSettings.removeEventListener('click', onClick));
-    }
-
-    if (els.settingsForm) {
-      const onSubmit = (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        const currentCfg = typeof getRuntimeConfig === 'function' ? getRuntimeConfig() : {};
-        saveCurrentSettings(els, currentCfg, cachedCallbacks, true);
-      };
-      els.settingsForm.addEventListener('submit', onSubmit);
-      activeCleanupFns.push(() => els.settingsForm.removeEventListener('submit', onSubmit));
-    }
-
-    if (els.settingsDialog) {
-      const markModified = () => setSettingsFormDirty(els, true);
-      els.settingsDialog.addEventListener('input', markModified);
-      els.settingsDialog.addEventListener('change', markModified);
-      const onClick = (event) => {
-        if (event.target.closest?.('#btn-mcp-clear-auths')) markModified();
-        if (event.target === els.settingsDialog) {
-          closeSettingsPanelOnly(els);
-        }
-      };
-      const onCancel = (e) => {
-        if (!isSettingsFormDirty(els)) return;
-        e.preventDefault();
-        closeSettingsPanelOnly(els);
-      };
-      els.settingsDialog.addEventListener('click', onClick);
-      els.settingsDialog.addEventListener('cancel', onCancel);
-      activeCleanupFns.push(() => {
-        els.settingsDialog.removeEventListener('input', markModified);
-        els.settingsDialog.removeEventListener('change', markModified);
-        els.settingsDialog.removeEventListener('click', onClick);
-        els.settingsDialog.removeEventListener('cancel', onCancel);
-      });
-    }
-
-    if (els.btnClearAllData) {
-      const onClick = () => handleClearAllData();
-      els.btnClearAllData.addEventListener('click', onClick);
-      activeCleanupFns.push(() => els.btnClearAllData.removeEventListener('click', onClick));
-    }
-
-    if (els.settingTemperature && els.temperatureVal) {
-      const onInput = (e) => {
-        els.temperatureVal.textContent = e.target.value;
-      };
-      els.settingTemperature.addEventListener('input', onInput);
-      activeCleanupFns.push(() => els.settingTemperature.removeEventListener('input', onInput));
-    }
-
-    if (els.btnToggleKey && els.settingApiKey) {
-      const onClick = () => {
-        const isPass = els.settingApiKey.type === 'password';
-        els.settingApiKey.type = isPass ? 'text' : 'password';
-        const iconName = isPass ? 'eye-off' : 'eye';
-        els.btnToggleKey.innerHTML = Icons.get(iconName, { size: 15 });
-      };
-      els.btnToggleKey.addEventListener('click', onClick);
-      activeCleanupFns.push(() => els.btnToggleKey.removeEventListener('click', onClick));
-    }
-
-    return {
-      saveCurrentSettings: (closeModal = true) => {
-        const currentCfg = typeof getRuntimeConfig === 'function' ? getRuntimeConfig() : {};
-        return saveCurrentSettings(els, currentCfg, cachedCallbacks, closeModal);
-      },
-      closeSettingsPanelOnly: (force = false) => closeSettingsPanelOnly(els, force),
-      closeSettingsModal: (force = false) => closeSettingsModal(els, force)
+  /**
+   * Conecta el diálogo de ajustes y los controles del editor de perfiles que no dependen del perfil.
+   * `callbacks` aporta loadCachedModels, onConfigSaved y populateProfileSelector.
+   */
+  function mount({ elements, getRuntimeConfig, callbacks }) {
+    cleanups.forEach(cleanup => cleanup());
+    cleanups = [];
+    const listen = (target, type, handler) => {
+      target.addEventListener(type, handler);
+      cleanups.push(() => target.removeEventListener(type, handler));
     };
-  }
+    const dialog = elements.settingsDialog;
+    const markModified = () => setSettingsFormDirty(elements, true);
 
-  function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUISettings] Cleanup failed:', error); } });
-    activeCleanupFns = [];
-    cachedElements = null;
-    cachedCallbacks = {};
-  }
-
-  async function handleClearAllData() {
-    const ResetService = getDataResetService();
-    if (ResetService?.resetAllData) {
-      return await ResetService.resetAllData();
-    }
+    listen(elements.btnCloseSettings, 'click', () => closeSettingsPanelOnly(elements));
+    listen(elements.settingsForm, 'submit', event => {
+      event.preventDefault();
+      saveCurrentSettings(elements, getRuntimeConfig(), callbacks);
+    });
+    listen(dialog, 'input', markModified);
+    listen(dialog, 'change', markModified);
+    listen(dialog, 'click', event => {
+      if (event.target.closest('#btn-mcp-clear-auths')) markModified();
+      if (event.target === dialog) closeSettingsPanelOnly(elements);
+    });
+    listen(dialog, 'cancel', event => {
+      if (!isSettingsFormDirty(elements)) return;
+      event.preventDefault();
+      closeSettingsPanelOnly(elements);
+    });
+    listen(elements.agentToolsContainer, 'change', event => {
+      const checkbox = event.target.closest('.agent-tool-checkbox');
+      if (!checkbox) return;
+      const Config = getConfig();
+      Config.updateRuntime({ enabledTools: { ...Config.getActive().enabledTools, [checkbox.dataset.toolId]: checkbox.checked } });
+    });
+    listen(elements.btnClearAllData, 'click', () => getDataResetService().resetAllData());
+    listen(elements.settingTemperature, 'input', event => { elements.temperatureVal.textContent = event.target.value; });
+    listen(elements.btnToggleKey, 'click', () => {
+      const reveal = elements.settingApiKey.type === 'password';
+      elements.settingApiKey.type = reveal ? 'text' : 'password';
+      elements.btnToggleKey.innerHTML = Icons.get(reveal ? 'eye-off' : 'eye', { size: 15 });
+    });
   }
 
   function getSettingsDialogHTML() {
@@ -772,93 +503,36 @@ zerochat</code></pre>
     </form>`;
   }
 
+
+  /** Menú del perfil activo: cada perfil con inspeccionar, editar y, salvo Espejo, borrar. */
   function renderProfileMenu(elements, profiles, activeId) {
-    const list = elements.activeProfileList;
-    if (!list) return;
-    const doc = list.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return;
-    const descriptionFor = profile => profile.id === 'profile:mirror' ? t('profile_mirror_description') : profile.description;
-    list.replaceChildren();
-    profiles.forEach(profile => {
-      const item = doc.createElement('div');
-      item.className = 'header-profile-item' + (profile.id === activeId ? ' active' : '');
-
-      const option = doc.createElement('button');
-      option.type = 'button';
-      option.className = 'header-profile-option' + (profile.id === activeId ? ' active' : '');
-      option.dataset.profileId = profile.id;
-      option.setAttribute('role', 'menuitemradio');
-      option.setAttribute('aria-checked', String(profile.id === activeId));
-      option.setAttribute('title', profile.name);
-
-      const name = doc.createElement('span');
-      name.className = 'header-profile-option-name';
-      name.textContent = profile.name;
-      option.appendChild(name);
-
-      const descText = descriptionFor(profile);
-      if (descText) {
-        const description = doc.createElement('span');
-        description.className = 'header-profile-option-description';
-        description.textContent = descText;
-        option.appendChild(description);
-      }
-      item.appendChild(option);
-
-      const actions = doc.createElement('div');
-      actions.className = 'header-profile-item-actions';
-
-      const inspectBtn = doc.createElement('button');
-      inspectBtn.type = 'button';
-      inspectBtn.className = 'btn-profile-item-action btn-profile-item-inspect';
-      inspectBtn.dataset.profileAction = 'inspect';
-      inspectBtn.dataset.targetId = profile.id;
-      const inspectTitle = t('btn_inspect_profile_title');
-      inspectBtn.title = inspectTitle;
-      inspectBtn.setAttribute('aria-label', `${inspectTitle}: ${profile.name}`);
-      inspectBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>';
-      actions.appendChild(inspectBtn);
-
-      const editBtn = doc.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'btn-profile-item-action btn-profile-item-edit';
-      editBtn.dataset.profileAction = 'edit';
-      editBtn.dataset.targetId = profile.id;
-      const editTitle = t('btn_edit_profile_title');
-      editBtn.title = editTitle;
-      editBtn.setAttribute('aria-label', `${editTitle}: ${profile.name}`);
-      editBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-edit"></use></svg>';
-      actions.appendChild(editBtn);
-
-      if (profile.id !== 'profile:mirror') {
-        const deleteBtn = doc.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'btn-profile-item-action btn-profile-item-delete';
-        deleteBtn.dataset.profileAction = 'delete';
-        deleteBtn.dataset.targetId = profile.id;
-        const deleteTitle = t('btn_delete_profile_item_title') || t('btn_delete_profile_title');
-        deleteBtn.title = deleteTitle;
-        deleteBtn.setAttribute('aria-label', `${deleteTitle}: ${profile.name}`);
-        deleteBtn.innerHTML = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>';
-        actions.appendChild(deleteBtn);
-      }
-
-      item.appendChild(actions);
-      list.appendChild(item);
-    });
+    const READONLY_PROFILE_ID = resolveDep('ChatProfileRepository', './profile-repository.js').READONLY_PROFILE_ID;
+    const actionButton = (profile, action, icon, titleKey) => {
+      const title = t(titleKey);
+      return `<button type="button" class="btn-profile-item-action btn-profile-item-${action}" data-profile-action="${action}" data-target-id="${escapeHtml(profile.id)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${title}: ${profile.name}`)}">${Icons.get(icon, { size: 14 })}</button>`;
+    };
+    elements.activeProfileList.innerHTML = profiles.map(profile => {
+      const active = profile.id === activeId;
+      const description = profile.id === READONLY_PROFILE_ID ? t('profile_mirror_description') : profile.description;
+      return `<div class="header-profile-item${active ? ' active' : ''}">
+        <button type="button" class="header-profile-option${active ? ' active' : ''}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${active}" title="${escapeHtml(profile.name)}">
+          <span class="header-profile-option-name">${escapeHtml(profile.name)}</span>
+          ${description ? `<span class="header-profile-option-description">${escapeHtml(description)}</span>` : ''}
+        </button>
+        <div class="header-profile-item-actions">
+          ${actionButton(profile, 'inspect', 'search', 'btn_inspect_profile_title')}
+          ${actionButton(profile, 'edit', 'edit', 'btn_edit_profile_title')}
+          ${profile.id === READONLY_PROFILE_ID ? '' : actionButton(profile, 'delete', 'trash', 'btn_delete_profile_item_title')}
+        </div>
+      </div>`;
+    }).join('');
   }
 
-  function syncProfileEditor(elements, readOnly, canSave = null) {
-    const locked = elements.profilesDialog?.dataset.profileLocked === 'true';
-    if (elements.btnDeleteProfile) elements.btnDeleteProfile.disabled = readOnly;
-    const saveAllowed = canSave !== null ? Boolean(canSave) : (elements.profilesDialog?.dataset.queryReady === 'true');
-    if (elements.btnSaveProfile) elements.btnSaveProfile.disabled = readOnly || locked || !saveAllowed;
+  /** Estado del botón de guardar y de los campos del editor de perfiles. */
+  function syncProfileEditor(elements, readOnly, canSave) {
+    elements.btnSaveProfile.disabled = readOnly || isProfileLocked(elements) || !canSave;
     syncApiKeyLock(elements, readOnly);
-    if (elements.profileSaveQueryHint) {
-      if (readOnly) {
-        elements.profileSaveQueryHint.textContent = t('err_profile_read_only');
-      }
-    }
+    if (readOnly) elements.profileSaveQueryHint.textContent = t('err_profile_read_only');
   }
 
   function getProfilesDialogHTML() {
@@ -884,8 +558,8 @@ zerochat</code></pre>
         <div class="form-field"><label for="setting-profile-name"><strong data-i18n="field_profile_name_label">Nombre del Perfil</strong></label><input type="text" id="setting-profile-name" data-i18n-placeholder="field_profile_placeholder" placeholder="Nombre del perfil (ej: LM Studio, Ollama, OpenRouter...)" autocomplete="off"></div>
         <div class="form-field"><label for="setting-profile-description"><strong data-i18n="field_profile_description_label">Descripción</strong></label><textarea id="setting-profile-description" rows="2" data-i18n-placeholder="field_profile_description_placeholder" placeholder="Describe brevemente este perfil..."></textarea></div>
 
-        <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper" style="width: 100%; max-width: 100%;"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
-        <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
+        <div class="form-field"><label for="setting-api-type"><strong data-i18n="field_api_type">Tipo de Interfaz / Protocolo</strong></label><select id="setting-api-type" class="combobox-select-helper setting-api-type"><option value="openai" selected>OpenAI / LM Studio / LocalAI / vLLM (/v1)</option><option value="ollama">Ollama (/api/tags)</option><option value="openrouter">OpenRouter (/api/v1)</option><option value="claude">Anthropic Claude (/v1)</option><option value="gemini">Google Gemini (OpenAI compat)</option><option value="webllm">WebLLM (WebGPU local)</option><option value="mirror" data-i18n="profile_mirror_type">Espejo (sin red)</option></select></div>
+        <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span id="webllm-local-hint" class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" style="display: none;"></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
         <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint"><span id="api-key-hint-text" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span> <a id="api-key-free-help-link" href="" target="_blank" rel="noopener noreferrer" data-i18n="field_api_key_free_help" hidden>Cómo obtener una API key gratuita</a></span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="off"><button type="button" id="btn-toggle-key" class="btn-toggle-visibility" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-eye"></use></svg></button></div></div>
         <div class="form-field"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div><div id="webllm-params-panel" class="form-field webllm-params-panel" hidden><strong data-i18n="webllm_params_title">Parámetros de ejecución WebGPU</strong><div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option><option value="65536">65536 (64K)</option><option value="131072">131072 (128K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div></div>
 
@@ -893,7 +567,7 @@ zerochat</code></pre>
           <label for="setting-system-prompt"><strong data-i18n="field_system_prompt">Prompt del Sistema (Opcional)</strong><span class="label-hint" data-i18n="field_system_prompt_hint">Instrucciones base personalizadas que guían el comportamiento del asistente (opcional).</span></label>
           <textarea id="setting-system-prompt" rows="4" data-i18n-placeholder="field_system_prompt_placeholder" placeholder="Escribe aquí tus instrucciones personalizadas para el modelo (opcional)..."></textarea>
         </div>
-        <div class="form-field" style="margin-bottom: 0;">
+        <div class="form-field form-field-last">
           <label for="setting-temperature"><strong><span data-i18n="field_temperature">Temperatura</span>: <span id="temperature-val">0.7</span></strong><span class="label-hint" id="temperature-hint" data-i18n="field_temperature_hint">Controla la creatividad de las respuestas (0 = determinista/preciso, 1 = creativo).</span></label>
           <input type="range" id="setting-temperature" min="0" max="1.5" step="0.1" value="0.7">
         </div>
@@ -901,50 +575,28 @@ zerochat</code></pre>
     </form>`;
   }
 
-  function ensureDialogMarkup() {
-    if (typeof document === 'undefined') return;
-    const settingsDialog = document.getElementById('settings-dialog');
-    if (settingsDialog && !settingsDialog.firstElementChild) {
-      settingsDialog.innerHTML = getSettingsDialogHTML();
-    }
-    const profilesDialog = document.getElementById('profiles-dialog');
-    if (profilesDialog && !profilesDialog.firstElementChild) {
-      profilesDialog.innerHTML = getProfilesDialogHTML();
-    }
-  }
 
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
-    } else {
-      ensureDialogMarkup();
-    }
+  /** Inserta el marcado de los diálogos de ajustes y de perfil, que zerochat.html deja vacíos. */
+  function ensureDialogMarkup() {
+    const settingsDialog = document.getElementById('settings-dialog');
+    if (!settingsDialog.firstElementChild) settingsDialog.innerHTML = getSettingsDialogHTML();
+    const profilesDialog = document.getElementById('profiles-dialog');
+    if (!profilesDialog.firstElementChild) profilesDialog.innerHTML = getProfilesDialogHTML();
   }
 
   return {
     applyTheme,
-    renderProfileMenu,
-    syncProfileEditor,
     applyLanguage,
-    renderAgentToolsUI,
-    gatherEnabledToolsFromUI,
     applyProfileToForm,
     syncProviderFields,
     syncApiKeyLock,
     gatherCurrentFormConfig,
     showProfileFeedback,
-    saveDirectoryRulesFromSettings,
-    saveCurrentSettings,
+    renderProfileMenu,
+    syncProfileEditor,
     openSettingsSection,
     closeSettingsModal,
-    closeSettingsPanelOnly,
-    setSettingsFormDirty,
-    isSettingsFormDirty,
-    handleClearAllData,
     ensureDialogMarkup,
-    getSettingsDialogHTML,
-    getProfilesDialogHTML,
-    mount,
-    dispose
+    mount
   };
 });
