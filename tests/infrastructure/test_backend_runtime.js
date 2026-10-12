@@ -462,6 +462,18 @@ for host in ("0.0.0.0", "::", "192.168.1.10", "mi-equipo.local", ""):
   execFileSync('python3', ['-c', checkPyCode], { cwd: repoRoot });
 });
 
+test('zerochat.py: la ayuda sale en texto plano aunque el entorno pida colores', () => {
+  const repoRoot = path.resolve(__dirname, '../..');
+  const help = execFileSync('python3', ['zerochat.py', '--help'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: { ...process.env, FORCE_COLOR: '1', PYTHON_COLORS: '1' }
+  });
+
+  assert.match(help, /--no-exit-on-close/);
+  assert.doesNotMatch(help, /\x1b\[/);
+});
+
 test('zerochat.py se reconstruye de forma idéntica desde sus módulos en py/ mediante sort | cat', () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const pyDir = path.join(repoRoot, 'py');
