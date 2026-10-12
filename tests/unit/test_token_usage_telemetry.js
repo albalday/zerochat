@@ -9,7 +9,6 @@ const {
 } = require('../../js/providers.js');
 const ChatAPI = require('../../js/api.js');
 const ChatContextManager = require('../../js/context-manager.js');
-const ChatEngine = require('../../js/chat-engine.js');
 
 test('TokenTelemetry - BaseProviderAdapter inyecta requestUsageStatistics en streaming independiente de promptCaching', () => {
   const adapter = new BaseProviderAdapter();
@@ -105,24 +104,4 @@ test('TokenTelemetry - ChatContextManager.getContextDiagnostics calcula ventana 
   assert.ok(diagEst.usedTokens > 0, 'Debe estimar tokens en base al historial');
   assert.equal(diagEst.isEstimated, true);
   assert.ok(diagEst.percentUsed >= 0 && diagEst.percentUsed <= 100);
-});
-
-test('TokenTelemetry - ChatEngine preserva diagnósticos de contexto en buildEffectiveMessages', () => {
-  const history = [
-    { role: 'user', content: 'Hola mundo' }
-  ];
-  const config = {
-    model: 'gpt-4o-mini',
-    apiType: 'openai',
-    systemPrompt: 'Instrucción de prueba'
-  };
-
-  let diag = null;
-  const effective = ChatEngine.buildEffectiveMessages(history, require('../../js/config-store.js').normalize(config), { onContextPrepared: value => { diag = value; } });
-  assert.ok(Array.isArray(effective));
-
-  assert.ok(diag, 'Debe guardar lastContextDiagnostics');
-  assert.equal(diag.budget > 0, true);
-  assert.equal(diag.totalTokens > 0, true);
-  assert.equal(diag.strategy, 'full_history');
 });

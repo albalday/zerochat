@@ -223,7 +223,7 @@
 
       if (loopResult.stats) {
         updateStatsDisplay(statsContainer, loopResult.stats);
-        options.updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
+        options.updateConnectionTokensBadge(loopResult.stats, { forcePopover: true });
       }
       actions.hidden = false;
       UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');

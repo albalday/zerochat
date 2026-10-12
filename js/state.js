@@ -61,7 +61,7 @@
       streaming: { isGenerating: false },
 
       // 5. Telemetría de Contexto y Tokens
-      telemetry: { stats: null, diagnostics: null },
+      telemetry: { stats: null },
 
       // 6. Estado de la Interfaz (UI)
       ui: {
@@ -314,7 +314,7 @@
     function freshConversationSlices() {
       return {
         streaming: { isGenerating: false },
-        telemetry: { stats: null, diagnostics: null },
+        telemetry: { stats: null },
         ui: Object.assign({}, state.ui, { attachedFiles: [], notices: [] })
       };
     }

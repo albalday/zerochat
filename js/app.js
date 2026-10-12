@@ -284,7 +284,7 @@
     UIConversation.renderSessionMessages(elements, history, {
       ...messageCallbacks,
       resetTelemetry: () => resetTelemetryDisplay(),
-      updateTelemetry: () => updateConnectionTokensBadge(null, null, { forcePopover: true })
+      updateTelemetry: () => updateConnectionTokensBadge(null, { forcePopover: true })
     });
   }
 
@@ -366,7 +366,7 @@
     try {
       const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
       UIProfiles.activateConnectionProfile(savedProfile.id);
-      updateConnectionTokensBadge(null, null, { forcePopover: true });
+      updateConnectionTokensBadge(null, { forcePopover: true });
     } catch (error) {
       console.error('[App] Could not save the context limit override:', error);
       await Dialogs.alert(t('context_limit_override_save_error'));
@@ -529,13 +529,10 @@
     updateConnectionTokensBadge(null);
   }
 
-  function updateConnectionTokensBadge(stats, diagnostics, options = {}) {
+  function updateConnectionTokensBadge(stats, options = {}) {
     if (stats) State.set('telemetry', { stats });
-    if (diagnostics) State.set('telemetry', { diagnostics });
-    const telemetry = State.get('telemetry');
     const vm = UITelemetry.computeTelemetryViewModel({
-      stats: stats || telemetry.stats,
-      diagnostics: diagnostics || telemetry.diagnostics,
+      stats: stats || State.get('telemetry').stats,
       config: getRuntimeConfig(),
       chatHistory: getChatHistory()
     });
@@ -543,7 +540,7 @@
   }
 
   function resetTelemetryDisplay({ syncState = true } = {}) {
-    if (syncState) State.set('telemetry', { stats: null, diagnostics: null });
+    if (syncState) State.set('telemetry', { stats: null });
     UITelemetry.resetTelemetry(elements, getRuntimeConfig(), getChatHistory());
   }
 
@@ -720,7 +717,7 @@
     bindPreference(elements.themeButtons, 'data-theme', applyTheme, 'theme');
     bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
 
-    UITelemetry.mount(elements, () => updateConnectionTokensBadge(null, null, { forcePopover: true }));
+    UITelemetry.mount(elements, () => updateConnectionTokensBadge(null, { forcePopover: true }));
     elements.btnSaveContextLimitOverride.addEventListener('click', saveContextLimitOverride);
 
     elements.messagesList.addEventListener('click', event => {

@@ -53,13 +53,13 @@
   }
 
   /**
-   * Métricas para el botón y el panel. Sin diagnósticos previos, los calcula ChatContextManager
-   * con los tokens de prompt que haya informado el servidor.
+   * Métricas para el botón y el panel. Los diagnósticos los calcula ChatContextManager con los
+   * tokens de prompt que haya informado el servidor.
    */
-  function computeTelemetryViewModel({ stats, diagnostics, config, chatHistory }) {
+  function computeTelemetryViewModel({ stats, config, chatHistory }) {
     const promptTokens = stats?.promptTokens || 0;
     const configuredLimit = config.modelContextLimit || config.contextLimitOverride;
-    const diag = diagnostics || getContextManager().getContextDiagnostics(chatHistory, {
+    const diag = getContextManager().getContextDiagnostics(chatHistory, {
       model: config.model || '',
       providerType: config.apiType || 'openai',
       totalContextLimit: configuredLimit,
@@ -141,7 +141,7 @@
 
   /** Deja la telemetría en el estado de una conversación sin estadísticas del servidor. */
   function resetTelemetry(elements, config, chatHistory = []) {
-    renderTelemetry(elements, computeTelemetryViewModel({ stats: null, diagnostics: null, config, chatHistory }), { forcePopover: true });
+    renderTelemetry(elements, computeTelemetryViewModel({ stats: null, config, chatHistory }), { forcePopover: true });
   }
 
   /**

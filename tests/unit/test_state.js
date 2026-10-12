@@ -20,7 +20,7 @@ test('ChatState - Actualizaciones parciales y atómicas', () => {
 
   // Actualizar slice con store.set()
   store.set('telemetry', { stats: { tokens: 10 } });
-  assert.deepEqual(store.get('telemetry'), { stats: { tokens: 10 }, diagnostics: null }, 'Debe preservar el resto del slice');
+  assert.deepEqual(store.get('telemetry'), { stats: { tokens: 10 } }, 'Debe sustituir el slice por la fusión');
 
   // Actualizar varios slices con store.setState()
   store.setState({
@@ -148,7 +148,7 @@ test('ChatState - Activa una conversación y limpia todo el estado transitorio d
   store.setState({
     sessions: { activeId: 'session_old', list: [{ id: 'session_old' }] },
     messages: [{ id: 'old_user', role: 'user', content: 'Anterior' }],
-    telemetry: { stats: { tokens: 40 }, diagnostics: { used: 40 } },
+    telemetry: { stats: { tokens: 40 } },
     ui: { attachedFiles: [{ name: 'old.txt' }] }
   });
 
@@ -161,7 +161,7 @@ test('ChatState - Activa una conversación y limpia todo el estado transitorio d
   assert.equal(state.sessions.list.length, 2);
   assert.deepEqual(state.messages, messages);
   assert.deepEqual(state.streaming, { isGenerating: false });
-  assert.deepEqual(state.telemetry, { stats: null, diagnostics: null });
+  assert.deepEqual(state.telemetry, { stats: null });
   assert.deepEqual(state.ui.attachedFiles, []);
 });
 

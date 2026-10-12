@@ -249,7 +249,6 @@
       totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
       ...options
     });
-    options.onContextPrepared?.(optimization.diagnostics || null);
     return optimization.messages;
   }
 
@@ -276,7 +275,6 @@
     } = params;
     const AgentCore = getAgentCore();
     const UIConversation = getUIConversation();
-    let lastContextDiagnostics = null;
     const turnBlocks = new Map();
     const turnMarkdown = new Map();
 
@@ -321,10 +319,8 @@
         messages: buildEffectiveMessages(messages, appConfig, {
           currentRagSystemContext,
           projectContext,
-          projectDirectory,
-          onContextPrepared: diagnostics => { lastContextDiagnostics = diagnostics; }
-        }),
-        diagnostics: lastContextDiagnostics
+          projectDirectory
+        })
       }),
       resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
@@ -414,7 +410,6 @@
       finalAssistantText: result.finalText || '',
       accumulatedMarkdown,
       stats: result.stats,
-      contextDiagnostics: lastContextDiagnostics,
       chatHistory: result.history
     };
   }

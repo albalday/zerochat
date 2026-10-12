@@ -654,7 +654,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     await waitForAppReady(page);
     // Estado transitorio de la conversación anterior que no debe pasar a la restaurada.
     await page.evaluate(() => {
-      window.ChatState.set('telemetry', { stats: { tokens: 99 }, diagnostics: { used: 99 } });
+      window.ChatState.set('telemetry', { stats: { tokens: 99 } });
       window.ChatAttachments.addFile({ name: 'stale.txt', type: 'text', size: 1, content: 'x' });
     });
     await page.locator(`.sidebar-chat-item[data-session-id="${sessionId}"]`).evaluate(item => item.click());
@@ -667,7 +667,7 @@ test('Browser UI - Borrado de respuesta de asistente con tools elimina completam
     }));
     assert.equal(restored.messages.length, 4, 'Debe restaurar todos los mensajes del turno guardado');
     assert.deepEqual(restored.messages[1].tool_calls, history[1].tool_calls);
-    assert.deepEqual(restored.telemetry, { stats: null, diagnostics: null });
+    assert.deepEqual(restored.telemetry, { stats: null });
     assert.equal(restored.attachedFilesCount, 0, 'Los adjuntos transitorios no deben filtrarse al chat restaurado');
 
     await page.locator('.message-wrapper.assistant .btn-delete').click();
