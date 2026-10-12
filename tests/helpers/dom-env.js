@@ -64,4 +64,13 @@ function getElements(document, ids) {
   return Object.fromEntries(Object.entries(ids).map(([key, id]) => [key, document.getElementById(id)]));
 }
 
-module.exports = { installDom, getAppMarkup, getElements };
+/**
+ * Todos los elementos con id del documento, con la clave en camelCase que usa app.js
+ * (`btn-send` → `btnSend`). Incluye el marcado que los módulos insertan en los diálogos.
+ */
+function getAppElements(document) {
+  const camel = id => id.replace(/-([a-z0-9])/g, (_match, char) => char.toUpperCase());
+  return Object.fromEntries([...document.querySelectorAll('[id]')].map(element => [camel(element.id), element]));
+}
+
+module.exports = { installDom, getAppMarkup, getElements, getAppElements };

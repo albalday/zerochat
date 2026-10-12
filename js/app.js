@@ -346,17 +346,6 @@
     syncPublishedModelContextLimit();
   }
 
-  function getProfilesHelperOptions() {
-    return {
-      getRuntimeConfig,
-      loadCachedModels,
-      resetTelemetryDisplay,
-      updateUIFromConfig,
-      inspectProfile,
-      closeSettingsModal: () => UISettings.closeSettingsModal(elements)
-    };
-  }
-
   async function saveContextLimitOverride() {
     const contextLimitOverride = UITelemetry.parseContextCapacity(elements.contextLimitOverrideInput.value);
     if (!contextLimitOverride) {
@@ -375,7 +364,7 @@
     }
     try {
       const savedProfile = Profiles.save({ ...profile, settings: { ...profile.settings, contextLimitOverride } });
-      UIProfiles.activateConnectionProfile(savedProfile.id, getProfilesHelperOptions());
+      UIProfiles.activateConnectionProfile(savedProfile.id);
       updateConnectionTokensBadge(null, null, { forcePopover: true });
     } catch (error) {
       console.error('[App] Could not save the context limit override:', error);
@@ -586,7 +575,7 @@
       return;
     }
     UISettings.openSettingsSection(elements, getRuntimeConfig(), {
-      populateProfileSelector: id => UIProfiles.populateProfileSelector(elements, id),
+      populateProfileSelector: id => UIProfiles.populateProfileSelector(id),
       loadCachedModels,
       updateReasoningUI: level => UIReasoning.updateReasoningUI(elements, level)
     }, sectionId);
@@ -607,7 +596,7 @@
     UIShell.mount({
       elements,
       onViewportChange: () => UIReasoning.positionReasoningMenu(elements),
-      onDismissProfiles: () => UIProfiles.closeProfilesModal(elements, false, getProfilesHelperOptions())
+      onDismissProfiles: () => UIProfiles.closeProfilesModal(false)
     });
 
     UIComposer.mount(elements, {
@@ -701,15 +690,23 @@
           history[0].content = Engine.getConfiguredSystemPrompt(savedConfig);
           State.replaceMessages(history);
         },
-        populateProfileSelector: id => UIProfiles.populateProfileSelector(elements, id)
+        populateProfileSelector: id => UIProfiles.populateProfileSelector(id)
       }
     });
-    UIProfiles.mount({ elements, ...getProfilesHelperOptions() });
+    UIProfiles.mount({
+      elements,
+      getRuntimeConfig,
+      loadCachedModels,
+      resetTelemetryDisplay,
+      updateUIFromConfig,
+      inspectProfile,
+      closeSettingsModal: () => UISettings.closeSettingsModal(elements)
+    });
 
     elements.btnQueryServer.addEventListener('click', async event => {
       event.preventDefault();
       if (await UIInspector.handleQueryServer(elements, getRuntimeConfig())) {
-        UIProfiles.setProfileQueryState(elements, true, getProfilesHelperOptions());
+        UIProfiles.setProfileQueryState(true);
       }
     });
     elements.btnCloseInspector.addEventListener('click', () => elements.inspectorDialog.close());

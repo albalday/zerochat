@@ -49,31 +49,22 @@
     return resolveDep('ChatStorage', './cookies.js');
   }
 
+  /** Modelos descargados por completo; un valor guardado ilegible cuenta como ninguno. */
   function completedModels() {
-    const Storage = getStorage();
-    if (!Storage?.getStorageItem) return null;
     try {
-      const models = JSON.parse(Storage.getStorageItem(COMPLETED_MODELS_STORAGE_KEY) || '[]');
+      const models = JSON.parse(getStorage().getStorageItem(COMPLETED_MODELS_STORAGE_KEY) || '[]');
       return new Set(Array.isArray(models) ? models.filter(model => typeof model === 'string') : []);
     } catch (_) {
       return new Set();
     }
   }
 
-  function getCompletedModelIds() {
-    const models = completedModels();
-    return models ? Array.from(models) : [];
-  }
-
-  function isModelCompleted(modelId) {
-    const models = completedModels();
-    return models ? models.has(modelId) : false;
-  }
+  const getCompletedModelIds = () => Array.from(completedModels());
+  const isModelCompleted = modelId => completedModels().has(modelId);
 
   function setModelCompleted(modelId, completed) {
     const Storage = getStorage();
-    if (!Storage?.setStorageItem) return false;
-    const models = completedModels() || new Set();
+    const models = completedModels();
     if (completed) models.add(modelId);
     else models.delete(modelId);
     try {
@@ -88,8 +79,7 @@
     if (typeof webllm.hasModelInCache !== 'function') return 'unknown';
     const cached = await webllm.hasModelInCache(modelId, appConfig);
     const recorded = completedModels();
-    if (cached !== true) return recorded?.has(modelId) ? 'incomplete' : 'missing';
-    if (recorded === null) return 'unknown';
+    if (cached !== true) return recorded.has(modelId) ? 'incomplete' : 'missing';
     return recorded.has(modelId) ? 'cached' : 'incomplete';
   }
 
@@ -478,13 +468,6 @@
       await this.engines.dispose(modelId);
     }
 
-    getCompletedModelIds() {
-      return getCompletedModelIds();
-    }
-
-    isModelCompleted(modelId) {
-      return isModelCompleted(modelId);
-    }
   }
 
   const adapter = new WebLLMProviderAdapter();

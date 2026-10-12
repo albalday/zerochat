@@ -79,23 +79,15 @@
     return apiUrl ? `${apiType}:${apiUrl}` : '';
   }
 
-  function getWebLLMCompletedModelIds() {
-    const Providers = getProviders();
-    const adapter = Providers?.registry?.get?.('webllm');
-    if (typeof adapter?.getCompletedModelIds === 'function') {
-      return adapter.getCompletedModelIds();
-    }
-    const WebLLM = (typeof globalThis !== 'undefined' && globalThis.ChatWebLLM) || resolveDep('ChatWebLLM', './providers-webllm.js');
-    return WebLLM?.getCompletedModelIds?.() || [];
-  }
+  const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
+  const getWebLLMCompletedModelIds = () => getWebLLM().getCompletedModelIds();
 
   function sortWebLLMModels(models) {
     if (!Array.isArray(models)) return [];
     const completed = new Set(getWebLLMCompletedModelIds());
     const isCached = model => model?.details?.webllmCache === 'cached'
       || completed.has(typeof model === 'string' ? model : (model?.id || model?.name || ''));
-    const WebLLM = (typeof globalThis !== 'undefined' && globalThis.ChatWebLLM) || resolveDep('ChatWebLLM', './providers-webllm.js');
-    return [...models].sort((a, b) => WebLLM.compareCatalogModels(a, b, isCached));
+    return [...models].sort((a, b) => getWebLLM().compareCatalogModels(a, b, isCached));
   }
 
   function loadCachedModels(elements, appConfig) {
@@ -940,7 +932,6 @@
     getBadgeClass,
     getBadgeIcon,
     getStatusLabel,
-    sortWebLLMModels,
-    getWebLLMCompletedModelIds
+    sortWebLLMModels
   };
 });

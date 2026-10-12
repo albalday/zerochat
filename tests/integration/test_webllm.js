@@ -111,9 +111,11 @@ test('WebLLM - expone getCompletedModelIds e isModelCompleted y ordena descargad
     assert.equal(WebLLM.isModelCompleted('model-b'), true);
     assert.equal(WebLLM.isModelCompleted('model-a'), false);
 
-    assert.deepEqual(WebLLM.adapter.getCompletedModelIds(), ['model-b']);
-    assert.equal(WebLLM.adapter.isModelCompleted('model-b'), true);
-    assert.equal(WebLLM.adapter.isModelCompleted('model-a'), false);
+    for (const invalid of ['broken JSON', '{}', 'null', '["ok",7,null]']) {
+      values.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, invalid);
+      assert.deepEqual(WebLLM.getCompletedModelIds(), invalid.startsWith('[') ? ['ok'] : [], invalid);
+    }
+    values.set(WebLLM.COMPLETED_MODELS_STORAGE_KEY, '["model-b"]');
 
     webllm.prebuiltAppConfig.model_list = [
       { model_id: 'model-a', vram_required_MB: 1024 },
