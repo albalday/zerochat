@@ -1,22 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { installDom } = require('../helpers/dom-env.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
 const ChatDebug = require('../../js/debug.js');
 const ChatRagService = require('../../js/rag-service.js');
 
 function mountDebugLog(t) {
-  const dom = installDom();
+  const dom = installDom({ app: true });
   t.after(() => dom.restore());
-  const debugLogContent = document.createElement('div');
-  document.body.appendChild(debugLogContent);
-  ChatDebug.setElements({ debugLogContent });
-  return debugLogContent;
+  const elements = getAppElements(document);
+  elements.debugLogContent.innerHTML = '';
+  ChatDebug.setElements(elements);
+  return elements.debugLogContent;
 }
 
 test('Error Infrastructure - ChatDebug registra unhandledrejection y error sin lanzar', t => {
   const log = mountDebugLog(t);
-  assert.equal(ChatDebug.registerGlobalErrorHandlers(window), true);
+  ChatDebug.registerGlobalErrorHandlers(window);
 
   const rejection = new Event('unhandledrejection');
   rejection.reason = new Error('Promesa rechazada de prueba');

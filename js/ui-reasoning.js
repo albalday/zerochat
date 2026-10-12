@@ -1,129 +1,91 @@
-/** UI del selector compacto de intensidad de razonamiento. */
+/** Menú de intensidad de razonamiento y panel del modo proyecto, junto al botón del compositor. */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   else root.ChatUIReasoning = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
-
   const { escapeHtml } = Utils;
-
   const { t } = I18n;
 
+  const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
+  const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
+  // Acciones cuyo nombre no basta para saber qué hacen.
+  const PROJECT_ACTION_TITLES = Object.freeze({ reload: 'project_action_reload_title' });
+  // Carpeta personal en Linux, macOS, Termux y Windows: se muestra como ~ para acortar la ruta.
+  const HOME_PREFIX = /^(?:\/home\/[^/]+|\/Users\/[^/]+|\/data\/data\/com\.termux\/files\/home|[A-Za-z]:\\Users\\[^\\]+)(?=$|[\\/])/;
+
+  // Manejadores del modo proyecto, fijados en mount().
+  let projectHandlers = {};
+
   function getReasoningIntensity(level) {
-    const normalized = String(level || 'none').toLowerCase().trim();
-    const index = INTENSITY_LEVELS.indexOf(normalized);
+    const index = INTENSITY_LEVELS.indexOf(String(level || 'none').toLowerCase().trim());
     return index >= 0 ? index : 0;
   }
 
   function getReasoningLevelFromIntensity(intensity) {
     const parsed = Number.parseInt(intensity, 10);
-    const index = Math.max(0, Math.min(INTENSITY_LEVELS.length - 1, Number.isFinite(parsed) ? parsed : 0));
-    return INTENSITY_LEVELS[index];
+    return INTENSITY_LEVELS[Math.max(0, Math.min(INTENSITY_LEVELS.length - 1, Number.isFinite(parsed) ? parsed : 0))];
   }
 
-  function getReasoningLevelLabel(level) {
-    const labels = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
-    return t(labels[getReasoningLevelFromIntensity(getReasoningIntensity(level))]);
-  }
+  const normalizeLevel = level => getReasoningLevelFromIntensity(getReasoningIntensity(level));
+  const getReasoningLevelLabel = level => t(LEVEL_LABEL_KEYS[normalizeLevel(level)]);
 
   function syncReasoningIntensity(elements, level) {
     const intensity = getReasoningIntensity(level);
     const label = getReasoningLevelLabel(level);
-    if (elements?.reasoningIntensity) {
-      elements.reasoningIntensity.value = String(intensity);
-      elements.reasoningIntensity.style?.setProperty?.('--reasoning-intensity', `${intensity * 25}%`);
-      elements.reasoningIntensity.setAttribute?.('aria-valuetext', label);
-    }
-    if (elements?.reasoningIntensityValue) elements.reasoningIntensityValue.textContent = label;
-    return intensity;
+    elements.reasoningIntensity.value = String(intensity);
+    elements.reasoningIntensity.style.setProperty('--reasoning-intensity', `${intensity * 25}%`);
+    elements.reasoningIntensity.setAttribute('aria-valuetext', label);
+    elements.reasoningIntensityValue.textContent = label;
   }
 
-  function syncReasoningGauge(elements, level) {
-    const needle = elements?.btnReasoning?.querySelector?.('#reasoning-gauge-needle');
-    if (needle) needle.setAttribute('transform', `rotate(${-60 + (getReasoningIntensity(level) * 30)} 12 15)`);
-  }
-
+  /** Sitúa el menú encima del botón, dentro de la ventana. */
   function positionReasoningMenu(elements) {
-    if (!elements?.reasoningMenu || !elements?.btnReasoning || elements.reasoningMenu.style.display === 'none') return;
-    const rect = elements.btnReasoning.getBoundingClientRect?.() || { top: 0, left: 0 };
-    const win = elements.reasoningMenu.ownerDocument?.defaultView || window;
-    const width = Math.min(290, (win?.innerWidth || 1200) - 16);
-    const left = Math.max(8, Math.min(rect.left, (win?.innerWidth || 1200) - width - 8));
-    elements.reasoningMenu.style.position = 'fixed';
-    elements.reasoningMenu.style.left = `${Math.round(left)}px`;
-    elements.reasoningMenu.style.width = `${Math.round(width)}px`;
-    elements.reasoningMenu.style.bottom = `${Math.round(Math.max(8, (win?.visualViewport?.height || win?.innerHeight || 800) - rect.top + 8))}px`;
-    elements.reasoningMenu.style.top = 'auto';
+    const menu = elements.reasoningMenu;
+    if (menu.style.display === 'none') return;
+    const rect = elements.btnReasoning.getBoundingClientRect();
+    const width = Math.min(290, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    Object.assign(menu.style, {
+      position: 'fixed',
+      left: `${Math.round(left)}px`,
+      width: `${Math.round(width)}px`,
+      bottom: `${Math.round(Math.max(8, viewportHeight - rect.top + 8))}px`,
+      top: 'auto'
+    });
   }
 
   function closeReasoningMenu(elements) {
-    if (!elements?.reasoningMenu) return;
     elements.reasoningMenu.style.display = 'none';
-    elements.btnReasoning?.setAttribute?.('aria-expanded', 'false');
+    elements.btnReasoning.setAttribute('aria-expanded', 'false');
   }
 
-  function openReasoningMenu(elements, appConfig, onSelect) {
-    if (!elements?.reasoningMenu) return;
+  function openReasoningMenu(elements, appConfig) {
     elements.reasoningMenu.style.display = 'flex';
-    elements.btnReasoning?.setAttribute?.('aria-expanded', 'true');
-    syncReasoningIntensity(elements, appConfig?.reasoningEffort || 'medium');
-    const slider = elements.reasoningIntensity;
-    if (slider) {
-      slider._onReasoningIntensityChange = onSelect;
-      if (!slider._hasReasoningListener) {
-        slider._hasReasoningListener = true;
-        slider.addEventListener('input', event => {
-          const level = getReasoningLevelFromIntensity(event.target.value);
-          syncReasoningIntensity(elements, level);
-          updateReasoningUI(elements, level);
-          event.target._onReasoningIntensityChange?.(level);
-        });
-      }
-    }
-    if (elements.btnCloseReasoning && !elements.btnCloseReasoning._hasReasoningListener) {
-      elements.btnCloseReasoning._hasReasoningListener = true;
-      elements.btnCloseReasoning.addEventListener('click', () => closeReasoningMenu(elements));
-    }
-    if (!elements.reasoningMenu._hasEscapeListener) {
-      elements.reasoningMenu._hasEscapeListener = true;
-      elements.reasoningMenu.addEventListener('keydown', event => {
-        if (event.key !== 'Escape') return;
-        event.preventDefault();
-        closeReasoningMenu(elements);
-        elements.btnReasoning?.focus?.();
-      });
-    }
+    elements.btnReasoning.setAttribute('aria-expanded', 'true');
+    syncReasoningIntensity(elements, appConfig.reasoningEffort || 'medium');
     positionReasoningMenu(elements);
-    slider?.focus?.();
+    elements.reasoningIntensity.focus();
   }
 
-  function toggleReasoningMenu(elements, appConfig, onSelect) {
-    if (!elements?.reasoningMenu) return;
+  function toggleReasoningMenu(elements, appConfig) {
     if (elements.reasoningMenu.style.display === 'flex') closeReasoningMenu(elements);
-    else openReasoningMenu(elements, appConfig, onSelect);
+    else openReasoningMenu(elements, appConfig);
   }
 
-  // Carpeta personal en Linux, macOS, Termux y Windows: se muestra como ~ para acortar la ruta.
-  const HOME_PREFIX = /^(?:\/home\/[^/]+|\/Users\/[^/]+|\/data\/data\/com\.termux\/files\/home|[A-Za-z]:\\Users\\[^\\]+)(?=$|[\\/])/;
-
-  function shortenHomePath(path) {
-    return String(path || '').replace(HOME_PREFIX, '~');
-  }
+  const shortenHomePath = path => String(path || '').replace(HOME_PREFIX, '~');
 
   function projectName(cwd) {
     const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
     return parts[parts.length - 1] || String(cwd || '');
   }
 
-  // Acciones cuyo nombre no basta para saber qué hacen.
-  const PROJECT_ACTION_TITLES = Object.freeze({ reload: 'project_action_reload_title' });
-
   /** Acciones disponibles para cada estado del modo proyecto (initialize solo si se puede escribir). */
-  function getProjectActions(project = {}, options = {}) {
+  function getProjectActions(project, canInitialize) {
     switch (project.status) {
-      case 'missing': return [...(options.canInitialize ? ['initialize'] : []), 'decline'];
+      case 'missing': return [...(canInitialize ? ['initialize'] : []), 'decline'];
       case 'declined': return ['reactivate'];
       case 'ready':
       case 'error':
@@ -132,57 +94,51 @@
     }
   }
 
-  function getProjectStatusText(config = {}, project = {}) {
+  function getProjectStatusText(config, project) {
     if (config.projectMode !== true) return t('project_status_disabled');
-    const params = { name: projectName(project.cwd), error: project.error || '' };
-    return t(`project_status_${project.status || 'unavailable'}`, params);
+    return t(`project_status_${project.status || 'unavailable'}`, { name: projectName(project.cwd), error: project.error || '' });
   }
 
   /** Marca del botón de razonamiento: ready (proyecto inyectado), warning (activo pero ilegible) o ''. */
-  function getProjectIndicator(config = {}, project = {}) {
+  function getProjectIndicator(config, project) {
     if (config.projectMode !== true) return '';
     if (project.status === 'ready') return 'ready';
-    if (project.status === 'error' || project.status === 'no_access') return 'warning';
-    return '';
+    return project.status === 'error' || project.status === 'no_access' ? 'warning' : '';
   }
 
   /** Refleja el estado del proyecto en el botón (punto, nombre accesible y tooltip) sin abrir el panel. */
-  function syncProjectIndicator(elements, config = {}, project = {}) {
-    const button = elements?.btnReasoning;
-    if (!button) return;
+  function syncProjectIndicator(elements, config, project) {
+    const button = elements.btnReasoning;
     const indicator = getProjectIndicator(config, project);
     if (indicator) button.setAttribute('data-project-indicator', indicator);
     else button.removeAttribute('data-project-indicator');
     const text = indicator ? getProjectStatusText(config, project) : '';
-    if (elements.reasoningProjectLabel) elements.reasoningProjectLabel.textContent = text;
+    elements.reasoningProjectLabel.textContent = text;
     const baseTitle = t('reasoning_btn_title');
     button.setAttribute('title', text ? `${baseTitle} · ${text}` : baseTitle);
   }
 
-  /**
-   * Pinta el pie del panel de razonamiento con el interruptor del modo proyecto, su estado y
-   * las acciones del estado actual. Los manejadores se enlazan una vez por delegación.
-   */
-  function renderProjectPanel(elements, { config = {}, project = {}, canInitialize = false, canChangeDirectory = false, busy = false, handlers = {} } = {}) {
-    const panel = elements?.projectModePanel;
-    if (!panel) return;
-    panel._projectHandlers = handlers;
-    const icon = Icons.get('folder', { size: 13 });
+  /** Pie del menú: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
+  function renderProjectPanel(elements, { config, project, canInitialize, canChangeDirectory, busy }) {
     const enabled = config.projectMode === true;
-    const actions = enabled ? getProjectActions(project, { canInitialize: canInitialize && typeof handlers.initialize === 'function' }) : [];
+    const actions = enabled ? getProjectActions(project, canInitialize) : [];
     // El directorio es la base de todas las herramientas locales: se muestra aunque el modo esté apagado.
     const cwd = String(project.cwd || '');
     const changeLabel = escapeHtml(t('project_action_change_directory'));
-    const changeButton = canChangeDirectory && typeof handlers.changeDirectory === 'function'
+    const changeButton = canChangeDirectory
       ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons.get('edit', { size: 15 })}</button>`
       : '';
     const directoryHtml = cwd
       ? `<div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>`
       : '';
-    panel.innerHTML = `
+    const actionsHtml = actions.length
+      ? `<div class="project-mode-actions">${actions.map(action =>
+        `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`
+      : '';
+    elements.projectModePanel.innerHTML = `
       <div class="reasoning-agent-toggle-wrapper">
         <div class="reasoning-agent-toggle-info">
-          <div class="reasoning-agent-toggle-title">${icon}<span>${escapeHtml(t('project_mode_title'))}</span></div>
+          <div class="reasoning-agent-toggle-title">${Icons.get('folder', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
           <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(enabled ? project.status || '' : 'disabled')}" aria-live="polite">${escapeHtml(getProjectStatusText(config, project))}</div>
         </div>
         <label class="switch switch-sm" title="${escapeHtml(t('project_mode_tooltip'))}">
@@ -191,37 +147,53 @@
         </label>
       </div>
       ${directoryHtml}
-      ${actions.length ? `<div class="project-mode-actions">${actions.map(action =>
-        `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>` : ''}`;
-    if (!panel._hasProjectListeners) {
-      panel._hasProjectListeners = true;
-      panel.addEventListener('change', event => {
-        if (event.target?.id === 'chk-project-mode') panel._projectHandlers?.toggle?.(event.target.checked);
-      });
-      panel.addEventListener('click', event => {
-        const action = event.target?.closest?.('[data-project-action]')?.dataset?.projectAction;
-        if (action) panel._projectHandlers?.[action]?.();
-      });
-    }
+      ${actionsHtml}`;
   }
 
   function updateReasoningUI(elements, level) {
-    const normalized = getReasoningLevelFromIntensity(getReasoningIntensity(level));
-    if (elements?.reasoningLabel) elements.reasoningLabel.textContent = getReasoningLevelLabel(normalized);
-    if (elements?.btnReasoning?.classList) {
-      elements.btnReasoning.classList.toggle('active', normalized !== 'none');
-      INTENSITY_LEVELS.forEach(name => elements.btnReasoning.classList.toggle(`active-${name}`, normalized === name && name !== 'none'));
-    }
+    const normalized = normalizeLevel(level);
+    elements.reasoningLabel.textContent = getReasoningLevelLabel(normalized);
+    elements.btnReasoning.classList.toggle('active', normalized !== 'none');
+    INTENSITY_LEVELS.forEach(name => elements.btnReasoning.classList.toggle(`active-${name}`, normalized === name && name !== 'none'));
     syncReasoningIntensity(elements, normalized);
-    syncReasoningGauge(elements, normalized);
+    elements.btnReasoning.querySelector('#reasoning-gauge-needle').setAttribute('transform', `rotate(${-60 + getReasoningIntensity(normalized) * 30} 12 15)`);
   }
 
-  function selectReasoningLevel(elements, _appConfig, level, onLevelChanged) {
-    const normalized = getReasoningLevelFromIntensity(getReasoningIntensity(level));
-    updateReasoningUI(elements, normalized);
-    closeReasoningMenu(elements);
-    onLevelChanged?.(normalized);
+  /**
+   * Conecta el menú: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
+   * del proyecto a `handlers` (toggle, initialize, decline, reactivate, reload, changeDirectory).
+   */
+  function mount(elements, { onSelectLevel, handlers }) {
+    projectHandlers = handlers;
+    elements.reasoningIntensity.addEventListener('input', event => {
+      const level = getReasoningLevelFromIntensity(event.target.value);
+      updateReasoningUI(elements, level);
+      onSelectLevel(level);
+    });
+    elements.btnCloseReasoning.addEventListener('click', () => closeReasoningMenu(elements));
+    elements.reasoningMenu.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeReasoningMenu(elements);
+      elements.btnReasoning.focus();
+    });
+    elements.projectModePanel.addEventListener('change', event => {
+      if (event.target.id === 'chk-project-mode') projectHandlers.toggle(event.target.checked);
+    });
+    elements.projectModePanel.addEventListener('click', event => {
+      const action = event.target.closest('[data-project-action]')?.dataset.projectAction;
+      if (action) projectHandlers[action]();
+    });
   }
 
-  return { getReasoningIntensity, getReasoningLevelFromIntensity, getReasoningLevelLabel, syncReasoningIntensity, positionReasoningMenu, openReasoningMenu, closeReasoningMenu, toggleReasoningMenu, selectReasoningLevel, updateReasoningUI, getProjectActions, getProjectStatusText, shortenHomePath, renderProjectPanel, getProjectIndicator, syncProjectIndicator };
+  return {
+    mount,
+    getReasoningLevelLabel,
+    positionReasoningMenu,
+    closeReasoningMenu,
+    toggleReasoningMenu,
+    updateReasoningUI,
+    renderProjectPanel,
+    syncProjectIndicator
+  };
 });

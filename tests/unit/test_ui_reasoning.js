@@ -1,104 +1,115 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UIReasoning = require('../../js/ui-reasoning.js');
+const I18n = require('../../js/i18n.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
-test('UIReasoning - convierte entre intensidad y esfuerzo sin valores inválidos', () => {
-  assert.equal(UIReasoning.getReasoningIntensity('none'), 0);
-  assert.equal(UIReasoning.getReasoningIntensity('off'), 0);
-  assert.equal(UIReasoning.getReasoningIntensity('medium'), 2);
-  assert.equal(UIReasoning.getReasoningIntensity('xhigh'), 4);
-  assert.equal(UIReasoning.getReasoningLevelFromIntensity(-1), 'none');
-  assert.equal(UIReasoning.getReasoningLevelFromIntensity(3), 'high');
-  assert.equal(UIReasoning.getReasoningLevelFromIntensity(99), 'xhigh');
+/** Menú de razonamiento real montado con manejadores que registran sus llamadas. */
+function setup(t) {
+  const dom = installDom({ app: true });
+  const elements = getAppElements(document);
+  const calls = [];
+  const handlers = Object.fromEntries(['toggle', 'initialize', 'decline', 'reactivate', 'reload', 'changeDirectory']
+    .map(name => [name, value => calls.push(value === undefined ? [name] : [name, value])]));
+  UIReasoning.mount(elements, { onSelectLevel: level => calls.push(['level', level]), handlers });
+  t.after(() => dom.restore());
+  return { elements, calls };
+}
+
+const render = (elements, project, options = {}) => UIReasoning.renderProjectPanel(elements, {
+  config: { projectMode: options.projectMode ?? true },
+  project,
+  canInitialize: options.canInitialize ?? true,
+  canChangeDirectory: options.canChangeDirectory ?? false,
+  busy: false
 });
+const actions = elements => [...elements.projectModePanel.querySelectorAll('.project-mode-actions [data-project-action]')].map(button => button.dataset.projectAction);
 
-test('UIReasoning - sincroniza slider y etiqueta con el esfuerzo elegido', () => {
-  const attributes = {};
-  const elements = {
-    reasoningIntensity: {
-      value: '',
-      style: { setProperty: (key, value) => { attributes[key] = value; } },
-      setAttribute: (key, value) => { attributes[key] = value; }
-    },
-    reasoningIntensityValue: { textContent: '' }
-  };
-  UIReasoning.syncReasoningIntensity(elements, 'high');
-  assert.equal(elements.reasoningIntensity.value, '3');
-  assert.equal(attributes['--reasoning-intensity'], '75%');
-  assert.ok(elements.reasoningIntensityValue.textContent);
-});
+test('UIReasoning - el control deslizante elige el nivel y actualiza botón, etiqueta y aguja', t => {
+  const { elements, calls } = setup(t);
+  UIReasoning.toggleReasoningMenu(elements, { reasoningEffort: 'medium' });
+  assert.equal(elements.reasoningMenu.style.display, 'flex');
+  assert.equal(elements.reasoningIntensity.value, '2');
 
-test('UIReasoning - seleccionar nivel mantiene la compatibilidad y notifica la intención', () => {
-  const classes = new Set();
-  const elements = {
-    reasoningLabel: { textContent: '' },
-    btnReasoning: { classList: { toggle: (key, value) => value ? classes.add(key) : classes.delete(key) } },
-    reasoningMenu: { style: {} }
-  };
-  let selected = '';
-  UIReasoning.selectReasoningLevel(elements, {}, 'high', value => { selected = value; });
-  assert.equal(selected, 'high');
-  assert.ok(classes.has('active-high'));
+  elements.reasoningIntensity.value = '3';
+  elements.reasoningIntensity.dispatchEvent(new Event('input'));
+  assert.deepEqual(calls, [['level', 'high']]);
+  assert.equal(elements.reasoningLabel.textContent, I18n.t('reasoning_level_high'));
+  assert.ok(elements.btnReasoning.classList.contains('active-high'));
+  assert.equal(elements.reasoningIntensity.style.getPropertyValue('--reasoning-intensity'), '75%');
+  assert.equal(elements.btnReasoning.querySelector('#reasoning-gauge-needle').getAttribute('transform'), 'rotate(30 12 15)');
+
+  UIReasoning.updateReasoningUI(elements, 'unknown');
+  assert.equal(elements.btnReasoning.classList.contains('active'), false, 'Un nivel desconocido cuenta como ninguno');
+
+  elements.reasoningMenu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   assert.equal(elements.reasoningMenu.style.display, 'none');
+  assert.equal(elements.btnReasoning.getAttribute('aria-expanded'), 'false');
 });
 
-test('UIReasoning - acciones del modo proyecto según su estado', () => {
-  assert.deepEqual(UIReasoning.getProjectActions({ status: 'missing' }, { canInitialize: true }), ['initialize', 'decline']);
-  assert.deepEqual(UIReasoning.getProjectActions({ status: 'missing' }), ['decline']);
-  assert.deepEqual(UIReasoning.getProjectActions({ status: 'declined' }), ['reactivate']);
+test('UIReasoning - el panel del proyecto ofrece las acciones de cada estado y las delega', t => {
+  const { elements, calls } = setup(t);
+  render(elements, { status: 'missing', cwd: '/home/u/app' });
+  assert.deepEqual(actions(elements), ['initialize', 'decline']);
+  render(elements, { status: 'missing', cwd: '/home/u/app' }, { canInitialize: false });
+  assert.deepEqual(actions(elements), ['decline']);
+  render(elements, { status: 'declined', cwd: '/r' });
+  assert.deepEqual(actions(elements), ['reactivate']);
   for (const status of ['ready', 'error', 'no_access']) {
-    assert.deepEqual(UIReasoning.getProjectActions({ status }), ['reload'], status);
+    render(elements, { status, cwd: '/r' });
+    assert.deepEqual(actions(elements), ['reload'], status);
   }
-  for (const status of ['disabled', 'unavailable']) {
-    assert.deepEqual(UIReasoning.getProjectActions({ status }), [], status);
-  }
+  render(elements, { status: 'unavailable', cwd: '/r' });
+  assert.deepEqual(actions(elements), []);
+  render(elements, { status: 'ready', cwd: '/r' }, { projectMode: false });
+  assert.deepEqual(actions(elements), [], 'Con el modo apagado no hay acciones');
+  assert.equal(elements.projectModePanel.querySelector('.project-mode-status').textContent, I18n.t('project_status_disabled'));
+
+  render(elements, { status: 'ready', cwd: '/home/u/my-repo/' }, { canChangeDirectory: true });
+  assert.match(elements.projectModePanel.querySelector('.project-mode-status').textContent, /my-repo/);
+  elements.projectModePanel.querySelector('[data-project-action="reload"]').click();
+  elements.projectModePanel.querySelector('[data-project-action="changeDirectory"]').click();
+  const toggle = elements.projectModePanel.querySelector('#chk-project-mode');
+  toggle.checked = false;
+  toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  assert.deepEqual(calls, [['reload'], ['changeDirectory'], ['toggle', false]]);
 });
 
-test('UIReasoning - el texto de estado del proyecto usa la clave de su estado y el nombre de la carpeta', () => {
-  const I18n = require('../../js/i18n.js');
-  I18n.setLanguage?.('es', false);
-  assert.equal(UIReasoning.getProjectStatusText({ projectMode: false }, { status: 'ready', cwd: '/r' }), I18n.t('project_status_disabled'));
-  assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'ready', cwd: '/home/u/my-repo/' }), /my-repo/);
-  assert.match(UIReasoning.getProjectStatusText({ projectMode: true }, { status: 'missing', cwd: 'C:\\code\\app' }), /app/);
-});
-
-test('UIReasoning - el indicador del botón solo marca proyectos activos o con fallo', () => {
-  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'ready' }), 'ready');
-  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'error' }), 'warning');
-  assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status: 'no_access' }), 'warning');
-  for (const status of ['missing', 'declined', 'unavailable', 'disabled']) {
-    assert.equal(UIReasoning.getProjectIndicator({ projectMode: true }, { status }), '', status);
-  }
-  assert.equal(UIReasoning.getProjectIndicator({ projectMode: false }, { status: 'ready' }), '');
-});
-
-test('UIReasoning - syncProjectIndicator actualiza atributo, nombre accesible y tooltip', () => {
-  const attributes = {};
-  const button = {
-    setAttribute: (key, value) => { attributes[key] = value; },
-    removeAttribute: key => { delete attributes[key]; }
+test('UIReasoning - el directorio abrevia la carpeta personal con ~ sin tocar otras rutas', t => {
+  const { elements } = setup(t);
+  const cases = {
+    '/home/u/vs/zerochat': '~/vs/zerochat',
+    '/home/u': '~',
+    '/Users/ana/app': '~/app',
+    '/data/data/com.termux/files/home/app': '~/app',
+    'C:\\Users\\ana\\app': '~\\app',
+    '/home/user2x/app': '~/app',
+    '/homes/u/app': '/homes/u/app',
+    '/srv/app': '/srv/app'
   };
-  const elements = { btnReasoning: button, reasoningProjectLabel: { textContent: '' } };
-  UIReasoning.syncProjectIndicator(elements, { projectMode: true }, { status: 'ready', cwd: '/home/u/zerochat' });
-  assert.equal(attributes['data-project-indicator'], 'ready');
-  assert.match(elements.reasoningProjectLabel.textContent, /zerochat/);
-  assert.match(attributes.title, / · .*zerochat/);
-
-  UIReasoning.syncProjectIndicator(elements, { projectMode: true }, { status: 'missing', cwd: '/home/u/zerochat' });
-  assert.equal(attributes['data-project-indicator'], undefined);
-  assert.equal(elements.reasoningProjectLabel.textContent, '');
-  assert.doesNotMatch(attributes.title, / · /);
+  for (const [cwd, shown] of Object.entries(cases)) {
+    render(elements, { status: 'ready', cwd });
+    const path = elements.projectModePanel.querySelector('.project-mode-path');
+    assert.equal(path.textContent, shown, cwd);
+    assert.equal(path.title, cwd);
+  }
+  render(elements, { status: 'ready', cwd: '' });
+  assert.equal(elements.projectModePanel.querySelector('.project-mode-path'), null);
 });
 
-
-test('UIReasoning.shortenHomePath abrevia la carpeta personal con ~ sin tocar otras rutas', () => {
-  assert.equal(UIReasoning.shortenHomePath('/home/u/vs/zerochat'), '~/vs/zerochat');
-  assert.equal(UIReasoning.shortenHomePath('/home/u'), '~');
-  assert.equal(UIReasoning.shortenHomePath('/Users/ana/app'), '~/app');
-  assert.equal(UIReasoning.shortenHomePath('/data/data/com.termux/files/home/app'), '~/app');
-  assert.equal(UIReasoning.shortenHomePath('C:\\Users\\ana\\app'), '~\\app');
-  assert.equal(UIReasoning.shortenHomePath('/home/user2x/app'), '~/app');
-  assert.equal(UIReasoning.shortenHomePath('/homes/u/app'), '/homes/u/app');
-  assert.equal(UIReasoning.shortenHomePath('/srv/app'), '/srv/app');
-  assert.equal(UIReasoning.shortenHomePath(''), '');
+test('UIReasoning - el botón solo marca proyectos activos o con fallo', t => {
+  const { elements } = setup(t);
+  const sync = (projectMode, status) => {
+    UIReasoning.syncProjectIndicator(elements, { projectMode }, { status, cwd: '/home/u/zerochat' });
+    return elements.btnReasoning.getAttribute('data-project-indicator');
+  };
+  assert.equal(sync(true, 'ready'), 'ready');
+  assert.match(elements.reasoningProjectLabel.textContent, /zerochat/);
+  assert.match(elements.btnReasoning.title, / · .*zerochat/);
+  assert.equal(sync(true, 'error'), 'warning');
+  assert.equal(sync(true, 'no_access'), 'warning');
+  for (const status of ['missing', 'declined', 'unavailable']) assert.equal(sync(true, status), null, status);
+  assert.equal(sync(false, 'ready'), null);
+  assert.equal(elements.reasoningProjectLabel.textContent, '');
+  assert.doesNotMatch(elements.btnReasoning.title, / · /);
 });

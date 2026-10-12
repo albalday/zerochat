@@ -3,10 +3,12 @@ const assert = require('node:assert/strict');
 const UIConversation = require('../../js/ui-conversation.js');
 const State = require('../../js/state.js');
 const I18n = require('../../js/i18n.js');
-const { installDom } = require('../helpers/dom-env.js');
+const ChatDebug = require('../../js/debug.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
 function setup(t) {
   const dom = installDom({ app: true });
+  ChatDebug.setElements(getAppElements(document));
   t.after(() => dom.restore());
   return {
     messagesList: document.getElementById('messages-list'),

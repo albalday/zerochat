@@ -45,15 +45,11 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     await waitForAppReady(page);
     await page.click('#btn-toggle-sidebar');
     await page.waitForFunction(() => !document.getElementById('chat-sidebar').classList.contains('sidebar-hidden'));
-    await page.evaluate(() => {
-      const list = document.getElementById('sidebar-chats-list');
-      window.menuTest = { switched: 0, renamed: 0 };
-      ChatUISidebar.renderSidebarChats({ sidebarChatsList: list }, [
-        { id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() }
-      ], 'chat-options', {
-        onSwitchSession: () => { window.menuTest.switched += 1; },
-        onRenameSession: () => { window.menuTest.renamed += 1; }
-      });
+    const activeSessionId = await page.evaluate(() => {
+      ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
+      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input') };
+      ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '');
+      return ChatState.get('sessions').activeId;
     });
     const trigger = page.locator('.btn-chat-menu');
     assert.equal(await trigger.isVisible(), true);
@@ -63,14 +59,17 @@ test('Browser UI - el menú contextual de un chat es táctil y no activa la conv
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('.sidebar-chat-actions').isVisible(), true);
     await page.locator('.btn-rename').click();
+    // Renombrar pide el título nuevo sin cambiar de conversación.
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
     const actionResult = await page.evaluate(() => ({
-      switched: window.menuTest.switched,
-      renamed: window.menuTest.renamed,
+      prompt: document.getElementById('notice-input').value,
+      currentId: ChatState.get('sessions').activeId,
       menuOpen: document.querySelector('.sidebar-chat-actions')?.hidden === false
     }));
-    assert.equal(actionResult.switched, 0);
-    assert.equal(actionResult.renamed, 1);
+    assert.equal(actionResult.prompt, 'Opciones táctiles');
+    assert.equal(actionResult.currentId, activeSessionId);
     assert.equal(actionResult.menuOpen, false);
+    await page.click('#notice-cancel');
   } finally {
     await browser.close();
   }

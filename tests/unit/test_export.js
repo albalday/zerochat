@@ -38,7 +38,7 @@ test('ChatExport - Generación y Parseo de JSON de conversación', () => {
 test('ChatExport - Manejo de errores al importar JSON inválido', () => {
   assert.throws(() => {
     ChatExport.parseImportedJson('{ "invalido": true }');
-  }, /historial de chat válido/);
+  }, /valid chat history/);
 
   assert.throws(() => {
     ChatExport.parseImportedJson('esto no es json');

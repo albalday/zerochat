@@ -1,6 +1,6 @@
 /**
- * Módulo de Interfaz de Usuario para Barra Lateral y Gestión de Sesiones de Chat.
- * ZeroChat - js/ui-sidebar.js
+ * Barra lateral: lista de conversaciones agrupada por fecha, su menú de acciones y la navegación
+ * de las secciones de ajustes.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -12,403 +12,202 @@
   'use strict';
 
   const { escapeHtml } = Utils;
-
-
   const { t } = I18n;
 
+  const DAY_MS = 86400000;
+  const GROUP_LABEL_KEYS = {
+    today: 'sidebar_group_today',
+    yesterday: 'sidebar_group_yesterday',
+    last7days: 'sidebar_group_last7days',
+    last30days: 'sidebar_group_last30days',
+    older: 'sidebar_group_older'
+  };
 
-  function isMobile() {
-    return typeof window !== 'undefined' && window.innerWidth <= 768;
-  }
+  let cleanups = [];
 
+  const isMobile = () => window.innerWidth <= 768;
+
+  /** Abre la barra; en móvil el chat queda inerte detrás del fondo y el foco pasa a la barra. */
   function openSidebar(elements) {
-    if (!elements || !elements.chatSidebar) return;
-    if (elements.chatSidebar.classList) {
-      elements.chatSidebar.classList.remove('sidebar-hidden');
-      elements.chatSidebar.classList.add('sidebar-visible');
-    }
-    if (elements.chatSidebar.style) {
-      elements.chatSidebar.style.display = 'flex';
-    }
-    if (elements.btnToggleSidebar && elements.btnToggleSidebar.style) {
-      elements.btnToggleSidebar.style.display = 'none';
-    }
-    if (isMobile()) {
-      const chatContainer = (typeof document !== 'undefined') ? (
-        document.getElementById('chat-container') ||
-        document.querySelector('main') ||
-        document.querySelector('.chat-container')
-      ) : null;
-      if (chatContainer && chatContainer.setAttribute) chatContainer.setAttribute('inert', '');
-      const backdrop = elements?.sidebarBackdrop || ((typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null);
-      if (backdrop && backdrop.classList) backdrop.classList.add('visible');
-      if (typeof requestAnimationFrame === 'function' && elements.chatSidebar.querySelector) {
-        requestAnimationFrame(() => {
-          const firstFocusable = elements.chatSidebar.querySelector(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-          );
-          if (firstFocusable && typeof firstFocusable.focus === 'function') firstFocusable.focus();
-        });
-      }
-    }
+    elements.chatSidebar.classList.remove('sidebar-hidden');
+    elements.chatSidebar.classList.add('sidebar-visible');
+    elements.chatSidebar.style.display = 'flex';
+    elements.btnToggleSidebar.style.display = 'none';
+    if (!isMobile()) return;
+    elements.chatContainer.setAttribute('inert', '');
+    elements.sidebarBackdrop.classList.add('visible');
+    requestAnimationFrame(() => {
+      elements.chatSidebar.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
+    });
   }
 
   function closeSidebar(elements) {
-    if (!elements || !elements.chatSidebar) return;
-    if (elements.chatSidebar.classList) {
-      elements.chatSidebar.classList.add('sidebar-hidden');
-      elements.chatSidebar.classList.remove('sidebar-visible');
-    }
-    if (elements.chatSidebar.style) {
-      elements.chatSidebar.style.display = 'none';
-    }
-    if (elements.btnToggleSidebar && elements.btnToggleSidebar.style) {
-      elements.btnToggleSidebar.style.display = 'inline-flex';
-    }
-    const chatContainer = (typeof document !== 'undefined') ? (
-      document.getElementById('chat-container') ||
-      document.querySelector('main') ||
-      document.querySelector('.chat-container')
-    ) : null;
-    if (chatContainer && chatContainer.removeAttribute) chatContainer.removeAttribute('inert');
-    const backdrop = elements?.sidebarBackdrop || ((typeof document !== 'undefined') ? document.getElementById('sidebar-backdrop') : null);
-    if (backdrop && backdrop.classList) backdrop.classList.remove('visible');
+    elements.chatSidebar.classList.add('sidebar-hidden');
+    elements.chatSidebar.classList.remove('sidebar-visible');
+    elements.chatSidebar.style.display = 'none';
+    elements.btnToggleSidebar.style.display = 'inline-flex';
+    elements.chatContainer.removeAttribute('inert');
+    elements.sidebarBackdrop.classList.remove('visible');
   }
 
   function toggleSidebar(elements) {
-    if (!elements || !elements.chatSidebar) return;
-    const isHidden = elements.chatSidebar.classList
-      ? elements.chatSidebar.classList.contains('sidebar-hidden')
-      : (elements.chatSidebar.style && (elements.chatSidebar.style.display === 'none' || !elements.chatSidebar.style.display));
-    if (isHidden) {
-      openSidebar(elements);
-    } else {
-      closeSidebar(elements);
-    }
+    if (elements.chatSidebar.classList.contains('sidebar-hidden')) openSidebar(elements);
+    else closeSidebar(elements);
   }
 
+  /** Muestra la lista de conversaciones ('chat') o la de secciones de ajustes ('settings'). */
   function setSidebarMode(elements, mode = 'chat') {
-    if (!elements) return;
-    const chatView = elements.sidebarViewChat || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-chat') : null);
-    const settingsView = elements.sidebarViewSettings || (typeof document !== 'undefined' ? document.getElementById('sidebar-view-settings') : null);
-
-    if (mode === 'settings') {
-      if (chatView) {
-        chatView.hidden = true;
-        if (chatView.style) chatView.style.display = 'none';
-      }
-      if (settingsView) {
-        settingsView.hidden = false;
-        if (settingsView.style) settingsView.style.display = 'flex';
-      }
-      if (elements.chatSidebar?.classList) {
-        elements.chatSidebar.classList.add('mode-settings');
-      }
-    } else {
-      if (settingsView) {
-        settingsView.hidden = true;
-        if (settingsView.style) settingsView.style.display = 'none';
-      }
-      if (chatView) {
-        chatView.hidden = false;
-        if (chatView.style) chatView.style.display = 'flex';
-      }
-      if (elements.chatSidebar?.classList) {
-        elements.chatSidebar.classList.remove('mode-settings');
-      }
-      setActiveSettingsSection(elements, '');
-    }
+    const settings = mode === 'settings';
+    elements.sidebarViewChat.hidden = settings;
+    elements.sidebarViewChat.style.display = settings ? 'none' : 'flex';
+    elements.sidebarViewSettings.hidden = !settings;
+    elements.sidebarViewSettings.style.display = settings ? 'flex' : 'none';
+    elements.chatSidebar.classList.toggle('mode-settings', settings);
+    if (!settings) setActiveSettingsSection(elements, '');
   }
 
   function setActiveSettingsSection(elements, sectionId = '') {
-    const items = elements?.sidebarSettingsItems || (typeof document !== 'undefined' ? document.querySelectorAll('#sidebar-settings-nav .sidebar-settings-item') : []);
-    items.forEach(item => {
-      const match = (item.dataset?.section || item.getAttribute?.('data-section')) === sectionId;
-      if (item.classList) {
-        if (match) item.classList.add('active');
-        else item.classList.remove('active');
-      }
-    });
-  }
-
-
-  function filterSessions(sessions, filterText = '') {
-    if (!Array.isArray(sessions)) return [];
-    const filter = String(filterText || '').toLowerCase().trim();
-    if (!filter) return sessions;
-    return sessions.filter(s => {
-      if (s.title && s.title.toLowerCase().includes(filter)) return true;
-      return false;
-    });
+    elements.sidebarSettingsItems.forEach(item => item.classList.toggle('active', item.dataset.section === sectionId));
   }
 
   function getChronologicalCategory(date) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const yesterday = today - 86400000;
-    const last7Days = today - (7 * 86400000);
-    const last30Days = today - (30 * 86400000);
-
-    const d = new Date(date).getTime();
-    if (d >= today) return 'today';
-    if (d >= yesterday) return 'yesterday';
-    if (d >= last7Days) return 'last7days';
-    if (d >= last30Days) return 'last30days';
+    const time = new Date(date).getTime();
+    if (time >= today) return 'today';
+    if (time >= today - DAY_MS) return 'yesterday';
+    if (time >= today - 7 * DAY_MS) return 'last7days';
+    if (time >= today - 30 * DAY_MS) return 'last30days';
     return 'older';
   }
 
-  function getCategoryLabel(category) {
-    switch (category) {
-      case 'today': return t('sidebar_group_today', 'Hoy');
-      case 'yesterday': return t('sidebar_group_yesterday', 'Ayer');
-      case 'last7days': return t('sidebar_group_last7days', 'Últimos 7 días');
-      case 'last30days': return t('sidebar_group_last30days', 'Últimos 30 días');
-      case 'older': return t('sidebar_group_older', 'Anteriores');
-      default: return '';
-    }
-  }
-
-  function renderSidebarChats(elements, savedSessions, currentSessionId, callbacks = {}, options = {}) {
-    if (!elements || !elements.sidebarChatsList) return;
-    elements.sidebarChatsList.innerHTML = '';
-
-    const filterText = elements.sidebarSearchInput ? elements.sidebarSearchInput.value : '';
-    const matching = filterSessions(savedSessions, filterText);
-
-    const doc = elements.sidebarChatsList.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return;
-
-    if (matching.length === 0) {
-      const emptyDiv = doc.createElement('div');
-      emptyDiv.className = 'sidebar-no-chats';
-      emptyDiv.style.cssText = 'padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.8rem;';
-      emptyDiv.textContent = t('sidebar_no_chats');
-      elements.sidebarChatsList.appendChild(emptyDiv);
-      return;
-    }
-
-    const exportSvg = Icons.get('download', { size: 13 });
-    const editSvg = Icons.get('edit', { size: 13 });
-    const trashSvg = Icons.get('trash', { size: 13 });
-    const moreSvg = Icons.get('more-vertical', { size: 18 });
-
-    let currentCategory = null;
-    matching.forEach(s => {
-      const d = new Date(s.updatedAt || s.createdAt || Date.now());
-
-      if (options && options.groupByDate && !filterText) {
-        const cat = getChronologicalCategory(d);
-        if (cat !== currentCategory) {
-          currentCategory = cat;
-          const groupHeader = doc.createElement('div');
-          groupHeader.className = 'sidebar-group-header';
-          groupHeader.textContent = getCategoryLabel(cat);
-          elements.sidebarChatsList.appendChild(groupHeader);
-        }
-      }
-
-      const item = doc.createElement('div');
-      item.className = 'sidebar-chat-item' + (s.id === currentSessionId ? ' active' : '');
-      item.setAttribute('data-session-id', s.id);
-
-      const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const rawTitle = s.title || t('chat_untitled');
-      const safeTitle = escapeHtml(rawTitle);
-
-      item.innerHTML = `
+  function renderChatItem(session, date, isActive) {
+    const title = escapeHtml(session.title || t('chat_untitled'));
+    const time = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const action = (className, icon, labelKey) => {
+      const label = escapeHtml(t(labelKey));
+      return `<button type="button" role="menuitem" class="btn-chat-action ${className}" title="${label}">${Icons.get(icon, { size: 13 })}<span>${label}</span></button>`;
+    };
+    const optionsLabel = escapeHtml(t('sidebar_chat_options_title'));
+    return `<div class="sidebar-chat-item${isActive ? ' active' : ''}" data-session-id="${escapeHtml(session.id)}">
         <div class="sidebar-chat-info">
-          <span class="sidebar-chat-title" title="${safeTitle}">${safeTitle}</span>
-          <span class="sidebar-chat-time">${timeStr}</span>
+          <span class="sidebar-chat-title" title="${title}">${title}</span>
+          <span class="sidebar-chat-time">${time}</span>
         </div>
         <div class="sidebar-chat-menu">
-          <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('sidebar_chat_options_title'))}" aria-label="${escapeHtml(t('sidebar_chat_options_title'))}">${moreSvg}</button>
+          <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${optionsLabel}" aria-label="${optionsLabel}">${Icons.get('more-vertical', { size: 18 })}</button>
           <div class="sidebar-chat-actions" role="menu" hidden>
-            <button type="button" role="menuitem" class="btn-chat-action btn-export" title="${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title'))}">${exportSvg}<span>${escapeHtml(t('sidebar_export_chat_title') || t('btn_export_chat_title'))}</span></button>
-            <button type="button" role="menuitem" class="btn-chat-action btn-rename" title="${escapeHtml(t('sidebar_rename_chat_title'))}">${editSvg}<span>${escapeHtml(t('sidebar_rename_chat_title'))}</span></button>
-            <button type="button" role="menuitem" class="btn-chat-action btn-delete" title="${escapeHtml(t('sidebar_delete_chat_title'))}">${trashSvg}<span>${escapeHtml(t('sidebar_delete_chat_title'))}</span></button>
+            ${action('btn-export', 'download', 'sidebar_export_chat_title')}
+            ${action('btn-rename', 'edit', 'sidebar_rename_chat_title')}
+            ${action('btn-delete', 'trash', 'sidebar_delete_chat_title')}
           </div>
         </div>
-      `;
+      </div>`;
+  }
 
-      item.addEventListener('click', (e) => {
-        if (e.target && e.target.closest && e.target.closest('.sidebar-chat-menu')) return;
-        if (typeof callbacks.onSwitchSession === 'function') {
-          callbacks.onSwitchSession(s.id);
-        }
-      });
-
-      const chatMenu = item.querySelector('.sidebar-chat-menu');
-      const btnMenu = item.querySelector('.btn-chat-menu');
-      const actionsMenu = item.querySelector('.sidebar-chat-actions');
-      const closeActionsMenu = () => {
-        if (actionsMenu) actionsMenu.hidden = true;
-        if (btnMenu) btnMenu.setAttribute('aria-expanded', 'false');
-      };
-      if (btnMenu && actionsMenu) {
-        btnMenu.addEventListener('click', (e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          const willOpen = actionsMenu.hidden;
-          elements.sidebarChatsList.querySelectorAll('.sidebar-chat-actions:not([hidden])').forEach(menu => {
-            menu.hidden = true;
-            menu.closest('.sidebar-chat-menu')?.querySelector('.btn-chat-menu')?.setAttribute('aria-expanded', 'false');
-          });
-          actionsMenu.hidden = !willOpen;
-          btnMenu.setAttribute('aria-expanded', String(willOpen));
-        });
-        chatMenu.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape' && !actionsMenu.hidden) {
-            e.preventDefault();
-            closeActionsMenu();
-            btnMenu.focus();
-          }
-        });
+  /** Lista de conversaciones filtrada por el buscador; sin filtro, agrupada por fecha. */
+  function renderSidebarChats(elements, sessions, currentSessionId) {
+    const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
+    const matching = filter ? sessions.filter(session => session.title?.toLowerCase().includes(filter)) : sessions;
+    if (matching.length === 0) {
+      elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t('sidebar_no_chats'))}</div>`;
+      return;
+    }
+    let currentCategory = null;
+    elements.sidebarChatsList.innerHTML = matching.map(session => {
+      const date = new Date(session.updatedAt || session.createdAt || Date.now());
+      let header = '';
+      const category = getChronologicalCategory(date);
+      if (!filter && category !== currentCategory) {
+        currentCategory = category;
+        header = `<div class="sidebar-group-header">${escapeHtml(t(GROUP_LABEL_KEYS[category]))}</div>`;
       }
+      return header + renderChatItem(session, date, session.id === currentSessionId);
+    }).join('');
+  }
 
-      const btnExport = item.querySelector('.btn-export');
-      if (btnExport) {
-        btnExport.addEventListener('click', (e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          closeActionsMenu();
-          if (typeof callbacks.onExportSession === 'function') {
-            callbacks.onExportSession(s.id, e);
-          }
-        });
-      }
-
-      const btnRename = item.querySelector('.btn-rename');
-      if (btnRename) {
-        btnRename.addEventListener('click', (e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          closeActionsMenu();
-          if (typeof callbacks.onRenameSession === 'function') {
-            callbacks.onRenameSession(s.id, e);
-          }
-        });
-      }
-
-      const btnDelete = item.querySelector('.btn-delete');
-      if (btnDelete) {
-        btnDelete.addEventListener('click', (e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          closeActionsMenu();
-          if (typeof callbacks.onDeleteSession === 'function') {
-            callbacks.onDeleteSession(s.id, e);
-          }
-        });
-      }
-
-      elements.sidebarChatsList.appendChild(item);
+  function closeChatMenus(list) {
+    list.querySelectorAll('.sidebar-chat-actions:not([hidden])').forEach(menu => {
+      menu.hidden = true;
+      menu.closest('.sidebar-chat-menu').querySelector('.btn-chat-menu').setAttribute('aria-expanded', 'false');
     });
   }
 
-  let activeCleanupFns = [];
-  let cachedElements = null;
+  /**
+   * Conecta la barra. `callbacks` aporta las acciones de las conversaciones (onSwitchSession,
+   * onRenameSession, onDeleteSession, onExportSession, onNewSession, onSearchInput,
+   * onDeleteAllSessions) y de la navegación de ajustes (onOpenSettingsMode, onBackToChats,
+   * onSelectSettingsSection).
+   */
+  function mount(elements, callbacks) {
+    cleanups.forEach(cleanup => cleanup());
+    cleanups = [];
+    const listen = (target, type, handler) => {
+      target.addEventListener(type, handler);
+      cleanups.push(() => target.removeEventListener(type, handler));
+    };
+    const list = elements.sidebarChatsList;
 
-  function mount(elements, callbacks = {}) {
-    dispose();
-    cachedElements = elements || {};
-    const els = cachedElements;
+    listen(elements.btnToggleSidebar, 'click', () => toggleSidebar(elements));
+    listen(elements.btnCloseSidebar, 'click', () => closeSidebar(elements));
+    listen(elements.sidebarBackdrop, 'click', () => closeSidebar(elements));
+    listen(elements.btnCloseSidebarSettings, 'click', () => closeSidebar(elements));
+    listen(elements.btnSidebarNewChat, 'click', () => callbacks.onNewSession());
+    listen(elements.sidebarSearchInput, 'input', () => callbacks.onSearchInput(elements.sidebarSearchInput.value));
+    listen(elements.btnDeleteAllChats, 'click', () => callbacks.onDeleteAllSessions());
+    listen(elements.btnOpenSettings, 'click', () => {
+      setSidebarMode(elements, 'settings');
+      callbacks.onOpenSettingsMode();
+    });
+    listen(elements.btnSidebarBackToChats, 'click', () => {
+      setSidebarMode(elements, 'chat');
+      callbacks.onBackToChats();
+    });
+    // Los botones de las navegaciones secundarias comparten la clase pero no abren una sección.
+    elements.sidebarSettingsItems.forEach(item => {
+      if (item.dataset.section) listen(item, 'click', () => callbacks.onSelectSettingsSection(item.dataset.section));
+    });
 
-    if (els.btnToggleSidebar) {
-      const onToggle = () => toggleSidebar(els);
-      els.btnToggleSidebar.addEventListener('click', onToggle);
-      activeCleanupFns.push(() => els.btnToggleSidebar.removeEventListener('click', onToggle));
-    }
-
-    if (els.btnCloseSidebar) {
-      const onClose = () => closeSidebar(els);
-      els.btnCloseSidebar.addEventListener('click', onClose);
-      activeCleanupFns.push(() => els.btnCloseSidebar.removeEventListener('click', onClose));
-    }
-
-    if (els.sidebarBackdrop) {
-      const onBackdrop = () => closeSidebar(els);
-      els.sidebarBackdrop.addEventListener('click', onBackdrop);
-      activeCleanupFns.push(() => els.sidebarBackdrop.removeEventListener('click', onBackdrop));
-    }
-
-    if (els.btnSidebarNewChat) {
-      const onNew = () => {
-        if (typeof callbacks.onNewSession === 'function') callbacks.onNewSession();
-      };
-      els.btnSidebarNewChat.addEventListener('click', onNew);
-      activeCleanupFns.push(() => els.btnSidebarNewChat.removeEventListener('click', onNew));
-    }
-
-    if (els.sidebarSearchInput) {
-      const onSearch = () => {
-        if (typeof callbacks.onSearchInput === 'function') {
-          callbacks.onSearchInput(els.sidebarSearchInput.value);
-        }
-      };
-      els.sidebarSearchInput.addEventListener('input', onSearch);
-      activeCleanupFns.push(() => els.sidebarSearchInput.removeEventListener('input', onSearch));
-    }
-
-    if (els.btnDeleteAllChats) {
-      const onDeleteAll = () => {
-        if (typeof callbacks.onDeleteAllSessions === 'function') callbacks.onDeleteAllSessions();
-      };
-      els.btnDeleteAllChats.addEventListener('click', onDeleteAll);
-      activeCleanupFns.push(() => els.btnDeleteAllChats.removeEventListener('click', onDeleteAll));
-    }
-
-    if (els.btnOpenSettings) {
-      const onOpenSettings = () => {
-        setSidebarMode(els, 'settings');
-        if (typeof callbacks.onOpenSettingsMode === 'function') callbacks.onOpenSettingsMode();
-      };
-      els.btnOpenSettings.addEventListener('click', onOpenSettings);
-      activeCleanupFns.push(() => els.btnOpenSettings.removeEventListener('click', onOpenSettings));
-    }
-
-    if (els.btnSidebarBackToChats) {
-      const onBackToChats = () => {
-        setSidebarMode(els, 'chat');
-        if (typeof callbacks.onBackToChats === 'function') callbacks.onBackToChats();
-      };
-      els.btnSidebarBackToChats.addEventListener('click', onBackToChats);
-      activeCleanupFns.push(() => els.btnSidebarBackToChats.removeEventListener('click', onBackToChats));
-    }
-
-    if (els.btnCloseSidebarSettings) {
-      const onCloseSettings = () => closeSidebar(els);
-      els.btnCloseSidebarSettings.addEventListener('click', onCloseSettings);
-      activeCleanupFns.push(() => els.btnCloseSidebarSettings.removeEventListener('click', onCloseSettings));
-    }
-
-    if (els.sidebarSettingsItems) {
-      els.sidebarSettingsItems.forEach(item => {
-        const sectionId = item.dataset?.section || item.getAttribute('data-section');
-        if (!sectionId) return;
-        const onSelect = () => {
-          if (typeof callbacks.onSelectSettingsSection === 'function') {
-            callbacks.onSelectSettingsSection(sectionId);
-          }
-        };
-        item.addEventListener('click', onSelect);
-        activeCleanupFns.push(() => item.removeEventListener('click', onSelect));
-      });
-    }
-  }
-
-  function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUISidebar] Cleanup failed:', error); } });
-    activeCleanupFns = [];
-    cachedElements = null;
+    const actions = { 'btn-export': callbacks.onExportSession, 'btn-rename': callbacks.onRenameSession, 'btn-delete': callbacks.onDeleteSession };
+    listen(list, 'click', event => {
+      const item = event.target.closest('.sidebar-chat-item');
+      if (!item) return;
+      const sessionId = item.dataset.sessionId;
+      const menuButton = event.target.closest('.btn-chat-menu');
+      if (menuButton) {
+        const menu = item.querySelector('.sidebar-chat-actions');
+        const willOpen = menu.hidden;
+        closeChatMenus(list);
+        menu.hidden = !willOpen;
+        menuButton.setAttribute('aria-expanded', String(willOpen));
+        return;
+      }
+      const actionButton = event.target.closest('.btn-chat-action');
+      if (actionButton) {
+        closeChatMenus(list);
+        const className = Object.keys(actions).find(name => actionButton.classList.contains(name));
+        actions[className](sessionId, event);
+        return;
+      }
+      if (!event.target.closest('.sidebar-chat-menu')) callbacks.onSwitchSession(sessionId);
+    });
+    listen(list, 'keydown', event => {
+      if (event.key !== 'Escape') return;
+      const menu = event.target.closest('.sidebar-chat-menu');
+      if (!menu || menu.querySelector('.sidebar-chat-actions').hidden) return;
+      event.preventDefault();
+      closeChatMenus(list);
+      menu.querySelector('.btn-chat-menu').focus();
+    });
   }
 
   return {
     isMobile,
     setSidebarMode,
     setActiveSettingsSection,
-    toggleSidebar,
     openSidebar,
     closeSidebar,
-    filterSessions,
-    getChronologicalCategory,
     renderSidebarChats,
-    mount,
-    dispose
+    mount
   };
 });

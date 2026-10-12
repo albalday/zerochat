@@ -1,7 +1,6 @@
 /**
- * Módulo de Transferencia para ZeroChat:
- * Gestión del modal de exportación (Markdown, JSON, Print) e importación de conversaciones desde archivo JSON.
- * Reutiliza ChatExport (js/export.js) para los formatos de salida y parseo de datos.
+ * Diálogo de exportación de una conversación (Markdown, JSON o impresión) e importación de una
+ * conversación desde su JSON. Los formatos los genera ChatExport.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,233 +12,106 @@
   'use strict';
 
   const { resolveDep } = Utils;
-
-  function getExport() { return resolveDep('ChatExport', './export.js'); }
-  function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
-
   const { t } = I18n;
 
-  let activeCleanupFns = [];
-  let cachedElements = null;
-  let cachedOptions = {};
+  const getExport = () => resolveDep('ChatExport', './export.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
 
-  function getExportTargetSessionId(elements, fallbackId = '') {
-    return elements?.exportModal?.dataset?.sessionId || fallbackId;
+  // Elementos y callbacks de la aplicación, fijados en mount().
+  let els = null;
+  let options = {};
+  let cleanups = [];
+
+  const targetSessionId = () => els.exportModal.dataset.sessionId || options.getActiveSessionId();
+  const fileBaseName = title => `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}`;
+
+  /** Abre el diálogo para exportar la conversación indicada (la activa si no se indica). */
+  function openExportModal(sessionId) {
+    els.exportModal.dataset.sessionId = sessionId || options.getActiveSessionId();
+    els.exportModal.showModal();
   }
 
-  function openExportModal(elements, targetSessionId = null, fallbackId = '') {
-    const modal = elements?.exportModal;
-    if (modal) {
-      if (!modal.dataset) modal.dataset = {};
-      modal.dataset.sessionId = targetSessionId || fallbackId;
-      if (typeof modal.showModal === 'function') {
-        modal.showModal();
-      } else {
-        modal.style.display = 'block';
-      }
-    }
+  function closeExportModal() {
+    delete els.exportModal.dataset.sessionId;
+    els.exportModal.close();
   }
 
-  function closeExportModal(elements) {
-    const modal = elements?.exportModal;
-    if (modal) {
-      if (modal.dataset) delete modal.dataset.sessionId;
-      if (typeof modal.close === 'function') {
-        modal.close();
-      } else {
-        modal.style.display = 'none';
-      }
+  /** Metadatos e historial de la conversación a exportar: la activa está en memoria, el resto en el almacenamiento. */
+  async function resolveSessionForExport() {
+    const id = targetSessionId();
+    if (id === options.getActiveSessionId()) {
+      const session = options.getSavedSessions().find(item => item.id === id) || { id, title: '' };
+      return { session, history: options.getHistory() };
     }
+    const conversation = await options.getSession(id);
+    return { session: conversation, history: conversation.history || conversation.messages || [] };
   }
 
-  async function resolveSessionForExport(elementsOrTargetId, options = {}) {
-    const activeId = options.getActiveSessionId ? options.getActiveSessionId() : '';
-    const targetId = typeof elementsOrTargetId === 'string' ? elementsOrTargetId : null;
-    const els = typeof elementsOrTargetId === 'object' ? elementsOrTargetId : null;
-    const id = targetId || getExportTargetSessionId(els, activeId);
-    if (!id) return null;
-
-    if (id === activeId) {
-      const savedList = options.getSavedSessions ? options.getSavedSessions() : [];
-      const sess = savedList.find?.(s => s.id === id) || { id, title: 'ZeroChat_Conversation' };
-      const history = options.getHistory ? options.getHistory() : [];
-      return { id, sess, history, messages: history };
-    }
-
-    if (typeof options.getSession === 'function') {
-      const conv = await options.getSession(id);
-      const messages = conv?.history || conv?.messages || [];
-      return { id, sess: conv, history: messages, messages };
-    }
-
-    return null;
-  }
-
-  async function exportConversationAsMarkdown(elements, options = {}) {
-    const session = await resolveSessionForExport(elements, options);
-    const { sess, history } = session || {};
-    const title = (sess && sess.title) || 'ZeroChat_Conversation';
-    const dateStr = new Date().toISOString().slice(0, 10);
+  async function exportConversationAsMarkdown() {
+    const { session, history } = await resolveSessionForExport();
+    const title = session.title || 'ZeroChat_Conversation';
     const Export = getExport();
-    const model = options.getModel ? options.getModel() : '';
-    const md = Export?.buildMarkdownExport ? Export.buildMarkdownExport(history, { title, model }) : '';
-    if (Export?.downloadFile) {
-      Export.downloadFile(md, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.md`, 'text/markdown');
-    }
-    closeExportModal(elements);
+    Export.downloadFile(Export.buildMarkdownExport(history, { title, model: options.getConfig().model }), `${fileBaseName(title)}.md`, 'text/markdown');
+    closeExportModal();
   }
 
-  async function exportConversationAsJson(elements, options = {}) {
-    const session = await resolveSessionForExport(elements, options);
-    const { sess, history } = session || {};
-    const title = (sess && sess.title) || 'ZeroChat_Conversation';
-    const dateStr = new Date().toISOString().slice(0, 10);
+  async function exportConversationAsJson() {
+    const { session, history } = await resolveSessionForExport();
     const Export = getExport();
-    const config = options.getConfig ? options.getConfig() : {};
-    const jsonStr = Export?.buildJsonExport ? Export.buildJsonExport(sess, history, config) : '{}';
-    if (Export?.downloadFile) {
-      Export.downloadFile(jsonStr, `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.json`, 'application/json');
-    }
-    closeExportModal(elements);
+    Export.downloadFile(Export.buildJsonExport(session, history, options.getConfig()), `${fileBaseName(session.title || 'ZeroChat_Conversation')}.json`, 'application/json');
+    closeExportModal();
   }
 
-  async function exportConversationAsPrint(elements, options = {}) {
-    const activeId = options.getActiveSessionId ? options.getActiveSessionId() : '';
-    const targetId = getExportTargetSessionId(elements, activeId);
-    closeExportModal(elements);
-
-    if (targetId && targetId !== activeId && typeof options.onSwitchSession === 'function') {
-      await options.onSwitchSession(targetId);
-    }
-
-    setTimeout(() => {
-      if (typeof window !== 'undefined' && typeof window.print === 'function') {
-        window.print();
-      }
-    }, 200);
+  /** Imprime la conversación: si no es la activa, cambia antes a ella. */
+  async function exportConversationAsPrint() {
+    const id = targetSessionId();
+    closeExportModal();
+    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
+    setTimeout(() => window.print(), 200);
   }
 
-
-  async function handleImportFileSelected(e, elements, options = {}) {
-    const file = e.target?.files && e.target.files[0];
-    if (!file) return;
-
-    if (typeof options.isBusy === 'function' && options.isBusy()) {
-      if (elements?.importJsonInput) elements.importJsonInput.value = '';
-      return;
-    }
-
-    const Dialogs = getDialogs();
-    const check = resolveDep('ChatAttachments', './attachments.js').validateFileSize(file);
-    if (!check.valid) {
-      await Dialogs.alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
-      if (elements?.importJsonInput) elements.importJsonInput.value = '';
-      return;
-    }
-
+  async function handleImportFileSelected() {
+    const input = els.importJsonInput;
+    const file = input.files[0];
     try {
-      const text = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (evt) => resolve(evt.target.result);
-        reader.onerror = (evt) => reject(new Error('Error al leer el archivo'));
-        reader.readAsText(file);
-      });
-
-      const Export = getExport();
-      const baseName = file.name.replace(/\.json$/i, '');
-      const newSession = Export?.parseImportedJson ? Export.parseImportedJson(text, baseName) : null;
-      if (!newSession) throw new Error('Error al procesar el archivo');
-
-      if (typeof options.onImportSuccess === 'function') {
-        await options.onImportSuccess(newSession);
+      if (!file || options.isBusy()) return;
+      const check = resolveDep('ChatAttachments', './attachments.js').validateFileSize(file);
+      if (!check.valid) {
+        await getDialogs().alert(t('err_file_too_large', { name: file.name, max: Utils.formatBytes(check.maxBytes) }), { type: 'error' });
+        return;
       }
-    } catch (err) {
-      console.error('Error al importar archivo:', err);
-      if (Dialogs?.alert) {
-        Dialogs.alert(t('chat_import_json_err', { err: err?.message || err }), { type: 'error' });
-      }
+      const session = getExport().parseImportedJson(await file.text(), file.name.replace(/\.json$/i, ''));
+      await options.onImportSuccess(session);
+    } catch (error) {
+      console.error('[UITransfer] Conversation import failed:', error);
+      getDialogs().alert(t('chat_import_json_err', { err: error?.message || error }), { type: 'error' });
     } finally {
-      if (elements?.importJsonInput) elements.importJsonInput.value = '';
+      input.value = '';
     }
   }
 
-  function mount({ elements, getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy } = {}) {
-    dispose();
-    cachedElements = elements || {};
-    cachedOptions = { getActiveSessionId, getSavedSessions, getHistory, getSession, getConfig, getModel, onSwitchSession, onImportSuccess, isBusy };
-
-    const els = cachedElements;
-
-    if (els.exportModal) {
-      const h = () => { if (els.exportModal.dataset) delete els.exportModal.dataset.sessionId; };
-      els.exportModal.addEventListener('close', h);
-      activeCleanupFns.push(() => els.exportModal.removeEventListener('close', h));
-    }
-
-    if (els.btnCloseExport) {
-      const h = () => closeExportModal(els);
-      els.btnCloseExport.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnCloseExport.removeEventListener('click', h));
-    }
-    if (els.btnCancelExport) {
-      const h = () => closeExportModal(els);
-      els.btnCancelExport.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnCancelExport.removeEventListener('click', h));
-    }
-    if (els.btnExportMarkdown) {
-      const h = () => exportConversationAsMarkdown(els, cachedOptions);
-      els.btnExportMarkdown.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnExportMarkdown.removeEventListener('click', h));
-    }
-    if (els.btnExportJson) {
-      const h = () => exportConversationAsJson(els, cachedOptions);
-      els.btnExportJson.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnExportJson.removeEventListener('click', h));
-    }
-    if (els.btnExportPrint) {
-      const h = () => exportConversationAsPrint(els, cachedOptions);
-      els.btnExportPrint.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnExportPrint.removeEventListener('click', h));
-    }
-
-    if (els.btnImportChatFile) {
-      const h = () => { if (els.importJsonInput) els.importJsonInput.click(); };
-      els.btnImportChatFile.addEventListener('click', h);
-      activeCleanupFns.push(() => els.btnImportChatFile.removeEventListener('click', h));
-    }
-    if (els.importJsonInput) {
-      const h = (e) => handleImportFileSelected(e, els, cachedOptions);
-      els.importJsonInput.addEventListener('change', h);
-      activeCleanupFns.push(() => els.importJsonInput.removeEventListener('change', h));
-    }
-
-    return {
-      openExportModal: (targetSessionId) => openExportModal(els, targetSessionId, cachedOptions.getActiveSessionId?.()),
-      closeExportModal: () => closeExportModal(els),
-      exportConversationAsMarkdown: () => exportConversationAsMarkdown(els, cachedOptions),
-      exportConversationAsJson: () => exportConversationAsJson(els, cachedOptions),
-      exportConversationAsPrint: () => exportConversationAsPrint(els, cachedOptions),
-      handleImportFileSelected: (e) => handleImportFileSelected(e, els, cachedOptions)
+  /**
+   * Conecta el diálogo de exportación y la importación. `callbacks` aporta getActiveSessionId,
+   * getSavedSessions, getHistory, getSession, getConfig, onSwitchSession, onImportSuccess e isBusy.
+   */
+  function mount({ elements, ...callbacks }) {
+    cleanups.forEach(cleanup => cleanup());
+    cleanups = [];
+    els = elements;
+    options = callbacks;
+    const listen = (target, type, handler) => {
+      target.addEventListener(type, handler);
+      cleanups.push(() => target.removeEventListener(type, handler));
     };
+    listen(els.exportModal, 'close', () => { delete els.exportModal.dataset.sessionId; });
+    listen(els.btnCloseExport, 'click', closeExportModal);
+    listen(els.btnCancelExport, 'click', closeExportModal);
+    listen(els.btnExportMarkdown, 'click', exportConversationAsMarkdown);
+    listen(els.btnExportJson, 'click', exportConversationAsJson);
+    listen(els.btnExportPrint, 'click', exportConversationAsPrint);
+    listen(els.btnImportChatFile, 'click', () => els.importJsonInput.click());
+    listen(els.importJsonInput, 'change', handleImportFileSelected);
   }
 
-  function dispose() {
-    activeCleanupFns.forEach(fn => { try { fn(); } catch (error) { console.warn('[ChatUITransfer] Cleanup failed:', error); } });
-    activeCleanupFns = [];
-    cachedElements = null;
-    cachedOptions = {};
-  }
-
-  return {
-    openExportModal,
-    closeExportModal,
-    getExportTargetSessionId,
-    resolveSessionForExport,
-    exportConversationAsMarkdown,
-    exportConversationAsJson,
-    exportConversationAsPrint,
-    handleImportFileSelected,
-    mount,
-    dispose
-  };
+  return { mount, openExportModal };
 }));

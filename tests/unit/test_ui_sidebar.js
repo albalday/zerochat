@@ -1,361 +1,127 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UISidebar = require('../../js/ui-sidebar.js');
+const I18n = require('../../js/i18n.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
-test('UISidebar - filterSessions filtra por título ignorando mayúsculas/minúsculas', () => {
-  const sessions = [
-    { id: '1', title: 'Aprender JS Moderno' },
-    { id: '2', title: 'Receta de Cocina' },
-    { id: '3', title: 'Refactorización de Código JS' }
-  ];
+const DAY_MS = 86400000;
 
-  const resJs = UISidebar.filterSessions(sessions, 'js');
-  assert.equal(resJs.length, 2);
-  assert.equal(resJs[0].id, '1');
-  assert.equal(resJs[1].id, '3');
-
-  const resAll = UISidebar.filterSessions(sessions, '');
-  assert.equal(resAll.length, 3);
-
-  const resNone = UISidebar.filterSessions(sessions, 'inexistente');
-  assert.equal(resNone.length, 0);
-});
-
-test('UISidebar - toggleSidebar, openSidebar y closeSidebar gestionan visibilidad y backdrop', () => {
-  {
-    const fakeSidebar = { style: { display: 'none' } };
-    const fakeToggleBtn = { style: { display: 'inline-flex' } };
-    const elements = { chatSidebar: fakeSidebar, btnToggleSidebar: fakeToggleBtn };
-
-    UISidebar.openSidebar(elements);
-    assert.equal(fakeSidebar.style.display, 'flex');
-    assert.equal(fakeToggleBtn.style.display, 'none');
-
-    UISidebar.closeSidebar(elements);
-    assert.equal(fakeSidebar.style.display, 'none');
-    assert.equal(fakeToggleBtn.style.display, 'inline-flex');
-
-    UISidebar.toggleSidebar(elements);
-    assert.equal(fakeSidebar.style.display, 'flex');
-    assert.equal(fakeToggleBtn.style.display, 'none');
-  }
-
-  {
-    const backdropClasses = new Set();
-    const fakeBackdrop = {
-      classList: {
-        add: (c) => backdropClasses.add(c),
-        remove: (c) => backdropClasses.delete(c),
-        contains: (c) => backdropClasses.has(c)
-      }
-    };
-    const fakeSidebar = {
-      classList: { add() {}, remove() {}, contains: () => false },
-      style: { display: 'none' }
-    };
-    const elements = {
-      chatSidebar: fakeSidebar,
-      sidebarBackdrop: fakeBackdrop
-    };
-
-    // closeSidebar debe retirar visible
-    UISidebar.closeSidebar(elements);
-    assert.equal(backdropClasses.has('visible'), false);
-  }
-});
-
-test('UISidebar - renderSidebarChats renderiza items y marca la sesión activa', () => {
-  const appendedItems = [];
-  const fakeList = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: (tag) => {
-        const el = {
-          tagName: tag,
-          className: '',
-          attributes: {},
-          innerHTML: '',
-          setAttribute: (k, v) => { el.attributes[k] = v; },
-          getAttribute: (k) => el.attributes[k],
-          querySelector: (sel) => ({
-            addEventListener: (evt, handler) => { el['_' + sel] = handler; },
-            setAttribute: () => {}
-          }),
-          addEventListener: (evt, handler) => { el._click = handler; }
-        };
-        return el;
-      }
-    },
-    appendChild: (item) => appendedItems.push(item)
-  };
-
-  const elements = { sidebarChatsList: fakeList };
-  const sessions = [
-    { id: 'sess_1', title: 'Primer Chat', updatedAt: Date.now() },
-    { id: 'sess_2', title: 'Segundo Chat', updatedAt: Date.now() }
-  ];
-
-  let switchedTo = null;
-  UISidebar.renderSidebarChats(elements, sessions, 'sess_2', {
-    onSwitchSession: (id) => { switchedTo = id; }
-  });
-
-  assert.equal(appendedItems.length, 2);
-  assert.ok(!appendedItems[0].className.includes('active'));
-  assert.ok(appendedItems[1].className.includes('active'));
-
-  // Click en el primer chat
-  appendedItems[0]._click({ target: appendedItems[0] });
-  assert.equal(switchedTo, 'sess_1');
-});
-
-test('UISidebar - clasifica por fecha y agrupa con cabeceras', () => {
-  {
-    const now = Date.now();
-    assert.equal(UISidebar.getChronologicalCategory(now), 'today');
-    assert.equal(UISidebar.getChronologicalCategory(now - 86400000), 'yesterday');
-    assert.equal(UISidebar.getChronologicalCategory(now - (3 * 86400000)), 'last7days');
-    assert.equal(UISidebar.getChronologicalCategory(now - (15 * 86400000)), 'last30days');
-    assert.equal(UISidebar.getChronologicalCategory(now - (60 * 86400000)), 'older');
-  }
-
-  {
-    const appendedItems = [];
-    const fakeList = {
-      innerHTML: '',
-      ownerDocument: {
-        createElement: (tag) => ({
-          tagName: tag,
-          className: '',
-          attributes: {},
-          innerHTML: '',
-          textContent: '',
-          setAttribute: () => {},
-          querySelector: () => ({ addEventListener: () => {} }),
-          addEventListener: () => {}
-        })
-      },
-      appendChild: (item) => appendedItems.push(item)
-    };
-
-    const elements = { sidebarChatsList: fakeList };
-    const now = Date.now();
-    const sessions = [
-      { id: 'sess_1', title: 'Hoy Chat', updatedAt: now },
-      { id: 'sess_2', title: 'Ayer Chat', updatedAt: now - 86400000 },
-      { id: 'sess_3', title: 'Viejo Chat', updatedAt: now - (60 * 86400000) }
-    ];
-
-    UISidebar.renderSidebarChats(elements, sessions, 'sess_1', {}, { groupByDate: true });
-
-    // Deben haberse añadido cabeceras de grupo intercaladas
-    const headers = appendedItems.filter(i => i.className === 'sidebar-group-header');
-    assert.equal(headers.length, 3, 'Debe haber 3 cabeceras de grupo');
-    assert.equal(headers[0].textContent, 'Hoy');
-    assert.equal(headers[1].textContent, 'Ayer');
-    assert.equal(headers[2].textContent, 'Anteriores');
-  }
-});
-
-test('UISidebar - renderSidebarChats incluye botón de exportar/archivar por chat y dispara callback', () => {
-  const appendedItems = [];
-  const fakeList = {
-    innerHTML: '',
-    ownerDocument: {
-      createElement: (tag) => {
-        const el = {
-          tagName: tag,
-          className: '',
-          attributes: {},
-          innerHTML: '',
-          setAttribute: (k, v) => { el.attributes[k] = v; },
-          getAttribute: (k) => el.attributes[k],
-          querySelector: (sel) => ({
-            addEventListener: (evt, handler) => { el['_' + sel] = handler; },
-            setAttribute: () => {}
-          }),
-          addEventListener: (evt, handler) => { el._click = handler; }
-        };
-        return el;
-      }
-    },
-    appendChild: (item) => appendedItems.push(item)
-  };
-
-  const elements = { sidebarChatsList: fakeList };
-  const sessions = [
-    { id: 'sess_export_1', title: 'Chat a Exportar', updatedAt: Date.now() }
-  ];
-
-  let exportedSessionId = null;
-  UISidebar.renderSidebarChats(elements, sessions, 'sess_export_1', {
-    onExportSession: (id) => { exportedSessionId = id; }
-  });
-
-  assert.equal(appendedItems.length, 1);
-  assert.ok(appendedItems[0].innerHTML.includes('btn-export'), 'El chat item debe contener el botón .btn-export');
-  assert.ok(typeof appendedItems[0]['_.btn-export'] === 'function', 'Debe registrarse el listener de click para .btn-export');
-
-  // Disparar click en btn-export
-  appendedItems[0]['_.btn-export']({ stopPropagation: () => {} });
-  assert.equal(exportedSessionId, 'sess_export_1', 'Debe invocar onExportSession con el id correspondiente');
-});
-
-test('UISidebar - mount attaches events and dispose cleans them up', () => {
-  const listeners = {};
-  function add(name, evt, fn) { listeners[name + ':' + evt] = fn; }
-  function remove(name, evt) { delete listeners[name + ':' + evt]; }
-
-  const elements = {
-    btnToggleSidebar: {
-      addEventListener: (evt, fn) => add('toggle', evt, fn),
-      removeEventListener: (evt, fn) => remove('toggle', evt, fn)
-    },
-    btnCloseSidebar: {
-      addEventListener: (evt, fn) => add('close', evt, fn),
-      removeEventListener: (evt, fn) => remove('close', evt, fn)
-    },
-    sidebarBackdrop: {
-      addEventListener: (evt, fn) => add('backdrop', evt, fn),
-      removeEventListener: (evt, fn) => remove('backdrop', evt, fn)
-    },
-    btnSidebarNewChat: {
-      addEventListener: (evt, fn) => add('new', evt, fn),
-      removeEventListener: (evt, fn) => remove('new', evt, fn)
-    },
-    sidebarSearchInput: {
-      value: 'test',
-      addEventListener: (evt, fn) => add('search', evt, fn),
-      removeEventListener: (evt, fn) => remove('search', evt, fn)
-    },
-    btnDeleteAllChats: {
-      addEventListener: (evt, fn) => add('deleteAll', evt, fn),
-      removeEventListener: (evt, fn) => remove('deleteAll', evt, fn)
-    }
-  };
-
-  let newSessionCalled = false;
-  let searchQuery = null;
-  let deleteAllCalled = false;
-
+/** Barra lateral real montada con callbacks que registran sus llamadas. */
+function setup(t, { width = 1280 } = {}) {
+  const dom = installDom({ app: true });
+  dom.window.innerWidth = width;
+  const elements = getAppElements(document);
+  const calls = [];
+  const record = name => (...args) => calls.push([name, ...args.filter(arg => typeof arg !== 'object')]);
   UISidebar.mount(elements, {
-    onNewSession: () => { newSessionCalled = true; },
-    onSearchInput: (val) => { searchQuery = val; },
-    onDeleteAllSessions: () => { deleteAllCalled = true; }
+    onSwitchSession: record('switch'),
+    onRenameSession: record('rename'),
+    onDeleteSession: record('delete'),
+    onExportSession: record('export'),
+    onNewSession: record('new'),
+    onSearchInput: record('search'),
+    onDeleteAllSessions: record('deleteAll'),
+    onOpenSettingsMode: record('openSettings'),
+    onBackToChats: record('backToChats'),
+    onSelectSettingsSection: record('section')
   });
+  t.after(() => dom.restore());
+  return { elements, calls };
+}
 
-  // Verificar dispatch
-  listeners['new:click']();
-  assert.equal(newSessionCalled, true);
+const titles = elements => [...elements.sidebarChatsList.querySelectorAll('.sidebar-chat-title')].map(title => title.textContent);
+const headers = elements => [...elements.sidebarChatsList.querySelectorAll('.sidebar-group-header')].map(header => header.textContent);
 
-  listeners['search:input']();
-  assert.equal(searchQuery, 'test');
+test('UISidebar - agrupa por fecha, marca la activa y filtra por título sin agrupar', t => {
+  const { elements } = setup(t);
+  const now = Date.now();
+  const sessions = [
+    { id: 'a', title: 'Hoy <b>', updatedAt: now },
+    { id: 'b', title: 'Ayer', updatedAt: now - DAY_MS - 1000 },
+    { id: 'c', title: 'Semana', updatedAt: now - 3 * DAY_MS },
+    { id: 'd', title: 'Mes', updatedAt: now - 20 * DAY_MS },
+    { id: 'e', title: 'Antiguo', updatedAt: now - 90 * DAY_MS }
+  ];
+  UISidebar.renderSidebarChats(elements, sessions, 'b');
+  assert.deepEqual(headers(elements), ['sidebar_group_today', 'sidebar_group_yesterday', 'sidebar_group_last7days', 'sidebar_group_last30days', 'sidebar_group_older'].map(key => I18n.t(key)));
+  assert.deepEqual(titles(elements), ['Hoy <b>', 'Ayer', 'Semana', 'Mes', 'Antiguo'], 'Los títulos se muestran como texto');
+  assert.equal(elements.sidebarChatsList.querySelector('.sidebar-chat-item.active').dataset.sessionId, 'b');
 
-  listeners['deleteAll:click']();
-  assert.equal(deleteAllCalled, true);
+  elements.sidebarSearchInput.value = 'AYE';
+  UISidebar.renderSidebarChats(elements, sessions, 'b');
+  assert.deepEqual(titles(elements), ['Ayer']);
+  assert.deepEqual(headers(elements), []);
 
-  // Desmontar
-  UISidebar.dispose();
-  assert.equal(listeners['new:click'], undefined);
-  assert.equal(listeners['search:input'], undefined);
-  assert.equal(listeners['deleteAll:click'], undefined);
+  elements.sidebarSearchInput.value = 'nada';
+  UISidebar.renderSidebarChats(elements, sessions, 'b');
+  assert.equal(elements.sidebarChatsList.querySelector('.sidebar-no-chats').textContent, I18n.t('sidebar_no_chats'));
 });
 
-test('UISidebar - setSidebarMode alterna entre chat y settings', () => {
-  const fakeChatView = { hidden: false, style: { display: 'flex' } };
-  const fakeSettingsView = { hidden: true, style: { display: 'none' } };
-  const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
-  const elements = {
-    chatSidebar: fakeSidebar,
-    sidebarViewChat: fakeChatView,
-    sidebarViewSettings: fakeSettingsView
-  };
+test('UISidebar - el menú de una conversación ejecuta su acción sin cambiar a ella', t => {
+  const { elements, calls } = setup(t);
+  UISidebar.renderSidebarChats(elements, [{ id: 's1', title: 'Uno', updatedAt: Date.now() }, { id: 's2', title: 'Dos', updatedAt: Date.now() }], 's1');
+  const item = elements.sidebarChatsList.querySelector('[data-session-id="s2"]');
+  const menuButton = item.querySelector('.btn-chat-menu');
 
-  assert.equal(elements.sidebarViewSettings.hidden, true);
+  menuButton.click();
+  assert.equal(menuButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(item.querySelector('.sidebar-chat-actions').hidden, false);
+  for (const [className, name] of [['.btn-export', 'export'], ['.btn-rename', 'rename'], ['.btn-delete', 'delete']]) {
+    menuButton.click();
+    item.querySelector(className).click();
+    assert.deepEqual(calls.at(-1), [name, 's2']);
+    assert.equal(item.querySelector('.sidebar-chat-actions').hidden, true, 'La acción cierra el menú');
+  }
+  assert.equal(calls.some(([name]) => name === 'switch'), false);
 
-  UISidebar.setSidebarMode(elements, 'settings');
-  assert.equal(fakeChatView.hidden, true);
-  assert.equal(fakeChatView.style.display, 'none');
-  assert.equal(fakeSettingsView.hidden, false);
-  assert.equal(fakeSettingsView.style.display, 'flex');
-  assert.equal(elements.sidebarViewSettings.hidden, false);
+  item.querySelector('.sidebar-chat-title').click();
+  assert.deepEqual(calls.at(-1), ['switch', 's2']);
 
-  UISidebar.setSidebarMode(elements, 'chat');
-  assert.equal(fakeChatView.hidden, false);
-  assert.equal(fakeChatView.style.display, 'flex');
-  assert.equal(fakeSettingsView.hidden, true);
-  assert.equal(fakeSettingsView.style.display, 'none');
-  assert.equal(elements.sidebarViewSettings.hidden, true);
+  menuButton.click();
+  item.querySelector('.btn-rename').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(item.querySelector('.sidebar-chat-actions').hidden, true, 'Escape cierra el menú');
 });
 
-test('UISidebar - mount gestiona navegación de configuración y selección de sección', () => {
-  const listeners = {};
-  function add(name, evt, fn) { listeners[name + ':' + evt] = fn; }
-  function remove(name, evt) { delete listeners[name + ':' + evt]; }
+test('UISidebar - abrir y cerrar la barra en móvil deja el chat inerte detrás del fondo', t => {
+  const { elements } = setup(t, { width: 390 });
+  // En móvil la aplicación arranca con la barra cerrada.
+  UISidebar.closeSidebar(elements);
+  elements.btnToggleSidebar.click();
+  assert.ok(elements.chatSidebar.classList.contains('sidebar-visible'));
+  assert.ok(elements.chatContainer.hasAttribute('inert'));
+  assert.ok(elements.sidebarBackdrop.classList.contains('visible'));
+  assert.equal(elements.btnToggleSidebar.style.display, 'none');
 
-  const fakeChatView = { hidden: false, style: { display: 'flex' } };
-  const fakeSettingsView = { hidden: true, style: { display: 'none' } };
-  const fakeSidebar = { classList: { add: () => {}, remove: () => {}, contains: () => false } };
+  elements.sidebarBackdrop.click();
+  assert.ok(elements.chatSidebar.classList.contains('sidebar-hidden'));
+  assert.equal(elements.chatContainer.hasAttribute('inert'), false);
+  assert.equal(elements.sidebarBackdrop.classList.contains('visible'), false);
+});
 
-  const fakeSettingItemMcp = {
-    dataset: { section: 'mcp' },
-    getAttribute: (name) => name === 'data-section' ? 'mcp' : null,
-    addEventListener: (evt, fn) => add('itemMcp', evt, fn),
-    removeEventListener: (evt, fn) => remove('itemMcp', evt, fn)
-  };
-  const fakeHelpLink = {
-    dataset: {},
-    getAttribute: () => null,
-    addEventListener: (evt, fn) => add('help', evt, fn),
-    removeEventListener: (evt, fn) => remove('help', evt, fn)
-  };
-
-  const elements = {
-    chatSidebar: fakeSidebar,
-    sidebarViewChat: fakeChatView,
-    sidebarViewSettings: fakeSettingsView,
-    btnOpenSettings: {
-      addEventListener: (evt, fn) => add('openSettings', evt, fn),
-      removeEventListener: (evt, fn) => remove('openSettings', evt, fn)
-    },
-    btnSidebarBackToChats: {
-      addEventListener: (evt, fn) => add('backToChats', evt, fn),
-      removeEventListener: (evt, fn) => remove('backToChats', evt, fn)
-    },
-    btnCloseSidebarSettings: {
-      addEventListener: (evt, fn) => add('closeSettings', evt, fn),
-      removeEventListener: (evt, fn) => remove('closeSettings', evt, fn)
-    },
-    sidebarSettingsItems: [fakeSettingItemMcp, fakeHelpLink]
-  };
-
-  let selectedSection = null;
-  let backToChatsCalled = false;
-
-  UISidebar.mount(elements, {
-    onSelectSettingsSection: (sec) => { selectedSection = sec; },
-    onBackToChats: () => { backToChatsCalled = true; }
-  });
-
-  // Pulsar abrir settings en el sidebar cambia a modo settings
-  listeners['openSettings:click']();
-  assert.equal(fakeSettingsView.hidden, false);
+test('UISidebar - navega entre las conversaciones y las secciones de ajustes', t => {
+  const { elements, calls } = setup(t);
+  elements.btnOpenSettings.click();
   assert.equal(elements.sidebarViewSettings.hidden, false);
+  assert.equal(elements.sidebarViewChat.hidden, true);
+  assert.ok(elements.chatSidebar.classList.contains('mode-settings'));
 
-  // Pulsar una sección ejecuta el callback correspondiente
-  listeners['itemMcp:click']();
-  assert.equal(selectedSection, 'mcp');
-  assert.equal(listeners['help:click'], undefined, 'Los enlaces auxiliares no deben activar secciones de configuración');
+  const item = elements.sidebarSettingsItems[0];
+  const withoutSection = [...elements.sidebarSettingsItems].find(button => !button.dataset.section);
+  withoutSection.click();
+  assert.deepEqual(calls.map(([name]) => name), ['openSettings'], 'Un botón sin sección no abre ninguna');
+  item.click();
+  assert.deepEqual(calls.at(-1), ['section', item.dataset.section]);
+  UISidebar.setActiveSettingsSection(elements, item.dataset.section);
+  assert.ok(item.classList.contains('active'));
 
-  // Pulsar volver restaura modo chat
-  listeners['backToChats:click']();
-  assert.equal(fakeSettingsView.hidden, true);
-  assert.equal(fakeChatView.hidden, false);
-  assert.equal(backToChatsCalled, true);
-  assert.equal(elements.sidebarViewSettings.hidden, true);
+  elements.btnSidebarBackToChats.click();
+  assert.equal(elements.sidebarViewChat.hidden, false);
+  assert.equal(item.classList.contains('active'), false, 'Volver a las conversaciones quita la sección activa');
+  assert.deepEqual(calls.map(([name]) => name), ['openSettings', 'section', 'backToChats']);
 
-  UISidebar.dispose();
-  assert.equal(listeners['openSettings:click'], undefined);
-  assert.equal(listeners['backToChats:click'], undefined);
-  assert.equal(listeners['itemMcp:click'], undefined);
+  elements.btnSidebarNewChat.click();
+  elements.sidebarSearchInput.value = 'abc';
+  elements.sidebarSearchInput.dispatchEvent(new Event('input'));
+  elements.btnDeleteAllChats.click();
+  assert.deepEqual(calls.slice(-3), [['new'], ['search', 'abc'], ['deleteAll']]);
 });

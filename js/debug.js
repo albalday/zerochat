@@ -1,7 +1,6 @@
 /**
- * Módulo de Depuración, Logs e Interceptor de Mensajes (ChatDebug) para ZeroChat.
- * Gestiona el panel de logs, el filtrado por pestañas (Todo, Pensamiento, Herramientas, Red, Raw),
- * el formateo de marcas temporales y la ventana emergente de depuración de payloads salientes.
+ * Panel de depuración (ChatDebug): registro filtrable por pestañas (todo, razonamiento, herramientas,
+ * red y crudo), estado de la generación y diálogo que intercepta el payload antes de enviarlo.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -12,358 +11,190 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep } = Utils;
-
-  function getMarkdown() {
-    return resolveDep('ChatMarkdown', './markdown.js');
-  }
-
-
-  function getConversationUI() {
-    return resolveDep('ChatUIConversation', './ui-conversation.js');
-  }
-
-  // Sigue el final del log salvo que el usuario haya subido; force vuelve a engancharlo.
-  function scrollLogToBottom(force = false) {
-    if (dom.debugLogContent) getConversationUI().scrollToBottom(dom.debugLogContent, { force });
-  }
-
+  const { resolveDep, escapeHtml } = Utils;
   const { t } = I18n;
 
+  const MAX_RAW_ENTRIES = 2000;
+  const TAG_KEYS = {
+    network: 'debug_tag_network',
+    tool: 'debug_tag_tool',
+    stats: 'debug_tag_stats',
+    error: 'debug_tag_error',
+    warning: 'debug_tag_warning',
+    system: 'debug_tag_system'
+  };
+  const STATUS_KEYS = { streaming: 'debug_status_streaming', done: 'debug_status_done', error: 'debug_status_error' };
+  // Tipos de entrada que muestra cada pestaña; «todo» muestra todos salvo los crudos.
+  const NETWORK_TYPES = new Set(['network', 'stats', 'error', 'warning']);
+
+  // Elementos de la aplicación, fijados con setElements().
   let dom = {};
   let activeFilter = 'all';
   let activeThinkingBlock = null;
   let rawLogsEnabled = true;
-  const MAX_RAW_ENTRIES = 2000;
 
   function setElements(elements) {
-    dom = elements || {};
+    dom = elements;
   }
 
   function setRawLogsEnabled(enabled) {
     rawLogsEnabled = Boolean(enabled);
   }
 
+  const getFormattedTime = () => new Date().toTimeString().split(' ')[0];
 
-  function getFormattedTime() {
-    const now = new Date();
-    return now.toTimeString().split(' ')[0];
+  // Sigue el final del log salvo que el usuario haya subido; force vuelve a engancharlo.
+  function scrollLogToBottom(force = false) {
+    resolveDep('ChatUIConversation', './ui-conversation.js').scrollToBottom(dom.debugLogContent, { force });
+  }
+
+  function isVisibleIn(filter, type) {
+    if (filter === 'all') return type !== 'raw';
+    if (filter === 'network') return NETWORK_TYPES.has(type);
+    return filter === type;
   }
 
   function togglePanel(forceOpen) {
-    if (!dom.debugPanel) return;
-    const isVisible = dom.debugPanel.style.display !== 'none';
-    const shouldOpen = (forceOpen !== undefined) ? forceOpen : !isVisible;
-
-    if (shouldOpen) {
-      dom.debugPanel.style.display = 'flex';
-      dom.debugPanel.setAttribute('aria-hidden', 'false');
-      if (dom.btnToggleDebug) {
-        dom.btnToggleDebug.classList.add('active');
-        dom.btnToggleDebug.setAttribute('aria-expanded', 'true');
-      }
-      scrollLogToBottom(true);
-    } else {
-      dom.debugPanel.style.display = 'none';
-      dom.debugPanel.setAttribute('aria-hidden', 'true');
-      if (dom.btnToggleDebug) {
-        dom.btnToggleDebug.classList.remove('active');
-        dom.btnToggleDebug.setAttribute('aria-expanded', 'false');
-      }
-    }
+    const shouldOpen = forceOpen !== undefined ? forceOpen : dom.debugPanel.style.display === 'none';
+    dom.debugPanel.style.display = shouldOpen ? 'flex' : 'none';
+    dom.debugPanel.setAttribute('aria-hidden', String(!shouldOpen));
+    dom.btnToggleDebug.classList.toggle('active', shouldOpen);
+    dom.btnToggleDebug.setAttribute('aria-expanded', String(shouldOpen));
+    if (shouldOpen) scrollLogToBottom(true);
   }
 
   function setStatus(status, text) {
-    if (!dom.debugStatusIndicator) return;
     dom.debugStatusIndicator.className = `debug-status-indicator ${status || 'idle'}`;
-    let label = text;
-    if (!label) {
-      if (status === 'streaming') label = t('debug_status_streaming');
-      else if (status === 'done') label = t('debug_status_done');
-      else if (status === 'error') label = t('debug_status_error');
-      else label = t('debug_status_idle');
-    }
-    dom.debugStatusIndicator.textContent = label;
+    dom.debugStatusIndicator.textContent = text || t(STATUS_KEYS[status] || 'debug_status_idle');
   }
 
   function clearLogs() {
-    if (!dom.debugLogContent) return;
     dom.debugLogContent.innerHTML = `
       <div class="debug-entry debug-entry-system" data-type="system">
         <span class="debug-time">[${getFormattedTime()}]</span>
-        <span class="debug-tag system">[${t('debug_tag_system')}]</span>
-        <span class="debug-msg">${t('debug_sys_cleared')}</span>
+        <span class="debug-tag system">[${escapeHtml(t('debug_tag_system'))}]</span>
+        <span class="debug-msg">${escapeHtml(t('debug_sys_cleared'))}</span>
       </div>
     `;
     activeThinkingBlock = null;
   }
 
-  async function copyLogs() {
-    if (!dom.debugLogContent || !dom.btnCopyDebug) return false;
-    try {
-      const text = dom.debugLogContent.innerText;
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-      }
-      const originalHtml = dom.btnCopyDebug.innerHTML;
-      dom.btnCopyDebug.innerHTML = Icons.get('check', { size: 13 });
-      setTimeout(() => {
-        dom.btnCopyDebug.innerHTML = originalHtml;
-      }, 1500);
-      return true;
-    } catch (e) {
-      console.error('ChatDebug: Error al copiar logs:', e);
-      return false;
-    }
+  function copyLogs() {
+    return Utils.copyToClipboard(dom.debugLogContent.innerText, dom.btnCopyDebug, Icons.get('check', { size: 13 }));
   }
 
-  function getDoc() {
-    if (typeof document !== 'undefined') return document;
-    if (typeof window !== 'undefined' && window.document) return window.document;
-    return null;
-  }
-
-  function addLog(type, text, rawData) {
-    if (!dom.debugLogContent) return;
-    const doc = getDoc();
-    if (!doc || typeof doc.createElement !== 'function') return;
-    const Markdown = getMarkdown();
-
-    // 1. Logs RAW
-    if (type === 'raw') {
-      if (!rawLogsEnabled) return;
-
-      const entry = doc.createElement('div');
-      const isOutgoing = (rawData && rawData.subtype === 'outgoing') || String(text).startsWith('>>>');
-      entry.className = `debug-entry debug-entry-raw ${isOutgoing ? 'raw-outgoing' : 'raw-incoming'}`;
-      entry.setAttribute('data-type', 'raw');
-
-      entry.innerHTML = `
-        <div class="debug-entry-header">
-          <span class="debug-time">[${getFormattedTime()}]</span>
-          <span class="debug-tag raw">${isOutgoing ? 'RAW OUT' : 'RAW IN'}</span>
-        </div>
-        <div class="debug-msg">${Markdown.escapeHtml(text)}</div>
-      `;
-
-      if (activeFilter !== 'raw') {
-        entry.style.display = 'none';
-      }
-
-      dom.debugLogContent.appendChild(entry);
-
-      // Limitar el número de entradas raw para evitar acumulación excesiva en memoria
-      const rawEntries = dom.debugLogContent.querySelectorAll('[data-type="raw"]');
-      if (rawEntries.length > MAX_RAW_ENTRIES) {
-        rawEntries[0].remove();
-      }
-
-      scrollLogToBottom();
-      return;
-    }
-
-    // 2. Logs de Razonamiento / Thinking
-    if (type === 'thinking') {
-      if (!activeThinkingBlock) {
-        const entry = doc.createElement('div');
-        entry.className = 'debug-entry debug-entry-thinking';
-        entry.setAttribute('data-type', 'thinking');
-        entry.innerHTML = `
-          <div class="debug-entry-header">
-            <span class="debug-time">[${getFormattedTime()}]</span>
-            <span class="debug-tag thinking">${t('debug_tag_thinking')}</span>
-          </div>
-          <div class="debug-msg"></div>
-        `;
-        dom.debugLogContent.appendChild(entry);
-        activeThinkingBlock = entry.querySelector('.debug-msg');
-
-        if (activeFilter !== 'all' && activeFilter !== 'thinking') {
-          entry.style.display = 'none';
-        }
-      }
-
-      if (activeThinkingBlock) {
-        activeThinkingBlock.textContent += text;
-      }
-
-      scrollLogToBottom();
-      return;
-    }
-
-    // 3. Otros tipos (network, tool, stats, error, system, info)
-    activeThinkingBlock = null;
-
-    const entry = doc.createElement('div');
-    entry.className = `debug-entry debug-entry-${type || 'info'}`;
-    entry.setAttribute('data-type', type || 'info');
-
-    let tagLabel = t('debug_tag_info');
-    if (type === 'network') tagLabel = t('debug_tag_network');
-    else if (type === 'tool') tagLabel = t('debug_tag_tool');
-    else if (type === 'stats') tagLabel = t('debug_tag_stats');
-    else if (type === 'error') tagLabel = t('debug_tag_error');
-    else if (type === 'warning') tagLabel = t('debug_tag_warning');
-    else if (type === 'system') tagLabel = t('debug_tag_system');
-
+  function createEntry(type, tagHtml, messageHtml, className = `debug-entry-${type}`) {
+    const entry = document.createElement('div');
+    entry.className = `debug-entry ${className}`;
+    entry.dataset.type = type;
     entry.innerHTML = `
       <div class="debug-entry-header">
         <span class="debug-time">[${getFormattedTime()}]</span>
-        <span class="debug-tag ${type || 'info'}">[${tagLabel}]</span>
+        ${tagHtml}
       </div>
-      <div class="debug-msg">${Markdown.escapeHtml(text)}</div>
+      <div class="debug-msg">${messageHtml}</div>
     `;
-
-    if (activeFilter === 'raw') {
-      entry.style.display = 'none';
-    } else if (activeFilter !== 'all') {
-      const match = (activeFilter === type) ||
-                    (activeFilter === 'tool' && type === 'tool') ||
-                    (activeFilter === 'network' && (type === 'network' || type === 'stats' || type === 'error' || type === 'warning'));
-      if (!match) entry.style.display = 'none';
-    }
-
+    if (!isVisibleIn(activeFilter, type)) entry.style.display = 'none';
     dom.debugLogContent.appendChild(entry);
+    return entry;
+  }
+
+  /**
+   * Añade una entrada al registro. El razonamiento ('thinking') se acumula en un bloque hasta la
+   * siguiente entrada de otro tipo; las crudas ('raw') solo se guardan si están activadas.
+   */
+  function addLog(type, text, rawData) {
+    if (type === 'raw') {
+      if (!rawLogsEnabled) return;
+      const isOutgoing = rawData?.subtype === 'outgoing' || String(text).startsWith('>>>');
+      createEntry('raw', `<span class="debug-tag raw">${isOutgoing ? 'RAW OUT' : 'RAW IN'}</span>`, escapeHtml(text), `debug-entry-raw ${isOutgoing ? 'raw-outgoing' : 'raw-incoming'}`);
+      // Las entradas crudas se acotan para no acumular memoria.
+      const rawEntries = dom.debugLogContent.querySelectorAll('[data-type="raw"]');
+      if (rawEntries.length > MAX_RAW_ENTRIES) rawEntries[0].remove();
+    } else if (type === 'thinking') {
+      if (!activeThinkingBlock) {
+        activeThinkingBlock = createEntry('thinking', `<span class="debug-tag thinking">${escapeHtml(t('debug_tag_thinking'))}</span>`, '').querySelector('.debug-msg');
+      }
+      activeThinkingBlock.textContent += text;
+    } else {
+      activeThinkingBlock = null;
+      const entryType = type || 'info';
+      createEntry(entryType, `<span class="debug-tag ${escapeHtml(entryType)}">[${escapeHtml(t(TAG_KEYS[entryType] || 'debug_tag_info'))}]</span>`, escapeHtml(text));
+    }
     scrollLogToBottom();
   }
 
   function filterLogs(tabId) {
     activeFilter = tabId;
-    if (!dom.debugLogContent) return;
-
-    const entries = dom.debugLogContent.querySelectorAll('.debug-entry');
-    entries.forEach(entry => {
-      const type = entry.getAttribute('data-type');
-      if (tabId === 'all') {
-        entry.style.display = (type === 'raw') ? 'none' : 'flex';
-      } else if (tabId === 'thinking') {
-        entry.style.display = (type === 'thinking') ? 'flex' : 'none';
-      } else if (tabId === 'tool') {
-        entry.style.display = (type === 'tool') ? 'flex' : 'none';
-      } else if (tabId === 'network') {
-        entry.style.display = (type === 'network' || type === 'stats' || type === 'error' || type === 'warning') ? 'flex' : 'none';
-      } else if (tabId === 'raw') {
-        entry.style.display = (type === 'raw') ? 'flex' : 'none';
-      }
+    dom.debugLogContent.querySelectorAll('.debug-entry').forEach(entry => {
+      entry.style.display = isVisibleIn(tabId, entry.dataset.type) ? 'flex' : 'none';
     });
     scrollLogToBottom(true);
   }
 
-  function openInterceptorModal({ endpoint, headers, payload, onSyncDebugState }) {
-    ensureDialogMarkup();
-    return new Promise((resolve) => {
-      if (!dom.debugInterceptorDialog) {
-        return resolve({ cancel: false, modifiedPayload: null });
-      }
+  const MAXIMIZE_SVG = Icons.get('shuffle', { size: 14 });
+  const RESTORE_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
 
+  /**
+   * Muestra el payload saliente para revisarlo o editarlo. Resuelve { cancel: true } al cancelar o
+   * { cancel: false, modifiedPayload } al enviar; «enviar y parar» desactiva además el interceptor.
+   */
+  function openInterceptorModal({ endpoint, payload, onSyncDebugState }) {
+    return new Promise(resolve => {
+      const dialog = dom.debugInterceptorDialog;
+      const showJsonError = error => {
+        dom.debugJsonError.textContent = t('debug_json_error_invalid', { error: error.message });
+        dom.debugJsonError.style.display = 'block';
+      };
       let isMaximized = false;
-      const MAXIMIZE_SVG = Icons.get('shuffle', { size: 14 });
-      const RESTORE_SVG = '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
+      dom.btnMaximizeDebugModal.innerHTML = MAXIMIZE_SVG;
+      dom.debugModalEndpointBadge.textContent = `POST ${endpoint}`;
+      dom.txtDebugPayload.value = JSON.stringify(payload, null, 2);
+      dom.debugJsonError.style.display = 'none';
+      dom.debugJsonError.textContent = '';
 
-      if (dom.btnMaximizeDebugModal) {
-        dom.btnMaximizeDebugModal.innerHTML = MAXIMIZE_SVG;
-      }
-
-      if (dom.debugModalEndpointBadge) {
-        dom.debugModalEndpointBadge.textContent = `POST ${endpoint}`;
-      }
-      if (dom.txtDebugPayload) {
-        dom.txtDebugPayload.value = JSON.stringify(payload, null, 2);
-      }
-      if (dom.debugJsonError) {
-        dom.debugJsonError.style.display = 'none';
-        dom.debugJsonError.textContent = '';
-      }
-
-      function cleanup() {
-        if (dom.debugInterceptorDialog.open) {
-          dom.debugInterceptorDialog.close();
-        }
-        dom.debugInterceptorDialog.classList.remove('maximized');
-        if (dom.btnMaximizeDebugModal) dom.btnMaximizeDebugModal.onclick = null;
-        if (dom.btnDebugSend) dom.btnDebugSend.onclick = null;
-        if (dom.btnDebugSendDisable) dom.btnDebugSendDisable.onclick = null;
-        if (dom.btnCloseDebugModal) dom.btnCloseDebugModal.onclick = null;
-        if (dom.btnFormatDebugJson) dom.btnFormatDebugJson.onclick = null;
-        if (dom.btnCopyDebugJson) dom.btnCopyDebugJson.onclick = null;
-      }
-
-      if (dom.btnMaximizeDebugModal) {
-        dom.btnMaximizeDebugModal.onclick = () => {
-          isMaximized = !isMaximized;
-          dom.debugInterceptorDialog.classList.toggle('maximized', isMaximized);
-          dom.btnMaximizeDebugModal.innerHTML = isMaximized ? RESTORE_SVG : MAXIMIZE_SVG;
-        };
-      }
-
-      if (dom.btnFormatDebugJson) {
-        dom.btnFormatDebugJson.onclick = () => {
-          try {
-            const parsed = JSON.parse(dom.txtDebugPayload.value);
-            dom.txtDebugPayload.value = JSON.stringify(parsed, null, 2);
-            if (dom.debugJsonError) dom.debugJsonError.style.display = 'none';
-          } catch (err) {
-            if (dom.debugJsonError) {
-              dom.debugJsonError.textContent = t('debug_json_error_invalid', { error: err.message });
-              dom.debugJsonError.style.display = 'block';
-            }
-          }
-        };
-      }
-
-      if (dom.btnCopyDebugJson) {
-        dom.btnCopyDebugJson.onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(dom.txtDebugPayload.value);
-            const span = dom.btnCopyDebugJson.querySelector('span');
-            if (span) {
-              const old = span.textContent;
-              span.textContent = t('copied_text');
-              setTimeout(() => { span.textContent = old; }, 1500);
-            }
-          } catch (e) { /* portapapeles denegado: el JSON sigue visible para copiarlo a mano */ }
-        };
-      }
-
-      function handleSend(disableDebug = false) {
+      const buttons = [dom.btnMaximizeDebugModal, dom.btnDebugSend, dom.btnDebugSendDisable, dom.btnCloseDebugModal, dom.btnFormatDebugJson, dom.btnCopyDebugJson];
+      const finish = result => {
+        if (dialog.open) dialog.close();
+        dialog.classList.remove('maximized');
+        buttons.forEach(button => { button.onclick = null; });
+        resolve(result);
+      };
+      const send = disableDebug => {
         let editedJson = null;
         const raw = dom.txtDebugPayload.value.trim();
         if (raw) {
           try {
             editedJson = JSON.parse(raw);
-          } catch (err) {
-            if (dom.debugJsonError) {
-              dom.debugJsonError.textContent = t('debug_json_error_invalid', { error: err.message });
-              dom.debugJsonError.style.display = 'block';
-            }
+          } catch (error) {
+            showJsonError(error);
             return;
           }
         }
+        if (disableDebug) onSyncDebugState(false);
+        finish({ cancel: false, modifiedPayload: editedJson });
+      };
 
-        if (disableDebug && typeof onSyncDebugState === 'function') {
-          onSyncDebugState(false);
+      dom.btnMaximizeDebugModal.onclick = () => {
+        isMaximized = !isMaximized;
+        dialog.classList.toggle('maximized', isMaximized);
+        dom.btnMaximizeDebugModal.innerHTML = isMaximized ? RESTORE_SVG : MAXIMIZE_SVG;
+      };
+      dom.btnFormatDebugJson.onclick = () => {
+        try {
+          dom.txtDebugPayload.value = JSON.stringify(JSON.parse(dom.txtDebugPayload.value), null, 2);
+          dom.debugJsonError.style.display = 'none';
+        } catch (error) {
+          showJsonError(error);
         }
-
-        cleanup();
-        resolve({ cancel: false, modifiedPayload: editedJson });
-      }
-
-      if (dom.btnDebugSend) {
-        dom.btnDebugSend.onclick = () => handleSend(false);
-      }
-      if (dom.btnDebugSendDisable) {
-        dom.btnDebugSendDisable.onclick = () => handleSend(true);
-      }
-      if (dom.btnCloseDebugModal) {
-        dom.btnCloseDebugModal.onclick = () => {
-          cleanup();
-          resolve({ cancel: true });
-        };
-      }
-      dom.debugInterceptorDialog.showModal();
-      if (dom.txtDebugPayload) {
-        dom.txtDebugPayload.focus();
-      }
+      };
+      dom.btnCopyDebugJson.onclick = () => Utils.copyToClipboard(dom.txtDebugPayload.value, dom.btnCopyDebugJson,
+        `${Icons.get('check', { size: 13 })}<span>${escapeHtml(t('copied_text'))}</span>`);
+      dom.btnDebugSend.onclick = () => send(false);
+      dom.btnDebugSendDisable.onclick = () => send(true);
+      dom.btnCloseDebugModal.onclick = () => finish({ cancel: true });
+      dialog.showModal();
+      dom.txtDebugPayload.focus();
     });
   }
 
@@ -412,68 +243,29 @@
     </div>`;
   }
 
+  /** Inserta el marcado del diálogo interceptor, que zerochat.html deja vacío. */
   function ensureDialogMarkup() {
-    if (typeof document === 'undefined') return;
     const dialog = document.getElementById('debug-interceptor-dialog');
-    if (dialog && !dialog.firstElementChild) {
-      dialog.innerHTML = getDebugInterceptorDialogHTML();
-    }
-    if (!dialog) return;
-    dom.debugInterceptorDialog = dialog;
-    dom.btnMaximizeDebugModal = dialog.querySelector('#btn-maximize-debug-modal');
-    dom.debugModalEndpointBadge = dialog.querySelector('#debug-modal-endpoint-badge');
-    dom.btnFormatDebugJson = dialog.querySelector('#btn-format-debug-json');
-    dom.btnCopyDebugJson = dialog.querySelector('#btn-copy-debug-json');
-    dom.txtDebugPayload = dialog.querySelector('#txt-debug-payload');
-    dom.debugJsonError = dialog.querySelector('#debug-json-error');
-    dom.btnCloseDebugModal = dialog.querySelector('#btn-close-debug-modal');
-    dom.btnDebugSendDisable = dialog.querySelector('#btn-debug-send-disable');
-    dom.btnDebugSend = dialog.querySelector('#btn-debug-send');
+    if (!dialog.firstElementChild) dialog.innerHTML = getDebugInterceptorDialogHTML();
   }
 
-  let globalHandlersRegistered = false;
-
-  function registerGlobalErrorHandlers(targetWindow = (typeof window !== 'undefined' ? window : null)) {
-    if (!targetWindow || typeof targetWindow.addEventListener !== 'function') return false;
-    const isDefaultWindow = typeof window !== 'undefined' && targetWindow === window;
-    if (isDefaultWindow) {
-      if (globalHandlersRegistered) return true;
-      globalHandlersRegistered = true;
-    }
-
-    targetWindow.addEventListener('unhandledrejection', (event) => {
-      try {
-        const reason = event?.reason;
-        if (reason && (reason.name === 'AbortError' || (typeof reason.message === 'string' && reason.message.includes('aborted')))) {
-          return;
-        }
-        const text = reason?.stack || reason?.message || String(reason || 'Unknown unhandled rejection');
-        addLog('error', `[Unhandled Promise] ${text}`);
-      } catch (_) { /* no se registra un fallo del propio registro para evitar recursión */ }
+  /** Registra en el panel los errores y las promesas rechazadas sin capturar; ignora las cancelaciones. */
+  function registerGlobalErrorHandlers(targetWindow) {
+    const isAbort = error => error?.name === 'AbortError' || (typeof error?.message === 'string' && error.message.includes('aborted'));
+    targetWindow.addEventListener('unhandledrejection', event => {
+      if (isAbort(event.reason)) return;
+      addLog('error', `[Unhandled Promise] ${event.reason?.stack || event.reason?.message || String(event.reason || 'Unknown unhandled rejection')}`);
     });
-
-    targetWindow.addEventListener('error', (event) => {
-      try {
-        if (event?.error && (event.error.name === 'AbortError' || (typeof event.error.message === 'string' && event.error.message.includes('aborted')))) {
-          return;
-        }
-        const msg = event?.message || event?.error?.message || 'Runtime error';
-        const source = event?.filename ? ` at ${event.filename}:${event.lineno || 0}` : '';
-        addLog('error', `[Runtime Error] ${msg}${source}`);
-      } catch (_) { /* no se registra un fallo del propio registro para evitar recursión */ }
+    targetWindow.addEventListener('error', event => {
+      if (isAbort(event.error)) return;
+      const source = event.filename ? ` at ${event.filename}:${event.lineno || 0}` : '';
+      addLog('error', `[Runtime Error] ${event.message || event.error?.message || 'Runtime error'}${source}`);
     });
-
-    return true;
-  }
-
-  if (typeof window !== 'undefined') {
-    registerGlobalErrorHandlers(window);
   }
 
   return {
     setElements,
     setRawLogsEnabled,
-    getFormattedTime,
     togglePanel,
     setStatus,
     clearLogs,
@@ -482,7 +274,6 @@
     filterLogs,
     openInterceptorModal,
     ensureDialogMarkup,
-    getDebugInterceptorDialogHTML,
     registerGlobalErrorHandlers
   };
 }));

@@ -1,98 +1,76 @@
 /**
- * Módulo de Exportación e Importación (ChatExport) para ZeroChat.
- * Gestiona la serialización a Markdown, JSON estructurado, impresión y parseo de archivos importados.
+ * Formatos de exportación e importación de conversaciones (ChatExport): Markdown, JSON de sesión y
+ * descarga de archivos.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./defaults.js'));
   } else {
-    root.ChatExport = factory(root.ChatUtils);
+    root.ChatExport = factory(root.ChatUtils, root.ChatI18n, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Defaults) {
   'use strict';
 
   const { createId } = Utils;
+  const { t } = I18n;
+  const DEFAULT_TITLE = 'ZeroChat_Conversation';
 
+  /** Descarga `content` como archivo; devuelve false si el navegador no lo permite. */
   function downloadFile(content, filename, mimeType) {
-    if (typeof document === 'undefined' || typeof URL === 'undefined') return false;
     try {
-      const blob = new Blob([content], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       URL.revokeObjectURL(url);
       return true;
-    } catch (e) {
-      console.error('ChatExport: Error al descargar archivo:', e);
+    } catch (error) {
+      console.error('[ChatExport] Download failed:', error);
       return false;
     }
   }
 
-  function buildMarkdownExport(chatHistory, options = {}) {
-    const title = options.title || 'ZeroChat_Conversation';
-    const model = options.model || (options.t ? options.t('not_specified') : 'No especificado');
-    const dateStr = options.date || new Date().toLocaleString();
-    const userRole = options.userRole || (options.t ? options.t('role_user') : '👤 Usuario');
-    const assistantRole = options.assistantRole || (options.t ? options.t('role_assistant') : '🤖 Asistente');
-    const exportDateLabel = options.exportDateLabel || (options.t ? options.t('export_date') : 'Fecha de exportación');
-    const modelLabel = options.modelLabel || (options.t ? options.t('field_model') : 'Modelo');
-
-    let md = `# ${title}\n\n*${exportDateLabel}: ${dateStr}*\n*${modelLabel}: ${model}*\n\n---\n\n`;
-
-    (chatHistory || []).forEach(m => {
-      if (!m || m.role === 'system') return;
-      if (m.role === 'user') {
-        const contentStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        md += `### ${userRole}\n\n${contentStr}\n\n---\n\n`;
-      } else if (m.role === 'assistant' && m.content) {
-        md += `### ${assistantRole}\n\n${m.content}\n\n---\n\n`;
+  /** Conversación en Markdown: los mensajes del usuario y las respuestas, sin el prompt de sistema. */
+  function buildMarkdownExport(chatHistory, { title = DEFAULT_TITLE, model = '' } = {}) {
+    let md = `# ${title}\n\n*${t('export_date')}: ${new Date().toLocaleString()}*\n*${t('export_model')}: ${model || t('not_specified')}*\n\n---\n\n`;
+    for (const message of chatHistory) {
+      if (message.role === 'user') {
+        md += `### ${t('role_user')}\n\n${typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}\n\n---\n\n`;
+      } else if (message.role === 'assistant' && message.content) {
+        md += `### ${t('role_assistant')}\n\n${message.content}\n\n---\n\n`;
       }
-    });
-
+    }
     return md;
   }
 
-  function buildJsonExport(sessionMeta = {}, chatHistory = [], appConfig = {}) {
-    const title = sessionMeta.title || 'ZeroChat_Conversation';
-    const exportData = {
-      version: '5.1',
+  function buildJsonExport(sessionMeta, chatHistory, appConfig) {
+    return JSON.stringify({
+      version: Defaults.APP_VERSION,
       app: 'ZeroChat',
       exportedAt: new Date().toISOString(),
       session: {
-        id: sessionMeta.id || ('session_' + Date.now()),
-        title: title,
+        id: sessionMeta.id,
+        title: sessionMeta.title || DEFAULT_TITLE,
         createdAt: sessionMeta.createdAt || Date.now(),
         updatedAt: Date.now(),
         history: chatHistory
       },
-      config: {
-        model: appConfig.model || '',
-        apiUrl: appConfig.apiUrl || '',
-        apiType: appConfig.apiType || ''
-      }
-    };
-    return JSON.stringify(exportData, null, 2);
+      config: { model: appConfig.model, apiUrl: appConfig.apiUrl, apiType: appConfig.apiType }
+    }, null, 2);
   }
 
-  function parseImportedJson(jsonString, defaultTitle = 'Conversación Importada') {
-    if (!jsonString || typeof jsonString !== 'string') {
-      throw new Error('El contenido proporcionado no es una cadena JSON válida.');
-    }
-
+  /** Sesión nueva a partir de un JSON exportado; conserva el historial con otro id. */
+  function parseImportedJson(jsonString, defaultTitle) {
     const data = JSON.parse(jsonString);
     const importedSession = data.session || data;
-
     if (!importedSession || !Array.isArray(importedSession.history)) {
-      throw new Error('El archivo no contiene un historial de chat válido (propiedad history ausente).');
+      throw new Error('The file does not contain a valid chat history (missing history property).');
     }
-
-    const newId = createId('session');
     return {
-      id: newId,
+      id: createId('session'),
       title: importedSession.title || defaultTitle,
       createdAt: importedSession.createdAt || Date.now(),
       updatedAt: Date.now(),
@@ -154,20 +132,10 @@
     </div>`;
   }
 
+  /** Inserta el marcado del diálogo de exportación, que zerochat.html deja vacío. */
   function ensureDialogMarkup() {
-    if (typeof document === 'undefined') return;
     const dialog = document.getElementById('export-modal');
-    if (dialog && !dialog.firstElementChild) {
-      dialog.innerHTML = getExportModalHTML();
-    }
-  }
-
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
-    } else {
-      ensureDialogMarkup();
-    }
+    if (!dialog.firstElementChild) dialog.innerHTML = getExportModalHTML();
   }
 
   return {
@@ -175,7 +143,6 @@
     buildMarkdownExport,
     buildJsonExport,
     parseImportedJson,
-    ensureDialogMarkup,
-    getExportModalHTML
+    ensureDialogMarkup
   };
 }));

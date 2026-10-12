@@ -20,7 +20,7 @@ test('Contexto temporal - conserva fecha en IndexedDB, exportación y compactaci
   await Database.closeDatabase();
   const loaded = await Storage.getConversation(session.id);
   assert.equal(loaded.history[0].contextDateAnchor, anchor);
-  const imported = Export.parseImportedJson(Export.buildJsonExport(session, loaded.history));
+  const imported = Export.parseImportedJson(Export.buildJsonExport(session, loaded.history, { model: 'm', apiUrl: 'u', apiType: 'openai' }), session.title);
   assert.equal(imported.history[0].contextDateAnchor, anchor);
   const compacted = await Context.compressHistory({
     messages: imported.history,

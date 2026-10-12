@@ -18,6 +18,7 @@ function setup(t, { apiType = 'openai', apiUrl = 'http://localhost:1234/v1', mod
   Storage.deleteStorageItem('cached_models');
   Storage.deleteStorageItem(WebLLM.COMPLETED_MODELS_STORAGE_KEY);
   const elements = getAppElements(document);
+  require('../../js/debug.js').setElements(elements);
   elements.settingApiType.value = apiType;
   elements.settingApiUrl.value = apiUrl;
   elements.settingModel.value = model;

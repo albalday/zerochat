@@ -70,7 +70,14 @@ function getElements(document, ids) {
  */
 function getAppElements(document) {
   const camel = id => id.replace(/-([a-z0-9])/g, (_match, char) => char.toUpperCase());
-  return Object.fromEntries([...document.querySelectorAll('[id]')].map(element => [camel(element.id), element]));
+  return {
+    ...Object.fromEntries([...document.querySelectorAll('[id]')].map(element => [camel(element.id), element])),
+    // Las mismas colecciones que app.js añade a sus elementos.
+    sidebarSettingsItems: document.querySelectorAll('.sidebar-settings-item'),
+    debugTabs: document.querySelectorAll('.debug-tab'),
+    themeButtons: document.querySelectorAll('.btn-theme-toggle'),
+    langButtons: document.querySelectorAll('.btn-lang-toggle')
+  };
 }
 
 module.exports = { installDom, getAppMarkup, getElements, getAppElements };

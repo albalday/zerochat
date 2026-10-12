@@ -1,69 +1,91 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITransfer = require('../../js/ui-transfer.js');
+const Export = require('../../js/export.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
 
-test('UITransfer - openExportModal and closeExportModal manage dialog open state', () => {
-  let modalOpened = false;
-  let modalClosed = false;
-  const mockElements = {
-    exportModal: {
-      open: false,
-      showModal: () => { modalOpened = true; mockElements.exportModal.open = true; },
-      close: () => { modalClosed = true; mockElements.exportModal.open = false; }
-    }
-  };
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
-  UITransfer.openExportModal(mockElements, 'chat_123');
-  assert.equal(modalOpened, true);
-  assert.equal(UITransfer.getExportTargetSessionId(mockElements), 'chat_123');
-
-  UITransfer.closeExportModal(mockElements);
-  assert.equal(modalClosed, true);
-  assert.equal(UITransfer.getExportTargetSessionId(mockElements), '');
-});
-
-test('UITransfer - resolveSessionForExport returns active session when matching target', async () => {
-  const mockMessages = [{ role: 'user', content: 'Activo' }];
-  const session = await UITransfer.resolveSessionForExport('chat_active', {
-    getActiveSessionId: () => 'chat_active',
-    getHistory: () => mockMessages
-  });
-
-  assert.notEqual(session, null);
-  assert.equal(session.id, 'chat_active');
-  assert.deepEqual(session.messages, mockMessages);
-});
-
-test('UITransfer - mount limpia la sesión de destino al cerrar el modal y rechaza archivos demasiado grandes', async () => {
-  const listeners = {};
-  const makeTarget = (name, extra = {}) => ({
-    ...extra,
-    addEventListener: (evt, fn) => { listeners[`${name}:${evt}`] = fn; },
-    removeEventListener: (evt) => { delete listeners[`${name}:${evt}`]; }
-  });
-  const elements = {
-    exportModal: makeTarget('modal', { dataset: { sessionId: 'session_a' } }),
-    importJsonInput: makeTarget('input', { value: 'C:\\fakepath\\big.json' })
-  };
-  let imported = false;
-  const previousDialogs = globalThis.ChatDialogs;
+/** Diálogo de exportación real con dos conversaciones: la activa en memoria y otra guardada. */
+function setup(t, overrides = {}) {
+  const dom = installDom({ app: true });
+  Export.ensureDialogMarkup();
+  const elements = getAppElements(document);
+  const downloads = [];
+  t.mock.method(Export, 'downloadFile', (content, filename, mimeType) => { downloads.push({ content, filename, mimeType }); return true; });
   const alerts = [];
-  globalThis.ChatDialogs = { alert: async (message, options) => { alerts.push(options?.type); } };
-  try {
-    UITransfer.mount({ elements, onImportSuccess: () => { imported = true; } });
+  const previousDialogs = globalThis.ChatDialogs;
+  globalThis.ChatDialogs = { alert: async message => { alerts.push(message); } };
+  const imported = [];
+  UITransfer.mount({
+    elements,
+    getActiveSessionId: () => 'active',
+    getSavedSessions: () => [{ id: 'active', title: 'Activa' }],
+    getHistory: () => [{ role: 'user', content: 'Hola activa' }],
+    getSession: async id => ({ id, title: 'Guardada', history: [{ role: 'user', content: 'Hola guardada' }] }),
+    getConfig: () => ({ model: 'gpt-4o', apiUrl: 'http://localhost:1234/v1', apiType: 'openai' }),
+    onSwitchSession: async () => {},
+    onImportSuccess: async session => { imported.push(session); },
+    isBusy: () => false,
+    ...overrides
+  });
+  t.after(() => {
+    if (previousDialogs === undefined) delete globalThis.ChatDialogs;
+    else globalThis.ChatDialogs = previousDialogs;
+    dom.restore();
+  });
+  return { elements, downloads, alerts, imported };
+}
 
-    listeners['modal:close']();
-    assert.equal(elements.exportModal.dataset.sessionId, undefined);
+function selectFile(input, file) {
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  input.dispatchEvent(new Event('change'));
+}
 
-    await listeners['input:change']({ target: { files: [{ name: 'big.json', size: 51 * 1024 * 1024 }] } });
-    assert.equal(imported, false);
-    assert.deepEqual(alerts, ['error']);
-    assert.equal(elements.importJsonInput.value, '');
+test('UITransfer - exporta en Markdown la conversación activa y en JSON otra guardada', async t => {
+  const { elements, downloads } = setup(t);
+  UITransfer.openExportModal();
+  assert.ok(elements.exportModal.open);
+  elements.btnExportMarkdown.click();
+  await settle();
+  assert.match(downloads[0].filename, /^Activa_\d{4}-\d{2}-\d{2}\.md$/);
+  assert.match(downloads[0].content, /# Activa[\s\S]*gpt-4o[\s\S]*Hola activa/);
+  assert.equal(elements.exportModal.open, false);
 
-    UITransfer.dispose();
-    assert.equal(listeners['modal:close'], undefined);
-    assert.equal(listeners['input:change'], undefined);
-  } finally {
-    globalThis.ChatDialogs = previousDialogs;
-  }
+  UITransfer.openExportModal('saved');
+  elements.btnExportJson.click();
+  await settle();
+  const exported = JSON.parse(downloads[1].content);
+  assert.equal(downloads[1].mimeType, 'application/json');
+  assert.equal(exported.session.title, 'Guardada');
+  assert.deepEqual(exported.session.history, [{ role: 'user', content: 'Hola guardada' }]);
+  assert.equal(elements.exportModal.dataset.sessionId, undefined, 'Cerrar olvida la conversación elegida');
+});
+
+test('UITransfer - importa un JSON exportado y rechaza archivos inválidos o demasiado grandes', async t => {
+  const { elements, alerts, imported } = setup(t);
+  const json = Export.buildJsonExport({ id: 'x', title: 'Copia' }, [{ role: 'user', content: 'Hola' }], { model: 'm', apiUrl: 'u', apiType: 'openai' });
+  selectFile(elements.importJsonInput, new File([json], 'copia.json', { type: 'application/json' }));
+  await settle();
+  assert.equal(imported[0].title, 'Copia');
+  assert.notEqual(imported[0].id, 'x', 'La conversación importada recibe un id nuevo');
+  assert.equal(elements.importJsonInput.value, '');
+
+  selectFile(elements.importJsonInput, new File(['{"invalido":true}'], 'mal.json'));
+  await settle();
+  assert.match(alerts[0], /valid chat history/);
+
+  const huge = new File(['x'], 'enorme.json');
+  Object.defineProperty(huge, 'size', { value: 1024 * 1024 * 1024 });
+  selectFile(elements.importJsonInput, huge);
+  await settle();
+  assert.match(alerts[1], /enorme\.json/);
+  assert.equal(imported.length, 1);
+});
+
+test('UITransfer - no importa mientras hay una generación en curso', async t => {
+  const { elements, imported } = setup(t, { isBusy: () => true });
+  selectFile(elements.importJsonInput, new File(['{}'], 'chat.json'));
+  await settle();
+  assert.equal(imported.length, 0);
 });

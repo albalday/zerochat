@@ -1,7 +1,6 @@
 /**
- * Servicio de Borrado Global de Datos y Parada Previa de Operaciones para ZeroChat.
- * Detiene generaciones en curso, confirma con el usuario vía ChatDialogs y limpia
- * IndexedDB, cachés de modelos y almacenamiento web de forma segura.
+ * Borrado de todos los datos locales: tras confirmarlo, detiene la generación en curso y el motor
+ * WebLLM, limpia el almacenamiento y recarga la página.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,113 +12,44 @@
   'use strict';
 
   const { resolveDep } = Utils;
-
-  function getDialogs() { return resolveDep('ChatDialogs', './ui-dialogs.js'); }
-  function getStorage() { return resolveDep('ChatStorage', './cookies.js'); }
-  function getProviders() { return resolveDep('ChatProviders', './providers.js'); }
-
   const { t } = I18n;
 
-  async function requestResetConfirmation() {
-    const Dialogs = getDialogs();
-    if (Dialogs && typeof Dialogs.confirm === 'function') {
-      return await Dialogs.confirm(t('confirm_clear_all_data'));
-    }
-    return true;
-  }
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getStorage = () => resolveDep('ChatStorage', './cookies.js');
 
   /**
-   * Ejecuta el proceso de borrado global:
-   * 1. Detiene cualquier controlador de aborto activo.
-   * 2. Pide confirmación al usuario (salvo que skipConfirm sea true).
-   * 3. Desactiva proveedores locales activos (WebLLM, etc.).
-   * 4. Invoca la limpieza completa de almacenamiento con ChatStorage.clearAllStorage().
-   * 5. Notifica el resultado y recarga la página o invoca onComplete.
-   *
-   * @param {Object} options
-   * @param {AbortController|Function} [options.abortController]
-   * @param {boolean} [options.skipConfirm=false]
-   * @param {boolean} [options.reload=true]
-   * @param {Function} [options.onComplete]
+   * Borra todos los datos si el usuario lo confirma. Si falla, avisa con el motivo y no recarga.
    * @returns {Promise<{ confirmed: boolean, success: boolean, error?: string }>}
    */
-  async function resetAllData(options = {}) {
-    const {
-      abortController = null,
-      skipConfirm = false,
-      reload = true,
-      onComplete = null
-    } = options;
+  async function resetAllData() {
+    if (!await getDialogs().confirm(t('confirm_clear_all_data'))) return { confirmed: false, success: false };
 
-    if (!skipConfirm) {
-      const confirmed = await requestResetConfirmation();
-      if (!confirmed) {
-        return { confirmed: false, success: false };
-      }
-    }
-
-    // 1. Detener cualquier generación activa
+    resolveDep('ChatGenerationController', './generation-controller.js').handleStopGeneration();
     try {
-      if (typeof abortController === 'function') {
-        abortController();
-      } else if (abortController && typeof abortController.abort === 'function') {
-        abortController.abort();
-      }
-    } catch (abortErr) {
-      console.warn('Error al detener operaciones previas al borrado:', abortErr);
+      await resolveDep('ChatWebLLM', './providers-webllm.js').adapter.deactivate();
+    } catch (error) {
+      console.warn('[ChatDataResetService] Could not stop the WebLLM engine before the reset:', error);
     }
 
-    // 2. Desactivar proveedores locales si están registrados
-    try {
-      const providers = getProviders();
-      await providers?.registry?.get?.('webllm')?.deactivate?.();
-    } catch (providerErr) {
-      console.warn('Error al desactivar proveedor previo al borrado:', providerErr);
-    }
-
-    // 3. Limpiar almacenamiento
     const Storage = getStorage();
-    let success = true;
+    let success;
     let error = null;
-
     try {
-      if (Storage && typeof Storage.clearAllStorage === 'function') {
-        success = await Storage.clearAllStorage();
-        if (!success && typeof Storage.getLastClearAllStorageError === 'function') {
-          error = Storage.getLastClearAllStorageError();
-        }
-      } else {
-        success = false;
-        error = 'ChatStorage.clearAllStorage is unavailable.';
-      }
-    } catch (storageErr) {
+      success = await Storage.clearAllStorage();
+      if (!success) error = Storage.getLastClearAllStorageError();
+    } catch (storageError) {
       success = false;
-      error = storageErr?.message || String(storageErr);
-      console.error('Error durante la limpieza de almacenamiento:', storageErr);
+      error = storageError?.message || String(storageError);
+      console.error('[ChatDataResetService] Storage reset failed:', storageError);
     }
 
-    // 4. Notificar o alertar
-    if (typeof onComplete === 'function') {
-      await onComplete({ success, error });
-    } else if (!success) {
-      const Dialogs = getDialogs();
-      if (Dialogs && typeof Dialogs.alert === 'function') {
-        const msg = error ? t('clear_all_data_failed_detail', { detail: error }) : t('clear_all_data_failed');
-        await Dialogs.alert(msg, { type: 'error' });
-      }
+    if (!success) {
+      await getDialogs().alert(error ? t('clear_all_data_failed_detail', { detail: error }) : t('clear_all_data_failed'), { type: 'error' });
+      return { confirmed: true, success, error };
     }
-
-    // 5. Recargar si fue exitoso y se solicitó
-    if (success && reload && typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
-      window.location.reload();
-    }
-
-    return { confirmed: true, success, error };
+    window.location.reload();
+    return { confirmed: true, success };
   }
 
-  return {
-    requestResetConfirmation,
-    resetAllData,
-    reset: resetAllData
-  };
+  return { resetAllData };
 }));

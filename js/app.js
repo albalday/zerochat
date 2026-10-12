@@ -75,6 +75,7 @@
     btnRagBranches: 'btn-rag-branches',
     btnRagActivate: 'btn-rag-activate',
     sidebarBackdrop: 'sidebar-backdrop',
+    chatContainer: 'chat-container',
     // Modal de exportación
     exportModal: 'export-modal',
     btnCloseExport: 'btn-close-export',
@@ -158,6 +159,7 @@
     debugJsonError: 'debug-json-error',
     btnDebugSendDisable: 'btn-debug-send-disable',
     btnDebugSend: 'btn-debug-send',
+    btnCloseDebugModal: 'btn-close-debug-modal',
     // Modal de Configuración y perfiles
     settingsDialog: 'settings-dialog',
     settingsForm: 'settings-form',
@@ -262,12 +264,7 @@
   const createConversationBranch = wrapper => ConversationService.createConversationBranch(wrapper, getConversationServiceOptions());
 
   function renderSidebarChats() {
-    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), {
-      onSwitchSession: switchToSession,
-      onRenameSession: sessionId => ConversationService.renameSession(sessionId, getConversationServiceOptions()),
-      onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
-      onExportSession: sessionId => UITransfer.openExportModal(elements, sessionId, getCurrentSessionId())
-    }, { groupByDate: true });
+    UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId());
   }
 
   function removeMessage(wrapper) {
@@ -382,11 +379,6 @@
   // Razonamiento y modo proyecto
   // ==========================================================================
 
-  function selectReasoningLevel(level) {
-    UIReasoning.updateReasoningUI(elements, level);
-    Config.updateRuntime({ reasoningEffort: level });
-  }
-
   const isBusy = () => State.isConversationBusy();
 
   const projectPanelHandlers = {
@@ -457,8 +449,7 @@
       project,
       canInitialize: ProjectContext.canInitialize(),
       canChangeDirectory: ProjectContext.canChangeDirectory(),
-      busy: isBusy(),
-      handlers: projectPanelHandlers
+      busy: isBusy()
     });
   }
 
@@ -501,10 +492,9 @@
     if (persist) Config.updateRuntime({ enableDebugMessages: value });
   }
 
-  function openDebugInterceptorModal({ endpoint, headers, payload }) {
+  function openDebugInterceptorModal({ endpoint, payload }) {
     return Debug.openInterceptorModal({
       endpoint,
-      headers,
       payload,
       onSyncDebugState: enabled => syncDebugMessagesState(enabled)
     });
@@ -618,6 +608,10 @@
 
     // Barra Lateral de Chats y navegación de configuración
     UISidebar.mount(elements, {
+      onSwitchSession: switchToSession,
+      onRenameSession: sessionId => ConversationService.renameSession(sessionId, getConversationServiceOptions()),
+      onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
+      onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
       onSearchInput: renderSidebarChats,
       onDeleteAllSessions: () => ConversationService.deleteAllSessions(getConversationServiceOptions()),
@@ -646,16 +640,19 @@
       getHistory: getChatHistory,
       getSession: id => Storage.getConversation(id),
       getConfig: getRuntimeConfig,
-      getModel: () => getRuntimeConfig().model,
       onSwitchSession: switchToSession,
       onImportSuccess: importConversationSession,
       isBusy: () => ConversationService.blockSessionTransitionIfBusy('chat_import_blocked_generating')
     });
 
     // Razonamiento (Thinking)
+    UIReasoning.mount(elements, {
+      onSelectLevel: level => Config.updateRuntime({ reasoningEffort: level }),
+      handlers: projectPanelHandlers
+    });
     elements.btnReasoning.addEventListener('click', event => {
       event.stopPropagation();
-      UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig(), selectReasoningLevel);
+      UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig());
       renderProjectPanel();
     });
     document.addEventListener('click', event => {

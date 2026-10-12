@@ -383,6 +383,13 @@
 }
 
 /* Encabezados de Agrupación Cronológica (Hoy, Ayer, Últimos 7 días, etc.) */
+.sidebar-no-chats {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
 .sidebar-group-header {
   padding: 0.65rem 0.75rem 0.25rem 0.75rem;
   font-size: 0.7rem;

@@ -90,9 +90,9 @@ test('Browser UI - controles estáticos y dinámicos usan iconos SVG sin emojis'
       chart.innerHTML = ChatCharts.renderChartCard({ type: 'bar', title: 'Ventas', labels: ['Ene', 'Feb'], datasets: [{ label: 'Ventas', data: [10, 20] }] });
       container.append(chart);
 
-      ChatUISidebar.renderSidebarChats({ sidebarChatsList: document.getElementById('sidebar-chats-list') }, [
+      ChatUISidebar.renderSidebarChats({ sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input') }, [
         { id: 'sess_icons', title: 'Conversación de prueba', updatedAt: Date.now() }
-      ], 'sess_icons', {});
+      ], 'sess_icons');
 
       // El inspector consulta el servidor y el proveedor: se sustituyen para no usar la red.
       ChatAPI.fetchServerModels = async () => ({ success: true, models: [{ id: 'gpt-4o' }] });

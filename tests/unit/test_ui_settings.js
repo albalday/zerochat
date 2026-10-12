@@ -12,8 +12,7 @@ function setup(t, { confirm = async () => true } = {}) {
   const dom = installDom({ app: true });
   UISettings.ensureDialogMarkup();
   const elements = getAppElements(document);
-  elements.themeButtons = document.querySelectorAll('.btn-theme-toggle');
-  elements.langButtons = document.querySelectorAll('.btn-lang-toggle');
+  require('../../js/debug.js').setElements(elements);
   const previousDialogs = globalThis.ChatDialogs;
   globalThis.ChatDialogs = { confirm };
   const calls = { loadCachedModels: 0, saved: [], profileSelector: [] };
