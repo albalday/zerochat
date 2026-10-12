@@ -35,11 +35,11 @@
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error || new Error('No se pudo leer el archivo.'));
+        reader.onerror = () => reject(reader.error || new Error('The file could not be read.'));
         reader.readAsText(file, 'utf-8');
       });
     }
-    throw new Error('No se pudo leer el archivo de texto.');
+    throw new Error('The text file could not be read.');
   }
 
   async function extractTextFromPlainText(file) {
@@ -55,11 +55,11 @@
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error || new Error('No se pudo leer el PDF.'));
+        reader.onerror = () => reject(reader.error || new Error('The PDF could not be read.'));
         reader.readAsArrayBuffer(file);
       });
     }
-    throw new Error('No se pudo obtener el contenido binario del archivo.');
+    throw new Error('The binary content of the file could not be read.');
   }
 
   const MAX_DECOMPRESSED_TEXT_BYTES = 50 * 1024 * 1024;
@@ -106,7 +106,7 @@
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel();
-        throw new Error(`El contenido descomprimido supera el límite de ${Math.round(maxBytes / 1024 / 1024)} MB.`);
+        throw new Error(`The decompressed content exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
       }
       text += decoder.decode(value, { stream: true });
     }
@@ -115,7 +115,7 @@
 
   async function readGzipText(file, options = {}) {
     if (typeof DecompressionStream === 'undefined' || typeof Blob === 'undefined') {
-      throw new Error('Este navegador no puede descomprimir archivos gzip.');
+      throw new Error('This browser cannot decompress gzip files.');
     }
     const bytes = await toArrayBuffer(file);
     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -123,9 +123,9 @@
   }
 
   function unsupportedArchiveMessage(format) {
-    if (format === 'tar') return 'El archivo es un contenedor TAR comprimido. Extrae los logs o usa archivos .gz individuales.';
-    if (format === 'zip') return 'El archivo es un ZIP. Extrae los logs o usa archivos .gz individuales.';
-    return 'El archivo está comprimido en un formato no compatible. Extrae su contenido antes de indexarlo.';
+    if (format === 'tar') return 'The file is a compressed TAR archive. Extract the logs or use individual .gz files.';
+    if (format === 'zip') return 'The file is a ZIP archive. Extract the logs or use individual .gz files.';
+    return 'The file is compressed in an unsupported format. Extract its content before indexing it.';
   }
 
   async function extractDocumentContent(file, fileType) {
@@ -136,25 +136,16 @@
       try {
         rawText = await readGzipText(file);
       } catch (error) {
-        if (String(error?.message || error).includes('navegador no puede')) throw error;
-        throw new Error('No se pudo descomprimir el archivo gzip. El archivo puede estar dañado.');
+        if (String(error?.message || error).includes('cannot decompress')) throw error;
+        throw new Error('The gzip file could not be decompressed. It may be damaged.');
       }
-      if (!isLikelyText(rawText)) throw new Error('El contenido del archivo gzip no parece contener texto legible.');
+      if (!isLikelyText(rawText)) throw new Error('The gzip content does not seem to contain readable text.');
       return { text: normalizeExtractedText(rawText), images: [] };
     }
     if (fileType === 'pdf') {
       const bytes = await toArrayBuffer(file);
-      const parser = getFileParser();
-      if (!parser) throw new Error('El extractor de PDF no está disponible.');
-      if (typeof parser.parsePdfDocument === 'function') {
-        const parsed = await parser.parsePdfDocument(bytes);
-        return {
-          text: normalizeExtractedText(parsed.text),
-          images: parsed.images || []
-        };
-      }
-      const rawText = await parser.extractTextFromPdf(bytes);
-      return { text: normalizeExtractedText(rawText), images: [] };
+      const parsed = await getFileParser().parsePdfDocument(bytes);
+      return { text: normalizeExtractedText(parsed.text), images: parsed.images || [] };
     }
 
     if (fileType === 'md') {
@@ -166,7 +157,7 @@
         const cleanDataUrl = dataUrl.replace(/\s+/g, '');
         const mimeMatch = cleanDataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,/);
         const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-        const label = (alt && alt.trim()) || `Imagen ${imgCounter - 1}`;
+        const label = (alt && alt.trim()) || `Image ${imgCounter - 1}`;
         images.push({
           id: imgId,
           page: 1,
@@ -182,7 +173,7 @@
     }
 
     const rawText = await readPlainText(file);
-    if (!isLikelyText(rawText)) throw new Error('El archivo no parece contener texto legible.');
+    if (!isLikelyText(rawText)) throw new Error('The file does not seem to contain readable text.');
     return { text: normalizeExtractedText(rawText), images: [] };
   }
 
@@ -199,7 +190,7 @@
   }
 
   function findPageRange(content) {
-    const pages = Array.from(String(content).matchAll(/---\s*P[aá]gina\s+(\d+)\s*---/gi), match => Number(match[1]));
+    const pages = Array.from(String(content).matchAll(/---\s*Page\s+(\d+)\s*---/gi), match => Number(match[1]));
     return pages.length ? { pageStart: Math.min(...pages), pageEnd: Math.max(...pages) } : { pageStart: null, pageEnd: null };
   }
 
@@ -258,128 +249,102 @@
 
   const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024; // 50 MB límite por documento
 
+  /**
+   * Indexa los archivos en la rama, uno tras otro. `onProgress` recibe por archivo su estado
+   * (extracting, chunking, saving, completed, skipped, cancelled o error), los contadores globales y
+   * en `detail` los fragmentos e imágenes indexados o el error; la interfaz redacta el mensaje.
+   */
   async function processDocumentQueue(files, branchId, onProgress, options = {}) {
-    const queue = Array.isArray(files) ? files : Array.from(files || []);
+    const queue = Array.from(files);
     const storage = getRagStorage();
-    const index = getRagIndex();
-    if (!storage) throw new Error('El almacenamiento RAG no está disponible.');
-    if (!branchId) throw new Error('Se requiere una rama de destino.');
-    const result = {
-      total: queue.length,
-      processed: 0,
-      replaced: 0,
-      skipped: 0,
-      cancelled: 0,
-      failed: 0,
-      documents: [],
-      errors: []
-    };
+    if (!branchId) throw new Error('A target branch is required.');
+    const result = { total: queue.length, processed: 0, replaced: 0, skipped: 0, cancelled: 0, failed: 0, documents: [], errors: [] };
     const maxFileSize = Number(options.maxFileSize) || MAX_DOCUMENT_SIZE;
+    const isAborted = () => options.signal?.aborted === true;
     let rememberedDuplicatePolicy = null;
     const processedInSession = new Map();
 
-    const emit = (fileIndex, fileName, status, message, percent, errorDetails) => {
-      if (typeof onProgress === 'function') {
-        const finishedFiles = result.processed + result.replaced + result.skipped + result.cancelled + result.failed;
-        const isFinished = status === 'completed' || status === 'skipped' || status === 'cancelled' || status === 'error';
-        const overallPercent = queue.length
-          ? Math.min(100, ((finishedFiles + (isFinished ? 0 : (Number(percent) || 0) / 100)) / queue.length) * 100)
-          : 100;
-        onProgress({
-          fileIndex, totalFiles: queue.length, fileName, status, message, percent, errorDetails,
-          processedFiles: result.processed, replacedFiles: result.replaced, skippedFiles: result.skipped,
-          cancelledFiles: result.cancelled, failedFiles: result.failed, finishedFiles, overallPercent
-        });
+    const emit = (fileIndex, fileName, status, percent, detail = {}) => {
+      if (typeof onProgress !== 'function') return;
+      const finishedFiles = result.processed + result.replaced + result.skipped + result.cancelled + result.failed;
+      const isFinished = ['completed', 'skipped', 'cancelled', 'error'].includes(status);
+      const overallPercent = queue.length
+        ? Math.min(100, ((finishedFiles + (isFinished ? 0 : percent / 100)) / queue.length) * 100)
+        : 100;
+      onProgress({
+        fileIndex, totalFiles: queue.length, fileName, status, percent, detail,
+        processedFiles: result.processed, replacedFiles: result.replaced, skippedFiles: result.skipped,
+        cancelledFiles: result.cancelled, failedFiles: result.failed, finishedFiles, overallPercent
+      });
+    };
+    const fileNameAt = index => queue[index]?.name || `document_${index + 1}.txt`;
+    const cancelRemaining = fromIndex => {
+      for (let index = fromIndex; index < queue.length; index++) {
+        result.cancelled++;
+        emit(index, fileNameAt(index), 'cancelled', 0);
       }
     };
 
     for (let fileIndex = 0; fileIndex < queue.length; fileIndex++) {
-      if (options.signal?.aborted) {
-        for (let c = fileIndex; c < queue.length; c++) {
-          const f = queue[c];
-          const fName = f?.name || `documento_${c + 1}.txt`;
-          result.cancelled++;
-          emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
-        }
+      if (isAborted()) {
+        cancelRemaining(fileIndex);
         break;
       }
 
       const file = queue[fileIndex];
-      const fullPath = String(file?.webkitRelativePath || file?.path || file?.name || `documento_${fileIndex + 1}.txt`).trim();
+      const fullPath = String(file?.webkitRelativePath || file?.path || file?.name || fileNameAt(fileIndex)).trim();
       const fileName = file?.name || fullPath;
       const fileType = detectFileType(file);
 
       try {
-        if (file && typeof file.size === 'number' && file.size > maxFileSize) {
-          throw new Error('El archivo supera el tamaño máximo permitido (50 MB).');
+        if (typeof file?.size === 'number' && file.size > maxFileSize) {
+          throw new Error(`The file exceeds the maximum allowed size (${Math.round(maxFileSize / 1024 / 1024)} MB).`);
         }
-        if (!fileType) throw new Error('El archivo no parece contener texto legible.');
+        if (!fileType) throw new Error('The file does not seem to contain readable text.');
 
-        // Comprobación de duplicados por nombre completo con su ruta idéntica
-        const existingDoc = processedInSession.get(fullPath) || (storage.findDocumentByPath ? await storage.findDocumentByPath(branchId, fullPath) : null);
+        // Un archivo con la misma ruta ya indexado se reemplaza u omite según decida el usuario.
+        const existingDoc = processedInSession.get(fullPath) || await storage.findDocumentByPath(branchId, fullPath);
         let action = null;
-
         if (existingDoc) {
           if (rememberedDuplicatePolicy) {
             action = rememberedDuplicatePolicy;
           } else if (typeof options.onDuplicateConflict === 'function') {
             const decision = await options.onDuplicateConflict({ fullPath, fileName, existingDoc });
-            action = (decision?.action === 'replace') ? 'replace' : 'ignore';
-            if (decision?.applyToAll) {
-              rememberedDuplicatePolicy = action;
-            }
+            action = decision?.action === 'replace' ? 'replace' : 'ignore';
+            if (decision?.applyToAll) rememberedDuplicatePolicy = action;
           } else {
             action = 'ignore';
           }
-
-          if (options.signal?.aborted) {
-            for (let c = fileIndex; c < queue.length; c++) {
-              const f = queue[c];
-              const fName = f?.name || `documento_${c + 1}.txt`;
-              result.cancelled++;
-              emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
-            }
+          if (isAborted()) {
+            cancelRemaining(fileIndex);
             break;
           }
-
           if (action === 'ignore') {
             result.skipped++;
-            emit(fileIndex, fileName, 'skipped', `${fileName} omitido (duplicado).`, 100);
+            emit(fileIndex, fileName, 'skipped', 100);
             continue;
           }
         }
 
-        emit(fileIndex, fileName, 'extracting', `Extrayendo texto de ${fileName}…`, 10);
+        emit(fileIndex, fileName, 'extracting', 10);
         const { text: extracted, images } = await extractDocumentContent(file, fileType);
-        if (options.signal?.aborted) {
-          for (let c = fileIndex; c < queue.length; c++) {
-            const f = queue[c];
-            const fName = f?.name || `documento_${c + 1}.txt`;
-            result.cancelled++;
-            emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
-          }
+        if (isAborted()) {
+          cancelRemaining(fileIndex);
           break;
         }
-        if (!extracted) throw new Error('El archivo no contiene texto extraíble.');
+        if (!extracted) throw new Error('The file contains no extractable text.');
 
-        emit(fileIndex, fileName, 'chunking', `Particionando ${fileName}…`, 45);
+        emit(fileIndex, fileName, 'chunking', 45);
         const documentId = createId('doc');
         const preparedText = extracted.replace(/rag-image:\/\/__DOC_ID__:/g, `rag-image://${documentId}:`);
-
         const chunks = partitionTextIntoChunks(preparedText, options);
-        if (!chunks.length) throw new Error('No se pudieron generar fragmentos del documento.');
-
-        if (options.signal?.aborted) {
-          for (let c = fileIndex; c < queue.length; c++) {
-            const f = queue[c];
-            const fName = f?.name || `documento_${c + 1}.txt`;
-            result.cancelled++;
-            emit(c, fName, 'cancelled', 'Ingesta cancelada por el usuario', 0);
-          }
+        if (!chunks.length) throw new Error('No chunks could be generated from the document.');
+        if (isAborted()) {
+          cancelRemaining(fileIndex);
           break;
         }
 
-        emit(fileIndex, fileName, 'saving', `Guardando ${fileName} en IndexedDB…`, 75);
+        emit(fileIndex, fileName, 'saving', 75);
         const docPayload = {
           id: documentId,
           branchId,
@@ -390,33 +355,22 @@
           fileSize: Number(file?.size) || preparedText.length,
           chunks
         };
-
-        let document;
-        if (action === 'replace' && existingDoc) {
-          if (storage.replaceDocument) {
-            document = await storage.replaceDocument(existingDoc.id, docPayload, images);
-          } else {
-            await storage.deleteDocument(existingDoc.id);
-            document = await storage.saveDocument(docPayload, images);
-          }
-          result.replaced++;
-        } else {
-          document = await storage.saveDocument(docPayload, images);
-          result.processed++;
-        }
+        const replacing = action === 'replace';
+        const document = replacing
+          ? await storage.replaceDocument(existingDoc.id, docPayload, images)
+          : await storage.saveDocument(docPayload, images);
+        if (replacing) result.replaced++;
+        else result.processed++;
 
         processedInSession.set(fullPath, document);
-        if (index?.invalidateBranch) index.invalidateBranch(branchId);
+        getRagIndex().invalidateBranch(branchId);
         result.documents.push(document);
-        const statusMsg = action === 'replace'
-          ? `${fileName} reemplazado (${chunks.length} fragmentos, ${(images && images.length) || 0} imágenes).`
-          : `${fileName} indexado (${chunks.length} fragmentos, ${(images && images.length) || 0} imágenes).`;
-        emit(fileIndex, fileName, 'completed', statusMsg, 100);
+        emit(fileIndex, fileName, 'completed', 100, { replaced: replacing, chunks: chunks.length, images: images?.length || 0 });
       } catch (error) {
         const message = error?.message || String(error);
         result.failed++;
         result.errors.push({ fileName, error: message });
-        emit(fileIndex, fileName, 'error', `Error en ${fileName}: ${message}`, 0, message);
+        emit(fileIndex, fileName, 'error', 0, { error: message });
       }
     }
     return result;

@@ -462,7 +462,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
     await waitForAppReady(page);
     const branchIds = await page.evaluate(async () => {
       await window.ChatRagStorage.clearAllData();
-      window.ChatRagUI.setActiveBranchIds([]);
+      window.ChatConfig.updateRuntime({ activeRagBranchIds: [] });
       const spanishOne = await window.ChatRagStorage.createBranch({ name: 'ES uno', language: 'spanish' });
       const spanishTwo = await window.ChatRagStorage.createBranch({ name: 'ES dos', language: 'spanish' });
       const english = await window.ChatRagStorage.createBranch({ name: 'EN', language: 'english' });
@@ -487,7 +487,7 @@ test('Browser UI - RAG avisa al combinar ramas con idiomas distintos sin alterar
     assert.match(warningText, /idiomas distintos/i);
     assert.match(warningText, /Español/i);
     assert.match(warningText, /Inglés/i);
-    assert.equal(await page.evaluate(() => window.ChatRagUI.getActiveBranchIds().length), 3);
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeRagBranchIds.length), 3);
     await page.click('#notice-accept');
     await page.click('#btn-close-rag');
   } finally {

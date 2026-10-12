@@ -1,22 +1,39 @@
-/** Minimal UI for IndexedDB-backed local knowledge. */
+/** Interfaz del conocimiento local: activar ramas, gestionarlas e indexar sus documentos. */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   else root.ChatRagUI = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  let activeBranchIds = new Set();
-  let initialized = false;
-
   const { escapeHtml, formatBytes, resolveDep } = Utils;
   const { t } = I18n;
   const storage = () => resolveDep('ChatRagStorage', './ragStorage.js');
   const ingestion = () => resolveDep('ChatIngestionEngine', './ingestionEngine.js');
   const indexer = () => resolveDep('ChatRagIndex', './rag-index.js');
-  const runtimeConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
+  const getRagService = () => resolveDep('ChatRagService', './rag-service.js');
+
+  const $ = id => document.getElementById(id);
+  const NEW_BRANCH = '__new__';
+  const DEFAULT_LANGUAGE = 'spanish';
+  const MAX_FILE_BYTES = 50 * 1024 * 1024;
+  const LANGUAGE_KEYS = {
+    spanish: 'rag_lang_spanish',
+    english: 'rag_lang_english',
+    french: 'rag_lang_french',
+    german: 'rag_lang_german',
+    italian: 'rag_lang_italian',
+    portuguese: 'rag_lang_portuguese'
+  };
+
+  // Rama cargada en el editor, para detectar cambios sin guardar.
+  let editor = { creating: false, id: '', name: '', description: '', language: DEFAULT_LANGUAGE };
+  let currentIngestionController = null;
+  let manageDialogSeq = 0;
 
   async function getBranchMetrics(branches) {
-    const metrics = await Promise.all((branches || []).map(async branch => {
+    const metrics = await Promise.all(branches.map(async branch => {
       const documents = await storage().getDocumentsByBranch(branch.id);
       return [branch.id, {
         documentCount: documents.length,
@@ -28,181 +45,118 @@
 
   function formatBranchMetrics(metrics) {
     const count = Number(metrics?.documentCount) || 0;
-    const bytes = formatBytes(metrics?.totalBytes || 0);
-    return t('rag_branch_summary_format', {
-      count,
-      plural: count === 1 ? '' : 's',
-      bytes
-    });
+    return t('rag_branch_summary_format', { count, plural: count === 1 ? '' : 's', bytes: formatBytes(metrics?.totalBytes || 0) });
   }
 
   function formatBranchLanguage(lang) {
-    const clean = String(lang || 'spanish').toLowerCase().trim();
-    const map = {
-      spanish: t('rag_lang_spanish'),
-      english: t('rag_lang_english'),
-      french: t('rag_lang_french'),
-      german: t('rag_lang_german'),
-      italian: t('rag_lang_italian'),
-      portuguese: t('rag_lang_portuguese')
-    };
-    return map[clean] || (clean.charAt(0).toUpperCase() + clean.slice(1));
+    const clean = String(lang || DEFAULT_LANGUAGE).toLowerCase().trim();
+    return LANGUAGE_KEYS[clean] ? t(LANGUAGE_KEYS[clean]) : clean.charAt(0).toUpperCase() + clean.slice(1);
   }
 
   function formatDocumentMetrics(document) {
-    const hasImageCount = Number.isInteger(document?.imageCount) && document.imageCount >= 0;
-    let images;
-    if (hasImageCount) {
-      images = document.imageCount === 1
-        ? (t('rag_image_count_singular', { count: 1 }))
-        : (t('rag_image_count_plural', { count: document.imageCount }));
-    } else {
-      images = t('rag_image_count_reload');
-    }
-    const chunks = document?.chunkCount || 0;
-    const size = formatBytes(document?.fileSize);
-    return t('rag_doc_metrics_format', { chunks, size, images });
+    const images = !Number.isInteger(document.imageCount) || document.imageCount < 0
+      ? t('rag_image_count_reload')
+      : t(document.imageCount === 1 ? 'rag_image_count_singular' : 'rag_image_count_plural', { count: document.imageCount });
+    return t('rag_doc_metrics_format', { chunks: document.chunkCount || 0, size: formatBytes(document.fileSize), images });
   }
 
-  function getActiveBranchIds() {
-    return Array.from(activeBranchIds);
-  }
-
-  function getActiveBranchId() {
-    return activeBranchIds.values().next().value || '';
-  }
+  // Las ramas activas viven en la configuración en ejecución.
+  const getActiveBranchIds = () => getConfig().getActive().activeRagBranchIds;
+  const isBranchActive = branchId => getActiveBranchIds().includes(String(branchId).trim());
 
   function setActiveBranchIds(ids) {
-    const list = Array.isArray(ids) ? ids : (ids ? [ids] : []);
-    activeBranchIds = new Set(list.map(id => String(id || '').trim()).filter(Boolean));
-    runtimeConfig().updateRuntime({ activeRagBranchIds: Array.from(activeBranchIds) });
+    const unique = [...new Set(ids.map(id => String(id).trim()).filter(Boolean))];
+    getConfig().updateRuntime({ activeRagBranchIds: unique });
     updateToolbarStatus();
-    return Array.from(activeBranchIds);
-  }
-
-  function setActiveBranchId(branchId) {
-    if (!branchId) return setActiveBranchIds([]);
-    return setActiveBranchIds([branchId]);
+    return unique;
   }
 
   function toggleBranchActive(branchId) {
-    const cleanId = String(branchId || '').trim();
-    if (!cleanId) return getActiveBranchIds();
-    if (activeBranchIds.has(cleanId)) {
-      activeBranchIds.delete(cleanId);
-    } else {
-      activeBranchIds.add(cleanId);
-    }
-    return setActiveBranchIds(Array.from(activeBranchIds));
+    const id = String(branchId).trim();
+    const active = getActiveBranchIds();
+    return setActiveBranchIds(active.includes(id) ? active.filter(item => item !== id) : [...active, id]);
   }
 
+  /** Avisa si las ramas activas están en idiomas distintos: la búsqueda léxica depende del idioma. */
   async function warnAboutMixedBranchLanguages(branchIds) {
-    const ids = Array.from(new Set((branchIds || []).map(id => String(id || '').trim()).filter(Boolean)));
-    if (ids.length < 2 || !storage()?.getBranches) return;
-
-    const branches = await storage().getBranches();
-    const languages = Array.from(new Set(branches
-      .filter(branch => ids.includes(branch.id))
-      .map(branch => String(branch.language || 'spanish').trim().toLowerCase())));
+    if (branchIds.length < 2) return;
+    const languages = [...new Set((await storage().getBranches())
+      .filter(branch => branchIds.includes(branch.id))
+      .map(branch => String(branch.language || DEFAULT_LANGUAGE).trim().toLowerCase()))];
     if (languages.length < 2) return;
-
-    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-    if (!Dialogs?.alert) return;
-    await Dialogs.alert(t('rag_mixed_languages_warning', {
-      languages: languages.map(formatBranchLanguage).join(', ')
-    }), { type: 'info' });
+    await getDialogs().alert(t('rag_mixed_languages_warning', { languages: languages.map(formatBranchLanguage).join(', ') }), { type: 'info' });
   }
 
   async function warnAboutSmallContext() {
-    const RagService = typeof window !== 'undefined' ? window.ChatRagService : null;
-    const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-    const config = runtimeConfig().getActive();
-    const limit = RagService?.getInsufficientRagContextLimit?.(config || {});
-    if (!limit || !Dialogs?.alert) return;
-    await Dialogs.alert(t('rag_small_context_warning', { limit, min: RagService.RAG_MIN_CONTEXT_TOKENS }), { type: 'warning' });
+    const RagService = getRagService();
+    const limit = RagService.getInsufficientRagContextLimit(getConfig().getActive());
+    if (limit) await getDialogs().alert(t('rag_small_context_warning', { limit, min: RagService.RAG_MIN_CONTEXT_TOKENS }), { type: 'warning' });
   }
 
-  async function toggleBranchActiveWithLanguageNotice(branchId) {
-    const activeIds = toggleBranchActive(branchId);
+  /** Activa ramas y avisa de idiomas mezclados o de un contexto insuficiente para el RAG. */
+  async function activateWithNotices(activeIds, activated) {
     await warnAboutMixedBranchLanguages(activeIds);
-    if (activeIds.includes(String(branchId || '').trim())) await warnAboutSmallContext();
-    return activeIds;
+    if (activated) await warnAboutSmallContext();
   }
 
-  function isBranchActive(branchId) {
-    return activeBranchIds.has(String(branchId || '').trim());
-  }
-
-  async function updateToolbarStatus() {
-    if (typeof document === 'undefined') return;
-    const button = document.getElementById('btn-open-rag');
-    if (!button) return;
-    const count = activeBranchIds.size;
+  function updateToolbarStatus() {
+    const button = $('btn-open-rag');
+    const count = getActiveBranchIds().length;
     button.classList.toggle('active', count > 0);
-    button.title = count === 0
-      ? (t('btn_rag_title'))
-      : (count === 1
-        ? (t('rag_toolbar_active_single'))
-        : (t('rag_toolbar_active_multi', { count })));
+    if (count === 0) button.title = t('btn_rag_title');
+    else button.title = count === 1 ? t('rag_toolbar_active_single') : t('rag_toolbar_active_multi', { count });
   }
 
   async function renderActivationDialog() {
-    if (typeof document === 'undefined') return;
     const branches = await storage().getBranches();
     const branchMetrics = await getBranchMetrics(branches);
-    const list = document.getElementById('rag-active-branch-list');
-    const title = document.getElementById('rag-active-status-title');
-    const description = document.getElementById('rag-active-status-desc');
-    const toggle = document.getElementById('btn-rag-toggle-master');
-    const activeList = branches.filter(branch => activeBranchIds.has(branch.id));
+    const activeIds = getActiveBranchIds();
+    const activeList = branches.filter(branch => activeIds.includes(branch.id));
     const activeCount = activeList.length;
 
-    if (title) {
-      if (activeCount === 0) title.textContent = t('rag_status_disabled');
-      else if (activeCount === 1) title.textContent = activeList[0].name;
-      else title.textContent = t('rag_status_active_count', { count: activeCount, list: activeList.map(b => b.name).join(', ') });
-    }
-    if (description) {
-      if (activeCount === 0) description.textContent = t('rag_status_disabled_desc');
-      else if (activeCount === 1) description.textContent = t('rag_status_desc_single');
-      else description.textContent = t('rag_status_desc_multi', { count: activeCount });
-    }
-    if (toggle) {
-      toggle.disabled = activeCount === 0;
-      toggle.textContent = t('rag_disable_all');
-    }
-    if (!list) return;
+    if (activeCount === 0) $('rag-active-status-title').textContent = t('rag_status_disabled');
+    else if (activeCount === 1) $('rag-active-status-title').textContent = activeList[0].name;
+    else $('rag-active-status-title').textContent = t('rag_status_active_count', { count: activeCount, list: activeList.map(branch => branch.name).join(', ') });
+    if (activeCount === 0) $('rag-active-status-desc').textContent = t('rag_status_disabled_desc');
+    else $('rag-active-status-desc').textContent = activeCount === 1 ? t('rag_status_desc_single') : t('rag_status_desc_multi', { count: activeCount });
+    $('btn-rag-toggle-master').disabled = activeCount === 0;
+
+    const list = $('rag-active-branch-list');
     if (!branches.length) {
-      list.innerHTML = `<div class="rag-empty-state">${t('rag_no_branches_active')}</div>`;
+      list.innerHTML = `<div class="rag-empty-state">${escapeHtml(t('rag_no_branches_active'))}</div>`;
       return;
     }
     list.innerHTML = branches.map(branch => {
-      const isActive = activeBranchIds.has(branch.id);
-      const metrics = branchMetrics.get(branch.id);
-      const formatted = formatBranchMetrics(metrics);
-      const loadedText = t('rag_branch_loaded', { summary: formatted });
-      const descText = branch.description || t('rag_branch_no_desc');
-      const badgeIcon = isActive ? Icons.get('check', { size: 12 }) : Icons.get('plus', { size: 12 });
-      const badgeText = isActive ? (t('rag_branch_active_badge')) : (t('rag_branch_activate_badge'));
-      const langLabel = formatBranchLanguage(branch.language);
+      const isActive = activeIds.includes(branch.id);
+      const loadedText = t('rag_branch_loaded', { summary: formatBranchMetrics(branchMetrics.get(branch.id)) });
+      const badge = isActive
+        ? `${Icons.get('check', { size: 12 })} <span>${escapeHtml(t('rag_branch_active_badge'))}</span>`
+        : `${Icons.get('plus', { size: 12 })} <span>${escapeHtml(t('rag_branch_activate_badge'))}</span>`;
       return `
       <button type="button" class="setting-toggle-card rag-branch-select-card${isActive ? ' active' : ''}" data-branch-id="${escapeHtml(branch.id)}">
-        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(descText)}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline">${Icons.get('globe', { size: 12 })} <span>${escapeHtml(langLabel)}</span></span></span></span>
-        <span class="rag-branch-badge-status">${badgeIcon} <span>${escapeHtml(badgeText)}</span></span>
+        <span class="toggle-card-info"><strong>${escapeHtml(branch.name)}</strong><span class="toggle-card-desc">${escapeHtml(branch.description || t('rag_branch_no_desc'))}</span><span class="rag-branch-metrics">${escapeHtml(loadedText)} · <span class="rag-branch-lang-inline">${Icons.get('globe', { size: 12 })} <span>${escapeHtml(formatBranchLanguage(branch.language))}</span></span></span></span>
+        <span class="rag-branch-badge-status">${badge}</span>
       </button>`;
     }).join('');
-    list.querySelectorAll('[data-branch-id]').forEach(button => button.addEventListener('click', async () => {
-      await toggleBranchActiveWithLanguageNotice(button.dataset.branchId);
-      await renderActivationDialog();
-    }));
+  }
+
+  const PROGRESS_KEYS = {
+    extracting: 'rag_progress_extracting',
+    chunking: 'rag_progress_chunking',
+    saving: 'rag_progress_saving',
+    skipped: 'rag_progress_skipped',
+    cancelled: 'rag_progress_cancelled',
+    error: 'rag_progress_error'
+  };
+
+  function progressMessage({ status, fileName, detail }) {
+    if (status === 'completed') return t(detail.replaced ? 'rag_progress_replaced' : 'rag_progress_indexed', { name: fileName, chunks: detail.chunks, images: detail.images });
+    return t(PROGRESS_KEYS[status], { name: fileName, error: detail.error });
   }
 
   function progressMarkup(event) {
-    const isError = event.status === 'error';
-    const isCancelled = event.status === 'cancelled';
-    const isSkipped = event.status === 'skipped';
-    const itemClass = isError ? 'error' : (isCancelled || isSkipped) ? 'skipped' : '';
-    return `<div class="rag-ingestion-progress-item ${itemClass}"><strong>${escapeHtml(event.fileName)}</strong><span>${escapeHtml(event.message)}</span><progress max="100" value="${Number(event.percent) || 0}"></progress></div>`;
+    const itemClass = event.status === 'error' ? 'error' : (event.status === 'cancelled' || event.status === 'skipped') ? 'skipped' : '';
+    return `<div class="rag-ingestion-progress-item ${itemClass}"><strong>${escapeHtml(event.fileName)}</strong><span>${escapeHtml(progressMessage(event))}</span><progress max="100" value="${Number(event.percent) || 0}"></progress></div>`;
   }
 
   /** Traduce los contadores distintos de cero de una lista de pares [clave, valor]. */
@@ -210,468 +164,291 @@
     return counts.filter(([, count]) => count > 0).map(([key, count]) => t(key, { count }));
   }
 
-  function globalProgressMarkup(event, isRunning = true) {
-    const total = Number(event.totalFiles) || 0;
-    const finished = Number(event.finishedFiles) || 0;
+  /** Progreso global de la ingesta; tras pulsar detener, el botón queda desactivado hasta que termina. */
+  function globalProgressMarkup(event, stopping) {
     const processed = Number(event.processedFiles) || 0;
-    const replaced = Number(event.replacedFiles) || 0;
-    const skipped = Number(event.skippedFiles) || 0;
-    const failed = Number(event.failedFiles) || 0;
     const overallPercent = Math.round(Number(event.overallPercent) || 0);
-
     const parts = countParts([
       ['rag_count_new', processed],
-      ['rag_count_replaced', replaced],
-      ['rag_count_skipped', skipped],
-      ['rag_count_failed', failed]
+      ['rag_count_replaced', Number(event.replacedFiles) || 0],
+      ['rag_count_skipped', Number(event.skippedFiles) || 0],
+      ['rag_count_failed', Number(event.failedFiles) || 0]
     ]);
     const status = parts.length ? parts.join(' · ') : t('rag_ingestion_status', { processed });
-
-    const header = t('rag_ingestion_global', { finished, total });
-    const stopIcon = '<svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
-    const stopBtn = isRunning
-      ? `<button type="button" id="btn-rag-stop-ingestion" class="btn-danger-outline rag-stop-ingestion-btn" title="${escapeHtml(t('rag_btn_stop_ingestion'))}">${stopIcon} <span>${escapeHtml(t('rag_btn_stop_ingestion'))}</span></button>`
-      : '';
-
-    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div class="rag-ingestion-global-actions"><span>${overallPercent}%</span>${stopBtn}</div></div>`;
+    const header = t('rag_ingestion_global', { finished: Number(event.finishedFiles) || 0, total: Number(event.totalFiles) || 0 });
+    const stopLabel = escapeHtml(t(stopping ? 'rag_ingestion_stopping' : 'rag_btn_stop_ingestion'));
+    return `<div class="rag-ingestion-global-progress"><div><strong>${escapeHtml(header)}</strong><span>${escapeHtml(status)}</span></div><progress max="100" value="${overallPercent}"></progress><div class="rag-ingestion-global-actions"><span>${overallPercent}%</span><button type="button" class="btn-danger-outline rag-stop-ingestion-btn" data-rag-stop-ingestion title="${stopLabel}"${stopping ? ' disabled' : ''}>${Icons.get('stop', { size: 11 })} <span>${stopLabel}</span></button></div></div>`;
   }
 
   function ingestionResultMarkup(result) {
-    const processed = Number(result?.processed) || 0;
-    const replaced = Number(result?.replaced) || 0;
-    const skipped = Number(result?.skipped) || 0;
-    const cancelled = Number(result?.cancelled) || 0;
-    const failed = Number(result?.failed) || 0;
-    const total = Number(result?.total) || 0;
-    const totalIndexed = processed + replaced;
-
-    let header = t('rag_ingestion_complete', { processed: totalIndexed, failed, total });
-    if (cancelled > 0) {
+    const count = key => Number(result[key]) || 0;
+    const totalIndexed = count('processed') + count('replaced');
+    const failed = count('failed');
+    let header = t('rag_ingestion_complete', { processed: totalIndexed, failed, total: count('total') });
+    if (count('cancelled') > 0) {
       let summaryText = `${t('rag_ingestion_status', { processed: totalIndexed })} · ${t('rag_count_not_indexed', { count: failed })}`;
-      const extra = countParts([
-        ['rag_count_replaced', replaced],
-        ['rag_count_skipped', skipped],
-        ['rag_count_cancelled', cancelled]
-      ]);
+      const extra = countParts([['rag_count_replaced', count('replaced')], ['rag_count_skipped', count('skipped')], ['rag_count_cancelled', count('cancelled')]]);
       if (extra.length) summaryText += ` (${extra.join(', ')})`;
       header = `${t('rag_ingestion_cancelled')}: ${summaryText}`;
     }
-
-    const errors = Array.isArray(result?.errors) ? result.errors : [];
-    return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errors.length ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>` : ''}</div>`;
+    const errors = result.errors || [];
+    const errorList = errors.length
+      ? `<div class="rag-ingestion-progress-recent">${errors.map(error => `<div class="rag-ingestion-progress-item error"><strong>${escapeHtml(error.fileName)}</strong><span>${escapeHtml(error.error)}</span></div>`).join('')}</div>`
+      : '';
+    return `<div class="rag-ingestion-global-progress${failed ? ' error' : ''}"><div><strong>${escapeHtml(header)}</strong></div>${errorList}</div>`;
   }
 
+  /** Documentos de la rama, zona para añadir archivos y, tras indexar, el resumen de la ingesta. */
   async function renderWorkspace(branchId, ingestionResult) {
-    if (typeof document === 'undefined') return;
     await updateBranchFields(branchId);
-    const workspace = document.getElementById('rag-manage-workspace');
-    if (!workspace) return;
+    const workspace = $('rag-manage-workspace');
     if (!branchId) {
-      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty')}</div>`;
+      workspace.innerHTML = `<div class="rag-empty-state">${escapeHtml(t('rag_workspace_empty'))}</div>`;
       return;
     }
     const documents = await storage().getDocumentsByBranch(branchId);
     const branch = await storage().getBranchById(branchId);
-    const dropzoneTitle = t('rag_dropzone_title');
-    const dropzoneHint = t('rag_dropzone_hint');
-    const deleteDocTitle = t('rag_delete_doc_title');
-    const emptyDocsText = t('rag_branch_empty_docs');
-    const langLabel = formatBranchLanguage(branch?.language);
+    const deleteDocTitle = escapeHtml(t('rag_delete_doc_title'));
+    const documentCards = documents.length ? documents.map(document => `
+        <div class="rag-document-card" data-document-id="${escapeHtml(document.id)}">
+          <div><strong>${escapeHtml(document.title)}</strong><div class="toggle-card-desc">${escapeHtml(formatDocumentMetrics(document))}</div></div>
+          <button type="button" class="btn-danger-outline btn-rag-delete-document" data-delete-document="${escapeHtml(document.id)}" title="${deleteDocTitle}" aria-label="${deleteDocTitle}">${Icons.get('trash', { size: 13 })}</button>
+        </div>`).join('') : `<div class="rag-empty-state">${escapeHtml(t('rag_branch_empty_docs'))}</div>`;
 
     workspace.innerHTML = `
       <div class="rag-workspace-header-bar">
         <span>${escapeHtml(t('rag_branch_label'))} <strong>${escapeHtml(branch?.name || '')}</strong></span>
-        <span class="rag-workspace-lang">${Icons.get('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang'))} <strong>${escapeHtml(langLabel)}</strong></span>
+        <span class="rag-workspace-lang">${Icons.get('globe', { size: 14 })} ${escapeHtml(t('rag_branch_lang'))} <strong>${escapeHtml(formatBranchLanguage(branch?.language))}</strong></span>
       </div>
       <label class="rag-dropzone" id="rag-dropzone">
-        <strong>${escapeHtml(dropzoneTitle)}</strong>
-        <span>${escapeHtml(dropzoneHint)}</span>
+        <strong>${escapeHtml(t('rag_dropzone_title'))}</strong>
+        <span>${escapeHtml(t('rag_dropzone_hint'))}</span>
         <input id="rag-file-input" type="file" multiple hidden>
       </label>
-      <div id="rag-ingestion-progress"></div>
-      <div class="rag-documents-list">${documents.length ? documents.map(document => `
-        <div class="rag-document-card" data-document-id="${escapeHtml(document.id)}">
-          <div><strong>${escapeHtml(document.title)}</strong><div class="toggle-card-desc">${formatDocumentMetrics(document)}</div></div>
-          <button type="button" class="btn-danger-outline btn-rag-delete-document" data-delete-document="${escapeHtml(document.id)}" title="${escapeHtml(deleteDocTitle)}" aria-label="${escapeHtml(deleteDocTitle)}">${Icons.get('trash', { size: 13 })}</button>
-        </div>`).join('') : `<div class="rag-empty-state">${escapeHtml(emptyDocsText)}</div>`}</div>`;
+      <div id="rag-ingestion-progress">${ingestionResult ? ingestionResultMarkup(ingestionResult) : ''}</div>
+      <div class="rag-documents-list">${documentCards}</div>`;
 
-    const input = document.getElementById('rag-file-input');
-    const dropzone = document.getElementById('rag-dropzone');
-    const progress = document.getElementById('rag-ingestion-progress');
-    if (progress && ingestionResult) progress.innerHTML = ingestionResultMarkup(ingestionResult);
+    const input = $('rag-file-input');
+    const dropzone = $('rag-dropzone');
     const handleFiles = files => {
-      ingestFiles(Array.from(files || []), branchId);
-      if (input) input.value = '';
+      ingestFiles(Array.from(files), branchId);
+      input.value = '';
     };
-    if (input) input.addEventListener('change', () => handleFiles(input.files));
-    if (dropzone) {
-      dropzone.addEventListener('dragover', event => { event.preventDefault(); dropzone.classList.add('drag-over'); });
-      dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-      dropzone.addEventListener('drop', event => { event.preventDefault(); dropzone.classList.remove('drag-over'); handleFiles(event.dataTransfer.files); });
-    }
-    workspace.querySelectorAll('[data-delete-document]').forEach(button => button.addEventListener('click', async () => {
-      const documentId = button.dataset.deleteDocument;
-      const confirmMsg = t('rag_delete_doc_confirm');
-      if (!await ChatDialogs.confirm(confirmMsg)) return;
-      const document = await storage().getDocumentById(documentId);
-      if (!document || document.branchId !== branchId || !(await storage().getBranchById(branchId))) return;
-      await storage().deleteDocument(documentId);
-      indexer()?.invalidateBranch(branchId);
-      await renderWorkspace(branchId);
-    }));
+    input.addEventListener('change', () => handleFiles(input.files));
+    dropzone.addEventListener('dragover', event => { event.preventDefault(); dropzone.classList.add('drag-over'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+    dropzone.addEventListener('drop', event => {
+      event.preventDefault();
+      dropzone.classList.remove('drag-over');
+      handleFiles(event.dataTransfer.files);
+    });
   }
 
-  let currentIngestionController = null;
+  async function deleteDocument(branchId, documentId) {
+    if (!await getDialogs().confirm(t('rag_delete_doc_confirm'))) return;
+    const document = await storage().getDocumentById(documentId);
+    if (!document || document.branchId !== branchId || !(await storage().getBranchById(branchId))) return;
+    await storage().deleteDocument(documentId);
+    indexer().invalidateBranch(branchId);
+    await renderWorkspace(branchId);
+  }
 
+  /** Pregunta qué hacer con un archivo ya indexado en la rama: reemplazarlo u omitirlo. */
+  async function askDuplicate({ fullPath }) {
+    const { accepted, applyToAll } = await getDialogs().askDuplicate(t('rag_duplicate_prompt', { name: fullPath }), {
+      title: t('rag_duplicate_title'),
+      acceptText: t('rag_btn_replace'),
+      cancelText: t('rag_btn_ignore'),
+      checkbox: t('rag_duplicate_apply_all')
+    });
+    return { action: accepted ? 'replace' : 'ignore', applyToAll };
+  }
+
+  /** Indexa los archivos en la rama mostrando el progreso; solo hay una ingesta a la vez. */
   async function ingestFiles(files, branchId) {
-    if (!files.length) return;
-    if (currentIngestionController) return;
-
-    const maxBytes = 50 * 1024 * 1024;
-    const validFiles = [];
-    const oversizedFiles = [];
-    for (const f of files) {
-      if (f && typeof f.size === 'number' && f.size > maxBytes) {
-        oversizedFiles.push(f);
-      } else {
-        validFiles.push(f);
-      }
+    if (!files.length || currentIngestionController) return;
+    const oversized = files.filter(file => file.size > MAX_FILE_BYTES);
+    if (oversized.length > 0) {
+      await getDialogs().alert(t('err_file_too_large', { name: oversized.map(file => file.name).join(', '), max: '50 MB' }), { type: 'error' });
     }
-    if (oversizedFiles.length > 0) {
-      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-      if (Dialogs?.alert) {
-        const names = oversizedFiles.map(f => f.name || 'documento').join(', ');
-        await Dialogs.alert(t('err_file_too_large', { name: names, max: '50 MB' }), { type: 'error' });
-      }
-    }
+    const validFiles = files.filter(file => file.size <= MAX_FILE_BYTES);
     if (!validFiles.length) return;
 
-    const container = document.getElementById('rag-ingestion-progress');
+    const container = $('rag-ingestion-progress');
     const events = new Map();
     const abortController = new AbortController();
     currentIngestionController = abortController;
-
-    const attachStopListener = () => {
-      const stopBtn = document.getElementById('btn-rag-stop-ingestion');
-      if (stopBtn && !stopBtn.dataset.bound) {
-        stopBtn.dataset.bound = 'true';
-        stopBtn.addEventListener('click', () => {
-          stopBtn.disabled = true;
-          stopBtn.textContent = t('rag_ingestion_stopping');
-          abortController.abort();
-        });
-      }
-    };
-
-    const onDuplicateConflict = async ({ fullPath }) => {
-      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-      if (!Dialogs?.askDuplicate && !Dialogs?.confirm) {
-        return { action: 'ignore', applyToAll: false };
-      }
-      const promptMsg = t('rag_duplicate_prompt', { name: fullPath });
-      const options = {
-        title: t('rag_duplicate_title'),
-        acceptText: t('rag_btn_replace'),
-        cancelText: t('rag_btn_ignore'),
-        checkbox: t('rag_duplicate_apply_all')
-      };
-      const res = Dialogs.askDuplicate
-        ? await Dialogs.askDuplicate(promptMsg, options)
-        : await Dialogs.confirm(promptMsg, options);
-      const accepted = (typeof res === 'object' && res !== null) ? res.accepted : Boolean(res);
-      const applyToAll = (typeof res === 'object' && res !== null) ? Boolean(res.applyToAll || res.checkboxChecked) : false;
-      return {
-        action: accepted ? 'replace' : 'ignore',
-        applyToAll
-      };
-    };
-
     try {
       const result = await ingestion().processDocumentQueue(validFiles, branchId, event => {
         events.set(event.fileIndex, event);
-        if (container) {
-          const recentEvents = Array.from(events.values()).slice(-12).reverse();
-          container.innerHTML = `${globalProgressMarkup(event, true)}<div class="rag-ingestion-progress-recent">${recentEvents.map(progressMarkup).join('')}</div>`;
-          attachStopListener();
-        }
-      }, {
-        signal: abortController.signal,
-        onDuplicateConflict
-      });
+        const recentEvents = [...events.values()].slice(-12).reverse();
+        container.innerHTML = `${globalProgressMarkup(event, abortController.signal.aborted)}<div class="rag-ingestion-progress-recent">${recentEvents.map(progressMarkup).join('')}</div>`;
+      }, { signal: abortController.signal, onDuplicateConflict: askDuplicate });
       await renderWorkspace(branchId, result);
     } finally {
       currentIngestionController = null;
     }
   }
 
-  async function syncActivationIfOpen() {
-    if (typeof document === 'undefined') return;
-    const modal = document.getElementById('rag-modal');
-    if (modal?.open) {
-      await renderActivationDialog();
-    }
+  function stopIngestion(button) {
+    button.disabled = true;
+    button.textContent = t('rag_ingestion_stopping');
+    currentIngestionController?.abort();
   }
 
-  let manageDialogSeq = 0;
+  async function syncActivationIfOpen() {
+    if ($('rag-modal').open) await renderActivationDialog();
+  }
+
+  /** Rellena el selector de ramas y abre la elegida o el editor de una rama nueva. */
   async function renderManageDialog(preferredBranchId) {
-    if (typeof document === 'undefined') return;
     const seq = ++manageDialogSeq;
     const branches = await storage().getBranches();
-    if (seq !== manageDialogSeq) return;
     const branchMetrics = await getBranchMetrics(branches);
     if (seq !== manageDialogSeq) return;
-    const select = document.getElementById('rag-manage-branch-select');
-    if (!select) return;
-    const selected = preferredBranchId || (isCreatingBranch ? '__new__' : select.value) || branches[0]?.id || '__new__';
-    const newBranchLabel = t('rag_opt_new_branch');
-    const options = branches.map(branch => `<option value="${escapeHtml(branch.id)}"${branch.id === selected ? ' selected' : ''}>${escapeHtml(branch.name)} (${escapeHtml(formatBranchMetrics(branchMetrics.get(branch.id)))})</option>`);
-    options.push(`<option value="__new__"${selected === '__new__' ? ' selected' : ''}>${escapeHtml(newBranchLabel)}</option>`);
-    select.innerHTML = options.join('');
-    select.disabled = false;
-    if (seq !== manageDialogSeq) return;
-    if (selected === '__new__' || !branches.length) {
-      prepareNewBranch();
-    } else {
-      await renderWorkspace(selected);
-    }
+    const select = $('rag-manage-branch-select');
+    const selected = preferredBranchId || (editor.creating ? NEW_BRANCH : select.value) || branches[0]?.id || NEW_BRANCH;
+    select.innerHTML = [
+      ...branches.map(branch => `<option value="${escapeHtml(branch.id)}"${branch.id === selected ? ' selected' : ''}>${escapeHtml(branch.name)} (${escapeHtml(formatBranchMetrics(branchMetrics.get(branch.id)))})</option>`),
+      `<option value="${NEW_BRANCH}"${selected === NEW_BRANCH ? ' selected' : ''}>${escapeHtml(t('rag_opt_new_branch'))}</option>`
+    ].join('');
+    if (selected === NEW_BRANCH || !branches.length) prepareNewBranch();
+    else await renderWorkspace(selected);
   }
 
-  let isCreatingBranch = false;
-  let loadedBranchId = '';
-  let loadedBranchName = '';
-  let loadedBranchDesc = '';
-  let loadedBranchLang = 'spanish';
-
-  function getSaveButton() {
-    return document.getElementById('btn-rag-save-branch') || document.getElementById('btn-rag-new-branch');
-  }
-
-  function canSaveBranch() {
-    const name = document.getElementById('rag-branch-name-input')?.value?.trim() || '';
-    if (!name) return false;
-    if (isCreatingBranch) return true;
-    return hasPendingBranchChanges();
-  }
-
-  function updateSaveButtonState() {
-    const btn = getSaveButton();
-    if (!btn) return;
-    btn.disabled = !canSaveBranch();
+  function readBranchFields() {
+    return {
+      name: $('rag-branch-name-input').value.trim(),
+      description: $('rag-branch-desc-input').value.trim(),
+      language: ($('rag-branch-lang-select').value || DEFAULT_LANGUAGE).trim().toLowerCase()
+    };
   }
 
   function hasPendingBranchChanges() {
-    const name = document.getElementById('rag-branch-name-input')?.value?.trim() || '';
-    const description = document.getElementById('rag-branch-desc-input')?.value?.trim() || '';
-    const language = (document.getElementById('rag-branch-lang-select')?.value || 'spanish').trim().toLowerCase();
-    if (isCreatingBranch) return Boolean(name || description || language !== 'spanish');
-    return name !== loadedBranchName.trim() ||
-      description !== (loadedBranchDesc || '').trim() ||
-      language !== (loadedBranchLang || 'spanish').trim().toLowerCase();
+    const { name, description, language } = readBranchFields();
+    if (editor.creating) return Boolean(name || description || language !== DEFAULT_LANGUAGE);
+    return name !== editor.name || description !== editor.description || language !== editor.language;
+  }
+
+  const canSaveBranch = () => Boolean(readBranchFields().name) && (editor.creating || hasPendingBranchChanges());
+
+  function updateSaveButtonState() {
+    $('btn-rag-save-branch').disabled = !canSaveBranch();
   }
 
   async function closeManageDialog() {
-    const modal = document.getElementById('rag-manage-modal');
-    if (!modal) return false;
-    if (hasPendingBranchChanges()) {
-      const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-      if (!Dialogs?.confirm || !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes'))) return false;
-    }
-    modal.close();
+    if (hasPendingBranchChanges() && !await getDialogs().confirm(t('confirm_rag_branch_unsaved_changes'))) return false;
+    $('rag-manage-modal').close();
     return true;
   }
 
-  async function updateBranchFields(branchId) {
-    if (typeof document === 'undefined') return;
-    const nameInput = document.getElementById('rag-branch-name-input');
-    const descInput = document.getElementById('rag-branch-desc-input');
-    const langSelect = document.getElementById('rag-branch-lang-select');
-    const select = document.getElementById('rag-manage-branch-select');
-    const btnDelete = document.getElementById('btn-rag-delete-branch');
-    const feedback = document.getElementById('rag-branch-feedback');
-    if (feedback) feedback.style.display = 'none';
+  /** Carga en el editor una rama, o lo deja vacío para una nueva. */
+  function loadEditor(branch) {
+    editor = branch
+      ? { creating: false, id: branch.id, name: branch.name || '', description: branch.description || '', language: branch.language || DEFAULT_LANGUAGE }
+      : { creating: true, id: '', name: '', description: '', language: DEFAULT_LANGUAGE };
+    $('rag-branch-feedback').style.display = 'none';
+    $('rag-manage-branch-select').value = editor.creating ? NEW_BRANCH : editor.id;
+    $('rag-branch-name-input').value = editor.name;
+    $('rag-branch-desc-input').value = editor.description;
+    $('rag-branch-lang-select').value = editor.language;
+    $('btn-rag-delete-branch').disabled = editor.creating;
+    updateSaveButtonState();
+  }
 
-    if (!branchId || branchId === '__new__') {
-      isCreatingBranch = true;
-      loadedBranchId = '';
-      loadedBranchName = '';
-      loadedBranchDesc = '';
-      loadedBranchLang = 'spanish';
-      if (select) select.value = '__new__';
-      if (nameInput) nameInput.value = '';
-      if (descInput) descInput.value = '';
-      if (langSelect) langSelect.value = 'spanish';
-      if (btnDelete) btnDelete.disabled = true;
-      updateSaveButtonState();
+  async function updateBranchFields(branchId) {
+    if (!branchId || branchId === NEW_BRANCH) {
+      loadEditor(null);
       return;
     }
-
-    isCreatingBranch = false;
-    loadedBranchId = branchId;
     const branch = await storage().getBranchById(branchId);
-    if (select && select.value !== branchId) return;
-    loadedBranchName = branch?.name || '';
-    loadedBranchDesc = branch?.description || '';
-    loadedBranchLang = branch?.language || 'spanish';
-    if (select) select.value = branchId;
-    if (nameInput) nameInput.value = loadedBranchName;
-    if (descInput) descInput.value = loadedBranchDesc;
-    if (langSelect) langSelect.value = loadedBranchLang;
-    if (btnDelete) btnDelete.disabled = false;
-    updateSaveButtonState();
+    // Si mientras tanto se eligió otra rama, la carga es obsoleta.
+    if ($('rag-manage-branch-select').value !== branchId) return;
+    loadEditor(branch);
   }
 
   function prepareNewBranch() {
-    isCreatingBranch = true;
-    loadedBranchId = '';
-    loadedBranchName = '';
-    loadedBranchDesc = '';
-    loadedBranchLang = 'spanish';
-    const nameInput = document.getElementById('rag-branch-name-input');
-    const descInput = document.getElementById('rag-branch-desc-input');
-    const langSelect = document.getElementById('rag-branch-lang-select');
-    const select = document.getElementById('rag-manage-branch-select');
-    const btnDelete = document.getElementById('btn-rag-delete-branch');
-    const feedback = document.getElementById('rag-branch-feedback');
-    if (feedback) feedback.style.display = 'none';
-
-    if (select) select.value = '__new__';
-    if (btnDelete) btnDelete.disabled = true;
-    if (nameInput) {
-      nameInput.value = '';
-      nameInput.focus();
-    }
-    if (descInput) descInput.value = '';
-    if (langSelect) langSelect.value = 'spanish';
-    updateSaveButtonState();
-    const workspace = document.getElementById('rag-manage-workspace');
-    if (workspace) {
-      workspace.innerHTML = `<div class="rag-empty-state">${t('rag_workspace_empty')}</div>`;
-    }
+    loadEditor(null);
+    $('rag-branch-name-input').focus();
+    $('rag-manage-workspace').innerHTML = `<div class="rag-empty-state">${escapeHtml(t('rag_workspace_empty'))}</div>`;
   }
 
-  function showBranchFeedback(msg, type = 'success') {
-    const el = document.getElementById('rag-branch-feedback');
-    if (!el) return;
-    el.style.display = 'block';
-    el.className = `server-query-status status-${type}`;
-    el.textContent = msg;
-    setTimeout(() => {
-      if (el) el.style.display = 'none';
-    }, 4000);
+  function showBranchFeedback(message, type = 'success') {
+    const feedback = $('rag-branch-feedback');
+    feedback.style.display = 'block';
+    feedback.className = `server-query-status status-${type}`;
+    feedback.textContent = message;
+    setTimeout(() => { feedback.style.display = 'none'; }, 4000);
   }
 
   async function saveOrUpdateBranch() {
-    const nameInput = document.getElementById('rag-branch-name-input');
-    const descInput = document.getElementById('rag-branch-desc-input');
-    const langSelect = document.getElementById('rag-branch-lang-select');
-    const name = nameInput?.value?.trim();
-    const description = descInput?.value?.trim() || '';
-    const language = (langSelect?.value || 'spanish').trim().toLowerCase();
-
-    if (!name) {
+    const fields = readBranchFields();
+    if (!fields.name) {
       showBranchFeedback(t('rag_branch_name_empty'), 'error');
-      nameInput?.focus();
+      $('rag-branch-name-input').focus();
       return;
     }
-
-    if (isCreatingBranch) {
-      const branch = await storage().createBranch({ name, description, language });
-      isCreatingBranch = false;
-      loadedBranchId = branch.id;
-      loadedBranchName = name;
-      loadedBranchDesc = description;
-      loadedBranchLang = language;
-      await renderManageDialog(branch.id);
-      await syncActivationIfOpen();
-      await updateToolbarStatus();
-      updateSaveButtonState();
-      showBranchFeedback(t('rag_branch_created', { name }), 'success');
+    const selectedId = $('rag-manage-branch-select').value;
+    const creating = editor.creating || !selectedId || selectedId === NEW_BRANCH;
+    let branchId = selectedId;
+    if (creating) {
+      branchId = (await storage().createBranch(fields)).id;
     } else {
-      const select = document.getElementById('rag-manage-branch-select');
-      const id = select?.value;
-      if (!id || id === '__new__') {
-        const branch = await storage().createBranch({ name, description, language });
-        isCreatingBranch = false;
-        loadedBranchId = branch.id;
-        loadedBranchName = name;
-        loadedBranchDesc = description;
-        loadedBranchLang = language;
-        await renderManageDialog(branch.id);
-        await syncActivationIfOpen();
-        await updateToolbarStatus();
-        updateSaveButtonState();
-        showBranchFeedback(t('rag_branch_created', { name }), 'success');
-        return;
-      }
-      await storage().updateBranch(id, { name, description, language });
-      indexer()?.invalidateBranch(id);
-      loadedBranchId = id;
-      loadedBranchName = name;
-      loadedBranchDesc = description;
-      loadedBranchLang = language;
-      await renderManageDialog(id);
-      await syncActivationIfOpen();
-      await updateToolbarStatus();
-      updateSaveButtonState();
-      showBranchFeedback(t('rag_branch_updated', { name }), 'success');
+      await storage().updateBranch(branchId, fields);
+      indexer().invalidateBranch(branchId);
     }
+    editor = { creating: false, id: branchId, ...fields };
+    await renderManageDialog(branchId);
+    await syncActivationIfOpen();
+    updateToolbarStatus();
+    updateSaveButtonState();
+    showBranchFeedback(t(creating ? 'rag_branch_created' : 'rag_branch_updated', { name: fields.name }), 'success');
   }
 
   async function deleteBranch() {
-    const select = document.getElementById('rag-manage-branch-select');
-    const id = select?.value;
-    const confirmMsg = t('rag_delete_branch_confirm');
-    if (!id || id === '__new__' || !await ChatDialogs.confirm(confirmMsg)) return;
+    const id = $('rag-manage-branch-select').value;
+    if (!id || id === NEW_BRANCH || !await getDialogs().confirm(t('rag_delete_branch_confirm'))) return;
     if (!(await storage().getBranchById(id))) return;
     await storage().deleteBranch(id);
-    indexer()?.invalidateBranch(id);
-    if (activeBranchIds.has(id)) {
-      activeBranchIds.delete(id);
-      setActiveBranchIds(Array.from(activeBranchIds));
-    }
+    indexer().invalidateBranch(id);
+    if (isBranchActive(id)) setActiveBranchIds(getActiveBranchIds().filter(item => item !== id));
     await renderManageDialog();
     await syncActivationIfOpen();
   }
 
   async function isGzipBlob(blob) {
-    try {
-      if (!blob || blob.size < 2) return false;
-      const slice = blob.slice(0, 2);
-      const buf = await slice.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      return bytes[0] === 0x1F && bytes[1] === 0x8B;
-    } catch (_) {
-      return false;
-    }
+    if (blob.size < 2) return false;
+    const bytes = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+    return bytes[0] === 0x1F && bytes[1] === 0x8B;
   }
 
-  async function decompressFileIfNeeded(file) {
-    if (!file) return '';
-    const isGz = file.name?.toLowerCase().endsWith('.gz') || await isGzipBlob(file);
-    if (isGz && typeof DecompressionStream !== 'undefined') {
-      const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
-      return await new Response(stream).text();
+  async function readBackupText(file) {
+    if (file.name.toLowerCase().endsWith('.gz') || await isGzipBlob(file)) {
+      return new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
     }
-    return await file.text();
+    return file.text();
+  }
+
+  /** Muestra el progreso en el texto del botón y restaura su contenido al terminar. */
+  async function withButtonProgress(button, operation) {
+    const previousHtml = button.innerHTML;
+    button.disabled = true;
+    try {
+      return await operation(text => { button.textContent = text; });
+    } finally {
+      button.disabled = false;
+      button.innerHTML = previousHtml;
+    }
   }
 
   async function exportBranch() {
-    const select = document.getElementById('rag-manage-branch-select');
-    const branchId = select?.value;
-    if (!branchId) return;
-
-    const btnExport = document.getElementById('btn-rag-export-branch');
-    const prevHtml = btnExport?.innerHTML;
-    try {
-      if (btnExport) {
-        btnExport.disabled = true;
-        btnExport.textContent = t('rag_export_starting');
-      }
+    const branchId = $('rag-manage-branch-select').value;
+    if (!branchId || branchId === NEW_BRANCH) return;
+    await withButtonProgress($('btn-rag-export-branch'), async setText => {
+      setText(t('rag_export_starting'));
       const { blob, filename } = await storage().exportBranchBlob(branchId, {
         compress: true,
-        onProgress: ({ current, total, percent }) => {
-          if (btnExport) btnExport.textContent = t('rag_export_progress', { percent, current, total });
-        }
+        onProgress: ({ current, total, percent }) => setText(t('rag_export_progress', { percent, current, total }))
       });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -679,177 +456,130 @@
       anchor.download = filename;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      if (btnExport) btnExport.textContent = t('rag_export_done');
+      setText(t('rag_export_done'));
       await new Promise(resolve => setTimeout(resolve, 1500));
-    } catch (error) {
-      ChatDialogs.alert(t('notice_export_error', { err: error.message || error }), { type: 'error' });
-    } finally {
-      if (btnExport) {
-        btnExport.disabled = false;
-        if (prevHtml) btnExport.innerHTML = prevHtml;
-      }
-    }
+    });
   }
 
   async function importBranchFile(file) {
-    if (!file) return null;
-    const btnImport = document.getElementById('btn-rag-import-branch');
-    const prevHtml = btnImport?.innerHTML;
-    try {
-      if (btnImport) {
-        btnImport.disabled = true;
-        btnImport.textContent = t('rag_import_decompressing');
-      }
+    const branch = await withButtonProgress($('btn-rag-import-branch'), async setText => {
+      setText(t('rag_import_decompressing'));
       let text;
       try {
-        text = await decompressFileIfNeeded(file);
-      } catch (err) {
-        if (err.name === 'RangeError' || err.code === 'ERR_STRING_TOO_LONG' || String(err).includes('string')) {
-          throw new Error(t('rag_import_too_large'));
-        }
-        throw err;
+        text = await readBackupText(file);
+      } catch (error) {
+        if (error.name === 'RangeError' || error.code === 'ERR_STRING_TOO_LONG') throw new Error(t('rag_import_too_large'));
+        throw error;
       }
       if (!text) throw new Error(t('rag_import_empty'));
-      if (btnImport) btnImport.textContent = t('rag_import_starting');
-
-      const branch = await storage().importBranch(text, ({ current, total, percent }) => {
-        if (btnImport) btnImport.textContent = t('rag_import_progress', { percent, current, total });
-      });
-      indexer()?.invalidateBranch(branch.id);
-      await renderManageDialog(branch.id);
-      await syncActivationIfOpen();
-      await updateToolbarStatus();
-      ChatDialogs.alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
-      return branch;
-    } finally {
-      if (btnImport) {
-        btnImport.disabled = false;
-        if (prevHtml) btnImport.innerHTML = prevHtml;
-      }
-    }
+      setText(t('rag_import_starting'));
+      return storage().importBranch(text, ({ current, total, percent }) => setText(t('rag_import_progress', { percent, current, total })));
+    });
+    indexer().invalidateBranch(branch.id);
+    await renderManageDialog(branch.id);
+    await syncActivationIfOpen();
+    updateToolbarStatus();
+    getDialogs().alert(t('notice_branch_restored', { name: branch.name }), { type: 'success' });
   }
 
   async function refresh() {
-    if (typeof document !== 'undefined') {
-      const activationModal = document.getElementById('rag-modal');
-      const manageModal = document.getElementById('rag-manage-modal');
-      if (activationModal?.open) await renderActivationDialog();
-      if (manageModal?.open) await renderManageDialog();
-    }
-    await updateToolbarStatus();
+    if ($('rag-modal').open) await renderActivationDialog();
+    if ($('rag-manage-modal').open) await renderManageDialog();
+    updateToolbarStatus();
   }
 
+  const reportError = error => console.error('[RagUI]', error);
+
   function openActivationModal() {
-    if (typeof document === 'undefined') return;
-    const modal = document.getElementById('rag-modal');
-    if (!modal) return;
-    renderActivationDialog().catch(() => {});
-    modal.showModal();
+    renderActivationDialog().catch(reportError);
+    $('rag-modal').showModal();
   }
 
   function openManageModal() {
-    if (typeof document === 'undefined') return;
-    const modal = document.getElementById('rag-manage-modal');
-    if (!modal) return;
-    renderManageDialog().catch(() => {});
-    modal.showModal();
-  }
-
-  function openRagModal(mode = 'activate') {
-    if (mode === 'manage') openManageModal();
-    else openActivationModal();
+    renderManageDialog().catch(reportError);
+    $('rag-manage-modal').showModal();
   }
 
   function bindActivationDialog() {
-    const modal = document.getElementById('rag-modal');
-    if (!modal) return;
-
-    document.getElementById('btn-close-rag')?.addEventListener('click', () => modal?.close());
-    document.getElementById('btn-rag-toggle-master')?.addEventListener('click', async () => {
+    $('btn-close-rag').addEventListener('click', () => $('rag-modal').close());
+    $('btn-rag-toggle-master').addEventListener('click', async () => {
       setActiveBranchIds([]);
       await renderActivationDialog();
     });
-    document.getElementById('btn-rag-activate-all')?.addEventListener('click', async () => {
-      const branches = await storage().getBranches();
-      const activeIds = setActiveBranchIds(branches.map(b => b.id));
-      await warnAboutMixedBranchLanguages(activeIds);
-      if (activeIds.length > 0) await warnAboutSmallContext();
+    $('btn-rag-activate-all').addEventListener('click', async () => {
+      const activeIds = setActiveBranchIds((await storage().getBranches()).map(branch => branch.id));
+      await activateWithNotices(activeIds, activeIds.length > 0);
+      await renderActivationDialog();
+    });
+    $('rag-active-branch-list').addEventListener('click', async event => {
+      const card = event.target.closest('[data-branch-id]');
+      if (!card) return;
+      const activeIds = toggleBranchActive(card.dataset.branchId);
+      await activateWithNotices(activeIds, activeIds.includes(card.dataset.branchId));
       await renderActivationDialog();
     });
   }
 
   function bindManageDialog() {
-    const modal = document.getElementById('rag-manage-modal');
-    if (!modal) return;
-
-    document.getElementById('btn-close-rag-manage')?.addEventListener('click', () => { closeManageDialog(); });
+    const modal = $('rag-manage-modal');
+    $('btn-close-rag-manage').addEventListener('click', closeManageDialog);
     modal.addEventListener('cancel', event => {
       if (!hasPendingBranchChanges()) return;
       event.preventDefault();
       closeManageDialog();
     });
     const handleSave = () => {
-      if (!canSaveBranch()) return;
-      saveOrUpdateBranch();
+      if (canSaveBranch()) saveOrUpdateBranch().catch(reportError);
     };
-    document.getElementById('btn-rag-save-branch')?.addEventListener('click', handleSave);
-    document.getElementById('btn-rag-new-branch')?.addEventListener('click', handleSave);
-
-    document.getElementById('rag-branch-name-input')?.addEventListener('input', updateSaveButtonState);
-    document.getElementById('rag-branch-desc-input')?.addEventListener('input', updateSaveButtonState);
-    document.getElementById('rag-branch-lang-select')?.addEventListener('change', updateSaveButtonState);
-
-    const handleBranchKeyEnter = (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
+    $('btn-rag-save-branch').addEventListener('click', handleSave);
+    for (const id of ['rag-branch-name-input', 'rag-branch-desc-input']) {
+      $(id).addEventListener('input', updateSaveButtonState);
+      $(id).addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
         handleSave();
+      });
+    }
+    $('rag-branch-lang-select').addEventListener('change', updateSaveButtonState);
+    $('btn-rag-delete-branch').addEventListener('click', deleteBranch);
+    $('btn-rag-export-branch').addEventListener('click', () => exportBranch()
+      .catch(error => getDialogs().alert(t('notice_export_error', { err: error.message || error }), { type: 'error' })));
+    const importInput = $('rag-import-input');
+    $('btn-rag-import-branch').addEventListener('click', () => importInput.click());
+    importInput.addEventListener('change', async () => {
+      try {
+        if (importInput.files[0]) await importBranchFile(importInput.files[0]);
+      } catch (error) {
+        getDialogs().alert(t('notice_import_error', { err: error.message || error }), { type: 'error' });
+      } finally {
+        importInput.value = '';
       }
-    };
-    document.getElementById('rag-branch-name-input')?.addEventListener('keydown', handleBranchKeyEnter);
-    document.getElementById('rag-branch-desc-input')?.addEventListener('keydown', handleBranchKeyEnter);
-
-    document.getElementById('btn-rag-delete-branch')?.addEventListener('click', deleteBranch);
-    document.getElementById('btn-rag-export-branch')?.addEventListener('click', () => exportBranch().catch(error => ChatDialogs.alert(t('notice_export_error', { err: error.message || error }), { type: 'error' })));
-    const importInput = document.getElementById('rag-import-input');
-    document.getElementById('btn-rag-import-branch')?.addEventListener('click', () => importInput?.click());
-    importInput?.addEventListener('change', async () => {
-      try { await importBranchFile(importInput.files?.[0]); }
-      catch (error) { ChatDialogs.alert(t('notice_import_error', { err: error.message || error }), { type: 'error' }); }
-      finally { importInput.value = ''; }
     });
-    document.getElementById('rag-manage-branch-select')?.addEventListener('change', async event => {
-      const val = event.target.value;
-      if (hasPendingBranchChanges()) {
-        const Dialogs = typeof window !== 'undefined' ? window.ChatDialogs : null;
-        if (Dialogs?.confirm && !await Dialogs.confirm(t('confirm_rag_branch_unsaved_changes'))) {
-          const select = document.getElementById('rag-manage-branch-select');
-          if (select) select.value = isCreatingBranch ? '__new__' : (loadedBranchId || '');
-          return;
-        }
+    $('rag-manage-branch-select').addEventListener('change', async event => {
+      const value = event.target.value;
+      if (hasPendingBranchChanges() && !await getDialogs().confirm(t('confirm_rag_branch_unsaved_changes'))) {
+        event.target.value = editor.creating ? NEW_BRANCH : editor.id;
+        return;
       }
-      if (val === '__new__') {
-        prepareNewBranch();
-      } else {
-        await renderWorkspace(val);
-      }
+      if (value === NEW_BRANCH) prepareNewBranch();
+      else await renderWorkspace(value);
+    });
+    // El área de trabajo se vuelve a dibujar: sus acciones se atienden aquí.
+    $('rag-manage-workspace').addEventListener('click', event => {
+      const deleteButton = event.target.closest('[data-delete-document]');
+      if (deleteButton) deleteDocument($('rag-manage-branch-select').value, deleteButton.dataset.deleteDocument).catch(reportError);
+      const stopButton = event.target.closest('[data-rag-stop-ingestion]');
+      if (stopButton) stopIngestion(stopButton);
     });
   }
 
+  /** Conecta los diálogos de conocimiento local; el marcado se inserta antes con ensureDialogMarkup. */
   function initRagUI() {
-    if (initialized || typeof document === 'undefined') return;
-    initialized = true;
-    activeBranchIds = new Set(runtimeConfig().getActive().activeRagBranchIds);
-    ensureDialogMarkup();
-
-    document.getElementById('btn-open-rag')?.addEventListener('click', () => openActivationModal());
+    $('btn-open-rag').addEventListener('click', openActivationModal);
     bindActivationDialog();
     bindManageDialog();
-
     updateToolbarStatus();
-
-    I18n.onChange(() => {
-      refresh().catch(error => console.warn('[RAG UI] Could not refresh after a language change:', error));
-    });
+    I18n.onChange(() => refresh().catch(error => console.warn('[RagUI] Could not refresh after a language change:', error)));
   }
 
   function getRagActivationModalHTML() {
@@ -959,29 +689,19 @@
     </div>`;
   }
 
-  function ensureDialogMarkup() {
-    if (typeof document === 'undefined') return;
-    const activationDialog = document.getElementById('rag-modal');
-    const manageDialog = document.getElementById('rag-manage-modal');
-    if (activationDialog && !activationDialog.firstElementChild) activationDialog.innerHTML = getRagActivationModalHTML();
-    if (manageDialog && !manageDialog.firstElementChild) manageDialog.innerHTML = getRagManageModalHTML();
-  }
 
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', ensureDialogMarkup);
-    } else {
-      ensureDialogMarkup();
-    }
+  /** Inserta el marcado de los diálogos de activación y gestión, que zerochat.html deja vacíos. */
+  function ensureDialogMarkup() {
+    const activationDialog = $('rag-modal');
+    const manageDialog = $('rag-manage-modal');
+    if (!activationDialog.firstElementChild) activationDialog.innerHTML = getRagActivationModalHTML();
+    if (!manageDialog.firstElementChild) manageDialog.innerHTML = getRagManageModalHTML();
   }
 
   return {
-    initRagUI, refresh,
-    renderActivationDialog, renderManageDialog,
-    getActiveBranchId, setActiveBranchId,
-    getActiveBranchIds, setActiveBranchIds, toggleBranchActive, isBranchActive,
-    updateToolbarStatus, exportBranch, importBranchFile, ingestionResultMarkup,
-    ensureDialogMarkup, getRagActivationModalHTML, getRagManageModalHTML,
-    openActivationModal, openManageModal, openRagModal
+    initRagUI,
+    ensureDialogMarkup,
+    openActivationModal,
+    openManageModal
   };
 });

@@ -14,14 +14,6 @@
   const documentBuilds = new Map();
   const revisions = new Map();
 
-  function assertDependencies() {
-    if (!Orama?.create || !Orama?.insertMultiple || !Orama?.search) {
-      throw new Error('El motor de búsqueda Orama no está disponible.');
-    }
-    if (!RagStorage?.getChunksByBranch) {
-      throw new Error('El almacenamiento RAG no está disponible.');
-    }
-  }
 
   function documentCacheKey(branchId, documentId) {
     return `${branchId}:${documentId}`;
@@ -71,8 +63,7 @@
   }
 
   async function buildBranchIndex(branchId) {
-    if (!branchId) throw new Error('Se requiere una rama para construir el índice.');
-    assertDependencies();
+    if (!branchId) throw new Error('A branch is required to build the index.');
     if (indexes.has(branchId)) return indexes.get(branchId);
     if (builds.has(branchId)) return builds.get(branchId);
 
@@ -98,8 +89,7 @@
   }
 
   async function buildDocumentIndex(branchId, documentId) {
-    if (!branchId || !documentId) throw new Error('Se requiere una rama y un documento para construir el índice.');
-    assertDependencies();
+    if (!branchId || !documentId) throw new Error('A branch and a document are required to build the index.');
     const key = documentCacheKey(branchId, documentId);
     if (documentIndexes.has(key)) return documentIndexes.get(key);
     if (documentBuilds.has(key)) return documentBuilds.get(key);

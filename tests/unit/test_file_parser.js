@@ -59,7 +59,7 @@ test('FileParser - compacta glifos espaciados de PDF antes de indexarlos', () =>
 
 test('FileParser - compacta páginas PDF que contienen un glifo por línea', () => {
   const extracted = [
-    '--- Página 60 ---',
+    '--- Page 60 ---',
     'C', 'a', 's', 'h', '',
     'F', 'l', 'o', 'w', 's', '',
     'f', 'r', 'o', 'm', '',

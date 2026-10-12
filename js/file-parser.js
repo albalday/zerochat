@@ -526,7 +526,7 @@
   function collapseVerticallySplitGlyphs(text) {
     if (!text || typeof text !== 'string') return text;
 
-    return text.split(/(?=--- Página \d+ ---\n)/).map(section => {
+    return text.split(/(?=--- Page \d+ ---\n)/).map(section => {
       const firstNewline = section.indexOf('\n');
       if (firstNewline < 0) return section;
 
@@ -1088,7 +1088,7 @@
           if (combinedRefs.includes(imgObjNum + ' 0 R')) {
             assignedImages.add(imgObjNum);
             imgData.page = pageNum;
-            imgData.label = `Diagrama / Imagen (Pág. ${pageNum})`;
+            imgData.label = `Diagram / image (page ${pageNum})`;
             pageImages.push(imgData);
             allExtractedImages.push(imgData);
           }
@@ -1100,7 +1100,7 @@
 
         const pageText = pageItems.join('\n\n').replace(/[ \t]+/g, ' ').trim();
         if (pageText.length > 0) {
-          pages.push(`--- Página ${pageNum} ---\n${pageText}`);
+          pages.push(`--- Page ${pageNum} ---\n${pageText}`);
         }
         pageNum++;
       }
@@ -1111,7 +1111,7 @@
       if (!assignedImages.has(imgObjNum)) {
         assignedImages.add(imgObjNum);
         imgData.page = 1;
-        imgData.label = `Diagrama / Imagen (Pág. 1)`;
+        imgData.label = `Diagram / image (page 1)`;
         allExtractedImages.push(imgData);
         if (pages.length > 0) {
           pages[0] += `\n\n![${imgData.label}](rag-image://__DOC_ID__:${imgData.id})\n\n`;
@@ -1179,7 +1179,7 @@
             if (currentPageItems.length >= 4) {
               const pageText = currentPageItems.join('\n\n').trim();
               if (pageText.length > 0) {
-                pages.push(`--- Página ${pageNum} ---\n${pageText}`);
+                pages.push(`--- Page ${pageNum} ---\n${pageText}`);
                 pageNum++;
                 currentPageItems = [];
               }
@@ -1195,7 +1195,7 @@
       if (currentPageItems.length > 0) {
         const pageText = currentPageItems.join('\n\n').trim();
         if (pageText.length > 0) {
-          pages.push(`--- Página ${pageNum} ---\n${pageText}`);
+          pages.push(`--- Page ${pageNum} ---\n${pageText}`);
         }
       }
     }
@@ -1204,7 +1204,7 @@
     if (pages.length === 0) {
       const directText = parsePdfStreamText(fullText);
       if (directText && directText.trim().length > 0) {
-        pages.push(`--- Página 1 ---\n${directText.trim()}`);
+        pages.push(`--- Page 1 ---\n${directText.trim()}`);
       }
     }
 
@@ -1216,12 +1216,12 @@
     }
 
     if (!finalCleanText) {
-      const extractionWarning = '[Documento PDF adjunto: No se pudo extraer texto seleccionable. Es posible que el PDF contenga únicamente imágenes escaneadas o esté protegido por contraseña.]';
+      const extractionWarning = '[Attached PDF document: no selectable text could be extracted. The PDF may contain only scanned images or be password protected.]';
       if (allExtractedImages.length > 0) {
         const imageReferences = allExtractedImages
-          .map(image => `![${image.label || `Imagen extraída (Pág. ${image.page || 1})`}](rag-image://__DOC_ID__:${image.id})`)
+          .map(image => `![${image.label || `Extracted image (page ${image.page || 1})`}](rag-image://__DOC_ID__:${image.id})`)
           .join('\n\n');
-        finalCleanText = `--- Página 1 ---\n${extractionWarning}\n\n[Se recuperaron ${allExtractedImages.length} imagen${allExtractedImages.length === 1 ? '' : 'es'} incrustada${allExtractedImages.length === 1 ? '' : 's'} del PDF.]\n\n${imageReferences}`;
+        finalCleanText = `--- Page 1 ---\n${extractionWarning}\n\n[${allExtractedImages.length} embedded image(s) recovered from the PDF.]\n\n${imageReferences}`;
       } else {
         finalCleanText = extractionWarning;
       }
@@ -1425,7 +1425,7 @@
             const symbol = map.get((len << 16) | code);
             if (symbol !== undefined) return symbol;
           }
-          throw new Error('Código Huffman no válido en el JPEG');
+          throw new Error('Invalid Huffman code in the JPEG');
         };
         const segmentMcus = restartInterval ? Math.min(restartInterval, totalMcus - mcu) : totalMcus - mcu;
         for (let m = 0; m < segmentMcus; m++) {
@@ -1480,7 +1480,7 @@
       if (getJpegComponentCount(bytes) !== 4) return dataUrl;
 
       const pdfConvention = invertJpegCmykSamples(bytes);
-      if (!pdfConvention) console.warn('JPEG CMYK no baseline: se muestra sin corregir la convención de color del PDF.');
+      if (!pdfConvention) console.warn('Non-baseline CMYK JPEG: shown without correcting the PDF color convention.');
       const bitmap = await createImageBitmap(new Blob([pdfConvention || bytes], { type: 'image/jpeg' }));
       try {
         const canvas = document.createElement('canvas');

@@ -33,7 +33,7 @@ test('IngestionEngine - genera chunks acotados con solapamiento y títulos', () 
 });
 
 test('IngestionEngine - conserva rangos de página', () => {
-  const text = '--- Página 2 ---\nInicio\n\n' + 'dato '.repeat(250) + '\n\n--- Página 3 ---\nFinal';
+  const text = '--- Page 2 ---\nInicio\n\n' + 'dato '.repeat(250) + '\n\n--- Page 3 ---\nFinal';
   const chunks = Ingestion.partitionTextIntoChunks(text, { maxChars: 1100, overlapChars: 0 });
   assert.equal(chunks[0].pageStart, 2);
   assert.ok(chunks.some(chunk => chunk.pageEnd === 3));
@@ -103,7 +103,7 @@ test('IngestionEngine - indexa logs gzip y explica los comprimidos no compatible
 
   assert.equal(result.processed, 1);
   assert.equal(result.failed, 1);
-  assert.deepEqual(result.errors, [{ fileName: 'logs.zip', error: 'El archivo es un ZIP. Extrae los logs o usa archivos .gz individuales.' }]);
+  assert.deepEqual(result.errors, [{ fileName: 'logs.zip', error: 'The file is a ZIP archive. Extract the logs or use individual .gz files.' }]);
   const documents = await RagStorage.getDocumentsByBranch(branch.id);
   assert.equal(documents.length, 1);
   assert.equal(documents[0].title, 'auth.log.1.gz');
@@ -268,7 +268,7 @@ trailer
   assert.ok(docResult.images[0].dataUrl.startsWith('data:image/jpeg;base64,'));
 
   // Verificar que el texto incluye la referencia de imagen
-  assert.ok(docResult.text.includes('![Diagrama'), 'El texto debe incluir la etiqueta de imagen');
+  assert.ok(docResult.text.includes('![Diagram'), 'El texto debe incluir la etiqueta de imagen');
   assert.ok(docResult.text.includes('rag-image://'), 'El texto debe incluir la sintaxis rag-image://');
 
   // Guardar y recuperar desde RagStorage
@@ -313,8 +313,8 @@ trailer
 
   const result = await FileParser.parsePdfDocument(Buffer.from(pdfContent, 'latin1'));
   assert.equal(result.images.length, 1);
-  assert.match(result.text, /No se pudo extraer texto seleccionable/);
-  assert.match(result.text, /Se recuperaron 1 imagen incrustada/);
+  assert.match(result.text, /no selectable text could be extracted/);
+  assert.match(result.text, /1 embedded image\(s\) recovered/);
   assert.match(result.text, /rag-image:\/\/__DOC_ID__:img_1/);
 });
 

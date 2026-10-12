@@ -103,7 +103,7 @@
     const ids = normalizeBranchIds(branchIdsInput);
     if (ids.length === 0) throw new Error('No hay ninguna rama de conocimiento activa.');
     const branches = (await Promise.all(ids.map(id => RagStorage.getBranchById(id)))).filter(Boolean);
-    if (branches.length === 0) throw new Error(`No se encontró ninguna de las ramas especificadas: ${ids.join(', ')}.`);
+    if (branches.length === 0) throw new Error(`None of the requested branches exist: ${ids.join(', ')}.`);
     return branches;
   }
 
@@ -126,9 +126,7 @@
 
       return `${label}\n\nDocument retrieval protocol:${langNote}\n- Start with search_knowledge_base using short, key terms; do not concatenate long phrases.\n- Choose scope before searching: use scope="document" with documentHint for one exact document; use scope="corpus" for comparisons, multiple documents, companies, or years; use scope="auto" only when neither intent is clear.\n- For multi-document retrieval, make one scope="corpus" search. Do not repeat the same query with different documentHint values.\n- Consult list_documents (optionally specifying filter, e.g. filter="Walmart") only if search yields no results, you do not know the available sources, or the query references a document whose exact name you are unsure of.\n- In scope="corpus" results, at most 2 chunks per document are returned; if you need more depth from a specific document, repeat the search with scope="document" and documentHint.\n- After finding relevant chunks, use read_knowledge_chunk with chunkIds for deeper or adjacent content; do not re-search for it.\n- Treat tool outputs as private internal evidence: synthesize and answer directly without reproducing full fragments or technical identifiers.\n- Document images are identified as ![description](rag-image://docId:imgId). If an image can provide relevant information and you have native vision, use read_knowledge_image with its full reference to inspect it before answering; request only what is necessary.\n- If evidence is insufficient or you find no conclusive data, state it accurately and conclude; do not invent or wander.`;
     } catch (err) {
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('[ChatRagService] Error building RAG system context:', err);
-      }
+      console.warn('[ChatRagService] Error building RAG system context:', err);
       return '';
     }
   }
@@ -232,7 +230,7 @@
   async function searchKnowledgeBase(branchIds, rawArgs) {
     const args = parseArguments(rawArgs);
     const query = String(args.query || '').trim();
-    if (!query) return { success: false, error: 'La consulta de búsqueda está vacía.' };
+    if (!query) return { success: false, error: 'The search query is empty.' };
     try {
       const branches = await resolveBranches(branchIds);
       const branchNamesById = new Map(branches.map(b => [b.id, b.name]));
@@ -267,7 +265,7 @@
         : 'No unambiguous document match found; cross-document search applied.';
       let result;
       let appliedMaxPerDoc = null;
-      if (selection.selected && typeof RagIndex.searchDocuments === 'function') {
+      if (selection.selected) {
         appliedScope = 'document';
         scopeReason = `Unambiguous match with title "${selection.selected.title}".`;
         result = await RagIndex.searchDocuments(
@@ -298,9 +296,7 @@
           groupByDocument: true,
           maxPerDocument: dynamicMaxPerDoc
         };
-        result = typeof RagIndex.searchBranches === 'function'
-          ? await RagIndex.searchBranches(ids, query, corpusOptions)
-          : await RagIndex.searchBranch(ids[0], query, corpusOptions);
+        result = await RagIndex.searchBranches(ids, query, corpusOptions);
       }
 
       const matches = result.hits.map(hit => {

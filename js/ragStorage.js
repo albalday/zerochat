@@ -60,14 +60,14 @@
     return new Promise((resolve, reject) => {
       transaction.oncomplete = () => resolve(true);
       transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new RagStorageError('Transacción cancelada.'));
+      transaction.onabort = () => reject(transaction.error || new RagStorageError('Transaction aborted.'));
     });
   }
 
   function validateBranch(input) {
     const data = typeof input === 'string' ? { name: input } : input;
     if (!data || typeof data !== 'object' || !String(data.name || '').trim()) {
-      throw new ValidationError('El nombre de la rama es obligatorio.');
+      throw new ValidationError('The branch name is required.');
     }
     const now = Date.now();
     return {
@@ -82,7 +82,7 @@
 
   function validateChunk(chunk, index, document) {
     if (!chunk || typeof chunk !== 'object' || !String(chunk.content || '').trim()) {
-      throw new ValidationError(`El fragmento ${index + 1} no contiene texto.`);
+      throw new ValidationError(`Chunk ${index + 1} contains no text.`);
     }
     const order = Number.isInteger(chunk.order) ? chunk.order : index;
     return {
@@ -100,11 +100,11 @@
   }
 
   function validateDocument(data) {
-    if (!data || typeof data !== 'object') throw new ValidationError('El documento debe ser un objeto.');
-    if (!String(data.branchId || '').trim()) throw new ValidationError('El documento requiere una rama.');
-    if (!String(data.title || '').trim()) throw new ValidationError('El título del documento es obligatorio.');
+    if (!data || typeof data !== 'object') throw new ValidationError('The document must be an object.');
+    if (!String(data.branchId || '').trim()) throw new ValidationError('The document requires a branch.');
+    if (!String(data.title || '').trim()) throw new ValidationError('The document title is required.');
     const fileType = String(data.fileType || 'txt').toLowerCase();
-    if (!['pdf', 'txt', 'md'].includes(fileType)) throw new ValidationError(`Tipo de archivo no soportado: ${fileType}.`);
+    if (!['pdf', 'txt', 'md'].includes(fileType)) throw new ValidationError(`Unsupported file type: ${fileType}.`);
     const now = Date.now();
     const document = {
       id: String(data.id || generateId('doc')),
@@ -149,7 +149,7 @@
               resolve(results);
             }
           };
-          request.onerror = () => reject(request.error || new Error(`Error en cursor de ${storeName}.${indexName}`));
+          request.onerror = () => reject(request.error || new Error(`Cursor error on ${storeName}.${indexName}`));
         } catch (err) {
           if (typeof index.getAll === 'function') {
             requestResult(index.getAll(value)).then(resolve, reject);
@@ -179,7 +179,7 @@
       return { ...branch };
     } catch (error) {
       if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`No se pudo crear la rama: ${error.message || error}`, { error });
+      throw new RagStorageError(`The branch could not be created: ${error.message || error}`, { error });
     }
   }
 
@@ -278,7 +278,7 @@
       return document;
     } catch (error) {
       if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`No se pudo guardar el documento: ${error.message || error}`, { error });
+      throw new RagStorageError(`The document could not be saved: ${error.message || error}`, { error });
     }
   }
 
@@ -304,7 +304,7 @@
       return document;
     } catch (error) {
       if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`No se pudo reemplazar el documento: ${error.message || error}`, { error });
+      throw new RagStorageError(`The document could not be replaced: ${error.message || error}`, { error });
     }
   }
 
@@ -575,10 +575,10 @@
     let data = backup;
     if (typeof data === 'string') {
       try { data = JSON.parse(data); }
-      catch (error) { throw new ValidationError('El respaldo no contiene JSON válido.', { error }); }
+      catch (error) { throw new ValidationError('The backup is not valid JSON.', { error }); }
     }
     if (!data || data.schema !== 'zerochat-knowledge' || data.version !== 2 || !data.branch || !Array.isArray(data.documents)) {
-      throw new ValidationError('Formato de respaldo de conocimiento no compatible.');
+      throw new ValidationError('Unsupported knowledge backup format.');
     }
     const branch = await createBranch(data.branch);
     try {
@@ -626,7 +626,7 @@
       try {
         await deleteBranch(branch.id);
       } catch (rollbackError) {
-        console.warn('[RagStorage] Error durante el rollback de importación:', rollbackError);
+        console.warn('[RagStorage] Import rollback failed:', rollbackError);
       }
       throw error;
     }
