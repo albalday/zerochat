@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Infrastructure and data · ZeroChat Help · 8.x</title>
+  <title>Infrastructure and data · ZeroChat Help · 9.x</title>
   <meta name="description" content="How features are divided between the browser and the local server.">
   <link rel="stylesheet" href="../help.css">
 </head>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="../architecture.html" class="top-nav-link">Español</a>
@@ -69,7 +69,7 @@
 
     <div class="card">
       <h2>Updates</h2>
-      <p>Web updates arrive from GitHub Pages. Patches in the same series, such as <code>8.5.x</code>, are compatible with backend <code>8.5</code> and do not require reinstalling it. When a new web version is ready, ZeroChat offers <strong>Reload now</strong> or <strong>Later</strong>; reloading applies it without losing saved history.</p>
+      <p>Web updates arrive from GitHub Pages. Patches in the same series, such as <code>9.1.x</code>, are compatible with backend <code>9.1</code> and do not require reinstalling it. When a new web version is ready, ZeroChat offers <strong>Reload now</strong> or <strong>Later</strong>; reloading applies it without losing saved history.</p>
       <p>A new <code>major.minor</code> series may require a backend update. Follow the terminal notice for your installation method; the executable does not update automatically. Press <code>i</code> when the terminal offers information.</p>
       <div class="subsection">
         <h3>Local development</h3>
@@ -79,40 +79,40 @@
     </div>
 
     <div class="card" id="audits">
-      <h2>Audits of version 8.12.4</h2>
-      <p>Reports verified against the code, the tests and the Git history. Initial draft by Gemini 3.8 Flash in Google Antigravity; verification and final writing by Claude Opus 5.5 in Claude Code.</p>
+      <h2>Reviews of version 9.1.0</h2>
+      <p>Reviews written from scratch, not updates of the 8.12.4 audits. Each claim states whether a test protects it, and each <code>AGENTS.md</code> rule is matched with the test that watches it, following the <a href="learning.html#rules-lesson">9.0.0 lesson</a>. Written by Claude Opus 5.5 in Claude Code.</p>
       <div class="features-grid">
         <a href="audit-infrastructure.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
-          <div class="feature-title">1. Infrastructure and code</div>
-          <div class="feature-desc">Tests, AGENTS.md contracts, backend security, accepted risks and findings, with H-01 to H-03 fixed in 8.12.5.</div>
-          <div class="feature-link">View infrastructure audit →</div>
+          <div class="feature-title">1. Infrastructure and rules</div>
+          <div class="feature-desc">Each AGENTS.md rule against the test that protects it: 12 of 23 with a test, security, accepted risks and 10 findings.</div>
+          <div class="feature-link">View infrastructure review →</div>
         </a>
         <a href="audit-functionalities.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </div>
-          <div class="feature-title">2. Functionalities and testbed</div>
-          <div class="feature-desc">Verified capabilities and limits for experimenting with providers, reasoning, agents, MCP and RAG.</div>
-          <div class="feature-link">View functional audit →</div>
+          <div class="feature-title">2. Features</div>
+          <div class="feature-desc">ZeroChat as the single frontend for a local LLM: capabilities, the tests protecting them and server settings.</div>
+          <div class="feature-link">View feature review →</div>
         </a>
         <a href="audit-comparison.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           </div>
           <div class="feature-title">3. Comparison</div>
-          <div class="feature-desc">Versus Open WebUI, LibreChat, Chatbox, Jan and Claude Desktop, with dated sources.</div>
-          <div class="feature-link">View comparative analysis →</div>
+          <div class="feature-desc">Versus Open WebUI, LM Studio, the llama.cpp interface and Jan as a frontend for a local model, with dated sources.</div>
+          <div class="feature-link">View comparison review →</div>
         </a>
         <a href="audit-history.html" class="feature-card">
           <div class="feature-icon-wrapper">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
-          <div class="feature-title">4. Evolution according to Git</div>
-          <div class="feature-desc">772 commits in 40 days, from ChatCLI v0.9 to ZeroChat 8.12.4, separating facts from interpretation.</div>
-          <div class="feature-link">View genealogical history →</div>
+          <div class="feature-title">4. Evolution from Git</div>
+          <div class="feature-desc">911 commits in 48 days, from ChatCLI v0.9 to 9.1.0, and how long each rule took to get its test.</div>
+          <div class="feature-link">View history review →</div>
         </a>
       </div>
     </div>
@@ -133,7 +133,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Personal user guide</p>
+      <p>ZeroChat 9.x · Personal user guide</p>
     </footer>
   </div>
 </body>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Proyecto y aprendizaje · ZeroChat 8.x Docs</title>
-  <meta name="description" content="Proyecto personal de aprendizaje y consolidación de la serie 8.x.">
+  <title>Proyecto y aprendizaje · ZeroChat 9.x Docs</title>
+  <meta name="description" content="Proyecto personal de aprendizaje, de libre uso, y lecciones de la serie 9.x.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="en/learning.html" class="top-nav-link" lang="en">English</a>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Proyecto y aprendizaje</h1>
-      <p class="subtitle">Proyecto personal de aprendizaje y consolidación de la serie 8.x.</p>
+      <p class="subtitle">Proyecto personal de aprendizaje, de libre uso, y lecciones de la serie 9.x.</p>
     </header>
 
     <main>
@@ -45,9 +45,37 @@
       <li>Mantener normas y contratos cerca del código que describen.</li>
       <li>Revisar y simplificar las propuestas antes de incorporarlas.</li>
       <li>Comprobar los cambios con las pruebas aplicables y revisión manual cuando sea necesaria.</li></ul>
-      <h3>Pruebas y estado del proyecto</h3>
+      <h3>Pruebas</h3>
       <p>La suite comprueba casos concretos de lógica, arquitectura, integración, infraestructura y navegador. Pasarla no demuestra compatibilidad universal ni ausencia de errores.</p>
-      <p>La serie <strong>8.x</strong> consolida las funcionalidades existentes. El desarrollo de nuevas funcionalidades queda en pausa por el momento; esta ayuda describe lo implementado y no anuncia una hoja de ruta.</p>
+    </section>
+
+    <section class="card" id="leccion-normas">
+      <h2>3. La lección amarga: normas sin pruebas</h2>
+      <p>Tras publicar la 9.0.0, el 11 de octubre de 2026, hubo que dedicar 26 commits en día y medio a limpiar el código; 17 de ellos son refactorizaciones incompatibles (<code>refactor!</code>). Solo en <code>js/</code>, <code>css/</code> y <code>py/</code> se retiraron unas 16.500 líneas y se escribieron 7.600, y se modificaron 83 archivos de pruebas. Salvo una mejora de <code>edit_file</code> y un arreglo de desplazamiento, no hubo funcionalidad nueva: se quitó lo que nunca debió entrar. Los nueve commits previos a la publicación ya habían empezado esa limpieza.</p>
+      <p>Lo que se retiró tenía un patrón común:</p>
+      <ul>
+        <li>respaldos para módulos que siempre están cargados (<code>window.X || require(...)</code>, envoltorios propios de <code>t()</code>, textos alternativos tras una traducción);</li>
+        <li>guardas que comprobaban si existía un elemento que siempre existe, y código de compatibilidad con formatos y claves antiguos;</li>
+        <li>funciones exportadas solo para las pruebas, y pruebas con elementos simulados mediante objetos que obligaban al código a tolerar elementos incompletos;</li>
+        <li>colores literales, valores de respaldo en <code>var()</code> y <code>style.display</code> repartidos por los estilos;</li>
+        <li><code>except Exception: pass</code> y capturas genéricas en el backend.</li>
+      </ul>
+      <p>Ninguno de esos cambios era absurdo por sí solo: cada sesión con un agente hacía algo localmente razonable para que su tarea funcionara. Pero <strong>no había una norma escrita que lo prohibiera ni una prueba que lo detectara</strong>, así que nada impedía que se acumulara. Las normas sobre código muerto, duplicado y de compatibilidad, y la primera prueba de higiene (<code>test_code_hygiene.js</code>), llegaron el mismo día en que se publicó la 9.0.0; las de estilos y backend (<code>test_style_hygiene.js</code>, <code>test_backend_hygiene.js</code>), durante la propia limpieza.</p>
+      <h3>Qué se aprende</h3>
+      <ul>
+        <li><strong>Una norma sin prueba es un deseo.</strong> Un agente lee <code>AGENTS.md</code> cuando le conviene; una prueba de arquitectura falla siempre.</li>
+        <li><strong>La norma y su prueba se escriben juntas, con el primer caso</strong>, no cuando el problema ya ocupa miles de líneas. Cuanto antes, más barata.</li>
+        <li><strong>Cada limpieza deja su prueba</strong>, para que el mismo tipo de problema no pueda volver sin que la suite lo diga.</li>
+        <li><strong>Las pruebas no deben pedir concesiones al código.</strong> Simular el DOM con objetos parecía cómodo, pero obligaba a escribir respaldos; con un DOM real desaparecieron.</li>
+        <li><strong>Lo que no se puede comprobar con una prueba se revisa a mano en cada cambio</strong>, y se dice explícitamente que no está protegido.</li>
+      </ul>
+      <p>Las <a href="architecture.html#auditorias">revisiones de la 9.1.0</a> aplican esta lección: cada norma de <code>AGENTS.md</code> se contrasta con la prueba que la protege, y las que no tienen prueba se señalan como pendientes.</p>
+    </section>
+
+    <section class="card">
+      <h2>4. Estado y uso</h2>
+      <p>ZeroChat sigue siendo un proyecto personal. Se publica con licencia MIT: cualquiera puede usarlo, modificarlo o reutilizar sus partes si le sirven, sin soporte ni garantía.</p>
+      <p>El objetivo actual de la serie <strong>9.x</strong> es usarlo como <strong>frontend único con un LLM local</strong>, Swift-Qwen3.8, servido con una API compatible con OpenAI. Las mejoras se orientan a ese uso; esta ayuda describe lo implementado y no anuncia una hoja de ruta.</p>
     </section>
 
       <p>Esta ayuda documenta el uso actual.</p>
@@ -61,7 +89,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Proyecto y aprendizaje</p>
+      <p>ZeroChat 9.x · Proyecto y aprendizaje</p>
     </footer>
   </div>
 </body>

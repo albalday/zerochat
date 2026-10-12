@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audit 4: Evolution According to Git · ZeroChat 8.x Docs</title>
-  <meta name="description" content="ZeroChat's evolution over 772 commits, from ChatCLI v0.9 to ZeroChat 8.12.4, separating facts from interpretation.">
+  <title>Review 4: Evolution from Git · ZeroChat 9.x Docs</title>
+  <meta name="description" content="ZeroChat's evolution over 911 commits, from ChatCLI v0.9 to 9.1.0, and the lag between each AGENTS.md rule and the test that protects it.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,119 +13,133 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="../audit-history.html" class="top-nav-link" lang="es">Español</a>
-          <a href="architecture.html" class="top-nav-link">← Infrastructure and data</a>
+          <a href="architecture.html#audits" class="top-nav-link">← Infrastructure and data</a>
         </div>
       </div>
-      <h1>Audit 4: Evolution According to Git</h1>
-      <p class="subtitle">772 commits in 40 days, from ChatCLI v0.9 to ZeroChat 8.12.4.</p>
+      <h1>Review 4: Evolution from Git</h1>
+      <p class="subtitle">911 commits in 48 days, from ChatCLI v0.9 to 9.1.0, and how long each rule took to get its test.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Method and limits</h2>
-        <p><strong>Facts</strong> are checked with <code>git log</code> and <code>git show</code>; dates and versions come from each commit. <strong>Interpretations</strong> are marked as such. Most commits only have a title: <strong>the history does not record the reasons for decisions</strong>, so this report does not attribute undocumented causes.</p>
+        <p><strong>Facts</strong> are checked with <code>git log</code>, <code>git show</code> and <code>git log -S</code> on <code>AGENTS.md</code>; dates and versions come from each commit. <strong>Interpretations</strong> are marked as such. Most commits only have a title, so the history does not always record why a decision was made.</p>
+        <p>This review adds a question the 8.12.4 audit did not ask: <strong>when did each rule reach <code>AGENTS.md</code>, and when did the test that protects it arrive</strong>. It is the criterion of the <a href="learning.html#rules-lesson">9.0.0 lesson</a>.</p>
       </div>
 
       <div class="card">
-        <h2>1. Figures for the period</h2>
+        <h2>1. Figures</h2>
         <ul>
-          <li>772 commits between August 26 and October 4, 2026: about 19 a day, peaking at 65 (Aug 29) and 74 (Sep 2).</li>
-          <li>Commits list several coding agents as co-authors (Claude Opus 5, Opus 5.5, Fable 5.1). From September 2 the documentation mentions "zero-code" development with Codex and Antigravity.</li>
-          <li><em>Interpretation:</em> the pace fits development directed by instructions and carried out mostly by agents, as stated in <a href="learning.html">Learning</a>.</li>
+          <li>911 commits between 26 August and 12 October 2026, with activity on 46 of those 48 days: about 19 a day, peaking at 74 (02/09) and 65 (29/08).</li>
+          <li>140 commits since the 8.12.4 audit (<code>aff1019</code>, 04/10): 114 up to the 9.0.0 release and 26 after it.</li>
+          <li>Commits list coding agents as co-authors (Claude Opus 5, Opus 5.5, Fable 5.1); the documentation also mentions Codex and Antigravity. <em>Interpretation:</em> the pace fits development directed by instructions and carried out mostly by agents.</li>
         </ul>
       </div>
 
       <div class="card">
         <h2>2. Phases</h2>
         <div class="subsection">
-          <h3>Multimedia ChatCLI (August 26–27)</h3>
-          <p>Initial commit ChatCLI v0.9 (<code>39fed30</code>). v2.1 adds multi-chat, SVG charts, STT/TTS voice and export (<code>dfdc964</code>). The agent loop moves from recursion to a <code>while</code> loop (<code>1fdf4d5</code>). Avatars are removed (<code>cd45cd8</code>).</p>
+          <h3>Origin and growth (26 August – 16 September)</h3>
+          <p>ChatCLI v0.9 (<code>39fed30</code>), multichat and voice, later removed (<code>cbc4cb1</code>). <code>AgentCore</code> and the first MCP (<code>969526e</code>). Renamed to ZeroChat (<code>ad107f4</code>). Orama RAG and the first <code>AGENTS.md</code> on 02/09 (<code>481c9c6</code>, <code>d37ff35</code>). SVG icons, in-app dialogs and WebLLM (<code>e20a70c</code>, 11/09).</p>
         </div>
         <div class="subsection">
-          <h3>AgentCore and MCP (August 28–31)</h3>
-          <p>The voice subsystem is removed (<code>cbc4cb1</code>). <code>AgentCore</code> and the first MCP support arrive (<code>140d5a8</code>, <code>969526e</code>). A minifying bundler appears (<code>f416f53</code>). The project is renamed ZeroChat v5.1 with experimental Tree-RAG, which stored Markdown summaries on the file system (<code>ad107f4</code>, <code>cdfb631</code>, <code>6bc97d4</code>).</p>
+          <h3>Backend and hardening (17 September – 4 October)</h3>
+          <p>End of the bundle and unified <code>zerochat.py</code> in 7.0.0 (<code>f58544f</code>). PyPI and the modular backend in <code>py/</code> (<code>b3db5f0</code>). HMAC signatures (<code>c51d0a8</code>). <code>ChatState</code> slices with their test (<code>2059455</code>) and the <code>0600</code> token. Audit and release of 8.12.4 (<code>aff1019</code>).</p>
         </div>
         <div class="subsection">
-          <h3>Orama, rules and UI (September 2–16)</h3>
-          <p>RAG with Orama and <code>ZeroChatDB</code> (<code>481c9c6</code>, v5.3.0) and the first <code>AGENTS.md</code> (<code>d37ff35</code>), both on Sep 2. SVG icons (<code>abb692c</code>, v6.0.0), injected messages in English (<code>cfdab94</code>, v6.5.2), internal dialogs (<code>11a0389</code>, v6.5.4) and WebLLM on Sep 11 (<code>e20a70c</code>, v6.6.0).</p>
+          <h3>8.12 series (4 – 9 October)</h3>
+          <p>From 8.12.5 to 8.12.16: the audit findings closed with tests for empty <code>catch</code> blocks and untranslated literals, branch summaries, project mode and its protocol.</p>
         </div>
         <div class="subsection">
-          <h3>Unified backend, PyPI and signatures (September 17–30)</h3>
-          <p>First daily token (<code>5ac5cd4</code>). Unified <code>zerochat.py</code> and the bundle removed in v7.0.0 (<code>f58544f</code>). PyPI preparation and unified MCP environment (<code>9083f2b</code>, <code>c69c382</code>). Modular <code>py/</code> backend (<code>b3db5f0</code>, v7.8.1). HMAC signatures for tool calls (<code>c51d0a8</code>, Sep 27).</p>
+          <h3>Towards 9.0.0 (9 – 11 October)</h3>
+          <p>Agent with no step limit and loop detection (<code>38ef6f9</code>). <code>run_command</code> and <code>check_command</code> replace <code>bash</code> and <code>execute_command</code> (<code>514591d</code>). Read-only subagents (<code>ba21510</code>). Reasoning replay between steps (<code>a3e41b6</code>). First cleanup of dead and compatibility code (<code>c1c66af</code>, <code>8d769f7</code>) and, the day of the release, the rules and tests against dead and duplicated code (<code>f785a3f</code>). 9.0.0 released on 11/10 (<code>d2ab109</code>).</p>
         </div>
         <div class="subsection">
-          <h3>Hardening and closing 8.x (October 1–4)</h3>
-          <p>On Oct 3: <code>ChatState</code> slices (<code>2059455</code>), token with <code>0600</code> permissions (<code>c6fca95</code>) and documented acceptance of the shared-origin risk (<code>d4692e1</code>). On Oct 4: text <code>&lt;tool_call&gt;</code> for WebLLM (<code>e44dd02</code>), dead-code cleanup (<code>ffdbc6c</code>) and the 8.12.4 release (<code>aff1019</code>).</p>
+          <h3>The cleanup (11 – 12 October)</h3>
+          <p>Tests with a real DOM (<code>c182c38</code>) and 17 breaking refactors. The largest: generation and conversation (<code>6bea226</code>, −5,318 lines), tools (<code>63d4315</code>, −3,337) and MCP (<code>95ab896</code>, −2,840). The style (<code>26abb4c</code>) and backend (<code>72deff7</code>) tests arrive. In total, in <code>js/</code>, <code>css/</code> and <code>py/</code>: −16,522 and +7,637 lines.</p>
         </div>
       </div>
 
       <div class="card">
-        <h2>3. Summary timeline</h2>
+        <h2>3. Rules and tests over time</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Date</th><th>Version</th><th>Commit</th><th>Fact</th></tr></thead>
+            <thead><tr><th>Rule</th><th>In AGENTS.md</th><th>Test</th><th>Lag</th><th>What the test found on arrival</th></tr></thead>
             <tbody>
-              <tr><td>Aug 26</td><td>v0.9</td><td><code>39fed30</code></td><td>ChatCLI is born</td></tr>
-              <tr><td>Aug 28</td><td>—</td><td><code>cbc4cb1</code></td><td>Voice removed</td></tr>
-              <tr><td>Aug 28</td><td>—</td><td><code>969526e</code></td><td>First MCP</td></tr>
-              <tr><td>Aug 30</td><td>v5.1</td><td><code>ad107f4</code></td><td>Renamed to ZeroChat</td></tr>
-              <tr><td>Sep 2</td><td>v5.3.0</td><td><code>481c9c6</code></td><td>RAG with Orama</td></tr>
-              <tr><td>Sep 2</td><td>v5.3</td><td><code>d37ff35</code></td><td>First AGENTS.md</td></tr>
-              <tr><td>Sep 3</td><td>v6.0.0</td><td><code>abb692c</code></td><td>SVG icons</td></tr>
-              <tr><td>Sep 11</td><td>v6.6.0</td><td><code>e20a70c</code></td><td>WebLLM</td></tr>
-              <tr><td>Sep 17</td><td>v7.0.0</td><td><code>f58544f</code></td><td>Bundle removed</td></tr>
-              <tr><td>Sep 23</td><td>v7.8.1</td><td><code>b3db5f0</code></td><td>Modular backend</td></tr>
-              <tr><td>Sep 27</td><td>—</td><td><code>c51d0a8</code></td><td>HMAC signatures</td></tr>
-              <tr><td>Oct 3</td><td>v8.10.4</td><td><code>c6fca95</code></td><td>Token 0600</td></tr>
-              <tr><td>Oct 4</td><td>v8.12.0</td><td><code>e44dd02</code></td><td>Text <code>&lt;tool_call&gt;</code></td></tr>
-              <tr><td>Oct 4</td><td>v8.12.4</td><td><code>aff1019</code></td><td>Audited release</td></tr>
+              <tr><td>Dialogs through <code>ChatDialogs</code></td><td>09/09 (<code>11a0389</code>)</td><td>09/09 (<code>c87f69b</code>)</td><td>0 days</td><td>The test existed from day one; every violation fails immediately</td></tr>
+              <tr><td><code>ChatState</code> slices</td><td>07/09 (<code>3481a07</code>)</td><td>03/10 (<code>2059455</code>)</td><td>26 days</td><td>Direct writes to the <code>ui</code> slice</td></tr>
+              <tr><td>Explicit errors (frontend)</td><td>07/09 (<code>3481a07</code>)</td><td>04/10 (<code>cf7aca4</code>)</td><td>27 days</td><td>116 empty <code>catch</code> blocks</td></tr>
+              <tr><td>Visible text through <code>ChatI18n</code></td><td>06/09 (<code>66a1967</code>)</td><td>04/10 (<code>46b6228</code>)</td><td>28 days</td><td>10 untranslated literals</td></tr>
+              <tr><td>Explicit errors (backend)</td><td>07/09 (<code>3481a07</code>)</td><td>12/10 (<code>72deff7</code>)</td><td>35 days</td><td>Generic catches in 7 files (<code>5dc0293</code>)</td></tr>
+              <tr><td>Styles with <code>tokens.css</code> tokens</td><td>06/09 (<code>66a1967</code>)</td><td>12/10 (<code>26abb4c</code>)</td><td>36 days</td><td>Literal colours and <code>var()</code> fallbacks: two refactors across 58 files</td></tr>
+              <tr><td>No fallbacks, compatibility code or test-only exports</td><td>11/10 (<code>f785a3f</code>)</td><td>11/10 (<code>f785a3f</code>)</td><td>0 days, but 46 days after starting</td><td>The 9.0.0 cleanup: about 16,500 lines</td></tr>
+              <tr><td><code>mount()</code> with delegated listeners</td><td>12/10 (<code>98f07af</code>)</td><td>—</td><td>No test</td><td>—</td></tr>
             </tbody>
           </table>
         </div>
+        <p><em>Interpretation:</em> the only rule that came with its test on the same day from the start (dialogs) created no debt. Those that waited almost a month for their test piled up tens or hundreds of violations, which surfaced all at once when the test arrived. Those that were not even written allowed the largest debt in the project. Debt grew with time without a test, not with how hard the rule was.</p>
       </div>
 
       <div class="card">
         <h2>4. What the history adds</h2>
         <ul>
-          <li><strong>The current scope results from removals:</strong> voice, avatars, the bundle and Tree-RAG were dropped. The history records what was removed, not why.</li>
-          <li><strong>Lexical RAG replaced Tree-RAG</strong> after about three days. There is no evidence that embeddings were tried.</li>
-          <li><strong>AGENTS.md rules arrive together with their changes</strong> (icons, English, dialogs). <em>Interpretation:</em> the rulebook locks in decisions so agents do not revert them; commits do not document specific incidents.</li>
-          <li><strong><code>&lt;tool_call&gt;</code> is recent:</strong> it arrived more than three weeks after WebLLM and has little usage yet.</li>
-          <li><strong>Backend security was hardened in the second half</strong> of the period: daily token, HMAC, <code>0600</code> permissions and accepted origin risk.</li>
-          <li><strong>The pace calls for verification:</strong> the drafts of these audits contained date and capability errors.</li>
+          <li><strong>The current scope is the result of removals:</strong> voice, avatars, the bundle, Tree-RAG, <code>bash</code>/<code>execute_command</code> and the agent's turn limit were all removed.</li>
+          <li><strong>Audits age fast:</strong> the 8.12.4 one described <code>agent_checkpoint</code>, <code>update_plan</code>, <code>finish_task</code> and a loop of 5 to 200 turns; a week later none of them existed.</li>
+          <li><strong>Releasing a major version is not the same as finishing it:</strong> 9.0.0 shipped with its first hygiene test and needed 26 more commits the next day.</li>
+          <li><strong>Rules follow problems:</strong> almost all of them arrive after the problem exists. <em>Interpretation:</em> without a test to stop it, an agent reintroduces what the rule forbids.</li>
         </ul>
-        <p>Conclusion: the final state described in the other audits is real. The history explains how it was reached and reminds us that its most recent parts are the least proven by use.</p>
+        <p>Conclusion: 9.1.0 is cleaner than any earlier version, and for the first time most rules have a test. Those still without one are listed in <a href="audit-infrastructure.html">Review 1</a>.</p>
+      </div>
+
+      <div class="card">
+        <h2>5. Short timeline</h2>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Date</th><th>Version</th><th>Commit</th><th>Event</th></tr></thead>
+            <tbody>
+              <tr><td>26/08</td><td>v0.9</td><td><code>39fed30</code></td><td>ChatCLI is born</td></tr>
+              <tr><td>02/09</td><td>v5.3</td><td><code>d37ff35</code></td><td>First AGENTS.md</td></tr>
+              <tr><td>09/09</td><td>v6.5.4</td><td><code>11a0389</code></td><td>In-app dialogs, with their test</td></tr>
+              <tr><td>11/09</td><td>v6.6.0</td><td><code>e20a70c</code></td><td>WebLLM</td></tr>
+              <tr><td>17/09</td><td>v7.0.0</td><td><code>f58544f</code></td><td>End of the bundle</td></tr>
+              <tr><td>04/10</td><td>v8.12.4</td><td><code>aff1019</code></td><td>Audited release</td></tr>
+              <tr><td>11/10</td><td>—</td><td><code>ba21510</code></td><td>Subagents</td></tr>
+              <tr><td>11/10</td><td>—</td><td><code>f785a3f</code></td><td>Rules and tests against dead code</td></tr>
+              <tr><td>11/10</td><td>v9.0.0</td><td><code>d2ab109</code></td><td>Release</td></tr>
+              <tr><td>12/10</td><td>—</td><td><code>72deff7</code></td><td>Backend hygiene test</td></tr>
+              <tr><td>12/10</td><td>9.1.0 on <code>dev</code></td><td><code>a0393c3</code></td><td>Reviewed state</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card" id="authorship">
         <h2>Authorship</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>First approximation (draft):</strong> Gemini 3.8 Flash in Google Antigravity.</li>
-            <li><strong>Verification, correction and final writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code.</li>
-            <li>The agents worked from instructions given by the project owner; no human wrote the content.</li>
+            <li><strong>Review and writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code, following instructions from the project owner, with no human-written content.</li>
           </ul>
         </div>
       </div>
     </main>
 
-    <nav class="page-navigation" aria-label="Audit navigation">
+    <nav class="page-navigation" aria-label="Review navigation">
       <a href="audit-comparison.html" class="nav-button prev">
         <span class="nav-direction">← Previous</span>
-        <span class="nav-title">Audit 3: Comparison</span>
+        <span class="nav-title">Review 3: Comparison</span>
       </a>
-      <a href="architecture.html" class="nav-button next">
+      <a href="architecture.html#audits" class="nav-button next">
         <span class="nav-direction">Next →</span>
         <span class="nav-title">Infrastructure and data</span>
       </a>
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Audit 4 (History) · October 4, 2026</p>
+      <p>ZeroChat 9.x · Review 4 (History) · 12 October 2026</p>
     </footer>
   </div>
 </body>

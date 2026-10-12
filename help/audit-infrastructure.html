@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auditoría 1: Infraestructura y Calidad de Código · ZeroChat 8.x Docs</title>
-  <meta name="description" content="Auditoría de código, contratos de arquitectura, seguridad y pruebas de ZeroChat 8.12.4, con la procedencia de cada afirmación.">
+  <title>Revisión 1: Infraestructura y normas · ZeroChat 9.x Docs</title>
+  <meta name="description" content="Revisión de ZeroChat 9.1.0: cada norma de AGENTS.md contrastada con la prueba que la protege, seguridad, riesgos aceptados y hallazgos.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -13,143 +13,167 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="en/audit-infrastructure.html" class="top-nav-link" lang="en">English</a>
-          <a href="architecture.html" class="top-nav-link">← Infraestructura y datos</a>
+          <a href="architecture.html#auditorias" class="top-nav-link">← Infraestructura y datos</a>
         </div>
       </div>
-      <h1>Auditoría 1: Infraestructura y Calidad de Código</h1>
-      <p class="subtitle">Estado del código, contratos de arquitectura, seguridad y pruebas, indicando cómo se comprobó cada afirmación.</p>
+      <h1>Revisión 1: Infraestructura y normas</h1>
+      <p class="subtitle">¿Qué norma de AGENTS.md está protegida por una prueba y cuál depende solo de que alguien la lea?</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Alcance y método</h2>
-        <p>Versión <strong>8.12.4</strong> (web) y <strong>8.12</strong> (backend), código en el commit <code>aff1019</code>. Procedimiento de referencia: <code>docs/audits/AuditFull.md</code>.</p>
-        <div class="alert alert-success"><p><strong>Seguimiento:</strong> los hallazgos H-01, H-02 y H-03 están <strong>corregidos en la versión 8.12.5</strong>. H-04 está corregido en la ayuda tras la 8.12.5. Los hallazgos se conservan tal como se detectaron en 8.12.4.</p></div>
-        <p>Cada afirmación indica su procedencia: <strong>[test]</strong> prueba automatizada, <strong>[cmd]</strong> comando reproducible, <strong>[lectura]</strong> revisión del código sin prueba que lo proteja, <strong>[no verificado]</strong> hipótesis del borrador sin demostrar.</p>
+        <p>Revisión de la versión <strong>9.1.0</strong> preparada en la rama <code>dev</code> (commit <code>a0393c3</code>, antes del incremento de versión). No actualiza la auditoría de la 8.12.4: parte de cero, con el procedimiento <code>docs/audits/AuditFull.md</code>.</p>
+        <p>El criterio sale de la <a href="learning.html#leccion-normas">lección de la 9.0.0</a>: <strong>una norma solo se da por cumplida si una prueba falla al infringirla</strong>. Cada afirmación indica su procedencia:</p>
+        <ul>
+          <li><strong>[test]</strong> una prueba automatizada la protege;</li>
+          <li><strong>[cmd]</strong> un comando reproducible la comprueba hoy, pero nada impide que deje de cumplirse;</li>
+          <li><strong>[lectura]</strong> revisión del código, sin prueba ni comando;</li>
+          <li><strong>[sin prueba]</strong> norma escrita que ninguna prueba vigila.</li>
+        </ul>
       </div>
 
       <div class="card">
         <h2>1. Línea base</h2>
         <div class="table-responsive">
           <table>
-            <thead>
-              <tr><th>Comando</th><th>Resultado</th><th>Procedencia</th></tr>
-            </thead>
+            <thead><tr><th>Comando</th><th>Resultado</th></tr></thead>
             <tbody>
-              <tr><td><code>npm test</code></td><td>680/680 pruebas, 13 suites</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:browser</code></td><td>86/86 pruebas en Chromium headless</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>298/298 pruebas</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>30/30 pruebas</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:architecture</code></td><td>23/23 pruebas en 5 archivos</td><td>[cmd]</td></tr>
+              <tr><td><code>npm test</code> (todos los niveles)</td><td>756 pruebas en 13 suites: 755 correctas y 1 omitida</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>240/240</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>349/349</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>33/34; se omite la prueba del Job Object, exclusiva de Windows</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>35/35 en 9 archivos</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>98/98 en Chromium headless</td></tr>
+              <tr><td><code>npm run build</code></td><td>Sin diferencias en <code>zerochat.py</code>, <code>py/dd-managed-services.py</code> ni <code>js/vendor/orama.browser.js</code></td></tr>
             </tbody>
           </table>
         </div>
+        <p>Tamaño: 68 módulos JavaScript (unas 25.000 líneas), 10 módulos Python en <code>py/</code> (3.500), 14 hojas de estilo (8.000) y 706 claves de traducción en cada idioma. [cmd]</p>
       </div>
 
       <div class="card">
-        <h2>2. Código muerto, i18n y recursos</h2>
-        <ul>
-          <li><strong>Diccionarios:</strong> 649 claves en español y 649 en inglés, con el mismo conjunto. [cmd]</li>
-          <li><strong>Textos fuera de <code>ChatI18n</code>:</strong> <code>'Copiado'</code> en <code>js/debug.js:336</code> y <code>'¡Exportado!'</code> en <code>js/rag-ui.js:722</code>. La paridad de claves no garantiza que todo texto visible use claves. [cmd] <strong>Corregido en 8.12.5</strong>, con la prueba <code>test_i18n_literals.js</code>.</li>
-          <li><strong>Iconos:</strong> cada referencia <code>#icon-*</code> existe en el sprite, el sprite no tiene símbolos sin uso y cada glifo de <code>js/icons.js</code> tiene consumidor. [test] <code>test_icon_sprite.js</code></li>
-          <li><strong>Emojis en controles:</strong> la prueba cubre <code>markdown.js</code> y el banner de importación. Fuera de esos casos: [no verificado].</li>
-          <li><strong>CSS:</strong> las 14 hojas enlazadas existen. [cmd] La ausencia de selectores muertos: [no verificado].</li>
-          <li><strong>Scripts:</strong> 69 scripts en <code>zerochat.html</code>, todos con <code>defer</code>. [cmd]</li>
-          <li><strong>Marcadores de deuda:</strong> sin <code>FIXME</code> ni <code>HACK</code>; la única coincidencia de "TODO" es la palabra española en <code>js/tool-security.js:976</code>. [cmd]</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <h2>3. Contratos de arquitectura (AGENTS.md)</h2>
+        <h2>2. Normas y pruebas</h2>
+        <p>Cada fila es una norma de <code>AGENTS.md</code>. La columna central dice qué la protege.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Regla</th><th>Estado</th><th>Procedencia</th></tr></thead>
+            <thead><tr><th>Norma</th><th>Protección</th><th>Estado hoy</th></tr></thead>
             <tbody>
-              <tr><td><strong>Estado (<code>ChatState</code>)</strong></td><td>Cumple: solo <code>state.js</code> y <code>ui-inspector.js</code> escriben el slice <code>ui</code>.</td><td>[test] <code>test_state_contract.js</code></td></tr>
-              <tr><td><strong>Diálogos</strong></td><td>Cumple: sin <code>alert()</code>, <code>confirm()</code> ni <code>prompt()</code> nativos.</td><td>[test] <code>test_dialogs.js</code></td></tr>
-              <tr><td><strong>Proveedores</strong></td><td>Cumple: Claude, Gemini, Ollama, OpenRouter, Mirror y WebLLM extienden <code>BaseProviderAdapter</code>; OpenAI/LM Studio y Personalizado usan la clase base.</td><td>[lectura]</td></tr>
-              <tr><td><strong>Herramientas</strong></td><td>Cumple: 12 herramientas integradas sin <code>ui</code> ni <code>handler</code>.</td><td>[test] <code>test_tool_contract.js</code></td></tr>
-              <tr><td><strong>Mensajes inyectados en inglés</strong></td><td>Cumple en los casos revisados.</td><td>[lectura]</td></tr>
-              <tr><td><strong>Errores explícitos</strong></td><td>En 8.12.4 <strong>no cumplía de forma general</strong>: 116 bloques <code>catch</code> vacíos en <code>js/</code>. <strong>Corregido en 8.12.5.</strong></td><td>[cmd]; desde 8.12.5 [test] <code>test_error_handling.js</code></td></tr>
+              <tr><td>Dependencias con <code>resolveDep</code> o la fábrica UMD, sin <code>window.X || require</code></td><td>[test] <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Sin funciones sin uso ni exportadas solo para pruebas; sin variables que nadie lea</td><td>[test] <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Sin respaldos para módulos siempre cargados ni guardas sobre elementos siempre presentes</td><td>[sin prueba]</td><td>Dos restos en <code>js/providers-webllm.js</code> (R-01)</td></tr>
+              <tr><td>Eventos enlazados una vez en <code>mount()</code>, con listeners delegados</td><td>[sin prueba]</td><td>No verificado de forma exhaustiva (R-02)</td></tr>
+              <tr><td>Sin código de compatibilidad con versiones anteriores</td><td>[sin prueba]; no es comprobable de forma general</td><td>Revisión manual en cada cambio</td></tr>
+              <tr><td>Pruebas con DOM real (<code>installDom</code>), sin elementos simulados</td><td>[lectura]</td><td>Cumple en las pruebas revisadas</td></tr>
+              <tr><td>Texto visible con <code>ChatI18n</code>, claves en español e inglés, sin texto alternativo tras <code>t()</code>, toda clave usada</td><td>[test] <code>test_i18n.js</code> y <code>test_i18n_literals.js</code></td><td>Cumple: 706/706 claves</td></tr>
+              <tr><td><code>ChatState</code> solo mediante mutadores de dominio</td><td>[test] parcial: <code>test_state_contract.js</code> cubre los slices <code>ui</code> y <code>project</code> y la copia de <code>app.js</code></td><td>Cumple en lo cubierto</td></tr>
+              <tr><td>Patrón UMD en módulos reutilizables</td><td>Implícita: las pruebas de Node cargan los módulos con <code>require</code></td><td>Cumple</td></tr>
+              <tr><td>Proveedores que extienden <code>BaseProviderAdapter</code></td><td>[lectura]</td><td>Cumple: Claude, Gemini, Ollama, OpenRouter, Mirror y WebLLM la extienden; OpenAI/LM Studio y Personalizado son la clase base (R-04)</td></tr>
+              <tr><td>Persistencia solo en <code>ChatStorage</code>, <code>ChatRagStorage</code> y <code>ZeroChatDB</code></td><td>[cmd]</td><td>Cumple: fuera de ellos solo <code>js/sandbox.js</code> nombra esas APIs, para bloquearlas (R-03)</td></tr>
+              <tr><td>Diálogos solo con <code>ChatDialogs</code></td><td>[test] <code>test_dialogs.js</code></td><td>Cumple</td></tr>
+              <tr><td>Mensajes inyectados en inglés</td><td>[sin prueba]</td><td>Cumple en los casos revisados (R-05)</td></tr>
+              <tr><td>Sin emojis en controles; iconos de <code>ChatIcons</code></td><td>[test] parcial: banner de importación y resumen de razonamiento; [test] <code>test_icon_sprite.js</code> para el sprite</td><td>Cumple en lo cubierto (R-07)</td></tr>
+              <tr><td>Colores, radios y sombras en <code>tokens.css</code>; sin respaldo en <code>var()</code>; mostrar y ocultar con <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Renderizado diferido durante el streaming</td><td>[sin prueba]</td><td>No verificado</td></tr>
+              <tr><td>Contrato de herramientas de <code>js/tools/README.md</code></td><td>[sin prueba] desde que se retiró <code>test_tool_contract.js</code></td><td>Cumple por lectura; la norma cita propiedades que ya no existen (R-06)</td></tr>
+              <tr><td>Errores explícitos, sin <code>catch</code> vacíos</td><td>[test] <code>test_error_handling.js</code></td><td>Cumple</td></tr>
+              <tr><td>Backend: sin <code>except Exception: pass</code>, <code>zz-main.py</code> último, <code>zerochat.py</code> igual a la concatenación de <code>py/</code>, definiciones y manejadores de herramientas emparejados</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Versiones solo con <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Cumple</td></tr>
+              <tr><td>El wheel solo contiene el ejecutable</td><td>[test] <code>tests/packaging_smoke_test.py</code> en <code>release.yml</code></td><td>Cumple</td></tr>
+              <tr><td>Ayuda bilingüe y coherente con el comportamiento</td><td>[sin prueba]</td><td>21 páginas en cada idioma [cmd]; la ayuda seguía diciendo «8.x» tras publicar la 9.0.0 (R-09)</td></tr>
+              <tr><td>Datos externos fuera de <code>innerHTML</code></td><td>[test] parcial: escape de las primitivas de <code>ChatUtils</code></td><td>100 usos de <code>innerHTML</code> en 28 archivos sin clasificar (R-08)</td></tr>
             </tbody>
           </table>
         </div>
+        <p>Recuento: de 23 normas, <strong>12 tienen prueba</strong> (3 de ellas parcial), 1 se protege de forma implícita, 3 se comprueban solo por comando o lectura y <strong>7 no tienen ninguna prueba</strong>. La mayoría de esas 7 son del tipo que provocó la limpieza de la 9.0.0.</p>
       </div>
 
       <div class="card">
-        <h2>4. Seguridad y aislamiento</h2>
+        <h2>3. Seguridad del servidor local</h2>
         <ul>
-          <li><strong>HTML externo:</strong> las primitivas de <code>ChatUtils</code> (<code>setText</code>, <code>appendTextElement</code>) tienen pruebas de escape. [test] Que todos los usos de <code>innerHTML</code> estén saneados: [no verificado] de forma exhaustiva.</li>
-          <li><strong>Sandbox de JavaScript:</strong> <code>&lt;iframe&gt;</code> con <code>sandbox="allow-scripts"</code>, CSP <code>connect-src 'none'</code>, watchdog de tiempo y filtro por <code>e.source</code>. [lectura] El propio módulo advierte que <strong>no es un sandbox de seguridad</strong> a nivel de sistema operativo (<code>js/sandbox.js:11-14</code>).</li>
-          <li><strong>Token diario:</strong> <code>~/zerochat/config/token.json</code> creado con <code>0600</code> en un directorio <code>0700</code>. [lectura] <code>py/cc-environment.py</code></li>
-          <li><strong>Firmas de herramientas:</strong> HMAC-SHA256 sobre sesión, método, ruta, caducidad, nonce y hash del cuerpo; TTL acotado y nonce de un solo uso bajo lock. [lectura] <code>py/ff-server.py:170-205</code></li>
-          <li><strong>Procesos:</strong> <code>_kill_process_tree()</code> termina el grupo de procesos al vencer el tiempo; dependencias MCP en <code>~/zerochat/.venv/</code>. [lectura]</li>
+          <li><strong>Token de sesión obligatorio</strong> en todas las peticiones al backend. [test] <code>test_local_server.js</code></li>
+          <li><strong>Token diario</strong> en <code>~/zerochat/config/token.json</code> con permisos <code>0600</code> y directorio <code>0700</code>. [test] <code>test_backend_runtime.js</code> (omitida en Windows)</li>
+          <li><strong>Escucha en bucle local</strong> por defecto, con aviso al usar un host que no lo es. [test] <code>test_backend_runtime.js</code></li>
+          <li><strong>Firma de cada llamada a herramienta</strong> con HMAC y nonce de un solo uso. [test] <code>test_local_server.js</code></li>
+          <li><strong>Comandos acotados</strong>: 30 s por defecto, 600 s como máximo, y terminación del grupo de procesos; en Windows, Job Object. [test] <code>test_backend_runtime.js</code>; la prueba del Job Object solo se ejecuta en Windows y aquí se omitió</li>
+          <li><strong>Sandbox de JavaScript</strong>: <code>iframe</code> con origen opaco y CSP <code>connect-src 'none'</code>; no es una barrera de seguridad, y así lo dice la ayuda. [test] <code>test_sandbox.js</code> y <code>browser_sandbox_security.test.js</code></li>
+          <li><strong>Permisos de herramientas</strong>: políticas <code>ask</code>, <code>allow_all</code> y <code>workspace_trust</code>, reglas de directorio y bloqueos. [test] <code>test_tool_security.js</code></li>
         </ul>
       </div>
 
       <div class="card">
-        <h2>5. Riesgos aceptados</h2>
+        <h2>4. Riesgos aceptados</h2>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Riesgo</th><th>Situación</th></tr></thead>
             <tbody>
-              <tr><td>Origen compartido <code>albalday.github.io</code></td><td>Otras páginas del origen pueden leer cookie, <code>localStorage</code> e IndexedDB. Aceptado en <code>AGENTS.md</code> §4.</td></tr>
+              <tr><td>Origen compartido <code>albalday.github.io</code></td><td>Otras páginas del mismo origen pueden leer la cookie, <code>localStorage</code> e IndexedDB. Aceptado en <code>AGENTS.md</code> §4 mientras ese origen solo publique páginas propias.</td></tr>
               <tr><td><code>--host</code> no local</td><td>Expone la ejecución de comandos a la red sin cifrar; el arranque avisa.</td></tr>
               <tr><td>WebLLM desde CDN</td><td>El motor se importa de <code>cdn.jsdelivr.net</code>.</td></tr>
-              <tr><td>Herramientas web</td><td>DuckDuckGo, Jina Reader y AllOrigins reciben las consultas y URLs.</td></tr>
-              <tr><td>Proveedores remotos</td><td>Los mensajes salen del navegador hacia el proveedor elegido.</td></tr>
+              <tr><td>Herramientas web</td><td>DuckDuckGo, Jina Reader y AllOrigins reciben consultas y URLs.</td></tr>
+              <tr><td>Proveedores remotos</td><td>Los mensajes salen hacia el proveedor elegido. Con un LLM local este riesgo desaparece para el chat, no para las herramientas web.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>6. Hallazgos</h2>
+        <h2>5. Hallazgos</h2>
+        <p>Cada hallazgo propone la norma o la prueba que impide que vuelva. Ninguno es crítico ni alto.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia (8.12.4)</th><th>Propuesta y prueba de cierre</th><th>Estado</th></tr></thead>
+            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta y prueba de cierre</th></tr></thead>
             <tbody>
-              <tr><td><strong>H-01</strong></td><td>Media</td><td>116 <code>catch {}</code> vacíos; caso crítico en <code>js/agent-core.js:1347</code> (síntesis tras detectar un bucle de herramientas).</td><td>Registrar o propagar los errores y justificar los ignorados. Prueba de arquitectura.</td><td><strong>Corregido en 8.12.5</strong>: los errores con efecto real se registran y el resto documenta por qué se ignora. Pruebas: <code>test_error_handling.js</code> y 8 de comportamiento.</td></tr>
-              <tr><td><strong>H-02</strong></td><td>Baja</td><td><code>js/sandbox.js</code>: <code>execute()</code> acepta <code>timeoutMs</code> como número u objeto.</td><td>Normalizar a número, con prueba unitaria.</td><td><strong>Corregido en 8.12.5</strong>: solo admite números finitos positivos.</td></tr>
-              <tr><td><strong>H-03</strong></td><td>Baja</td><td>Textos sin <code>ChatI18n</code> en <code>js/debug.js:336</code> y <code>js/rag-ui.js:722</code>.</td><td>Crear claves ES/EN. Prueba que detecte literales asignados a <code>textContent</code>.</td><td><strong>Corregido en 8.12.5</strong>, junto con 8 literales más en <code>rag-ui.js</code> y <code>charts.js</code>.</td></tr>
-              <tr><td><strong>H-04</strong></td><td>Baja</td><td>La documentación presentaba el sandbox JS como frontera de seguridad.</td><td>Alinear la ayuda con el aviso de <code>js/sandbox.js</code>.</td><td><strong>Corregido tras 8.12.5</strong>: la ayuda de herramientas advierte que el sandbox no es una barrera de seguridad.</td></tr>
+              <tr><td><strong>R-01</strong></td><td>Media</td><td><code>js/providers-webllm.js:368-371</code> comprueba con <code>Providers?.</code> y <code>typeof</code> que exista <code>BaseProviderAdapter</code>, y la línea 474 usa <code>Providers.registry?.register</code>. <code>zerochat.html</code> carga siempre <code>providers.js</code> antes.</td><td>Retirar las guardas y ampliar <code>test_code_hygiene.js</code> para rechazar <code>?.</code> y <code>typeof … !== 'function'</code> sobre los módulos que carga <code>zerochat.html</code>.</td></tr>
+              <tr><td><strong>R-02</strong></td><td>Media</td><td>La norma de <code>mount()</code> y listeners delegados no tiene prueba.</td><td>Prueba de arquitectura: en <code>js/ui-*.js</code>, <code>addEventListener</code> solo dentro de <code>mount()</code> o de un manejador; prueba de integración que repinte una lista dos veces y compruebe que un clic dispara una sola acción.</td></tr>
+              <tr><td><strong>R-03</strong></td><td>Media</td><td>La frontera de persistencia se cumple, pero solo lo demuestra un <code>grep</code>.</td><td>Prueba de arquitectura que rechace <code>localStorage</code>, <code>indexedDB</code> y <code>document.cookie</code> fuera de <code>storage.js</code>, <code>storage-db.js</code> y <code>ragStorage.js</code>, con la lista de bloqueo de <code>sandbox.js</code> como única excepción.</td></tr>
+              <tr><td><strong>R-04</strong></td><td>Baja</td><td>La herencia de <code>BaseProviderAdapter</code> se comprueba leyendo el código.</td><td>Prueba: todo adaptador del registro es <code>instanceof BaseProviderAdapter</code>.</td></tr>
+              <tr><td><strong>R-05</strong></td><td>Baja</td><td>Los mensajes inyectados en inglés no tienen prueba.</td><td>Reunir los textos inyectados en constantes y comprobar que no contienen caracteres propios del español (<code>áéíóúñ¿¡</code>).</td></tr>
+              <tr><td><strong>R-06</strong></td><td>Baja</td><td><code>AGENTS.md</code> §3 prohíbe las propiedades <code>ui</code> y <code>handler</code>, que la API de herramientas ya no tiene desde <code>63d4315</code>; con esa API se retiró <code>test_tool_contract.js</code>.</td><td>Sustituir la frase por «solo las claves documentadas en <code>js/tools/README.md</code>» y añadir una prueba que compare las claves de cada módulo de <code>BUILTIN_TOOL_MODULES</code> con esa lista.</td></tr>
+              <tr><td><strong>R-07</strong></td><td>Baja</td><td>La prueba de emojis solo mira dos componentes.</td><td>Extenderla a <code>zerochat.html</code>, <code>js/icons.js</code> y los textos de botones de <code>js/i18n.js</code>.</td></tr>
+              <tr><td><strong>R-08</strong></td><td>Media</td><td>100 usos de <code>innerHTML</code> en 28 archivos; no se ha demostrado que ninguno reciba datos externos sin sanear.</td><td>Prueba de arquitectura con la lista cerrada de usos permitidos (vaciar, Markdown saneado, SVG de <code>ChatIcons</code>); un uso nuevo obliga a justificarlo o a usar <code>setText</code>.</td></tr>
+              <tr><td><strong>R-09</strong></td><td>Baja</td><td>Tras publicar la 9.0.0, toda la ayuda seguía indicando «8.x» (corregido en esta revisión). Nada comprueba que cada página tenga su traducción.</td><td>Prueba: cada <code>help/X.html</code> tiene <code>help/en/X.html</code>, se enlazan entre sí y muestran la misma serie <code>major.x</code> que <code>package.json</code>.</td></tr>
+              <tr><td><strong>R-10</strong></td><td>Baja</td><td>Se comprueban tokens y variables CSS sin uso, no selectores sin consumidores.</td><td>Ampliar <code>test_style_hygiene.js</code> con las clases e identificadores que no aparecen en HTML ni JavaScript.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Conclusión: las pruebas pasan íntegramente y los contratos protegidos por pruebas se cumplen. Las deudas que el borrador no detectó (H-01, H-03) y H-02 están corregidas en 8.12.5; varias afirmaciones de "cero defectos" deberían convertirse en pruebas antes de darse por ciertas.</p>
+        <p>Los hallazgos H-01 a H-04 de la auditoría de la 8.12.4 siguen cerrados, y los dos más relevantes (catch vacíos y literales sin traducir) están protegidos por pruebas.</p>
+      </div>
+
+      <div class="card">
+        <h2>6. Dictamen</h2>
+        <p>La suite pasa íntegra y las normas que provocaron la limpieza más costosa (dependencias, código sin uso, estilos, backend) ya tienen prueba. Quedan siete normas que dependen de que un agente lea <code>AGENTS.md</code>; R-01 demuestra que alguna ya se incumple. Se recomienda cerrar R-01 a R-03 y R-08 antes de añadir funcionalidad nueva, y seguir la regla de la lección: <strong>norma nueva, prueba nueva, en el mismo commit</strong>.</p>
       </div>
 
       <div class="card" id="autoria">
         <h2>Autoría y entorno de verificación</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Primera aproximación (borrador):</strong> Gemini 3.8 Flash en Google Antigravity.</li>
-            <li><strong>Verificación, corrección y redacción final:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code.</li>
-            <li>Los agentes trabajaron a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code, a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido.</li>
             <li><strong>Entorno:</strong> Linux x86_64 (kernel 7.2), Node.js 24.18.1, Python 3.14.7, Playwright 1.62.1 con Chromium headless.</li>
-            <li><strong>Reproducción:</strong> <code>npm test</code>, <code>npm run test:browser</code> y los comandos por nivel de la línea base.</li>
+            <li><strong>Reproducción:</strong> los comandos de la línea base y <code>docs/audits/AuditFull.md</code>.</li>
           </ul>
         </div>
       </div>
     </main>
 
-    <nav class="page-navigation" aria-label="Navegación de auditorías">
-      <a href="architecture.html" class="nav-button prev">
+    <nav class="page-navigation" aria-label="Navegación de revisiones">
+      <a href="architecture.html#auditorias" class="nav-button prev">
         <span class="nav-direction">← Anterior</span>
         <span class="nav-title">Infraestructura y datos</span>
       </a>
       <a href="audit-functionalities.html" class="nav-button next">
         <span class="nav-direction">Siguiente →</span>
-        <span class="nav-title">Auditoría 2: Funcionalidades</span>
+        <span class="nav-title">Revisión 2: Funcionalidades</span>
       </a>
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Auditoría 1 (Infraestructura) · 4 de octubre de 2026</p>
+      <p>ZeroChat 9.x · Revisión 1 (Infraestructura y normas) · 12 de octubre de 2026</p>
     </footer>
   </div>
 </body>

@@ -1,10 +1,10 @@
 # ZeroChat
 
-ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y utilizar herramientas. Esta documentación corresponde a la serie **8.x**, que consolida las funcionalidades existentes. El desarrollo de nuevas funcionalidades queda en pausa por el momento.
+ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y utilizar herramientas. Esta documentación corresponde a la serie **9.x**. Es un proyecto personal, de libre uso con licencia MIT si a alguien le sirve; su objetivo actual es servir de frontend único para un LLM local (Swift-Qwen3.8) con una API compatible con OpenAI.
 
 La interfaz se sirve como archivos estáticos: `zerochat.html` necesita sus módulos `js/` y `css/`. El historial y la configuración se guardan en el navegador; no se sincronizan automáticamente entre dispositivos. Los proveedores remotos reciben el contenido incluido en las peticiones, y las herramientas web pueden utilizar servicios intermediarios. Almacenamiento local no significa privacidad absoluta.
 
-*English:* ZeroChat is a web client for personal use: chatting with AI models, consulting documents and using tools. This documentation covers the **8.x** series, which consolidates existing features. New feature development is paused for now.
+*English:* ZeroChat is a web client for personal use: chatting with AI models, consulting documents and using tools. This documentation covers the **9.x** series. It is a personal project, free to use under the MIT licence if it helps anyone; its current goal is to serve as the single frontend for a local LLM (Swift-Qwen3.8) through an OpenAI-compatible API.
 
 The interface is served as static files: `zerochat.html` needs its `js/` and `css/` modules. History and settings are stored in the browser, without automatic cross-device sync. Remote providers receive content included in requests, and web tools may use intermediary services. Local storage does not mean absolute privacy.
 
@@ -13,7 +13,7 @@ The interface is served as static files: `zerochat.html` needs its `js/` and `cs
 - **Perfiles:** OpenAI y APIs de chat compatibles, Ollama, OpenRouter, Claude y Gemini. La visión, las herramientas y el razonamiento dependen del modelo y del adaptador.
 - **WebLLM:** inferencia en el navegador con WebGPU, tras descargar un modelo. Necesita hardware compatible y memoria suficiente.
 - **Documentos:** adjuntos y colecciones RAG con extracción local y búsqueda léxica mediante Orama; sin embeddings. Los fragmentos recuperados se envían al modelo elegido. La extracción de PDF tiene límites y no incluye OCR general.
-- **Herramientas:** JavaScript aislado, búsqueda y lectura web, gráficos, planes y puntos de control. El backend opcional añade archivos, comandos, diagnósticos, automatización de navegador y servicios MCP.
+- **Herramientas:** JavaScript aislado, búsqueda y lectura web, gráficos, preguntas al usuario y subagentes de solo lectura. El backend opcional añade archivos, comandos, diagnósticos, automatización de navegador y servicios MCP.
 - **Historial y diagnóstico:** ramas de conversación, exportación JSON y Markdown, impresión a PDF, métricas de contexto y revisión de peticiones antes del envío.
 
 *English:*
@@ -21,7 +21,7 @@ The interface is served as static files: `zerochat.html` needs its `js/` and `cs
 - **Profiles:** OpenAI and compatible chat APIs, Ollama, OpenRouter, Claude and Gemini. Vision, tools and reasoning depend on the model and adapter.
 - **WebLLM:** browser inference through WebGPU after downloading a model. Requires compatible hardware and enough memory.
 - **Documents:** attachments and RAG collections with local extraction and Orama lexical search, without embeddings. Retrieved passages are sent to the selected model. PDF extraction has limitations and no general OCR.
-- **Tools:** isolated JavaScript, web search and retrieval, charts, plans and checkpoints. The optional backend adds files, commands, diagnostics, browser automation and MCP services.
+- **Tools:** isolated JavaScript, web search and retrieval, charts, questions to the user and read-only subagents. The optional backend adds files, commands, diagnostics, browser automation and MCP services.
 - **History and diagnostics:** conversation branches, JSON and Markdown export, printing to PDF, context metrics and request inspection before sending.
 
 ## Inicio rápido / Quick start
@@ -71,8 +71,8 @@ Deleting `~/zerochat/` removes that state and managed MCP services, not the exec
 
 ## Documentación y ayuda / Documentation and help
 
-- [Ayuda de ZeroChat 8.x — Español](https://albalday.github.io/zerochat/help/index.html)
-- [ZeroChat 8.x help — English](https://albalday.github.io/zerochat/help/en/index.html)
+- [Ayuda de ZeroChat 9.x — Español](https://albalday.github.io/zerochat/help/index.html)
+- [ZeroChat 9.x help — English](https://albalday.github.io/zerochat/help/en/index.html)
 
 Las guías explican configuración, uso y límites.
 

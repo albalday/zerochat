@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Project and learning · ZeroChat 8.x Docs</title>
-  <meta name="description" content="A personal learning project and consolidation of the 8.x series.">
+  <title>Project and learning · ZeroChat 9.x Docs</title>
+  <meta name="description" content="Personal learning project, free to use, and lessons from the 9.x series.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="../learning.html" class="top-nav-link" lang="es">Español</a>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Project and learning</h1>
-      <p class="subtitle">A personal learning project and consolidation of the 8.x series.</p>
+      <p class="subtitle">Personal learning project, free to use, and lessons from the 9.x series.</p>
     </header>
 
     <main>
@@ -45,9 +45,37 @@
       <li>Keep rules and contracts close to the code they describe.</li>
       <li>Review and simplify proposals before incorporating them.</li>
       <li>Check changes with applicable tests and manual review where needed.</li></ul>
-      <h3>Tests and project status</h3>
+      <h3>Tests</h3>
       <p>The suite checks specific logic, architecture, integration, infrastructure and browser cases. Passing it does not prove universal compatibility or absence of errors.</p>
-      <p>The <strong>8.x</strong> series consolidates existing features. New feature development is paused for now; this help describes what is implemented and does not announce a roadmap.</p>
+    </section>
+
+    <section class="card" id="rules-lesson">
+      <h2>3. The bitter lesson: rules without tests</h2>
+      <p>After releasing 9.0.0 on 11 October 2026, cleaning up the code took 26 commits in a day and a half; 17 of them are breaking refactors (<code>refactor!</code>). In <code>js/</code>, <code>css/</code> and <code>py/</code> alone, about 16,500 lines were removed and 7,600 written, and 83 test files were changed. Apart from an <code>edit_file</code> improvement and a scrolling fix, there was no new functionality: what was removed should never have gone in. The nine commits before the release had already started that cleanup.</p>
+      <p>What was removed followed a common pattern:</p>
+      <ul>
+        <li>fallbacks for modules that are always loaded (<code>window.X || require(...)</code>, private <code>t()</code> wrappers, fallback text after a translation);</li>
+        <li>guards checking whether an always-present element existed, and compatibility code for old formats and keys;</li>
+        <li>functions exported only for tests, and tests that faked elements with plain objects, forcing the code to tolerate incomplete elements;</li>
+        <li>literal colours, fallback values in <code>var()</code> and <code>style.display</code> scattered across the styles;</li>
+        <li><code>except Exception: pass</code> and generic catches in the backend.</li>
+      </ul>
+      <p>None of these changes was absurd on its own: each agent session did something locally reasonable to make its task work. But <strong>there was no written rule forbidding it and no test detecting it</strong>, so nothing stopped it from piling up. The rules on dead, duplicated and compatibility code, and the first hygiene test (<code>test_code_hygiene.js</code>), arrived on the day 9.0.0 was released; the style and backend ones (<code>test_style_hygiene.js</code>, <code>test_backend_hygiene.js</code>) during the cleanup itself.</p>
+      <h3>What it teaches</h3>
+      <ul>
+        <li><strong>A rule without a test is a wish.</strong> An agent reads <code>AGENTS.md</code> when it suits it; an architecture test always fails.</li>
+        <li><strong>The rule and its test are written together, with the first case</strong>, not when the problem already spans thousands of lines. The sooner, the cheaper.</li>
+        <li><strong>Every cleanup leaves its test behind</strong>, so the same kind of problem cannot come back without the suite saying so.</li>
+        <li><strong>Tests must not ask the code for concessions.</strong> Faking the DOM with objects looked convenient but forced fallbacks; with a real DOM they disappeared.</li>
+        <li><strong>What cannot be checked by a test is reviewed by hand on every change</strong>, and it is stated explicitly that it is not protected.</li>
+      </ul>
+      <p>The <a href="architecture.html#audits">9.1.0 reviews</a> apply this lesson: each <code>AGENTS.md</code> rule is matched with the test that protects it, and rules without a test are flagged as pending.</p>
+    </section>
+
+    <section class="card">
+      <h2>4. Status and use</h2>
+      <p>ZeroChat is still a personal project. It is published under the MIT licence: anyone may use it, modify it or reuse its parts if they find them useful, without support or warranty.</p>
+      <p>The current goal of the <strong>9.x</strong> series is to use it as the <strong>single frontend for a local LLM</strong>, Swift-Qwen3.8, served through an OpenAI-compatible API. Improvements target that use; this help describes what is implemented and does not announce a roadmap.</p>
     </section>
 
       <p>This help documents current usage.</p>
@@ -61,7 +89,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Project and learning</p>
+      <p>ZeroChat 9.x · Project and learning</p>
     </footer>
   </div>
 </body>

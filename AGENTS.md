@@ -298,4 +298,4 @@ La documentación se organiza de forma canónica en los siguientes niveles:
 - **Documentación de usuario final (`help/`)**:
   Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
 - **Histórico y archivo (`docs/`)**:
-  Reservado exclusivamente para informes de auditoría cerrados y el procedimiento de auditoría `AuditFull.md` (`docs/audits/`), y para propuestas técnicas de diseño en borrador (`docs/proposals/`).
+  Reservado exclusivamente para el procedimiento de auditoría `AuditFull.md` (`docs/audits/`) y para propuestas técnicas de diseño en borrador (`docs/proposals/`). Los informes de auditoría se publican en la ayuda (`help/audit-*.html`).

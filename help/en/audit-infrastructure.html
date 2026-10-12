@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audit 1: Infrastructure and Code Quality · ZeroChat 8.x Docs</title>
-  <meta name="description" content="Code, architecture contract, security and test audit of ZeroChat 8.12.4, stating how each claim was verified.">
+  <title>Review 1: Infrastructure and rules · ZeroChat 9.x Docs</title>
+  <meta name="description" content="Review of ZeroChat 9.1.0: each AGENTS.md rule matched with the test that protects it, security, accepted risks and findings.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -13,143 +13,167 @@
       <div class="header-top">
         <a href="index.html" class="logo-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-          ZeroChat 8.x Docs
+          ZeroChat 9.x Docs
         </a>
         <div class="header-actions">
           <a href="../audit-infrastructure.html" class="top-nav-link" lang="es">Español</a>
-          <a href="architecture.html" class="top-nav-link">← Infrastructure and data</a>
+          <a href="architecture.html#audits" class="top-nav-link">← Infrastructure and data</a>
         </div>
       </div>
-      <h1>Audit 1: Infrastructure and Code Quality</h1>
-      <p class="subtitle">Code state, architecture contracts, security and tests, stating how each claim was verified.</p>
+      <h1>Review 1: Infrastructure and rules</h1>
+      <p class="subtitle">Which AGENTS.md rules are protected by a test, and which depend only on someone reading them?</p>
     </header>
 
     <main>
       <div class="card">
         <h2>Scope and method</h2>
-        <p>Version <strong>8.12.4</strong> (web) and <strong>8.12</strong> (backend), code at commit <code>aff1019</code>. Reference procedure: <code>docs/audits/AuditFull.md</code>.</p>
-        <div class="alert alert-success"><p><strong>Follow-up:</strong> findings H-01, H-02 and H-03 are <strong>fixed in version 8.12.5</strong>. H-04 is fixed in the help after 8.12.5. Findings are kept as they were detected in 8.12.4.</p></div>
-        <p>Each claim states its source: <strong>[test]</strong> automated test, <strong>[cmd]</strong> reproducible command, <strong>[read]</strong> code review not protected by a test, <strong>[unverified]</strong> draft hypothesis not demonstrated.</p>
+        <p>Review of version <strong>9.1.0</strong> as prepared on the <code>dev</code> branch (commit <code>a0393c3</code>, before the version bump). It does not update the 8.12.4 audit: it starts from scratch, following <code>docs/audits/AuditFull.md</code>.</p>
+        <p>The criterion comes from the <a href="learning.html#rules-lesson">9.0.0 lesson</a>: <strong>a rule only counts as met if a test fails when it is broken</strong>. Each claim states its source:</p>
+        <ul>
+          <li><strong>[test]</strong> an automated test protects it;</li>
+          <li><strong>[cmd]</strong> a reproducible command checks it today, but nothing stops it from breaking;</li>
+          <li><strong>[reading]</strong> code review, with no test or command;</li>
+          <li><strong>[no test]</strong> a written rule that no test watches.</li>
+        </ul>
       </div>
 
       <div class="card">
         <h2>1. Baseline</h2>
         <div class="table-responsive">
           <table>
-            <thead>
-              <tr><th>Command</th><th>Result</th><th>Source</th></tr>
-            </thead>
+            <thead><tr><th>Command</th><th>Result</th></tr></thead>
             <tbody>
-              <tr><td><code>npm test</code></td><td>680/680 tests, 13 suites</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:browser</code></td><td>86/86 tests in headless Chromium</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:integration</code></td><td>298/298 tests</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:infrastructure</code></td><td>30/30 tests</td><td>[cmd]</td></tr>
-              <tr><td><code>npm run test:architecture</code></td><td>23/23 tests in 5 files</td><td>[cmd]</td></tr>
+              <tr><td><code>npm test</code> (all levels)</td><td>756 tests in 13 suites: 755 passed and 1 skipped</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>240/240</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>349/349</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>33/34; the Windows-only Job Object test is skipped</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>35/35 in 9 files</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>98/98 in headless Chromium</td></tr>
+              <tr><td><code>npm run build</code></td><td>No changes to <code>zerochat.py</code>, <code>py/dd-managed-services.py</code> or <code>js/vendor/orama.browser.js</code></td></tr>
             </tbody>
           </table>
         </div>
+        <p>Size: 68 JavaScript modules (about 25,000 lines), 10 Python modules in <code>py/</code> (3,500), 14 stylesheets (8,000) and 706 translation keys per language. [cmd]</p>
       </div>
 
       <div class="card">
-        <h2>2. Dead code, i18n and resources</h2>
+        <h2>2. Rules and tests</h2>
+        <p>Each row is an <code>AGENTS.md</code> rule. The middle column says what protects it.</p>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Rule</th><th>Protection</th><th>Status today</th></tr></thead>
+            <tbody>
+              <tr><td>Dependencies through <code>resolveDep</code> or the UMD factory, no <code>window.X || require</code></td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>No unused functions or test-only exports; no variables nobody reads</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>No fallbacks for always-loaded modules or guards on always-present elements</td><td>[no test]</td><td>Two leftovers in <code>js/providers-webllm.js</code> (R-01)</td></tr>
+              <tr><td>Events bound once in <code>mount()</code>, with delegated listeners</td><td>[no test]</td><td>Not exhaustively checked (R-02)</td></tr>
+              <tr><td>No backward-compatibility code</td><td>[no test]; not checkable in general</td><td>Manual review on every change</td></tr>
+              <tr><td>Tests use a real DOM (<code>installDom</code>), no faked elements</td><td>[reading]</td><td>Met in the tests reviewed</td></tr>
+              <tr><td>Visible text through <code>ChatI18n</code>, keys in Spanish and English, no fallback text after <code>t()</code>, every key used</td><td>[test] <code>test_i18n.js</code> and <code>test_i18n_literals.js</code></td><td>Met: 706/706 keys</td></tr>
+              <tr><td><code>ChatState</code> only through domain mutators</td><td>[test] partial: <code>test_state_contract.js</code> covers the <code>ui</code> and <code>project</code> slices and the <code>app.js</code> copy</td><td>Met where covered</td></tr>
+              <tr><td>UMD pattern in reusable modules</td><td>Implicit: Node tests load the modules with <code>require</code></td><td>Met</td></tr>
+              <tr><td>Providers extend <code>BaseProviderAdapter</code></td><td>[reading]</td><td>Met: Claude, Gemini, Ollama, OpenRouter, Mirror and WebLLM extend it; OpenAI/LM Studio and Custom are the base class (R-04)</td></tr>
+              <tr><td>Persistence only in <code>ChatStorage</code>, <code>ChatRagStorage</code> and <code>ZeroChatDB</code></td><td>[cmd]</td><td>Met: outside them only <code>js/sandbox.js</code> names those APIs, to block them (R-03)</td></tr>
+              <tr><td>Dialogs only through <code>ChatDialogs</code></td><td>[test] <code>test_dialogs.js</code></td><td>Met</td></tr>
+              <tr><td>Injected messages in English</td><td>[no test]</td><td>Met in the cases reviewed (R-05)</td></tr>
+              <tr><td>No emojis in controls; icons from <code>ChatIcons</code></td><td>[test] partial: import banner and reasoning summary; [test] <code>test_icon_sprite.js</code> for the sprite</td><td>Met where covered (R-07)</td></tr>
+              <tr><td>Colours, radii and shadows in <code>tokens.css</code>; no <code>var()</code> fallbacks; show and hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Deferred rendering during streaming</td><td>[no test]</td><td>Not checked</td></tr>
+              <tr><td>Tool contract in <code>js/tools/README.md</code></td><td>[no test] since <code>test_tool_contract.js</code> was removed</td><td>Met by reading; the rule names properties that no longer exist (R-06)</td></tr>
+              <tr><td>Explicit errors, no empty <code>catch</code></td><td>[test] <code>test_error_handling.js</code></td><td>Met</td></tr>
+              <tr><td>Backend: no <code>except Exception: pass</code>, <code>zz-main.py</code> last, <code>zerochat.py</code> equal to the concatenation of <code>py/</code>, tool definitions and handlers paired</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Versions only through <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Met</td></tr>
+              <tr><td>The wheel contains only the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> in <code>release.yml</code></td><td>Met</td></tr>
+              <tr><td>Bilingual help consistent with behaviour</td><td>[no test]</td><td>21 pages per language [cmd]; the help still said "8.x" after 9.0.0 was released (R-09)</td></tr>
+              <tr><td>External data kept out of <code>innerHTML</code></td><td>[test] partial: escaping in the <code>ChatUtils</code> primitives</td><td>100 unclassified <code>innerHTML</code> uses in 28 files (R-08)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Count: of 23 rules, <strong>12 have a test</strong> (3 of them partial), 1 is protected implicitly, 3 are checked only by command or reading and <strong>7 have no test at all</strong>. Most of those 7 are of the kind that caused the 9.0.0 cleanup.</p>
+      </div>
+
+      <div class="card">
+        <h2>3. Local server security</h2>
         <ul>
-          <li><strong>Dictionaries:</strong> 649 Spanish and 649 English keys, with the same key set. [cmd]</li>
-          <li><strong>Text outside <code>ChatI18n</code>:</strong> <code>'Copiado'</code> in <code>js/debug.js:336</code> and <code>'¡Exportado!'</code> in <code>js/rag-ui.js:722</code>. Key parity does not guarantee that all visible text uses keys. [cmd] <strong>Fixed in 8.12.5</strong>, with the <code>test_i18n_literals.js</code> test.</li>
-          <li><strong>Icons:</strong> every <code>#icon-*</code> reference exists in the sprite, the sprite has no unused symbols and every glyph in <code>js/icons.js</code> has a consumer. [test] <code>test_icon_sprite.js</code></li>
-          <li><strong>Emojis in controls:</strong> the test covers <code>markdown.js</code> and the import banner. Beyond those: [unverified].</li>
-          <li><strong>CSS:</strong> the 14 linked stylesheets exist. [cmd] Absence of dead selectors: [unverified].</li>
-          <li><strong>Scripts:</strong> 69 scripts in <code>zerochat.html</code>, all with <code>defer</code>. [cmd]</li>
-          <li><strong>Debt markers:</strong> no <code>FIXME</code> or <code>HACK</code>; the only "TODO" match is the Spanish word "todo" in <code>js/tool-security.js:976</code>. [cmd]</li>
+          <li><strong>Session token required</strong> on every backend request. [test] <code>test_local_server.js</code></li>
+          <li><strong>Daily token</strong> in <code>~/zerochat/config/token.json</code> with <code>0600</code> permissions and a <code>0700</code> directory. [test] <code>test_backend_runtime.js</code> (skipped on Windows)</li>
+          <li><strong>Loopback by default</strong>, with a warning when listening on a non-loopback host. [test] <code>test_backend_runtime.js</code></li>
+          <li><strong>Every tool call signed</strong> with HMAC and a single-use nonce. [test] <code>test_local_server.js</code></li>
+          <li><strong>Bounded commands</strong>: 30 s by default, 600 s maximum, and the process group is terminated; on Windows, a Job Object. [test] <code>test_backend_runtime.js</code>; the Job Object test only runs on Windows and was skipped here</li>
+          <li><strong>JavaScript sandbox</strong>: <code>iframe</code> with an opaque origin and CSP <code>connect-src 'none'</code>; it is not a security boundary, and the help says so. [test] <code>test_sandbox.js</code> and <code>browser_sandbox_security.test.js</code></li>
+          <li><strong>Tool permissions</strong>: <code>ask</code>, <code>allow_all</code> and <code>workspace_trust</code> policies, directory rules and blocks. [test] <code>test_tool_security.js</code></li>
         </ul>
       </div>
 
       <div class="card">
-        <h2>3. Architecture contracts (AGENTS.md)</h2>
+        <h2>4. Accepted risks</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>Rule</th><th>Status</th><th>Source</th></tr></thead>
+            <thead><tr><th>Risk</th><th>Situation</th></tr></thead>
             <tbody>
-              <tr><td><strong>State (<code>ChatState</code>)</strong></td><td>Compliant: only <code>state.js</code> and <code>ui-inspector.js</code> write the <code>ui</code> slice.</td><td>[test] <code>test_state_contract.js</code></td></tr>
-              <tr><td><strong>Dialogs</strong></td><td>Compliant: no native <code>alert()</code>, <code>confirm()</code> or <code>prompt()</code>.</td><td>[test] <code>test_dialogs.js</code></td></tr>
-              <tr><td><strong>Providers</strong></td><td>Compliant: Claude, Gemini, Ollama, OpenRouter, Mirror and WebLLM extend <code>BaseProviderAdapter</code>; OpenAI/LM Studio and Custom use the base class.</td><td>[read]</td></tr>
-              <tr><td><strong>Tools</strong></td><td>Compliant: 12 built-in tools without <code>ui</code> or <code>handler</code>.</td><td>[test] <code>test_tool_contract.js</code></td></tr>
-              <tr><td><strong>Injected messages in English</strong></td><td>Compliant in the reviewed cases.</td><td>[read]</td></tr>
-              <tr><td><strong>Explicit errors</strong></td><td>In 8.12.4 <strong>not compliant overall</strong>: 116 empty <code>catch</code> blocks in <code>js/</code>. <strong>Fixed in 8.12.5.</strong></td><td>[cmd]; since 8.12.5 [test] <code>test_error_handling.js</code></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>4. Security and isolation</h2>
-        <ul>
-          <li><strong>External HTML:</strong> the <code>ChatUtils</code> primitives (<code>setText</code>, <code>appendTextElement</code>) have escaping tests. [test] That every <code>innerHTML</code> use is sanitized: [unverified] exhaustively.</li>
-          <li><strong>JavaScript sandbox:</strong> <code>&lt;iframe&gt;</code> with <code>sandbox="allow-scripts"</code>, CSP <code>connect-src 'none'</code>, time watchdog and <code>e.source</code> filter. [read] The module itself warns that it is <strong>not a security sandbox</strong> at operating-system level (<code>js/sandbox.js:11-14</code>).</li>
-          <li><strong>Daily token:</strong> <code>~/zerochat/config/token.json</code> created with <code>0600</code> in a <code>0700</code> directory. [read] <code>py/cc-environment.py</code></li>
-          <li><strong>Tool signatures:</strong> HMAC-SHA256 over session, method, path, expiry, nonce and body hash; bounded TTL and single-use nonce under a lock. [read] <code>py/ff-server.py:170-205</code></li>
-          <li><strong>Processes:</strong> <code>_kill_process_tree()</code> kills the process group on timeout; MCP dependencies in <code>~/zerochat/.venv/</code>. [read]</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <h2>5. Accepted risks</h2>
-        <div class="table-responsive">
-          <table>
-            <thead><tr><th>Risk</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the origin can read the cookie, <code>localStorage</code> and IndexedDB. Accepted in <code>AGENTS.md</code> §4.</td></tr>
-              <tr><td>Non-loopback <code>--host</code></td><td>Exposes command execution to the network without encryption; startup warns.</td></tr>
+              <tr><td>Shared origin <code>albalday.github.io</code></td><td>Other pages on the same origin can read the cookie, <code>localStorage</code> and IndexedDB. Accepted in <code>AGENTS.md</code> §4 while that origin only hosts the author's own pages.</td></tr>
+              <tr><td>Non-local <code>--host</code></td><td>Exposes command execution to the network without encryption; startup warns.</td></tr>
               <tr><td>WebLLM from a CDN</td><td>The engine is imported from <code>cdn.jsdelivr.net</code>.</td></tr>
-              <tr><td>Web tools</td><td>DuckDuckGo, Jina Reader and AllOrigins receive the queries and URLs.</td></tr>
-              <tr><td>Remote providers</td><td>Messages leave the browser for the chosen provider.</td></tr>
+              <tr><td>Web tools</td><td>DuckDuckGo, Jina Reader and AllOrigins receive queries and URLs.</td></tr>
+              <tr><td>Remote providers</td><td>Messages go to the chosen provider. With a local LLM this risk disappears for the chat, not for the web tools.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>6. Findings</h2>
+        <h2>5. Findings</h2>
+        <p>Each finding proposes the rule or test that stops it from coming back. None is critical or high.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Priority</th><th>Evidence (8.12.4)</th><th>Proposal and closing test</th><th>Status</th></tr></thead>
+            <thead><tr><th>ID</th><th>Priority</th><th>Evidence</th><th>Proposal and closing test</th></tr></thead>
             <tbody>
-              <tr><td><strong>H-01</strong></td><td>Medium</td><td>116 empty <code>catch {}</code> blocks; critical case in <code>js/agent-core.js:1347</code> (synthesis after detecting a tool loop).</td><td>Log or propagate errors and justify the ignored ones. Architecture test.</td><td><strong>Fixed in 8.12.5</strong>: errors with real impact are logged and the rest document why they are ignored. Tests: <code>test_error_handling.js</code> and 8 behavior tests.</td></tr>
-              <tr><td><strong>H-02</strong></td><td>Low</td><td><code>js/sandbox.js</code>: <code>execute()</code> accepts <code>timeoutMs</code> as a number or an object.</td><td>Normalize to a number, with a unit test.</td><td><strong>Fixed in 8.12.5</strong>: only finite positive numbers are accepted.</td></tr>
-              <tr><td><strong>H-03</strong></td><td>Low</td><td>Text outside <code>ChatI18n</code> in <code>js/debug.js:336</code> and <code>js/rag-ui.js:722</code>.</td><td>Add ES/EN keys. Test that detects literals assigned to <code>textContent</code>.</td><td><strong>Fixed in 8.12.5</strong>, along with 8 more literals in <code>rag-ui.js</code> and <code>charts.js</code>.</td></tr>
-              <tr><td><strong>H-04</strong></td><td>Low</td><td>Documentation presented the JS sandbox as a security boundary.</td><td>Align the help with the warning in <code>js/sandbox.js</code>.</td><td><strong>Fixed after 8.12.5</strong>: the tools help warns that the sandbox is not a security boundary.</td></tr>
+              <tr><td><strong>R-01</strong></td><td>Medium</td><td><code>js/providers-webllm.js:368-371</code> checks with <code>Providers?.</code> and <code>typeof</code> that <code>BaseProviderAdapter</code> exists, and line 474 uses <code>Providers.registry?.register</code>. <code>zerochat.html</code> always loads <code>providers.js</code> first.</td><td>Remove the guards and extend <code>test_code_hygiene.js</code> to reject <code>?.</code> and <code>typeof … !== 'function'</code> on the modules <code>zerochat.html</code> loads.</td></tr>
+              <tr><td><strong>R-02</strong></td><td>Medium</td><td>The <code>mount()</code> and delegated-listener rule has no test.</td><td>Architecture test: in <code>js/ui-*.js</code>, <code>addEventListener</code> only inside <code>mount()</code> or a handler; integration test that repaints a list twice and checks that one click triggers one action.</td></tr>
+              <tr><td><strong>R-03</strong></td><td>Medium</td><td>The persistence boundary holds, but only a <code>grep</code> shows it.</td><td>Architecture test rejecting <code>localStorage</code>, <code>indexedDB</code> and <code>document.cookie</code> outside <code>storage.js</code>, <code>storage-db.js</code> and <code>ragStorage.js</code>, with the <code>sandbox.js</code> blocklist as the only exception.</td></tr>
+              <tr><td><strong>R-04</strong></td><td>Low</td><td><code>BaseProviderAdapter</code> inheritance is checked by reading the code.</td><td>Test: every adapter in the registry is <code>instanceof BaseProviderAdapter</code>.</td></tr>
+              <tr><td><strong>R-05</strong></td><td>Low</td><td>English injected messages have no test.</td><td>Gather injected texts into constants and check they contain no Spanish-specific characters (<code>áéíóúñ¿¡</code>).</td></tr>
+              <tr><td><strong>R-06</strong></td><td>Low</td><td><code>AGENTS.md</code> §3 forbids the <code>ui</code> and <code>handler</code> properties, which the tool API no longer has since <code>63d4315</code>; <code>test_tool_contract.js</code> was removed with that API.</td><td>Replace the sentence with "only the keys documented in <code>js/tools/README.md</code>" and add a test comparing each <code>BUILTIN_TOOL_MODULES</code> module's keys with that list.</td></tr>
+              <tr><td><strong>R-07</strong></td><td>Low</td><td>The emoji test only looks at two components.</td><td>Extend it to <code>zerochat.html</code>, <code>js/icons.js</code> and the button texts in <code>js/i18n.js</code>.</td></tr>
+              <tr><td><strong>R-08</strong></td><td>Medium</td><td>100 <code>innerHTML</code> uses in 28 files; it has not been shown that none receives unsanitised external data.</td><td>Architecture test with a closed list of allowed uses (clearing, sanitised Markdown, <code>ChatIcons</code> SVG); a new use must be justified or switched to <code>setText</code>.</td></tr>
+              <tr><td><strong>R-09</strong></td><td>Low</td><td>After 9.0.0 was released, the whole help still said "8.x" (fixed in this review). Nothing checks that every page has its translation.</td><td>Test: each <code>help/X.html</code> has <code>help/en/X.html</code>, they link to each other and show the same <code>major.x</code> series as <code>package.json</code>.</td></tr>
+              <tr><td><strong>R-10</strong></td><td>Low</td><td>Unused CSS tokens and variables are checked, but not selectors without consumers.</td><td>Extend <code>test_style_hygiene.js</code> to classes and ids that appear in neither HTML nor JavaScript.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Conclusion: all tests pass and the contracts protected by tests are met. The debts the draft missed (H-01, H-03) and H-02 are fixed in 8.12.5; several "zero defects" claims should become tests before being treated as facts.</p>
+        <p>Findings H-01 to H-04 from the 8.12.4 audit remain closed, and the two most relevant (empty catches and untranslated literals) are protected by tests.</p>
+      </div>
+
+      <div class="card">
+        <h2>6. Verdict</h2>
+        <p>The suite passes in full, and the rules behind the most expensive cleanup (dependencies, unused code, styles, backend) now have tests. Seven rules still depend on an agent reading <code>AGENTS.md</code>; R-01 shows that one is already broken. Closing R-01 to R-03 and R-08 is recommended before adding new functionality, following the lesson's rule: <strong>new rule, new test, same commit</strong>.</p>
       </div>
 
       <div class="card" id="authorship">
         <h2>Authorship and verification environment</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>First approximation (draft):</strong> Gemini 3.8 Flash in Google Antigravity.</li>
-            <li><strong>Verification, correction and final writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code.</li>
-            <li>The agents worked from instructions given by the project owner; no human wrote the content.</li>
+            <li><strong>Review and writing:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) in Claude Code, following instructions from the project owner, with no human-written content.</li>
             <li><strong>Environment:</strong> Linux x86_64 (kernel 7.2), Node.js 24.18.1, Python 3.14.7, Playwright 1.62.1 with headless Chromium.</li>
-            <li><strong>Reproduction:</strong> <code>npm test</code>, <code>npm run test:browser</code> and the per-level commands in the baseline.</li>
+            <li><strong>Reproduction:</strong> the baseline commands and <code>docs/audits/AuditFull.md</code>.</li>
           </ul>
         </div>
       </div>
     </main>
 
-    <nav class="page-navigation" aria-label="Audit navigation">
-      <a href="architecture.html" class="nav-button prev">
+    <nav class="page-navigation" aria-label="Review navigation">
+      <a href="architecture.html#audits" class="nav-button prev">
         <span class="nav-direction">← Previous</span>
         <span class="nav-title">Infrastructure and data</span>
       </a>
       <a href="audit-functionalities.html" class="nav-button next">
         <span class="nav-direction">Next →</span>
-        <span class="nav-title">Audit 2: Functionalities</span>
+        <span class="nav-title">Review 2: Features</span>
       </a>
     </nav>
 
     <footer>
-      <p>ZeroChat 8.x · Audit 1 (Infrastructure) · October 4, 2026</p>
+      <p>ZeroChat 9.x · Review 1 (Infrastructure and rules) · 12 October 2026</p>
     </footer>
   </div>
 </body>

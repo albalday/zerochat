@@ -93,9 +93,23 @@ aislamiento de secretos, seguridad HTML, concurrencia, almacenamiento y recupera
 tras cancelación. Localizar dependencias implícitas entre módulos y documentar las
 interfaces públicas que no puedan cambiarse sin migración.
 
+### Normas y pruebas
+
+Cada norma de `AGENTS.md` se contrasta con la prueba que falla al infringirla. Una norma
+solo se da por cumplida si existe esa prueba; si no, se indica si se ha comprobado con un
+comando, con la lectura del código o no se ha comprobado. Las normas sin prueba se registran
+como hallazgos, con la prueba que las protegería. Una norma nueva se añade con su prueba en
+el mismo cambio.
+
 ## Entregable y priorización
 
-Crear un informe con cada hallazgo y, como mínimo:
+El resultado son cuatro revisiones bilingües publicadas en la ayuda, escritas desde cero
+y no como actualización de las anteriores: `help/audit-infrastructure.html` (infraestructura
+y normas), `help/audit-functionalities.html` (funcionalidades), `help/audit-comparison.html`
+(comparativa) y `help/audit-history.html` (historial), con sus versiones en `help/en/`.
+No se crean informes en Markdown.
+
+Cada hallazgo incluye, como mínimo:
 
 - evidencia: archivos y referencias afectadas;
 - riesgo: seguridad, estabilidad, deuda técnica o presentación;
