@@ -4,6 +4,35 @@ Estas normas definen el nivel mínimo de calidad para cualquier cambio en ZeroCh
 Se aplican tanto al desarrollo humano como a los agentes de generación de código.
 
 
+## Project memory
+
+Rules for agents go in this file; if details live in other docs, link them from here.
+
+Every agent working in this repository keeps the project memory up to date:
+
+- `.zerochat/state.md`: current milestone, next task and active decisions. Read it before starting work. Keep it under 40 lines.
+- `.zerochat/plan.md`: milestones and their tasks.
+- `.zerochat/log.md`: decisions, one line each, append only and never archived. Search it; do not read it in full.
+- `.zerochat/archive/M<n>.md`: plan sections of closed milestones. Search them; do not read them in full.
+
+Tasks take one line each, with an ID numbered within their milestone: `- [ ] M2-T3 Short description`.
+- Mark a task done by editing only its line: `- [x] M2-T3 Short description (YYYY-MM-DD)`. A dropped task is marked done with `(dropped: reason)`.
+- Never renumber or reuse an ID. A new task or decision takes the next number in its milestone (M2-T4, M2-D2).
+- Never rewrite .zerochat/plan.md or .zerochat/log.md as a whole: edit or append single lines.
+
+Record decisions that the code does not make obvious by appending to .zerochat/log.md: `- YYYY-MM-DD M2-D1 Decision and reason (M2-T3)`.
+
+Before starting work that is not in .zerochat/plan.md, add it as the next task of the current milestone.
+Right after finishing each task, before starting the next one: mark it in .zerochat/plan.md, append its decisions to .zerochat/log.md and set the next task in .zerochat/state.md.
+
+Ask the user before closing a milestone or adding a new one. Every milestone has a Goal and a Done when line.
+When the user confirms a milestone is closed: move its section from .zerochat/plan.md to `.zerochat/archive/M<n>.md` (move, never delete), leave `## M<n> Title: closed YYYY-MM-DD` in .zerochat/plan.md and update .zerochat/state.md.
+
+`.zerochat/` is versioned and never ignored: commit its changes on `dev` in the same commit as the work they record.
+
+Other agent instruction files (CLAUDE.md, .cursorrules) only point here. Add rules to this file, not to them.
+
+
 ## 1. Fuente de verdad
 
 El código fuente se mantiene en:
@@ -269,7 +298,7 @@ Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
 
 ### Excepción para documentación en `/help`, `/docs` y `AGENTS.md`
 
-Los archivos de `/help/` (ayuda publicada en GitHub Pages), de `/docs/` (informes de auditoría y propuestas) y `AGENTS.md` (normas del proyecto) no forman parte del código distribuible del producto ni requieren versionado. Se autoriza la publicación o sincronización directa a `master` de cambios que afecten exclusivamente a `/help/`, `/docs/` y `AGENTS.md`, sin incremento de versión del producto ni ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
+Los archivos de `/help/` (ayuda publicada en GitHub Pages), de `/docs/` (informes de auditoría y propuestas), de `.zerochat/` (memoria del proyecto) y `AGENTS.md` (normas del proyecto) no forman parte del código distribuible del producto ni requieren versionado. Se autoriza la publicación o sincronización directa a `master` de cambios que afecten exclusivamente a `/help/`, `/docs/`, `.zerochat/` y `AGENTS.md`, sin incremento de versión del producto ni ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
 
 ## 8. Finalización
 
@@ -292,9 +321,11 @@ La documentación se organiza de forma canónica en los siguientes niveles:
 - **`AGENTS.md` (Gobernanza y normas globales)**:
   Contiene exclusivamente las normas de obligado cumplimiento, límites de seguridad, restricciones arquitectónicas transversales y directrices del flujo de trabajo (build, test, git). No debe inflarse con contratos detallados ni especificaciones técnicas exhaustivas de APIs o subsistemas.
 - **Documentación técnica de subsistemas (Colocación / Colocation)**:
-  La documentación técnica profunda reside obligatoriamente en la carpeta raíz del subsistema que describe bajo el nombre estándar `README.md`. Está prohibido que los agentes creen archivos `.md` sueltos en la raíz o en carpetas genéricas:
+  La documentación técnica profunda reside obligatoriamente en la carpeta raíz del subsistema que describe bajo el nombre estándar `README.md`. Está prohibido que los agentes creen archivos `.md` sueltos en la raíz o en carpetas genéricas, salvo en `.zerochat/`:
   - Pruebas y suite de test: `tests/README.md`.
   - Herramientas agénticas y contratos de ejecución: `js/tools/README.md`.
+- **Memoria del proyecto (`.zerochat/`)**:
+  Plan, estado, registro de decisiones y archivo de hitos, con los ficheros `.md` que define la sección "Project memory". Se versiona junto con el código.
 - **Documentación de usuario final (`help/`)**:
   Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
 - **Histórico y archivo (`docs/`)**:

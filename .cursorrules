@@ -1,13 +1,3 @@
 # Reglas de Desarrollo de ZeroChat
 
-La fuente de verdad y gobernanza del proyecto está definida en `AGENTS.md`. Todo agente o desarrollador debe respetar sus directrices.
-
-- **Código fuente**:
-  - Web: `zerochat.html` (interfaz web servida de forma directa y estática por GitHub Pages), `js/` y `css/`. No existe proceso de empaquetado (bundle) para la web.
-  - Backend: `py/` (módulos funcionales del backend). Al modificar `py/`, reconstruir `zerochat.py` mediante `npm run build:backend`.
-- **Validación de cambios**:
-  - Ejecutar las pruebas aplicables antes de dar por terminado cualquier cambio (`npm run test:unit`, `npm run test:infrastructure`, `npm run test:architecture`, `npm run test:integration`, `npm run test:browser`).
-  - Respetar los contratos arquitectónicos y no introducir errores de consola.
-- **Control de versiones**:
-  - Las versiones se gestionan de forma unificada mediante `npm run bump <patch | minor | major>`. Prohibido editar versiones manualmente.
-  - La rama de trabajo es `dev`. La promoción a `master` requiere validación completa y avance de versión.
+Todas las normas del proyecto, su fuente de verdad y gobernanza, están en `AGENTS.md`.
