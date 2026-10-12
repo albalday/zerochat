@@ -78,7 +78,7 @@ test('Browser UI - controles estáticos y dinámicos usan iconos SVG sin emojis'
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    const audit = await page.evaluate(() => {
+    const audit = await page.evaluate(async () => {
       const container = document.getElementById('messages-list');
       const jsCard = ChatToolCards.createLiveToolCard('execute_javascript', { code: 'console.log("hola");' });
       const searchCard = ChatToolCards.createLiveToolCard('search_web', { query: 'test query' });
@@ -94,12 +94,17 @@ test('Browser UI - controles estáticos y dinámicos usan iconos SVG sin emojis'
         { id: 'sess_icons', title: 'Conversación de prueba', updatedAt: Date.now() }
       ], 'sess_icons', {});
 
-      ChatUIInspector.renderInspectorReport({ inspectorResults: document.getElementById('inspector-results') }, {
+      // El inspector consulta el servidor y el proveedor: se sustituyen para no usar la red.
+      ChatAPI.fetchServerModels = async () => ({ success: true, models: [{ id: 'gpt-4o' }] });
+      ChatAPI.inspectProvider = async () => ({
         provider: { id: 'openai', label: 'OpenAI Test' },
         endpoint: { normalized: 'https://api.openai.com/v1/chat/completions' },
         model: { selected: 'gpt-4o', totalDiscovered: 1 },
         inspectionTimeMs: 120,
         capabilities: Object.fromEntries(['streaming', 'tools', 'vision', 'reasoning'].map(key => [key, { status: 'confirmed', detail: 'OK' }]))
+      });
+      await ChatUIInspector.handleRunInspector({ inspectorResults: document.getElementById('inspector-results') }, {}, {
+        settings: { apiUrl: 'https://api.openai.com/v1', apiType: 'openai', model: 'gpt-4o' }
       });
 
       // Cada selector designa controles que deben mostrar un icono vectorial.

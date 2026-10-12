@@ -119,6 +119,38 @@
   flex-direction: column;
 }
 
+/* Tras los datos del modelo, el diagnóstico del endpoint, su carga o su error van separados. */
+.inspector-model-section ~ .inspector-endpoint-section,
+.inspector-model-section ~ .inspector-loading {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.inspector-model-section ~ .inspector-status {
+  margin-top: 0.85rem;
+}
+
+.inspector-status {
+  display: block;
+}
+
+.inspector-loading {
+  padding: 1.25rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.inspector-loading p {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.inspector-meta-item .meta-value.inspector-endpoint {
+  font-family: monospace;
+  font-size: 0.775rem;
+}
+
 .inspector-section-title {
   font-size: 0.75rem;
   font-weight: 600;
@@ -191,6 +223,9 @@
 }
 
 .cap-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.825rem;
   font-weight: 600;
   color: var(--text-main);
