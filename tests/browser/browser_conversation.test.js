@@ -175,6 +175,48 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
   } finally { await browser.close(); }
 });
 
+test('Browser UI - desplegar una herramienta la deja visible cada vez, no solo la primera', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.evaluate(() => {
+      const list = document.getElementById('messages-list');
+      const ui = window.ChatUIConversation;
+      const callbacks = { onReuse() {}, onDelete() {}, onBranch() {} };
+      const { content } = ui.createAssistantMessagePlaceholder(list, 'reveal_msg', callbacks);
+      ui.renderAssistantBlock(ui.createAssistantBlock(content), 'Texto previo.\n\n'.repeat(60));
+      const cards = window.ChatToolCards;
+      const card = cards.createLiveToolCard('reveal_check', { value: 1 });
+      card.id = 'reveal-card';
+      cards.appendToolCard(content, card);
+      const output = { success: true, result: 'line\n'.repeat(40) };
+      cards.updateLiveToolCard(card, 'reveal_check', {}, output, 1);
+      cards.completeToolCard(card, output);
+      window.ChatMarkdown.attachContentListeners(card);
+      card.closest('.tool-call-group').querySelector('details').open = true;
+      list.scrollTo({ top: list.scrollHeight, behavior: 'instant' });
+    });
+    const header = '#reveal-card .tool-card-header';
+    const cardVisible = () => page.waitForFunction(() => {
+      const list = document.getElementById('messages-list');
+      const card = document.querySelector('#reveal-card .tool-execution-card');
+      return !card.classList.contains('collapsed')
+        && card.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom;
+    }, null, { timeout: 3000 });
+    await page.click(header);
+    await cardVisible();
+    await page.click(header);
+    await page.click(header);
+    await cardVisible();
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - en móvil el estado de una herramienta larga se muestra bajo su nombre', async () => {
   const browser = await createTestBrowser();
   try {

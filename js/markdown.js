@@ -427,6 +427,22 @@
     });
   }
 
+  /**
+   * Desplaza la lista de mensajes lo justo para ver la tarjeta recién desplegada; si no cabe,
+   * deja visible su cabecera.
+   */
+  function revealExpandedCard(card) {
+    const messagesList = card.closest('#messages-list');
+    if (!messagesList) return;
+    const cardRect = card.getBoundingClientRect();
+    const listRect = messagesList.getBoundingClientRect();
+    const margin = 16;
+    const overflow = Math.min(cardRect.bottom - listRect.bottom + margin, cardRect.top - listRect.top - margin);
+    if (overflow <= 0) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    messagesList.scrollTo({ top: messagesList.scrollTop + overflow, behavior: reducedMotion ? 'auto' : 'smooth' });
+  }
+
   /** Pliega y despliega las tarjetas de herramientas y gráficos desde su cabecera o su botón. */
   function bindCollapsibleCards(container) {
     container.querySelectorAll('.tool-card-header:not([data-collapse-init]), .chat-chart-header:not([data-collapse-init]), .btn-tool-collapse:not([data-collapse-init])').forEach(el => {
@@ -439,6 +455,7 @@
         const isCollapsed = card.classList.toggle('collapsed');
         const btn = card.querySelector('.btn-tool-collapse');
         if (btn) btn.title = I18n.t(isCollapsed ? 'tool_btn_expand' : 'tool_btn_collapse');
+        if (!isCollapsed) revealExpandedCard(card);
       });
     });
   }
