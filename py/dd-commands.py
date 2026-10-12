@@ -58,15 +58,18 @@ def _kill_process_tree(proc: subprocess.Popen):
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             )
             if proc.poll() is None:
-                proc.kill()
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError, AttributeError):
+                    pass
         elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         else:
             proc.kill()
-    except Exception:
+    except (ProcessLookupError, PermissionError, OSError, AttributeError):
         try:
             proc.kill()
-        except Exception:
+        except (ProcessLookupError, OSError, AttributeError):
             pass
 
 

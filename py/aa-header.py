@@ -35,6 +35,7 @@ import tempfile
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 import venv
@@ -53,7 +54,7 @@ def _read_source_version(filename: str) -> str | None:
             match = re.search(r'version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', content)
             if match:
                 return match.group(1)
-    except Exception:
+    except (OSError, re.error):
         pass
     return None
 
@@ -77,7 +78,7 @@ def _read_ui_version() -> str:
             data = json.loads(pkg_path.read_text(encoding="utf-8"))
             if isinstance(data.get("version"), str):
                 return data["version"].strip()
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         pass
     return BACKEND_PACKAGE_VERSION
 

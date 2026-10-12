@@ -342,7 +342,7 @@ def get_diagnostics(path: str | None = None) -> str:
                                 "severity": "error",
                                 "message": msg
                             })
-                    except Exception:
+                    except (subprocess.SubprocessError, OSError):
                         pass
             elif ext == ".json":
                 try:
@@ -573,9 +573,9 @@ try {
                             self._process.stdin.write(json.dumps({"action": "close"}) + "\n")
                             self._process.stdin.flush()
                             self._process.wait(timeout=2)
-                        except Exception:
+                        except (OSError, subprocess.SubprocessError):
                             self._process.kill()
-                except Exception:
+                except (OSError, subprocess.SubprocessError):
                     pass
                 self._process = None
 

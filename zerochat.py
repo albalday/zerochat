@@ -35,6 +35,7 @@ import tempfile
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 import venv
@@ -53,7 +54,7 @@ def _read_source_version(filename: str) -> str | None:
             match = re.search(r'version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', content)
             if match:
                 return match.group(1)
-    except Exception:
+    except (OSError, re.error):
         pass
     return None
 
@@ -77,7 +78,7 @@ def _read_ui_version() -> str:
             data = json.loads(pkg_path.read_text(encoding="utf-8"))
             if isinstance(data.get("version"), str):
                 return data["version"].strip()
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         pass
     return BACKEND_PACKAGE_VERSION
 
@@ -294,13 +295,13 @@ def get_daily_token() -> str:
             data = json.loads(token_file.read_text(encoding="utf-8"))
             if data.get("date") == today and data.get("token") and isinstance(data["token"], str):
                 return data["token"]
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
     token = secrets.token_urlsafe(32)
     try:
         _write_private_text(token_file, json.dumps({"token": token, "date": today}, indent=2))
-    except Exception:
-        pass
+    except OSError as err:
+        log_event(f"[zerochat] Advertencia: no se pudo guardar el token diario en {token_file}: {err}")
     return token
 
 
@@ -402,8 +403,8 @@ def check_version():
             else:
                 notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
             add_notice(notice)
-    except Exception:
-        # Modo offline o timeout ignorado de forma segura
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # Modo offline o sin conectividad al comprobar versiones remotas.
         pass
 # ==============================================================================
 # Ejecución de comandos y tareas en segundo plano
@@ -465,15 +466,18 @@ def _kill_process_tree(proc: subprocess.Popen):
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             )
             if proc.poll() is None:
-                proc.kill()
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError, AttributeError):
+                    pass
         elif hasattr(os, "killpg") and hasattr(os, "getpgid"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         else:
             proc.kill()
-    except Exception:
+    except (ProcessLookupError, PermissionError, OSError, AttributeError):
         try:
             proc.kill()
-        except Exception:
+        except (ProcessLookupError, OSError, AttributeError):
             pass
 
 
@@ -1450,7 +1454,7 @@ def get_diagnostics(path: str | None = None) -> str:
                                 "severity": "error",
                                 "message": msg
                             })
-                    except Exception:
+                    except (subprocess.SubprocessError, OSError):
                         pass
             elif ext == ".json":
                 try:
@@ -1681,9 +1685,9 @@ try {
                             self._process.stdin.write(json.dumps({"action": "close"}) + "\n")
                             self._process.stdin.flush()
                             self._process.wait(timeout=2)
-                        except Exception:
+                        except (OSError, subprocess.SubprocessError):
                             self._process.kill()
-                except Exception:
+                except (OSError, subprocess.SubprocessError):
                     pass
                 self._process = None
 
@@ -2141,7 +2145,7 @@ class StdioMcpClient:
                     continue
                 try:
                     msg = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 req_id = msg.get("id")
                 if req_id is not None:
@@ -2215,7 +2219,7 @@ class StdioMcpClient:
         if self.running():
             try:
                 self._write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
-            except Exception:
+            except (OSError, ValueError):
                 self._alive = False
 
     def _signal_group(self, sig) -> bool:
@@ -2295,7 +2299,7 @@ class McpServiceManager:
                 server["id"] = server_id
                 server["_directory"] = directory
                 servers[server_id] = server
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 continue
         return servers
 
@@ -2303,7 +2307,7 @@ class McpServiceManager:
         if self.config_file.exists():
             try:
                 return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 return {}
         return {}
 
@@ -2312,8 +2316,8 @@ class McpServiceManager:
             tmp = self.config_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
             tmp.replace(self.config_file)
-        except Exception:
-            pass
+        except OSError as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
@@ -2380,7 +2384,7 @@ class McpServiceManager:
                         installation = json.loads(marker.read_text(encoding="utf-8"))
                         if installation.get("package") != package or installation.get("version") != version:
                             needs_install = True
-                    except Exception:
+                    except (OSError, json.JSONDecodeError):
                         needs_install = True
 
                 if needs_install:
@@ -2564,7 +2568,7 @@ class McpServiceManager:
                 for t in client.tools:
                     try:
                         matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except Exception:
+                    except (ValueError, TypeError):
                         continue
                     if matches:
                         target = (client, t["name"])
@@ -2925,7 +2929,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if content_len <= MAX_HTTP_BODY_BYTES * 2:
                 try:
                     self.rfile.read(content_len)
-                except Exception:
+                except (OSError, ValueError):
                     pass
             self.close_connection = True
             self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
@@ -3058,7 +3062,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 parsed_out = json.loads(tool_output_json)
                 if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
                     tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 pass
             return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
         if method == "zerochat/project/set_directory":

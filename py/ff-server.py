@@ -338,7 +338,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             if content_len <= MAX_HTTP_BODY_BYTES * 2:
                 try:
                     self.rfile.read(content_len)
-                except Exception:
+                except (OSError, ValueError):
                     pass
             self.close_connection = True
             self._reject(413, {"error": "Request body too large"}, safe_path, t0, "Cuerpo HTTP excede el límite")
@@ -471,7 +471,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 parsed_out = json.loads(tool_output_json)
                 if isinstance(parsed_out, dict) and parsed_out.get("success") is False:
                     tool_error_info = str(parsed_out.get("error", "Error en herramienta local"))
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 pass
             return {"content": [{"type": "text", "text": tool_output_json}], "isError": bool(tool_error_info)}, None, tool_error_info
         if method == "zerochat/project/set_directory":

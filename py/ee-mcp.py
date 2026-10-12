@@ -236,7 +236,7 @@ class StdioMcpClient:
                     continue
                 try:
                     msg = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
                 req_id = msg.get("id")
                 if req_id is not None:
@@ -310,7 +310,7 @@ class StdioMcpClient:
         if self.running():
             try:
                 self._write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
-            except Exception:
+            except (OSError, ValueError):
                 self._alive = False
 
     def _signal_group(self, sig) -> bool:
@@ -390,7 +390,7 @@ class McpServiceManager:
                 server["id"] = server_id
                 server["_directory"] = directory
                 servers[server_id] = server
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 continue
         return servers
 
@@ -398,7 +398,7 @@ class McpServiceManager:
         if self.config_file.exists():
             try:
                 return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 return {}
         return {}
 
@@ -407,8 +407,8 @@ class McpServiceManager:
             tmp = self.config_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
             tmp.replace(self.config_file)
-        except Exception:
-            pass
+        except OSError as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
@@ -475,7 +475,7 @@ class McpServiceManager:
                         installation = json.loads(marker.read_text(encoding="utf-8"))
                         if installation.get("package") != package or installation.get("version") != version:
                             needs_install = True
-                    except Exception:
+                    except (OSError, json.JSONDecodeError):
                         needs_install = True
 
                 if needs_install:
@@ -659,7 +659,7 @@ class McpServiceManager:
                 for t in client.tools:
                     try:
                         matches = public_tool_name(server_id, t.get("name")) == public_name
-                    except Exception:
+                    except (ValueError, TypeError):
                         continue
                     if matches:
                         target = (client, t["name"])

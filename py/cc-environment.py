@@ -88,13 +88,13 @@ def get_daily_token() -> str:
             data = json.loads(token_file.read_text(encoding="utf-8"))
             if data.get("date") == today and data.get("token") and isinstance(data["token"], str):
                 return data["token"]
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
     token = secrets.token_urlsafe(32)
     try:
         _write_private_text(token_file, json.dumps({"token": token, "date": today}, indent=2))
-    except Exception:
-        pass
+    except OSError as err:
+        log_event(f"[zerochat] Advertencia: no se pudo guardar el token diario en {token_file}: {err}")
     return token
 
 
@@ -196,6 +196,6 @@ def check_version():
             else:
                 notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
             add_notice(notice)
-    except Exception:
-        # Modo offline o timeout ignorado de forma segura
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # Modo offline o sin conectividad al comprobar versiones remotas.
         pass
