@@ -812,8 +812,8 @@
   right: 0;
   left: auto;
   top: auto;
-  width: 310px;
-  max-width: min(320px, calc(100vw - 32px));
+  width: 340px;
+  max-width: min(340px, calc(100vw - 32px));
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -865,8 +865,8 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 0.775rem;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 600;
   color: var(--text-main);
 }
 
@@ -897,12 +897,12 @@
   display: grid;
   gap: 0.35rem;
   margin-top: 0.65rem;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
 .context-limit-source {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .context-limit-control-row {
@@ -919,7 +919,7 @@
   background: var(--input-bg);
   color: var(--text-main);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   outline: none;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -936,7 +936,7 @@
 }
 
 .context-section-title {
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -986,16 +986,15 @@
 }
 
 .context-metric-label {
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
 .context-metric-val {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.88rem;
+  font-weight: 650;
   color: var(--text-main);
   font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
