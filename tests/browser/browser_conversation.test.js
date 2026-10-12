@@ -881,7 +881,6 @@ async function installSubagentTestHelpers(page) {
     window.__subagentTest = {
       isSubagent: params => params.messages.some(message => typeof message.content === 'string' && message.content.startsWith('[Subagent task]')),
       reply: (params, text, toolCalls = []) => {
-        params.onDone?.(text, null, toolCalls, '');
         return { accumulatedText: text, toolCalls, stats: null };
       }
     };

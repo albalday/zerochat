@@ -35,7 +35,6 @@ function setup(t, { model = 'test-model', apiUrl = 'http://localhost:1234/v1', r
   Config.updateRuntime({ model, apiUrl, apiType: 'openai', activeProfile: null });
   const originalStream = ChatAPI.streamChatCompletion;
   ChatAPI.streamChatCompletion = respond || (async params => {
-    params.onDone?.('ok', null, null);
     return { accumulatedText: 'ok', toolCalls: null, stats: null };
   });
   t.after(() => {

@@ -56,7 +56,7 @@
     if (adapter.getCapabilities().modelListing === false) {
       return {
         success: false,
-        error: 'El proveedor configurado no admite descubrimiento automático de modelos.'
+        error: 'The configured provider does not support model discovery.'
       };
     }
     if (typeof adapter.listModels === 'function') {
@@ -107,7 +107,7 @@
 
     return {
       success: false,
-      error: lastError ? (lastError.message || String(lastError)) : 'No se pudo obtener la lista de modelos desde los endpoints consultados.'
+      error: lastError ? (lastError.message || String(lastError)) : 'Could not get the model list from the queried endpoints.'
     };
   }
 
@@ -134,7 +134,9 @@
   }
 
   /**
-   * Orquestador común de streaming HTTP/SSE.
+   * Orquestador común de streaming HTTP/SSE. Devuelve { accumulatedText, accumulatedReasoning,
+   * reasoningReplay, stats, toolCalls }, también al cancelar (con lo recibido hasta entonces); un
+   * error se entrega a onError y devuelve null.
    */
   async function streamChatCompletion(params) {
     const {
@@ -154,7 +156,6 @@
       onGenerationStatus,
       onToolCallDelta,
       onLog,
-      onDone,
       onError
     } = params;
 
@@ -165,10 +166,7 @@
     const detectedType = adapter.id;
     const headers = adapter.buildHeaders(effectiveApiKey);
 
-    // Inyectar herramientas agénticas activadas si están disponibles
     const toolsList = params.tools || [];
-
-    // Construcción del payload mediante el adaptador
     const payload = adapter.buildPayload({
       model,
       messages,
@@ -183,34 +181,21 @@
       try {
         const debugResult = await onBeforeRequest({ endpoint, headers, payload });
         if (debugResult && debugResult.cancel) {
-          if (onLog) {
-            onLog({
-              type: 'info',
-              text: '🛑 Envío de petición cancelado por el usuario en el depurador de mensajes.'
-            });
-          }
-          if (onError) {
-            onError('Envío cancelado en depurador de mensajes.');
-          }
-          return {
-            aborted: true,
-            cancelled: true,
-            text: '',
-            toolCalls: null,
-            stats: null
-          };
+          onLog?.({ type: 'info', text: 'Request cancelled by the user in the message debugger.' });
+          onError?.(new Error('Request cancelled in the message debugger.'));
+          return null;
         }
         if (debugResult && debugResult.modifiedPayload) {
           Object.keys(payload).forEach(k => delete payload[k]);
           Object.assign(payload, debugResult.modifiedPayload);
         }
       } catch (err) {
-        console.warn('ChatAPI: Error en callback onBeforeRequest:', err);
+        console.warn('[ChatAPI] onBeforeRequest failed:', err);
       }
     }
 
     if (signal?.aborted) {
-      return { aborted: true, cancelled: true, accumulatedText: '', toolCalls: null, stats: null };
+      return { accumulatedText: '', accumulatedReasoning: '', reasoningReplay: null, stats: null, toolCalls: null };
     }
 
     if (detectedType === 'mirror') {
@@ -222,18 +207,17 @@
         completionTokens: 0, totalTokens: 0, reasoningTokens: 0, isEstimated: true
       };
       if (onLog) {
-        onLog({ type: 'network', text: `MIRROR POST ${endpoint} [OPENAI] | La petición no se ha enviado.` });
+        onLog({ type: 'network', text: `MIRROR POST ${endpoint} [OPENAI] | The request was not sent.` });
         onLog({ type: 'raw', subtype: 'outgoing', text: `>>> MIRROR POST ${endpoint}\n${accumulatedText}` });
       }
       if (onChunk) onChunk(accumulatedText, accumulatedText, stats);
-      if (onDone) await onDone(accumulatedText, stats, null, '');
-      return { accumulatedText, accumulatedReasoning: '', stats, toolCalls: null };
+      return { accumulatedText, accumulatedReasoning: '', reasoningReplay: null, stats, toolCalls: null };
     }
 
     if (onLog) {
       onLog({
         type: 'network',
-        text: `POST ${endpoint} [${detectedType.toUpperCase()}] | Modelo: ${model || '(no especificado)'} | Razonamiento: ${reasoningEffort || 'off'} | Temp: ${payload.temperature ?? '-'}`
+        text: `POST ${endpoint} [${detectedType.toUpperCase()}] | Model: ${model || '(none)'} | Reasoning: ${reasoningEffort || 'off'} | Temp: ${payload.temperature ?? '-'}`
       });
       onLog({
         type: 'raw',
@@ -347,12 +331,12 @@
         if (extracted.toolCalls) {
           accumulatedText = extracted.text;
           textToolCalls = extracted.toolCalls;
-          if (onLog) onLog({ type: 'info', text: `Llamadas a herramientas extraídas del texto: ${textToolCalls.map(call => call.function.name).join(', ')}` });
+          if (onLog) onLog({ type: 'info', text: `Tool calls extracted from the text: ${textToolCalls.map(call => call.function.name).join(', ')}` });
         } else {
           // Igual que durante el streaming: un bloque <tool_call> inválido o sin cerrar no se muestra.
           const visible = TextToolCalls.visibleText(accumulatedText).trim();
           if (visible !== accumulatedText.trim() && onLog) {
-            onLog({ type: 'warning', text: 'Bloque <tool_call> no válido descartado de la respuesta.' });
+            onLog({ type: 'warning', text: 'Invalid <tool_call> block removed from the response.' });
           }
           accumulatedText = visible;
         }
@@ -393,7 +377,7 @@
           if (onLog) {
             onLog({
               type: 'error',
-              text: `HTTP 400: Servidor rechazó parámetro (${recovery.reason || 'parámetro incompatible'}). Reintentando sin él...`
+              text: `HTTP 400: the server rejected a parameter (${recovery.reason || 'incompatible parameter'}). Retrying without it...`
             });
           }
           response = await fetch(endpoint, {
@@ -405,11 +389,11 @@
         }
 
         if (!response.ok) {
-          let errorMessage = serverErrorMsg || `Error HTTP ${response.status}: ${response.statusText}`;
+          let errorMessage = serverErrorMsg || `HTTP error ${response.status}: ${response.statusText}`;
           if (response.status === 401) {
-            errorMessage = 'Clave de API inválida o no autorizada (401). Verifica tu API Key en la Configuración.';
+            errorMessage = 'Invalid or unauthorized API key (401). Check the API key in Settings.';
           } else if (response.status === 404) {
-            errorMessage = `Endpoint no encontrado (404). Verifica la URL del servidor: ${endpoint}`;
+            errorMessage = `Endpoint not found (404). Check the server URL: ${endpoint}`;
           }
           if (onLog) {
             onLog({ type: 'error', text: errorMessage });
@@ -420,7 +404,7 @@
       }
 
       if (!response.body) {
-        throw new Error('La respuesta del servidor no soporta streaming.');
+        throw new Error('The server response does not support streaming.');
       }
 
       const reader = response.body.getReader();
@@ -460,10 +444,9 @@
                 const cacheInfo = stats.cachedTokens > 0 ? ` | ⚡ Cache: ${stats.cachedTokens} tok` : '';
                 onLog({
                   type: 'stats',
-                  text: `Streaming finalizado [DONE] | Total: ${stats.tokens} tokens | ${stats.tokensPerSec} t/s | TTFT: ${stats.ttftSec}s${cacheInfo}`
+                  text: `Streaming finished [DONE] | Total: ${stats.tokens} tokens | ${stats.tokensPerSec} t/s | TTFT: ${stats.ttftSec}s${cacheInfo}`
                 });
               }
-              if (onDone) await onDone(accumulatedText, stats, toolCalls, accumulatedReasoning);
               return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats, toolCalls };
             }
 
@@ -593,7 +576,7 @@
                   const cacheLog = serverCachedTokens > 0 ? ` (⚡ Cache: ${serverCachedTokens} tok)` : '';
                   onLog({
                     type: 'stats',
-                    text: `Uso de tokens: Prompt=${serverPromptTokens}, Respuesta=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Razonamiento: ${serverReasoningTokens})` : ''}${cacheLog}`
+                    text: `Token usage: Prompt=${serverPromptTokens}, Completion=${serverCompletionTokens}, Total=${serverTotalTokens}${serverReasoningTokens ? ` (Reasoning: ${serverReasoningTokens})` : ''}${cacheLog}`
                   });
                 }
               }
@@ -614,22 +597,14 @@
         }
       } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
 
-      const finalStats = getStats();
-      const finalToolCalls = getFinalToolCalls();
-      if (onDone) await onDone(accumulatedText, finalStats, finalToolCalls, accumulatedReasoning);
-      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: finalStats, toolCalls: finalToolCalls };
-
+      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls: getFinalToolCalls() };
     } catch (err) {
       if (err.name === 'AbortError') {
-        console.log('Petición cancelada por el usuario.');
-        const finalStats = getStats();
-        const finalToolCalls = getFinalToolCalls();
-        if (onDone) await onDone(accumulatedText || '(Generación detenida)', finalStats, finalToolCalls);
-        return;
+        return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls: getFinalToolCalls() };
       }
-
-      console.error('Error en streamChatCompletion:', err);
-      if (onError) onError(err);
+      console.error('[ChatAPI] streamChatCompletion failed:', err);
+      onError?.(err);
+      return null;
     }
   }
 

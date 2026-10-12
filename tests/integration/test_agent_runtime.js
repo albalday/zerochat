@@ -166,7 +166,6 @@ test('AgentRuntime - Tool call normal con resolución y respuesta final', async 
           }
         };
         if (params.onChunk) params.onChunk('Calculando la suma...', 'Calculando la suma...', { tokens: 10 });
-        if (params.onDone) await params.onDone('Calculando la suma...', { tokens: 10 }, [toolCall]);
         return { accumulatedText: 'Calculando la suma...', toolCalls: [toolCall], stats: { tokens: 10 } };
       } else {
         // Paso 2: El modelo recibe el resultado y redacta la respuesta final
@@ -177,7 +176,6 @@ test('AgentRuntime - Tool call normal con resolución y respuesta final', async 
 
         const finalText = `El resultado de la suma es ${toolRes.sum}.`;
         if (params.onChunk) params.onChunk(finalText, finalText, { tokens: 25 });
-        if (params.onDone) await params.onDone(finalText, { tokens: 25 }, []);
         return { accumulatedText: finalText, toolCalls: [], stats: { tokens: 25 } };
       }
     }
@@ -375,6 +373,32 @@ test('AgentRuntime - Cancelación manual mediante AbortSignal', async t => {
   assert.equal(result.success, false);
   assert.equal(result.status, 'cancelled');
   assert.match(result.error.message, /cancelled/);
+});
+
+test('AgentRuntime - detener durante el stream conserva el texto recibido sin ejecutar herramientas', async t => {
+  let executed = false;
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'dummy_tool', execute: async () => { executed = true; return { ok: true }; } }));
+  const stopAfter = text => {
+    const controller = new AbortController();
+    const api = {
+      streamChatCompletion: async () => {
+        controller.abort();
+        return { accumulatedText: text, toolCalls: [{ id: 'c1', function: { name: 'dummy_tool', arguments: '{}' } }], stats: null };
+      }
+    };
+    return runAgent(t, registry, { api, signal: controller.signal, appendFinalMessage: true, messages: [{ role: 'user', content: 'Hola' }] });
+  };
+
+  const partial = await stopAfter('Respuesta a medias');
+  assert.equal(partial.status, 'completed');
+  assert.equal(partial.finalText, 'Respuesta a medias');
+  assert.equal(partial.history.at(-1).content, 'Respuesta a medias');
+  assert.equal(partial.history.some(message => message.tool_calls), false);
+
+  const empty = await stopAfter('');
+  assert.equal(empty.status, 'cancelled');
+  assert.equal(executed, false);
 });
 
 // Simula un modelo que pide los pasos indicados y después responde sin herramientas.

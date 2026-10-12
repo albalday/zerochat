@@ -406,7 +406,7 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
       })
     });
     const result = await API.streamChatCompletion({
-      apiType: 'webllm', apiUrl: 'webllm://local', model: 'test-model', messages: [], onDone: async () => {}
+      apiType: 'webllm', apiUrl: 'webllm://local', model: 'test-model', messages: []
     });
     assert.equal(result.accumulatedText, 'local');
   } finally {

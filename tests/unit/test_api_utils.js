@@ -105,7 +105,8 @@ test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async (
     const controller = new AbortController();
     controller.abort();
     const cancelled = await Api.streamChatCompletion({ ...input, signal: controller.signal, onChunk: () => assert.fail('Cancelled callback') });
-    assert.equal(cancelled.cancelled, true);
+    assert.equal(cancelled.accumulatedText, '');
+    assert.equal(cancelled.toolCalls, null);
     assert.equal((await Api.fetchServerModels('mirror://local', '', 'mirror')).success, false);
     assert.equal((await Api.inspectProvider(input)).success, false);
     assert.equal(network, 0);
@@ -178,19 +179,19 @@ test('Api - onBeforeRequest puede modificar el payload o cancelar el envío sin 
     };
 
     try {
+      let error = null;
       const res = await Api.streamChatCompletion({
         apiUrl: 'http://localhost:1234/v1',
         apiType: 'openai',
         model: 'test-model',
         messages: [{ role: 'user', content: 'Prueba cancelada' }],
-        onBeforeRequest: async () => {
-          return { cancel: true };
-        }
+        onBeforeRequest: async () => ({ cancel: true }),
+        onError: value => { error = value; }
       });
 
       assert.equal(fetchCalled, false);
-      assert.equal(res.cancelled, true);
-      assert.equal(res.aborted, true);
+      assert.equal(res, null);
+      assert.match(error.message, /cancelled in the message debugger/);
     } finally {
       global.fetch = originalFetch;
     }
@@ -270,7 +271,6 @@ test('ChatAPI - streamChatCompletion interpreta <tool_call> en texto sin mostrar
     body: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sseData)); controller.close(); } })
   });
   const visibleChunks = [];
-  let doneArgs = null;
   try {
     const res = await Api.streamChatCompletion({
       apiUrl: 'http://localhost:1234/v1',
@@ -278,16 +278,13 @@ test('ChatAPI - streamChatCompletion interpreta <tool_call> en texto sin mostrar
       model: 'test-model',
       messages: [{ role: 'user', content: 'test' }],
       tools: [{ type: 'function', function: { name: 'search_web', parameters: { type: 'object', properties: {} } } }],
-      onChunk: text => visibleChunks.push(text),
-      onDone: (...args) => { doneArgs = args; }
+      onChunk: text => visibleChunks.push(text)
     });
     assert.ok(visibleChunks.every(text => !text.includes('<tool')));
     assert.equal(visibleChunks.at(-1), 'Voy a buscar. ');
     assert.equal(res.accumulatedText, 'Voy a buscar.');
     assert.equal(res.toolCalls.length, 1);
     assert.deepEqual(res.toolCalls[0].function, { name: 'search_web', arguments: '{"query":"webgpu"}' });
-    assert.equal(doneArgs[0], 'Voy a buscar.');
-    assert.equal(doneArgs[2], res.toolCalls);
   } finally {
     global.fetch = originalFetch;
   }

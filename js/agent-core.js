@@ -657,12 +657,6 @@
               currentStepText = fullTextSoFar;
               callbacks.onChunk?.(fullTextSoFar, delta, stats, stepIndex);
             },
-            onDone: (finalText, stats, toolCalls, reasoning) => {
-              currentStepText = finalText || currentStepText;
-              currentStepReasoning = reasoning || currentStepReasoning;
-              stepStats = stats;
-              stepToolCalls = toolCalls;
-            },
             onError: error => { streamError = error; }
           });
 
@@ -672,12 +666,20 @@
             break;
           }
 
-          if (streamResult) {
-            currentStepText = streamResult.accumulatedText || currentStepText;
-            currentStepReasoning = streamResult.accumulatedReasoning || currentStepReasoning;
-            stepReasoningReplay = streamResult.reasoningReplay || null;
-            stepToolCalls = streamResult.toolCalls || stepToolCalls;
-            stepStats = streamResult.stats || stepStats;
+          currentStepText = streamResult.accumulatedText || currentStepText;
+          currentStepReasoning = streamResult.accumulatedReasoning || currentStepReasoning;
+          stepReasoningReplay = streamResult.reasoningReplay || null;
+          stepToolCalls = streamResult.toolCalls;
+          stepStats = streamResult.stats;
+
+          if (abortSignal.aborted) {
+            if (!currentStepText) {
+              status = 'cancelled';
+              executionError = createCancelledError();
+              break;
+            }
+            // Al detener se conserva como respuesta el texto recibido, sin ejecutar herramientas.
+            stepToolCalls = null;
           }
 
           lastStats = stepStats || lastStats;

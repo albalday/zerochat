@@ -96,13 +96,26 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
     assert.ok(dbResult.result.includes('BLOCKED'), 'IndexedDB debe ser denegado en contexto opaco');
   });
 
+  test('Sandbox - El código no recibe las APIs de red ni crea funciones desde un constructor', async () => {
+    const res = await page.evaluate(async () => {
+      const probe = await window.ChatSandbox.execute('console.info("hola"); return [typeof fetch, typeof importScripts, typeof self.fetch].join(",");');
+      const escape = await window.ChatSandbox.execute('return ({}).constructor.constructor("return 42")();');
+      return { probe, escape };
+    });
+
+    assert.equal(res.probe.result, 'undefined,undefined,undefined');
+    assert.deepEqual(res.probe.logs, ['[INFO] hola']);
+    assert.equal(res.escape.success, false);
+    assert.match(res.escape.error, /Dynamic function creation is not allowed/);
+  });
+
   test('Sandbox - Terminación forzada y limpieza de recursos ante bucle infinito', async () => {
     const timeoutResult = await page.evaluate(async () => {
       return await window.ChatSandbox.execute('while(true) {}', 150);
     });
 
     assert.equal(timeoutResult.success, false);
-    assert.match(timeoutResult.error, /Timeout|excedido/i);
+    assert.match(timeoutResult.error, /timed out after 150ms/);
 
     // Verificar que el iframe fue removido del DOM
     const lingeringIframes = await page.evaluate(() => {

@@ -183,9 +183,6 @@ test('ChatEngine - executeAgentTurnLoop ejecuta un turno simple sin herramientas
       params.onChunk('Hola, ', 'Hola, ', { ttftSec: '0.12', tokensPerSec: '50.0', totalSec: '0.20', tokens: 10 });
       params.onChunk('Hola, ¿en qué puedo ayudarte hoy?', '¿en qué puedo ayudarte hoy?', { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 });
     }
-    if (params.onDone) {
-      params.onDone('Hola, ¿en qué puedo ayudarte hoy?', { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 }, null);
-    }
     return {
       accumulatedText: 'Hola, ¿en qué puedo ayudarte hoy?',
       stats: { ttftSec: '0.12', tokensPerSec: '55.0', totalSec: '0.35', tokens: 20 },
@@ -244,13 +241,11 @@ test('ChatEngine - executeAgentTurnLoop ejecuta llamadas a herramientas y genera
           arguments: JSON.stringify({ code: 'const a = 15; const b = 25; return a + b;' })
         }
       }];
-      if (params.onDone) params.onDone('', null, tc);
       return { accumulatedText: '', toolCalls: tc, stats: null };
     } else {
       // Turno 2: Respuesta final con el resultado
       const finalMsg = 'El resultado de la suma de 15 y 25 es 40.';
       if (params.onChunk) params.onChunk(finalMsg, finalMsg, null);
-      if (params.onDone) params.onDone(finalMsg, null, null);
       return { accumulatedText: finalMsg, toolCalls: null, stats: null };
     }
   };
@@ -306,11 +301,9 @@ test('ChatEngine - conserva evidencia RAG multimodal entre pasos agénticos', as
     calls++;
     if (calls === 1) {
       const toolCalls = [{ id: 'image_call', type: 'function', function: { name: 'read_knowledge_image', arguments: '{}' } }];
-      params.onDone('', null, toolCalls);
       return { accumulatedText: '', toolCalls, stats: null };
     }
     secondRequestMessages = params.messages;
-    params.onDone('I inspected the image.', null, null);
     return { accumulatedText: 'I inspected the image.', toolCalls: null, stats: null };
   };
 
@@ -339,10 +332,8 @@ test('ChatEngine - copia el texto intermedio y los bloques de herramientas en or
     calls++;
     if (calls === 1) {
       const toolCalls = [{ id: 'calc_call', type: 'function', function: { name: 'execute_javascript', arguments: '{}' } }];
-      params.onDone('I will calculate it.', null, toolCalls);
       return { accumulatedText: 'I will calculate it.', toolCalls, stats: null };
     }
-    params.onDone('The result is 4.', null, null);
     return { accumulatedText: 'The result is 4.', toolCalls: null, stats: null };
   };
 
@@ -372,7 +363,6 @@ test('ChatEngine - executeAgentTurnLoop protege contra bucles infinitos repetido
         arguments: JSON.stringify({ code: '2 + 2' })
       }
     }];
-    if (params.onDone) params.onDone('', null, tc);
     return { accumulatedText: '', toolCalls: tc, stats: null };
   };
 
@@ -414,9 +404,6 @@ test('ChatEngine - executeAgentTurnLoop limpia el cursor inicial del contenedor 
   ChatAPI.streamChatCompletion = async (params) => {
     if (params.onChunk) {
       params.onChunk('Respuesta de prueba', 'Respuesta de prueba', { ttftSec: '0.1', tokensPerSec: '40', totalSec: '0.2', tokens: 5 });
-    }
-    if (params.onDone) {
-      params.onDone('Respuesta de prueba', null, null);
     }
     return { accumulatedText: 'Respuesta de prueba', toolCalls: null, stats: null };
   };
@@ -621,9 +608,6 @@ test('ChatEngine - no duplica los chunks de razonamiento al invocar onReasoningC
     if (params.onChunk) {
       params.onChunk('Respuesta', 'Respuesta', null);
     }
-    if (params.onDone) {
-      params.onDone('Respuesta', null, null);
-    }
     return {
       accumulatedText: 'Respuesta',
       stats: null,
@@ -668,9 +652,8 @@ test('ChatEngine - executeAgentTurnLoop no limita los turnos ni pide una síntes
   let synthesisRequested = false;
   ChatAPI.streamChatCompletion = async (params) => {
     callCount++;
-    if (params.enableTools === false || params.toolChoice === 'none') synthesisRequested = true;
+    if (params.toolChoice === 'none') synthesisRequested = true;
     if (callCount > TOOL_TURNS) {
-      if (params.onDone) params.onDone('Hecho.', null, []);
       return { accumulatedText: 'Hecho.', toolCalls: [], stats: null };
     }
     const tc = [{
@@ -681,7 +664,6 @@ test('ChatEngine - executeAgentTurnLoop no limita los turnos ni pide una síntes
         arguments: JSON.stringify({ code: `let v = ${callCount}` })
       }
     }];
-    if (params.onDone) params.onDone('', null, tc);
     return { accumulatedText: '', toolCalls: tc, stats: null };
   };
 
