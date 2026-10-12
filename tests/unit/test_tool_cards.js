@@ -6,7 +6,8 @@ const { installDom } = require('../helpers/dom-env.js');
 
 /** Registra en el registro real una herramienta de prueba con su vista y la retira al terminar. */
 function registerTool(t, options) {
-  const tool = new AgentCore.Tool({ execute: async () => ({ success: true }), ...options });
+  const { name, ...rest } = options;
+  const tool = new AgentCore.Tool({ definition: { name }, execute: async () => ({ success: true }), ...rest });
   const provider = { id: `test_provider_${options.name}`, getTools: () => [tool] };
   AgentCore.registry.registerProvider(provider);
   t.after(() => AgentCore.registry.unregisterProvider(provider.id));
@@ -20,11 +21,26 @@ function setup(t) {
 
 const isCollapsed = card => card.querySelector('.tool-execution-card, .chat-chart-card').classList.contains('collapsed');
 
-test('ChatToolCards - resuelve la vista declarada por la tool registrada', t => {
-  const view = { id: 'view_tool', createLiveCard: () => null };
+test('ChatToolCards - usa la vista declarada por la herramienta y una genérica si no la tiene', t => {
+  setup(t);
+  const view = {
+    createLiveCard: (args, ui) => {
+      const card = ui.createCardWrapper('own-view');
+      card.innerHTML = ChatToolCards.renderCardHtml({ titleHtml: 'Propia', badgeHtml: '<span class="tool-card-badge"></span>' });
+      return card;
+    },
+    updateLiveCard: card => { card.querySelector('.tool-card-badge').textContent = 'hecho'; }
+  };
   registerTool(t, { name: 'view_tool', view });
-  assert.equal(ChatToolCards.resolveToolView('view_tool').createLiveCard, view.createLiveCard);
-  assert.equal(ChatToolCards.resolveToolView('unknown_tool'), null);
+
+  const own = ChatToolCards.createLiveToolCard('view_tool', {});
+  assert.ok(own.classList.contains('own-view'));
+  ChatToolCards.updateLiveToolCard(own, 'view_tool', {}, { success: true }, 1);
+  assert.equal(own.querySelector('.tool-card-badge').textContent, 'hecho');
+
+  const generic = ChatToolCards.createLiveToolCard('unknown_tool', { a: 1 });
+  assert.match(generic.querySelector('.tool-card-title').textContent, /unknown_tool/);
+  assert.match(generic.querySelector('.tool-card-code').textContent, /"a": 1/);
 });
 
 test('ChatToolCards - Las herramientas aparecen minimizadas (collapsed) tras su ejecución', t => {
@@ -41,9 +57,6 @@ test('ChatToolCards - Las herramientas aparecen minimizadas (collapsed) tras su 
 
 test('ChatToolCards - Herramientas con displayMode: expanded permanecen abiertas tras ejecución e histórico', t => {
   setup(t);
-  assert.equal(ChatToolCards.resolveToolDisplayMode('render_chart'), 'expanded');
-  assert.equal(ChatToolCards.resolveToolDisplayMode('other_tool'), null);
-
   const args = { type: 'bar', title: 'Test', data: [{ label: 'A', value: 1 }] };
   const liveCard = ChatToolCards.createLiveToolCard('render_chart', args);
   ChatToolCards.updateLiveToolCard(liveCard, 'render_chart', args, { success: true }, 30, { displayMode: 'expanded' });

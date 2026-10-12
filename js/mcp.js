@@ -110,10 +110,10 @@
   }
 
   /** Texto del resultado de una herramienta MCP para el modelo, la tarjeta y la exportación. */
-  function getResultText(result, outcome) {
-    if (result?.content) return result.content;
-    if (result?.rawResult) return typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2);
-    return outcome?.error || result?.error || I18n.t('tool_no_output');
+  function getResultText(result) {
+    if (result.content) return result.content;
+    if (result.rawResult) return typeof result.rawResult === 'string' ? result.rawResult : JSON.stringify(result.rawResult, null, 2);
+    return result.error || I18n.t('tool_no_output');
   }
 
   /**
@@ -546,11 +546,11 @@
     }
   }
 
-  function formatMcpMarkdown(toolName, args, result, outcome, serverName) {
+  function formatMcpMarkdown(toolName, args, result, serverName) {
     const argStr = args && Object.keys(args).length ? JSON.stringify(args, null, 2) : '';
     const parts = [`> **${toolName}** (*${serverName}*)`];
     if (argStr) parts.push(`> \`\`\`json\n> ${argStr.split('\n').join('\n> ')}\n> \`\`\``);
-    parts.push(`> \`\`\`\n> ${String(getResultText(result, outcome)).split('\n').join('\n> ')}\n> \`\`\``);
+    parts.push(`> \`\`\`\n> ${String(getResultText(result)).split('\n').join('\n> ')}\n> \`\`\``);
     return parts.join('\n');
   }
 
@@ -582,12 +582,11 @@
         titleSuffixHtml: `<span class="tool-card-tag">${escapeHtml(serverName)}</span>`,
         badgeHtml,
         bodyHtml: `${argStr ? `<div class="mcp-input-summary"><code>${argStr}</code></div>` : ''}<div class="tool-card-result">${contentHtml}</div>`
-      }, ui);
+      });
       return card;
     };
 
     return {
-      displayMode: 'collapsed',
       createLiveCard: (args, ui) => {
         const running = `${ui.SPINNER_SVG} <span>${ui.t('tool_badge_executing')}</span>`;
         return renderCard(args, `<div class="tool-loading-placeholder">${running}</div>`, `<span class="tool-card-badge status-loading">${running}</span>`, ui, false);
@@ -601,10 +600,9 @@
           : `${ui.ERROR_SVG} <span>${ui.t('tool_status_error', { ms: elapsedMs })}</span>`;
         card.querySelector('.tool-card-result').innerHTML = codeBlock(getResultText(result));
         const screenshot = getSafeMcpImageDataUrl(result);
-        if (screenshot) {
-          appendMcpScreenshot(card, screenshot, ui.t);
-          result.keepExpanded = true;
-        }
+        if (!screenshot) return false;
+        appendMcpScreenshot(card, screenshot, ui.t);
+        return true;
       },
       renderHistoricalCard: (args, message, ui) => {
         const out = typeof message?.content === 'string' ? message.content : (message?.content ? JSON.stringify(message.content, null, 2) : '');
@@ -620,7 +618,6 @@
   /** Resumen serializable de una herramienta para ChatState y los ajustes. */
   function summarizeTool(tool) {
     return {
-      id: tool.id,
       name: tool.name,
       description: tool.metadata.description,
       inputSchema: tool.parameters,
@@ -671,17 +668,13 @@
         const available = rt.availability?.available !== false;
 
         toolInstances.push(new Tool({
-          id: namespacedName,
-          name: namespacedName,
           // El nombre público ya identifica el servidor; repetirlo en la descripción gasta contexto.
-          description: rt.description || toolName,
-          parameters: rt.inputSchema || { type: 'object', properties: {} },
+          definition: { name: namespacedName, description: rt.description || toolName, parameters: rt.inputSchema },
           category: 'mcp',
           isAvailable: () => available && (!isProxy || getState().get('mcp').status === 'connected'),
           settings: { defaultEnabled: available, showInSettings: true },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
-            label: toolName,
             mcpServerName: serverName,
             mcpServerUrl: this.serverUrl,
             originalName: toolName,
@@ -712,10 +705,9 @@
             }
           },
           result: {
-            toModel: (args, result, outcome) => getResultText(result, outcome),
-            toMarkdown: (args, result, outcome) => formatMcpMarkdown(toolName, args, result, outcome, serverName)
+            toModel: (args, result) => getResultText(result),
+            toMarkdown: (args, result) => formatMcpMarkdown(toolName, args, result, serverName)
           },
-          displayMode: 'collapsed',
           view: isLocalCommand ? getCommandCard().createView() : createMcpToolView(toolName, serverName)
         }));
       }

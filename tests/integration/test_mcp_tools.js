@@ -138,7 +138,7 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     // 3. Con switch desactivado para 'run_command': debe excluirse
     const defsFiltered = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
       enabledTools: {
-        [execCmdTool.id]: false
+        [execCmdTool.name]: false
       }
     }));
     const hasExec = defsFiltered.some(d => d.function.name.includes('run_command'));
@@ -157,58 +157,6 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
   }
 });
 
-
-test('MCP Tools - Formateo de resultados Markdown especializado para list_directory, read_file y run_command', () => {
-  const client = new MCP.McpClient({ id: 'local_server', name: 'ZeroChat' });
-  const provider = new MCP.McpToolProvider(client);
-
-  const mockTool = new AgentCore.Tool({
-    name: 'test_mcp_tool',
-    category: 'mcp'
-  });
-
-  // 1. run_command
-  const execResult = {
-    content: JSON.stringify({
-      success: true,
-      command: 'echo "hello mcp"',
-      returncode: 0,
-      stdout: 'hello mcp\n',
-      stderr: ''
-    })
-  };
-  const execView = provider.client;
-  assert.ok(execResult.content.includes('hello mcp'));
-
-  // 2. list_directory
-  const listResult = {
-    content: JSON.stringify({
-      success: true,
-      path: '/home/alberto/vs/zerochat',
-      total_items: 2,
-      entries: [
-        { name: 'js', type: 'directory', size_bytes: null },
-        { name: 'index.html', type: 'file', size_bytes: 85000 }
-      ]
-    })
-  };
-  const parsedList = JSON.parse(listResult.content);
-  assert.equal(parsedList.total_items, 2);
-  assert.equal(parsedList.entries[0].name, 'js');
-
-  // 3. read_file
-  const readResult = {
-    content: JSON.stringify({
-      success: true,
-      path: '/home/alberto/vs/zerochat/package.json',
-      size_bytes: 1200,
-      content: '{\n  "name": "zerochat"\n}'
-    })
-  };
-  const parsedRead = JSON.parse(readResult.content);
-  assert.equal(parsedRead.size_bytes, 1200);
-  assert.ok(parsedRead.content.includes('zerochat'));
-});
 
 test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias sin nombres hardcodeados', async () => {
   const originalFetch = global.fetch;
@@ -295,7 +243,7 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     assert.equal(vecTool.metadata.description, 'Busca los k vecinos más próximos en el índice vectorial.');
 
     // Verificamos que el formateo de Markdown universal funcione sin conocer los nombres
-    const mdSql = sqlTool.formatDispatchMarkdown({ sql: 'SELECT * FROM users' }, { content: JSON.stringify([{ id: 1, name: 'Alice' }]) });
+    const mdSql = sqlTool.toMarkdown({ sql: 'SELECT * FROM users' }, { content: JSON.stringify([{ id: 1, name: 'Alice' }]) });
     assert.ok(mdSql.includes('execute_sql_query'));
     assert.ok(mdSql.includes('Alice'));
 
@@ -304,11 +252,11 @@ test('MCP Tools - Descubrimiento y soporte dinámico de herramientas arbitrarias
     const previousLanguage = I18n.getLanguage();
     try {
       I18n.setLanguage('en');
-      const mdEmptyEn = sqlTool.formatDispatchMarkdown({ sql: 'SELECT 1' }, {});
+      const mdEmptyEn = sqlTool.toMarkdown({ sql: 'SELECT 1' }, {});
       assert.ok(mdEmptyEn.includes('No output'));
       assert.ok(!mdEmptyEn.includes('Sin salida'));
       I18n.setLanguage('es');
-      assert.ok(sqlTool.formatDispatchMarkdown({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
+      assert.ok(sqlTool.toMarkdown({ sql: 'SELECT 1' }, {}).includes('Sin salida'));
     } finally {
       I18n.setLanguage(previousLanguage);
     }

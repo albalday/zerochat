@@ -18,103 +18,6 @@
   const { registry } = resolveDep('ChatProviders', './providers.js');
   const TextToolCalls = resolveDep('ChatTextToolCalls', './text-tool-calls.js');
 
-  const TOOL_NAME_MAP = Object.freeze({
-    // 1. Descarga y extracción de PDF
-    download_pdf: 'download_pdf',
-    fetch_pdf: 'download_pdf',
-    download_pdf_document: 'download_pdf',
-    fetch_pdf_document: 'download_pdf',
-    download_file: 'download_pdf',
-    downloadpdf: 'download_pdf',
-    fetchpdf: 'download_pdf',
-    downloadpdfdocument: 'download_pdf',
-    fetchpdfdocument: 'download_pdf',
-    downloadfile: 'download_pdf',
-    getpdf: 'download_pdf',
-    readpdf: 'download_pdf',
-
-    // 2. Navegación / Consulta de página web
-    fetch_web_page: 'fetch_web_page',
-    fetch_web: 'fetch_web_page',
-    fetch_url: 'fetch_web_page',
-    get_web_page: 'fetch_web_page',
-    read_web_page: 'fetch_web_page',
-    web_fetch: 'fetch_web_page',
-    browse_web: 'fetch_web_page',
-    fetchwebpage: 'fetch_web_page',
-    fetchweb: 'fetch_web_page',
-    fetchurl: 'fetch_web_page',
-    getwebpage: 'fetch_web_page',
-    readwebpage: 'fetch_web_page',
-    webpage: 'fetch_web_page',
-    browse: 'fetch_web_page',
-
-    // 3. Búsqueda en internet
-    search_web: 'search_web',
-    web_search: 'search_web',
-    duckduckgo_search: 'search_web',
-    duckduckgo: 'search_web',
-    search_internet: 'search_web',
-    internet_search: 'search_web',
-    searchweb: 'search_web',
-    websearch: 'search_web',
-    duckduckgosearch: 'search_web',
-    searchinternet: 'search_web',
-    internetsearch: 'search_web',
-    search: 'search_web',
-
-    // 4. Ejecución de JavaScript
-    execute_javascript: 'execute_javascript',
-    execute_js: 'execute_javascript',
-    run_javascript: 'execute_javascript',
-    run_js: 'execute_javascript',
-    executejavascript: 'execute_javascript',
-    executejs: 'execute_javascript',
-    runjavascript: 'execute_javascript',
-    runjs: 'execute_javascript',
-    javascript: 'execute_javascript',
-    evaljs: 'execute_javascript',
-    evaljavascript: 'execute_javascript',
-
-    // 5. Renderizado de Gráficos (render_chart)
-    render_chart: 'render_chart',
-    draw_chart: 'render_chart',
-    create_chart: 'render_chart',
-    plot_chart: 'render_chart',
-    generate_chart: 'render_chart',
-    show_chart: 'render_chart',
-    renderchart: 'render_chart',
-    drawchart: 'render_chart',
-    createchart: 'render_chart',
-    plotchart: 'render_chart',
-    chart: 'render_chart',
-    grafico: 'render_chart',
-
-    // 6. Base de Conocimiento RAG
-    read_knowledge_chunk: 'read_knowledge_chunk',
-    readknowledgechunk: 'read_knowledge_chunk',
-    list_documents: 'list_documents',
-    listdocuments: 'list_documents',
-    list_knowledge_base: 'list_documents',
-    listknowledgebase: 'list_documents',
-    list_docs: 'list_documents',
-    listdocs: 'list_documents',
-    get_documents: 'list_documents',
-    getdocuments: 'list_documents',
-    listar_documentos: 'list_documents',
-    listardocumentos: 'list_documents',
-    search_knowledge_base: 'search_knowledge_base',
-    searchknowledgebase: 'search_knowledge_base',
-    search_kb: 'search_knowledge_base',
-    searchkb: 'search_knowledge_base',
-    search_documents: 'search_knowledge_base',
-    searchdocuments: 'search_knowledge_base',
-    search_knowledge: 'search_knowledge_base',
-    searchknowledge: 'search_knowledge_base',
-    buscar_en_documentos: 'search_knowledge_base',
-    buscarendocumentos: 'search_knowledge_base'
-  });
-
   function mirrorResponse(payload) {
     const i18n = I18n;
     const guidance = [
@@ -126,21 +29,6 @@
     ].join('\n\n');
     return `${guidance}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``;
   }
-
-  /**
-   * Normaliza los nombres de las herramientas admitiendo variaciones con y sin guiones bajos.
-   */
-  function normalizeToolName(rawName) {
-    if (!rawName) return '';
-    const exactName = String(rawName).trim();
-    // Keep remote MCP identifiers verbatim.  Their case is part of their
-    // identity and the registry dispatches MCP tools case-sensitively.
-    if (/[A-Z]/.test(exactName)) return exactName;
-    const clean = exactName.toLowerCase().replace(/[^a-z0-9_]/g, '');
-    const noUnderscore = clean.replace(/_/g, '');
-    return TOOL_NAME_MAP[clean] || TOOL_NAME_MAP[noUnderscore] || clean;
-  }
-
 
   function getContextManager() {
     return resolveDep('ChatContextManager', './context-manager.js');
@@ -258,7 +146,6 @@
       temperature = 0.7,
       reasoningEffort = 'medium',
       reasoningTransport = 'auto',
-      enableTools = false,
       toolChoice = 'auto',
       signal,
       onBeforeRequest,
@@ -279,12 +166,7 @@
     const headers = adapter.buildHeaders(effectiveApiKey);
 
     // Inyectar herramientas agénticas activadas si están disponibles
-    let toolsList = [];
-    if (Array.isArray(params.tools)) {
-      toolsList = params.tools;
-    } else if (enableTools) {
-      toolsList = resolveDep('ChatAgentCore', './agent-core.js').registry.getActiveDefinitions(params);
-    }
+    const toolsList = params.tools || [];
 
     // Construcción del payload mediante el adaptador
     const payload = adapter.buildPayload({
@@ -457,23 +339,14 @@
     function getFinalToolCalls() {
       const callIndices = Object.keys(accumulatedToolCalls);
       if (callIndices.length > 0) {
-        return callIndices.map(idx => {
-          const item = accumulatedToolCalls[idx];
-          if (item?.function?.name) {
-            item.function.name = normalizeToolName(item.function.name) || item.function.name;
-          }
-          return item;
-        });
+        return callIndices.map(idx => accumulatedToolCalls[idx]);
       }
       if (parsesTextToolCalls) {
         if (textToolCalls) return textToolCalls;
         const extracted = TextToolCalls.extractToolCalls(accumulatedText);
         if (extracted.toolCalls) {
           accumulatedText = extracted.text;
-          textToolCalls = extracted.toolCalls.map(call => ({
-            ...call,
-            function: { ...call.function, name: normalizeToolName(call.function.name) || call.function.name }
-          }));
+          textToolCalls = extracted.toolCalls;
           if (onLog) onLog({ type: 'info', text: `Llamadas a herramientas extraídas del texto: ${textToolCalls.map(call => call.function.name).join(', ')}` });
         } else {
           // Igual que durante el streaming: un bloque <tool_call> inválido o sin cerrar no se muestra.
@@ -782,7 +655,6 @@
     cancelLocalModelOperation,
     streamChatCompletion,
     estimateTokens,
-    normalizeToolName,
     getProviderCapabilities,
     inspectProvider,
     registry

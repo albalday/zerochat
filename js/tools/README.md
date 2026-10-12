@@ -1,16 +1,17 @@
 # Tools de ZeroChat
 
-Cada tool nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta un módulo con `id`, `definition` y `createTool(Tool)`.
+Cada tool nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la especificación con la que `ChatAgentCore` crea su `Tool`. La lista de módulos está en `BUILTIN_TOOL_MODULES` (`js/agent-core.js`); `zerochat.html` y `sw.js` cargan los mismos ficheros.
 
-El contrato obligatorio es:
+- `definition` (obligatoria): nombre, descripción y JSON Schema de Function Calling.
+- `execute(args, context)` (obligatoria): ejecución; consume dependencias mediante `context.services`.
+- `aliases`: otros nombres con que los modelos llaman a la herramienta. El registro los resuelve con o sin guiones bajos y sin distinguir mayúsculas, y el runtime guarda la llamada con el nombre registrado. Las herramientas MCP solo se resuelven por su nombre exacto.
+- `category`, `metadata`, `isAvailable(config)` y `settings` (`titleKey`, `descKey`, `defaultEnabled`, `showInSettings`).
+- `promptGuide`: línea de la guía del prompt de sistema para modelos sin firmas de herramientas.
+- `result`: `toModel(args, result)` (contenido del mensaje `tool`) y `toMarkdown(args, result)` (bloque para copiar y exportar).
+- `displayMode`: `collapsed` (por defecto) o `expanded`.
+- `view`: tarjeta opcional con `createLiveCard(args, ui)` y `updateLiveCard(card, args, result, elapsedMs, ui)`, que devuelve `true` para mantener la tarjeta abierta. Para el historial, `ChatToolCards` crea la tarjeta y le pasa a `updateLiveCard` el mensaje `tool` guardado: el JSON que recibió el modelo, o `{ content }` si era texto (`content` lleva siempre el texto original). Solo las vistas que necesitan otra cosa definen `renderHistoricalCard(args, message, ui)`.
 
-- `definition`: nombre, descripción y JSON Schema de Function Calling.
-- `settings`: descriptor de configuración.
-- `execute(args, context)`: ejecución; consume dependencias mediante `context.services`.
-- `result`: adaptadores `toModel` y/o `toMarkdown`.
-- `view`: tarjeta opcional (`createLiveCard`, `updateLiveCard`, `renderHistoricalCard`).
-
-No usar `ui` ni `handler`: fueron eliminados. Para una dependencia nueva, declárala en `js/tools/tool-runtime.js`, inyéctala en pruebas y evita acceder a globals desde `agent-core.js`.
+`context.services` resuelve al usarlos los módulos de `TOOL_SERVICES` (`js/agent-core.js`); el contexto de la llamada puede sustituir cualquiera, y así lo hacen las pruebas. Una dependencia nueva se añade a esa tabla.
 
 Las herramientas de conocimiento local usan cuatro operaciones canónicas: `list_documents`, `search_knowledge_base`, `read_knowledge_chunk` y `read_knowledge_image`. La última recupera bajo demanda una imagen ya extraída del documento; el modelo decide usarla únicamente si puede analizar imágenes. El registro y la ejecución del agente usan exclusivamente las definiciones declaradas por estos módulos.
 
@@ -32,11 +33,11 @@ Cada invocación recibe en `context.invocationId` un identificador único, que t
 
 ### Subagente (`delegate_task`)
 
-`delegate_task` (`js/tools/builtin/delegate-task.tool.js`) lanza otra ejecución de `AgentRuntime` en la misma pestaña, con el mismo proveedor y modelo. Si existe un perfil de conexión llamado «Subagente» o «Subagent» (sin distinguir mayúsculas), `resolveConnection` lo busca con `context.services.profiles`, lo carga con `services.conversation.loadProfileUnlocked` (que pide la contraseña si la API key está cifrada), comprueba que tenga `apiUrl`, `apiType` y `model` y usa su URL, tipo, API key, modelo, temperatura, razonamiento y `contextLimitOverride` (sin él, el gestor de contexto asume la capacidad de ese modelo); la compactación se crea con esa misma conexión mediante `services.engine.createHistorySummarizer`. Si el perfil existe pero no se puede leer, cargar o está incompleto, la herramienta falla en lugar de volver al modelo principal. Su historial empieza con un único mensaje de usuario, en inglés, con las normas del subagente y el encargo; reutiliza `prepareMessages`, `contextOptions` y `summarizeHistory` del agente principal, así que comparte su prompt de sistema, el directorio y las normas del proyecto, el presupuesto de contexto y la compactación, salvo cuando el perfil «Subagente» aporta los suyos. Hereda su `signal`: detener el turno detiene también al subagente. Al agente principal solo vuelve el texto final, truncado a 20.000 caracteres; sus pasos no entran en el historial.
+`delegate_task` (`js/tools/builtin/delegate-task.tool.js`) lanza otra ejecución de `AgentRuntime` en la misma pestaña, con el mismo proveedor y modelo. Si existe un perfil de conexión llamado «Subagente» o «Subagent» (sin distinguir mayúsculas), `resolveConnection` lo busca con `context.services.profiles`, lo carga con `services.profilesUI.loadProfileUnlocked` (que pide la contraseña si la API key está cifrada), comprueba que tenga `apiUrl`, `apiType` y `model` y usa su URL, tipo, API key, modelo, temperatura, razonamiento y `contextLimitOverride` (sin él, el gestor de contexto asume la capacidad de ese modelo); la compactación se crea con esa misma conexión mediante `services.engine.createHistorySummarizer`. Si el perfil existe pero no se puede leer, cargar o está incompleto, la herramienta falla en lugar de volver al modelo principal. Su historial empieza con un único mensaje de usuario, en inglés, con las normas del subagente y el encargo; reutiliza `prepareMessages`, `contextOptions` y `summarizeHistory` del agente principal, así que comparte su prompt de sistema, el directorio y las normas del proyecto, el presupuesto de contexto y la compactación, salvo cuando el perfil «Subagente» aporta los suyos. Hereda su `signal`: detener el turno detiene también al subagente. Al agente principal solo vuelve el texto final, truncado a 20.000 caracteres; sus pasos no entran en el historial.
 
 El subagente es de solo lectura. De las definiciones activas del turno (`resolveToolDefinitions`) solo recibe las de `isReadOnlyTool`: las nativas `search_web`, `fetch_web_page`, `download_pdf`, `execute_javascript` y las cuatro de conocimiento, y del servidor local (`mcpServerId === 'mcp_proxy'`) `read_file`, `list_directory`, `search_files` y `get_diagnostics`. Quedan fuera las MCP externas, porque no declaran si escriben, además de `ask_user`, `render_chart` y la propia `delegate_task`, así que no hay subagentes anidados. Su despacho rechaza sin ejecutarla cualquier llamada a una herramienta que no se le ofreció. Cada llamada permitida pasa por el `dispatchToolCall` del agente principal y, con él, por `ToolExecutor` y `ChatToolSecurity`.
 
-La tarjeta (`createLiveCard`) muestra el encargo, el paso en curso en la insignia y, en `.subagent-steps`, las tarjetas de las herramientas del subagente y sus textos intermedios. El bloque de texto de cada paso se reserva al empezar el paso, encima de sus herramientas, y se rellena al terminarlo, no durante el streaming. Como ya agrupa sus llamadas, `appendToolCard` deja la tarjeta del subagente fuera de los grupos «Llamadas a herramientas», igual que los gráficos y `ask_user`. `execute` localiza la tarjeta por `context.invocationId` dentro de `context.container` y pasa `.subagent-steps` como contenedor del despacho, de modo que las autorizaciones aparecen en las tarjetas anidadas. El informe se renderiza con `ChatMarkdown.parseMarkdown`. En el historial solo queda el mensaje `tool` con el informe, o el error en JSON, y `renderHistoricalCard` reconstruye con él el encargo y el informe. El runtime ejecuta las llamadas de un lote en orden, así que varias delegaciones en una misma respuesta van una tras otra.
+La tarjeta (`createLiveCard`) muestra el encargo, el paso en curso en la insignia y, en `.subagent-steps`, las tarjetas de las herramientas del subagente y sus textos intermedios. El bloque de texto de cada paso se reserva al empezar el paso, encima de sus herramientas, y se rellena al terminarlo, no durante el streaming. Como ya agrupa sus llamadas, `appendToolCard` deja la tarjeta del subagente fuera de los grupos «Llamadas a herramientas», igual que los gráficos y `ask_user`. `execute` localiza la tarjeta por `context.invocationId` dentro de `context.container` y pasa `.subagent-steps` como contenedor del despacho, de modo que las autorizaciones aparecen en las tarjetas anidadas. El informe se renderiza con `ChatMarkdown.parseMarkdown`. En el historial solo queda el mensaje `tool` con el informe, o el error en JSON, y con él se reconstruyen el encargo y el informe. El runtime ejecuta las llamadas de un lote en orden, así que varias delegaciones en una misma respuesta van una tras otra.
 
 ### Comandos locales
 
@@ -93,7 +94,7 @@ nunca por nombre original, sufijo o alias. No existe migración de nombres antig
 
 ## Tarjetas de ejecución
 
-`ChatToolCards.renderCardHtml(options, context)` construye el armazón único de las
+`ChatToolCards.renderCardHtml(options)` construye el armazón único de las
 tarjetas nativas, MCP y de respaldo: cabecera, estado, botón y cuerpo plegable.
 Las vistas aportan `titleHtml`, `badgeHtml` y `bodyHtml`, escapando previamente
 cualquier dato externo; estos slots solo admiten HTML interno seguro.
@@ -101,13 +102,14 @@ cualquier dato externo; estos slots solo admiten HTML interno seguro.
 de la cabecera. `titleSuffixHtml` permite mostrar el servidor MCP por separado
 del nombre truncado. El plegado y la agrupación se coordinan en `ChatToolCards`.
 Los gráficos son resultados principales: permanecen abiertos fuera de los grupos.
-Las capturas MCP conservan `keepExpanded` para permitir inspeccionar la imagen.
+Las capturas MCP y los comandos que siguen en marcha mantienen su tarjeta abierta.
 
 Las vistas reciben siempre el contexto de `ChatToolCards` (`markdown`, `t`, `charts`,
 `createCardWrapper` y los iconos de estado), así que no buscan dependencias en
 `window` ni definen escapados propios. `fetch_web_page` y `download_pdf` comparten
 la tarjeta de `ChatToolCards.createWebRequestView`, que recibe el icono, los textos
-y la etiqueta de estado de cada una; por eso `tool-cards.js` se carga antes que las
+y la etiqueta de estado de cada una, y las herramientas de conocimiento local, salvo
+`read_knowledge_image`, la de `ChatToolCards.createTextResultView`; por eso `tool-cards.js` se carga antes que las
 herramientas nativas.
 
 El cierre automático se limita a la tarjeta que termina. Actualizar el estado de

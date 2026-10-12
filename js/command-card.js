@@ -105,7 +105,7 @@
         + `<div class="command-card-actions">`
         + `<button type="button" class="btn-command-action btn-command-stop" data-command-action="stop" hidden>${icon('stop')}<span>${escapeHtml(t('command_action_stop'))}</span></button>`
         + `</div>`
-    }, ui);
+    });
     card.addEventListener('click', event => {
       const button = event.target.closest('[data-command-action="stop"]');
       if (!button || !card.contains(button)) return;
@@ -399,7 +399,6 @@
 
   function createView() {
     return {
-      displayMode: 'collapsed',
       createLiveCard: (args, ui) => {
         const card = buildCard(args, ui);
         const controller = new CommandCardController(card, {});
@@ -409,15 +408,14 @@
         controller.logTimer = setTimeout(() => controller.pollLog(), FIRST_LOG_POLL_MS);
         return card;
       },
-      updateLiveCard: (card, args, result = {}, _elapsedMs = 0) => {
+      updateLiveCard: (card, args, result) => {
         const controller = controllers.get(card) || new CommandCardController(card, {});
-        controller.applyResult(parseResult(result), result?.error || result?.content || '');
+        controller.applyResult(parseResult(result), result.error || result.content || '');
         // La tarjeta de un comando que sigue en marcha permanece abierta y a la vista, también
         // después de que el turno la archive con el resto de herramientas terminadas.
-        if (controller.state.status === 'running') {
-          result.keepExpanded = true;
-          setTimeout(() => controller.reactivate(), 0);
-        }
+        if (controller.state.status !== 'running') return false;
+        setTimeout(() => controller.reactivate(), 0);
+        return true;
       },
       renderHistoricalCard: (args, message, ui) => {
         const data = parseResult(message?.content);

@@ -1,108 +1,53 @@
-/** Tool autocontenida: search_knowledge_base. */
+/** Herramienta nativa search_knowledge_base. */
 (function (root, factory) {
-  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../icons.js'));
-  else root.ChatBuiltinSearchKnowledgeBaseTool = factory(root.ChatUtils, root.ChatIcons);
-})(typeof self !== 'undefined' ? self : this, function (Utils, Icons) {
+  if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../i18n.js'));
+  else root.ChatBuiltinSearchKnowledgeBaseTool = factory(root.ChatUtils, root.ChatI18n);
+})(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { t } = I18n;
+  const Cards = Utils.resolveDep('ChatToolCards', './tool-cards.js');
 
-  const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
-
-  const definition = {
-    name: 'search_knowledge_base',
-    description: 'Searches relevant knowledge-base chunks. Use scope="document" with documentHint for one exact source, scope="corpus" for comparisons or multiple sources, and scope="auto" only when the target scope is unclear. For multi-document retrieval, make one corpus search instead of repeating the same query per document.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Term, topic, metric, or keywords to search in the document or knowledge base (direct terms, no quotes).' },
-        scope: {
-          type: 'string',
-          enum: ['auto', 'document', 'corpus'],
-          description: 'Search scope: "document" for a specific identifiable source, "corpus" for multiple sources, "auto" when unclear. Defaults to "auto".'
+  return {
+    definition: {
+      name: 'search_knowledge_base',
+      description: 'Searches relevant knowledge-base chunks. Use scope="document" with documentHint for one exact source, scope="corpus" for comparisons or multiple sources, and scope="auto" only when the target scope is unclear. For multi-document retrieval, make one corpus search instead of repeating the same query per document.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Term, topic, metric, or keywords to search in the document or knowledge base (direct terms, no quotes).' },
+          scope: {
+            type: 'string',
+            enum: ['auto', 'document', 'corpus'],
+            description: 'Search scope: "document" for a specific identifiable source, "corpus" for multiple sources, "auto" when unclear. Defaults to "auto".'
+          },
+          documentHint: {
+            type: 'string',
+            description: 'Exact name, filename, or filter for the source mentioned by the user (e.g. "AMD_2015_10K.pdf", "WALMART_2015_10K.pdf").'
+          },
+          limit: { type: 'integer', description: 'Optional number of chunks to return (default 10).' },
+          maxPerDocument: { type: 'integer', description: 'Optional maximum number of chunks per document in corpus search (defaults dynamically to 2-4 depending on document candidates).' }
         },
-        documentHint: {
-          type: 'string',
-          description: 'Exact name, filename, or filter for the source mentioned by the user (e.g. "AMD_2015_10K.pdf", "WALMART_2015_10K.pdf").'
-        },
-        limit: { type: 'integer', description: 'Optional number of chunks to return (default 10).' },
-        maxPerDocument: { type: 'integer', description: 'Optional maximum number of chunks per document in corpus search (defaults dynamically to 2-4 depending on document candidates).' }
-      },
-      required: ['query']
-    }
+        required: ['query']
+      }
+    },
+    aliases: ['search_kb', 'search_documents', 'search_knowledge', 'buscar_en_documentos'],
+    category: 'rag',
+    settings: { showInSettings: false },
+    isAvailable: config => config.activeRagBranchIds.length > 0,
+    execute: (args, context) => context.services.ragService.searchKnowledgeBase(context.activeRagBranchIds, args),
+    result: {
+      toModel: (_args, result) => result.text || JSON.stringify(result),
+      toMarkdown: (args, result) => `> **search_knowledge_base** ("${args.query || ''}") [${result.matchesCount || 0} matches]\n\n`
+    },
+    view: Cards.createTextResultView({
+      icon: 'database',
+      title: args => t('tool_rag_search_title', { query: args.query || args.q || args.search || '' }),
+      loadingLabel: () => t('tool_rag_search_loading'),
+      placeholderKey: 'tool_rag_search_building',
+      successLabel: (result, elapsedMs) => `${t('tool_rag_search_matches', { count: result.matchesCount ?? 0, plural: result.matchesCount === 1 ? '' : 's', scope: result.appliedScope || 'auto' })} (${elapsedMs}ms)`,
+      errorKey: 'tool_err_query',
+      getText: result => result.text || result.content || ''
+    })
   };
-
-
-
-  const DB_ICON_SVG = Icons.get('database', { size: 14 });
-
-
-  function createLiveCard(args, ui) {
-    const card = getCards().createCardWrapper(ui);
-    if (!card) return null;
-    const Markdown = ui.markdown;
-    const t = ui.t;
-    const spinner = ui.SPINNER_SVG;
-    const query = args?.query || args?.q || args?.search || '';
-    const title = t('tool_rag_search_title', { query: Markdown.escapeHtml(query) });
-    const loading = t('tool_rag_search_loading');
-    const building = t('tool_rag_search_building');
-    card.innerHTML = getCards().renderCardHtml({
-      className: 'rag-execution-card',
-      titleHtml: `<span>${DB_ICON_SVG}</span><span>${title}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${spinner} <span>${loading}</span></span>`,
-      bodyHtml: `<div class="tool-card-result"><div class="tool-loading-placeholder">${spinner} <span>${building}</span></div></div>`
-    }, ui);
-    return card;
-  }
-
-  function updateLiveCard(card, _args, result = {}, elapsedMs = 0, ui) {
-    if (!card) return;
-    const t = ui.t;
-    const Markdown = ui.markdown;
-    const checkSvg = ui.CHECK_SVG;
-    const errorSvg = ui.ERROR_SVG;
-    const success = result?.success !== false && !result?.error;
-    const count = result?.matchesCount ?? 0;
-    const text = result?.text || (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result || ''));
-    const badge = card.querySelector('.tool-card-badge');
-    const matchesLabel = t('tool_rag_search_matches', { count, plural: count === 1 ? '' : 's', scope: result?.appliedScope || 'auto' });
-    const errorLabel = result?.error || t('tool_err_query');
-    if (badge) {
-      badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = success ? `${checkSvg} <span>${matchesLabel} (${elapsedMs || 0}ms)</span>` : `${errorSvg} <span>${Markdown.escapeHtml(errorLabel)}</span>`;
-    }
-    const body = card.querySelector('.tool-card-result');
-    if (body) body.innerHTML = `<pre class="tool-result-pre"><code>${Markdown.escapeHtml(text.slice(0, 3000))}${text.length > 3000 ? `\n${Markdown.escapeHtml(t('tool_card_truncated'))}` : ''}</code></pre>`;
-  }
-  function renderHistoricalCard(args, message, ui) { const card = createLiveCard(args, ui); if (!card) return null; let result = {}; if (message?.content) { try { result = JSON.parse(message.content); } catch (e) { result = { text: message.content }; } } updateLiveCard(card, args, result, 0, ui); return card; }
-
-  function createTool(Tool) {
-    if (typeof Tool !== 'function') throw new Error('La clase Tool es necesaria para crear search_knowledge_base.');
-    return new Tool({
-      id: definition.name,
-      definition,
-      aliases: ['search_kb', 'searchknowledgebase', 'search_documents', 'search_knowledge', 'buscar_en_documentos'],
-      category: 'rag',
-      metadata: { label: definition.name },
-      settings: { showInSettings: false },
-      isAvailable: config => config.activeRagBranchIds.length > 0,
-      execute: async (args, context = {}) => {
-        const RagService = context.services.ragService;
-        if (!RagService?.searchKnowledgeBase) return { success: false, error: 'RAG service not available.' };
-        return RagService.searchKnowledgeBase(context.activeRagBranchIds, args);
-      },
-      result: {
-        toModel: (_args, result) => result?.text || JSON.stringify(result || {}),
-        toMarkdown: (args, result) => `> **search_knowledge_base** ("${args.query || ''}") [${result?.matchesCount || 0} coincidencias]\n\n`
-      },
-      displayMode: 'collapsed',
-      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
-    });
-  }
-
-  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
-  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
-  if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
-  return toolModule;
 });

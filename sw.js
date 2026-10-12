@@ -50,8 +50,6 @@ const PRECACHE_ASSETS = [
   './js/api.js',
   './js/file-parser.js',
   './js/tool-cards.js',
-  './js/tools/tool-runtime.js',
-  './js/tools/tool-manifest.js',
   './js/tools/builtin/execute-javascript.tool.js',
   './js/tools/builtin/search-web.tool.js',
   './js/tools/builtin/fetch-web-page.tool.js',

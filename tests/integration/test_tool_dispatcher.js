@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 // Cargar módulos
 const AgentCore = require('../../js/agent-core.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 test('ToolDispatcher - dispatchToolCall ejecuta JavaScript de forma resiliente', async () => {
   const toolCall = {
@@ -78,7 +79,10 @@ test('ToolDispatcher - getActiveDefinitions excluye todas las herramientas RAG s
   assert.ok(readChunkActive, 'read_knowledge_chunk DEBE enviarse cuando RAG está activo');
 });
 
-test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de herramientas MCP', async () => {
+test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de herramientas MCP', async t => {
+  const dom = installDom();
+  t.after(() => dom.restore());
+  const container = document.createElement('div');
   const ChatToolSecurity = require('../../js/tool-security.js');
   const ChatToolCards = require('../../js/tool-cards.js');
 
@@ -127,7 +131,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
 
   try {
     const resUserDeny = await AgentCore.dispatchToolCall(toolCall, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(resUserDeny.success, false);
     assert.ok(resUserDeny.error.includes('denied by the user'));
@@ -139,7 +143,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
   ChatToolCards.promptToolAuthorization = async () => 'allow_always';
   try {
     const resAllowAlways = await AgentCore.dispatchToolCall(toolCall, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(resAllowAlways.success, true);
     assert.ok(resAllowAlways.resultText.includes('executed: echo hello'));
@@ -160,7 +164,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
 
   try {
     const resFirst = await AgentCore.dispatchToolCall(toolCall, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(resFirst.success, true);
     // Verificar que las restricciones se persistieron
@@ -185,7 +189,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     };
 
     const resEcho2 = await AgentCore.dispatchToolCall(toolCallEcho2, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(resEcho2.success, true);
     assert.equal(promptCalled, false, 'No debe pedir autorización para comando autorizado en lista blanca');
@@ -201,7 +205,7 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
     };
 
     const resCat = await AgentCore.dispatchToolCall(toolCallCat, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(promptCalled, true, 'Debe pedir confirmación para comando fuera del prefijo autorizado');
     assert.equal(resCat.success, false);
@@ -212,14 +216,14 @@ test('ToolDispatcher - dispatchToolCall intercepta y respeta la seguridad de her
       constraints: { command: { allowedPrefixes: ['cat '], allowChaining: false } }
     });
     const resCatAllowed = await AgentCore.dispatchToolCall(toolCallCat, {
-      container: { appendChild: () => {} }
+      container
     });
     assert.equal(resCatAllowed.success, true);
     assert.deepEqual(
       ChatToolSecurity.manager.getToolConstraints('mcp_testz5fzsrv_run_cmd').command.allowedPrefixes,
       ['echo ', 'cat ']
     );
-    assert.equal((await AgentCore.dispatchToolCall(toolCallEcho2, { container: { appendChild: () => {} } })).success, true);
+    assert.equal((await AgentCore.dispatchToolCall(toolCallEcho2, { container })).success, true);
   } finally {
     ChatToolCards.promptToolAuthorization = origPrompt;
     ChatToolSecurity.manager.clearAllAuthorizations();

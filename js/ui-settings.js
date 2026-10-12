@@ -85,29 +85,26 @@
   function renderAgentToolsUI(container, currentEnabledTools = {}) {
     if (!container) return;
     const AgentCore = getAgentCore();
-    const tools = AgentCore.registry.listToolsForUI().filter(t => t.category !== 'mcp');
+    const tools = AgentCore.registry.listTools().filter(tool => tool.category !== 'mcp' && tool.settings.showInSettings);
 
     container.innerHTML = '';
-    const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (!doc) return;
-
     tools.forEach(tool => {
-      const isChecked = AgentCore.isToolEnabled(currentEnabledTools, tool);
+      const { titleKey, descKey, defaultEnabled } = tool.settings;
+      const isChecked = AgentCore.isToolEnabled(currentEnabledTools, tool.name, defaultEnabled);
+      const title = t(titleKey);
+      const desc = t(descKey);
 
-      const title = t(tool.titleKey);
-      const desc = t(tool.descKey);
-
-      const card = doc.createElement('div');
+      const card = document.createElement('div');
       card.className = 'setting-toggle-card';
       card.innerHTML = `
         <div class="toggle-card-info">
           <div class="toggle-card-title">
-            <span data-i18n="${escapeHtml(tool.titleKey)}">${escapeHtml(title)}</span>
+            <span data-i18n="${escapeHtml(titleKey)}">${escapeHtml(title)}</span>
           </div>
-          <p class="toggle-card-desc" data-i18n="${escapeHtml(tool.descKey)}">${escapeHtml(desc)}</p>
+          <p class="toggle-card-desc" data-i18n="${escapeHtml(descKey)}">${escapeHtml(desc)}</p>
         </div>
         <label class="switch">
-          <input type="checkbox" class="agent-tool-checkbox" data-tool-id="${escapeHtml(tool.id)}" ${isChecked ? 'checked' : ''}>
+          <input type="checkbox" class="agent-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}>
           <span class="slider"></span>
         </label>
       `;

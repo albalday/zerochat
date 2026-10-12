@@ -666,7 +666,7 @@
 
     findToolEntry(toolIdOrName, tool = null) {
       if (!toolIdOrName && !tool) return null;
-      const id = tool ? (tool.id || tool.name) : toolIdOrName;
+      const id = tool ? tool.name : toolIdOrName;
       if (typeof id === 'string') {
         if (this.tools.has(id)) {
           return { toolId: id, entry: this.tools.get(id) };
@@ -847,11 +847,10 @@
         }
       } else if (toolOrName && typeof toolOrName === 'object') {
         tool = toolOrName;
-        toolName = tool.name || tool.id || '';
+        toolName = tool.name;
       }
 
-      const toolId = (tool && (tool.id || tool.name)) || toolName;
-      const rawId = tool?.id || '';
+      const toolId = tool?.name || toolName;
       const serverName = tool?.metadata?.mcpServerName || '';
       const originalName = tool?.metadata?.originalName || toolName;
       const serverId = extractServerId(tool, toolName);
@@ -861,9 +860,7 @@
         Boolean(tool?.metadata?.mcpServerName) ||
         Boolean(serverId) ||
         /^mcp_/i.test(toolName) ||
-        /^mcp_/i.test(rawId) ||
-        LOCAL_MANAGED_TOOLS.has(toolName) ||
-        LOCAL_MANAGED_TOOLS.has(rawId);
+        LOCAL_MANAGED_TOOLS.has(toolName);
 
       // 1. Herramientas nativas y seguras (search_web, execute_javascript, etc.)
       if (!isMcp) {

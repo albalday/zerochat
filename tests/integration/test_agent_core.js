@@ -1,90 +1,81 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-// Cargar módulos
-const AgentCoreModule = require('../../js/agent-core.js');
+const AgentCore = require('../../js/agent-core.js');
+const ToolSecurity = require('../../js/tool-security.js');
+const ConfigStore = require('../../js/config-store.js');
 
-test('AgentCore - Tool & ToolRegistry registro y resolución de herramientas y alias', () => {
-  const registry = new AgentCoreModule.ToolRegistry();
+const { Tool, ToolRegistry, ToolExecutor } = AgentCore;
+const makeTool = ({ name, description, parameters, ...options }) => new Tool({ definition: { name, description, parameters }, ...options });
+const call = (name, args = {}) => ({ id: `call_${name}`, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } });
 
-  // Comprobar que las herramientas nativas están registradas
-  assert.ok(registry.getTool('execute_javascript'));
-  assert.ok(registry.getTool('search_web'));
-  assert.ok(registry.getTool('fetch_web_page'));
-  assert.ok(registry.getTool('download_pdf'));
-  assert.ok(registry.getTool('render_chart'));
+test('AgentCore - el registro resuelve las nativas por nombre y por alias', () => {
+  const registry = new ToolRegistry();
 
-  // Comprobar resolución por alias
+  for (const name of ['execute_javascript', 'search_web', 'fetch_web_page', 'download_pdf', 'render_chart']) {
+    assert.equal(registry.getTool(name).name, name);
+  }
+  // Alias declarados, con o sin guiones bajos, en mayúsculas o con guiones.
   assert.equal(registry.getTool('executejs').name, 'execute_javascript');
   assert.equal(registry.getTool('run_js').name, 'execute_javascript');
+  assert.equal(registry.getTool('eval_javascript').name, 'execute_javascript');
   assert.equal(registry.getTool('searchweb').name, 'search_web');
+  assert.equal(registry.getTool('duckduckgo').name, 'search_web');
+  assert.equal(registry.getTool('Search-Web').name, 'search_web');
   assert.equal(registry.getTool('fetchwebpage').name, 'fetch_web_page');
   assert.equal(registry.getTool('downloadpdf').name, 'download_pdf');
   assert.equal(registry.getTool('renderchart').name, 'render_chart');
+  assert.equal(registry.getTool('buscar_en_documentos').name, 'search_knowledge_base');
+  assert.equal(registry.getTool('unknown_tool'), null);
 
-  // Comprobar generación de esquemas Function Calling
-  const defs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({}));
-  assert.ok(defs.length >= 5);
-  const jsDef = defs.find(d => d.function.name === 'execute_javascript');
-  assert.ok(jsDef);
+  const jsDef = registry.getActiveDefinitions(ConfigStore.normalize({})).find(d => d.function.name === 'execute_javascript');
   assert.equal(jsDef.type, 'function');
   assert.ok(jsDef.function.parameters.required.includes('code'));
 });
 
-test('AgentCore - Registro de herramientas personalizadas (ToolProvider preparado para MCP)', async () => {
-  const ToolSecurity = require('../../js/tool-security.js');
-  const registry = new AgentCoreModule.ToolRegistry();
+test('AgentCore - Tool exige definición con nombre y execute, y solo se registran instancias de Tool', () => {
+  assert.throws(() => new Tool({ execute: async () => ({}) }), /definition with a name/);
+  assert.throws(() => new Tool({ definition: { name: 'no_execute' } }), /execute function/);
+  assert.throws(() => new ToolRegistry().registerTool({ name: 'plain_object' }), /Only Tool instances/);
 
-  class CustomMcpMockProvider extends AgentCoreModule.BaseToolProvider {
-    constructor() {
-      super({ id: 'mcp_filesystem', name: 'MCP Filesystem Provider' });
-    }
-    getTools() {
-      return [
-        new AgentCoreModule.Tool({
-          name: 'read_file',
-          description: 'Lee un archivo del sistema de archivos mediante MCP',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string', description: 'Ruta al archivo' }
-            },
-            required: ['path']
-          },
-          category: 'mcp',
-          execute: async (args) => {
-            return { success: true, content: `Contenido de ${args.path}` };
-          }
-        })
-      ];
-    }
-  }
+  const tool = makeTool({ name: 'defaults', execute: async () => ({}) });
+  assert.equal(tool.description, 'defaults', 'Sin descripción se usa el nombre');
+  assert.deepEqual(tool.parameters, { type: 'object', properties: {} });
+  assert.deepEqual(tool.settings, { titleKey: 'agent_defaults_title', descKey: 'agent_defaults_desc', defaultEnabled: true, showInSettings: true });
+  assert.equal(tool.displayMode, 'collapsed');
+  assert.equal(tool.getPromptGuide(), '- `defaults`: defaults');
+});
 
-  registry.registerProvider(new CustomMcpMockProvider());
-
-  assert.ok(registry.getTool('read_file'));
-  const executor = new AgentCoreModule.ToolExecutor(registry);
-  ToolSecurity.manager.setToolPolicy('read_file', 'allow');
-
-  const res = await executor.executeToolCall({
-    id: 'call_mcp_1',
-    type: 'function',
-    function: {
+test('AgentCore - un proveedor registra y retira sus herramientas', async () => {
+  const registry = new ToolRegistry();
+  const provider = {
+    id: 'mcp_filesystem',
+    getTools: () => [makeTool({
       name: 'read_file',
-      arguments: JSON.stringify({ path: '/home/user/test.txt' })
-    }
-  });
-
-  assert.equal(res.success, true);
-  assert.equal(res.result.content, 'Contenido de /home/user/test.txt');
-  assert.equal(res.toolName, 'read_file');
-  ToolSecurity.manager.revokeToolPolicy('read_file');
+      description: 'Lee un archivo del sistema de archivos mediante MCP',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      category: 'mcp',
+      execute: async args => ({ success: true, content: `Contenido de ${args.path}` })
+    })]
+  };
+  registry.registerProvider(provider);
+  ToolSecurity.manager.setToolPolicy('read_file', 'allow');
+  try {
+    const res = await new ToolExecutor(registry).executeToolCall(call('read_file', { path: '/home/user/test.txt' }));
+    assert.equal(res.success, true);
+    assert.equal(res.result.content, 'Contenido de /home/user/test.txt');
+    assert.equal(res.toolName, 'read_file');
+  } finally {
+    ToolSecurity.manager.revokeToolPolicy('read_file');
+  }
+  registry.unregisterProvider('mcp_filesystem');
+  assert.equal(registry.getTool('read_file'), null);
 });
 
 test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas', () => {
-  const registry = new AgentCoreModule.ToolRegistry();
-  const upper = new AgentCoreModule.Tool({ name: 'composio_SEARCH', category: 'mcp' });
-  const lower = new AgentCoreModule.Tool({ name: 'composio_search', category: 'mcp' });
+  const registry = new ToolRegistry();
+  const upper = makeTool({ name: 'composio_SEARCH', category: 'mcp', execute: async () => ({}) });
+  const lower = makeTool({ name: 'composio_search', category: 'mcp', execute: async () => ({}) });
 
   registry.registerTool(upper);
   registry.registerTool(lower);
@@ -98,239 +89,141 @@ test('AgentCore - MCP conserva identificadores que solo difieren por mayúsculas
 });
 
 test('AgentCore - ToolExecutor bloquea MCP directo sin autorización explícita', async () => {
-  const registry = new AgentCoreModule.ToolRegistry();
-  registry.registerTool(new AgentCoreModule.Tool({
-    name: 'mcp_blocked_run',
-    category: 'mcp',
-    execute: async () => ({ success: true })
-  }));
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'mcp_blocked_run', category: 'mcp', execute: async () => ({ success: true }) }));
 
-  const result = await new AgentCoreModule.ToolExecutor(registry).executeToolCall({
-    function: { name: 'mcp_blocked_run', arguments: '{}' }
-  });
+  const result = await new ToolExecutor(registry).executeToolCall(call('mcp_blocked_run'));
 
   assert.equal(result.success, false);
   assert.match(result.error, /explicit user authorization/i);
 });
 
 test('AgentCore - ToolExecutor captura errores, herramientas inexistentes y argumentos no JSON sin ejecutar la herramienta', async () => {
-  {
-    const registry = new AgentCoreModule.ToolRegistry();
+  let executed = false;
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'failing_tool', execute: async () => { throw new Error('Fallo crítico simulado'); } }));
+  registry.registerTool(makeTool({ name: 'guarded_tool', execute: async () => { executed = true; return { success: true }; } }));
+  const executor = new ToolExecutor(registry);
 
-    // Registrar herramienta con error forzado
-    registry.registerTool(new AgentCoreModule.Tool({
-      name: 'failing_tool',
-      description: 'Herramienta que lanza un error deliberado',
-      execute: async () => {
-        throw new Error('Fallo crítico simulado');
-      }
-    }));
+  const failRes = await executor.executeToolCall(call('failing_tool'));
+  assert.equal(failRes.success, false);
+  assert.equal(failRes.error, 'Fallo crítico simulado');
+  assert.ok(failRes.executionTimeMs >= 0);
 
-    const executor = new AgentCoreModule.ToolExecutor(registry);
+  const notFoundRes = await executor.executeToolCall(call('non_existent_tool'));
+  assert.equal(notFoundRes.success, false);
+  assert.match(notFoundRes.error, /not registered/);
 
-    // 1. Herramienta que falla -> no debe romper el proceso, debe devolver error capturado
-    const failRes = await executor.executeToolCall({
-      id: 'call_fail',
-      function: { name: 'failing_tool', arguments: '{}' }
-    });
-    assert.equal(failRes.success, false);
-    assert.equal(failRes.error, 'Fallo crítico simulado');
-    assert.ok(failRes.executionTimeMs >= 0);
+  const badArgs = await executor.executeToolCall(call('guarded_tool', 'code = "alert(1)'));
+  assert.equal(executed, false);
+  assert.equal(badArgs.success, false);
+  assert.match(badArgs.error, /Invalid tool arguments/);
 
-    // 2. Herramienta no existente
-    const notFoundRes = await executor.executeToolCall({
-      id: 'call_unknown',
-      function: { name: 'non_existent_tool', arguments: '{}' }
-    });
-    assert.equal(notFoundRes.success, false);
-    assert.match(notFoundRes.error, /no encontrada/i);
-
-    // 3. Los argumentos que no son un objeto JSON no se adivinan
-    assert.equal(executor.parseArguments('url: "https://example.com"'), null);
-    assert.equal(executor.parseArguments('code = "console.log(123)"'), null);
-    assert.equal(executor.parseArguments('[1, 2]'), null);
-    assert.equal(executor.parseArguments('"texto"'), null);
-    assert.deepEqual(executor.parseArguments(''), {});
-    assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
-  }
-
-  {
-    let executed = false;
-    const registry = new AgentCoreModule.ToolRegistry();
-    registry.registerTool(new AgentCoreModule.Tool({
-      name: 'guarded_tool',
-      execute: async () => {
-        executed = true;
-        return { success: true };
-      }
-    }));
-    const executor = new AgentCoreModule.ToolExecutor(registry);
-
-    const res = await executor.executeToolCall({
-      id: 'call_bad_args',
-      function: { name: 'guarded_tool', arguments: 'code = "alert(1)' }
-    });
-
-    assert.equal(executed, false);
-    assert.equal(res.success, false);
-    assert.match(res.error, /Invalid tool arguments/);
-    assert.equal(res.outcome.ok, false);
-  }
+  assert.equal(executor.parseArguments('url: "https://example.com"'), null);
+  assert.equal(executor.parseArguments('[1, 2]'), null);
+  assert.equal(executor.parseArguments('"texto"'), null);
+  assert.deepEqual(executor.parseArguments(''), {});
+  assert.deepEqual(executor.parseArguments('{"a":1}'), { a: 1 });
 });
 
-test('AgentCore - Cancelación de ejecución de herramientas mediante AbortSignal', async () => {
-  const registry = new AgentCoreModule.ToolRegistry();
-  registry.registerTool(new AgentCoreModule.Tool({
-    name: 'slow_tool',
-    execute: async (args, ctx) => {
-      if (ctx.signal && ctx.signal.aborted) throw new Error('Abortado');
+test('AgentCore - ToolExecutor no ejecuta una herramienta tras cancelar el turno', async () => {
+  let executed = false;
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'slow_tool', execute: async () => { executed = true; return { success: true }; } }));
+  const controller = new AbortController();
+  controller.abort();
+
+  const res = await new ToolExecutor(registry).executeToolCall(call('slow_tool'), { signal: controller.signal });
+
+  assert.equal(executed, false);
+  assert.equal(res.success, false);
+  assert.match(res.error, /cancelled/i);
+});
+
+test('AgentCore - la herramienta recibe idioma, servicios sustituibles y su displayMode llega al resultado', async () => {
+  const sandbox = { execute: () => ({ success: true }) };
+  let received = null;
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({
+    name: 'context_probe',
+    displayMode: 'expanded',
+    execute: async (_args, context) => {
+      received = context;
       return { success: true };
     }
   }));
 
-  const executor = new AgentCoreModule.ToolExecutor(registry);
-  const controller = new AbortController();
-  controller.abort(); // Cancelar inmediatamente
+  const result = await new ToolExecutor(registry).executeToolCall(call('context_probe'), { language: 'en', services: { sandbox } });
 
-  const res = await executor.executeToolCall({
-    id: 'call_cancel',
-    function: { name: 'slow_tool', arguments: '{}' }
-  }, { signal: controller.signal });
-
-  assert.equal(res.success, false);
-  assert.match(res.error, /cancelada/i);
+  assert.equal(result.displayMode, 'expanded');
+  assert.equal(received.language, 'en');
+  assert.equal(received.services.sandbox, sandbox);
+  assert.equal(received.services.webBrowser, require('../../js/web-browser.js'), 'Los servicios no sustituidos son los módulos reales');
+  assert.equal(received.toolAuthorization, true);
 });
 
-test('AgentCore - Detección y detención de bucles infinitos en el agente', () => {
-  const agent = new AgentCoreModule.AgentRuntime();
+test('AgentCore - el despacho serializa el resultado y el Markdown con el contrato de la herramienta', async () => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({
+    name: 'delegated_result',
+    execute: async () => ({ success: true, payload: 42 }),
+    result: {
+      toModel: (_args, result) => `model:${result.payload}`,
+      toMarkdown: (_args, result) => `> export:${result.payload}`
+    }
+  }));
+  registry.registerTool(makeTool({ name: 'default_result', execute: async () => ({ success: true, value: 'x' }) }));
+  const executor = new ToolExecutor(registry);
 
+  const custom = await executor.dispatchToolCall(call('delegated_result'));
+  assert.equal(custom.resultText, 'model:42');
+  assert.equal(custom.markdownBlock, '> export:42');
+
+  const fallback = await executor.dispatchToolCall(call('default_result'));
+  assert.equal(fallback.resultText, '{"success":true,"value":"x"}');
+  assert.match(fallback.markdownBlock, /\*\*default_result\*\*/);
+});
+
+test('AgentCore - la detección de bucles ignora el orden de las claves pero no el de las llamadas', () => {
+  const agent = AgentCore.runtime;
   const tc1 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
-  const tc2 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
-  const tc3 = { function: { name: 'search_web', arguments: '{"query":"ceuta"}' } };
   const tcDiff = { function: { name: 'search_web', arguments: '{"query":"melilla"}' } };
   const tcOrdered = { function: { name: 'search_web', arguments: '{"query":"ceuta","filters":{"language":"es","year":2026}}' } };
   const tcReordered = { function: { name: 'search_web', arguments: '{"filters":{"year":2026,"language":"es"},"query":"ceuta"}' } };
 
-  assert.equal(agent.getToolCallFingerprint(tc1), agent.getToolCallFingerprint(tc2));
+  assert.equal(agent.getToolCallFingerprint(tc1), agent.getToolCallFingerprint({ function: { ...tc1.function } }));
   assert.notEqual(agent.getToolCallFingerprint(tc1), agent.getToolCallFingerprint(tcDiff));
   assert.equal(agent.getToolCallFingerprint(tcOrdered), agent.getToolCallFingerprint(tcReordered));
-  assert.equal(agent.getToolBatchFingerprint([tc1, tcDiff]), agent.getToolBatchFingerprint([tc1, tcDiff]));
   assert.notEqual(agent.getToolBatchFingerprint([tc1, tcDiff]), agent.getToolBatchFingerprint([tcDiff, tc1]));
 });
 
-test('AgentCore - Formal Tools Interface (listToolsForUI, getActiveDefinitions, getActivePromptGuide)', () => {
-  const registry = new AgentCoreModule.ToolRegistry();
+test('AgentCore - las definiciones y la guía del prompt siguen los interruptores y la disponibilidad', () => {
+  const registry = new ToolRegistry();
+  const config = enabledTools => ConfigStore.normalize({ enabledTools });
 
-  // 1. listToolsForUI devuelve sólo las herramientas configurables en la UI
-  const uiTools = registry.listToolsForUI();
-  assert.ok(uiTools.length >= 5);
-  const ids = uiTools.map(t => t.id);
-  assert.ok(ids.includes('execute_javascript'));
-  assert.ok(ids.includes('search_web'));
-  assert.ok(ids.includes('fetch_web_page'));
-  assert.ok(ids.includes('download_pdf'));
-  assert.ok(ids.includes('render_chart'));
-  // Herramientas RAG no deben aparecer en la UI de settings
-  assert.ok(!ids.includes('list_documents'));
+  const names = registry.getActiveDefinitions(config({ search_web: false, download_pdf: false })).map(d => d.function.name);
+  assert.ok(names.includes('execute_javascript'));
+  assert.ok(names.includes('fetch_web_page'));
+  assert.ok(!names.includes('search_web'));
+  assert.ok(!names.includes('download_pdf'));
+  // Las de conocimiento local no tienen interruptor: dependen de que haya ramas RAG activas.
+  assert.ok(!names.includes('list_documents'));
+  const ragNames = registry.getActiveDefinitions(ConfigStore.normalize({ activeRagBranchIds: ['branch_1'] })).map(d => d.function.name);
+  for (const name of ['list_documents', 'search_knowledge_base', 'read_knowledge_chunk', 'read_knowledge_image']) {
+    assert.ok(ragNames.includes(name), name);
+  }
 
-  // 2. getActiveDefinitions filtra según appConfig.enabledTools
-  const allDefs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
-    enabledTools: {
-      execute_javascript: true,
-      search_web: true,
-      fetch_web_page: true,
-      download_pdf: true,
-      render_chart: true
-    }
-  }));
-  const allNames = allDefs.map(d => d.function.name);
-  assert.ok(allNames.includes('execute_javascript'));
-  assert.ok(allNames.includes('search_web'));
-  assert.ok(allNames.includes('fetch_web_page'));
-  assert.ok(allNames.includes('download_pdf'));
-  assert.ok(allNames.includes('render_chart'));
-
-  // Desactivar search_web y download_pdf
-  const filteredDefs = registry.getActiveDefinitions(require('../../js/config-store.js').normalize({
-    enabledTools: {
-      execute_javascript: true,
-      search_web: false,
-      fetch_web_page: true,
-      download_pdf: false,
-      render_chart: true
-    }
-  }));
-  const filteredNames = filteredDefs.map(d => d.function.name);
-  assert.ok(!filteredNames.includes('search_web'));
-  assert.ok(!filteredNames.includes('download_pdf'));
-  assert.ok(filteredNames.includes('execute_javascript'));
-  assert.ok(filteredNames.includes('fetch_web_page'));
-  assert.ok(filteredNames.includes('render_chart'));
-
-  // 3. getActivePromptGuide genera la guía textual dinámica en español e inglés
-  const guideEs = registry.getActivePromptGuide(require('../../js/config-store.js').normalize({
-    enabledTools: {
-      execute_javascript: true,
-      search_web: false,
-      fetch_web_page: true,
-      download_pdf: false,
-      render_chart: true
-    }
-  }));
-  assert.match(guideEs, /execute_javascript/);
-  assert.match(guideEs, /fetch_web_page/);
-  assert.doesNotMatch(guideEs, /search_web/);
-  assert.doesNotMatch(guideEs, /download_pdf/);
-  assert.match(guideEs, /AVAILABLE TOOLS AND FUNCTIONS/);
-
-  const guideEn = registry.getActivePromptGuide(require('../../js/config-store.js').normalize({
-    enabledTools: {
-      execute_javascript: true,
-      search_web: true,
-      fetch_web_page: false,
-      download_pdf: false,
-      render_chart: false
-    }
-  }));
-  assert.match(guideEn, /AVAILABLE TOOLS AND FUNCTIONS/);
-  assert.match(guideEn, /execute_javascript/);
-  assert.match(guideEn, /search_web/);
-  assert.doesNotMatch(guideEn, /fetch_web_page/);
+  const guide = registry.getActivePromptGuide(config({ search_web: false, download_pdf: false }));
+  assert.match(guide, /AVAILABLE TOOLS AND FUNCTIONS/);
+  assert.match(guide, /execute_javascript/);
+  assert.doesNotMatch(guide, /search_web/);
+  assert.match(guide, new RegExp(AgentCore.TOOL_WORKFLOW_INSTRUCTION.slice(0, 30).replace(/[*]/g, '\\*')));
 });
 
-test('AgentCore - Tool y ToolExecutor propagan displayMode a executionContext, meta y outcome', async () => {
-  let receivedContext = null;
-  const toolExpanded = new AgentCoreModule.Tool({
-    name: 'custom_chart',
-    description: 'Herramienta de prueba con displayMode expanded',
-    displayMode: 'expanded',
-    execute: async (args, context) => {
-      receivedContext = context;
-      return { success: true, chart: true };
-    }
-  });
-
-  assert.equal(toolExpanded.displayMode, 'expanded');
-  assert.equal(toolExpanded.view?.displayMode, 'expanded');
-
-  const registry = new AgentCoreModule.ToolRegistry();
-  registry.registerTool(toolExpanded);
-
-  const executor = new AgentCoreModule.ToolExecutor(registry);
-  const result = await executor.executeToolCall({
-    function: { name: 'custom_chart', arguments: '{}' }
-  });
-
-  assert.equal(result.success, true);
-  assert.equal(result.displayMode, 'expanded');
-  assert.equal(result.outcome?.meta?.displayMode, 'expanded');
-  assert.equal(receivedContext?.displayMode, 'expanded');
-});
-
-test('AgentCore - isToolEnabled resuelve el interruptor por id, por nombre o por defecto', () => {
-  const { isToolEnabled } = AgentCoreModule;
-  assert.equal(isToolEnabled({ a: false, b: true }, { id: 'a', name: 'b' }), false, 'El id manda sobre el nombre');
-  assert.equal(isToolEnabled({ b: false }, { id: 'a', name: 'b' }), false);
-  assert.equal(isToolEnabled({}, { id: 'a', name: 'b', defaultEnabled: false }), false);
-  assert.equal(isToolEnabled(undefined, { id: 'a', name: 'b' }), true);
+test('AgentCore - isToolEnabled usa el interruptor guardado o el valor por defecto', () => {
+  const { isToolEnabled } = AgentCore;
+  assert.equal(isToolEnabled({ a: false }, 'a'), false);
+  assert.equal(isToolEnabled({ a: true }, 'a', false), true);
+  assert.equal(isToolEnabled({}, 'a', false), false);
+  assert.equal(isToolEnabled(undefined, 'a'), true);
 });

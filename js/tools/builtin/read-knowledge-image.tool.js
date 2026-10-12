@@ -1,79 +1,47 @@
-/** Tool module: read_knowledge_image. */
+/** Herramienta nativa read_knowledge_image. */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'));
   else root.ChatBuiltinReadKnowledgeImageTool = factory(root.ChatUtils);
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
-  const definition = {
-    name: 'read_knowledge_image',
-    description: 'Retrieves an image from a RAG document to inspect it visually. Use only if you have native vision capability and the image may provide relevant information. Provide a full rag-image://docId:imgId reference obtained from the document; do not invent identifiers. If you cannot process images, do not use this tool.',
-    parameters: { type: 'object', properties: { imageRef: { type: 'string', description: 'Full rag-image://docId:imgId reference obtained from a RAG document.' } }, required: ['imageRef'] }
-  };
+  const { escapeHtml, resolveDep } = Utils;
   const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   function createLiveCard(args, ui) {
-    const card = getCards().createCardWrapper(ui);
-    if (!card) return null;
-    const t = ui.t;
-    const md = ui.markdown;
+    const card = ui.createCardWrapper();
     card.innerHTML = getCards().renderCardHtml({
-      titleHtml: `<span>${md.escapeHtml(t('tool_rag_image_title'))}</span>`,
-      badgeHtml: `<span class="tool-card-badge status-loading">${ui.SPINNER_SVG}<span>${md.escapeHtml(t('tool_badge_executing'))}</span></span>`,
-      bodyHtml: `<div class="tool-card-result"><code>${md.escapeHtml(args?.imageRef || '')}</code><div class="rag-image-result"></div></div>`
-    }, ui);
+      titleHtml: `<span>${escapeHtml(ui.t('tool_rag_image_title'))}</span>`,
+      badgeHtml: `<span class="tool-card-badge status-loading">${ui.SPINNER_SVG} <span>${escapeHtml(ui.t('tool_badge_executing'))}</span></span>`,
+      bodyHtml: `<div class="tool-card-result"><code>${escapeHtml(args.imageRef || '')}</code><div class="rag-image-result"></div></div>`
+    });
     return card;
   }
 
   function updateLiveCard(card, _args, result, elapsedMs, ui) {
-    if (!card) return;
-    const t = ui.t;
-    const success = result?.success !== false && !result?.error;
-    const badge = card.querySelector('.tool-card-badge');
-    if (badge) {
-      badge.className = `tool-card-badge ${success ? 'status-success' : 'status-error'}`;
-      badge.innerHTML = `${success ? ui.CHECK_SVG : ui.ERROR_SVG}<span>${ui.markdown.escapeHtml(t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs || 0 }))}</span>`;
-    }
-    const body = card.querySelector('.rag-image-result');
-    if (body) body.textContent = success ? result?.documentTitle || result?.imageRef || '' : result?.error || '';
+    const success = result.success !== false && !result.error;
+    getCards().renderStatusBadge(card.querySelector('.tool-card-badge'), success, ui.t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs }));
+    card.querySelector('.rag-image-result').textContent = success ? result.documentTitle || result.imageRef || '' : result.error || '';
   }
 
-  function renderHistoricalCard(args, toolMessage, ui) {
-    const cardDiv = createLiveCard(args, ui);
-    if (!cardDiv) return null;
-    let result = {};
-    if (toolMessage?.content) {
-      try { result = JSON.parse(toolMessage.content); } catch (_) { result = { content: toolMessage.content }; }
-    }
-    updateLiveCard(cardDiv, args, result, 0, ui);
-    return cardDiv;
-  }
-
-  function createTool(Tool) {
-    if (typeof Tool !== 'function') throw new Error('La clase Tool es necesaria para crear read_knowledge_image.');
-    return new Tool({
-      id: definition.name,
-      definition,
-      aliases: [],
-      category: 'rag',
-      metadata: { label: definition.name },
-      settings: { showInSettings: false },
-      isAvailable: config => config.activeRagBranchIds.length > 0,
-      execute: async (args, context = {}) => {
-        const service = context.services.ragService;
-        return service?.readKnowledgeImage ? service.readKnowledgeImage(context.activeRagBranchIds, args) : { success: false, error: 'RAG service not available.' };
-      },
-      result: {
-        toModel: (_args, result) => result?.success ? `Image retrieved: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, page ${result.page}` : ''})` : ''}. Inspect it visually to answer.` : JSON.stringify(result || {}),
-        toMarkdown: (args, result) => result?.success ? `> **read_knowledge_image** (${result.imageRef})\n\n` : `> **read_knowledge_image** (${args?.imageRef || ''}) · ${result?.error || 'Error'}\n\n`
-      },
-      displayMode: 'collapsed',
-      view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard }
-    });
-  }
-  const toolModule = { id: definition.name, definition, displayMode: 'collapsed', createTool, view: { id: definition.name, displayMode: 'collapsed', createLiveCard, updateLiveCard, renderHistoricalCard } };
-  const manifestApi = resolveDep('ChatToolManifest', './tools/tool-manifest.js');
-  if (manifestApi?.builtin && !manifestApi.builtin.has(toolModule.id)) manifestApi.builtin.register(toolModule);
-  return toolModule;
+  return {
+    definition: {
+      name: 'read_knowledge_image',
+      description: 'Retrieves an image from a RAG document to inspect it visually. Use only if you have native vision capability and the image may provide relevant information. Provide a full rag-image://docId:imgId reference obtained from the document; do not invent identifiers. If you cannot process images, do not use this tool.',
+      parameters: { type: 'object', properties: { imageRef: { type: 'string', description: 'Full rag-image://docId:imgId reference obtained from a RAG document.' } }, required: ['imageRef'] }
+    },
+    category: 'rag',
+    settings: { showInSettings: false },
+    isAvailable: config => config.activeRagBranchIds.length > 0,
+    execute: (args, context) => context.services.ragService.readKnowledgeImage(context.activeRagBranchIds, args),
+    result: {
+      toModel: (_args, result) => (result.success
+        ? `Image retrieved: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, page ${result.page}` : ''})` : ''}. Inspect it visually to answer.`
+        : JSON.stringify(result)),
+      toMarkdown: (args, result) => (result.success
+        ? `> **read_knowledge_image** (${result.imageRef})\n\n`
+        : `> **read_knowledge_image** (${args.imageRef || ''}) · ${result.error || 'Error'}\n\n`)
+    },
+    view: { createLiveCard, updateLiveCard }
+  };
 });

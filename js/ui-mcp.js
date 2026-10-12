@@ -36,7 +36,7 @@
   }
 
   function isBrowserActionCurrentlyActive() {
-    const browserTool = getState().get('mcp').tools.find(tool => tool.id === 'browser_action');
+    const browserTool = getState().get('mcp').tools.find(tool => tool.name === 'browser_action');
     return isBrowserActionActive(getConfig().getActive().enabledTools, browserTool);
   }
 
@@ -95,17 +95,17 @@
     if (security.getGlobalMcpPolicy() === 'allow_all') {
       return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_policy_allow_all'))}">${allowed} (Global)</span>`;
     }
-    const policy = security.getToolPolicy(tool.id) || 'ask';
+    const policy = security.getToolPolicy(tool.name) || 'ask';
     const serverId = tool.metadata.mcpServerId;
     if (serverId && security.getServerPolicy(serverId) === 'allow' && policy === 'ask') {
       return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_trusted_server'))}">${allowed} (${escapeHtml(t('mcp_security_badge_server'))})</span>`;
     }
-    const constraints = security.getToolConstraints(tool.id);
+    const constraints = security.getToolConstraints(tool.name);
     const constrained = Boolean(constraints && (constraints.command || constraints.path)) && policy === 'allow';
     const selectTitle = escapeHtml(t('mcp_security_select_title'));
     const option = (value, label) => `<option value="${value}"${policy === value ? ' selected' : ''}>${label}</option>`;
     return `
-      <select class="mcp-auth-select ${policyClass(policy)}" data-tool-id="${escapeHtml(tool.id)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
+      <select class="mcp-auth-select ${policyClass(policy)}" data-tool-id="${escapeHtml(tool.name)}" data-server-name="${escapeHtml(serverName)}" data-orig-name="${escapeHtml(originalName)}" title="${selectTitle}" aria-label="${selectTitle}">
         ${option('ask', escapeHtml(t('mcp_security_badge_ask')))}
         ${option('allow', `${allowed}${constrained ? ` (${escapeHtml(t('mcp_security_constrained'))})` : ''}`)}
         ${option('deny', escapeHtml(t('tool_auth_denied_badge')))}
@@ -124,7 +124,7 @@
     const badgeText = escapeHtml(t('mcp_tool_badge'));
     const AgentCore = getAgentCore();
     const items = tools.map(tool => {
-      const isChecked = tool.available !== false && AgentCore.isToolEnabled(enabledTools, { id: tool.id, name: tool.name });
+      const isChecked = tool.available !== false && AgentCore.isToolEnabled(enabledTools, tool.name);
       const schema = tool.inputSchema || {};
       const required = Array.isArray(schema.required) ? schema.required : [];
       const paramsHint = Object.entries(schema.properties || {})
@@ -132,7 +132,7 @@
       const serverName = tool.metadata.mcpServerName || '';
       const originalName = tool.metadata.originalName || tool.name;
       return `
-        <div class="mcp-tool-card" data-tool-id="${escapeHtml(tool.id)}">
+        <div class="mcp-tool-card" data-tool-id="${escapeHtml(tool.name)}">
           <div class="mcp-tool-info">
             <div class="mcp-tool-title-row">
               <span class="mcp-tool-icon">${plug16}</span>
@@ -145,7 +145,7 @@
           </div>
           <div class="mcp-tool-action">
             <label class="switch">
-              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.id)}" ${isChecked ? 'checked' : ''}>
+              <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${isChecked ? 'checked' : ''}>
               <span class="slider"></span>
             </label>
           </div>

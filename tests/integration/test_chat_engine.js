@@ -781,7 +781,7 @@ test('ChatEngine.createHistorySummarizer - pide el checkpoint sin herramientas n
     assert.equal(result, 'checkpoint');
     assert.equal(request.apiKey, 'k');
     assert.equal(request.signal, signal);
-    assert.equal(request.enableTools, false);
+    assert.equal(request.toolChoice, 'none');
     assert.equal(request.reasoningEffort, 'none');
     assert.deepEqual(request.messages.map(m => m.role), ['system', 'user', 'user']);
     assert.equal(request.messages[0].content, 'SUMMARIZE');

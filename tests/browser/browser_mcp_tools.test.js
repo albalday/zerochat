@@ -1139,7 +1139,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
         after: {
           badge: card.querySelector('.tool-card-badge').textContent.trim(),
           stop: !card.querySelector('[data-command-action="stop"]').hidden,
-          keepExpanded: Boolean(result.keepExpanded)
+          collapsed: card.querySelector('.tool-execution-card').classList.contains('collapsed')
         }
       };
     });
@@ -1147,7 +1147,7 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
     assert.equal(foreground.during.stop, true);
     assert.equal(foreground.during.byKey, true);
     assert.equal(foreground.during.log, true, 'Mientras se espera, la tarjeta desplegada muestra el log');
-    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', stop: false, keepExpanded: false });
+    assert.deepEqual(foreground.after, { badge: 'Código 2 · 3.1 s', stop: false, collapsed: true });
 
     // El final de un comando en segundo plano llega con el latido: al dejar de figurar entre los
     // que siguen en marcha, su tarjeta pregunta una vez cómo acabó.

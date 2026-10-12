@@ -816,7 +816,7 @@ else:
       listTools: async () => [{ name: tool.metadata.originalName }]
     });
     assert.equal((await direct.discoverTools())[0].name, tool.name);
-    const result = await registry.getTool(tool.name).execute({ value: 42 });
+    const result = await registry.getTool(tool.name).execute({ value: 42 }, {});
     assert.equal(result.server, tool.metadata.mcpServerId);
     assert.equal(result.name, tool.metadata.originalName);
     assert.deepEqual(result.arguments, { value: 42 });
@@ -830,7 +830,7 @@ else:
   global.localStorage = { getItem: k => saved.get(k) || null, setItem: (k, v) => saved.set(k, v) };
   try {
     const first = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
-    first.setToolPolicy(tools[0].id, 'allow', { originalName: 'browser_navigate' });
+    first.setToolPolicy(tools[0].name, 'allow', { originalName: 'browser_navigate' });
     const restored = new Security.ToolSecurityManager({ storageKey: 'mcp_names' });
     assert.equal(restored.evaluateAuthorization(tools[0], {}).status, 'allow');
     assert.equal(restored.evaluateAuthorization(tools[2], {}).requiresApproval, true);
@@ -873,10 +873,10 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
     assert.equal(auth.serverId, tool.metadata.mcpServerId);
     assert.equal(auth.requiresApproval, true);
     assert.equal(tool.description, tool === browser ? 'Navigate to a URL' : tool.metadata.originalName);
-    assert.ok(tool.formatDispatchMarkdown({}, {}).includes(auth.serverName));
-    assert.ok(!tool.formatDispatchMarkdown({}, {}).includes('ZeroChat External MCP Host'));
+    assert.ok(tool.toMarkdown({}, {}).includes(auth.serverName));
+    assert.ok(!tool.toMarkdown({}, {}).includes('ZeroChat External MCP Host'));
   }
-  manager.setToolPolicy(search.id, 'allow');
+  manager.setToolPolicy(search.name, 'allow');
   assert.equal(manager.evaluateAuthorization(search, {}).status, 'allow');
   assert.equal(manager.evaluateAuthorization(execute, {}).requiresApproval, true);
   assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
@@ -885,7 +885,7 @@ test('MCP - autorización externa muestra el servicio de origen y conserva permi
   assert.equal(manager.listAuthorizedServers()[0].serverName, 'composio');
   assert.equal(manager.evaluateAuthorization(execute, {}).status, 'allow');
   assert.equal(manager.evaluateAuthorization(browser, {}).requiresApproval, true);
-  manager.setToolPolicy(execute.id, 'deny');
+  manager.setToolPolicy(execute.name, 'deny');
   assert.equal(manager.evaluateAuthorization(execute, {}).status, 'deny');
 });
 

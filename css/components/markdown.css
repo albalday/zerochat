@@ -719,6 +719,10 @@ hr {
   text-decoration: underline;
 }
 
+.search-result-source {
+  opacity: 0.75;
+}
+
 .search-result-snippet {
   color: var(--text-muted);
   margin-top: 0.15rem;

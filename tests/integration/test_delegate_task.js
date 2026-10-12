@@ -2,18 +2,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const AgentCore = require('../../js/agent-core.js');
-const DelegateTaskTool = require('../../js/tools/builtin/delegate-task.tool.js');
+const ChatAPI = require('../../js/api.js');
+const ToolCards = require('../../js/tool-cards.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
+const delegateTask = AgentCore.registry.getTool('delegate_task');
 
-function localTool(name, execute) {
+function localTool(name, execute = async () => ({ success: true }), mcpServerId = 'mcp_proxy') {
   return new Tool({
-    id: name,
-    name,
-    description: `Local ${name}`,
-    parameters: { type: 'object', properties: {} },
+    definition: { name, description: `Local ${name}` },
     category: 'mcp',
-    metadata: { mcpServerId: 'mcp_proxy', mcpServerName: 'ZeroChat', originalName: name },
+    metadata: { mcpServerId, mcpServerName: 'ZeroChat', originalName: name },
     settings: { showInSettings: false },
     execute
   });
@@ -26,7 +26,15 @@ function call(id, name, args = {}) {
 const isSubagentRequest = messages => messages.some(message =>
   typeof message.content === 'string' && message.content.startsWith('[Subagent task]'));
 
-/** Agente principal y subagente sobre el mismo registro, con permisos que no piden confirmación. */
+/** Sustituye la red: `respond` recibe cada petición al proveedor. */
+function stubApi(t, respond) {
+  t.mock.method(ChatAPI, 'streamChatCompletion', respond);
+}
+
+/**
+ * Agente principal y subagente sobre el mismo registro, sin perfiles de conexión. Las herramientas
+ * ofrecidas son todas las del registro, como hace la aplicación con resolveToolDefinitions.
+ */
 function createHarness(executed) {
   const registry = new ToolRegistry();
   registry.unregisterProvider('builtin');
@@ -40,58 +48,65 @@ function createHarness(executed) {
   }));
   const executor = new ToolExecutor(registry);
   const runtime = new AgentRuntime({ registry, executor });
-  const services = { agent: { registry, executor, runtime } };
-  return { registry, runtime, services };
+  const services = {
+    agent: { registry, executor, runtime },
+    profiles: { list: () => [] },
+    engine: { createHistorySummarizer: () => async () => 'summary' }
+  };
+  const resolveToolDefinitions = () => registry.listTools().map(tool => tool.getDefinition());
+  return { registry, runtime, services, context: { services, resolveToolDefinitions } };
 }
 
-test('delegate_task - solo ofrece al subagente herramientas de lectura', () => {
-  const builtin = name => ({ name, category: 'builtin' });
-  for (const name of ['search_web', 'fetch_web_page', 'download_pdf', 'execute_javascript', 'list_documents', 'search_knowledge_base', 'read_knowledge_chunk', 'read_knowledge_image']) {
-    assert.equal(DelegateTaskTool.isReadOnlyTool(builtin(name)), true, name);
+test('delegate_task - solo ofrece al subagente herramientas de lectura', async t => {
+  const registry = new ToolRegistry();
+  for (const name of ['read_file', 'list_directory', 'search_files', 'get_diagnostics', 'write_file', 'edit_file', 'run_command', 'check_command', 'browser_action']) {
+    registry.registerTool(localTool(name));
   }
-  for (const name of ['delegate_task', 'ask_user', 'render_chart']) {
-    assert.equal(DelegateTaskTool.isReadOnlyTool(builtin(name)), false, name);
-  }
-  const local = (name, mcpServerId = 'mcp_proxy') => ({ name, category: 'mcp', metadata: { mcpServerId } });
-  for (const name of ['read_file', 'list_directory', 'search_files', 'get_diagnostics']) {
-    assert.equal(DelegateTaskTool.isReadOnlyTool(local(name)), true, name);
-  }
-  for (const name of ['write_file', 'edit_file', 'run_command', 'check_command', 'browser_action']) {
-    assert.equal(DelegateTaskTool.isReadOnlyTool(local(name)), false, name);
-  }
-  assert.equal(DelegateTaskTool.isReadOnlyTool(local('read_file', 'remote_server')), false, 'Un MCP externo no se considera de lectura');
-  assert.equal(DelegateTaskTool.isReadOnlyTool(null), false);
+  registry.registerTool(localTool('remote_read_file', undefined, 'remote_server'));
+  const offered = [];
+  stubApi(t, async params => {
+    offered.push(...params.tools.map(definition => definition.function.name));
+    return { accumulatedText: 'Informe', toolCalls: [] };
+  });
+
+  const result = await delegateTask.execute({ task: 'Investigate' }, {
+    services: { agent: { registry, executor: new ToolExecutor(registry), runtime: new AgentRuntime({ registry }) }, profiles: { list: () => [] } },
+    resolveToolDefinitions: () => registry.listTools().map(tool => tool.getDefinition())
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(offered.sort(), [
+    'download_pdf', 'execute_javascript', 'fetch_web_page', 'get_diagnostics', 'list_directory', 'list_documents',
+    'read_file', 'read_knowledge_chunk', 'read_knowledge_image', 'search_files', 'search_knowledge_base', 'search_web'
+  ], 'Fuera quedan las que escriben, ask_user, render_chart, delegate_task y los MCP externos');
 });
 
-test('delegate_task - el subagente trabaja con contexto propio y devuelve solo su informe', async () => {
+test('delegate_task - el subagente trabaja con contexto propio y devuelve solo su informe', async t => {
   const executed = [];
-  const { registry, runtime, services } = createHarness(executed);
-  registry.registerTool(DelegateTaskTool.createTool(Tool));
+  const { registry, runtime, context } = createHarness(executed);
+  registry.registerTool(delegateTask);
   const controller = new AbortController();
   const subagentRequests = [];
   let parentRequests = 0;
 
-  const api = {
-    streamChatCompletion: async params => {
-      if (isSubagentRequest(params.messages)) {
-        subagentRequests.push({ ...params, messages: [...params.messages] });
-        assert.equal(params.signal, controller.signal, 'El subagente hereda la cancelación del agente principal');
-        if (subagentRequests.length === 1) {
-          return { accumulatedText: 'Leo el fichero.', toolCalls: [call('s1', 'read_file', { path: 'a.js' }), call('s2', 'write_file', { path: 'a.js' })], stats: null };
-        }
-        return { accumulatedText: 'answer vale 42 (a.js:1).', toolCalls: [], stats: null };
+  stubApi(t, async params => {
+    if (isSubagentRequest(params.messages)) {
+      subagentRequests.push({ ...params, messages: [...params.messages] });
+      assert.equal(params.signal, controller.signal, 'El subagente hereda la cancelación del agente principal');
+      if (subagentRequests.length === 1) {
+        return { accumulatedText: 'Leo el fichero.', toolCalls: [call('s1', 'read_file', { path: 'a.js' }), call('s2', 'write_file', { path: 'a.js' })], stats: null };
       }
-      parentRequests++;
-      if (parentRequests === 1) {
-        return { accumulatedText: '', toolCalls: [call('p1', 'delegate_task', { task: 'Find the value of answer in a.js.' })], stats: null };
-      }
-      return { accumulatedText: 'Vale 42.', toolCalls: [], stats: null };
+      return { accumulatedText: 'answer vale 42 (a.js:1).', toolCalls: [], stats: null };
     }
-  };
+    parentRequests++;
+    if (parentRequests === 1) {
+      return { accumulatedText: '', toolCalls: [call('p1', 'delegate_task', { task: 'Find the value of answer in a.js.' })], stats: null };
+    }
+    return { accumulatedText: 'Vale 42.', toolCalls: [], stats: null };
+  });
 
   const result = await runtime.execute({
-    api,
-    services,
+    ...context,
     signal: controller.signal,
     messages: [{ role: 'user', content: 'Conversación privada del agente principal' }],
     appendFinalMessage: true
@@ -114,65 +129,60 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
   assert.equal(result.history.some(message => message.name === 'read_file'), false);
 });
 
-test('delegate_task - valida el encargo y no arranca sin herramientas de lectura', async () => {
-  const executed = [];
-  const { registry, services } = createHarness(executed);
-  const tool = DelegateTaskTool.createTool(Tool);
+test('delegate_task - valida el encargo y no arranca sin herramientas de lectura', async t => {
+  const { registry, context } = createHarness([]);
   let requests = 0;
-  const api = { streamChatCompletion: async () => { requests++; return { accumulatedText: 'x', toolCalls: [] }; } };
+  stubApi(t, async () => { requests++; return { accumulatedText: 'x', toolCalls: [] }; });
 
-  assert.match((await tool.execute({ task: '  ' }, { services, api })).error, /non-empty/);
-  assert.match((await tool.execute({ task: 'x'.repeat(8001) }, { services, api })).error, /must not exceed/);
+  assert.match((await delegateTask.execute({ task: '  ' }, context)).error, /non-empty/);
+  assert.match((await delegateTask.execute({ task: 'x'.repeat(8001) }, context)).error, /must not exceed/);
 
   registry.unregisterTool('read_file');
-  const noTools = await tool.execute({ task: 'Investigate' }, { services, api });
+  const noTools = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(noTools.success, false);
   assert.match(noTools.error, /No read-only tools/);
   assert.equal(requests, 0);
 });
 
-test('delegate_task - un informe vacío o un error del proveedor se devuelven como fallo', async () => {
-  const { services } = createHarness([]);
-  const tool = DelegateTaskTool.createTool(Tool);
+test('delegate_task - un informe vacío o un error del proveedor se devuelven como fallo', async t => {
+  const { context } = createHarness([]);
+  let respond = async () => ({ accumulatedText: '   ', toolCalls: [] });
+  stubApi(t, params => respond(params));
 
-  const empty = await tool.execute({ task: 'Investigate' }, {
-    services,
-    api: { streamChatCompletion: async () => ({ accumulatedText: '   ', toolCalls: [] }) }
-  });
+  const empty = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(empty.success, false);
-  assert.match(tool.result.toModel({}, empty), /"success":false[\s\S]*without a report/);
+  assert.match(delegateTask.toModel({}, empty), /"success":false[\s\S]*without a report/);
 
-  const failed = await tool.execute({ task: 'Investigate' }, {
-    services,
-    api: { streamChatCompletion: async ({ onError }) => { onError(new Error('quota exceeded')); return null; } }
-  });
-  assert.deepEqual(failed, { success: false, error: 'quota exceeded' });
+  respond = async ({ onError }) => { onError(new Error('quota exceeded')); return null; };
+  assert.deepEqual(await delegateTask.execute({ task: 'Investigate' }, context), { success: false, error: 'quota exceeded' });
 
-  const long = await tool.execute({ task: 'Investigate' }, {
-    services,
-    api: { streamChatCompletion: async () => ({ accumulatedText: 'r'.repeat(25000), toolCalls: [] }) }
-  });
+  respond = async () => ({ accumulatedText: 'r'.repeat(25000), toolCalls: [] });
+  const long = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(long.success, true);
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
 });
 
-test('delegate_task - la tarjeta escapa el encargo y el historial restaura el informe o el error', () => {
-  const fakeDoc = { createElement: () => ({ className: '', innerHTML: '', querySelector: () => null }) };
-  const ui = { document: fakeDoc, t: key => key, markdown: require('../../js/markdown.js') };
-  const card = DelegateTaskTool.view.createLiveCard({ task: '<img src=x onerror=alert(1)>' }, ui);
-  assert.equal(card.innerHTML.includes('<img src=x'), false);
-  assert.match(card.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
-  assert.match(card.innerHTML, /subagent-steps/);
+test('delegate_task - la tarjeta escapa el encargo y el historial restaura el informe o el error', t => {
+  const dom = installDom();
+  t.after(() => dom.restore());
+  const args = { task: '<img src=x onerror=alert(1)>' };
+  const card = ToolCards.createLiveToolCard('delegate_task', args);
+  assert.equal(card.querySelector('img'), null);
+  assert.equal(card.querySelector('.subagent-task').textContent, args.task);
+  assert.ok(card.querySelector('.subagent-steps'));
 
-  const tool = DelegateTaskTool.createTool(Tool);
-  assert.equal(tool.result.toModel({}, { success: true, report: 'Informe' }), 'Informe');
-  assert.match(tool.formatDispatchMarkdown({ task: 'Primera línea\nSegunda' }, { success: true, report: 'Informe' }), /delegate_task\*\*: Primera línea\n/);
-  assert.match(tool.formatDispatchMarkdown({}, { success: false, error: 'boom' }), /error: boom/);
+  const delegateCall = { function: { name: 'delegate_task', arguments: JSON.stringify(args) } };
+  const report = ToolCards.renderHistoricalToolCard(delegateCall, { content: delegateTask.toModel(args, { success: true, report: '**Informe**' }) });
+  assert.equal(report.querySelector('.subagent-report strong').textContent, 'Informe');
+  const failed = ToolCards.renderHistoricalToolCard(delegateCall, { content: delegateTask.toModel(args, { success: false, error: 'boom' }) });
+  assert.equal(failed.querySelector('.subagent-error').textContent, 'boom');
+
+  assert.match(delegateTask.toMarkdown({ task: 'Primera línea\nSegunda' }, { success: true, report: 'Informe' }), /delegate_task\*\*: Primera línea\n/);
+  assert.match(delegateTask.toMarkdown({}, { success: false, error: 'boom' }), /error: boom/);
 });
 
-test('delegate_task - un perfil de conexión «Subagente» da al subagente su propio modelo', async () => {
-  const { services } = createHarness([]);
-  const tool = DelegateTaskTool.createTool(Tool);
+test('delegate_task - un perfil de conexión «Subagente» da al subagente su propio modelo', async t => {
+  const { services, context } = createHarness([]);
   const loaded = [];
   const summarizers = [];
   const profile = {
@@ -184,11 +194,11 @@ test('delegate_task - un perfil de conexión «Subagente» da al subagente su pr
   services.profilesUI = { loadProfileUnlocked: async id => { loaded.push(id); return structuredClone(profile); } };
   services.engine = { createHistorySummarizer: options => { summarizers.push(options); return async () => 'summary'; } };
   const requests = [];
-  const result = await tool.execute({ task: 'Investigate' }, {
-    services,
+  stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
+  const result = await delegateTask.execute({ task: 'Investigate' }, {
+    ...context,
     apiUrl: 'http://main/v1', apiType: 'anthropic', apiKey: 'main-key', model: 'main-model', temperature: '0.9',
-    contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' },
-    api: { streamChatCompletion: async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; } }
+    contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' }
   });
 
   assert.equal(result.success, true);
@@ -203,29 +213,28 @@ test('delegate_task - un perfil de conexión «Subagente» da al subagente su pr
   assert.equal(summarizers[0].apiKey, 'sub-key');
 });
 
-test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ilegible o incompleto es un error', async () => {
-  const { services } = createHarness([]);
-  const tool = DelegateTaskTool.createTool(Tool);
+test('delegate_task - sin perfil «Subagente» usa el modelo principal; uno ilegible o incompleto es un error', async t => {
+  const { services, context } = createHarness([]);
   const requests = [];
-  const api = { streamChatCompletion: async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; } };
-  const mainContext = { services, api, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' };
+  stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
+  const mainContext = { ...context, apiUrl: 'http://main/v1', apiType: 'openai', apiKey: 'main-key', model: 'main-model' };
 
   services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }] };
   services.profilesUI = { loadProfileUnlocked: async () => assert.fail('No debe cargar perfiles') };
-  assert.equal((await tool.execute({ task: 'Investigate' }, mainContext)).success, true);
+  assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
   assert.equal(requests[0].model, 'main-model');
   assert.equal(requests[0].apiKey, 'main-key');
 
   services.profiles = { list: () => [{ id: 'profile:Subagent', name: 'Subagent', settings: {} }] };
   services.profilesUI = { loadProfileUnlocked: async () => { throw new Error('Password required'); } };
-  const failed = await tool.execute({ task: 'Investigate' }, mainContext);
+  const failed = await delegateTask.execute({ task: 'Investigate' }, mainContext);
   assert.equal(failed.success, false);
   assert.match(failed.error, /"Subagent" connection profile could not be loaded: Password required/);
 
   services.profilesUI = { loadProfileUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
-  assert.match((await tool.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" connection profile is incomplete: missing model\./);
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" connection profile is incomplete: missing model\./);
 
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };
-  assert.match((await tool.execute({ task: 'Investigate' }, mainContext)).error, /connection profiles could not be read: corrupt storage/);
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /connection profiles could not be read: corrupt storage/);
   assert.equal(requests.length, 1, 'No recurre en silencio al modelo principal');
 });

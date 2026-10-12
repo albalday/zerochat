@@ -180,16 +180,14 @@
     // 1. Instrucciones base del sistema (máxima estabilidad de prefijo)
     const baseSystemPrompt = getConfiguredSystemPrompt(appConfig);
 
-    const isToolsEnabled = options.enableTools !== undefined
-      ? Boolean(options.enableTools)
-      : Boolean(appConfig.enabledTools && Object.values(appConfig.enabledTools).some(value => value !== false));
+    const AgentCore = getAgentCore();
+    const isToolsEnabled = options.enableTools ?? AgentCore.registry.getActiveTools(appConfig).length > 0;
 
     // Las herramientas en texto (<tool_call>) reciben sus firmas en el payload del adaptador.
     const caps = getAPI().getProviderCapabilities(appConfig.apiUrl, appConfig.apiType, appConfig.model);
     const providerReceivesToolSignatures = caps.tools !== false || caps.textTools === true;
 
     // 2. Instrucción de flujo para herramientas (estable)
-    const AgentCore = getAgentCore();
     let toolsGuide = '';
     if (isToolsEnabled) {
       toolsGuide = providerReceivesToolSignatures
@@ -436,7 +434,6 @@
         ],
         temperature: 0,
         reasoningEffort: 'none',
-        enableTools: false,
         toolChoice: 'none',
         signal,
         onBeforeRequest

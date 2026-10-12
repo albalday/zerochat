@@ -3,15 +3,6 @@ const assert = require('node:assert/strict');
 const Api = require('../../js/api.js');
 const Storage = require('../../js/cookies.js');
 
-test('Api - Normalización de nombres de herramientas', () => {
-  assert.equal(Api.normalizeToolName('search_web'), 'search_web');
-  assert.equal(Api.normalizeToolName('duckduckgo'), 'search_web');
-  assert.equal(Api.normalizeToolName('eval_javascript'), 'execute_javascript');
-  assert.equal(Api.normalizeToolName('downloadpdf'), 'download_pdf');
-  assert.equal(Api.normalizeToolName('render_chart'), 'render_chart');
-  assert.equal(Api.normalizeToolName('composio_COMPOSIO_SEARCH_TOOLS'), 'composio_COMPOSIO_SEARCH_TOOLS');
-});
-
 test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {
   const originalFetch = global.fetch;
   let fetchCalled = false;
@@ -343,7 +334,7 @@ test('ChatAPI - streamChatCompletion no interpreta <tool_call> si la petición n
   try {
     const res = await Api.streamChatCompletion({
       apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test-model',
-      messages: [{ role: 'user', content: 'test' }], enableTools: false
+      messages: [{ role: 'user', content: 'test' }]
     });
     assert.equal(res.accumulatedText, content);
     assert.equal(res.toolCalls, null);

@@ -1,11 +1,7 @@
 /**
- * Módulo de Núcleo Agéntico y Sistema Modular de Herramientas (ChatAgentCore) para ZeroChat.
+ * Núcleo agéntico de ZeroChat (ChatAgentCore).
  *
- * Arquitectura:
- * Model -> AgentCore -> ToolRegistry -> Tool -> ToolExecutor
- *
- * Preparado para MCP (Model Context Protocol) y herramientas extensibles.
- * Compatible con entornos file://, http:// y Node.js.
+ * Model -> AgentRuntime -> ToolExecutor -> ToolRegistry -> Tool
  */
 
 (function (root, factory) {
@@ -19,473 +15,214 @@
 
   const { resolveDep, createId } = Utils;
 
-  // Resolutores perezosos de dependencias del entorno
+  const getAPI = () => resolveDep('ChatAPI', './api.js');
+  const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
+  const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js');
+  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
-  function getBuiltinToolManifest() {
-    return resolveDep('ChatToolManifest', './tools/tool-manifest.js').builtin;
-  }
+  const BUILTIN_TOOL_MODULES = [
+    ['ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'],
+    ['ChatBuiltinSearchWebTool', './tools/builtin/search-web.tool.js'],
+    ['ChatBuiltinFetchWebPageTool', './tools/builtin/fetch-web-page.tool.js'],
+    ['ChatBuiltinDownloadPdfTool', './tools/builtin/download-pdf.tool.js'],
+    ['ChatBuiltinRenderChartTool', './tools/builtin/render-chart.tool.js'],
+    ['ChatBuiltinListDocumentsTool', './tools/builtin/list-documents.tool.js'],
+    ['ChatBuiltinSearchKnowledgeBaseTool', './tools/builtin/search-knowledge-base.tool.js'],
+    ['ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'],
+    ['ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'],
+    ['ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'],
+    ['ChatBuiltinDelegateTaskTool', './tools/builtin/delegate-task.tool.js']
+  ];
 
-  function createBuiltinTool(toolId, globalName, modulePath) {
-    const builtinManifest = getBuiltinToolManifest();
-    const toolModule = builtinManifest?.get(toolId) || resolveDep(globalName, modulePath);
-    if (!toolModule || typeof toolModule.createTool !== 'function') {
-      throw new Error(`No se pudo cargar el módulo de la herramienta ${toolId}.`);
+  // Dependencias que las herramientas reciben en context.services.
+  const TOOL_SERVICES = {
+    sandbox: ['ChatSandbox', './sandbox.js'],
+    webSearch: ['ChatWebSearch', './web-search.js'],
+    webBrowser: ['ChatWebBrowser', './web-browser.js'],
+    ragService: ['ChatRagService', './rag-service.js'],
+    agent: ['ChatAgentCore', './agent-core.js'],
+    engine: ['ChatEngine', './chat-engine.js'],
+    profiles: ['ChatProfileRepository', './profile-repository.js'],
+    profilesUI: ['ChatUIProfiles', './ui-profiles.js']
+  };
+
+  /** Servicios resueltos al usarlos; `overrides` sustituye los indicados. */
+  function createToolServices(overrides = {}) {
+    const services = {};
+    for (const [name, [globalName, modulePath]] of Object.entries(TOOL_SERVICES)) {
+      Object.defineProperty(services, name, {
+        enumerable: true,
+        get: () => (name in overrides ? overrides[name] : resolveDep(globalName, modulePath))
+      });
     }
-    return toolModule.createTool(Tool);
+    return services;
   }
-
-  function getAPI() {
-    return resolveDep('ChatAPI', './api.js');
-  }
-
-  function getContextManager() {
-    return resolveDep('ChatContextManager', './context-manager.js');
-  }
-
-  function getToolRuntime() {
-    return resolveDep('ChatToolRuntime', './tools/tool-runtime.js');
-  }
-
-  function getToolSecurity() {
-    return resolveDep('ChatToolSecurity', './tool-security.js');
-  }
-
-  function getToolCards() {
-    return resolveDep('ChatToolCards', './tool-cards.js');
-  }
-
 
   const TOOL_WORKFLOW_INSTRUCTION = "*Workflow instruction:* After using tools, answer the user's question directly, clearly, and concisely. Use findings only as evidence, citing sources briefly or via inline links. Avoid lengthy or redundant summaries of consulted sources and do not show raw tool output.";
 
-  function createCancelledError() {
-    return new Error('Ejecución agéntica cancelada por el usuario.');
-  }
+  // Texto que acompaña a una llamada emitida como texto: no es respuesta para el usuario.
+  const TOOL_CALL_TEXT = /^(?:<\||<tool_call|<function_call|call:|\{"name"|```json\n\{"name")/;
 
-  /** Interruptor de una herramienta: por id, por nombre o su valor por defecto. */
-  function isToolEnabled(enabledTools = {}, { id, name, defaultEnabled = true }) {
-    const key = id || name;
-    if (enabledTools[key] !== undefined) return enabledTools[key] !== false;
-    if (enabledTools[name] !== undefined) return enabledTools[name] !== false;
-    return defaultEnabled !== false;
+  const createCancelledError = () => new Error('Agent execution cancelled by the user.');
+
+  /** Interruptor de una herramienta en la configuración, o su valor por defecto. */
+  function isToolEnabled(enabledTools = {}, name, defaultEnabled = true) {
+    return enabledTools[name] !== undefined ? enabledTools[name] !== false : defaultEnabled;
   }
 
   function withoutReasoningReplay(message) {
-    if (!message || !message.reasoningReplay) return message;
+    if (!message.reasoningReplay) return message;
     const { reasoningReplay, ...rest } = message;
     return rest;
   }
 
-  function createInvocationId() {
-    return createId();
-  }
+  const quote = text => String(text).split('\n').join('\n> ');
 
-  /**
-   * Versión del contrato público que deben implementar las herramientas.
-   *
-   * Una herramienta puede exponerse como una instancia de Tool (adaptador de
-   * compatibilidad) o como un módulo que implemente los mismos métodos. Las
-   * futuras herramientas autocontenidas usarán este contrato directamente.
-   */
-  const TOOL_CONTRACT_VERSION = 1;
-
-  /**
-   * Resultado normalizado de una ejecución. Mantiene el resultado nativo en
-   * `data` para no alterar el comportamiento de las herramientas existentes.
-   */
-  class ToolOutcome {
-    constructor(options = {}) {
-      this.ok = options.ok !== false;
-      this.data = options.data === undefined ? null : options.data;
-      this.error = options.error || null;
-      this.meta = options.meta || {};
-    }
-
-    static fromExecution(result, meta = {}) {
-      const ok = result?.success !== false;
-      return new ToolOutcome({
-        ok,
-        data: result,
-        error: result?.error || null,
-        meta
-      });
-    }
-
-    static fromError(error, meta = {}) {
-      return new ToolOutcome({
-        ok: false,
-        data: null,
-        error: error?.message || String(error || 'Error de ejecución de herramienta.'),
-        meta
-      });
-    }
-  }
-
-  /**
-   * Valida el contrato mínimo de una herramienta antes de registrarla.
-   * La vista es opcional: sin ella se usa el renderer genérico.
-   */
-  function validateToolContract(tool) {
-    const errors = [];
-    if (!tool || typeof tool !== 'object') {
-      return { valid: false, errors: ['La herramienta debe ser un objeto.'] };
-    }
-    if (!tool.id || typeof tool.id !== 'string') errors.push('Falta un id de herramienta válido.');
-    if (!tool.name || typeof tool.name !== 'string') errors.push('Falta un nombre de función válido.');
-    if (!tool.description || typeof tool.description !== 'string') errors.push('Falta una descripción válida.');
-    if (!tool.parameters || tool.parameters.type !== 'object') errors.push('El esquema parameters debe ser un objeto JSON Schema.');
-    if (typeof tool.getDefinition !== 'function') errors.push('Falta getDefinition().');
-    if (typeof tool.execute !== 'function') errors.push('Falta execute(args, context).');
-    if (typeof tool.isAvailable !== 'function') errors.push('Falta isAvailable(context).');
-    if (typeof tool.serializeResultForModel !== 'function') errors.push('Falta serializeResultForModel(args, result).');
-    if (typeof tool.formatMarkdownResult !== 'function') errors.push('Falta formatMarkdownResult(args, result).');
-    if (typeof tool.formatDispatchMarkdown !== 'function') errors.push('Falta formatDispatchMarkdown(args, result).');
-    if (!tool.settings || typeof tool.settings !== 'object') errors.push('Falta descriptor settings.');
-
-    return { valid: errors.length === 0, errors };
-  }
-
-  /**
-   * Representa una herramienta individual ejecutable y adapta la API histórica
-   * al contrato ToolModule v1.
-   */
+  /** Herramienta registrable: definición Function Calling, ejecución, serialización y vista opcional. */
   class Tool {
-    constructor(options = {}) {
-      const definition = options.definition || {};
-      this.contractVersion = options.contractVersion || TOOL_CONTRACT_VERSION;
-      this.id = options.id || definition.id || definition.name || options.name || '';
-      this.name = definition.name || options.name || '';
+    constructor({ definition, aliases = [], category = 'general', metadata = {}, settings = {}, promptGuide = null, isAvailable = () => true, execute, result = {}, displayMode = 'collapsed', view = null }) {
+      if (!definition?.name) throw new Error('A tool needs a definition with a name.');
+      if (typeof execute !== 'function') throw new Error(`Tool ${definition.name} needs an execute function.`);
+      this.name = definition.name;
       // Un servidor MCP puede publicar herramientas sin descripción: se usa el nombre.
-      this.description = definition.description || options.description || this.name;
-      this.parameters = definition.parameters || options.parameters || { type: 'object', properties: {} };
-      this.aliases = Array.isArray(options.aliases) ? options.aliases : [];
-      this.category = options.category || 'general';
-      this.metadata = options.metadata || {};
-      const settings = options.settings || {};
+      this.description = definition.description || this.name;
+      this.parameters = definition.parameters || { type: 'object', properties: {} };
+      this.aliases = aliases;
+      this.category = category;
+      this.metadata = metadata;
       this.settings = {
         titleKey: settings.titleKey || `agent_${this.name}_title`,
-        titleFallback: settings.titleFallback || options.metadata?.label || this.name,
         descKey: settings.descKey || `agent_${this.name}_desc`,
-        descFallback: settings.descFallback || this.description,
         defaultEnabled: settings.defaultEnabled !== false,
         showInSettings: settings.showInSettings !== false
       };
-      this.executeHandler = options.execute || null;
-      this.result = options.result || {};
-      this.formatter = options.formatter || null;
-      this.promptGuide = options.promptGuide || options.getSystemPromptGuide || null;
-      this.isAvailable = typeof options.isAvailable === 'function' ? options.isAvailable : (() => true);
-      this.displayMode = options.displayMode || options.view?.displayMode || options.metadata?.displayMode || options.definition?.displayMode || 'collapsed';
-      this.view = options.view ? { displayMode: this.displayMode, ...options.view } : { id: this.name, displayMode: this.displayMode };
+      this.promptGuide = promptGuide;
+      this.isAvailable = isAvailable;
+      this.execute = execute;
+      this.result = result;
+      this.displayMode = displayMode;
+      this.view = view;
     }
 
-    /**
-     * Devuelve la definición en formato estándar Function Calling (OpenAI, Claude, Gemini).
-     */
     getDefinition() {
-      return {
-        type: 'function',
-        function: {
-          name: this.name,
-          description: this.description,
-          parameters: this.parameters
-        }
-      };
+      return { type: 'function', function: { name: this.name, description: this.description, parameters: this.parameters } };
     }
 
-    /**
-     * Devuelve la línea descriptiva de la herramienta para el System Prompt (guía de texto plano).
-     */
-    getSystemPromptGuide(lang = 'es') {
-      if (typeof this.promptGuide === 'function') {
-        return this.promptGuide(lang);
-      }
-      return `- \`${this.name}\`: ${this.description}`;
+    /** Línea de la herramienta en la guía del prompt de sistema. */
+    getPromptGuide() {
+      return this.promptGuide || `- \`${this.name}\`: ${this.description}`;
     }
 
-    /**
-     * Ejecuta la herramienta asíncronamente.
-     */
-    async execute(args, context = {}) {
-      if (typeof this.executeHandler === 'function') {
-        return this.executeHandler(args, context);
-      }
-      throw new Error(`La herramienta ${this.name} no tiene handler de ejecución implementado.`);
-    }
-
-    /**
-     * Serializa una salida para el mensaje con rol `tool` que consume el LLM.
-     */
-    serializeResultForModel(args, result, outcome) {
-      if (typeof this.result.toModel === 'function') {
-        return this.result.toModel(args, result, outcome);
-      }
+    /** Contenido del mensaje `tool` que recibe el modelo. */
+    toModel(args, result) {
+      if (this.result.toModel) return this.result.toModel(args, result);
       return typeof result === 'object' ? JSON.stringify(result) : String(result ?? '');
     }
 
-    /**
-     * Formatea el resultado en Markdown para su inserción en el historial o exportación.
-     */
-    formatMarkdownResult(args, result, outcome) {
-      if (typeof this.formatter === 'function') {
-        return this.formatter(args, result, outcome);
-      }
-      const output = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
-      return `> ⚙️ **${this.name}**\n> \`\`\`json\n> ${output.split('\n').join('\n> ')}\n> \`\`\``;
-    }
-
-    /**
-     * Formato resumido que se añade al despacho y a la exportación de chat.
-     * Puede diferir del formato detallado conservado por la API histórica.
-     */
-    formatDispatchMarkdown(args, result, outcome) {
-      if (typeof this.result.toMarkdown === 'function') {
-        return this.result.toMarkdown(args, result, outcome);
-      }
-      return this.formatMarkdownResult(args, result, outcome);
+    /** Bloque Markdown de la llamada para copiar y exportar la respuesta. */
+    toMarkdown(args, result) {
+      if (this.result.toMarkdown) return this.result.toMarkdown(args, result);
+      return `> ⚙️ **${this.name}**\n> \`\`\`json\n> ${quote(JSON.stringify(result, null, 2))}\n> \`\`\``;
     }
   }
 
-  /**
-   * Clase base para proveedores de herramientas (ToolProvider).
-   */
-  class BaseToolProvider {
-    constructor(options = {}) {
-      this.id = options.id || 'base';
-      this.name = options.name || 'Base Tool Provider';
-    }
-
-    /**
-     * Devuelve el array de instancias Tool provistas por este proveedor.
-     */
+  /** Herramientas nativas: cada módulo exporta la especificación de su Tool. */
+  const builtinProvider = {
+    id: 'builtin',
+    tools: null,
     getTools() {
-      return [];
+      this.tools ||= BUILTIN_TOOL_MODULES.map(([globalName, modulePath]) => new Tool(resolveDep(globalName, modulePath)));
+      return this.tools;
     }
-  }
+  };
 
-  /**
-   * Proveedor de herramientas nativas de ZeroChat (BuiltinToolProvider).
-   * Provee las herramientas nativas registradas en módulos autocontenidos.
-   */
-  class BuiltinToolProvider extends BaseToolProvider {
-    constructor() {
-      super({ id: 'builtin', name: 'ZeroChat Built-in Tools' });
-    }
+  const normalizeAlias = name => String(name).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
 
-    getTools() {
-      const tools = [];
-
-      // 1. Herramienta execute_javascript (módulo autocontenido)
-      tools.push(createBuiltinTool('execute_javascript', 'ChatBuiltinExecuteJavascriptTool', './tools/builtin/execute-javascript.tool.js'));
-
-      // 2-4. Herramientas web autocontenidas
-      tools.push(createBuiltinTool('search_web', 'ChatBuiltinSearchWebTool', './tools/builtin/search-web.tool.js'));
-      tools.push(createBuiltinTool('fetch_web_page', 'ChatBuiltinFetchWebPageTool', './tools/builtin/fetch-web-page.tool.js'));
-      tools.push(createBuiltinTool('download_pdf', 'ChatBuiltinDownloadPdfTool', './tools/builtin/download-pdf.tool.js'));
-
-      // 5-8. Gráficos y RAG como módulos autocontenidos.
-      tools.push(createBuiltinTool('render_chart', 'ChatBuiltinRenderChartTool', './tools/builtin/render-chart.tool.js'));
-      tools.push(createBuiltinTool('list_documents', 'ChatBuiltinListDocumentsTool', './tools/builtin/list-documents.tool.js'));
-      tools.push(createBuiltinTool('search_knowledge_base', 'ChatBuiltinSearchKnowledgeBaseTool', './tools/builtin/search-knowledge-base.tool.js'));
-      tools.push(createBuiltinTool('read_knowledge_chunk', 'ChatBuiltinReadKnowledgeChunkTool', './tools/builtin/read-knowledge-chunk.tool.js'));
-      tools.push(createBuiltinTool('read_knowledge_image', 'ChatBuiltinReadKnowledgeImageTool', './tools/builtin/read-knowledge-image.tool.js'));
-
-      // 9. Interacción: pregunta con opciones que cede el turno al usuario.
-      tools.push(createBuiltinTool('ask_user', 'ChatBuiltinAskUserTool', './tools/builtin/ask-user.tool.js'));
-
-      // 10. Subagente de solo lectura con contexto propio.
-      tools.push(createBuiltinTool('delegate_task', 'ChatBuiltinDelegateTaskTool', './tools/builtin/delegate-task.tool.js'));
-
-      return tools;
-    }
-  }
-
-  /**
-   * Registro central de herramientas y proveedores (ToolRegistry).
-   */
+  /** Registro de herramientas por proveedor. Las MCP se resuelven solo por su nombre exacto. */
   class ToolRegistry {
     constructor() {
       this.tools = new Map();
       this.aliasMap = new Map();
       this.providers = new Map();
-
-      // Registrar proveedor de herramientas nativas por defecto
-      this.registerProvider(new BuiltinToolProvider());
+      this.registerProvider(builtinProvider);
     }
 
-    /**
-     * Registra un proveedor de herramientas.
-     */
     registerProvider(provider) {
-      if (!provider || !provider.id) return;
       this.providers.set(provider.id, provider);
-      const tools = provider.getTools();
-      if (Array.isArray(tools)) {
-        tools.forEach(tool => this.registerTool(tool));
-      }
+      provider.getTools().forEach(tool => this.registerTool(tool));
     }
 
-    /**
-     * Registra una herramienta individual.
-     */
     registerTool(tool) {
-      const validation = validateToolContract(tool);
-      if (!validation.valid) {
-        throw new Error(`Contrato de herramienta inválido: ${validation.errors.join(' ')}`);
-      }
-      const canonicalName = tool.category === 'mcp' ? tool.name.trim() : tool.name.trim().toLowerCase();
-      this.tools.set(canonicalName, tool);
-
+      if (!(tool instanceof Tool)) throw new Error('Only Tool instances can be registered.');
+      this.tools.set(tool.name, tool);
       if (tool.category === 'mcp') return tool;
-
-      // Mapear nombre canónico normalizado sin guiones bajos
-      this.aliasMap.set(canonicalName.replace(/_/g, ''), canonicalName);
-
-      // Mapear alias declarados
-      if (Array.isArray(tool.aliases)) {
-        tool.aliases.forEach(alias => {
-          const cleanAlias = String(alias).trim().toLowerCase();
-          this.aliasMap.set(cleanAlias, canonicalName);
-          this.aliasMap.set(cleanAlias.replace(/_/g, ''), canonicalName);
-        });
+      for (const alias of [tool.name, ...tool.aliases].map(normalizeAlias)) {
+        this.aliasMap.set(alias, tool.name);
+        this.aliasMap.set(alias.replace(/_/g, ''), tool.name);
       }
       return tool;
     }
 
-    /**
-     * Obtiene una herramienta por su nombre canónico o alias.
-     */
+    /** Herramienta por su nombre o, si no es MCP, por un alias con o sin guiones bajos. */
     getTool(rawName) {
-      if (!rawName) return null;
-      const exactName = String(rawName).trim();
-      if (this.tools.has(exactName)) {
-        return this.tools.get(exactName);
-      }
-      const clean = exactName.toLowerCase();
-      if (this.tools.has(clean)) {
-        const tool = this.tools.get(clean);
-        return tool.category === 'mcp' ? null : tool;
-      }
-      const canonical = this.aliasMap.get(clean) || this.aliasMap.get(clean.replace(/_/g, ''));
-      if (canonical && this.tools.has(canonical) && this.tools.get(canonical).category !== 'mcp') {
-        return this.tools.get(canonical);
-      }
-      return null;
+      const exactName = String(rawName || '').trim();
+      if (this.tools.has(exactName)) return this.tools.get(exactName);
+      const alias = normalizeAlias(exactName);
+      const name = this.aliasMap.get(alias) || this.aliasMap.get(alias.replace(/_/g, ''));
+      return name ? this.tools.get(name) : null;
     }
 
-
-    /**
-     * Desregistra un proveedor y todas las herramientas que expone.
-     */
     unregisterProvider(providerId) {
-      if (!providerId || !this.providers.has(providerId)) return;
       const provider = this.providers.get(providerId);
+      if (!provider) return;
       this.providers.delete(providerId);
-      const tools = typeof provider.getTools === 'function' ? provider.getTools() : [];
-      if (Array.isArray(tools)) {
-        tools.forEach(tool => {
-          if (tool && tool.name) {
-            this.unregisterTool(tool.name);
-          }
-        });
-      }
+      provider.getTools().forEach(tool => this.unregisterTool(tool.name));
     }
 
-    /**
-     * Desregistra una herramienta individual y sus alias.
-     */
     unregisterTool(name) {
-      if (!name) return;
-      const exactName = String(name).trim();
-      const clean = exactName.toLowerCase();
-      const tool = this.tools.get(exactName) || this.tools.get(clean);
-      if (tool) {
-        this.tools.delete(tool.category === 'mcp' ? exactName : clean);
-        this.aliasMap.delete(clean.replace(/_/g, ''));
-        if (Array.isArray(tool.aliases)) {
-          tool.aliases.forEach(alias => {
-            const cleanAlias = String(alias).trim().toLowerCase();
-            this.aliasMap.delete(cleanAlias);
-            this.aliasMap.delete(cleanAlias.replace(/_/g, ''));
-          });
-        }
+      const tool = this.tools.get(name);
+      if (!tool) return;
+      this.tools.delete(name);
+      for (const [alias, target] of this.aliasMap) {
+        if (target === name) this.aliasMap.delete(alias);
       }
-    }
-
-    /**
-     * Devuelve las herramientas visibles para la UI de Configuración.
-     * @param {string} [filterCategory=null] - Opcional: filtrar por categoría ('builtin', 'mcp', etc.)
-     */
-    listToolsForUI(filterCategory = null) {
-      const list = [];
-      for (const tool of this.tools.values()) {
-        if (tool.settings && tool.settings.showInSettings !== false) {
-          if (filterCategory && tool.category !== filterCategory) {
-            continue;
-          }
-          list.push({
-            id: tool.id || tool.name,
-            name: tool.name,
-            category: tool.category,
-            titleKey: tool.settings.titleKey,
-            descKey: tool.settings.descKey,
-            defaultEnabled: tool.settings.defaultEnabled !== false
-          });
-        }
-      }
-      return list;
     }
 
     /**
      * Una herramienta está activa si está disponible en su contexto (por ejemplo, RAG exige una
      * rama activa) y, cuando se configura en la interfaz, si su interruptor está encendido.
      */
-    isToolActive(tool, appConfig = {}) {
-      if (typeof tool.isAvailable === 'function' && !tool.isAvailable(appConfig)) return false;
-      if (!tool.settings || tool.settings.showInSettings === false) return true;
-      return isToolEnabled(appConfig.enabledTools, { id: tool.id, name: tool.name, defaultEnabled: tool.settings.defaultEnabled });
+    isToolActive(tool, appConfig) {
+      if (!tool.isAvailable(appConfig)) return false;
+      if (!tool.settings.showInSettings) return true;
+      return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
+    }
+
+    getActiveTools(appConfig) {
+      return this.listTools().filter(tool => this.isToolActive(tool, appConfig));
     }
 
     /** Definiciones Function Calling de las herramientas activas según la configuración. */
-    getActiveDefinitions(appConfig = {}) {
-      return [...this.tools.values()].filter(tool => this.isToolActive(tool, appConfig)).map(tool => tool.getDefinition());
+    getActiveDefinitions(appConfig) {
+      return this.getActiveTools(appConfig).map(tool => tool.getDefinition());
     }
 
-    /**
-     * Genera la guía textual de herramientas para el System Prompt.
-     */
-    getActivePromptGuide(appConfig = {}) {
-      const guides = [];
-
-      for (const tool of this.tools.values()) {
-        if (!this.isToolActive(tool, appConfig)) continue;
-
-        if (typeof tool.getSystemPromptGuide === 'function') {
-          const guideStr = tool.getSystemPromptGuide('en');
-          if (guideStr && typeof guideStr === 'string') {
-            guides.push(guideStr);
-          }
-        }
-      }
-
+    /** Guía textual de las herramientas activas para el prompt de sistema. */
+    getActivePromptGuide(appConfig) {
+      const guides = this.getActiveTools(appConfig).map(tool => tool.getPromptGuide());
       if (guides.length === 0) return '';
-
       return `\n\n[AVAILABLE TOOLS AND FUNCTIONS]:\nYou can use the following tools when needed to answer accurately:\n${guides.join('\n')}\n${TOOL_WORKFLOW_INSTRUCTION}`;
     }
 
-    /**
-     * Lista todas las herramientas registradas con sus metadatos.
-     */
     listTools() {
       return Array.from(this.tools.values());
     }
   }
 
-  /**
-   * Motor de ejecución seguro para llamadas a herramientas (ToolExecutor).
-   */
+  /** Ejecuta llamadas a herramientas tras pasar la política de ChatToolSecurity. */
   class ToolExecutor {
     constructor(registry) {
-      this.registry = registry || new ToolRegistry();
+      this.registry = registry;
     }
 
     /**
@@ -630,222 +367,108 @@
     }
 
     /**
-     * Ejecuta una llamada a herramienta con control de tiempo, métricas y manejo de errores.
+     * Ejecuta una llamada a herramienta y mide su duración. Los errores se devuelven en el
+     * resultado, nunca se lanzan.
      */
     async executeToolCall(toolCall, context = {}) {
       const rawName = toolCall?.function?.name || '';
       const tool = this.registry.getTool(rawName);
-      // Work from a stable value: the authorization dialog may await user input.
-      const parsedArgs = JSON.parse(JSON.stringify(this.parseArguments(toolCall?.function?.arguments)));
+      const failure = (error, extra = {}) => ({ success: false, toolName: tool?.name || rawName, error, result: null, executionTimeMs: 0, ...extra });
+      if (!tool) return failure(`Tool '${rawName}' is not registered.`);
 
-      if (!tool) {
-        const error = `Herramienta '${rawName}' no encontrada en el registro.`;
-        return {
-          success: false,
-          toolName: rawName,
-          error,
-          executionTimeMs: 0,
-          result: null,
-          outcome: ToolOutcome.fromError(error, {
-            toolId: null,
-            toolName: rawName,
-            contractVersion: TOOL_CONTRACT_VERSION,
-            executionTimeMs: 0
-          })
-        };
-      }
+      // Valor estable: el diálogo de autorización puede esperar al usuario.
+      const parsed = this.parseArguments(toolCall.function.arguments);
+      const args = parsed && Utils.clone(parsed);
+      const base = { tool, displayMode: tool.displayMode, args };
+      if (!args) return failure('Invalid tool arguments: expected a JSON object. The tool was not executed.', base);
 
-      const displayMode = tool.displayMode || tool.view?.displayMode || 'collapsed';
-      if (!parsedArgs) {
-        const error = 'Invalid tool arguments: expected a JSON object. The tool was not executed.';
-        return {
-          success: false,
-          tool,
-          toolName: tool.name,
-          displayMode,
-          args: null,
-          error,
-          executionTimeMs: 0,
-          result: null,
-          outcome: ToolOutcome.fromError(error, {
-            toolId: tool.id,
-            toolName: tool.name,
-            contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-            executionTimeMs: 0
-          })
-        };
-      }
-
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const measureExecution = () => {
-        const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const elapsed = parseFloat((endTime - startTime).toFixed(2));
-        const meta = { toolId: tool.id, toolName: tool.name, contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION, executionTimeMs: elapsed, displayMode };
-        return { elapsed, meta };
-      };
-
+      const startTime = performance.now();
+      const elapsed = () => parseFloat((performance.now() - startTime).toFixed(2));
       try {
-        const authorization = await this._authorizeToolCall(tool, parsedArgs, toolCall, context);
-        if (!authorization.allowed) {
-          return {
-            success: false,
-            tool,
-            toolName: tool.name,
-            displayMode,
-            args: parsedArgs,
-            error: authorization.error,
-            executionTimeMs: 0,
-            result: null,
-            outcome: ToolOutcome.fromError(authorization.error, {
-              toolId: tool.id,
-              toolName: tool.name,
-              contractVersion: tool.contractVersion || TOOL_CONTRACT_VERSION,
-              executionTimeMs: 0
-            })
-          };
-        }
-        if (context.signal && context.signal.aborted) {
-          throw new Error('Ejecución de herramienta cancelada por el usuario.');
-        }
+        const authorization = await this._authorizeToolCall(tool, args, toolCall, context);
+        if (!authorization.allowed) return failure(authorization.error, base);
+        if (context.signal?.aborted) throw new Error('Tool execution cancelled by the user.');
 
-        const executionContext = getToolRuntime().createToolExecutionContext({ displayMode, ...context, toolAuthorization: true });
-        const execResult = await tool.execute(parsedArgs, executionContext);
-        const { elapsed, meta } = measureExecution();
-        return {
-          success: execResult?.success !== false,
-          tool: tool,
-          toolName: tool.name,
-          displayMode,
-          args: parsedArgs,
-          result: execResult,
-          outcome: ToolOutcome.fromExecution(execResult, meta),
-          executionTimeMs: elapsed,
-          error: execResult?.error
-        };
+        const result = await tool.execute(args, {
+          ...context,
+          language: context.language || 'es',
+          services: createToolServices(context.services),
+          toolAuthorization: true
+        });
+        return { ...base, success: result?.success !== false, toolName: tool.name, result, error: result?.error, executionTimeMs: elapsed() };
       } catch (err) {
-        const { elapsed, meta } = measureExecution();
-        return {
-          success: false,
-          tool: tool,
-          toolName: tool.name,
-          displayMode,
-          args: parsedArgs,
-          error: err.message || String(err),
-          executionTimeMs: elapsed,
-          result: null,
-          outcome: ToolOutcome.fromError(err, meta)
-        };
+        return failure(err.message || String(err), { ...base, executionTimeMs: elapsed() });
       }
     }
 
     /**
-     * Despacha una llamada a herramienta gestionando el ciclo completo:
-     * - Parseo seguro de argumentos
-     * - Creación inicial e inserción de la tarjeta DOM en vivo
-     * - Logging previo a consola de depuración
-     * - Ejecución asíncrona a través de executeToolCall
-     * - Actualización reactiva de la tarjeta DOM con los resultados
-     * - Formateo de la respuesta textual para el historial del chat y markdown
+     * Ejecuta una llamada con su tarjeta en vivo: la crea en `container`, pide en ella la
+     * autorización, la actualiza con el resultado y prepara el texto para el modelo y el Markdown.
      */
     async dispatchToolCall(toolCall, options = {}) {
-      const {
-        container,
-        onLog,
-        attachListeners,
-        scrollToBottom,
-        language = 'es'
-      } = options;
-
+      const { container, onLog, attachListeners, scrollToBottom } = options;
       const rawFuncName = toolCall?.function?.name || '';
       const parsedArgs = this.parseArguments(toolCall?.function?.arguments) || {};
       const ToolCards = getToolCards();
       // Identifica esta invocación ante la herramienta y su tarjeta mientras se ejecuta.
-      const invocationId = createInvocationId();
+      const invocationId = createId();
 
-      // 1. Crear e insertar la tarjeta DOM en vivo con estado de carga
       let cardEl = null;
-      if (ToolCards && ToolCards.createLiveToolCard && container && typeof document !== 'undefined') {
-        cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs, { invocationId });
-        if (cardEl) {
-          cardEl.dataset.invocationId = invocationId;
-          if (ToolCards.appendToolCard) ToolCards.appendToolCard(container, cardEl);
-          else container.appendChild(cardEl);
-          if (typeof attachListeners === 'function') attachListeners(cardEl);
-          if (typeof scrollToBottom === 'function') scrollToBottom();
-        }
+      if (container) {
+        cardEl = ToolCards.createLiveToolCard(rawFuncName, parsedArgs);
+        cardEl.dataset.invocationId = invocationId;
+        ToolCards.appendToolCard(container, cardEl);
+        attachListeners?.(cardEl);
+        scrollToBottom?.();
       }
 
-      // 2. Logging previo
-      if (typeof onLog === 'function') {
-        onLog('tool', `${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
-        onLog('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
-      }
+      onLog?.('tool', `${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
+      onLog?.('raw', `>>> TOOL CALL ${rawFuncName}:\n${JSON.stringify(parsedArgs, null, 2)}`);
 
-      // 3. Ejecutar la herramienta a través de executeToolCall
       const execRes = await this.executeToolCall(toolCall, {
-        lang: language,
         ...options,
         invocationId,
-        requestToolAuthorization: ToolCards?.promptToolAuthorization
+        requestToolAuthorization: cardEl
           ? async (pendingToolCall, authorization) => {
-            if (typeof scrollToBottom === 'function') scrollToBottom();
+            scrollToBottom?.();
             return ToolCards.promptToolAuthorization(cardEl, pendingToolCall, authorization);
           }
           : undefined
       });
+      const shownResult = execRes.result || { success: false, error: execRes.error };
 
-      // 4. Actualizar la tarjeta DOM con el resultado
-      if (ToolCards && ToolCards.updateLiveToolCard && cardEl) {
-        ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, execRes.result || execRes, execRes.executionTimeMs, {
-          displayMode: execRes.displayMode || execRes.tool?.displayMode,
-          outcome: execRes.outcome
-        });
-        ToolCards.completeToolCard?.(cardEl, execRes.result || execRes);
-        if (typeof attachListeners === 'function') attachListeners(cardEl);
-        if (typeof scrollToBottom === 'function') scrollToBottom();
+      if (cardEl) {
+        ToolCards.updateLiveToolCard(cardEl, rawFuncName, parsedArgs, shownResult, execRes.executionTimeMs, { displayMode: execRes.displayMode });
+        ToolCards.completeToolCard(cardEl, shownResult);
+        attachListeners?.(cardEl);
+        scrollToBottom?.();
       }
 
-      // 5. Formatear la salida para el mensaje `tool` sin conocer tipos concretos.
-      const resolvedTool = execRes.tool;
-      let resultText = '';
+      const tool = execRes.tool;
+      let resultText;
       try {
-        const serialized = resolvedTool
-          ? resolvedTool.serializeResultForModel(parsedArgs, execRes.result, execRes.outcome)
-          : (execRes.error || 'Tool execution error.');
-        resultText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
+        resultText = tool ? tool.toModel(parsedArgs, execRes.result) : execRes.error;
+        if (typeof resultText !== 'string') resultText = JSON.stringify(resultText);
       } catch (err) {
         resultText = `Error serializing result of ${rawFuncName}: ${err.message || String(err)}`;
       }
 
-      // 6. Logging posterior
-      if (typeof onLog === 'function') {
-        onLog('tool', `${rawFuncName} output (${execRes.executionTimeMs || 0}ms):\n${String(resultText).substring(0, 300)}`);
-        onLog('raw', `<<< TOOL RESULT ${rawFuncName} (${execRes.executionTimeMs || 0}ms):\n${resultText}`);
-      }
+      onLog?.('tool', `${rawFuncName} output (${execRes.executionTimeMs}ms):\n${resultText.substring(0, 300)}`);
+      onLog?.('raw', `<<< TOOL RESULT ${rawFuncName} (${execRes.executionTimeMs}ms):\n${resultText}`);
 
-      // 7. Formatear bloque Markdown para portapapeles/exportación desde la tool.
-      let toolMd = '';
+      let markdownBlock;
       try {
-        toolMd = resolvedTool
-          ? resolvedTool.formatDispatchMarkdown(parsedArgs, execRes.result, execRes.outcome)
-          : `> ⚙️ **${rawFuncName}**\n> \`\`\`\n> ${String(resultText).slice(0, 300)}\n> \`\`\``;
+        markdownBlock = tool
+          ? tool.toMarkdown(parsedArgs, shownResult)
+          : `> ⚙️ **${rawFuncName}**\n> \`\`\`\n> ${quote(resultText.slice(0, 300))}\n> \`\`\``;
       } catch (err) {
-        toolMd = `> ❌ **${rawFuncName}**: ${err.message || String(err)}`;
+        markdownBlock = `> ❌ **${rawFuncName}**: ${err.message || String(err)}`;
       }
 
-      return {
-        success: execRes.success !== false,
-        result: execRes.result,
-        resultText,
-        markdownBlock: toolMd,
-        cardElement: cardEl,
-        executionTimeMs: execRes.executionTimeMs,
-        error: execRes.error,
-        toolName: rawFuncName,
-        args: parsedArgs
-      };
+      return { ...execRes, args: parsedArgs, resultText, markdownBlock, cardElement: cardEl };
     }
   }
+
 
   // Un bucle es el mismo lote de herramientas repetido 5 veces seguidas (aaaaa) o dos
   // lotes alternados 5 veces (ababababab). Ciclos como test -> editar -> test no cuentan
@@ -856,25 +479,39 @@
   const LOOP_HISTORY_SIZE = LOOP_REPETITIONS * LOOP_MAX_PERIOD;
 
   /**
-   * Entorno de ejecución agéntico avanzado (AgentRuntime).
-   * Orquesta el ciclo de vida de razonamiento y acción (ReAct), múltiples pasos,
-   * cancelación,
-   * detección de bucles infinitos y presupuestos de tokens. No hay límite de pasos:
-   * el ciclo termina con la respuesta final, un bucle, ask_user, cancelación o error.
+   * Contenido del mensaje `tool` de una ejecución. Las imágenes (de RAG o capturas del servidor
+   * local, cuyo texto ya describe el base64) viajan como metadatos del mensaje y ChatEngine las
+   * envía como evidencia visual en la siguiente petición.
+   */
+  function toToolMessageContent(execResult) {
+    const { success, result, resultText, tool, args } = execResult;
+    if (!success || result === undefined) {
+      return { content: JSON.stringify({ success: false, error: execResult.error || 'Unknown error executing tool.' }), images: null };
+    }
+    const content = resultText ?? tool.toModel(args, result);
+    if (result?.dataUrl && result.mimeType) {
+      return { content, images: [{ dataUrl: result.dataUrl, imageRef: result.imageRef, documentTitle: result.documentTitle, page: result.page }] };
+    }
+    if (!result?.image_base64) return { content, images: null };
+    const mimeType = result.mime_type || 'image/png';
+    const dataUrl = result.image_base64.startsWith('data:') ? result.image_base64 : `data:${mimeType};base64,${result.image_base64}`;
+    return { content, images: [{ dataUrl, mimeType, action: result.action || 'screenshot', url: result.url }] };
+  }
+
+  /**
+   * Bucle agéntico (ReAct): pide al modelo, ejecuta sus herramientas y repite. No hay límite de
+   * pasos: termina con la respuesta final, un bucle, una herramienta que cede el turno
+   * (ask_user), la cancelación o un error.
    */
   class AgentRuntime {
-    constructor(options = {}) {
-      this.registry = options.registry || new ToolRegistry();
-      this.executor = options.executor || new ToolExecutor(this.registry);
+    constructor({ registry, executor = new ToolExecutor(registry) }) {
+      this.registry = registry;
+      this.executor = executor;
     }
 
-    /**
-     * Genera una huella única para la llamada a herramienta para detectar repeticiones cíclicas.
-     */
+    /** Huella de una llamada (nombre y argumentos con las claves ordenadas) para detectar bucles. */
     getToolCallFingerprint(toolCall) {
-      if (!toolCall || !toolCall.function) return '';
-      const name = toolCall.function.name || '';
-      const rawArgs = toolCall.function.arguments;
+      const rawArgs = toolCall.function?.arguments;
       let args = rawArgs;
       if (typeof rawArgs === 'string') {
         const trimmed = rawArgs.trim();
@@ -891,11 +528,11 @@
         return value;
       };
       args = typeof args === 'string' ? args : JSON.stringify(canonicalize(args));
-      return `${name}:${args}`;
+      return `${toolCall.function?.name || ''}:${args}`;
     }
 
     getToolBatchFingerprint(toolCalls) {
-      return JSON.stringify((toolCalls || []).map(toolCall => this.getToolCallFingerprint(toolCall)));
+      return JSON.stringify(toolCalls.map(toolCall => this.getToolCallFingerprint(toolCall)));
     }
 
     /**
@@ -912,9 +549,12 @@
       return 0;
     }
 
-    /**
-     * Ejecuta el ciclo completo de ejecución agéntica multi-turno.
-     */
+    /** Texto de un paso con herramientas que solo repite la llamada emitida como texto. */
+    isToolCallText(text) {
+      const trimmed = text.trim();
+      return TOOL_CALL_TEXT.test(trimmed) || Boolean(this.registry.getTool(trimmed.match(/^([a-z_]+)\(/)?.[1]));
+    }
+
     async execute(params = {}) {
       const {
         apiUrl,
@@ -925,32 +565,21 @@
         temperature = 0.7,
         reasoningEffort = 'medium',
         reasoningTransport = 'auto',
-        enableTools = true,
-        toolFilterOptions = {},
         signal = null,
-        api: customApi = null,
         prepareMessages = null,
         resolveToolDefinitions = null,
         dispatchToolCall = null,
         summarizeHistory = null,
         contextOptions = {},
-        createMessageId = null,
+        createMessageId = kind => createId(`msg_${kind}`),
         appendFinalMessage = false,
         onBeforeRequest = null,
         callbacks = {}
       } = params;
 
-      const API = customApi || getAPI();
-      if (!API || !API.streamChatCompletion) {
-        throw new Error('Módulo ChatAPI no disponible para ejecución agéntica.');
-      }
-
+      const API = getAPI();
       const ContextManager = getContextManager();
-      const safeContextOptions = contextOptions && typeof contextOptions === 'object'
-        ? contextOptions
-        : {};
-
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const startTime = performance.now();
 
       // Sin signal externo se usa uno que nunca se aborta.
       const abortSignal = signal || new AbortController().signal;
@@ -975,52 +604,27 @@
           break;
         }
 
-        if (callbacks.onStepStart) {
-          callbacks.onStepStart(stepIndex);
-        }
+        callbacks.onStepStart?.(stepIndex);
 
-        // Automatic context compaction replaces the previous checkpoint and later
-        // dialogue atomically.
-        if (!compressionUnavailable && ContextManager && typeof ContextManager.shouldCompress === 'function' &&
-          typeof ContextManager.compressHistory === 'function' &&
-          typeof summarizeHistory === 'function' &&
-          ContextManager.shouldCompress(workingMessages, { ...safeContextOptions, model, providerType: apiType })) {
-          if (callbacks.onCompactionStart) callbacks.onCompactionStart(stepIndex);
+        // La compactación sustituye de una vez el punto de control anterior y el diálogo posterior.
+        const compactionOptions = { ...contextOptions, model, providerType: apiType };
+        if (!compressionUnavailable && summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
+          callbacks.onCompactionStart?.(stepIndex);
           const compacted = await ContextManager.compressHistory({
             messages: workingMessages,
             summarizeFn: summarizeHistory,
-            options: { ...safeContextOptions, model, providerType: apiType }
+            options: compactionOptions
           });
-          if (callbacks.onCompactionEnd) callbacks.onCompactionEnd(compacted, stepIndex);
           if (compacted.compressed) {
             workingMessages = compacted.messages;
           } else {
-            // A failed or unavailable summarizer cannot make progress during
-            // this execution; retrying it before every agent step only adds calls.
+            // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
             compressionUnavailable = true;
           }
         }
 
-        // 1. Optimización dinámica de presupuesto de contexto (Context Budget)
-        let stepMessages = workingMessages;
-        let contextDiagnostics = null;
-        if (typeof prepareMessages === 'function') {
-          const prepared = await prepareMessages(workingMessages);
-          if (Array.isArray(prepared)) {
-            stepMessages = prepared;
-          } else if (prepared && Array.isArray(prepared.messages)) {
-            stepMessages = prepared.messages;
-            contextDiagnostics = prepared.diagnostics || null;
-          }
-        }
-        if (callbacks.onContextPrepared) callbacks.onContextPrepared(contextDiagnostics, stepIndex);
-
-        // 2. Definición de herramientas activas
-        const activeToolDefs = enableTools
-          ? (typeof resolveToolDefinitions === 'function'
-            ? await resolveToolDefinitions({ stepIndex, workingMessages })
-            : this.registry.getActiveDefinitions(toolFilterOptions))
-          : [];
+        const stepMessages = prepareMessages ? (await prepareMessages(workingMessages)).messages : workingMessages;
+        const activeToolDefs = resolveToolDefinitions ? await resolveToolDefinitions({ stepIndex, workingMessages }) : [];
 
         let currentStepText = '';
         let currentStepReasoning = '';
@@ -1040,21 +644,18 @@
             reasoningEffort,
             reasoningTransport,
             tools: activeToolDefs,
-            enableTools: activeToolDefs.length > 0,
             signal: abortSignal,
             onBeforeRequest,
             onGenerationStatus: status => callbacks.onGenerationStatus?.(status),
 
             onReasoningChunk: (chunk, accumulated) => {
               currentStepReasoning = accumulated;
-              if (callbacks.onReasoningChunk) callbacks.onReasoningChunk(chunk, accumulated, stepIndex);
+              callbacks.onReasoningChunk?.(chunk, accumulated, stepIndex);
             },
-            onLog: (logData) => {
-              if (callbacks.onLog) callbacks.onLog(logData);
-            },
+            onLog: logData => callbacks.onLog?.(logData),
             onChunk: (fullTextSoFar, delta, stats) => {
               currentStepText = fullTextSoFar;
-              if (callbacks.onChunk) callbacks.onChunk(fullTextSoFar, delta, stats, stepIndex);
+              callbacks.onChunk?.(fullTextSoFar, delta, stats, stepIndex);
             },
             onDone: (finalText, stats, toolCalls, reasoning) => {
               currentStepText = finalText || currentStepText;
@@ -1062,21 +663,12 @@
               stepStats = stats;
               stepToolCalls = toolCalls;
             },
-            onError: (error) => {
-              streamError = error;
-              if (callbacks.onError) callbacks.onError(error);
-            }
+            onError: error => { streamError = error; }
           });
 
           if (streamError) {
-            if (abortSignal.aborted) {
-              status = 'cancelled';
-              executionError = createCancelledError();
-            } else {
-              status = 'error';
-              executionError = streamError;
-              if (callbacks.onError) callbacks.onError(streamError);
-            }
+            status = abortSignal.aborted ? 'cancelled' : 'error';
+            executionError = abortSignal.aborted ? createCancelledError() : streamError;
             break;
           }
 
@@ -1095,52 +687,25 @@
 
           // Caso A: Sin llamadas a herramientas -> Turno final
           if (!stepToolCalls || stepToolCalls.length === 0) {
-            // If the model returned empty text after a tool turn, log it and move on
-            if ((!currentStepText || currentStepText.trim() === '') && stepIndex > 0 && workingMessages.length > 0 && workingMessages[workingMessages.length - 1].role === 'tool') {
-              if (callbacks.onLog) callbacks.onLog({ type: 'warn', text: 'Model ended the tool loop without producing a response.' });
+            if (!currentStepText?.trim() && workingMessages.at(-1)?.role === 'tool') {
+              callbacks.onLog?.({ type: 'warn', text: 'Model ended the tool loop without producing a response.' });
             }
 
             finalAccumulatedText = currentStepText;
             if (appendFinalMessage) {
-              workingMessages.push({
-                id: typeof createMessageId === 'function'
-                  ? createMessageId('final', { stepIndex })
-                  : `msg_turn_${stepIndex}_final`,
-                role: 'assistant',
-                content: currentStepText
-              });
+              workingMessages.push({ id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText });
             }
-            if (callbacks.onStepDone) {
-              callbacks.onStepDone(stepIndex, {
-                type: 'final_response',
-                text: currentStepText,
-                stats: lastStats
-              });
-            }
+            callbacks.onStepDone?.(stepIndex, { type: 'final_response', text: currentStepText, stats: lastStats });
             status = 'completed';
             break;
           }
 
-          // Caso B: Llamadas a herramientas detectadas (soporte para llamadas individuales y en paralelo)
-          const trimmedStepText = (currentStepText || '').trim();
-          if (
-            trimmedStepText.startsWith('<|') ||
-            trimmedStepText.startsWith('<tool_call') ||
-            trimmedStepText.startsWith('<function_call') ||
-            trimmedStepText.startsWith('call:') ||
-            trimmedStepText.startsWith('{"name"') ||
-            trimmedStepText.startsWith('```json\n{"name"') ||
-            trimmedStepText.startsWith('download_pdf(') ||
-            trimmedStepText.startsWith('downloadpdf(') ||
-            trimmedStepText.startsWith('fetch_web_page(') ||
-            trimmedStepText.startsWith('fetchwebpage(') ||
-            trimmedStepText.startsWith('search_web(') ||
-            trimmedStepText.startsWith('searchweb(') ||
-            trimmedStepText.startsWith('execute_javascript(') ||
-            trimmedStepText.startsWith('executejs(')
-          ) {
-            currentStepText = '';
+          // El nombre que se guarda y se reenvía es el registrado, aunque el modelo use un alias.
+          for (const call of stepToolCalls) {
+            const tool = this.registry.getTool(call.function?.name);
+            if (tool) call.function.name = tool.name;
           }
+          if (this.isToolCallText(currentStepText || '')) currentStepText = '';
 
           // Un texto nuevo para el usuario reinicia el control de bucles. La misma frase
           // repetida en cada paso ("Voy a buscar...") no lo reinicia.
@@ -1155,125 +720,35 @@
 
           if (loopPeriod > 0) {
             status = 'loop_detected';
-            if (callbacks.onLoopDetected) {
-              callbacks.onLoopDetected(stepToolCalls[0], loopPeriod, stepIndex);
-            }
-            const loopWarning = '\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.';
-            currentStepText = (currentStepText || '') + loopWarning;
+            callbacks.onLoopDetected?.(stepToolCalls[0], loopPeriod, stepIndex);
+            currentStepText = `${currentStepText || ''}\n\n> ⚠️ *[Infinite Loop Protection]*: Tools were invoked in a repeating pattern with the same arguments without progress. Halting agent turn loop.`;
             finalAccumulatedText = currentStepText;
-            const finalMsg = {
-              id: typeof createMessageId === 'function'
-                ? createMessageId('final', { stepIndex })
-                : `msg_turn_${stepIndex}_final`,
-              role: 'assistant',
-              content: currentStepText
-            };
+            const finalMsg = { id: createMessageId('final', { stepIndex }), role: 'assistant', content: currentStepText };
             if (appendFinalMessage) workingMessages.push(finalMsg);
-            if (callbacks.onStepDone) {
-              callbacks.onStepDone(stepIndex, {
-                type: 'loop_detected',
-                text: currentStepText,
-                assistantMsg: finalMsg
-              });
-            }
+            callbacks.onStepDone?.(stepIndex, { type: 'loop_detected', text: currentStepText, assistantMsg: finalMsg });
             break;
           }
 
           const executedToolMessages = [];
           const stepExecResults = [];
 
-          for (let i = 0; i < stepToolCalls.length; i++) {
+          for (const [toolIndex, call] of stepToolCalls.entries()) {
             if (abortSignal.aborted) break;
-            const call = stepToolCalls[i];
-            const toolFnName = call.function?.name || '';
+            const toolFnName = call.function?.name || 'tool';
+            callbacks.onToolStart?.(call, stepIndex);
 
-            if (callbacks.onToolStart) {
-              const toolInstance = this.registry.getTool(toolFnName);
-              callbacks.onToolStart(call, toolInstance, stepIndex);
-            }
-
-            const toolContext = {
-              signal: abortSignal,
-              ...params
-            };
-            const execResult = typeof dispatchToolCall === 'function'
+            const toolContext = { signal: abortSignal, ...params };
+            const execResult = dispatchToolCall
               ? await dispatchToolCall(call, toolContext)
               : await this.executor.executeToolCall(call, toolContext);
             stepExecResults.push(execResult);
 
-            let toolResponseContent = '';
-            let toolImages = null;
-            if (execResult.success && execResult.result !== undefined) {
-              const serialized = execResult.resultText !== undefined
-                ? execResult.resultText
-                : execResult.tool.serializeResultForModel(execResult.args, execResult.result, execResult.outcome);
-              const serializedText = typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
-
-              // Las imágenes RAG y capturas de browser_action se preservan como metadatos del mensaje de herramienta.
-              // ChatEngine las transforma en evidencia multimodal en la siguiente petición.
-              const ragDataUrl = execResult.result?.dataUrl;
-              const ragMimeType = execResult.result?.mimeType;
-              let imgBase64 = execResult.result?.image_base64 || execResult.result?.imageData;
-              let imgMime = execResult.result?.mime_type || execResult.result?.mimeType || 'image/png';
-
-              if (!imgBase64 && typeof execResult.result === 'string') {
-                try {
-                  const parsed = JSON.parse(execResult.result);
-                  if (parsed && parsed.image_base64) {
-                    imgBase64 = parsed.image_base64;
-                    imgMime = parsed.mime_type || imgMime;
-                  }
-                } catch (e) { /* el resultado no es JSON: se conserva como texto */ }
-              }
-
-              if (ragDataUrl && ragMimeType) {
-                toolResponseContent = serializedText;
-                toolImages = [{
-                  dataUrl: ragDataUrl,
-                  imageRef: execResult.result.imageRef,
-                  documentTitle: execResult.result.documentTitle,
-                  page: execResult.result.page
-                }];
-              } else if (imgBase64) {
-                const dataUrl = imgBase64.startsWith('data:') ? imgBase64 : `data:${imgMime};base64,${imgBase64}`;
-                let textForModel = serializedText;
-                try {
-                  let parsedObj = typeof execResult.result === 'object' && execResult.result !== null
-                    ? { ...execResult.result }
-                    : JSON.parse(serializedText);
-                  if (parsedObj && parsedObj.image_base64) {
-                    parsedObj.image_base64 = `[Base64 image (${imgMime}), length: ${imgBase64.length} chars - injected as visual evidence]`;
-                    textForModel = JSON.stringify(parsedObj, null, 2);
-                  }
-                } catch (e) { /* el resultado no es JSON: se conserva como texto */ }
-                toolResponseContent = textForModel;
-                toolImages = [{
-                  dataUrl,
-                  mimeType: imgMime,
-                  action: execResult.result?.action || 'screenshot',
-                  url: execResult.result?.url
-                }];
-              } else {
-                toolResponseContent = serializedText;
-              }
-
-            } else {
-              toolResponseContent = JSON.stringify({
-                success: false,
-                error: execResult.error || 'Unknown error executing tool.'
-              });
-              if (callbacks.onToolError) {
-                callbacks.onToolError(call, execResult.error, stepIndex);
-              }
-            }
-
-            if (callbacks.onToolComplete) {
-              callbacks.onToolComplete(call, execResult, toolResponseContent, stepIndex);
-            }
+            const { content, images } = toToolMessageContent(execResult);
+            callbacks.onToolComplete?.(call, execResult, content, stepIndex);
 
             toolExecutions.push({
               step: stepIndex,
-              toolName: toolFnName || 'tool',
+              toolName: toolFnName,
               args: execResult.args || call.function?.arguments,
               result: execResult.result,
               success: execResult.success,
@@ -1282,76 +757,46 @@
             });
 
             const toolMessage = {
-              id: typeof createMessageId === 'function'
-                ? createMessageId('tool', { stepIndex, toolCall: call, toolIndex: i })
-                : `msg_turn_${stepIndex}_tool_${call.id || i}_${Date.now()}`,
+              id: createMessageId('tool', { stepIndex, toolCall: call, toolIndex }),
               role: 'tool',
-              tool_call_id: call.id || `call_${Date.now()}_${i}`,
-              name: toolFnName || 'tool',
-              content: toolResponseContent
+              tool_call_id: call.id || createId('call'),
+              name: toolFnName,
+              content
             };
-            if (toolImages) toolMessage.images = toolImages;
+            if (images) toolMessage.images = images;
             executedToolMessages.push(toolMessage);
           }
 
-          // Actualizar historial asegurando el emparejamiento estricto assistant(tool_calls) <-> tool(results)
+          // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados.
           const assistantMsg = {
-            id: typeof createMessageId === 'function'
-              ? createMessageId('assistant', { stepIndex })
-              : `msg_turn_${stepIndex}_assistant`,
+            id: createMessageId('assistant', { stepIndex }),
             role: 'assistant',
             content: currentStepText || null,
             tool_calls: stepToolCalls
           };
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
           if (stepReasoningReplay) assistantMsg.reasoningReplay = stepReasoningReplay;
-
-          workingMessages.push(assistantMsg);
-          for (const tMsg of executedToolMessages) {
-            workingMessages.push(tMsg);
-          }
-
-          if (callbacks.onStepDone) {
-            callbacks.onStepDone(stepIndex, {
-              type: 'tool_execution',
-              toolCall: stepToolCalls[0],
-              toolCalls: stepToolCalls,
-              execResult: stepExecResults[0],
-              execResults: stepExecResults,
-              assistantMsg,
-              toolMsg: executedToolMessages[0],
-              toolMsgs: executedToolMessages
-            });
-          }
+          workingMessages.push(assistantMsg, ...executedToolMessages);
+          callbacks.onStepDone?.(stepIndex, { type: 'tool_execution', assistantMsg });
 
           stepIndex++;
 
           // Una herramienta puede ceder el turno al usuario (ask_user): el bucle termina
           // y la respuesta del usuario llega como el siguiente mensaje.
-          if (stepExecResults.some(r => r?.success && r?.result?.endTurn === true)) {
+          if (stepExecResults.some(r => r.success && r.result?.endTurn === true)) {
             yieldedToUser = true;
             status = 'completed';
             break;
           }
         } catch (err) {
-          if (abortSignal.aborted) {
-            status = 'cancelled';
-            executionError = createCancelledError();
-          } else {
-            status = 'error';
-            executionError = err;
-            if (callbacks.onError) callbacks.onError(err);
-          }
+          status = abortSignal.aborted ? 'cancelled' : 'error';
+          executionError = abortSignal.aborted ? createCancelledError() : err;
           break;
         }
       }
 
-      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const totalElapsedMs = Math.round(endTime - startTime);
-
-      if (callbacks.onDone) {
-        callbacks.onDone(finalAccumulatedText, lastStats, stepIndex);
-      }
+      const totalElapsedMs = Math.round(performance.now() - startTime);
+      callbacks.onDone?.(finalAccumulatedText, lastStats, stepIndex);
 
       return {
         success: status === 'completed' || status === 'loop_detected',
@@ -1382,26 +827,20 @@
     }
   }
 
-  const globalRegistry = new ToolRegistry();
-  const globalExecutor = new ToolExecutor(globalRegistry);
-  const globalRuntime = new AgentRuntime({ registry: globalRegistry, executor: globalExecutor });
+  const registry = new ToolRegistry();
+  const executor = new ToolExecutor(registry);
+  const runtime = new AgentRuntime({ registry, executor });
 
   return {
     TOOL_WORKFLOW_INSTRUCTION,
-    TOOL_CONTRACT_VERSION,
-    ToolOutcome,
-    validateToolContract,
     isToolEnabled,
     Tool,
-    BaseToolProvider,
-    BuiltinToolProvider,
     ToolRegistry,
     ToolExecutor,
     AgentRuntime,
-    registry: globalRegistry,
-    executor: globalExecutor,
-    runtime: globalRuntime,
-    dispatchToolCall: (toolCall, options) => globalExecutor.dispatchToolCall(toolCall, options),
-    executeToolCall: (toolCall, context) => globalExecutor.executeToolCall(toolCall, context)
+    registry,
+    executor,
+    runtime,
+    dispatchToolCall: (toolCall, options) => executor.dispatchToolCall(toolCall, options)
   };
 });
