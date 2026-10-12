@@ -35,7 +35,7 @@
   // reasoning (Ollama, OpenRouter).
   const REASONING_REPLAY_FIELDS = ['reasoning_content', 'reasoning'];
 
-  const { serializeContent } = Utils;
+  const { serializeContent, fetchWithTimeout } = Utils;
 
   // Capacidades que el inspector infiere del nombre de los modelos.
   const MODEL_NAME_INFERENCES = [
@@ -47,16 +47,6 @@
   /** Estado de una capacidad en el informe del inspector; la interfaz traduce `detailKey`. */
   const capability = (status, detailKey, detailParams, source) => ({ status, detailKey, detailParams, source });
 
-  async function fetchWithTimeout(url, init, timeoutMs) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    timer.unref?.();
-    try {
-      return await fetch(url, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  }
 
   /** Marca como punto de caché efímero el último bloque de un contenido (Anthropic y OpenRouter). */
   function attachCacheControl(content) {

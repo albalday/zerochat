@@ -8,7 +8,7 @@
 })(typeof self !== 'undefined' ? self : this, function (RagStorage, RagIndex, Utils) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, parseRagImageRef } = Utils;
 
   function getFileParser() {
     return resolveDep('ChatFileParser', './file-parser.js');
@@ -472,15 +472,10 @@
     }
   }
 
-  function parseImageReference(value) {
-    const match = String(value || '').trim().match(/^rag-image:\/\/([^:\s]+):([^\s:]+)$/i);
-    return match ? { documentId: match[1], imageId: match[2] } : null;
-  }
-
   async function readKnowledgeImage(branchIds, rawArgs) {
     const args = parseArguments(rawArgs);
     const imageRef = String(args.imageRef || '').trim();
-    const reference = parseImageReference(imageRef);
+    const reference = parseRagImageRef(imageRef);
     if (!reference) return { success: false, error: 'imageRef must be a valid rag-image://docId:imgId reference.' };
 
     try {
@@ -526,7 +521,6 @@
     parseArguments, normalizeBranchIds, resolveBranches,
     normalizeDocumentReference, documentReferenceTokens, selectDocumentCandidate,
     buildRagSystemContext, injectRagContext,
-    listDocuments, searchKnowledgeBase, readKnowledgeChunk, readKnowledgeImage,
-    parseImageReference
+    listDocuments, searchKnowledgeBase, readKnowledgeChunk, readKnowledgeImage
   };
 });

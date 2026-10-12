@@ -83,7 +83,7 @@
     const Markdown = getMarkdown();
     const html = Markdown.parseMarkdown(text);
     block.innerHTML = streaming ? injectStreamingCursor(html) : html;
-    Markdown.attachCopyCodeListeners(block);
+    Markdown.attachContentListeners(block);
   }
 
   const SCROLL_STICK_THRESHOLD_PX = 40;
@@ -343,7 +343,7 @@
     const fullAssistantMarkdown = markdownParts.join('\n\n');
     bindMessageCopy(btnCopy, () => fullAssistantMarkdown || content.innerText);
     actions.style.display = 'inline-flex';
-    getMarkdown().attachCopyCodeListeners(content);
+    getMarkdown().attachContentListeners(content);
   }
 
   function renderSessionMessages(elements, history, callbacks) {

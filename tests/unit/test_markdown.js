@@ -15,9 +15,8 @@ test('Markdown - escapa HTML y renderiza tablas, código, pensamiento y reglas h
     assert.ok(html.includes('Col 1</th>'), 'Debe contener cabecera');
     assert.ok(html.includes('Val A</td>'), 'Debe contener celda');
 
-    // Comprobar que renderMarkdown es un alias funcional
-    assert.equal(typeof Markdown.renderMarkdown, 'function');
-    const htmlAlias = Markdown.renderMarkdown('Aquí tienes la tabla:\n| Cab 1 | Cab 2 |\n|---|---|\n| Dato 1 | Dato 2 |\n\nTexto final');
+    // Un texto alrededor de la tabla queda en sus propios párrafos
+    const htmlAlias = Markdown.parseMarkdown('Aquí tienes la tabla:\n| Cab 1 | Cab 2 |\n|---|---|\n| Dato 1 | Dato 2 |\n\nTexto final');
     assert.ok(htmlAlias.includes('<div class="table-container"><table class="markdown-table">'));
     assert.ok(htmlAlias.includes('<p>Aquí tienes la tabla:</p>'), 'El texto antes de la tabla debe estar en su propio párrafo sin romper la tabla');
     assert.ok(htmlAlias.includes('<p>Texto final</p>'));

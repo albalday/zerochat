@@ -330,7 +330,7 @@
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {
         container,
         onLog,
-        attachListeners: getMarkdown().attachCopyCodeListeners,
+        attachListeners: getMarkdown().attachContentListeners,
         scrollToBottom,
         language: appConfig.language,
         activeRagBranchIds: appConfig.activeRagBranchIds,

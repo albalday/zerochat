@@ -43,6 +43,12 @@
    * Valida una URL no confiable como origen de imagen y la devuelve sin
    * escapar; quien la interpole en HTML debe escaparla en ese punto.
    */
+  /** Partes de una referencia rag-image://docId:imgId, o null si no lo es. */
+  function parseRagImageRef(value) {
+    const match = String(value || '').trim().match(/^rag-image:\/\/([^:\s]+):([^\s:]+)$/i);
+    return match ? { documentId: match[1], imageId: match[2] } : null;
+  }
+
   function sanitizeImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
@@ -231,6 +237,7 @@
     escapeHtml,
     sanitizeUrl,
     sanitizeImageUrl,
+    parseRagImageRef,
     setText,
     clearElement,
     appendTextElement,

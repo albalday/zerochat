@@ -123,14 +123,14 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
       const create = name => {
         const card = cards.createLiveToolCard(name, { value: 1 });
         cards.appendToolCard(container, card);
-        ChatMarkdown.attachCopyCodeListeners(card);
+        ChatMarkdown.attachContentListeners(card);
         return card;
       };
       const finish = (card, name, success = true) => {
         const output = { success };
         cards.updateLiveToolCard(card, name, {}, output, 1);
         cards.completeToolCard(card, output);
-        ChatMarkdown.attachCopyCodeListeners(card);
+        ChatMarkdown.attachContentListeners(card);
       };
       const first = create('first_execution');
       const second = create('second_execution');
@@ -253,7 +253,7 @@ test('Browser UI - native, MCP and historical cards share mobile layout; charts 
         layouts.push({ name: name + ' history', canonical: !!historical.querySelector('.tool-card-header'),
           collapsed: historical.querySelector('.tool-execution-card').classList.contains('collapsed') });
       }
-      ChatMarkdown.attachCopyCodeListeners(container);
+      ChatMarkdown.attachContentListeners(container);
       const first = container.querySelector('.tool-execution-card');
       first.querySelector('.btn-tool-collapse').click();
       const toggles = !first.classList.contains('collapsed');

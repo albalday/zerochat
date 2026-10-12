@@ -15,11 +15,10 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const Sandbox = typeof window !== 'undefined' ? (window.ChatSandbox || {}) : {};
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
-  const { escapeHtml, sanitizeUrl, sanitizeImageUrl } = Utils;
+  const { escapeHtml, sanitizeUrl, sanitizeImageUrl, resolveDep } = Utils;
   // Las URL de imagen se validan sobre texto ya escapado (parseTextMarkdown), así que
   // el valor de sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
 
@@ -39,6 +38,24 @@
   }
 
   // Celdas de tabla: su código en línea ya lo apartó parseTextMarkdown.
+  /**
+   * Imagen Markdown: en línea (celdas de tabla) o como figura con su pie. Las rag-image:// se
+   * muestran con un marcador hasta que attachContentListeners las carga.
+   */
+  function renderImage(altText, url, inline) {
+    const safeSrc = sanitizeImageUrl(url);
+    if (!safeSrc) return altText || '';
+    const alt = altText?.trim() || I18n.t('md_image_alt');
+    const isRag = safeSrc.startsWith('rag-image://');
+    const cachedUrl = isRag ? resolvedRagImagesCache.get(safeSrc) : null;
+    const classes = ['chat-embedded-image', inline ? 'inline-image' : '', cachedUrl ? 'rag-resolved-image' : ''].filter(Boolean).join(' ');
+    const source = isRag ? `data-rag-src="${safeSrc}" src="${cachedUrl || RAG_IMG_PLACEHOLDER}"` : `src="${safeSrc}"`;
+    const img = `<img class="${classes}" ${source} alt="${escapeHtml(alt)}" loading="lazy" />`;
+    if (inline) return img;
+    const caption = altText && !altText.trim().startsWith('#img') ? `<figcaption class="chat-image-caption">${escapeHtml(altText.trim())}</figcaption>` : '';
+    return `\n<figure class="chat-image-figure">${img}${caption}</figure>\n`;
+  }
+
   function parseInlineMarkdown(text) {
     if (!text) return '';
     let p = text;
@@ -48,18 +65,7 @@
     p = p.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
     p = p.replace(/_([^_\n]+)_/g, '<em>$1</em>');
     // Imágenes: ![alt](url)
-    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, function (match, altText, url) {
-      const safeSrc = sanitizeImageUrl(url);
-      if (!safeSrc) return altText || '';
-      const cleanAlt = escapeHtml(altText ? altText.trim() : 'Imagen');
-      if (safeSrc.startsWith('rag-image://')) {
-        const cachedUrl = resolvedRagImagesCache.get(safeSrc);
-        const displaySrc = cachedUrl || RAG_IMG_PLACEHOLDER;
-        const resolvedClass = cachedUrl ? ' rag-resolved-image' : '';
-        return `<img class="chat-embedded-image inline-image${resolvedClass}" data-rag-src="${safeSrc}" src="${displaySrc}" alt="${cleanAlt}" loading="lazy" />`;
-      }
-      return `<img class="chat-embedded-image inline-image" src="${safeSrc}" alt="${cleanAlt}" loading="lazy" />`;
-    });
+    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, true));
     // Enlaces: [texto](url)
     p = p.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, linkText, url) {
       const safeHref = sanitizeUrl(url);
@@ -256,19 +262,7 @@
     });
 
     // 8. Imágenes Markdown: ![alt](url)
-    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, function (match, altText, url) {
-      const safeSrc = sanitizeImageUrl(url);
-      if (!safeSrc) return altText || '';
-      const cleanAlt = altText ? escapeHtml(altText.trim()) : 'Imagen';
-      const caption = cleanAlt && !cleanAlt.startsWith('#img') ? `<figcaption class="chat-image-caption">${cleanAlt}</figcaption>` : '';
-      if (safeSrc.startsWith('rag-image://')) {
-        const cachedUrl = resolvedRagImagesCache.get(safeSrc);
-        const displaySrc = cachedUrl || RAG_IMG_PLACEHOLDER;
-        const resolvedClass = cachedUrl ? ' rag-resolved-image' : '';
-        return `\n<figure class="chat-image-figure"><img class="chat-embedded-image${resolvedClass}" data-rag-src="${safeSrc}" src="${displaySrc}" alt="${cleanAlt}" loading="lazy" />${caption}</figure>\n`;
-      }
-      return `\n<figure class="chat-image-figure"><img class="chat-embedded-image" src="${safeSrc}" alt="${cleanAlt}" loading="lazy" />${caption}</figure>\n`;
-    });
+    p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => renderImage(altText, url, false));
 
     // 10. Enlaces [texto](url)
     p = p.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
@@ -358,7 +352,7 @@
             </div>
           </div>
           <pre><code class="language-${safeLang}">${safeCode}</code></pre>
-          <div class="code-output-container" style="display: none;"></div>
+          <div class="code-output-container" hidden></div>
         </div>
       `;
       codeLines = [];
@@ -395,160 +389,98 @@
     return htmlResult;
   }
 
-  function attachCopyCodeListeners(container) {
-    if (!container) return;
-
-    // 1. Botones de copiar código
-    container.querySelectorAll('.btn-copy-code').forEach(function (button) {
-      if (button.dataset.listenerAttached) return;
+  function bindCopyButtons(container) {
+    container.querySelectorAll('.btn-copy-code:not([data-listener-attached])').forEach(button => {
       button.dataset.listenerAttached = 'true';
-
-      button.addEventListener('click', async function () {
-        const rawCode = decodeURIComponent(button.getAttribute('data-code') || '');
-        try {
-          await navigator.clipboard.writeText(rawCode);
-          const span = button.querySelector('span');
-          const originalText = span.textContent;
-          span.textContent = I18n.t('copied_text');
-          button.classList.add('copied');
-
-          setTimeout(function () {
-            span.textContent = originalText;
-            button.classList.remove('copied');
-          }, 2000);
-        } catch (err) {
-          console.error('Error al copiar al portapapeles:', err);
-        }
+      button.addEventListener('click', () => {
+        const feedback = `${Icons.get('check', { size: 13, className: 'icon-copy' })}<span>${escapeHtml(I18n.t('copied_text'))}</span>`;
+        Utils.copyToClipboard(decodeURIComponent(button.dataset.code || ''), button, feedback);
       });
     });
+  }
 
-    // 2. Botones de ejecución local de JavaScript
-    container.querySelectorAll('.btn-run-code').forEach(function (button) {
-      if (button.dataset.listenerAttached) return;
+  /** Ejecuta el bloque de JavaScript en ChatSandbox y muestra la salida bajo el código. */
+  async function runCodeBlock(button) {
+    const output = button.closest('.code-block-container').querySelector('.code-output-container');
+    output.hidden = false;
+    output.innerHTML = `<div class="output-header"><span>${escapeHtml(I18n.t('agent_js_title'))}</span></div>`;
+    const res = await resolveDep('ChatSandbox', './sandbox.js').execute(decodeURIComponent(button.dataset.code || ''));
+    const parts = [];
+    if (res.logs.length > 0) parts.push(`<div class="output-logs"><strong>${escapeHtml(I18n.t('md_output_console'))}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`);
+    if (res.result && res.result !== 'undefined') parts.push(`<div class="output-return"><strong>${escapeHtml(I18n.t('md_output_return'))}</strong> ${escapeHtml(res.result)}</div>`);
+    if (res.error) parts.push(`<div class="output-error">${escapeHtml(res.error)}</div>`);
+    if (!parts.length) parts.push(`<div class="output-empty">(${escapeHtml(I18n.t('empty_response'))})</div>`);
+    const headerTitle = res.success ? `${I18n.t('md_output_title')} (${res.executionTimeMs}ms)` : I18n.t('md_output_error', { ms: res.executionTimeMs });
+    output.innerHTML = `
+      <div class="output-header ${res.success ? 'success' : 'error'}">
+        <span>${escapeHtml(headerTitle)}</span>
+        <button type="button" class="btn-close-output" title="${escapeHtml(I18n.t('md_clear_output'))}">×</button>
+      </div>
+      <pre class="output-body">${parts.join('')}</pre>`;
+    output.querySelector('.btn-close-output').addEventListener('click', () => { output.hidden = true; });
+  }
+
+  function bindRunButtons(container) {
+    container.querySelectorAll('.btn-run-code:not([data-listener-attached])').forEach(button => {
       button.dataset.listenerAttached = 'true';
-
-      button.addEventListener('click', async function () {
-        const rawCode = decodeURIComponent(button.getAttribute('data-code') || '');
-        const blockContainer = button.closest('.code-block-container');
-        if (!blockContainer) return;
-
-        let outputContainer = blockContainer.querySelector('.code-output-container');
-        if (!outputContainer) {
-          outputContainer = document.createElement('div');
-          outputContainer.className = 'code-output-container';
-          blockContainer.appendChild(outputContainer);
-        }
-
-        outputContainer.style.display = 'block';
-          outputContainer.innerHTML = '<div class="output-header"><span>' + I18n.t('agent_js_title') + '</span></div>';
-
-        const sandboxRunner = window.ChatSandbox || Sandbox;
-        if (sandboxRunner && sandboxRunner.execute) {
-          const res = await sandboxRunner.execute(rawCode);
-          const statusClass = res.success ? 'success' : 'error';
-          const headerTitle = res.success ? `${I18n.t('md_output_title')} (${res.executionTimeMs}ms)` : I18n.t('md_output_error', { ms: res.executionTimeMs });
-
-          let outputContent = '';
-          if (res.logs && res.logs.length > 0) {
-            outputContent += `<div class="output-logs"><strong>${I18n.t('md_output_console')}</strong>\n${escapeHtml(res.logs.join('\n'))}</div>`;
-          }
-          if (res.result && res.result !== 'undefined') {
-            outputContent += `<div class="output-return"><strong>${I18n.t('md_output_return')}</strong> ${escapeHtml(res.result)}</div>`;
-          }
-          if (res.error) {
-            outputContent += `<div class="output-error">${escapeHtml(res.error)}</div>`;
-          }
-          if (!outputContent) {
-            outputContent = `<div class="output-empty">(${I18n.t('empty_response')})</div>`;
-          }
-
-          outputContainer.innerHTML = `
-            <div class="output-header ${statusClass}">
-              <span>${headerTitle}</span>
-              <button type="button" class="btn-close-output" title="${I18n.t('md_clear_output')}">×</button>
-            </div>
-            <pre class="output-body">${outputContent}</pre>
-          `;
-
-          outputContainer.querySelector('.btn-close-output').addEventListener('click', () => {
-            outputContainer.style.display = 'none';
-          });
-        }
-      });
+      button.addEventListener('click', () => runCodeBlock(button));
     });
+  }
 
-    // 3. Botones y cabeceras de colapsar / minimizar tarjetas de herramientas
-    container.querySelectorAll('.tool-card-header, .chat-chart-header, .btn-tool-collapse').forEach(function (el) {
-      if (el.dataset.collapseInit) return;
+  /** Pliega y despliega las tarjetas de herramientas y gráficos desde su cabecera o su botón. */
+  function bindCollapsibleCards(container) {
+    container.querySelectorAll('.tool-card-header:not([data-collapse-init]), .chat-chart-header:not([data-collapse-init]), .btn-tool-collapse:not([data-collapse-init])').forEach(el => {
       el.dataset.collapseInit = 'true';
-      el.addEventListener('click', function (e) {
-        if (e.target.closest('a')) return;
-        if (el.classList.contains('btn-tool-collapse')) {
-          e.stopPropagation();
-        }
+      el.addEventListener('click', event => {
+        if (event.target.closest('a')) return;
+        if (el.classList.contains('btn-tool-collapse')) event.stopPropagation();
         const card = el.closest('.tool-execution-card, .chat-chart-card');
         if (!card) return;
         const isCollapsed = card.classList.toggle('collapsed');
         const btn = card.querySelector('.btn-tool-collapse');
-        if (btn) {
-          btn.title = isCollapsed ? I18n.t('tool_btn_expand') : I18n.t('tool_btn_collapse');
-          const span = btn.querySelector('span');
-          if (span) span.textContent = isCollapsed ? '▸' : '▾';
-        }
+        if (btn) btn.title = I18n.t(isCollapsed ? 'tool_btn_expand' : 'tool_btn_collapse');
       });
     });
+  }
 
-    // 4. Resolución de imágenes de la base de conocimiento (rag-image://docId:imgId)
-    container.querySelectorAll('img[data-rag-src], img[src^="rag-image://"]').forEach(async function (img) {
-      const rawRef = img.getAttribute('data-rag-src') || img.getAttribute('src') || '';
-      if (!rawRef || !rawRef.startsWith('rag-image://')) return;
-
-      if (resolvedRagImagesCache.has(rawRef)) {
-        const cached = resolvedRagImagesCache.get(rawRef);
-        if (img.getAttribute('src') !== cached) {
-          img.setAttribute('src', cached);
-        }
+  /** Sustituye las imágenes rag-image://docId:imgId por la imagen guardada en la base de conocimiento. */
+  function resolveRagImages(container) {
+    container.querySelectorAll('img[data-rag-src]').forEach(async img => {
+      const ref = img.dataset.ragSrc;
+      if (resolvedRagImagesCache.has(ref)) {
+        img.src = resolvedRagImagesCache.get(ref);
         img.classList.add('rag-resolved-image');
         return;
       }
-
       if (img.dataset.ragResolving) return;
+      const reference = Utils.parseRagImageRef(ref);
+      if (!reference) return;
       img.dataset.ragResolving = 'true';
-
-      const cleanRef = rawRef.replace(/^rag-image:\/\//i, '');
-      const colonIdx = cleanRef.indexOf(':');
-      if (colonIdx > 0) {
-        const docId = cleanRef.substring(0, colonIdx);
-        const imgId = cleanRef.substring(colonIdx + 1);
-        const ragStorage = (typeof window !== 'undefined' && window.ChatRagStorage)
-          ? window.ChatRagStorage
-          : (typeof require !== 'undefined' ? (() => { try { return require('./ragStorage.js'); } catch (e) { return null; } })() : null);
-        if (ragStorage && typeof ragStorage.getDocumentImage === 'function') {
-          try {
-            const imageRecord = await ragStorage.getDocumentImage(docId, imgId);
-            if (imageRecord && imageRecord.dataUrl) {
-              let finalUrl = imageRecord.dataUrl;
-              const fileParser = (typeof window !== 'undefined' && window.ChatFileParser)
-                ? window.ChatFileParser
-                : (typeof require !== 'undefined' ? (() => { try { return require('./file-parser.js'); } catch (e) { return null; } })() : null);
-              if (fileParser && typeof fileParser.convertCmykDataUrlToRgb === 'function') {
-                finalUrl = await fileParser.convertCmykDataUrlToRgb(finalUrl);
-                imageRecord.dataUrl = finalUrl;
-                imageRecord.isCmyk = false;
-              }
-              resolvedRagImagesCache.set(rawRef, finalUrl);
-              img.setAttribute('src', finalUrl);
-              img.classList.add('rag-resolved-image');
-            }
-          } catch (e) {
-            console.error('Error al resolver imagen RAG:', e);
-          } finally {
-            delete img.dataset.ragResolving;
-          }
-        }
+      try {
+        const imageRecord = await resolveDep('ChatRagStorage', './ragStorage.js').getDocumentImage(reference.documentId, reference.imageId);
+        if (!imageRecord?.dataUrl) return;
+        const finalUrl = await resolveDep('ChatFileParser', './file-parser.js').convertCmykDataUrlToRgb(imageRecord.dataUrl);
+        resolvedRagImagesCache.set(ref, finalUrl);
+        img.src = finalUrl;
+        img.classList.add('rag-resolved-image');
+      } catch (error) {
+        console.error('[ChatMarkdown] Could not resolve a knowledge image:', error);
+      } finally {
+        delete img.dataset.ragResolving;
       }
     });
+  }
 
+  /**
+   * Activa el contenido generado por parseMarkdown y las tarjetas de herramientas: copiar y
+   * ejecutar código, plegar tarjetas y cargar las imágenes de la base de conocimiento. Es seguro
+   * llamarla varias veces sobre el mismo contenedor.
+   */
+  function attachContentListeners(container) {
+    bindCopyButtons(container);
+    bindRunButtons(container);
+    bindCollapsibleCards(container);
+    resolveRagImages(container);
   }
 
   return {
@@ -556,7 +488,6 @@
     sanitizeUrl,
     sanitizeImageUrl,
     parseMarkdown,
-    renderMarkdown: parseMarkdown,
-    attachCopyCodeListeners
+    attachContentListeners
   };
 });

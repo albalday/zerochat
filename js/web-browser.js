@@ -101,7 +101,7 @@
    */
   function validateUrlForFetch(rawUrl, options = {}) {
     if (!rawUrl || typeof rawUrl !== 'string') {
-      return { valid: false, error: 'No se proporcionó una URL válida.' };
+      return { valid: false, error: 'No valid URL was given.' };
     }
 
     let url = rawUrl.trim();
@@ -129,7 +129,7 @@
 
       return { valid: true, url: parsed.toString(), hostname: hostname };
     } catch (e) {
-      return { valid: false, error: 'Formato de URL inválido.' };
+      return { valid: false, error: 'Invalid URL format.' };
     }
   }
 
@@ -156,9 +156,9 @@
                    .replace(/\n\s*\n\s*\n+/g, '\n\n')
                    .trim();
 
-        let headerInfo = `[Título: ${title || 'Sin título'}]\n[URL: ${targetUrl}]\n`;
-        if (metaDesc) headerInfo += `[Descripción: ${metaDesc}]\n`;
-        headerInfo += '\n--- Contenido de la página ---\n';
+        let headerInfo = `[Title: ${title || 'Untitled'}]\n[URL: ${targetUrl}]\n`;
+        if (metaDesc) headerInfo += `[Description: ${metaDesc}]\n`;
+        headerInfo += '\n--- Page content ---\n';
 
         const fullOutput = headerInfo + text;
         if (fullOutput.length > MAX_CONTENT_LENGTH) {
@@ -194,7 +194,7 @@
     }
 
     async fetch(url, context = {}) {
-      throw new Error(`El método fetch() debe implementarse en ${this.constructor.name}`);
+      throw new Error(`fetch() must be implemented by ${this.constructor.name}`);
     }
   }
 
@@ -222,7 +222,7 @@
       }, this.timeoutMs);
 
       if (!res.ok) {
-        throw new Error(`Reader Gateway respondió con HTTP ${res.status}`);
+        throw new Error(`Reader gateway answered HTTP ${res.status}`);
       }
 
       let content = await res.text();
@@ -251,7 +251,7 @@
     async fetch(url, context = {}) {
       const FileParser = getFileParser();
       if (!FileParser || !FileParser.extractTextFromPdf) {
-        throw new Error('El módulo ChatFileParser no está disponible para procesar PDFs.');
+        throw new Error('ChatFileParser is not available to process PDFs.');
       }
 
       const res = await fetchWithTimeout(url, {
@@ -267,7 +267,7 @@
       const fileName = url.split('/').pop().split('?')[0] || 'documento.pdf';
       const sizeStr = Utils.formatBytes(arrayBuffer.byteLength);
 
-      const content = `[Documento PDF: ${fileName}]\n[URL: ${url}]\n[Tamaño: ${sizeStr}]\n\n--- Contenido extraído del PDF ---\n\n${extractedText}`;
+      const content = `[PDF document: ${fileName}]\n[URL: ${url}]\n[Size: ${sizeStr}]\n\n--- Content extracted from the PDF ---\n\n${extractedText}`;
 
       return {
         success: true,
@@ -297,13 +297,13 @@
       const res = await fetchWithTimeout(allOriginsUrl, {}, this.timeoutMs);
 
       if (!res.ok) {
-        throw new Error(`Proxy CORS respondió con HTTP ${res.status}`);
+        throw new Error(`CORS proxy answered HTTP ${res.status}`);
       }
 
       const data = await res.json();
       const rawHtml = data.contents || '';
       if (!rawHtml) {
-        throw new Error('Proxy CORS no devolvió contenido.');
+        throw new Error('The CORS proxy returned no content.');
       }
 
       const content = extractReadableTextFromHtml(rawHtml, url);
@@ -346,7 +346,7 @@
         byteSize = arrayBuffer.byteLength;
         const extractedText = await FileParser.extractTextFromPdf(arrayBuffer);
         const fileName = url.split('/').pop().split('?')[0] || 'documento.pdf';
-        content = `[Documento PDF: ${fileName}]\n[URL: ${url}]\n\n--- Contenido extraído del PDF ---\n\n${extractedText}`;
+        content = `[PDF document: ${fileName}]\n[URL: ${url}]\n\n--- Content extracted from the PDF ---\n\n${extractedText}`;
       } else {
         const rawText = await res.text();
         byteSize = rawText.length;
@@ -425,7 +425,7 @@
           if (result && result.success) {
             let content = result.content || '';
             if (content.length > MAX_CONTENT_LENGTH) {
-              content = content.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Contenido truncado por límite de tamaño ...]';
+              content = content.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated at the size limit ...]';
             }
 
             const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -442,7 +442,7 @@
           }
         } catch (err) {
           lastError = err;
-          console.warn(`Estrategia ${strategy.name} falló para ${url}:`, err.message);
+          console.warn(`[WebBrowser] Strategy ${strategy.name} failed for ${url}:`, err.message);
         }
       }
 
@@ -452,7 +452,7 @@
         url: url,
         content: '',
         elapsedMs: parseFloat((endTime - startTime).toFixed(2)),
-        error: `No se pudo acceder a la página web o descargar el documento (${lastError ? lastError.message : 'Error de conexión o bloqueo de red'}).`
+        error: `The web page could not be accessed or the document downloaded (${lastError ? lastError.message : 'connection error or network block'}).`
       };
     }
   }

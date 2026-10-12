@@ -61,9 +61,9 @@
           query: '',
           count: 0,
           results: [],
-          markdown: 'No se especificó ninguna consulta de búsqueda.',
+          markdown: 'No search query was given.',
           elapsedMs: 0,
-          error: 'Consulta vacía'
+          error: 'Empty query'
         };
       }
 
@@ -76,7 +76,7 @@
         query: cleanQuery,
         count: rawResults.length,
         results: rawResults,
-        markdown: this.formatMarkdown(cleanQuery, rawResults, lang),
+        markdown: this.formatMarkdown(cleanQuery, rawResults),
         elapsedMs: parseFloat((endTime - startTime).toFixed(2))
       };
     }
@@ -86,33 +86,29 @@
      * @returns {Promise<Array<{ title: string, url: string, snippet?: string, source?: string }>>}
      */
     async fetchResults(_cleanQuery, _options) {
-      throw new Error(`El método fetchResults() debe ser implementado en ${this.constructor.name}`);
+      throw new Error(`fetchResults() must be implemented by ${this.constructor.name}`);
     }
 
     /**
      * Formatea los resultados en Markdown estructurado y compacto para el asistente.
      */
-    formatMarkdown(query, results = [], lang = 'es') {
-      const isEn = (lang === 'en');
+    /** Resultados en Markdown para el modelo. */
+    formatMarkdown(query, results = []) {
       const cleanQuery = (query || '').trim();
 
       if (!results || results.length === 0) {
-        return isEn
-          ? `[${this.label} search for "${cleanQuery}"]: No direct results found. Try searching with different terms or use \`fetch_web_page\` directly with a specific URL.`
-          : `[Búsqueda ${this.label} para "${cleanQuery}"]: No se encontraron resultados directos. Puedes intentar buscar con otros términos o usar directamente la herramienta \`fetch_web_page\` con una URL concreta.`;
+        return `[${this.label} search for "${cleanQuery}"]: No direct results found. Try searching with different terms or use \`fetch_web_page\` directly with a specific URL.`;
       }
 
-      let md = isEn
-        ? `### 🔍 ${this.label} search results for: "${cleanQuery}" (${results.length} results found):\n\n`
-        : `### 🔍 Resultados de búsqueda ${this.label} para: "${cleanQuery}" (${results.length} resultados encontrados):\n\n`;
+      let md = `### ${this.label} search results for: "${cleanQuery}" (${results.length} results found):\n\n`;
 
       results.forEach((item, idx) => {
         md += `${idx + 1}. **[${item.title}](${item.url})**\n`;
-        md += `   - *${isEn ? 'Source' : 'Fuente'}:* \`${item.source || this.label}\`\n`;
+        md += `   - *Source:* \`${item.source || this.label}\`\n`;
         if (item.snippet) {
-          md += `   - *${isEn ? 'Snippet' : 'Resumen'}:* ${item.snippet}\n`;
+          md += `   - *Snippet:* ${item.snippet}\n`;
         }
-        md += `   - *${isEn ? 'Link' : 'Enlace'}:* ${item.url}\n\n`;
+        md += `   - *Link:* ${item.url}\n\n`;
       });
 
       return md;
@@ -289,7 +285,7 @@
           }
         }
       } catch (e) {
-        console.warn('Reader Gateway no disponible para búsqueda DuckDuckGo, intentando vía directa:', e.message);
+        console.warn('[WebSearch] Reader gateway unavailable for DuckDuckGo, trying the direct route:', e.message);
       }
 
       // 2. Vía Directa a DuckDuckGo HTML
@@ -352,7 +348,7 @@
     parseJsonResponse(data) {
       if (!data || !Array.isArray(data.results)) return [];
       return data.results.slice(0, 10).map(r => ({
-        title: r.title || 'Sin título',
+        title: r.title || 'Untitled',
         url: r.url || '',
         snippet: r.content || r.snippet || '',
         source: `SearXNG (${r.engine || 'web'})`

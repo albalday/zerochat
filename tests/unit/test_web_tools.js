@@ -132,7 +132,7 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
     const res = await pipeline.fetch('https://example.com/large-page');
     assert.equal(res.success, true);
     assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
-    assert.ok(res.content.includes('[... Contenido truncado por límite de tamaño ...]'));
+    assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
   } finally {
     global.fetch = originalFetch;
   }
