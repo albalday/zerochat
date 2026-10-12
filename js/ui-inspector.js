@@ -492,13 +492,13 @@
     const model = report.model || {};
     const caps = report.capabilities || {};
     const cards = CAPABILITIES.map(([key, icon, titleKey]) => {
-      const capability = caps[key] || { status: 'unknown', detail: '' };
+      const capability = caps[key] || { status: 'unknown' };
       return `<div class="inspector-cap-card">
           <div class="cap-card-header">
             <span class="cap-card-title">${Icons.get(icon, { size: 14 })} ${escapeHtml(t(titleKey))}</span>
             ${renderBadge(capability.status)}
           </div>
-          <div class="cap-card-detail">${escapeHtml(capability.detail || '')}</div>
+          <div class="cap-card-detail">${capability.detailKey ? escapeHtml(t(capability.detailKey, capability.detailParams)) : ''}</div>
         </div>`;
     }).join('');
     const modelInfo = model.totalDiscovered > 0

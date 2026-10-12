@@ -1,62 +1,59 @@
 /**
- * Generador de HTML autónomo para importación de perfiles via postMessage.
- * Sistema único sin fallbacks: el HTML exportado abre zerochat.html en modo importación
- * y transfiere los perfiles cifrados mediante postMessage cross-origin.
+ * Página autónoma para importar perfiles: al pulsar su botón abre zerochat.html en modo importación
+ * y le envía los perfiles cifrados por postMessage. Sus textos se generan en el idioma activo.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory();
+    module.exports = factory(require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatProfileExportBundle = factory();
+    root.ChatProfileExportBundle = factory(root.ChatUtils, root.ChatI18n);
   }
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
-  /**
-   * Detecta la URL base de zerochat.html según el contexto actual
-   */
+  const { escapeHtml } = Utils;
+  const { t } = I18n;
+
+  // Textos que la página muestra mientras importa; {nombre} se sustituye en la propia página.
+  const STATUS_KEYS = {
+    opening: 'profile_bundle_opening',
+    sent: 'profile_bundle_sent',
+    windowClosed: 'profile_bundle_window_closed',
+    imported: 'profile_bundle_imported',
+    importFailed: 'profile_bundle_import_failed',
+    popupBlocked: 'profile_bundle_popup_blocked',
+    timeout: 'profile_bundle_timeout',
+    openFailed: 'profile_bundle_open_failed'
+  };
+
+  /** URL de zerochat.html: absoluta si se sirve por http(s) y relativa con file://. */
   function getZeroChatURL() {
-    if (typeof window === 'undefined') return './zerochat.html';
-
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    const pathname = window.location.pathname;
+    const { protocol, host, pathname } = window.location;
     const basePath = pathname.substring(0, pathname.lastIndexOf('/') + 1);
-
-    // Si estamos en http/https, construir URL absoluta
-    if (protocol.startsWith('http')) {
-      return `${protocol}//${host}${basePath}zerochat.html`;
-    }
-
-    // Si estamos en file://, usar URL relativa
-    // Asumimos que zerochat.html está en el mismo directorio
-    return 'zerochat.html';
+    return protocol.startsWith('http') ? `${protocol}//${host}${basePath}zerochat.html` : 'zerochat.html';
   }
 
   /**
-   * Genera el HTML autónomo con el bundle cifrado embebido
-   * @param {string} encryptedPayload - JSON string del payload cifrado
-   * @param {object} metadata - Metadatos (profileCount, exportDate)
-   * @returns {string} HTML completo listo para descargar
+   * HTML completo de la página de importación con los perfiles cifrados.
+   * @param {string} encryptedPayload - Perfiles cifrados (JSON).
+   * @param {{ profileCount: number }} metadata
    */
   function generateExportHTML(encryptedPayload, metadata) {
-    const zeroChatURL = getZeroChatURL();
-    const exportDate = new Date().toLocaleString('es-ES', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
+    const lang = I18n.getLanguage();
+    const exportDate = new Date().toLocaleString(lang === 'en' ? 'en-GB' : 'es-ES', {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
     });
-    const profileCount = metadata?.profileCount || 0;
+    const count = metadata.profileCount;
+    const text = Object.fromEntries(Object.entries(STATUS_KEYS).map(([name, key]) => [name, t(key)]));
+    // Los datos van en un JSON embebido: "<" se escapa para que no pueda cerrar el script.
+    const json = value => JSON.stringify(value).replace(/</g, '\\u003c');
 
     return `<!DOCTYPE html>
-<html lang="es">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="ZeroChat - Archivo de importación de perfiles cifrados">
-  <title>ZeroChat - Importar ${profileCount} Perfil${profileCount !== 1 ? 'es' : ''}</title>
+  <title>${escapeHtml(t('profile_bundle_title'))}</title>
   <style>
     * {
       margin: 0;
@@ -269,51 +266,43 @@
   <div class="container">
     <div class="icon">🔐</div>
     <h1>ZeroChat</h1>
-    <div class="subtitle">Importación de Perfiles Cifrados</div>
+    <div class="subtitle">${escapeHtml(t('profile_bundle_subtitle'))}</div>
 
     <div class="info-box">
-      <h2>📦 Contenido del paquete</h2>
-      <p><strong>${profileCount}</strong> perfil${profileCount !== 1 ? 'es' : ''} de conexión cifrado${profileCount !== 1 ? 's' : ''}</p>
-      <p>Exportado: <strong>${exportDate}</strong></p>
-      <p>Formato: <strong>AES-GCM</strong></p>
+      <h2>${escapeHtml(t('profile_bundle_contents'))}</h2>
+      <p>${escapeHtml(t('profile_bundle_count', { count }))}</p>
+      <p>${escapeHtml(t('profile_bundle_exported', { date: exportDate }))}</p>
+      <p>${escapeHtml(t('profile_bundle_format'))}</p>
     </div>
 
     <div class="info-box">
-      <h2>🔄 Proceso de importación</h2>
-      <p>Al hacer clic en el botón, se abrirá ZeroChat en una nueva pestaña donde podrás importar ${profileCount !== 1 ? 'estos perfiles' : 'este perfil'} de forma segura.</p>
+      <h2>${escapeHtml(t('profile_bundle_process_title'))}</h2>
+      <p>${escapeHtml(t('profile_bundle_process_desc'))}</p>
     </div>
 
-    <button id="importButton" class="import-button">
-      🚀 Importar Perfil${profileCount !== 1 ? 'es' : ''} en ZeroChat
-    </button>
+    <button id="importButton" class="import-button">${escapeHtml(t('profile_bundle_button'))}</button>
 
-    <div id="status" class="status loading hidden">
-      <span class="spinner"></span>
-      Abriendo ZeroChat y transfiriendo perfiles...
-    </div>
+    <div id="status" class="status loading hidden"></div>
 
     <div class="warning-box">
-      <strong>⚠️ Nota sobre permisos del navegador</strong>
-      Es posible que tu navegador muestre un aviso solicitando permiso para abrir una nueva pestaña.
-      Esto es normal por seguridad. Si aparece, autoriza la acción para continuar con la importación.
+      <strong>${escapeHtml(t('profile_bundle_permissions_title'))}</strong>
+      ${escapeHtml(t('profile_bundle_permissions_desc'))}
     </div>
   </div>
 
   <script>
-    (function() {
+    (function () {
       'use strict';
 
-      // Bundle cifrado embebido (generado en tiempo de exportación)
-      const ENCRYPTED_PAYLOAD = ${JSON.stringify(encryptedPayload)};
-      const TARGET_URL = ${JSON.stringify(zeroChatURL)};
-      const METADATA = ${JSON.stringify(metadata)};
-      const TIMEOUT_MS = 20000; // 20 segundos
+      const ENCRYPTED_PAYLOAD = ${json(encryptedPayload)};
+      const TARGET_URL = ${json(getZeroChatURL())};
+      const METADATA = ${json(metadata)};
+      const TEXT = ${json(text)};
+      const TIMEOUT_MS = 20000;
 
-      // Referencias DOM
       const statusEl = document.getElementById('status');
       const importButton = document.getElementById('importButton');
 
-      // Estado
       let targetWindow = null;
       let timeoutId = null;
       let messageReceived = false;
@@ -327,159 +316,87 @@
         return TARGET_URL + '#mode=import&transferId=' + encodeURIComponent(transferId);
       }
 
-      /**
-       * Actualizar el estado visual
-       */
-      function updateStatus(message, type) {
-        statusEl.className = 'status ' + type;
-        statusEl.classList.remove('hidden');
-        statusEl.innerHTML = message;
+      function format(message, params) {
+        return message.replace(/\\{(\\w+)\\}/g, (match, key) => (key in params ? String(params[key]) : match));
       }
 
-      /**
-       * Manejar mensajes desde zerochat.html
-       */
+      /** Muestra un estado como texto; los de carga llevan un indicador giratorio. */
+      function updateStatus(message, type) {
+        statusEl.className = 'status ' + type;
+        statusEl.replaceChildren();
+        if (type === 'loading') {
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner';
+          statusEl.appendChild(spinner);
+        }
+        statusEl.appendChild(document.createTextNode(message));
+      }
+
+      function fail(message) {
+        updateStatus(message, 'error');
+        importButton.disabled = false;
+      }
+
+      /** Mensajes de la pestaña de ZeroChat abierta para esta transferencia. */
       function handleMessage(event) {
-        // Mensaje de "estoy listo" desde zerochat
         if (event.source !== targetWindow || !event.data || event.data.transferId !== activeTransferId) {
           return;
         }
 
         if (event.data.type === 'zerochat_import_ready') {
-          console.log('[Export] ZeroChat ready, sending payload...');
-
-          if (targetWindow && !targetWindow.closed) {
-            // Enviar el payload cifrado
-            targetWindow.postMessage({
-              type: 'import_profiles',
-              version: 1,
-              transferId: activeTransferId,
-              payload: ENCRYPTED_PAYLOAD,
-              metadata: METADATA
-            }, '*');
-
-            updateStatus(
-              '<span class="spinner"></span>Datos enviados, esperando confirmación...',
-              'loading'
-            );
-          } else {
-            updateStatus(
-              '❌ La ventana de ZeroChat se cerró inesperadamente.',
-              'error'
-            );
-            importButton.disabled = false;
+          if (!targetWindow || targetWindow.closed) {
+            fail(TEXT.windowClosed);
+            return;
           }
+          targetWindow.postMessage({
+            type: 'import_profiles',
+            version: 1,
+            transferId: activeTransferId,
+            payload: ENCRYPTED_PAYLOAD,
+            metadata: METADATA
+          }, '*');
+          updateStatus(TEXT.sent, 'loading');
           return;
         }
 
-        // Resultado de la importación
         if (event.data.type === 'import_result') {
           messageReceived = true;
           clearTimeout(timeoutId);
-
           if (event.data.success) {
             const result = event.data.result || {};
-            updateStatus(
-              '✅ Perfiles importados correctamente<br>' +
-              '<small style="font-size: 14px;">' +
-              (result.added || 0) + ' añadido(s), ' +
-              (result.replaced || 0) + ' actualizado(s)' +
-              '</small><br><br>' +
-              '<small style="font-size: 13px; opacity: 0.8;">Esta ventana se cerrará en 3 segundos...</small>',
-              'success'
-            );
-
-            // Auto-cerrar después de 3 segundos
-            setTimeout(() => {
-              window.close();
-            }, 3000);
+            updateStatus(format(TEXT.imported, { added: result.added || 0, replaced: result.replaced || 0 }), 'success');
+            setTimeout(() => window.close(), 3000);
           } else {
-            const errorMsg = event.data.error || 'Error desconocido';
-            updateStatus(
-              '❌ Error al importar perfiles<br>' +
-              '<small style="font-size: 14px;">' + errorMsg + '</small>',
-              'error'
-            );
-            importButton.disabled = false;
+            fail(format(TEXT.importFailed, { error: String(event.data.error || '') }));
           }
         }
       }
 
-      /**
-       * Inicializar el proceso de importación (llamado desde el botón)
-       */
+      /** Abre ZeroChat en modo importación; cada intento usa un identificador de transferencia nuevo. */
       function startImport() {
         activeTransferId = createTransferId();
-        const importUrl = getImportUrl(activeTransferId);
         const targetName = 'zerochat_import_' + activeTransferId;
         if (timeoutId) clearTimeout(timeoutId);
         messageReceived = false;
-        console.log('[Export] Starting import process...');
-        console.log('[Export] Target URL:', importUrl);
-        console.log('[Export] Payload size:', ENCRYPTED_PAYLOAD.length, 'bytes');
-
-        // Deshabilitar el botón
         importButton.disabled = true;
-        updateStatus(
-          '<span class="spinner"></span>Abriendo ZeroChat...',
-          'loading'
-        );
+        updateStatus(TEXT.opening, 'loading');
 
         try {
-          // Abrir zerochat.html en nueva pestaña con parámetro mode=import
-          // Ejecutado desde user gesture (click) para mejorar compatibilidad
-          targetWindow = window.open(importUrl, targetName);
-
-          // Verificar si el popup fue bloqueado
-          if (!targetWindow || targetWindow.closed || typeof targetWindow.closed === 'undefined') {
-            console.error('[Export] Popup blocked');
-            updateStatus(
-              '❌ No se pudo abrir ZeroChat<br><br>' +
-              '<small style="font-size: 14px;">' +
-              'Tu navegador bloqueó la apertura de la nueva pestaña. ' +
-              'Por favor, <strong>permite ventanas emergentes</strong> para este sitio ' +
-              'y haz clic de nuevo en el botón.' +
-              '</small>',
-              'error'
-            );
-            importButton.disabled = false;
+          targetWindow = window.open(getImportUrl(activeTransferId), targetName);
+          if (!targetWindow || targetWindow.closed) {
+            fail(TEXT.popupBlocked);
             return;
           }
-
-          console.log('[Export] Window opened successfully');
-
-          // Timeout de seguridad
           timeoutId = setTimeout(() => {
-            if (!messageReceived) {
-              console.error('[Export] Timeout waiting for response');
-              updateStatus(
-                '⏱️ Timeout: ZeroChat no respondió en ' + (TIMEOUT_MS / 1000) + ' segundos<br><br>' +
-                '<small style="font-size: 14px;">' +
-                'Verifica que la pestaña de ZeroChat se abrió correctamente. ' +
-                'Si es necesario, haz clic de nuevo en el botón.' +
-                '</small>',
-                'error'
-              );
-              importButton.disabled = false;
-            }
+            if (!messageReceived) fail(format(TEXT.timeout, { seconds: TIMEOUT_MS / 1000 }));
           }, TIMEOUT_MS);
-
         } catch (error) {
-          console.error('[Export] Error opening window:', error);
-          updateStatus(
-            '❌ Error al abrir ZeroChat<br><br>' +
-            '<small style="font-size: 14px;">' + error.message + '</small>',
-            'error'
-          );
-          importButton.disabled = false;
+          fail(format(TEXT.openFailed, { error: error.message }));
         }
       }
 
-      // Conectar el botón al proceso de importación
       importButton.addEventListener('click', startImport);
       window.addEventListener('message', handleMessage);
-
-      // Limpiar al cerrar
       window.addEventListener('beforeunload', () => {
         if (timeoutId) clearTimeout(timeoutId);
         window.removeEventListener('message', handleMessage);
@@ -490,9 +407,5 @@
 </html>`;
   }
 
-  // Exportar API pública
-  return {
-    generateExportHTML,
-    getZeroChatURL
-  };
+  return { generateExportHTML };
 }));

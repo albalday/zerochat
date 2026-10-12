@@ -227,7 +227,7 @@ test('ProviderInspector - Detección de fallo de conexión (servidor caído o er
     assert.equal(report.success, false, 'El informe debe indicar success: false si no se pudo conectar');
     assert.equal(report.connected, false, 'El informe debe indicar connected: false');
     assert.ok(report.error, 'Debe incluir un mensaje de error descriptivo');
-    assert.ok(report.error.includes('Error de conexión'), 'El mensaje debe indicar fallo de conexión');
+    assert.ok(report.error.includes('Connection error'), 'El mensaje debe indicar fallo de conexión');
     assert.equal(report.capabilities.streaming.status, 'unknown', 'Las capacidades no deben aparecer como declaradas si la conexión falló');
   } finally {
     global.fetch = originalFetch;
@@ -257,9 +257,51 @@ test('ProviderInspector - Detección de fallo de conexión por error de autentic
 
     assert.equal(report.success, false);
     assert.equal(report.connected, false);
-    assert.ok(report.error.includes('autenticación') || report.error.includes('401'));
+    assert.match(report.error, /Authentication error \(HTTP 401\)/);
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+
+/** Sustituye fetch con respuestas por URL y método; lo no previsto falla como un servidor caído. */
+function stubFetch(t, routes) {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    requests.push({ url, method: init.method, body });
+    const route = routes.find(item => item.match(url, body));
+    if (!route) throw new TypeError('fetch failed');
+    const { status = 200, json = {}, text = '' } = route.response;
+    return new Response(status === 200 && !route.response.text ? JSON.stringify(json) : text, { status, headers: { 'content-type': route.response.contentType || 'application/json' } });
+  });
+  return requests;
+}
+
+test('ProviderInspector - confirma capacidades con sondas, infiere por el nombre y explica cada estado con una clave i18n', async t => {
+  const isChat = (url, body) => url.endsWith('/chat/completions');
+  stubFetch(t, [
+    { match: url => url.endsWith('/models'), response: { json: { data: [{ id: 'qwen2.5-vl-7b' }, { id: 'nomic-embed-text' }] } } },
+    { match: (url, body) => isChat(url) && body.stream === true, response: { text: 'data: {}\n\n', contentType: 'text/event-stream' } },
+    { match: (url, body) => isChat(url) && body.tools, response: { status: 400, text: 'tools are not supported by this model' } },
+    { match: (url, body) => isChat(url) && body.response_format, response: { json: {} } },
+    { match: url => url.endsWith('/embeddings'), response: { status: 404, text: 'not found' } }
+  ]);
+
+  const report = await Providers.registry.inspect('http://localhost:1234/v1', '', '', 'openai');
+
+  assert.equal(report.success, true);
+  assert.deepEqual(report.model, { selected: 'qwen2.5-vl-7b', totalDiscovered: 2, discovered: report.model.discovered });
+  const caps = report.capabilities;
+  assert.deepEqual([caps.modelListing.status, caps.modelListing.detailKey, caps.modelListing.detailParams.count], ['confirmed', 'inspector_detail_models_found', 2]);
+  assert.deepEqual([caps.streaming.status, caps.streaming.detailKey], ['confirmed', 'inspector_detail_streaming_confirmed']);
+  assert.deepEqual([caps.tools.status, caps.tools.detailKey], ['unsupported', 'inspector_detail_rejected']);
+  assert.match(caps.tools.detailParams.error, /tools are not supported/);
+  assert.equal(caps.jsonMode.status, 'confirmed');
+  assert.deepEqual([caps.vision.status, caps.vision.detailKey], ['inferred', 'inspector_detail_vision_inferred']);
+  assert.equal(caps.embeddings.status, 'unsupported', 'El 404 de la sonda manda sobre la inferencia');
+  for (const capability of Object.values(caps)) {
+    assert.notEqual(require('../../js/i18n.js').t(capability.detailKey, capability.detailParams), capability.detailKey, capability.detailKey);
   }
 });
 

@@ -75,8 +75,8 @@ test('ProfileRepository - fusiona una importación en una única escritura y con
 test('ProfileRepository - no guarda ni importa API keys en texto plano', async () => {
   const storage = createStorage();
   const repository = Profiles.createRepository(storage);
-  assert.throws(() => repository.save({ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }), /API key cifrada/);
-  assert.throws(() => repository.mergeImported([{ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }]), /API key cifrada/);
+  assert.throws(() => repository.save({ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }), /encrypted API key/);
+  assert.throws(() => repository.mergeImported([{ id: 'unsafe', name: 'Unsafe', settings: { apiKey: 'sk-plain' } }]), /encrypted API key/);
   await repository.saveEditable({ id: 'safe', name: 'Safe', settings: { apiKey: 'sk-secret' } });
   assert.equal((await repository.load('safe')).settings.apiKey, 'sk-secret');
   assert.equal(typeof repository.get('safe').settings.apiKey, 'object');
@@ -86,7 +86,7 @@ test('ProfileRepository - no guarda ni importa API keys en texto plano', async (
 test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse', async () => {
   const repository = Profiles.createRepository(createStorage());
   const locked = await repository.saveEditable({ id: 'locked', name: 'Locked', settings: { apiKey: 'sk-locked', apiKeyLocked: true } });
-  assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /bloqueados/);
+  assert.throws(() => repository.save({ ...locked, settings: { ...locked.settings, model: 'changed' } }), /locked/);
   assert.equal(repository.remove('locked'), true);
   assert.equal(await repository.load('locked'), null);
 });
@@ -94,7 +94,7 @@ test('ProfileRepository - un perfil bloqueado no se modifica pero puede borrarse
 test('ProfileRepository - no reinicializa silenciosamente documentos con API keys antiguas', () => {
   const storage = createStorage();
   storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [{ id: 'old', name: 'Old', settings: { apiKey: 'sk-plain' } }] }));
-  assert.throws(() => Profiles.createRepository(storage).list(), /API key cifrada/);
+  assert.throws(() => Profiles.createRepository(storage).list(), /encrypted API key/);
   assert.match(storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
 });
 

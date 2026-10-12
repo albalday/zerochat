@@ -25,14 +25,14 @@ test('ProfileBackup - rechaza una copia manipulada', async () => {
 });
 
 test('ProfileBackup - valida la estructura antes de cifrar', async () => {
-  await assert.rejects(Backup.encryptProfiles([{ id: 'bad', name: '', settings: {} }]), /perfil no válido/i);
+  await assert.rejects(Backup.encryptProfiles([{ id: 'bad', name: '', settings: {} }]), /invalid profile/);
 });
 
 test('ProfileBackup - cifra cada API key y detecta manipulación', async () => {
   const secret = await Backup.encryptApiKey('sk-secret');
   assert.doesNotMatch(JSON.stringify(secret), /sk-secret/);
   assert.equal(await Backup.decryptApiKey(secret), 'sk-secret');
-  assert.throws(() => Backup.validateApiKeySecret('sk-secret'), /API key cifrada/);
+  assert.throws(() => Backup.validateApiKeySecret('sk-secret'), /encrypted API key/);
   await assert.rejects(Backup.decryptApiKey({ ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' }));
   const exported = await Backup.encryptProfiles([{ ...profiles[0], settings: { ...profiles[0].settings, apiKey: secret } }]);
   assert.deepEqual((await Backup.decryptProfiles(exported))[0].settings.apiKey, secret);

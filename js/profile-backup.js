@@ -21,7 +21,7 @@
 
   function cryptoOrThrow() {
     if (!cryptoApi?.subtle || typeof cryptoApi.getRandomValues !== 'function') {
-      throw new Error('El navegador no permite cifrar copias de perfiles.');
+      throw new Error('This browser cannot encrypt profile backups.');
     }
     return cryptoApi;
   }
@@ -35,7 +35,7 @@
 
   function decodeBase64(value) {
     if (typeof value !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 !== 0) {
-      throw new Error('El archivo de perfiles cifrado no es válido.');
+      throw new Error('The encrypted profile file is not valid.');
     }
     if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(value, 'base64'));
     const binary = atob(value);
@@ -47,7 +47,7 @@
     let digest;
     if (keyMaterial) {
       digest = decodeBase64(keyMaterial);
-      if (digest.length !== 32) throw new Error('La clave de cifrado temporal no es válida.');
+      if (digest.length !== 32) throw new Error('The cached encryption key is not valid.');
     } else {
       const material = new TextEncoder().encode(MASTER_KEY);
       digest = new Uint8Array(await c.subtle.digest('SHA-256', material));
@@ -87,11 +87,11 @@
   }
 
   function clearCachedKeyMaterial() {
-    try { getStorage()?.removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: no hay caché que borrar */ }
+    try { getStorage().removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: no hay caché que borrar */ }
   }
 
   async function keyMaterialFromPassword(password) {
-    if (typeof password !== 'string' || !password) throw new Error('La contraseña de cifrado no es válida.');
+    if (typeof password !== 'string' || !password) throw new Error('The encryption password is not valid.');
     return encodeBase64(new Uint8Array(await cryptoOrThrow().subtle.digest('SHA-256', new TextEncoder().encode(password))));
   }
 
@@ -118,15 +118,15 @@
   }
 
   function validateProfiles(profiles) {
-    if (!Array.isArray(profiles) || profiles.length > 100) throw new Error('La copia contiene una lista de perfiles no válida.');
+    if (!Array.isArray(profiles) || profiles.length > 100) throw new Error('The backup contains an invalid profile list.');
     profiles.forEach(profile => {
       if (!profile || typeof profile !== 'object' || Array.isArray(profile) ||
           typeof profile.id !== 'string' || typeof profile.name !== 'string' ||
           !profile.name.trim() || !profile.settings || typeof profile.settings !== 'object' || Array.isArray(profile.settings)) {
-        throw new Error('La copia contiene un perfil no válido.');
+        throw new Error('The backup contains an invalid profile.');
       }
       if (profile.id.length > 256 || profile.name.length > 256 || String(profile.description || '').length > 10000) {
-        throw new Error('La copia contiene campos de perfil demasiado largos.');
+        throw new Error('The backup contains profile fields that are too long.');
       }
     });
     return profiles;
@@ -136,7 +136,7 @@
     validateProfiles(profiles);
     const c = cryptoOrThrow();
     const plaintext = new TextEncoder().encode(JSON.stringify({ format: FORMAT, version: VERSION, profiles }));
-    if (plaintext.byteLength > MAX_FILE_BYTES) throw new Error('La copia de perfiles supera el tamaño permitido.');
+    if (plaintext.byteLength > MAX_FILE_BYTES) throw new Error('The profile backup exceeds the allowed size.');
     const iv = c.getRandomValues(new Uint8Array(12));
     const ciphertext = await c.subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(keyMaterial), plaintext);
     return JSON.stringify({ format: FORMAT, version: VERSION, algorithm: 'AES-GCM', iv: encodeBase64(iv), ciphertext: encodeBase64(new Uint8Array(ciphertext)) });
@@ -152,11 +152,11 @@
   function validateApiKeySecret(secret) {
     if (!secret || typeof secret !== 'object' || Array.isArray(secret) ||
         secret.format !== 'zerochat-profile-secret' || secret.version !== VERSION || secret.algorithm !== 'AES-GCM') {
-      throw new Error('La API key cifrada no es válida.');
+      throw new Error('The encrypted API key is not valid.');
     }
     const iv = decodeBase64(secret.iv);
     const ciphertext = decodeBase64(secret.ciphertext);
-    if (iv.length !== 12 || ciphertext.length < 16) throw new Error('La API key cifrada no es válida.');
+    if (iv.length !== 12 || ciphertext.length < 16) throw new Error('The encrypted API key is not valid.');
     return { iv, ciphertext };
   }
 
@@ -167,29 +167,29 @@
       const plaintext = await c.subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(), ciphertext);
       return new TextDecoder().decode(plaintext);
     } catch (defaultError) {
-      if (!keyMaterial) throw Object.assign(new Error('Se necesita la contraseña de cifrado para abrir esta API key.'), { code: 'PASSWORD_REQUIRED' });
+      if (!keyMaterial) throw Object.assign(new Error('The encryption password is required to open this API key.'), { code: 'PASSWORD_REQUIRED' });
       try {
         const plaintext = await c.subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(keyMaterial), ciphertext);
         return new TextDecoder().decode(plaintext);
       } catch (_) {
-        throw Object.assign(new Error('La contraseña de cifrado no es correcta o la API key está dañada.'), { code: 'PASSWORD_REQUIRED' });
+        throw Object.assign(new Error('The encryption password is wrong or the API key is damaged.'), { code: 'PASSWORD_REQUIRED' });
       }
     }
   }
 
   async function decryptProfiles(serialized, keyMaterial = getCachedKeyMaterial()) {
-    if (typeof serialized !== 'string' || serialized.length > MAX_FILE_BYTES * 2) throw new Error('El archivo de perfiles supera el tamaño permitido.');
+    if (typeof serialized !== 'string' || serialized.length > MAX_FILE_BYTES * 2) throw new Error('The profile file exceeds the allowed size.');
     let envelope;
-    try { envelope = JSON.parse(serialized); } catch (_) { throw new Error('El archivo de perfiles no es JSON válido.'); }
+    try { envelope = JSON.parse(serialized); } catch (_) { throw new Error('The profile file is not valid JSON.'); }
     if (!envelope || envelope.format !== FORMAT || envelope.version !== VERSION || envelope.algorithm !== 'AES-GCM') {
-      throw new Error('El formato de copia de perfiles no es compatible.');
+      throw new Error('The profile backup format is not supported.');
     }
     try {
       let plaintext;
       try {
         plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv: decodeBase64(envelope.iv) }, await getKey(), decodeBase64(envelope.ciphertext));
       } catch (_) {
-        if (!keyMaterial) throw Object.assign(new Error('Se necesita la contraseña de cifrado para abrir esta copia.'), { code: 'PASSWORD_REQUIRED' });
+        if (!keyMaterial) throw Object.assign(new Error('The encryption password is required to open this backup.'), { code: 'PASSWORD_REQUIRED' });
         plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv: decodeBase64(envelope.iv) }, await getKey(keyMaterial), decodeBase64(envelope.ciphertext));
       }
       const document = JSON.parse(new TextDecoder().decode(plaintext));
@@ -198,7 +198,7 @@
     } catch (error) {
       if (error?.code === 'PASSWORD_REQUIRED') throw error;
       if (error?.message?.startsWith('La copia')) throw error;
-      throw new Error('No se pudo descifrar o validar la copia de perfiles.');
+      throw new Error('The profile backup could not be decrypted or validated.');
     }
   }
 

@@ -12,7 +12,7 @@
   'use strict';
 
   const WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE = String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE);
-  const PROFILE_FIELDS = Profiles?.PROFILE_FIELDS || [];
+  const PROFILE_FIELDS = Profiles.PROFILE_FIELDS;
   const DEFAULT_SYSTEM_DATA_PROMPT = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
   const DEFAULTS = Defaults.CONFIG_DEFAULTS;
 
@@ -85,7 +85,6 @@
     const profiles = options.profiles || Profiles;
 
     function persist(next) {
-      if (!storage?.saveRuntimeConfigV2) throw new Error('El almacenamiento de configuración no está disponible.');
       storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
     }
 
@@ -97,20 +96,21 @@
     }
 
     function initialize() {
+      // Un almacenamiento de perfiles dañado no impide arrancar: se usa la configuración guardada.
       try {
-        profiles?.initialize?.();
+        profiles.initialize();
       } catch (error) {
-        console.warn('No se pudo inicializar el repositorio de perfiles:', error);
+        console.warn('[ChatConfig] Could not initialize the profile repository:', error);
       }
-      const stored = storage?.loadRuntimeConfigV2?.();
+      const stored = storage.loadRuntimeConfigV2();
       let fallbackProfile = null;
       try {
-        fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+        fallbackProfile = profiles.get(profiles.READONLY_PROFILE_ID) || profiles.list()[0] || null;
       } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
       if (stored) {
         const config = { ...stored, modelContextLimit: null };
         try {
-          if (!profiles?.get?.(config.activeProfile?.id) && fallbackProfile) {
+          if (!profiles.get(config.activeProfile?.id) && fallbackProfile) {
             return commit(applyProfile(config, fallbackProfile));
           }
         } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }
@@ -141,8 +141,8 @@
     }
 
     function activateProfile(profileId) {
-      const profile = profiles?.get?.(profileId);
-      if (!profile) throw new Error('El perfil seleccionado no existe.');
+      const profile = profiles.get(profileId);
+      if (!profile) throw new Error('The selected profile does not exist.');
       return commit(applyProfile(getActive(), profile));
     }
 
@@ -161,12 +161,11 @@
     }
 
     function activateFallbackProfile() {
-      const fallbackProfile = profiles?.get?.(profiles?.READONLY_PROFILE_ID) || profiles?.list?.()[0] || null;
+      const fallbackProfile = profiles.get(profiles.READONLY_PROFILE_ID) || profiles.list()[0] || null;
       return fallbackProfile ? activateProfile(fallbackProfile.id) : commit(DEFAULTS);
     }
 
     function subscribe(listener) {
-      if (!state?.subscribe) throw new Error('El estado global no está disponible.');
       return state.subscribe('config', listener);
     }
 

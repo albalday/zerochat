@@ -48,7 +48,7 @@
   });
 
   function normalizeSettings(source = {}) {
-    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('Los datos del perfil no son válidos.');
+    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('The profile data is not valid.');
     const settings = {};
     STORAGE_PROFILE_FIELDS.forEach(key => {
       if (key === 'apiKey') {
@@ -56,7 +56,6 @@
           settings.apiKey = null;
           return;
         }
-        if (!Backup?.validateApiKeySecret) throw new Error('La validación de API keys no está disponible.');
         Backup.validateApiKeySecret(source[key]);
       }
       if (source[key] !== undefined) settings[key] = clone(source[key]);
@@ -66,7 +65,7 @@
 
   function normalizeRecord(record = {}) {
     const name = String(record.name || '').trim();
-    if (!name) throw new Error('El nombre del perfil no puede estar vacío.');
+    if (!name) throw new Error('The profile name cannot be empty.');
     return {
       id: String(record.id || createId(name)),
       name,
@@ -80,22 +79,21 @@
 
   function createRepository(storage = Storage) {
     function readDocument() {
-      const raw = storage?.getStorageItem ? storage.getStorageItem(STORAGE_KEY) : null;
+      const raw = storage.getStorageItem(STORAGE_KEY);
       if (!raw) return null;
       let doc;
       try {
         doc = JSON.parse(raw);
       } catch (_) {
-        throw new Error('El almacenamiento de perfiles no es JSON válido.');
+        throw new Error('The profile storage is not valid JSON.');
       }
       if (!doc || doc.schemaVersion !== SCHEMA_VERSION || !Array.isArray(doc.profiles)) {
-        throw new Error('El almacenamiento de perfiles no tiene un formato válido.');
+        throw new Error('The profile storage has an invalid format.');
       }
       return { schemaVersion: SCHEMA_VERSION, profiles: doc.profiles.map(normalizeRecord) };
     }
 
     function writeDocument(document) {
-      if (!storage?.setStorageItem) throw new Error('El almacenamiento de perfiles no está disponible.');
       storage.setStorageItem(STORAGE_KEY, JSON.stringify(document));
     }
 
@@ -128,7 +126,6 @@
       if (!profile) return null;
       const secret = profile.settings.apiKey;
       if (secret) {
-        if (!Backup?.decryptApiKey) throw new Error('El descifrado de API keys no está disponible.');
         profile.settings.apiKey = await Backup.decryptApiKey(secret, keyMaterial || undefined);
       } else {
         profile.settings.apiKey = '';
@@ -145,11 +142,11 @@
       const current = initialize();
       const normalized = normalizeRecord(record);
       if (normalized.id === READONLY_PROFILE_ID || normalized.name === MIRROR_PROFILE.name) {
-        throw new Error('El perfil Espejo no se puede modificar.');
+        throw new Error('The Mirror profile cannot be modified.');
       }
       const index = current.profiles.findIndex(profile => profile.id === normalized.id);
       if (index >= 0) {
-        if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Los cambios de este perfil están bloqueados.');
+        if (current.profiles[index].settings.apiKeyLocked === true) throw new Error('Changes to this profile are locked.');
         normalized.version = current.profiles[index].version + 1;
       }
       normalized.updatedAt = Date.now();
@@ -160,8 +157,7 @@
     }
 
     async function saveEditable(record) {
-      if (typeof record?.settings?.apiKey !== 'string') throw new Error('La API key del perfil no es válida.');
-      if (!Backup?.encryptApiKey) throw new Error('El cifrado de API keys no está disponible.');
+      if (typeof record?.settings?.apiKey !== 'string') throw new Error('The profile API key is not valid.');
       const apiKey = await Backup.encryptApiKey(record.settings.apiKey);
       return save({ ...record, settings: { ...record.settings, apiKey } });
     }
@@ -205,7 +201,7 @@
     }
 
     function mergeImported(records) {
-      if (!Array.isArray(records) || records.length > 100) throw new Error('La lista de perfiles importados no es válida.');
+      if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
       const current = initialize();
       const imported = records.map(normalizeRecord).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
       if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');

@@ -37,6 +37,27 @@
 
   const { serializeContent } = Utils;
 
+  // Capacidades que el inspector infiere del nombre de los modelos.
+  const MODEL_NAME_INFERENCES = [
+    ['vision', /(?:-vl|-vision|vision|4o|sonnet|opus|flash|pixtral|llava|cogvlm|gemini|qwen.*vl)/i, 'inspector_detail_vision_inferred'],
+    ['reasoning', /(?:-r1|r1|qwq|o1|o3|reasoning|thinking|gemma-4|deepseek)/i, 'inspector_detail_reasoning_inferred'],
+    ['embeddings', /(?:embedding|embed|bge|nomic|e5|text-embedding)/i, 'inspector_detail_embeddings_inferred']
+  ];
+
+  /** Estado de una capacidad en el informe del inspector; la interfaz traduce `detailKey`. */
+  const capability = (status, detailKey, detailParams, source) => ({ status, detailKey, detailParams, source });
+
+  async function fetchWithTimeout(url, init, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    timer.unref?.();
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Marca como punto de caché efímero el último bloque de un contenido (Anthropic y OpenRouter). */
   function attachCacheControl(content) {
     if (typeof content === 'string') {
@@ -62,7 +83,6 @@
     constructor(options = {}) {
       this.id = options.id || 'openai';
       this.label = options.label || 'OpenAI / LM Studio';
-      this.description = options.description || 'Estándar OpenAI / LM Studio (reasoning_effort: none, low, medium, high, xhigh)';
       this.reasoningLevels = options.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
       this.connection = {
         endpoint: options.connection?.endpoint || 'http://localhost:1234/v1',
@@ -392,422 +412,137 @@
     }
 
     /**
-     * Inspecciona y diagnostica el endpoint del proveedor para determinar sus capacidades reales.
-     * Distingue entre:
-     * - 'declared': Declarada por el ProviderAdapter.
-     * - 'inferred': Inferida por heurística de nombres de modelos / endpoints.
-     * - 'confirmed': Comprobada mediante una prueba HTTP/SSE activa ultra-ligera (max_tokens: 1).
-     * - 'unsupported': Rechazada explícitamente o no soportada.
-     * - 'unknown': No determinada.
+     * Diagnostica el endpoint y sus capacidades. Cada capacidad lleva su estado ('declared' por el
+     * adaptador, 'inferred' por el nombre de los modelos, 'confirmed' o 'unsupported' por una sonda
+     * con max_tokens: 1, o 'unknown') y la clave i18n que lo explica.
      */
-    async inspect(params = {}) {
-      const {
-        apiUrl = '',
-        apiKey = '',
-        model = '',
-        runProbes = true,
-        timeoutMs = 6000
-      } = params;
-
-      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    async inspect({ apiUrl = '', apiKey = '', model = '', runProbes = true, timeoutMs = 6000 } = {}) {
+      const startTime = performance.now();
       const normalizedEndpoint = this.normalizeEndpoint(apiUrl);
-      let cleanBase = (apiUrl || '').trim().replace(/\/+$/, '');
-      if (cleanBase.endsWith('/chat/completions')) cleanBase = cleanBase.replace(/\/chat\/completions$/, '');
-
+      const cleanBase = apiUrl.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, '');
       const adapterCaps = this.getCapabilities(model);
+      const headers = this.buildHeaders(apiKey);
 
-      // 1. Inicializar matriz de capacidades con el estado 'declared' o 'unsupported' según el adaptador
+      const declared = (supported, otherwise = 'unsupported') => supported
+        ? capability('declared', 'inspector_detail_declared', {}, 'adapter')
+        : capability(otherwise, otherwise === 'unknown' ? 'inspector_detail_undetermined' : 'inspector_detail_unsupported', {}, 'adapter');
       const capabilities = {
-        streaming: {
-          status: adapterCaps.streaming ? 'declared' : 'unsupported',
-          detail: adapterCaps.streaming ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        },
-        tools: {
-          status: adapterCaps.tools ? 'declared' : 'unsupported',
-          detail: adapterCaps.tools ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        },
-        vision: {
-          status: adapterCaps.vision ? 'declared' : 'unsupported',
-          detail: adapterCaps.vision ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        },
-        reasoning: {
-          status: adapterCaps.reasoning ? 'declared' : 'unsupported',
-          detail: adapterCaps.reasoning ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        },
-        jsonMode: {
-          status: adapterCaps.jsonMode ? 'declared' : 'unsupported',
-          detail: adapterCaps.jsonMode ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        },
-        promptCaching: {
-          status: adapterCaps.promptCaching ? 'declared' : 'unknown',
-          detail: adapterCaps.promptCaching ? 'Declarada en el adaptador' : 'Soporte no determinado',
-          source: 'adapter'
-        },
-        embeddings: {
-          status: adapterCaps.embeddings ? 'declared' : 'unknown',
-          detail: adapterCaps.embeddings ? 'Declarada en el adaptador' : 'Soporte no determinado',
-          source: 'adapter'
-        },
-        modelListing: {
-          status: adapterCaps.modelListing ? 'declared' : 'unsupported',
-          detail: adapterCaps.modelListing ? 'Declarada en el adaptador' : 'No soportada según adaptador',
-          source: 'adapter'
-        }
+        streaming: declared(adapterCaps.streaming),
+        tools: declared(adapterCaps.tools),
+        vision: declared(adapterCaps.vision),
+        reasoning: declared(adapterCaps.reasoning),
+        jsonMode: declared(adapterCaps.jsonMode),
+        promptCaching: declared(adapterCaps.promptCaching, 'unknown'),
+        embeddings: declared(adapterCaps.embeddings, 'unknown'),
+        modelListing: declared(adapterCaps.modelListing)
       };
 
       let discoveredModels = [];
-      let modelListSuccess = false;
-      let connectionAttempted = false;
       let connectionSuccess = false;
       let authError = null;
       let lastNetworkError = null;
       let lastHttpStatus = null;
 
-      // 2. Comprobar listado de modelos y realizar inferencias
-      const modelEndpoints = this.getModelEndpoints(cleanBase);
-      const headers = this.buildHeaders(apiKey);
+      /** Petición de una sonda; un 401/403 se recuerda como error de autenticación. */
+      const request = async (url, init) => {
+        try {
+          const res = await fetchWithTimeout(url, { ...init, headers: { ...init.headers, ...headers } }, timeoutMs);
+          if (res.status !== 404) lastHttpStatus = res.status;
+          if (res.status === 401 || res.status === 403) authError = `Authentication error (HTTP ${res.status}): invalid API key or access denied.`;
+          return res;
+        } catch (error) {
+          lastNetworkError = error;
+          return null;
+        }
+      };
 
-      if (runProbes && typeof fetch === 'function') {
-        for (const endpoint of modelEndpoints) {
-          connectionAttempted = true;
-          let timer = null;
-          try {
-            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            if (controller) {
-              timer = setTimeout(() => controller.abort(), timeoutMs);
-              if (typeof timer?.unref === 'function') timer.unref();
-            }
-            const res = await fetch(endpoint, {
-              method: 'GET',
-              headers: { Accept: 'application/json', ...headers },
-              signal: controller ? controller.signal : undefined
-            });
-
-            lastHttpStatus = res.status;
-            if (res.ok) {
-              connectionSuccess = true;
-              const data = await res.json();
-              const parsed = this.parseModelsResponse(data);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                discoveredModels = parsed;
-                modelListSuccess = true;
-                capabilities.modelListing = {
-                  status: 'confirmed',
-                  detail: `${parsed.length} modelo(s) descubierto(s) en ${endpoint}`,
-                  source: 'probe'
-                };
-                break;
-              }
-            } else if (res.status === 401 || res.status === 403) {
-              authError = `Error de autenticación (HTTP ${res.status}): Clave de API no válida o acceso denegado.`;
-            }
-          } catch (e) {
-            lastNetworkError = e;
-          } finally {
-            if (timer) clearTimeout(timer);
+      if (runProbes) {
+        for (const endpoint of this.getModelEndpoints(cleanBase)) {
+          const res = await request(endpoint, { method: 'GET', headers: { Accept: 'application/json' } });
+          if (!res?.ok) continue;
+          connectionSuccess = true;
+          const parsed = this.parseModelsResponse(await res.json());
+          if (parsed.length > 0) {
+            discoveredModels = parsed;
+            capabilities.modelListing = capability('confirmed', 'inspector_detail_models_found', { count: parsed.length, endpoint }, 'probe');
+            break;
           }
+        }
+        if (!discoveredModels.length && adapterCaps.modelListing) {
+          capabilities.modelListing = capability('unknown', 'inspector_detail_models_unavailable', {}, 'probe');
         }
       }
 
-      if (!modelListSuccess && adapterCaps.modelListing) {
-        capabilities.modelListing = {
-          status: 'unknown',
-          detail: 'No se pudo consultar el listado de modelos en los endpoints estándar',
-          source: 'probe'
+      // Inferencias por el modelo elegido y los nombres del catálogo.
+      const probeModel = model || discoveredModels[0]?.id || '';
+      const modelNames = [probeModel, ...discoveredModels.map(item => item.id || item.name || '')].join(' ').toLowerCase().trim();
+      for (const [key, pattern, detailKey] of MODEL_NAME_INFERENCES) {
+        if (modelNames && pattern.test(modelNames)) capabilities[key] = capability('inferred', detailKey, {}, 'model_name');
+      }
+
+      if (runProbes) {
+        /** Sonda de chat: un 200 confirma la capacidad y un 400/422 que menciona `rejectWords` la descarta. */
+        const chatProbe = async (key, payloadOptions, rejectWords, confirmedKey, confirmed = () => true) => {
+          const payload = this.buildPayload({ model: probeModel, messages: [{ role: 'user', content: 'hi' }], ...payloadOptions });
+          payload.max_tokens = 1;
+          if (payloadOptions.toolsList) payload.tool_choice = 'none';
+          const res = await request(normalizedEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          if (!res) return;
+          if (res.ok) {
+            connectionSuccess = true;
+            if (confirmed(res)) capabilities[key] = capability('confirmed', confirmedKey, {}, 'probe');
+          } else if (res.status === 400 || res.status === 422) {
+            connectionSuccess = true;
+            const errText = (await res.text().catch(() => '')).toLowerCase();
+            if (rejectWords.some(word => errText.includes(word))) {
+              capabilities[key] = capability('unsupported', 'inspector_detail_rejected', { error: errText.substring(0, 80) }, 'probe');
+            }
+          }
         };
-      }
+        await chatProbe('streaming', { stream: true, temperature: 0.1, reasoningEffort: 'none' }, ['stream'], 'inspector_detail_streaming_confirmed',
+          res => (res.headers.get('content-type') || '').includes('event-stream') || Boolean(res.body));
+        await chatProbe('tools', {
+          stream: false,
+          toolsList: [{ type: 'function', function: { name: 'ping_test', description: 'Inspector ping test', parameters: { type: 'object', properties: {} } } }]
+        }, ['tool', 'function', 'schema'], 'inspector_detail_tools_confirmed');
+        await chatProbe('jsonMode', { stream: false, jsonMode: true }, ['response_format', 'json'], 'inspector_detail_json_confirmed');
 
-      // Inferencias por nombre de modelo seleccionado o lista de modelos descubiertos
-      const targetModel = (model || (discoveredModels[0] && discoveredModels[0].id) || '').toLowerCase();
-      const allModelNames = discoveredModels.map(m => (m.id || m.name || '').toLowerCase()).join(' ');
-      const combinedModelContext = (targetModel + ' ' + allModelNames).trim();
-
-      if (combinedModelContext) {
-        // Inferencia de Visión
-        if (/(?:-vl|-vision|vision|4o|sonnet|opus|flash|pixtral|llava|cogvlm|gemini|qwen.*vl)/i.test(combinedModelContext)) {
-          capabilities.vision = {
-            status: 'inferred',
-            detail: 'Inferida por identificador multimodal detectado en los modelos',
-            source: 'model_name'
-          };
-        }
-
-        // Inferencia de Razonamiento
-        if (/(?:-r1|r1|qwq|o1|o3|reasoning|thinking|gemma-4|deepseek)/i.test(combinedModelContext)) {
-          capabilities.reasoning = {
-            status: 'inferred',
-            detail: 'Inferida por identificador de modelo con razonamiento/pensamiento',
-            source: 'model_name'
-          };
-        }
-
-        // Inferencia de Embeddings
-        if (/(?:embedding|embed|bge|nomic|e5|text-embedding)/i.test(combinedModelContext)) {
-          capabilities.embeddings = {
-            status: 'inferred',
-            detail: 'Inferida por modelos de embeddings presentes en el catálogo',
-            source: 'model_name'
-          };
+        // La sonda de embeddings no cuenta como conexión fallida: muchos servidores no la tienen.
+        const embUrl = cleanBase.endsWith('/v1') ? `${cleanBase}/embeddings` : `${cleanBase}/v1/embeddings`;
+        const previousError = lastNetworkError;
+        const res = await request(embUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: 'ping', model: probeModel }) });
+        lastNetworkError = previousError;
+        if (res?.ok) {
+          connectionSuccess = true;
+          capabilities.embeddings = capability('confirmed', 'inspector_detail_embeddings_confirmed', { endpoint: embUrl }, 'probe');
+        } else if (res?.status === 404) {
+          capabilities.embeddings = capability('unsupported', 'inspector_detail_embeddings_missing', { endpoint: embUrl }, 'probe');
+        } else if (res?.status === 400 || res?.status === 422) {
+          connectionSuccess = true;
         }
       }
 
-      // 3. Pruebas activas controladas (Micro-sondas seguras con max_tokens: 1)
-      const probeModel = model || (discoveredModels[0] && discoveredModels[0].id) || '';
-      let probesRun = false;
-
-      if (runProbes && typeof fetch === 'function') {
-        probesRun = true;
-
-        // Micro-sonda A: Streaming & Chat básico
-        connectionAttempted = true;
-        let timerA = null;
-        try {
-          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          if (controller) {
-            timerA = setTimeout(() => controller.abort(), timeoutMs);
-            if (typeof timerA?.unref === 'function') timerA.unref();
-          }
-          
-          const probePayload = this.buildPayload({
-            model: probeModel,
-            messages: [{ role: 'user', content: 'hi' }],
-            stream: true,
-            temperature: 0.1,
-            reasoningEffort: 'none'
-          });
-          probePayload.max_tokens = 1;
-
-          const res = await fetch(normalizedEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...headers },
-            body: JSON.stringify(probePayload),
-            signal: controller ? controller.signal : undefined
-          });
-
-          lastHttpStatus = res.status;
-          if (res.ok) {
-            connectionSuccess = true;
-            const contentType = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
-            if (contentType.includes('event-stream') || res.body) {
-              capabilities.streaming = {
-                status: 'confirmed',
-                detail: 'Respuesta de streaming SSE (HTTP 200) verificada exitosamente',
-                source: 'probe'
-              };
-            }
-          } else if (res.status === 401 || res.status === 403) {
-            authError = `Error de autenticación (HTTP ${res.status}): Clave de API no válida o acceso denegado.`;
-          } else if (res.status === 400 || res.status === 422) {
-            connectionSuccess = true;
-            const errText = await res.text().catch(() => '');
-            if (errText.toLowerCase().includes('stream')) {
-              capabilities.streaming = {
-                status: 'unsupported',
-                detail: `Servidor rechazó streaming: ${errText.substring(0, 80)}`,
-                source: 'probe'
-              };
-            }
-          }
-        } catch (probeErr) {
-          lastNetworkError = probeErr;
-        } finally {
-          if (timerA) clearTimeout(timerA);
-        }
-
-        // Micro-sonda B: Tools / Function Calling
-        connectionAttempted = true;
-        let timerB = null;
-        try {
-          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          if (controller) {
-            timerB = setTimeout(() => controller.abort(), timeoutMs);
-            if (typeof timerB?.unref === 'function') timerB.unref();
-          }
-
-          const toolPayload = this.buildPayload({
-            model: probeModel,
-            messages: [{ role: 'user', content: 'hi' }],
-            stream: false,
-            toolsList: [{
-              type: 'function',
-              function: {
-                name: 'ping_test',
-                description: 'Inspector ping test',
-                parameters: { type: 'object', properties: {} }
-              }
-            }]
-          });
-          toolPayload.max_tokens = 1;
-          toolPayload.tool_choice = 'none';
-
-          const res = await fetch(normalizedEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...headers },
-            body: JSON.stringify(toolPayload),
-            signal: controller ? controller.signal : undefined
-          });
-
-          lastHttpStatus = res.status;
-          if (res.ok) {
-            connectionSuccess = true;
-            capabilities.tools = {
-              status: 'confirmed',
-              detail: 'El servidor aceptó el esquema de tools/functions (HTTP 200)',
-              source: 'probe'
-            };
-          } else if (res.status === 401 || res.status === 403) {
-            authError = `Error de autenticación (HTTP ${res.status}): Clave de API no válida o acceso denegado.`;
-          } else if (res.status === 400 || res.status === 422) {
-            connectionSuccess = true;
-            const errText = await res.text().catch(() => '');
-            if (errText.toLowerCase().includes('tool') || errText.toLowerCase().includes('function') || errText.toLowerCase().includes('schema')) {
-              capabilities.tools = {
-                status: 'unsupported',
-                detail: `Servidor rechazó tools: ${errText.substring(0, 80)}`,
-                source: 'probe'
-              };
-            }
-          }
-        } catch (e) {
-          lastNetworkError = e;
-        } finally {
-          if (timerB) clearTimeout(timerB);
-        }
-
-        // Micro-sonda C: JSON Mode
-        connectionAttempted = true;
-        let timerC = null;
-        try {
-          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          if (controller) {
-            timerC = setTimeout(() => controller.abort(), timeoutMs);
-            if (typeof timerC?.unref === 'function') timerC.unref();
-          }
-
-          const jsonPayload = this.buildPayload({
-            model: probeModel,
-            messages: [{ role: 'user', content: 'hi' }],
-            stream: false,
-            jsonMode: true
-          });
-          jsonPayload.max_tokens = 1;
-
-          const res = await fetch(normalizedEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...headers },
-            body: JSON.stringify(jsonPayload),
-            signal: controller ? controller.signal : undefined
-          });
-
-          lastHttpStatus = res.status;
-          if (res.ok) {
-            connectionSuccess = true;
-            capabilities.jsonMode = {
-              status: 'confirmed',
-              detail: 'El servidor aceptó response_format: json_object (HTTP 200)',
-              source: 'probe'
-            };
-          } else if (res.status === 401 || res.status === 403) {
-            authError = `Error de autenticación (HTTP ${res.status}): Clave de API no válida o acceso denegado.`;
-          } else if (res.status === 400 || res.status === 422) {
-            connectionSuccess = true;
-            const errText = await res.text().catch(() => '');
-            if (errText.toLowerCase().includes('response_format') || errText.toLowerCase().includes('json')) {
-              capabilities.jsonMode = {
-                status: 'unsupported',
-                detail: `Servidor rechazó json_object: ${errText.substring(0, 80)}`,
-                source: 'probe'
-              };
-            }
-          }
-        } catch (e) {
-          lastNetworkError = e;
-        } finally {
-          if (timerC) clearTimeout(timerC);
-        }
-
-        // Micro-sonda D: Embeddings endpoint check
-        let timerD = null;
-        try {
-          const embUrl = cleanBase.endsWith('/v1') ? `${cleanBase}/embeddings` : `${cleanBase}/v1/embeddings`;
-          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-          if (controller) {
-            timerD = setTimeout(() => controller.abort(), timeoutMs);
-            if (typeof timerD?.unref === 'function') timerD.unref();
-          }
-
-          const res = await fetch(embUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...headers },
-            body: JSON.stringify({ input: 'ping', model: probeModel }),
-            signal: controller ? controller.signal : undefined
-          });
-
-          if (res.ok) {
-            connectionSuccess = true;
-            capabilities.embeddings = {
-              status: 'confirmed',
-              detail: `Endpoint ${embUrl} responde correctamente (HTTP 200)`,
-              source: 'probe'
-            };
-          } else if (res.status === 404) {
-            capabilities.embeddings = {
-              status: 'unsupported',
-              detail: `Endpoint ${embUrl} no encontrado (404)`,
-              source: 'probe'
-            };
-          } else if (res.status === 401 || res.status === 403) {
-            authError = `Error de autenticación (HTTP ${res.status}): Clave de API no válida o acceso denegado.`;
-          } else if (res.status === 400 || res.status === 422) {
-            connectionSuccess = true;
-          }
-        } catch (e) { /* sondeo opcional: un fallo de red deja la capacidad sin determinar */ } finally {
-          if (timerD) clearTimeout(timerD);
-        }
-      }
-
-      const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       // Resultado estructurado de la inspección, sin apiKey.
       const buildInspection = ({ discovered, ...status }) => ({
         ...status,
-        provider: { id: this.id, label: this.label, description: this.description },
+        provider: { id: this.id, label: this.label },
         endpoint: { raw: apiUrl, normalized: normalizedEndpoint, base: cleanBase },
         model: { selected: probeModel, totalDiscovered: discovered.length, discovered },
         capabilities,
-        inspectionTimeMs: Math.round(endTime - startTime)
+        inspectionTimeMs: Math.round(performance.now() - startTime)
       });
 
-      // Si se intentó conectar mediante sondas y ninguna tuvo éxito, informar fallo de conexión
-      if (runProbes && connectionAttempted && !connectionSuccess) {
+      if (runProbes && !connectionSuccess) {
         let errorMsg;
-        if (authError) {
-          errorMsg = authError;
-        } else if (lastNetworkError) {
-          const netMsg = lastNetworkError.message || String(lastNetworkError);
-          errorMsg = `Error de conexión: No se pudo conectar con el servidor en ${normalizedEndpoint} (${netMsg}). Verifica que el servidor esté activo y la URL sea correcta.`;
-        } else if (lastHttpStatus) {
-          errorMsg = `Error de conexión: El servidor respondió con error HTTP ${lastHttpStatus} en ${normalizedEndpoint}. Verifica el endpoint y la configuración.`;
-        } else {
-          errorMsg = `Error de conexión: No se pudo establecer comunicación con el servidor en ${normalizedEndpoint}.`;
-        }
-
-        Object.keys(capabilities).forEach(k => {
-          capabilities[k] = {
-            status: 'unknown',
-            detail: 'No comprobada: fallo de conexión con el servidor',
-            source: 'probe'
-          };
-        });
-
+        if (authError) errorMsg = authError;
+        else if (lastNetworkError) errorMsg = `Connection error: could not reach the server at ${normalizedEndpoint} (${lastNetworkError.message || String(lastNetworkError)}). Check that the server is running and the URL is correct.`;
+        else if (lastHttpStatus) errorMsg = `Connection error: the server answered HTTP ${lastHttpStatus} at ${normalizedEndpoint}. Check the endpoint and the configuration.`;
+        else errorMsg = `Connection error: could not communicate with the server at ${normalizedEndpoint}.`;
+        for (const key of Object.keys(capabilities)) capabilities[key] = capability('unknown', 'inspector_detail_not_checked', {}, 'probe');
         return buildInspection({ success: false, connected: false, error: errorMsg, discovered: [], probesRun: true });
       }
 
-      return buildInspection({ success: true, connected: runProbes ? true : null, discovered: discoveredModels, probesRun });
+      return buildInspection({ success: true, connected: runProbes ? true : null, discovered: discoveredModels, probesRun: runProbes });
     }
   }
 
@@ -820,7 +555,6 @@
         id: 'claude',
         label: 'Anthropic Claude',
         connection: { endpoint: 'https://api.anthropic.com/v1' },
-        description: 'Estándar Claude (thinking budget: disabled, 1k, 2k, 4k, 8k tokens)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
@@ -1046,7 +780,6 @@
         id: 'gemini',
         label: 'Google Gemini',
         connection: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai' },
-        description: 'Google Gemini (OpenAI compatible endpoint)',
         reasoningLevels: ['none'],
         capabilities: {
           streaming: true,
@@ -1235,7 +968,6 @@
         id: 'ollama',
         label: 'Ollama',
         connection: { endpoint: 'http://localhost:11434' },
-        description: 'Estándar Ollama (reasoning_effort: none, low, medium, high, xhigh)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
@@ -1288,7 +1020,6 @@
         id: 'openrouter',
         label: 'OpenRouter',
         connection: { endpoint: 'https://openrouter.ai/api/v1' },
-        description: 'Estándar OpenRouter (reasoning.effort: none, low, medium, high, xhigh)',
         reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
