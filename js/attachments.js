@@ -14,36 +14,11 @@
 
   const { resolveDep } = Utils;
 
-  function getState() {
-    return resolveDep('ChatState', './state.js');
-  }
+  const getState = () => resolveDep('ChatState', './state.js');
 
-
-  function getFiles() {
-    const State = getState();
-    if (State && typeof State.get === 'function') {
-      const ui = State.get('ui');
-      return Array.isArray(ui?.attachedFiles) ? ui.attachedFiles : [];
-    }
-    return [];
-  }
-
-  function setFiles(files) {
-    const State = getState();
-    const cleanFiles = Array.isArray(files) ? [...files] : [];
-    if (State && typeof State.setAttachments === 'function') {
-      State.setAttachments(cleanFiles);
-    }
-  }
-
-  function clearFiles() {
-    const State = getState();
-    if (State && typeof State.clearAttachments === 'function') {
-      State.clearAttachments();
-    } else {
-      setFiles([]);
-    }
-  }
+  const getFiles = () => getState().get('ui').attachedFiles;
+  const setFiles = files => getState().setAttachments([...files]);
+  const clearFiles = () => getState().clearAttachments();
 
   function removeFileAt(index) {
     const files = getFiles();
@@ -62,7 +37,6 @@
   }
 
   function renderChips(container, onRemoveCallback) {
-    if (!container) return;
 
     const files = getFiles();
     if (files.length === 0) {
@@ -105,9 +79,7 @@
       removeButton.addEventListener('click', () => {
         removeFileAt(index);
         renderChips(container, onRemoveCallback);
-        if (typeof onRemoveCallback === 'function') {
-          onRemoveCallback(index);
-        }
+        onRemoveCallback(index);
       });
 
       chip.appendChild(icon);

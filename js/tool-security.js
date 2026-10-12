@@ -271,10 +271,8 @@
       this.storageKey = this.explicitStorageKey || STORAGE_KEY;
       this.sessionToken = options.sessionToken || null;
       this.globalMcpPolicy = GLOBAL_POLICIES.ASK;
-      this.startupDirectory = normalizeDirectoryPath(
-        options.startupDirectory ||
-        (typeof process !== 'undefined' && process?.cwd && typeof process.cwd === 'function' ? process.cwd() : '.')
-      );
+      // El backend local informa del directorio real al conectarse (setStartupDirectory).
+      this.startupDirectory = normalizeDirectoryPath(options.startupDirectory || '.');
       this.tools = new Map();
       this.servers = new Map();
       this.directoryRules = [];
@@ -422,29 +420,18 @@
      * Sincroniza el estado reactivo con ChatState.
      */
     syncWithState() {
-      const State = getState();
-      if (State && typeof State.set === 'function') {
-        const toolsObj = {};
-        this.tools.forEach((val, key) => { toolsObj[key] = val; });
-        const serversObj = {};
-        this.servers.forEach((val, key) => { serversObj[key] = val; });
-
-        State.set('toolSecurity', {
-          globalMcpPolicy: this.globalMcpPolicy,
-          authorizedCount: this.tools.size + this.servers.size,
-          tools: toolsObj,
-          servers: serversObj,
-          directoryRules: this.directoryRules
-        });
-      }
+      getState().set('toolSecurity', {
+        globalMcpPolicy: this.globalMcpPolicy,
+        authorizedCount: this.tools.size + this.servers.size,
+        tools: Object.fromEntries(this.tools),
+        servers: Object.fromEntries(this.servers),
+        directoryRules: this.directoryRules
+      });
     }
 
     subscribe(listener) {
-      if (typeof listener === 'function') {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-      }
-      return () => {};
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
     }
 
     notifyListeners() {

@@ -4,9 +4,13 @@ const assert = require('node:assert/strict');
 const AgentCore = require('../../js/agent-core.js');
 const ChatAPI = require('../../js/api.js');
 const ToolCards = require('../../js/tool-cards.js');
+const ToolSecurity = require('../../js/tool-security.js');
 const { installDom } = require('../helpers/dom-env.js');
 
 const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
+
+// Como al conectar el backend local, que informa de su directorio de trabajo.
+ToolSecurity.manager.setStartupDirectory('/home/user/proj');
 const delegateTask = AgentCore.registry.getTool('delegate_task');
 
 function localTool(name, execute = async () => ({ success: true }), mcpServerId = 'mcp_proxy') {

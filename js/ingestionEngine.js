@@ -25,41 +25,8 @@
       .replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
   }
 
-  async function readPlainText(file) {
-    if (!file) return '';
-    if (typeof file === 'string') return file;
-    if (typeof file.content === 'string') return file.content;
-    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(file)) return file.toString('utf8');
-    if (typeof file.text === 'function') return file.text();
-    if (typeof FileReader !== 'undefined') {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error || new Error('The file could not be read.'));
-        reader.readAsText(file, 'utf-8');
-      });
-    }
-    throw new Error('The text file could not be read.');
-  }
-
   async function extractTextFromPlainText(file) {
-    return normalizeExtractedText(await readPlainText(file));
-  }
-
-  async function toArrayBuffer(file) {
-    if (file instanceof ArrayBuffer) return file;
-    if (file instanceof Uint8Array) return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
-    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(file)) return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
-    if (file && typeof file.arrayBuffer === 'function') return file.arrayBuffer();
-    if (typeof FileReader !== 'undefined') {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error || new Error('The PDF could not be read.'));
-        reader.readAsArrayBuffer(file);
-      });
-    }
-    throw new Error('The binary content of the file could not be read.');
+    return normalizeExtractedText(await file.text());
   }
 
   const MAX_DECOMPRESSED_TEXT_BYTES = 50 * 1024 * 1024;
@@ -84,15 +51,9 @@
   }
 
   async function getArchiveFormat(file) {
-    const byName = archiveFormatFromName(file?.name);
+    const byName = archiveFormatFromName(file.name);
     if (byName) return byName;
-    try {
-      const header = file?.slice ? file.slice(0, 16) : file;
-      const bytes = new Uint8Array(await toArrayBuffer(header));
-      return archiveFormatFromBytes(bytes);
-    } catch (_) {
-      return '';
-    }
+    return archiveFormatFromBytes(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
   }
 
   async function readTextStream(stream, maxBytes = MAX_DECOMPRESSED_TEXT_BYTES) {
@@ -113,14 +74,7 @@
     return text + decoder.decode();
   }
 
-  async function readGzipText(file, options = {}) {
-    if (typeof DecompressionStream === 'undefined' || typeof Blob === 'undefined') {
-      throw new Error('This browser cannot decompress gzip files.');
-    }
-    const bytes = await toArrayBuffer(file);
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    return readTextStream(stream, options.maxDecompressedBytes || MAX_DECOMPRESSED_TEXT_BYTES);
-  }
+  const readGzipText = file => readTextStream(file.stream().pipeThrough(new DecompressionStream('gzip')));
 
   function unsupportedArchiveMessage(format) {
     if (format === 'tar') return 'The file is a compressed TAR archive. Extract the logs or use individual .gz files.';
@@ -136,15 +90,13 @@
       try {
         rawText = await readGzipText(file);
       } catch (error) {
-        if (String(error?.message || error).includes('cannot decompress')) throw error;
-        throw new Error('The gzip file could not be decompressed. It may be damaged.');
+        throw new Error('The gzip file could not be decompressed. It may be damaged.', { cause: error });
       }
       if (!isLikelyText(rawText)) throw new Error('The gzip content does not seem to contain readable text.');
       return { text: normalizeExtractedText(rawText), images: [] };
     }
     if (fileType === 'pdf') {
-      const bytes = await toArrayBuffer(file);
-      const parsed = await getFileParser().parsePdfDocument(bytes);
+      const parsed = await getFileParser().parsePdfDocument(await file.arrayBuffer());
       return { text: normalizeExtractedText(parsed.text), images: parsed.images || [] };
     }
 
@@ -172,7 +124,7 @@
       return { text: normalizeExtractedText(rawText), images };
     }
 
-    const rawText = await readPlainText(file);
+    const rawText = await file.text();
     if (!isLikelyText(rawText)) throw new Error('The file does not seem to contain readable text.');
     return { text: normalizeExtractedText(rawText), images: [] };
   }
@@ -233,10 +185,10 @@
   }
 
   function detectFileType(file) {
-    const name = String(file?.name || '').toLowerCase();
-    if (name.endsWith('.pdf') || file?.type === 'application/pdf') return 'pdf';
-    if (name.endsWith('.md') || name.endsWith('.markdown') || file?.type === 'text/markdown') return 'md';
-    if (/^(?:image|audio|video)\//i.test(String(file?.type || ''))) return null;
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.pdf') || file.type === 'application/pdf') return 'pdf';
+    if (name.endsWith('.md') || name.endsWith('.markdown') || file.type === 'text/markdown') return 'md';
+    if (/^(?:image|audio|video)\//i.test(file.type)) return null;
     return 'txt';
   }
 
@@ -277,11 +229,10 @@
         cancelledFiles: result.cancelled, failedFiles: result.failed, finishedFiles, overallPercent
       });
     };
-    const fileNameAt = index => queue[index]?.name || `document_${index + 1}.txt`;
     const cancelRemaining = fromIndex => {
       for (let index = fromIndex; index < queue.length; index++) {
         result.cancelled++;
-        emit(index, fileNameAt(index), 'cancelled', 0);
+        emit(index, queue[index].name, 'cancelled', 0);
       }
     };
 
@@ -292,12 +243,13 @@
       }
 
       const file = queue[fileIndex];
-      const fullPath = String(file?.webkitRelativePath || file?.path || file?.name || fileNameAt(fileIndex)).trim();
-      const fileName = file?.name || fullPath;
+      // Al elegir una carpeta, la ruta relativa distingue archivos con el mismo nombre.
+      const fullPath = (file.webkitRelativePath || file.name).trim();
+      const fileName = file.name;
       const fileType = detectFileType(file);
 
       try {
-        if (typeof file?.size === 'number' && file.size > maxFileSize) {
+        if (file.size > maxFileSize) {
           throw new Error(`The file exceeds the maximum allowed size (${Math.round(maxFileSize / 1024 / 1024)} MB).`);
         }
         if (!fileType) throw new Error('The file does not seem to contain readable text.');
@@ -351,8 +303,8 @@
           title: fileName,
           path: fullPath,
           fileType,
-          mimeType: file?.type || '',
-          fileSize: Number(file?.size) || preparedText.length,
+          mimeType: file.type,
+          fileSize: file.size,
           chunks
         };
         const replacing = action === 'replace';

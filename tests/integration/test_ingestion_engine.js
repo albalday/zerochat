@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
 const RagIndex = require('../../js/rag-index.js');
 const Ingestion = require('../../js/ingestionEngine.js');
+const { toFile } = require('../helpers/files.js');
 
 beforeEach(async () => {
   RagIndex.clearCache();
@@ -11,13 +12,13 @@ beforeEach(async () => {
 
 test('IngestionEngine - normaliza y lee texto sin LLM', async () => {
   assert.equal(Ingestion.normalizeExtractedText(' hola\r\n\0mundo '), 'hola\nmundo');
-  assert.equal(await Ingestion.extractTextFromPlainText({ content: '# Guía\nTexto' }), '# Guía\nTexto');
-  assert.equal(Ingestion.detectFileType({ name: 'manual.PDF' }), 'pdf');
-  assert.equal(Ingestion.detectFileType({ name: 'notas.md' }), 'md');
-  assert.equal(Ingestion.detectFileType({ name: 'servidor.log' }), 'txt');
-  assert.equal(Ingestion.detectFileType({ name: 'main.py' }), 'txt');
-  assert.equal(Ingestion.detectFileType({ name: 'Dockerfile' }), 'txt');
-  assert.equal(Ingestion.detectFileType({ name: 'imagen.png', type: 'image/png' }), null);
+  assert.equal(await Ingestion.extractTextFromPlainText(toFile({ name: 'guia.md', content: '# Guía\nTexto' })), '# Guía\nTexto');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'manual.PDF' })), 'pdf');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'notas.md' })), 'md');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'servidor.log' })), 'txt');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'main.py' })), 'txt');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'Dockerfile' })), 'txt');
+  assert.equal(Ingestion.detectFileType(toFile({ name: 'imagen.png', type: 'image/png' })), null);
   assert.equal(Ingestion.isLikelyText('INFO servicio iniciado\n'), true);
   assert.equal(Ingestion.isLikelyText('texto\0binario'), false);
 });
@@ -43,9 +44,9 @@ test('IngestionEngine - procesa cola, persiste e indexa sin cliente LLM', async 
   const branch = await RagStorage.createBranch('Pruebas');
   const progress = [];
   const result = await Ingestion.processDocumentQueue([
-    { name: 'uno.md', type: 'text/markdown', content: '# Redes\nProtocolo BGP para enrutamiento.', size: 38 },
-    { name: 'vacio.txt', content: '' },
-    { name: 'imagen.png', type: 'image/png', content: 'no indexar' }
+    toFile({ name: 'uno.md', type: 'text/markdown', content: '# Redes\nProtocolo BGP para enrutamiento.'}),
+    toFile({ name: 'vacio.txt', content: '' }),
+    toFile({ name: 'imagen.png', type: 'image/png', content: 'no indexar' })
   ], branch.id, event => progress.push(event), { maxChars: 2000 });
   assert.equal(result.processed, 1);
   assert.equal(result.failed, 2);
@@ -63,10 +64,10 @@ test('IngestionEngine - procesa cola, persiste e indexa sin cliente LLM', async 
 test('IngestionEngine - ingiere formatos de texto genéricos y rechaza binarios', async () => {
   const branch = await RagStorage.createBranch('Texto genérico');
   const result = await Ingestion.processDocumentQueue([
-    { name: 'api.log', type: '', content: '2026-09-05 ERROR conexión rechazada', size: 38 },
-    { name: 'config.yaml', type: 'application/x-yaml', content: 'database:\n  host: localhost', size: 27 },
-    { name: 'main.py', type: 'text/x-python', content: 'def saludar():\n    return "__DOC_ID__"', size: 39 },
-    { name: 'datos.bin', type: 'application/octet-stream', content: 'texto\0binario', size: 14 }
+    toFile({ name: 'api.log', type: '', content: '2026-09-05 ERROR conexión rechazada'}),
+    toFile({ name: 'config.yaml', type: 'application/x-yaml', content: 'database:\n  host: localhost'}),
+    toFile({ name: 'main.py', type: 'text/x-python', content: 'def saludar():\n    return "__DOC_ID__"'}),
+    toFile({ name: 'datos.bin', type: 'application/octet-stream', content: 'texto\0binario'})
   ], branch.id, null, { maxChars: 2000 });
 
   assert.equal(result.processed, 3);
@@ -86,18 +87,8 @@ test('IngestionEngine - indexa logs gzip y explica los comprimidos no compatible
   const branch = await RagStorage.createBranch('Logs comprimidos');
   const logText = '2026-09-05T10:00:00Z sshd[123]: Failed password for root from 10.0.0.1';
   const gzipBytes = zlib.gzipSync(logText);
-  const gzipFile = {
-    name: 'auth.log.1.gz',
-    type: 'application/gzip',
-    size: gzipBytes.length,
-    arrayBuffer: async () => gzipBytes.buffer.slice(gzipBytes.byteOffset, gzipBytes.byteOffset + gzipBytes.byteLength)
-  };
-  const zipFile = {
-    name: 'logs.zip',
-    type: 'application/zip',
-    size: 4,
-    arrayBuffer: async () => new Uint8Array([0x50, 0x4B, 0x03, 0x04]).buffer
-  };
+  const gzipFile = toFile({ name: 'auth.log.1.gz', type: 'application/gzip', content: gzipBytes });
+  const zipFile = toFile({ name: 'logs.zip', type: 'application/zip', content: new Uint8Array([0x50, 0x4B, 0x03, 0x04]) });
 
   const result = await Ingestion.processDocumentQueue([gzipFile, zipFile], branch.id, null, { maxChars: 2000 });
 

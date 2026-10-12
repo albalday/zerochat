@@ -2,6 +2,7 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');
 const IngestionEngine = require('../../js/ingestionEngine.js');
+const { toFile } = require('../helpers/files.js');
 
 beforeEach(async () => {
   await RagStorage.clearAllData();
@@ -11,7 +12,7 @@ test('Ingestion - detecta duplicado idéntico por ruta y permite ignorarlo', asy
   const branch = await RagStorage.createBranch('Rama1');
 
   // Primer archivo
-  const file1 = { name: 'guia.txt', content: 'Contenido original de la guía técnica.' };
+  const file1 = toFile({ name: 'guia.txt', content: 'Contenido original de la guía técnica.' });
   const res1 = await IngestionEngine.processDocumentQueue([file1], branch.id);
   assert.equal(res1.processed, 1);
   assert.equal(res1.skipped, 0);
@@ -19,7 +20,7 @@ test('Ingestion - detecta duplicado idéntico por ruta y permite ignorarlo', asy
 
   // Mismo archivo intentando ingresar de nuevo, con opción ignore
   let conflictCalled = false;
-  const file2 = { name: 'guia.txt', content: 'Contenido nuevo diferente pero misma ruta.' };
+  const file2 = toFile({ name: 'guia.txt', content: 'Contenido nuevo diferente pero misma ruta.' });
   const res2 = await IngestionEngine.processDocumentQueue([file2], branch.id, null, {
     onDuplicateConflict: async ({ fullPath }) => {
       conflictCalled = true;
@@ -43,10 +44,10 @@ test('Ingestion - detecta duplicado idéntico por ruta y permite ignorarlo', asy
 test('Ingestion - detecta duplicado idéntico por ruta y permite reemplazarlo atómicamente', async () => {
   const branch = await RagStorage.createBranch('Rama2');
 
-  const file1 = { name: 'doc.txt', content: 'Texto versión 1.' };
+  const file1 = toFile({ name: 'doc.txt', content: 'Texto versión 1.' });
   await IngestionEngine.processDocumentQueue([file1], branch.id);
 
-  const file2 = { name: 'doc.txt', content: 'Texto versión 2 actualizado.' };
+  const file2 = toFile({ name: 'doc.txt', content: 'Texto versión 2 actualizado.' });
   let conflictCalled = false;
   const res2 = await IngestionEngine.processDocumentQueue([file2], branch.id, null, {
     onDuplicateConflict: async ({ fullPath }) => {
@@ -71,8 +72,8 @@ test('Ingestion - detecta duplicado idéntico por ruta y permite reemplazarlo at
 test('Ingestion - archivos con distinta ruta relativa no son duplicados', async () => {
   const branch = await RagStorage.createBranch('RamaRutas');
 
-  const fileA = { name: 'doc.txt', webkitRelativePath: 'folderA/doc.txt', content: 'Contenido A.' };
-  const fileB = { name: 'doc.txt', webkitRelativePath: 'folderB/doc.txt', content: 'Contenido B.' };
+  const fileA = toFile({ name: 'doc.txt', webkitRelativePath: 'folderA/doc.txt', content: 'Contenido A.' });
+  const fileB = toFile({ name: 'doc.txt', webkitRelativePath: 'folderB/doc.txt', content: 'Contenido B.' });
 
   const res = await IngestionEngine.processDocumentQueue([fileA, fileB], branch.id);
   assert.equal(res.processed, 2);
@@ -88,18 +89,18 @@ test('Ingestion - casilla applyToAll automatiza respuesta en duplicados restante
 
   // Precargar 3 archivos
   const initialFiles = [
-    { name: 'file1.txt', content: 'Original 1' },
-    { name: 'file2.txt', content: 'Original 2' },
-    { name: 'file3.txt', content: 'Original 3' }
+    toFile({ name: 'file1.txt', content: 'Original 1' }),
+    toFile({ name: 'file2.txt', content: 'Original 2' }),
+    toFile({ name: 'file3.txt', content: 'Original 3' })
   ];
   await IngestionEngine.processDocumentQueue(initialFiles, branch.id);
 
   // Nueva carga con los 3 duplicados
   let conflictCount = 0;
   const duplicateFiles = [
-    { name: 'file1.txt', content: 'Nuevo 1' },
-    { name: 'file2.txt', content: 'Nuevo 2' },
-    { name: 'file3.txt', content: 'Nuevo 3' }
+    toFile({ name: 'file1.txt', content: 'Nuevo 1' }),
+    toFile({ name: 'file2.txt', content: 'Nuevo 2' }),
+    toFile({ name: 'file3.txt', content: 'Nuevo 3' })
   ];
 
   const res = await IngestionEngine.processDocumentQueue(duplicateFiles, branch.id, null, {
@@ -120,8 +121,8 @@ test('Ingestion - dos archivos idénticos dentro de la misma cola se detectan co
   const branch = await RagStorage.createBranch('RamaCola');
 
   const queue = [
-    { name: 'reporte.txt', content: 'Primer reporte' },
-    { name: 'reporte.txt', content: 'Segundo reporte repetido' }
+    toFile({ name: 'reporte.txt', content: 'Primer reporte' }),
+    toFile({ name: 'reporte.txt', content: 'Segundo reporte repetido' })
   ];
 
   let conflictCalled = false;
@@ -145,9 +146,9 @@ test('Ingestion - AbortController detiene la cola y marca cancelados limpiamente
   const controller = new AbortController();
 
   const files = [
-    { name: 'doc1.txt', content: 'Contenido uno.' },
-    { name: 'doc2.txt', content: 'Contenido dos.' },
-    { name: 'doc3.txt', content: 'Contenido tres.' }
+    toFile({ name: 'doc1.txt', content: 'Contenido uno.' }),
+    toFile({ name: 'doc2.txt', content: 'Contenido dos.' }),
+    toFile({ name: 'doc3.txt', content: 'Contenido tres.' })
   ];
 
   const events = [];
