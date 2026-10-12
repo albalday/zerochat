@@ -2,6 +2,9 @@
 # Herramientas Locales Core
 # ==============================================================================
 
+MAX_HTTP_BODY_BYTES = 1024 * 1024
+MAX_PATH_LENGTH = 4096
+MAX_COMMAND_LENGTH = 16384
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
 
 
@@ -640,7 +643,7 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Relative or absolute directory path (defaults to '.')"},
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Relative or absolute directory path (defaults to '.')"},
                 "recursive": {"type": "boolean", "description": "If true, traverses subdirectories up to depth 3", "default": False}
             }
         }
@@ -651,7 +654,7 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path"},
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "File path"},
                 "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
                 "end_line": {"type": "integer", "description": "Last line (inclusive)"},
                 "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
@@ -666,8 +669,8 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the file to write"},
-                "content": {"type": "string", "description": "Full content of the file"}
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path to the file to write"},
+                "content": {"type": "string", "maxLength": MAX_HTTP_BODY_BYTES, "description": "Full content of the file"}
             },
             "required": ["path", "content"]
         }
@@ -682,9 +685,9 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path"},
-                "old_str": {"type": "string", "description": "Exact text to replace; must occur once unless replace_all is true"},
-                "new_str": {"type": "string", "description": "Replacement text"},
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "File path"},
+                "old_str": {"type": "string", "maxLength": MAX_HTTP_BODY_BYTES, "description": "Exact text to replace; must occur once unless replace_all is true"},
+                "new_str": {"type": "string", "maxLength": MAX_HTTP_BODY_BYTES, "description": "Replacement text"},
                 "replace_all": {"type": "boolean", "description": "Replace every occurrence of old_str (e.g. to rename an identifier)", "default": False}
             },
             "required": ["path", "old_str", "new_str"]
@@ -696,9 +699,9 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Plain text string or regular expression to search for"},
-                "path": {"type": "string", "description": "Base search directory (defaults to '.')", "default": "."},
-                "file_pattern": {"type": "string", "description": "Optional glob filter (e.g. *.js, *.py)"}
+                "query": {"type": "string", "maxLength": 4096, "description": "Plain text string or regular expression to search for"},
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Base search directory (defaults to '.')", "default": "."},
+                "file_pattern": {"type": "string", "maxLength": 256, "description": "Optional glob filter (e.g. *.js, *.py)"}
             },
             "required": ["query"]
         }
@@ -724,6 +727,7 @@ LOCAL_TOOLS_DEFINITIONS = [
             "properties": {
                 "command": {
                     "type": "string",
+                    "maxLength": MAX_COMMAND_LENGTH,
                     "description": (
                         "PowerShell command to run (e.g. git status; npm test)"
                         if DETECTED_OS == "windows"
@@ -755,7 +759,7 @@ LOCAL_TOOLS_DEFINITIONS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the file or directory to inspect (defaults to '.')"}
+                "path": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path to the file or directory to inspect (defaults to '.')"}
             }
         }
     },
@@ -768,11 +772,12 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "action": {
                     "type": "string",
                     "enum": list(BROWSER_ACTIONS),
+                    "maxLength": 32,
                     "description": "Action to perform in the browser"
                 },
-                "url": {"type": "string", "description": "Target URL for navigate or screenshot"},
-                "selector": {"type": "string", "description": "CSS selector for click or fill actions"},
-                "value": {"type": "string", "description": "Text value to type for fill action"}
+                "url": {"type": "string", "maxLength": 4096, "description": "Target URL for navigate or screenshot"},
+                "selector": {"type": "string", "maxLength": 1024, "description": "CSS selector for click or fill actions"},
+                "value": {"type": "string", "maxLength": MAX_HTTP_BODY_BYTES, "description": "Text value to type for fill action"}
             },
             "required": ["action"]
         }

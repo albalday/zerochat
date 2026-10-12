@@ -2,11 +2,8 @@
 # Servidor HTTP JSON-RPC 2.0 y SSE con Autenticación por Token
 # ==============================================================================
 
-MAX_HTTP_BODY_BYTES = 1024 * 1024
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
-MAX_PATH_LENGTH = 4096
-MAX_COMMAND_LENGTH = 16384
 # Un mensaje MCP admite imágenes en base64, pero no puede agotar la memoria del backend.
 MAX_MCP_MESSAGE_CHARS = 16 * 1024 * 1024
 MAX_MCP_STDERR_LINE_CHARS = 64 * 1024
@@ -14,74 +11,32 @@ DEFAULT_MCP_CALL_TIMEOUT_SECONDS = 30
 
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
-    """Valida tipos y límites de las herramientas locales antes de ejecutarlas."""
-    schemas = {
-        "list_directory": {
-            "path": (str, MAX_PATH_LENGTH),
-            "recursive": (bool, None)
-        },
-        "read_file": {
-            "path": (str, MAX_PATH_LENGTH),
-            "start_line": (int, None),
-            "end_line": (int, None),
-            "max_lines": (int, None),
-            "max_bytes": (int, None)
-        },
-        "write_file": {
-            "path": (str, MAX_PATH_LENGTH),
-            "content": (str, MAX_HTTP_BODY_BYTES)
-        },
-        "edit_file": {
-            "path": (str, MAX_PATH_LENGTH),
-            "old_str": (str, MAX_HTTP_BODY_BYTES),
-            "new_str": (str, MAX_HTTP_BODY_BYTES),
-            "replace_all": (bool, None)
-        },
-        "run_command": {
-            "command": (str, MAX_COMMAND_LENGTH),
-            "timeout_seconds": (int, None),
-            "background": (bool, None)
-        },
-        "check_command": {
-            "job_id": (int, None),
-            "wait_seconds": (int, None),
-            "stop": (bool, None)
-        },
-        "search_files": {
-            "query": (str, 4096),
-            "path": (str, MAX_PATH_LENGTH),
-            "file_pattern": (str, 256)
-        },
-        "get_diagnostics": {
-            "path": (str, MAX_PATH_LENGTH)
-        },
-        "browser_action": {
-            "action": (str, 32),
-            "url": (str, 4096),
-            "selector": (str, 1024),
-            "value": (str, MAX_HTTP_BODY_BYTES)
-        }
-    }
-    schema = schemas.get(tool_name)
-    if schema is None:
+    """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
+    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
+    if definition is None:
         return None
 
+    schema = definition.get("inputSchema", {})
+    properties = schema.get("properties", {})
+    type_map = {"string": str, "integer": int, "boolean": bool}
+
     for name, value in arguments.items():
-        expected = schema.get(name)
-        if expected is None:
+        prop = properties.get(name)
+        if prop is None:
             return f"Argumento no permitido: {name}"
-        expected_type, max_length = expected
+        expected_type_name = prop.get("type")
+        expected_type = type_map.get(expected_type_name)
         if expected_type is bool:
             if not isinstance(value, bool):
                 return f"Tipo inválido para '{name}'"
         else:
             if isinstance(value, bool) or not isinstance(value, expected_type):
                 return f"Tipo inválido para '{name}'"
+        max_length = prop.get("maxLength")
         if max_length is not None and len(value) > max_length:
             return f"'{name}' excede el tamaño máximo permitido"
 
-    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), {})
-    for name in definition.get("inputSchema", {}).get("required", ()):
+    for name in schema.get("required", ()):
         if name not in arguments:
             return f"Falta el argumento obligatorio: {name}"
 
