@@ -1,7 +1,6 @@
 /**
- * Shared IndexedDB connection and schema for ZeroChat.
- * Persistent application data lives in one database so modules never compete
- * with different database versions or upgrade handlers.
+ * Conexión y esquema de la base IndexedDB de ZeroChat. Todos los datos persistentes viven en una
+ * sola base para que los módulos no compitan con versiones o actualizaciones distintas.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,132 +12,125 @@
   'use strict';
 
   const DB_NAME = 'ZeroChatDB';
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   const STORES = Object.freeze({
     conversations: 'conversations',
     messages: 'messages',
-    attachments: 'attachments',
     ragBranches: 'rag_branches',
     ragDocuments: 'rag_documents',
     ragImages: 'rag_images',
-    ragChunks: 'rag_chunks',
-    ragMeta: 'rag_meta'
+    ragChunks: 'rag_chunks'
   });
 
   let dbPromise = null;
 
-  function isAvailable() {
-    try {
-      return typeof indexedDB !== 'undefined' && indexedDB !== null;
-    } catch (_) {
-      return false;
-    }
+  /** Sin compatibilidad con esquemas anteriores: una versión nueva recrea la base vacía. */
+  function createSchema(db) {
+    Array.from(db.objectStoreNames).forEach(name => db.deleteObjectStore(name));
+
+    db.createObjectStore(STORES.conversations, { keyPath: 'id' }).createIndex('by_updatedAt', 'updatedAt');
+    // Los mensajes se leen en orden por [conversationId, position].
+    db.createObjectStore(STORES.messages, { keyPath: 'id' }).createIndex('by_conversation', ['conversationId', 'position']);
+
+    db.createObjectStore(STORES.ragBranches, { keyPath: 'id' });
+    db.createObjectStore(STORES.ragDocuments, { keyPath: 'id' }).createIndex('by_branchId', 'branchId');
+    db.createObjectStore(STORES.ragImages, { keyPath: 'documentId' }).createIndex('by_branchId', 'branchId');
+    const chunks = db.createObjectStore(STORES.ragChunks, { keyPath: 'id' });
+    chunks.createIndex('by_branchId', 'branchId');
+    chunks.createIndex('by_documentId', 'documentId');
   }
 
-  function createIndex(store, name, keyPath, options) {
-    if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, options);
-  }
-
-  function ensureStore(db, tx, name, options) {
-    return db.objectStoreNames.contains(name)
-      ? tx.objectStore(name)
-      : db.createObjectStore(name, options);
-  }
-
-  function upgradeSchema(db, transaction) {
-    let store = ensureStore(db, transaction, STORES.conversations, { keyPath: 'id' });
-    createIndex(store, 'by_updatedAt', 'updatedAt', { unique: false });
-    createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
-
-    store = ensureStore(db, transaction, STORES.messages, { keyPath: 'id' });
-    createIndex(store, 'by_conversationId', 'conversationId', { unique: false });
-    createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
-    createIndex(store, 'by_role', 'role', { unique: false });
-
-    store = ensureStore(db, transaction, STORES.attachments, { keyPath: 'id' });
-    createIndex(store, 'by_conversationId', 'conversationId', { unique: false });
-    createIndex(store, 'by_messageId', 'messageId', { unique: false });
-
-    store = ensureStore(db, transaction, STORES.ragBranches, { keyPath: 'id' });
-    createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
-
-    store = ensureStore(db, transaction, STORES.ragDocuments, { keyPath: 'id' });
-    createIndex(store, 'by_branchId', 'branchId', { unique: false });
-    createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
-
-    if (db.objectStoreNames.contains('rag_files')) {
-      db.deleteObjectStore('rag_files');
-    }
-
-    store = ensureStore(db, transaction, STORES.ragImages, { keyPath: 'documentId' });
-    createIndex(store, 'by_branchId', 'branchId', { unique: false });
-
-    store = ensureStore(db, transaction, STORES.ragChunks, { keyPath: 'id' });
-    createIndex(store, 'by_branchId', 'branchId', { unique: false });
-    createIndex(store, 'by_documentId', 'documentId', { unique: false });
-    createIndex(store, 'by_createdAt', 'createdAt', { unique: false });
-
-    if (!db.objectStoreNames.contains(STORES.ragMeta)) {
-      db.createObjectStore(STORES.ragMeta, { keyPath: 'key' });
-    }
-  }
-
+  /** Conexión compartida; se rechaza si el navegador no puede abrir la base. */
   function openDatabase() {
-    if (!isAvailable()) return Promise.resolve(null);
     if (dbPromise) return dbPromise;
-
-    dbPromise = new Promise((resolve) => {
-      let request;
-      try {
-        request = indexedDB.open(DB_NAME, DB_VERSION);
-      } catch (error) {
-        console.warn('[ZeroChatDB] IndexedDB no está disponible:', error);
-        resolve(null);
-        return;
-      }
-      request.onupgradeneeded = (event) => upgradeSchema(event.target.result, event.target.transaction);
-      request.onsuccess = (event) => {
-        const db = event.target.result;
+    dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => createSchema(request.result);
+      request.onsuccess = () => {
+        const db = request.result;
         db.onversionchange = () => { db.close(); dbPromise = null; };
         resolve(db);
       };
-      request.onerror = () => {
-        console.warn('[ZeroChatDB] No se pudo abrir IndexedDB:', request.error);
-        dbPromise = null;
-        resolve(null);
-      };
-      request.onblocked = () => {
-        console.warn('[ZeroChatDB] La actualización está bloqueada por otra pestaña.');
-        dbPromise = null;
-        resolve(null);
-      };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('The database upgrade is blocked by another ZeroChat tab.'));
     });
+    dbPromise.catch(() => { dbPromise = null; });
     return dbPromise;
   }
 
   async function closeDatabase() {
     if (!dbPromise) return;
-    const db = await dbPromise;
-    if (db) db.close();
+    const pending = dbPromise;
     dbPromise = null;
+    (await pending.catch(() => null))?.close();
+  }
+
+  /** Espera a que termine una petición. */
+  function requestResult(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** Espera a que se confirme una transacción. */
+  function transactionDone(transaction) {
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted.'));
+    });
+  }
+
+  /** Borra los registros de un índice que coinciden con la consulta. */
+  function deleteByIndex(store, indexName, query) {
+    const request = store.index(indexName).openKeyCursor(query);
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) { resolve(); return; }
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Lee con un cursor los registros de un índice. Evita el límite de IPC de Chromium con getAll()
+   * ("The serialized value is too large") en ramas con cientos de documentos.
+   */
+  function getAllByIndex(store, indexName, query) {
+    const request = store.index(indexName).openCursor(query);
+    const results = [];
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) { resolve(results); return; }
+        results.push(cursor.value);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
   }
 
   async function deleteOriginDatabases() {
-    if (!isAvailable()) return;
     await closeDatabase();
-    // Do not enumerate the origin: under file:// Chromium can group unrelated
-    // file URLs in the same storage bucket. ZeroChat owns this database; WebLLM
-    // model artifacts are removed separately from Cache Storage.
+    // No se enumera el origen: con file:// Chromium puede agrupar archivos ajenos en el mismo
+    // almacenamiento. ZeroChat solo es dueña de esta base; los modelos WebLLM se borran de Cache Storage.
     await new Promise((resolve, reject) => {
       const request = indexedDB.deleteDatabase(DB_NAME);
       const timer = setTimeout(() => reject(new Error('ZeroChat IndexedDB deletion timed out.')), 10000);
       request.onsuccess = () => { clearTimeout(timer); resolve(); };
       request.onerror = () => { clearTimeout(timer); reject(request.error || new Error('ZeroChat IndexedDB deletion failed.')); };
-      // A connection may receive its versionchange event just after this request.
-      // Keep waiting for success instead of treating that transient event as failure.
+      // Una conexión puede recibir su versionchange justo después: se sigue esperando al éxito.
       request.onblocked = () => {};
     });
   }
 
-  return { DB_NAME, DB_VERSION, STORES, isAvailable, openDatabase, closeDatabase, deleteOriginDatabases };
+  return {
+    DB_NAME, DB_VERSION, STORES,
+    openDatabase, closeDatabase, deleteOriginDatabases,
+    requestResult, transactionDone, deleteByIndex, getAllByIndex
+  };
 });

@@ -344,7 +344,7 @@ export async function run() {
   }
 
   // Ejecutar node --test pasando los archivos directamente (sin shell interpolation)
-  const child = spawn(process.execPath, ['--test', ...filesToRun], {
+  const child = spawn(process.execPath, ['--require', './tests/helpers/storage-env.js', '--test', ...filesToRun], {
     cwd: ROOT_DIR,
     stdio: 'inherit'
   });

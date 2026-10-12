@@ -46,7 +46,7 @@
   }
 
   function getStorage() {
-    return resolveDep('ChatStorage', './cookies.js');
+    return resolveDep('ChatStorage', './storage.js');
   }
 
   /** Modelos descargados por completo; un valor guardado ilegible cuenta como ninguno. */

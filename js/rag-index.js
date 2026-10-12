@@ -70,7 +70,7 @@
     const revision = revisions.get(branchId) || 0;
     const pending = (async () => {
       const branch = await RagStorage.getBranchById(branchId);
-      if (!branch) throw new Error(`No existe la rama ${branchId}.`);
+      if (!branch) throw new Error(`Branch ${branchId} does not exist.`);
       const [chunks, documents] = await Promise.all([
         RagStorage.getChunksByBranch(branchId),
         RagStorage.getDocumentsByBranch(branchId)
@@ -100,9 +100,9 @@
         RagStorage.getBranchById(branchId),
         RagStorage.getDocumentById(documentId)
       ]);
-      if (!branch) throw new Error(`No existe la rama ${branchId}.`);
+      if (!branch) throw new Error(`Branch ${branchId} does not exist.`);
       if (!document || document.branchId !== branchId) {
-        throw new Error(`No existe el documento ${documentId} en la rama ${branchId}.`);
+        throw new Error(`Document ${documentId} does not exist in branch ${branchId}.`);
       }
       const chunks = await RagStorage.getChunksByDocument(documentId);
       const db = await createSearchIndex(branch, chunks, [document]);

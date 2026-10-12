@@ -18,7 +18,7 @@ tests/
 
 ### Criterios por nivel
 
-- **`unit/`**: comportamiento de un módulo aislado. Las dependencias externas se sustituyen por implementaciones en memoria; el DOM es siempre real (`tests/helpers/dom-env.js`, con happy-dom), nunca objetos que imiten elementos.
+- **`unit/`**: comportamiento de un módulo aislado. Las dependencias externas se sustituyen por implementaciones en memoria; el almacenamiento lo aporta `storage-env.js` y el DOM es siempre real (`tests/helpers/dom-env.js`, con happy-dom), nunca objetos que imiten elementos.
 - **`integration/`**: interacción entre varios módulos, estado compartido, servicios o flujos completos que no requieran un navegador real.
 - **`browser/`**: comportamiento observable de la interfaz en Chromium headless: DOM, interacción, accesibilidad, temas y carga de la aplicación.
 - **`architecture/`**: restricciones estáticas y contratos transversales que deben mantenerse independientemente de un flujo de usuario concreto.
@@ -53,8 +53,10 @@ node scripts/test-runner.mjs --changed --list
 node scripts/test-runner.mjs --group=composer --list
 
 # Ejecutar una suite concreta
-node --test tests/unit/test_icons.js
+node scripts/test-runner.mjs tests/unit/test_icons.js
 ```
+
+El runner carga `tests/helpers/storage-env.js` en cada proceso de prueba: IndexedDB simulado con `fake-indexeddb` y `localStorage`/`sessionStorage` en memoria. Los módulos usan así las mismas APIs que en el navegador, sin respaldos propios; para lanzar una suite con `node --test` directamente, añade `--require ./tests/helpers/storage-env.js`.
 
 Para arrancar la aplicación localmente durante una comprobación manual, consulta las opciones de `zerochat.py` con `python3 zerochat.py --help`.
 

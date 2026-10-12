@@ -91,8 +91,12 @@ para poder ejecutarse en navegador y en las pruebas de Node.js.
 Los proveedores de IA deben extender `BaseProviderAdapter` (`js/providers.js`) para
 normalizar endpoints, streaming SSE, razonamiento (`reasoningChunk`), tool calls y telemetría.
 
-La persistencia local en IndexedDB se canaliza mediante `ZeroChatDB` (`js/storage-db.js`),
-manteniendo los adjuntos pesados (como imágenes Base64) aislados del árbol de mensajes.
+La persistencia local se canaliza por dos módulos: `ChatStorage` (`js/storage.js`) para
+preferencias en `localStorage` con prefijo `zerochat_`, la cookie de sesión del backend y las
+conversaciones, y `ChatRagStorage` (`js/ragStorage.js`) para la base de conocimiento. Ambos usan
+la conexión y el esquema únicos de `ZeroChatDB` (`js/storage-db.js`). Ningún otro módulo accede
+directamente a `localStorage`, cookies o IndexedDB, y no hay respaldos en memoria: las pruebas
+reciben esas APIs de `tests/helpers/storage-env.js`.
 
 El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
 añadirse simultáneamente a los diccionarios español e inglés.

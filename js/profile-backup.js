@@ -5,18 +5,18 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('node:crypto').webcrypto);
+    module.exports = factory(require('node:crypto').webcrypto, require('./storage.js'));
   } else {
-    root.ChatProfileBackup = factory(root.crypto);
+    root.ChatProfileBackup = factory(root.crypto, root.ChatStorage);
   }
-}(typeof self !== 'undefined' ? self : this, function (cryptoApi) {
+}(typeof self !== 'undefined' ? self : this, function (cryptoApi, Storage) {
   'use strict';
 
   const FORMAT = 'zerochat-profile-backup';
   const VERSION = 1;
   const MAX_FILE_BYTES = 1024 * 1024;
   const MASTER_KEY = 'ZeroChat profile transfer key v1';
-  const KEY_CACHE = 'zerochat_crypto_session_v1';
+  const KEY_CACHE = 'crypto_session_v1';
   const KEY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
   function cryptoOrThrow() {
@@ -55,40 +55,24 @@
     return c.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
   }
 
-  function getStorage() {
-    try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch (_) { return null; }
-  }
-
   function getCachedKeyMaterial() {
-    const storage = getStorage();
-    if (!storage) return null;
     try {
-      const value = JSON.parse(storage.getItem(KEY_CACHE) || 'null');
-      if (!value || value.version !== 1 || typeof value.keyHash !== 'string' || !Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now()) {
-        storage.removeItem(KEY_CACHE);
-        return null;
+      const value = JSON.parse(Storage.getStorageItem(KEY_CACHE) || 'null');
+      if (value?.version === 1 && Number.isFinite(value.expiresAt) && value.expiresAt > Date.now() && decodeBase64(value.keyHash).length === 32) {
+        return value.keyHash;
       }
-      const bytes = decodeBase64(value.keyHash);
-      return bytes.length === 32 ? value.keyHash : null;
-    } catch (_) {
-      try { storage.removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: la caché se ignora */ }
-      return null;
-    }
+    } catch (_) { /* caché corrupta: se descarta */ }
+    Storage.deleteStorageItem(KEY_CACHE);
+    return null;
   }
 
   function cacheKeyMaterial(keyHash, ttlMs = KEY_CACHE_TTL_MS) {
-    const storage = getStorage();
-    const bytes = decodeBase64(keyHash);
-    if (!storage || bytes.length !== 32 || !Number.isFinite(ttlMs) || ttlMs < 1) return false;
-    try {
-      storage.setItem(KEY_CACHE, JSON.stringify({ version: 1, keyHash, expiresAt: Date.now() + ttlMs }));
-      return true;
-    } catch (_) { return false; }
+    if (decodeBase64(keyHash).length !== 32 || !Number.isFinite(ttlMs) || ttlMs < 1) return false;
+    Storage.setStorageItem(KEY_CACHE, JSON.stringify({ version: 1, keyHash, expiresAt: Date.now() + ttlMs }));
+    return true;
   }
 
-  function clearCachedKeyMaterial() {
-    try { getStorage().removeItem(KEY_CACHE); } catch (_) { /* almacenamiento bloqueado: no hay caché que borrar */ }
-  }
+  const clearCachedKeyMaterial = () => Storage.deleteStorageItem(KEY_CACHE);
 
   async function keyMaterialFromPassword(password) {
     if (typeof password !== 'string' || !password) throw new Error('The encryption password is not valid.');

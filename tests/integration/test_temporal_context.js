@@ -1,9 +1,8 @@
-require('fake-indexeddb/auto');
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const Engine = require('../../js/chat-engine.js');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 const Database = require('../../js/storage-db.js');
 const Export = require('../../js/export.js');
 const Context = require('../../js/context-manager.js');

@@ -1,4 +1,3 @@
-require('fake-indexeddb/auto');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const ConversationService = require('../../js/conversation-service.js');
@@ -6,7 +5,7 @@ const UIConversation = require('../../js/ui-conversation.js');
 const GenerationController = require('../../js/generation-controller.js');
 const ChatAPI = require('../../js/api.js');
 const State = require('../../js/state.js');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 const { installDom } = require('../helpers/dom-env.js');
 
 const HISTORY = [
@@ -62,7 +61,7 @@ test('ConversationService - sin diálogo de resumen, la rama clona el historial 
   assert.notEqual(sessionId, 'parent_sess_1');
   assert.deepEqual(State.get('messages').map(message => message.id), [0, 1, 2].map(index => `msg_${sessionId}_${index}`));
   const stored = await Storage.getConversation(sessionId);
-  assert.equal(stored.metadata.parentSessionId, 'parent_sess_1');
+  assert.deepEqual(stored.history.map(message => message.content), shortHistory.map(message => message.content));
   assert.equal(stored.title, require('../../js/i18n.js').t('chat_branch_title', { title: 'Parent Chat' }));
 });
 

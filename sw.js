@@ -32,7 +32,7 @@ const PRECACHE_ASSETS = [
   './js/message-turns.js',
   './js/text-tool-calls.js',
   './js/state.js',
-  './js/cookies.js',
+  './js/storage.js',
   './js/ragStorage.js',
   './js/rag-index.js',
   './js/ingestionEngine.js',

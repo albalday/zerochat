@@ -161,7 +161,7 @@
   const { resolveDep } = Utils;
 
   function getStorage() {
-    return resolveDep('ChatStorage', './cookies.js');
+    return resolveDep('ChatStorage', './storage.js');
   }
 
   function getState() {

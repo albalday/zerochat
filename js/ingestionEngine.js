@@ -225,7 +225,7 @@
       const body = remaining.slice(0, cut).trim();
       const content = [overlap, body].filter(Boolean).join('\n\n');
       const firstHeading = content.split('\n').map(detectSectionHeading).find(Boolean);
-      chunks.push({ order: chunks.length, title: firstHeading || `Fragmento ${chunks.length + 1}`, content, ...findPageRange(content) });
+      chunks.push({ order: chunks.length, title: firstHeading || `Chunk ${chunks.length + 1}`, content, ...findPageRange(content) });
       remaining = remaining.slice(cut).trimStart();
       overlap = remaining ? tailOverlap(body, overlapChars) : '';
     }

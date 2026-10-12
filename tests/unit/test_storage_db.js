@@ -1,5 +1,3 @@
-require('fake-indexeddb/auto');
-
 const { test, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const Database = require('../../js/storage-db.js');

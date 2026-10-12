@@ -1,8 +1,7 @@
-require('fake-indexeddb/auto');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Database = require('../../js/storage-db.js');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 
 test('Full reset deletes ZeroChat RAG data and model caches without deleting unrelated databases', async () => {
   const db = await Database.openDatabase();

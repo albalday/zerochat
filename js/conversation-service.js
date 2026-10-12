@@ -19,7 +19,7 @@
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
-  const getStorage = () => resolveDep('ChatStorage', './cookies.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getEngine = () => resolveDep('ChatEngine', './chat-engine.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
@@ -156,12 +156,9 @@
     if (ids.length > 0) wrapper.setAttribute('data-msg-ids', ids.join(','));
   }
 
-  /**
-   * Copia profunda de los mensajes con identificadores propios de la sesión destino. Sin su fecha
-   * original, el almacenamiento conserva el orden de la rama (el resumen va antes del anclaje).
-   */
+  /** Copia profunda de los mensajes con identificadores propios de la sesión destino. */
   function renumberForSession(messages, sessionId) {
-    return clone(messages).map(({ createdAt, ...message }, index) => ({ ...message, id: `msg_${sessionId}_${index}` }));
+    return clone(messages).map((message, index) => ({ ...message, id: `msg_${sessionId}_${index}` }));
   }
 
   function cloneBranchHistory(history, boundary, sessionId) {
@@ -278,11 +275,7 @@
       title: t('chat_branch_title', { title: parentTitle }),
       createdAt: now,
       updatedAt: now,
-      messageCount: branchHistory.length,
-      metadata: {
-        parentSessionId,
-        branchedFromMessageIds: (wrapper.getAttribute('data-msg-ids') || '').split(',').filter(Boolean)
-      }
+      messageCount: branchHistory.length
     };
 
     const Storage = getStorage();

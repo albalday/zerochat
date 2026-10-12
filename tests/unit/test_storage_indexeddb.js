@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 
 test('Storage IndexedDB - Creación y recuperación de conversación y mensajes', async () => {
   const sessionId = 'test_session_001';
@@ -8,9 +8,7 @@ test('Storage IndexedDB - Creación y recuperación de conversación y mensajes'
     id: sessionId,
     title: 'Conversación de prueba',
     createdAt: Date.now() - 10000,
-    updatedAt: Date.now() - 5000,
-    model: 'test-model',
-    summary: 'Resumen de prueba'
+    updatedAt: Date.now() - 5000
   };
 
   const messages = [
@@ -172,4 +170,13 @@ test('Storage IndexedDB - conserva la nota de comandos terminados del mensaje de
   const loaded = await Storage.getConversation(sessionId);
   assert.equal(loaded.history[0].commandNotes, 'Background commands that finished since your last turn: ...');
   assert.equal('commandNotes' in loaded.history[1], false);
+});
+
+test('Storage IndexedDB - conserva el orden de la conversación aunque los ids no lo sigan', async () => {
+  const history = ['z', 'a', 'm', 'b'].map((id, index) => ({ id, role: index % 2 ? 'assistant' : 'user', content: `mensaje ${index}` }));
+  await Storage.saveConversation({ id: 'conv_order' }, history);
+  await Storage.saveConversation({ id: 'conv_order' }, [...history, { id: 'c', role: 'user', content: 'mensaje 4' }]);
+  const loaded = await Storage.getConversation('conv_order');
+  assert.deepEqual(loaded.history.map(message => message.id), ['z', 'a', 'm', 'b', 'c']);
+  assert.deepEqual(Object.keys(loaded.history[0]).sort(), ['content', 'id', 'role']);
 });

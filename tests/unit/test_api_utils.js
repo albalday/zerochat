@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Api = require('../../js/api.js');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 
 test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red', async () => {
   const originalFetch = global.fetch;

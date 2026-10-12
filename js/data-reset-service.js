@@ -15,7 +15,7 @@
   const { t } = I18n;
 
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
-  const getStorage = () => resolveDep('ChatStorage', './cookies.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
 
   /**
    * Borra todos los datos si el usuario lo confirma. Si falla, avisa con el motivo y no recarga.

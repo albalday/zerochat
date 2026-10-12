@@ -1,4 +1,3 @@
-require('fake-indexeddb/auto');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const RagStorage = require('../../js/ragStorage.js');

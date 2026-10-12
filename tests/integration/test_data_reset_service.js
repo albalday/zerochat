@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const DataResetService = require('../../js/data-reset-service.js');
-const Storage = require('../../js/cookies.js');
+const Storage = require('../../js/storage.js');
 const GenerationController = require('../../js/generation-controller.js');
 const I18n = require('../../js/i18n.js');
 const { installDom } = require('../helpers/dom-env.js');

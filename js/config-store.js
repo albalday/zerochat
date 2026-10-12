@@ -4,7 +4,7 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./state.js'), require('./cookies.js'), require('./profile-repository.js'), require('./defaults.js'), require('./utils.js'));
+    module.exports = factory(require('./state.js'), require('./storage.js'), require('./profile-repository.js'), require('./defaults.js'), require('./utils.js'));
   } else {
     root.ChatConfig = factory(root.ChatState, root.ChatStorage, root.ChatProfileRepository, root.ChatDefaults, root.ChatUtils);
   }

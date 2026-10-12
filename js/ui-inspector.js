@@ -15,7 +15,7 @@
   const { t } = I18n;
 
   const getApi = () => resolveDep('ChatAPI', './api.js');
-  const getStorage = () => resolveDep('ChatStorage', './cookies.js');
+  const getStorage = () => resolveDep('ChatStorage', './storage.js');
   const getDebug = () => resolveDep('ChatDebug', './debug.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getState = () => resolveDep('ChatState', './state.js');

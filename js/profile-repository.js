@@ -4,7 +4,7 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./cookies.js'), require('./profile-backup.js'), require('./utils.js'), require('./defaults.js'));
+    module.exports = factory(require('./storage.js'), require('./profile-backup.js'), require('./utils.js'), require('./defaults.js'));
   } else {
     root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup, root.ChatUtils, root.ChatDefaults);
   }

@@ -4,15 +4,6 @@ const RagStorage = require('../../js/ragStorage.js');
 
 beforeEach(async () => RagStorage.clearAllData());
 
-test('RagStorage - usa el esquema RAG unificado de ZeroChatDB', () => {
-  assert.equal(RagStorage.DB_NAME, 'ZeroChatDB');
-  assert.equal(RagStorage.DB_VERSION, 4);
-  assert.equal(RagStorage.STORE_BRANCHES, 'rag_branches');
-  assert.equal(RagStorage.STORE_DOCUMENTS, 'rag_documents');
-  assert.equal(RagStorage.STORE_IMAGES, 'rag_images');
-  assert.equal(RagStorage.STORE_CHUNKS, 'rag_chunks');
-});
-
 test('RagStorage - CRUD de ramas con soporte de idioma', async () => {
   const created = await RagStorage.createBranch('Manuales', 'Documentación técnica', 'english');
   assert.equal(created.name, 'Manuales');
@@ -78,12 +69,11 @@ test('RagStorage - elimina documentos y ramas en cascada', async () => {
   assert.equal((await RagStorage.getChunksByBranch(branch.id)).length, 0);
 });
 
-test('RagStorage - valida entradas y expone estimación de cuota', async () => {
-  await assert.rejects(() => RagStorage.createBranch(''), RagStorage.ValidationError);
-  await assert.rejects(() => RagStorage.saveDocument({ title: 'sin-rama.txt' }), RagStorage.ValidationError);
-  const estimate = await RagStorage.getStorageEstimate();
-  assert.equal(typeof estimate.usage, 'number');
-  assert.equal(typeof estimate.usagePercent, 'string');
+test('RagStorage - valida entradas', async () => {
+  await assert.rejects(() => RagStorage.createBranch(''), { name: 'ValidationError' });
+  const branch = await RagStorage.createBranch('Validación');
+  await assert.rejects(() => RagStorage.saveDocument({ branchId: branch.id }), { name: 'ValidationError' });
+  await assert.rejects(() => RagStorage.saveDocument({ branchId: 'inexistente', title: 'a.txt' }), { name: 'NotFoundError' });
 });
 
 test('RagStorage - exporta e importa únicamente el formato actual', async () => {
@@ -97,7 +87,10 @@ test('RagStorage - exporta e importa únicamente el formato actual', async () =>
     chunks: [{ title: 'Nota', content: 'cinco' }]
   });
 
-  const backup = await RagStorage.exportBranch(branch.id);
+  const { blob, compressed, filename } = await RagStorage.exportBranchBlob(branch.id, { compress: false });
+  assert.equal(compressed, false);
+  assert.match(filename, /^Respaldo\.zerochat-knowledge\.json$/);
+  const backup = JSON.parse(await blob.text());
   assert.equal(backup.schema, 'zerochat-knowledge');
   assert.equal(backup.version, 2);
   assert.equal(backup.documents[0].source, undefined);
@@ -111,7 +104,7 @@ test('RagStorage - exporta e importa únicamente el formato actual', async () =>
 
   await assert.rejects(
     () => RagStorage.importBranch({ schema: 'unsupported-format', version: 99, branch: {}, documents: [] }),
-    RagStorage.ValidationError
+    { name: 'ValidationError' }
   );
 });
 
@@ -124,7 +117,7 @@ test('RagStorage - exportBranchBlob genera un respaldo comprimido gzip en stream
     chunks: [
       { order: 0, title: 'Parte 1', content: 'Contenido extenso de prueba para compresión gzip.' }
     ]
-  }, 'contenido original de prueba');
+  });
 
   const { blob, compressed, filename } = await RagStorage.exportBranchBlob(branch.id, { compress: true });
   assert.equal(compressed, true);

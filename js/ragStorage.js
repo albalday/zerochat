@@ -1,7 +1,6 @@
 /**
- * IndexedDB persistence for the ZeroChat local knowledge base.
- * Documents, extracted images and retrieval chunks are stored independently in
- * ZeroChatDB. Search indexes are derived data and never the source of truth.
+ * Persistencia de la base de conocimiento local en ZeroChatDB. Documentos, imágenes extraídas y
+ * fragmentos se guardan en almacenes separados; los índices de búsqueda son datos derivados.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -13,14 +12,10 @@
   'use strict';
 
   const { createId } = Utils;
-
-  const STORES = Database ? Database.STORES : {
-    ragBranches: 'rag_branches', ragDocuments: 'rag_documents',
-    ragImages: 'rag_images', ragChunks: 'rag_chunks', ragMeta: 'rag_meta'
-  };
-  const memory = {
-    branches: new Map(), documents: new Map(), images: new Map(), chunks: new Map(), meta: new Map()
-  };
+  const { STORES, openDatabase, requestResult, transactionDone, deleteByIndex, getAllByIndex } = Database;
+  const DOCUMENT_STORES = [STORES.ragDocuments, STORES.ragImages, STORES.ragChunks];
+  const BACKUP_SCHEMA = 'zerochat-knowledge';
+  const BACKUP_VERSION = 2;
 
   class RagStorageError extends Error {
     constructor(message, details = {}) { super(message); this.name = 'RagStorageError'; this.details = details; }
@@ -29,54 +24,48 @@
     constructor(message, details = {}) { super(message, details); this.name = 'ValidationError'; }
   }
   class QuotaExceededError extends RagStorageError {
-    constructor(message = 'Se ha superado la cuota de almacenamiento del navegador.', details = {}) {
-      super(message, details); this.name = 'QuotaExceededError';
-    }
+    constructor(details = {}) { super('The browser storage quota has been exceeded.', details); this.name = 'QuotaExceededError'; }
   }
   class NotFoundError extends RagStorageError {
     constructor(message, details = {}) { super(message, details); this.name = 'NotFoundError'; }
-  }
-
-  function generateId(prefix) {
-    return createId(prefix);
   }
 
   function isQuotaError(error) {
     return Boolean(error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error.code === 22 || error.code === 1014));
   }
 
-  async function openDatabase() {
-    return Database && Database.openDatabase ? Database.openDatabase() : null;
+  /** Traduce los fallos de escritura a errores propios: cuota agotada o fallo genérico con su acción. */
+  function writeError(action, error) {
+    if (isQuotaError(error)) return new QuotaExceededError({ error });
+    return new RagStorageError(`The ${action} failed: ${error.message || error}`, { error });
   }
 
-  function requestResult(request) {
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  const yieldToUi = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  /** Informa del progreso y cede el hilo cada diez documentos. */
+  async function reportProgress(onProgress, current, total, docTitle) {
+    if (typeof onProgress !== 'function') return;
+    onProgress({ current, total, percent: Math.round((current / total) * 100), docTitle });
+    if (current % 10 === 0) await yieldToUi();
   }
 
-  function transactionDone(transaction) {
-    return new Promise((resolve, reject) => {
-      transaction.oncomplete = () => resolve(true);
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new RagStorageError('Transaction aborted.'));
-    });
+  async function readStore(storeName, read) {
+    const db = await openDatabase();
+    return read(db.transaction(storeName, 'readonly').objectStore(storeName));
   }
 
   function validateBranch(input) {
-    const data = typeof input === 'string' ? { name: input } : input;
-    if (!data || typeof data !== 'object' || !String(data.name || '').trim()) {
+    if (!input || typeof input !== 'object' || !String(input.name || '').trim()) {
       throw new ValidationError('The branch name is required.');
     }
     const now = Date.now();
     return {
-      id: String(data.id || generateId('branch')),
-      name: String(data.name).trim(),
-      description: String(data.description || '').trim(),
-      language: String(data.language || 'spanish').trim().toLowerCase(),
-      createdAt: Number(data.createdAt) || now,
-      updatedAt: Number(data.updatedAt) || now
+      id: String(input.id || createId('branch')),
+      name: String(input.name).trim(),
+      description: String(input.description || '').trim(),
+      language: String(input.language || 'spanish').trim().toLowerCase(),
+      createdAt: Number(input.createdAt) || now,
+      updatedAt: Number(input.updatedAt) || now
     };
   }
 
@@ -90,7 +79,7 @@
       branchId: document.branchId,
       documentId: document.id,
       order,
-      title: String(chunk.title || `Fragmento ${order + 1}`).trim(),
+      title: String(chunk.title || `Chunk ${order + 1}`).trim(),
       content: String(chunk.content),
       charCount: String(chunk.content).length,
       pageStart: Number.isFinite(chunk.pageStart) ? chunk.pageStart : null,
@@ -107,7 +96,7 @@
     if (!['pdf', 'txt', 'md'].includes(fileType)) throw new ValidationError(`Unsupported file type: ${fileType}.`);
     const now = Date.now();
     const document = {
-      id: String(data.id || generateId('doc')),
+      id: String(data.id || createId('doc')),
       branchId: String(data.branchId).trim(),
       title: String(data.title).trim(),
       path: String(data.path || data.title).trim(),
@@ -119,339 +108,177 @@
       createdAt: Number(data.createdAt) || now,
       updatedAt: Number(data.updatedAt) || now
     };
-    const sourceChunks = Array.isArray(data.chunks) ? data.chunks : [];
-    const chunks = sourceChunks.map((chunk, index) => validateChunk(chunk, index, document));
+    const chunks = (Array.isArray(data.chunks) ? data.chunks : []).map((chunk, index) => validateChunk(chunk, index, document));
     document.chunkCount = chunks.length;
     return { document, chunks };
   }
 
-  async function getByIndex(storeName, indexName, value) {
-    const db = await openDatabase();
-    if (!db) return null;
-    const tx = db.transaction(storeName, 'readonly');
-    const index = tx.objectStore(storeName).index(indexName);
-    // Usar openCursor en streaming para evitar el límite de IPC de Chromium
-    // ("The serialized value is too large: max=257949696 bytes") en ramas con cientos de documentos
-    if (typeof index.openCursor === 'function') {
-      return new Promise((resolve, reject) => {
-        const results = [];
-        try {
-          const keyRange = (typeof IDBKeyRange !== 'undefined' && IDBKeyRange && typeof IDBKeyRange.only === 'function')
-            ? IDBKeyRange.only(value)
-            : value;
-          const request = index.openCursor(keyRange);
-          request.onsuccess = (event) => {
-            const cursor = event.target.result;
-            if (cursor) {
-              results.push(cursor.value);
-              cursor.continue();
-            } else {
-              resolve(results);
-            }
-          };
-          request.onerror = () => reject(request.error || new Error(`Cursor error on ${storeName}.${indexName}`));
-        } catch (err) {
-          if (typeof index.getAll === 'function') {
-            requestResult(index.getAll(value)).then(resolve, reject);
-          } else {
-            reject(err);
-          }
-        }
-      });
-    }
-    if (typeof index.getAll === 'function') {
-      return requestResult(index.getAll(value));
-    }
-    return [];
-  }
-
   async function createBranch(nameOrData, description = '', language = '') {
-    const input = typeof nameOrData === 'string'
-      ? { name: nameOrData, description, ...(language ? { language } : {}) }
-      : nameOrData;
-    const branch = validateBranch(input);
-    const db = await openDatabase();
-    if (!db) { memory.branches.set(branch.id, branch); return { ...branch }; }
+    const branch = validateBranch(typeof nameOrData === 'string'
+      ? { name: nameOrData, description, language }
+      : nameOrData);
     try {
+      const db = await openDatabase();
       const tx = db.transaction(STORES.ragBranches, 'readwrite');
       tx.objectStore(STORES.ragBranches).add(branch);
       await transactionDone(tx);
-      return { ...branch };
+      return branch;
     } catch (error) {
-      if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`The branch could not be created: ${error.message || error}`, { error });
+      throw writeError('branch creation', error);
     }
   }
 
   async function getBranches() {
-    const db = await openDatabase();
-    if (!db) return Array.from(memory.branches.values()).map(v => ({ ...v })).sort((a, b) => b.createdAt - a.createdAt);
-    const tx = db.transaction(STORES.ragBranches, 'readonly');
-    const values = await requestResult(tx.objectStore(STORES.ragBranches).getAll());
-    return values.sort((a, b) => b.createdAt - a.createdAt);
+    const branches = await readStore(STORES.ragBranches, store => requestResult(store.getAll()));
+    return branches.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async function getBranchById(id) {
     if (!id) return null;
-    const db = await openDatabase();
-    if (!db) return memory.branches.has(id) ? { ...memory.branches.get(id) } : null;
-    const tx = db.transaction(STORES.ragBranches, 'readonly');
-    return (await requestResult(tx.objectStore(STORES.ragBranches).get(String(id)))) || null;
+    return (await readStore(STORES.ragBranches, store => requestResult(store.get(String(id))))) || null;
+  }
+
+  async function requireBranch(id) {
+    const branch = await getBranchById(id);
+    if (!branch) throw new NotFoundError(`Branch ${id} does not exist.`);
+    return branch;
   }
 
   async function updateBranch(id, updates = {}) {
-    const current = await getBranchById(id);
-    if (!current) throw new NotFoundError(`No existe la rama ${id}.`);
+    const current = await requireBranch(id);
     const next = validateBranch({ ...current, ...updates, id: current.id, createdAt: current.createdAt, updatedAt: Date.now() });
     const db = await openDatabase();
-    if (!db) { memory.branches.set(next.id, next); return { ...next }; }
     const tx = db.transaction(STORES.ragBranches, 'readwrite');
     tx.objectStore(STORES.ragBranches).put(next);
     await transactionDone(tx);
     return next;
   }
 
-  async function deleteByIndex(store, index, value) {
-    const request = store.index(index).openKeyCursor(value);
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (!cursor) { resolve(); return; }
-        store.delete(cursor.primaryKey);
-        cursor.continue();
-      };
-      request.onerror = () => reject(request.error);
-    });
-  }
-
   async function deleteBranch(id) {
-    const branch = await getBranchById(id);
-    if (!branch) throw new NotFoundError(`No existe la rama ${id}.`);
+    await requireBranch(id);
     const docs = await getDocumentsByBranch(id);
     const db = await openDatabase();
-    if (!db) {
-      memory.branches.delete(id);
-      for (const doc of docs) await deleteDocument(doc.id);
-      return { success: true, deletedBranchId: id, deletedDocumentsCount: docs.length };
-    }
-    const tx = db.transaction([STORES.ragBranches, STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
+    const tx = db.transaction([STORES.ragBranches, ...DOCUMENT_STORES], 'readwrite');
     tx.objectStore(STORES.ragBranches).delete(id);
-    await Promise.all([
-      deleteByIndex(tx.objectStore(STORES.ragDocuments), 'by_branchId', id),
-      deleteByIndex(tx.objectStore(STORES.ragImages), 'by_branchId', id),
-      deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_branchId', id)
-    ]);
+    await Promise.all(DOCUMENT_STORES.map(name => deleteByIndex(tx.objectStore(name), 'by_branchId', id)));
     await transactionDone(tx);
     return { success: true, deletedBranchId: id, deletedDocumentsCount: docs.length };
   }
 
-  function storeDocumentInMemory(document, chunks, docImages) {
-    memory.documents.set(document.id, document);
-    if (docImages.length > 0) {
-      memory.images.set(document.id, { documentId: document.id, branchId: document.branchId, images: docImages });
-    }
-    chunks.forEach(chunk => memory.chunks.set(chunk.id, chunk));
-  }
-
-  function writeDocument(tx, document, chunks, docImages) {
+  function writeDocument(tx, document, chunks, images) {
     tx.objectStore(STORES.ragDocuments).add(document);
-    if (docImages.length > 0) {
-      tx.objectStore(STORES.ragImages).put({ documentId: document.id, branchId: document.branchId, images: docImages });
+    if (images.length > 0) {
+      tx.objectStore(STORES.ragImages).put({ documentId: document.id, branchId: document.branchId, images });
     }
     for (const chunk of chunks) tx.objectStore(STORES.ragChunks).add(chunk);
   }
 
-  async function saveDocument(data, images = []) {
+  async function removeDocumentRecords(tx, id) {
+    tx.objectStore(STORES.ragDocuments).delete(id);
+    tx.objectStore(STORES.ragImages).delete(id);
+    await deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_documentId', id);
+  }
+
+  /** Guarda un documento con sus fragmentos e imágenes; si `replaceId` existe, lo sustituye en la misma transacción. */
+  async function storeDocument(data, images, replaceId = null) {
     const docImages = Array.isArray(images) ? images : [];
     const { document, chunks } = validateDocument({ ...data, imageCount: docImages.length });
-    if (!(await getBranchById(document.branchId))) throw new NotFoundError(`No existe la rama ${document.branchId}.`);
-    const db = await openDatabase();
-    if (!db) {
-      storeDocumentInMemory(document, chunks, docImages);
-      return { ...document };
-    }
     try {
-      const tx = db.transaction([STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
+      const db = await openDatabase();
+      const tx = db.transaction(DOCUMENT_STORES, 'readwrite');
+      if (replaceId) await removeDocumentRecords(tx, replaceId);
       writeDocument(tx, document, chunks, docImages);
       await transactionDone(tx);
-      await updateBranch(document.branchId, { updatedAt: Date.now() });
-      return document;
     } catch (error) {
-      if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`The document could not be saved: ${error.message || error}`, { error });
+      throw writeError(replaceId ? 'document replacement' : 'document save', error);
     }
+    await updateBranch(document.branchId, { updatedAt: Date.now() });
+    return document;
+  }
+
+  async function saveDocument(data, images = []) {
+    await requireBranch(data?.branchId);
+    return storeDocument(data, images);
   }
 
   async function replaceDocument(oldDocId, data, images = []) {
     const existing = await getDocumentById(oldDocId);
-    if (!existing) throw new NotFoundError(`No existe el documento ${oldDocId}.`);
-    const docImages = Array.isArray(images) ? images : [];
-    const { document, chunks } = validateDocument({ ...data, branchId: existing.branchId, imageCount: docImages.length });
-    const db = await openDatabase();
-    if (!db) {
-      await deleteDocument(oldDocId);
-      storeDocumentInMemory(document, chunks, docImages);
-      return { ...document };
-    }
-    try {
-      const tx = db.transaction([STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
-      tx.objectStore(STORES.ragDocuments).delete(oldDocId);
-      tx.objectStore(STORES.ragImages).delete(oldDocId);
-      await deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_documentId', oldDocId);
-      writeDocument(tx, document, chunks, docImages);
-      await transactionDone(tx);
-      await updateBranch(document.branchId, { updatedAt: Date.now() });
-      return document;
-    } catch (error) {
-      if (isQuotaError(error)) throw new QuotaExceededError(undefined, { error });
-      throw new RagStorageError(`The document could not be replaced: ${error.message || error}`, { error });
-    }
+    if (!existing) throw new NotFoundError(`Document ${oldDocId} does not exist.`);
+    return storeDocument({ ...data, branchId: existing.branchId }, images, oldDocId);
   }
 
   async function findDocumentByPath(branchId, path) {
     if (!branchId || !path) return null;
     const cleanPath = String(path).trim();
     const docs = await getDocumentsByBranch(branchId);
-    return docs.find(doc => (doc.path && doc.path === cleanPath) || doc.title === cleanPath) || null;
+    return docs.find(doc => doc.path === cleanPath || doc.title === cleanPath) || null;
   }
 
   async function getDocumentImages(documentId) {
     if (!documentId) return [];
-    const db = await openDatabase();
-    if (!db) {
-      const rec = memory.images.get(String(documentId));
-      return rec?.images || [];
-    }
-    const tx = db.transaction(STORES.ragImages, 'readonly');
-    const rec = await requestResult(tx.objectStore(STORES.ragImages).get(String(documentId)));
-    return rec?.images || [];
+    const record = await readStore(STORES.ragImages, store => requestResult(store.get(String(documentId))));
+    return record?.images || [];
   }
 
   async function getDocumentImage(documentId, imageId) {
-    const images = await getDocumentImages(documentId);
-    if (!images || images.length === 0) return null;
     const cleanId = String(imageId || '').trim();
+    const images = await getDocumentImages(documentId);
     return images.find(img => img.id === cleanId || `${documentId}:${img.id}` === cleanId) || null;
   }
 
   async function getDocumentsByBranch(branchId) {
     if (!branchId) return [];
-    const fromDb = await getByIndex(STORES.ragDocuments, 'by_branchId', branchId);
-    const values = fromDb || Array.from(memory.documents.values()).filter(doc => doc.branchId === branchId).map(v => ({ ...v }));
-    return values.sort((a, b) => b.createdAt - a.createdAt);
+    const docs = await readStore(STORES.ragDocuments, store => getAllByIndex(store, 'by_branchId', branchId));
+    return docs.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async function getDocumentById(id) {
     if (!id) return null;
-    const db = await openDatabase();
-    if (!db) return memory.documents.has(id) ? { ...memory.documents.get(id) } : null;
-    const tx = db.transaction(STORES.ragDocuments, 'readonly');
-    return (await requestResult(tx.objectStore(STORES.ragDocuments).get(String(id)))) || null;
+    return (await readStore(STORES.ragDocuments, store => requestResult(store.get(String(id))))) || null;
   }
 
   async function getChunksByBranch(branchId) {
     if (!branchId) return [];
-    const fromDb = await getByIndex(STORES.ragChunks, 'by_branchId', branchId);
-    const values = fromDb || Array.from(memory.chunks.values()).filter(chunk => chunk.branchId === branchId).map(v => ({ ...v }));
-    return values.sort((a, b) => a.createdAt - b.createdAt || a.order - b.order);
+    const chunks = await readStore(STORES.ragChunks, store => getAllByIndex(store, 'by_branchId', branchId));
+    return chunks.sort((a, b) => a.createdAt - b.createdAt || a.order - b.order);
   }
 
   async function getChunksByDocument(documentId) {
     if (!documentId) return [];
-    const fromDb = await getByIndex(STORES.ragChunks, 'by_documentId', documentId);
-    const values = fromDb || Array.from(memory.chunks.values()).filter(chunk => chunk.documentId === documentId).map(v => ({ ...v }));
-    return values.sort((a, b) => a.order - b.order);
+    const chunks = await readStore(STORES.ragChunks, store => getAllByIndex(store, 'by_documentId', documentId));
+    return chunks.sort((a, b) => a.order - b.order);
   }
 
-  function resolveChunkIdAlias(id) {
-    if (!id || typeof id !== 'string') return null;
-    const m = id.match(/^([a-zA-Z0-9_-]+)[#:/](?:chunk:?)?(\d+)$/i);
-    if (m) {
-      return { docId: m[1], order: parseInt(m[2], 10), canonicalId: `${m[1]}:chunk:${m[2]}` };
-    }
-    return null;
+  /** Formas que usa el modelo para citar un fragmento: doc:chunk:N, doc#N, doc/N o doc:N. */
+  function parseChunkAlias(id) {
+    const match = id.match(/^([a-zA-Z0-9_-]+)[#:/](?:chunk:?)?(\d+)$/i);
+    return match ? { docId: match[1], order: Number.parseInt(match[2], 10) } : null;
   }
 
+  /** Busca un fragmento por su id, un alias o el id del documento (su primer fragmento). */
   async function getChunkById(id) {
     if (!id) return null;
-    const strId = String(id).trim();
-    const db = await openDatabase();
-    if (!db) {
-      if (memory.chunks.has(strId)) return { ...memory.chunks.get(strId) };
-      const alias = resolveChunkIdAlias(strId);
-      if (alias && memory.chunks.has(alias.canonicalId)) return { ...memory.chunks.get(alias.canonicalId) };
-      if (alias) {
-        for (const chunk of memory.chunks.values()) {
-          if (chunk.documentId === alias.docId && chunk.order === alias.order) return { ...chunk };
-        }
-      }
-      for (const chunk of memory.chunks.values()) {
-        if (chunk.documentId === strId && chunk.order === 0) return { ...chunk };
-      }
-      return null;
-    }
-
-    const tx = db.transaction(STORES.ragChunks, 'readonly');
-    const store = tx.objectStore(STORES.ragChunks);
-    let record = (await requestResult(store.get(strId))) || null;
-    if (record) return record;
-
-    const alias = resolveChunkIdAlias(strId);
-    if (alias) {
-      record = (await requestResult(store.get(alias.canonicalId))) || null;
-      if (record) return record;
-
-      const docChunks = await getChunksByDocument(alias.docId);
-      if (docChunks && docChunks.length > 0) {
-        const found = docChunks.find(c => c.order === alias.order) || docChunks[alias.order];
-        if (found) return found;
-      }
-    } else {
-      const docChunks = await getChunksByDocument(strId);
-      if (docChunks && docChunks.length > 0) {
-        return docChunks[0];
-      }
-    }
-
-    return null;
+    const cleanId = String(id).trim();
+    const exact = await readStore(STORES.ragChunks, store => requestResult(store.get(cleanId)));
+    if (exact) return exact;
+    const alias = parseChunkAlias(cleanId);
+    const docChunks = await getChunksByDocument(alias ? alias.docId : cleanId);
+    if (!alias) return docChunks[0] || null;
+    return docChunks.find(chunk => chunk.order === alias.order) || docChunks[alias.order] || null;
   }
 
   async function deleteDocument(id) {
-    const document = await getDocumentById(id);
-    if (!document) return false;
+    if (!(await getDocumentById(id))) return false;
     const db = await openDatabase();
-    if (!db) {
-      memory.documents.delete(id); memory.images.delete(id);
-      for (const [chunkId, chunk] of memory.chunks) if (chunk.documentId === id) memory.chunks.delete(chunkId);
-      return true;
-    }
-    const tx = db.transaction([STORES.ragDocuments, STORES.ragImages, STORES.ragChunks], 'readwrite');
-    tx.objectStore(STORES.ragDocuments).delete(id);
-    tx.objectStore(STORES.ragImages).delete(id);
-    await deleteByIndex(tx.objectStore(STORES.ragChunks), 'by_documentId', id);
+    const tx = db.transaction(DOCUMENT_STORES, 'readwrite');
+    await removeDocumentRecords(tx, id);
     await transactionDone(tx);
     return true;
   }
 
-  async function getStorageEstimate() {
-    let usage = 0, quota = 0, persisted = false;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.storage) {
-        if (typeof navigator.storage.estimate === 'function') ({ usage = 0, quota = 0 } = await navigator.storage.estimate());
-        if (typeof navigator.storage.persisted === 'function') persisted = await navigator.storage.persisted();
-      }
-    } catch (_) { /* API de persistencia no disponible: se informa como no persistente */ }
-    const percentUsed = quota > 0 ? (usage / quota) * 100 : 0;
-    return { usage, quota, percentUsed, usagePercent: percentUsed.toFixed(2), isPersisted: persisted };
-  }
-
   async function clearAllData() {
     const db = await openDatabase();
-    if (!db) {
-      Object.values(memory).forEach(store => store.clear());
-      return true;
-    }
-    const names = [STORES.ragBranches, STORES.ragDocuments, STORES.ragImages, STORES.ragChunks, STORES.ragMeta];
+    const names = [STORES.ragBranches, ...DOCUMENT_STORES];
     const tx = db.transaction(names, 'readwrite');
     names.forEach(name => tx.objectStore(name).clear());
     await transactionDone(tx);
@@ -467,142 +294,77 @@
       fileType: document.fileType,
       mimeType: document.mimeType,
       fileSize: document.fileSize,
-      imageCount: document.imageCount || (images ? images.length : 0),
-      images: (images && images.length > 0) ? images : undefined,
-      chunks: chunks.map(chunk => ({
-        order: chunk.order,
-        title: chunk.title,
-        content: chunk.content,
-        pageStart: chunk.pageStart,
-        pageEnd: chunk.pageEnd
-      }))
+      imageCount: document.imageCount || images.length,
+      images: images.length > 0 ? images : undefined,
+      chunks: chunks.map(({ order, title, content, pageStart, pageEnd }) => ({ order, title, content, pageStart, pageEnd }))
     };
   }
 
-  async function exportBranch(branchId, options = {}) {
-    const branch = await getBranchById(branchId);
-    if (!branch) throw new NotFoundError(`No existe la rama ${branchId}.`);
+  /**
+   * Copia de seguridad de una rama como Blob JSON, comprimido con gzip si el navegador lo permite
+   * y no se pide lo contrario. Los documentos se serializan uno a uno para no duplicar la rama en memoria.
+   */
+  async function exportBranchBlob(branchId, { compress = true, onProgress } = {}) {
+    const branch = await requireBranch(branchId);
     const documents = await getDocumentsByBranch(branchId);
-    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
-    const total = documents.length;
-    let current = 0;
-    const exportedDocuments = [];
-    for (const document of documents) {
-      exportedDocuments.push(await buildDocumentExport(document));
-      current++;
-      if (onProgress) {
-        onProgress({ current, total, percent: Math.round((current / total) * 100), docTitle: document.title });
-        if (current % 10 === 0) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-      }
-    }
-    return {
-      schema: 'zerochat-knowledge',
-      version: 2,
+    const safeName = String(branch.name).normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'knowledge';
+    const header = JSON.stringify({
+      schema: BACKUP_SCHEMA,
+      version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
-      branch: { name: branch.name, description: branch.description, language: branch.language },
-      documents: exportedDocuments
-    };
-  }
+      branch: { name: branch.name, description: branch.description, language: branch.language }
+    });
 
-  async function exportBranchBlob(branchId, options = {}) {
-    const branch = await getBranchById(branchId);
-    if (!branch) throw new NotFoundError(`No existe la rama ${branchId}.`);
-    const documents = await getDocumentsByBranch(branchId);
-    const safeName = String(branch.name || 'conocimiento').normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'conocimiento';
-
-    const compress = options.compress !== false && typeof CompressionStream !== 'undefined';
-    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
-    const total = documents.length;
-    let current = 0;
-
-    if (typeof TransformStream !== 'undefined' && compress) {
-      const ts = new TransformStream();
-      const writer = ts.writable.getWriter();
-      const cs = new CompressionStream('gzip');
-      const compressedStream = ts.readable.pipeThrough(cs);
-      const responsePromise = new Response(compressedStream).blob();
-      const encoder = new TextEncoder();
-
-      const headerObj = {
-        schema: 'zerochat-knowledge',
-        version: 2,
-        exportedAt: new Date().toISOString(),
-        branch: { name: branch.name, description: branch.description, language: branch.language }
-      };
-      const headerStr = JSON.stringify(headerObj);
-      await writer.write(encoder.encode(headerStr.slice(0, -1) + ',"documents":[\n'));
-
-      let first = true;
-      for (const document of documents) {
-        const docRecord = await buildDocumentExport(document);
-        const chunkJson = (first ? '' : ',\n') + JSON.stringify(docRecord);
-        first = false;
-        await writer.write(encoder.encode(chunkJson));
-
-        current++;
-        if (onProgress) {
-          onProgress({ current, total, percent: Math.round((current / total) * 100), docTitle: document.title });
-          if (current % 10 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-          }
+    const encoder = new TextEncoder();
+    let index = 0;
+    let stream = new ReadableStream({
+      start(controller) { controller.enqueue(encoder.encode(`${header.slice(0, -1)},"documents":[\n`)); },
+      async pull(controller) {
+        if (index >= documents.length) {
+          controller.enqueue(encoder.encode('\n]}'));
+          controller.close();
+          return;
         }
+        const document = documents[index++];
+        controller.enqueue(encoder.encode((index > 1 ? ',\n' : '') + JSON.stringify(await buildDocumentExport(document))));
+        await reportProgress(onProgress, index, documents.length, document.title);
       }
-
-      await writer.write(encoder.encode('\n]}'));
-      await writer.close();
-      const blob = await responsePromise;
-      return {
-        blob,
-        compressed: true,
-        filename: `${safeName}.zerochat-knowledge.json.gz`
-      };
-    }
-
-    const backup = await exportBranch(branchId, { onProgress });
-    const jsonStr = JSON.stringify(backup);
-    const plainBlob = new Blob([jsonStr], { type: 'application/json' });
+    });
+    const compressed = compress && typeof CompressionStream !== 'undefined';
+    if (compressed) stream = stream.pipeThrough(new CompressionStream('gzip'));
+    const blob = await new Response(stream).blob();
     return {
-      blob: plainBlob,
-      compressed: false,
-      filename: `${safeName}.zerochat-knowledge.json`
+      blob: compressed ? blob : new Blob([blob], { type: 'application/json' }),
+      compressed,
+      filename: `${safeName}.zerochat-knowledge.json${compressed ? '.gz' : ''}`
     };
   }
 
+  /** Cambia las referencias rag-image:// de los fragmentos al nuevo id del documento. */
+  function remapImageReferences(chunks, oldDocId, newDocId) {
+    if (!oldDocId || oldDocId === newDocId) return chunks;
+    const from = `rag-image://${oldDocId}:`;
+    const to = `rag-image://${newDocId}:`;
+    return chunks.map(chunk => chunk.content?.includes(from) ? { ...chunk, content: chunk.content.split(from).join(to) } : chunk);
+  }
+
+  /** Restaura una copia de seguridad como rama nueva; si algo falla, borra la rama a medio importar. */
   async function importBranch(backup, onProgress) {
     let data = backup;
     if (typeof data === 'string') {
       try { data = JSON.parse(data); }
       catch (error) { throw new ValidationError('The backup is not valid JSON.', { error }); }
     }
-    if (!data || data.schema !== 'zerochat-knowledge' || data.version !== 2 || !data.branch || !Array.isArray(data.documents)) {
+    if (!data || data.schema !== BACKUP_SCHEMA || data.version !== BACKUP_VERSION || !data.branch || !Array.isArray(data.documents)) {
       throw new ValidationError('Unsupported knowledge backup format.');
     }
     const branch = await createBranch(data.branch);
     try {
-      const total = data.documents.length;
       let current = 0;
       for (const document of data.documents) {
-        const oldDocId = document.id;
-        let targetDocId = oldDocId;
-        if (!targetDocId || (await getDocumentById(targetDocId))) {
-          targetDocId = generateId('doc');
-        }
-
-        // Si cambia el ID del documento, actualizar las referencias a imágenes en los chunks
-        const sourceChunks = Array.isArray(document.chunks) ? document.chunks : [];
-        const remappedChunks = sourceChunks.map(chunk => {
-          if (oldDocId && oldDocId !== targetDocId && chunk.content && chunk.content.includes(`rag-image://${oldDocId}:`)) {
-            return {
-              ...chunk,
-              content: chunk.content.split(`rag-image://${oldDocId}:`).join(`rag-image://${targetDocId}:`)
-            };
-          }
-          return chunk;
-        });
-
+        const targetDocId = !document.id || (await getDocumentById(document.id)) ? createId('doc') : document.id;
+        const images = document.images || [];
         await saveDocument({
           id: targetDocId,
           branchId: branch.id,
@@ -610,16 +372,9 @@
           fileType: document.fileType,
           mimeType: document.mimeType,
           fileSize: document.fileSize,
-          imageCount: document.imageCount || (document.images ? document.images.length : 0),
-          chunks: remappedChunks
-        }, document.images || []);
-        current++;
-        if (typeof onProgress === 'function') {
-          onProgress({ current, total, percent: Math.round((current / total) * 100), docTitle: document.title });
-          if (current % 10 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-          }
-        }
+          chunks: remapImageReferences(Array.isArray(document.chunks) ? document.chunks : [], document.id, targetDocId)
+        }, images);
+        await reportProgress(onProgress, ++current, data.documents.length, document.title);
       }
       return branch;
     } catch (error) {
@@ -637,10 +392,6 @@
     saveDocument, replaceDocument, findDocumentByPath, getDocumentsByBranch, getDocumentById,
     getChunksByBranch, getChunksByDocument, getChunkById, deleteDocument,
     getDocumentImages, getDocumentImage,
-    getStorageEstimate, clearAllData, exportBranch, exportBranchBlob, importBranch, openDatabase,
-    RagStorageError, ValidationError, QuotaExceededError, NotFoundError,
-    DB_NAME: Database?.DB_NAME || 'ZeroChatDB', DB_VERSION: Database?.DB_VERSION || 2,
-    STORE_BRANCHES: STORES.ragBranches, STORE_DOCUMENTS: STORES.ragDocuments,
-    STORE_IMAGES: STORES.ragImages, STORE_CHUNKS: STORES.ragChunks
+    clearAllData, exportBranchBlob, importBranch
   };
 });

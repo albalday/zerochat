@@ -670,7 +670,7 @@ test('ChatToolSecurity - T02: "Permitir siempre <cmd> *" y las restricciones sin
 });
 
 test('ChatToolSecurity - T02: una política guardada con otra versión se descarta entera', () => {
-  const Storage = require('../../js/cookies.js');
+  const Storage = require('../../js/storage.js');
   const storageKey = 'test_sec_t02_version';
   Storage.setStorageItem(storageKey, JSON.stringify({
     version: 3,
