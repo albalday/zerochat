@@ -175,6 +175,39 @@ test('Browser UI - completing one tool preserves user-opened groups and previous
   } finally { await browser.close(); }
 });
 
+test('Browser UI - el botón para volver al final aparece solo fuera del final y lleva a él', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    const button = page.locator('#btn-scroll-bottom');
+    assert.equal(await button.isHidden(), true, 'Sin conversación no hay nada debajo');
+    await page.evaluate(() => {
+      const list = document.getElementById('messages-list');
+      const ui = window.ChatUIConversation;
+      const { content } = ui.createAssistantMessagePlaceholder(list, 'scroll_msg', { onReuse() {}, onDelete() {}, onBranch() {} });
+      ui.renderAssistantBlock(ui.createAssistantBlock(content), 'Línea.\n\n'.repeat(80));
+      list.scrollTo({ top: list.scrollHeight, behavior: 'instant' });
+    });
+    await page.waitForTimeout(100);
+    assert.equal(await button.isHidden(), true, 'Al final no se muestra');
+    await page.evaluate(() => document.getElementById('messages-list').scrollTo({ top: 0, behavior: 'instant' }));
+    await button.waitFor({ state: 'visible', timeout: 3000 });
+    await button.click();
+    await button.waitFor({ state: 'hidden', timeout: 3000 });
+    const atBottom = await page.evaluate(() => {
+      const list = document.getElementById('messages-list');
+      return list.scrollHeight - list.scrollTop - list.clientHeight <= 1;
+    });
+    assert.equal(atBottom, true);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 test('Browser UI - desplegar una herramienta la deja visible cada vez, no solo la primera', async () => {
   const browser = await createTestBrowser();
   try {

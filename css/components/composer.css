@@ -20,6 +20,41 @@
   }
 }
 
+/* Botón flotante para volver al final de la conversación, sobre el compositor */
+.btn-scroll-bottom {
+  position: absolute;
+  bottom: calc(100% + 0.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btn-scroll-bottom[hidden] {
+  display: none;
+}
+
+.btn-scroll-bottom:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.btn-scroll-bottom:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Contenedor de chips de archivos adjuntos */
 .attachments-container {
   display: flex;

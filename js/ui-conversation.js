@@ -2,7 +2,7 @@
  * Módulo UI de Conversación y Canvas de Mensajes (ZeroChat).
  * Encargado del renderizado de la lista de mensajes, turnos de usuario, placeholders del asistente,
  * tarjetas de herramientas recuperadas, acciones de mensaje (copiar, reusar, borrar, ramificar),
- * listeners de código, e indicadores visuales (typing, scroll-to-bottom).
+ * listeners de código, e indicadores visuales (typing y botón para volver al final).
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -137,6 +137,33 @@
     if (!state.stick) return;
     // 'instant' evita que el scroll-behavior: smooth del CSS compita con el gesto del usuario.
     container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+  }
+
+  /**
+   * Muestra `button` mientras la vista no está al final de `container`; al pulsarlo vuelve al
+   * final y la deja pegada. Se reevalúa al desplazarse, al cambiar el contenido y al redimensionar.
+   */
+  function mountScrollToBottomButton(container, button) {
+    let pending = false;
+    const update = () => {
+      pending = false;
+      button.hidden = container.hidden || distanceFromBottom(container) <= SCROLL_STICK_THRESHOLD_PX;
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(update);
+    };
+    container.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    new MutationObserver(schedule).observe(container, {
+      childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'open', 'hidden']
+    });
+    button.addEventListener('click', () => {
+      scrollToBottom(container, { force: true });
+      button.hidden = true;
+    });
+    schedule();
   }
 
   let typingIndicatorEl = null;
@@ -390,6 +417,7 @@
     createAssistantBlock,
     renderAssistantBlock,
     scrollToBottom,
+    mountScrollToBottomButton,
     showTypingIndicator,
     removeTypingIndicator,
     removeMessage,

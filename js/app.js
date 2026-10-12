@@ -118,6 +118,7 @@
     // Conversación y compositor
     btnOpenSettings: 'btn-open-settings',
     messagesList: 'messages-list',
+    btnScrollBottom: 'btn-scroll-bottom',
     welcomeBanner: 'welcome-banner',
     chatForm: 'chat-form',
     userInput: 'user-input',
@@ -592,6 +593,7 @@
       getLastPrompt: () => MessageTurns.getLastUserPrompt(getChatHistory())
     });
     UICommandJobs.mount({ messagesList: elements.messagesList });
+    UIConversation.mountScrollToBottomButton(elements.messagesList, elements.btnScrollBottom);
 
     // Parada ordenada ante cierre de página o recarga durante generación
     const stopOnUnload = () => {
