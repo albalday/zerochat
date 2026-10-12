@@ -54,7 +54,11 @@ una solución equivalente en el repositorio.
 - No se añaden respaldos para lo que siempre está disponible: los módulos que carga
   `zerochat.html` y el contexto que `ChatToolCards` entrega a las vistas (`markdown`, `t`,
   `charts`, `createCardWrapper` e iconos de estado). Se llama directamente; si faltara, el
-  error debe verse.
+  error debe verse. Lo mismo vale para los elementos de `ELEMENT_IDS` en `app.js` y para el
+  marcado de los diálogos, que `app.js` inserta al arrancar con `ensureDialogMarkup()` de cada
+  módulo: ningún módulo inserta marcado al cargarse ni comprueba si un elemento existe.
+- Los módulos de interfaz enlazan sus eventos una sola vez en `mount()`, con listeners
+  delegados en el contenedor; repintar una lista no vuelve a enlazar eventos.
 - No se escribe texto alternativo tras `t()`: devuelve la clave cuando falta la traducción,
   así que la clave debe existir en español e inglés.
 - No se añade código de compatibilidad con versiones anteriores (alias, migraciones de
