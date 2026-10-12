@@ -28,6 +28,7 @@
   const controllers = new WeakMap();
 
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
+  const getConversation = () => resolveDep('ChatUIConversation', './ui-conversation.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getMcp = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getState = () => resolveDep('ChatState', './state.js');
@@ -305,6 +306,8 @@
       this.state.reactivated = true;
       this.card.querySelector('.tool-execution-card').classList.remove('collapsed');
       getToolCards().reactivateToolCard(this.card);
+      const messagesList = this.card.closest('#messages-list');
+      if (messagesList) getConversation().scrollToBottom(messagesList);
     }
 
     finish() {

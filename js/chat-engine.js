@@ -341,6 +341,7 @@
         onStepStart: turnIndex => {
           if (turnIndex === 0) container.innerHTML = '';
           turnBlocks.set(turnIndex, UIConversation.createAssistantBlock(container));
+          scrollToBottom();
         },
         onCompactionStart: turnIndex => {
           // The notice occupies the block already opened for this step, so it
@@ -378,6 +379,7 @@
             block.remove();
             turnBlocks.delete(turnIndex);
           }
+          scrollToBottom();
         },
         onLoopDetected: () => {
           onGenerationStatus({ phase: 'error', text: I18n.t('generation_status_loop_detected') });
@@ -386,6 +388,7 @@
         onDone: finalText => {
           const block = turnBlocks.get(Math.max(...turnBlocks.keys(), 0));
           if (block && finalText) renderBlock(block, finalText);
+          scrollToBottom();
         }
       }
     });

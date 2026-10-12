@@ -786,3 +786,33 @@ test('ChatEngine - antepone al mensaje del usuario la nota de comandos terminado
   assert.equal(users[1].content[1].type, 'image_url');
   assert.equal(users[2].content, 'sin nota');
 });
+
+test('ChatEngine - executeAgentTurnLoop reposiciona al final al inicio de paso, tras el batch de herramientas y al terminar', async (t) => {
+  stubToolDispatch(t, 'resultado');
+  const originalStream = ChatAPI.streamChatCompletion;
+  let callCount = 0;
+  ChatAPI.streamChatCompletion = async () => {
+    callCount++;
+    if (callCount === 1) {
+      return {
+        accumulatedText: '',
+        toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
+        stats: null
+      };
+    }
+    return { accumulatedText: 'Terminado', toolCalls: null, stats: null };
+  };
+
+  let scrollCount = 0;
+  const res = await runTurn({
+    chatHistory: [{ role: 'user', content: 'hazlo' }],
+    assistantMsgId: 'asst_scroll_test',
+    scrollToBottom() { scrollCount++; }
+  });
+
+  assert.equal(res.success, true);
+  assert.ok(scrollCount >= 3, `scrollToBottom debe llamarse en las transiciones del turno (llamadas: ${scrollCount})`);
+
+  ChatAPI.streamChatCompletion = originalStream;
+});
+
