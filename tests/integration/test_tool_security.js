@@ -58,7 +58,7 @@ test('ChatToolSecurity - Lista global R/W controla las herramientas integradas d
   assert.equal(manager.evaluateAuthorization(editTool, { path: './project/README.md' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(writeTool, { path: './project/README.md' }).status, 'ask');
   assert.equal(manager.evaluateAuthorization(readTool, { path: '../secret.txt' }).status, 'ask');
-  assert.throws(() => manager.setDirectoryRules(['X:./project/**']), /Regla de directorio inválida/);
+  assert.throws(() => manager.setDirectoryRules(['X:./project/**']), /Invalid directory rule/);
 });
 
 test('ChatToolSecurity - La lista de directorios restringe herramientas de archivos en ausencia de allow_all', () => {
@@ -109,7 +109,7 @@ test('ChatToolSecurity - Modo global allow_all autoriza todas las herramientas M
   assert.equal(evalMcp.reason, 'mcp_global_allow_all');
 
   // Rechazo de política global inválida
-  assert.throws(() => manager.setGlobalMcpPolicy('invalid_policy'), /Política global no válida/);
+  assert.throws(() => manager.setGlobalMcpPolicy('invalid_policy'), /Invalid global policy/);
 });
 
 test('ChatToolSecurity - Autorización granular de grano fino por herramienta', () => {
@@ -220,52 +220,6 @@ test('ChatToolSecurity - Restricciones de comandos: allowlist, encadenamiento y 
   const evalSudo = manager.evaluateAuthorization(tool, { command: 'sudo git status' });
   assert.equal(evalSudo.status, 'deny');
   assert.equal(evalSudo.requiresApproval, false);
-});
-
-test('ChatToolSecurity - Restricciones de rutas: anti-traversal, listas negras y carpetas permitidas', () => {
-  const manager = new ChatToolSecurity.ToolSecurityManager({ storageKey: 'test_sec_path_constraints' });
-
-  const tool = {
-    id: 'mcp_srv_fs',
-    name: 'mcp_srv_fs',
-    category: 'mcp'
-  };
-
-  manager.setToolPolicy(tool.id, 'allow', {
-    constraints: {
-      path: {
-        allowedDirectories: ['./'],
-        deniedDirectories: ['/etc', '~/.ssh'],
-        preventTraversal: true
-      }
-    }
-  });
-
-  // 1. Ruta relativa válida dentro del proyecto -> allow
-  const evalRel = manager.evaluateAuthorization(tool, { path: 'src/index.js' });
-  assert.equal(evalRel.status, 'allow');
-  assert.equal(evalRel.requiresApproval, false);
-
-  // 2. Intento de directory traversal que escapa -> deny
-  const evalTraversal = manager.evaluateAuthorization(tool, { path: '../../etc/shadow' });
-  assert.equal(evalTraversal.status, 'deny');
-  assert.equal(evalTraversal.requiresApproval, false);
-
-  // 3. Ruta en lista negra expresa (/etc) -> deny
-  const evalEtc = manager.evaluateAuthorization(tool, { path: '/etc/hosts' });
-  assert.equal(evalEtc.status, 'deny');
-  assert.equal(evalEtc.requiresApproval, false);
-
-  // 4. Ruta absoluta fuera de allowedDirectories -> ask
-  const evalOutside = manager.evaluateAuthorization(tool, { path: '/var/log/syslog' });
-  assert.equal(evalOutside.status, 'ask');
-  assert.equal(evalOutside.requiresApproval, true);
-
-  // 5. Actualizar restricciones mediante setToolPolicy
-  manager.setToolPolicy(tool.id, 'allow', { constraints: null });
-  assert.equal(manager.getToolConstraints(tool.id), null);
-  const evalNowAllowed = manager.evaluateAuthorization(tool, { path: '/var/log/syslog' });
-  assert.equal(evalNowAllowed.status, 'allow');
 });
 
 test('ChatToolSecurity - Autorización contextual de comandos con pipes y permisos por nombre canónico', () => {
@@ -872,8 +826,8 @@ test('ChatToolSecurity - T01: rutas con ~, ~usuario o variables piden confirmaci
   assert.equal(ChatToolSecurity.canBuildDirectoryRule('src/app.js'), true);
 
   // Las reglas con ~ o variables son inválidas (no pueden resolverse en el navegador)
-  assert.throws(() => manager.setDirectoryRules(['R:~/docs/**']), /Regla de directorio inválida/);
-  assert.throws(() => manager.setDirectoryRules(['RW:$HOME/proyecto/**']), /Regla de directorio inválida/);
+  assert.throws(() => manager.setDirectoryRules(['R:~/docs/**']), /Invalid directory rule/);
+  assert.throws(() => manager.setDirectoryRules(['RW:$HOME/proyecto/**']), /Invalid directory rule/);
 });
 
 test('ChatToolSecurity - T01: workspace_trust no confía en rutas con ~ ni variables', () => {

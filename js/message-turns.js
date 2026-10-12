@@ -13,15 +13,6 @@
     return id.replace(/(?:_turn_\d+_(?:assistant|tool.*)|_final)$/, '');
   }
 
-  function isDateTimeInitialTurn(message) {
-    if (!message || message.role !== 'user') return false;
-    const content = typeof message.content === 'string' ? message.content : (message.content?.[0]?.text || '');
-    return content.startsWith('La fecha y hora actual es:') ||
-      content.startsWith('Fecha y hora actual:') ||
-      content.startsWith('The current date and time is:') ||
-      content.startsWith('Current date and time:');
-  }
-
   // A tool result belongs to the assistant turn that opened the current run of tool results.
   function hasMatchingToolCall(messages, toolMessage) {
     if (!Array.isArray(messages) || !toolMessage) return false;
@@ -74,7 +65,7 @@
     if (!Array.isArray(messages)) return '';
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
-      if (message?.role !== 'user' || isDateTimeInitialTurn(message)) continue;
+      if (message?.role !== 'user') continue;
       if (typeof message.content === 'string') return message.content;
       const textPart = Array.isArray(message.content) ? message.content.find(part => part?.type === 'text') : null;
       return textPart?.text || '';
@@ -82,5 +73,5 @@
     return '';
   }
 
-  return { extractBaseId, isDateTimeInitialTurn, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt };
+  return { extractBaseId, hasMatchingToolCall, dropOrphanToolMessages, removeSelectedTurn, getLastUserPrompt };
 });

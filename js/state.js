@@ -112,7 +112,7 @@
     if (overrides && typeof overrides === 'object') {
       for (const k of Object.keys(overrides)) {
         if (!CANONICAL_SLICES.includes(k)) {
-          throw new Error(`[ChatState] Slice no canónico en overrides: "${k}". Slices permitidos: ${CANONICAL_SLICES.join(', ')}`);
+          throw new Error(`[ChatState] Non-canonical slice in overrides: "${k}". Allowed slices: ${CANONICAL_SLICES.join(', ')}`);
         }
         if (typeof overrides[k] === 'object' && overrides[k] !== null && !Array.isArray(overrides[k])) {
           defaultState[k] = Object.assign({}, defaultState[k], overrides[k]);
@@ -132,7 +132,7 @@
 
     function validateSliceKey(key) {
       if (!CANONICAL_SLICES.includes(key)) {
-        throw new Error(`[ChatState] Intento de escritura en slice no canónico: "${key}". Slices permitidos: ${CANONICAL_SLICES.join(', ')}`);
+        throw new Error(`[ChatState] Write to a non-canonical slice: "${key}". Allowed slices: ${CANONICAL_SLICES.join(', ')}`);
       }
     }
 
@@ -268,7 +268,7 @@
         // Modo listener global: callback(newState, prevState)
         listenerEntry = selectorOrListener;
       } else {
-        throw new Error('ChatState.subscribe: Argumentos inválidos');
+        throw new Error('ChatState.subscribe: invalid arguments');
       }
 
       listeners.add(listenerEntry);
@@ -343,10 +343,10 @@
      */
     function appendMessage(message) {
       if (!message || typeof message !== 'object') {
-        throw new Error('[ChatState] appendMessage: El mensaje debe ser un objeto válido.');
+        throw new Error('[ChatState] appendMessage: the message must be an object.');
       }
       if (!message.role || typeof message.role !== 'string') {
-        throw new Error('[ChatState] appendMessage: El mensaje debe tener una propiedad "role" válida.');
+        throw new Error('[ChatState] appendMessage: the message needs a valid "role".');
       }
       const cloned = clone(message);
       if (!cloned.id) {
@@ -396,7 +396,7 @@
      */
     function saveSessionMetadata(sessionMeta) {
       if (!sessionMeta || typeof sessionMeta !== 'object' || !sessionMeta.id) {
-        throw new Error('[ChatState] saveSessionMetadata: Se requiere un objeto de sesión con id válido.');
+        throw new Error('[ChatState] saveSessionMetadata: a session object with a valid id is required.');
       }
       const list = clone(state.sessions.list);
       const idx = list.findIndex(s => s.id === sessionMeta.id);
@@ -476,7 +476,7 @@
       if (!patch || typeof patch !== 'object') throw new TypeError('[ChatState] setProjectContext: patch debe ser un objeto.');
       const next = Object.assign({}, state.project);
       if (patch.status !== undefined) {
-        if (!PROJECT_STATUSES.includes(patch.status)) throw new Error(`[ChatState] setProjectContext: estado no válido "${patch.status}".`);
+        if (!PROJECT_STATUSES.includes(patch.status)) throw new Error(`[ChatState] setProjectContext: invalid status "${patch.status}".`);
         next.status = patch.status;
       }
       if (patch.cwd !== undefined) next.cwd = String(patch.cwd || '');

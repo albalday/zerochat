@@ -259,7 +259,7 @@
    */
   function renderChartCard(config) {
     const type = (config.type || 'bar').toLowerCase();
-    const title = config.title || 'Visualización de Datos';
+    const title = config.title || t('chart_default_title');
     const description = config.description || '';
     const labels = config.labels || [];
     const datasets = config.datasets || (config.data ? [{ label: title, data: config.data }] : []);

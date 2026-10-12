@@ -223,8 +223,7 @@
     }
     if (elements.contextLimitOverrideInput) {
       const input = elements.contextLimitOverrideInput;
-      const isFocused = typeof document !== 'undefined' && document.activeElement === input;
-      if (!isFocused) input.value = vm.contextLimitSource === 'server' ? '' : formatContextCapacity(vm.totalLimit);
+      if (document.activeElement !== input) input.value = vm.contextLimitSource === 'server' ? '' : formatContextCapacity(vm.totalLimit);
       input.disabled = vm.contextLimitSource === 'server';
     }
     if (elements.btnSaveContextLimitOverride) {
@@ -325,7 +324,6 @@
 
     // En móvil el popover ocupa el área del chat: desde el header hasta el composer.
     function fitPopoverToChatArea() {
-      if (!popover || typeof window === 'undefined') return;
       const composer = popover.closest('.chat-input-container');
       const header = document.querySelector('.app-header');
       const top = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
@@ -335,7 +333,7 @@
     }
 
     function closePopover() {
-      if (popover) popover.style.display = 'none';
+      popover.style.display = 'none';
       badge.setAttribute('aria-expanded', 'false');
       badge.classList.remove('active');
     }
@@ -345,7 +343,6 @@
         e.preventDefault();
         e.stopPropagation();
       }
-      if (!popover) return;
       const isHidden = popover.style.display === 'none' || !popover.style.display;
       if (isHidden) fitPopoverToChatArea();
       popover.style.display = isHidden ? 'flex' : 'none';
@@ -359,33 +356,20 @@
 
     badge.addEventListener('click', togglePopover);
 
-    if (btnClose) {
-      btnClose.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        closePopover();
-      });
-    }
-
-    if (typeof document !== 'undefined') {
-      document.addEventListener('click', function (e) {
-        if (popover && popover.style.display !== 'none') {
-          if (!popover.contains(e.target) && !badge.contains(e.target)) {
-            closePopover();
-          }
-        }
-      });
-
-      document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && popover && popover.style.display !== 'none') {
-          closePopover();
-        }
-      });
-
-      window.addEventListener('resize', function () {
-        if (popover && popover.style.display !== 'none') fitPopoverToChatArea();
-      });
-    }
+    btnClose.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      closePopover();
+    });
+    document.addEventListener('click', event => {
+      if (popover.style.display !== 'none' && !popover.contains(event.target) && !badge.contains(event.target)) closePopover();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && popover.style.display !== 'none') closePopover();
+    });
+    window.addEventListener('resize', () => {
+      if (popover.style.display !== 'none') fitPopoverToChatArea();
+    });
 
     return {
       closePopover,

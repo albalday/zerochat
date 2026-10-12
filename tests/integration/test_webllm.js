@@ -148,7 +148,7 @@ test('WebLLM - la ejecución incompleta falla antes de crear un motor', async ()
   };
   try {
     const adapter = new WebLLM.WebLLMProviderAdapter();
-    await assert.rejects(adapter.createStreamResponse({ payload: { model: 'test-model', messages: [] } }), /no está disponible por completo/);
+    await assert.rejects(adapter.createStreamResponse({ payload: { model: 'test-model', messages: [] } }), /not fully available/);
     assert.equal(engineCreated, false);
   } finally {
     webllm.CreateMLCEngine = originalCreate;

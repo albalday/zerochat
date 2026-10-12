@@ -13,26 +13,6 @@ test('Turns.extractBaseId - normaliza identificadores y descarta sufijos de turn
   assert.equal(Turns.extractBaseId(123), '');
 });
 
-test('Turns.isDateTimeInitialTurn - reconoce turnos temporales en español e inglés y multipart', () => {
-  // Español
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: 'La fecha y hora actual es: lunes 14 de septiembre' }), true);
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: 'Fecha y hora actual: lunes 14 de septiembre' }), true);
-
-  // Inglés
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: 'The current date and time is: Monday, September 14' }), true);
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: 'Current date and time: Monday, September 14' }), true);
-
-  // Multipart (array con objeto text)
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: [{ text: 'Current date and time: today' }] }), true);
-
-  // No iniciales o roles distintos de user
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'assistant', content: 'Current date and time: today' }), false);
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'system', content: 'Current date and time: today' }), false);
-  assert.equal(Turns.isDateTimeInitialTurn({ role: 'user', content: 'Hola mundo' }), false);
-  assert.equal(Turns.isDateTimeInitialTurn(null), false);
-  assert.equal(Turns.isDateTimeInitialTurn({}), false);
-});
-
 test('Turns.removeSelectedTurn - elimina llamadas seleccionadas y resultados huérfanos sin mutar el array de entrada', () => {
   const history = [
     { id: 'u1', role: 'user', content: 'Question' },
@@ -114,9 +94,8 @@ test('Turns.dropOrphanToolMessages - descarta resultados sin turno assistant que
   assert.deepEqual(result.map(message => message.role), ['user', 'assistant']);
 });
 
-test('Turns.getLastUserPrompt - devuelve el último prompt de usuario omitiendo el turno temporal', () => {
+test('Turns.getLastUserPrompt - devuelve el texto del último mensaje del usuario', () => {
   assert.equal(Turns.getLastUserPrompt(null), '');
-  assert.equal(Turns.getLastUserPrompt([{ role: 'user', content: 'La fecha y hora actual es: hoy' }]), '');
   assert.equal(Turns.getLastUserPrompt([
     { role: 'user', content: 'primero' },
     { role: 'assistant', content: 'respuesta' },

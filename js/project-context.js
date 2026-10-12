@@ -191,39 +191,33 @@ ${stateBody}
     const getState = () => deps.state || resolveDep('ChatState', './state.js');
     const getConfig = () => deps.config || resolveDep('ChatConfig', './config-store.js');
     const getAgentCore = () => deps.agentCore || resolveDep('ChatAgentCore', './agent-core.js');
-    const getSecurity = () => deps.security || resolveDep('ChatToolSecurity', './tool-security.js')?.manager;
-    const getMcp = () => deps.mcp || resolveDep('ChatMCP', './mcp.js')?.manager;
+    const getSecurity = () => deps.security || resolveDep('ChatToolSecurity', './tool-security.js').manager;
+    const getMcp = () => deps.mcp || resolveDep('ChatMCP', './mcp.js').manager;
 
     let refreshSequence = 0;
 
     function getAvailableTool(name) {
-      const tool = getAgentCore()?.registry?.getTool?.(name);
-      if (!tool) return null;
-      try {
-        return typeof tool.isAvailable !== 'function' || tool.isAvailable() ? tool : null;
-      } catch (_) {
-        return null;
-      }
+      const tool = getAgentCore().registry.getTool(name);
+      return tool && tool.isAvailable(getConfig().getActive()) ? tool : null;
     }
 
     function getCwd() {
-      const mcp = getState()?.get?.('mcp') || {};
+      const mcp = getState().get('mcp');
       return mcp.status === 'connected' ? String(mcp.serverInfo?.cwd || '').trim() : '';
     }
 
     /** Lee un fichero del proyecto sin interacción: si requiere aprobación, no se ejecuta. */
     async function readProjectFile(cwd, relativePath, signal) {
       const tool = getAvailableTool(READ_TOOL);
-      const executor = getAgentCore()?.executor;
-      if (!tool || !executor?.executeToolCall) return { status: 'unavailable' };
+      if (!tool) return { status: 'unavailable' };
 
       const args = { path: joinPath(cwd, relativePath), max_bytes: MAX_FILE_BYTES, max_lines: 2000 };
-      const authorization = getSecurity()?.evaluateAuthorization?.(tool, args);
-      if (!authorization || authorization.status === 'deny' || authorization.requiresApproval) {
+      const authorization = getSecurity().evaluateAuthorization(tool, args);
+      if (authorization.status === 'deny' || authorization.requiresApproval) {
         return { status: 'denied' };
       }
 
-      const execution = await executor.executeToolCall({
+      const execution = await getAgentCore().executor.executeToolCall({
         id: 'project_context_read',
         type: 'function',
         function: { name: READ_TOOL, arguments: JSON.stringify(args) }
@@ -245,8 +239,8 @@ ${stateBody}
 
     function publish(patch) {
       const State = getState();
-      if (State?.setProjectContext) State.setProjectContext({ ...patch, checkedAt: Date.now() });
-      return State?.get?.('project') || patch;
+      State.setProjectContext({ ...patch, checkedAt: Date.now() });
+      return State.get('project');
     }
 
     /**
@@ -276,7 +270,7 @@ ${stateBody}
       } catch (error) {
         stateRead = { status: 'error', error: error?.message || String(error) };
       }
-      if (sequence !== refreshSequence) return getState()?.get?.('project') || null;
+      if (sequence !== refreshSequence) return getState().get('project');
 
       const status = computeStatus({ ...base, stateRead });
       if (status !== 'ready') {
@@ -308,7 +302,7 @@ ${stateBody}
     async function initialize({ askConfirmation, sendPrompt, startConversation, isBusy } = {}) {
       if (typeof askConfirmation !== 'function' || typeof sendPrompt !== 'function') throw new TypeError('initialize requires askConfirmation and sendPrompt');
       const State = getState();
-      const project = State?.get?.('project') || {};
+      const project = State.get('project');
       const cwd = project.cwd;
       if (project.status !== 'missing' || !cwd || !canInitialize()) return { ok: false, reason: 'unavailable' };
 
@@ -316,7 +310,7 @@ ${stateBody}
       if (!await askConfirmation({ cwd, rule })) return { ok: false, reason: 'cancelled' };
 
       // El servidor o la conversación pueden haber cambiado durante la confirmación.
-      const current = State?.get?.('project') || {};
+      const current = State.get('project');
       if (current.cwd !== cwd || current.status !== 'missing' || isBusy?.() || !canInitialize()) {
         return { ok: false, reason: 'state-changed' };
       }

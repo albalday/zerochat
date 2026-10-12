@@ -172,100 +172,6 @@
     return resolveDep('ChatAgentCore', './agent-core.js');
   }
 
-  function normalizePath(p) {
-    if (typeof p !== 'string') return '';
-    let norm = p.replace(/\\/g, '/');
-    norm = norm.replace(/\/+/g, '/');
-    return norm;
-  }
-
-  function isPathTraversal(norm) {
-    const segments = norm.split('/');
-    let depth = 0;
-    for (const seg of segments) {
-      if (seg === '..') {
-        depth--;
-        if (depth < 0) return true;
-      } else if (seg && seg !== '.') {
-        depth++;
-      }
-    }
-    return false;
-  }
-
-  function extractServerId(tool, toolName) {
-    if (tool?.metadata?.mcpServerId) return String(tool.metadata.mcpServerId);
-    const name = toolName || tool?.name || '';
-    if (name.startsWith('mcp_')) {
-      const parts = name.split('_');
-      if (parts.length >= 3) {
-        return parts[1];
-      }
-    }
-    if (tool?.metadata?.mcpServerName) return String(tool.metadata.mcpServerName);
-    return '';
-  }
-
-  function evaluatePathConstraint(pathVal, pathConstraints) {
-    if (!pathVal || typeof pathVal !== 'string') return { allowed: true };
-    if (!pathConstraints || typeof pathConstraints !== 'object') return { allowed: true };
-
-    const norm = normalizePath(pathVal);
-
-    if (pathConstraints.preventTraversal) {
-      if (norm.includes('../') || norm.startsWith('..') || norm.endsWith('/..')) {
-        if (isPathTraversal(norm)) {
-          return {
-            allowed: false,
-            denied: true,
-            reason: 'path_traversal_detected',
-            details: `Navegación de directorios no permitida: ${pathVal}`
-          };
-        }
-      }
-    }
-
-    if (Array.isArray(pathConstraints.deniedDirectories)) {
-      for (const denied of pathConstraints.deniedDirectories) {
-        const normDenied = normalizePath(denied);
-        if (norm.startsWith(normDenied) || norm === normDenied || norm.includes(normDenied)) {
-          return {
-            allowed: false,
-            denied: true,
-            reason: 'path_in_denied_directory',
-            details: `Ruta denegada por lista negra: ${pathVal}`
-          };
-        }
-      }
-    }
-
-    if (Array.isArray(pathConstraints.allowedDirectories) && pathConstraints.allowedDirectories.length > 0) {
-      let matched = false;
-      for (const allowed of pathConstraints.allowedDirectories) {
-        const normAllowed = normalizePath(allowed);
-        if (normAllowed === './' || normAllowed === '.') {
-          if (!norm.startsWith('/') && !norm.startsWith('~')) {
-            matched = true;
-            break;
-          }
-        } else if (norm.startsWith(normAllowed)) {
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        return {
-          allowed: false,
-          denied: false,
-          reason: 'path_outside_allowed_directories',
-          details: `Ruta fuera de las carpetas autorizadas: ${pathVal}`
-        };
-      }
-    }
-
-    return { allowed: true };
-  }
-
   function matchesCommandPrefix(command, prefix) {
     const cleanPrefix = String(prefix).replace(/\*+$/, '').trim();
     return command === cleanPrefix ||
@@ -307,7 +213,7 @@
             allowed: false,
             denied: true,
             reason: 'command_matches_denied_pattern',
-            details: `Comando contiene un patrón bloqueado (${pattern}): ${trimmed}`
+            details: `The command contains a blocked pattern (${pattern}): ${trimmed}`
           };
         }
       }
@@ -349,19 +255,6 @@
         }
         if (!cmdRes.allowed) {
           return { status: 'ask', reason: cmdRes.reason, details: cmdRes.details };
-        }
-      }
-    }
-
-    if (constraints.path) {
-      const pathVal = args.path || args.filepath || args.file || args.directory || args.dir || args.cwd || '';
-      if (pathVal) {
-        const pathRes = evaluatePathConstraint(pathVal, constraints.path);
-        if (pathRes.denied) {
-          return { status: 'deny', reason: pathRes.reason, details: pathRes.details };
-        }
-        if (!pathRes.allowed) {
-          return { status: 'ask', reason: pathRes.reason, details: pathRes.details };
         }
       }
     }
@@ -464,7 +357,7 @@
           }
         }
       } catch (err) {
-        console.warn('[ToolSecurity] Error al cargar políticas guardadas:', err?.message || err);
+        console.warn('[ToolSecurity] Could not load the saved policies:', err?.message || err);
       }
       if (!this.directoryRules.length) {
         this.directoryRules = [this.getDefaultDirectoryRule()];
@@ -518,7 +411,7 @@
 
         Storage.setStorageItem(this.storageKey, JSON.stringify(payload));
       } catch (err) {
-        console.warn('[ToolSecurity] Error al persistir políticas:', err?.message || err);
+        console.warn('[ToolSecurity] Could not save the policies:', err?.message || err);
       }
 
       this.syncWithState();
@@ -566,7 +459,7 @@
 
     setGlobalMcpPolicy(policy) {
       if (!Object.values(GLOBAL_POLICIES).includes(policy)) {
-        throw new Error(`Política global no válida: ${policy}`);
+        throw new Error(`Invalid global policy: ${policy}`);
       }
       this.globalMcpPolicy = policy;
       this.save();
@@ -614,8 +507,8 @@
       const normalized = rules.map(parseDirectoryRule);
       if (normalized.some(rule => !rule)) {
         throw new Error(hasUnresolvedRule
-          ? 'Regla de directorio inválida: ~ y variables no se resuelven en el navegador. Usa una ruta absoluta.'
-          : 'Regla de directorio inválida. Usa R:, W: o RW: seguido de una ruta.');
+          ? 'Invalid directory rule: ~ and variables are not resolved in the browser. Use an absolute path.'
+          : 'Invalid directory rule. Use R:, W: or RW: followed by a path.');
       }
       let uniqueRules = [...new Set(normalized.map(rule => rule.rule))];
       if (uniqueRules.length === 0) {
@@ -853,14 +746,10 @@
       const toolId = tool?.name || toolName;
       const serverName = tool?.metadata?.mcpServerName || '';
       const originalName = tool?.metadata?.originalName || toolName;
-      const serverId = extractServerId(tool, toolName);
+      const serverId = String(tool?.metadata?.mcpServerId || tool?.metadata?.mcpServerName || '');
 
-      const isMcp = tool?.category === 'mcp' ||
-        Boolean(tool?.metadata?.mcpServerId) ||
-        Boolean(tool?.metadata?.mcpServerName) ||
-        Boolean(serverId) ||
-        /^mcp_/i.test(toolName) ||
-        LOCAL_MANAGED_TOOLS.has(toolName);
+      // Una herramienta que no está en el registro se trata como externa: necesita autorización.
+      const isMcp = !tool || tool.category === 'mcp' || Boolean(serverId) || LOCAL_MANAGED_TOOLS.has(toolName);
 
       // 1. Herramientas nativas y seguras (search_web, execute_javascript, etc.)
       if (!isMcp) {
@@ -1120,7 +1009,6 @@
     SERVER_POLICIES,
     SCOPES,
     ToolSecurityManager,
-    evaluatePathConstraint,
     evaluateCommandConstraint,
     evaluateConstraints,
     getCommandBaseName,

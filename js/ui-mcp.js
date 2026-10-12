@@ -101,7 +101,7 @@
       return `<span class="mcp-auth-badge status-allowed" title="${escapeHtml(t('mcp_security_trusted_server'))}">${allowed} (${escapeHtml(t('mcp_security_badge_server'))})</span>`;
     }
     const constraints = security.getToolConstraints(tool.name);
-    const constrained = Boolean(constraints && (constraints.command || constraints.path)) && policy === 'allow';
+    const constrained = Boolean(constraints?.command) && policy === 'allow';
     const selectTitle = escapeHtml(t('mcp_security_select_title'));
     const option = (value, label) => `<option value="${value}"${policy === value ? ' selected' : ''}>${label}</option>`;
     return `
@@ -475,7 +475,6 @@
       const parts = [];
       const prefixes = [...new Set((item.constraints?.command?.allowedPrefixes || []).map(prefix => String(prefix).trim()).filter(Boolean))];
       if (prefixes.length) parts.push(prefixes.map(prefix => `${prefix} *`).join(', '));
-      if (item.constraints?.path?.allowedDirectories) parts.push(item.constraints.path.allowedDirectories.join(', '));
       if (parts.length) text += ` (${escapeHtml(t('mcp_security_constrained'))})`;
       const constraint = escapeHtml(parts.join(' | '));
       const toolId = escapeHtml(item.toolId);

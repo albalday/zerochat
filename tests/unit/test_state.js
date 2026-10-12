@@ -196,23 +196,23 @@ test('ChatState - Contrato de slices canónicos y rechazo de escrituras no autor
   // set con slice no canónico debe lanzar error
   assert.throws(() => {
     store.set('arbitrarySlice', { foo: 'bar' });
-  }, /slice no canónico/i);
+  }, /non-canonical slice/i);
 
   // setState con slice no canónico debe lanzar error
   assert.throws(() => {
     store.setState({ illegalProp: true });
-  }, /slice no canónico/i);
+  }, /non-canonical slice/i);
 
   // createInitialState con slice no canónico en overrides debe lanzar error
   assert.throws(() => {
     ChatState.createInitialState({ unknownSlice: 123 });
-  }, /slice no canónico/i);
+  }, /non-canonical slice/i);
 });
 
 test('ChatState - Mutadores de mensajes: appendMessage y replaceMessages', () => {
   const store = ChatState.createStore();
 
-  assert.throws(() => store.appendMessage(null), /objeto válido/);
+  assert.throws(() => store.appendMessage(null), /must be an object/);
   assert.throws(() => store.appendMessage({ content: 'sin role' }), /role/);
 
   const appended = store.appendMessage({ role: 'user', content: 'Pregunta 1' });
@@ -345,7 +345,7 @@ test('ChatState - admite avisos de confirmación', () => {
 test('ChatState - setProjectContext valida el estado y el cambio de conversación no reinicia el proyecto', () => {
   const store = ChatState.createStore();
   assert.equal(store.get('project').status, 'disabled');
-  assert.throws(() => store.setProjectContext({ status: 'unknown' }), /estado no válido/);
+  assert.throws(() => store.setProjectContext({ status: 'unknown' }), /invalid status/);
   assert.throws(() => store.setProjectContext(null), /objeto/);
 
   store.setProjectContext({ status: 'ready', cwd: '/repo', rules: { content: 'r', truncated: 'yes' } });

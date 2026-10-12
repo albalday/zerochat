@@ -24,8 +24,8 @@
   }
 
   function supportError() {
-    if (typeof navigator === 'undefined' || !navigator.gpu) return 'WebGPU no está disponible en este navegador.';
-    if (typeof caches === 'undefined') return 'Cache Storage no está disponible en este navegador.';
+    if (typeof navigator === 'undefined' || !navigator.gpu) return 'WebGPU is not available in this browser.';
+    if (typeof caches === 'undefined') return 'Cache Storage is not available in this browser.';
     return 'El navegador no admite los requisitos de WebLLM.';
   }
 
@@ -394,11 +394,11 @@
     }
 
     async createStreamResponse({ payload, signal, onProgress }) {
-      if (!payload.model) throw new Error('Selecciona un modelo WebLLM descargado en el perfil.');
+      if (!payload.model) throw new Error('Select a downloaded WebLLM model in the profile.');
       const webllm = await loadWebLLM();
       let appConfig = getAppConfig(webllm);
       const available = await isModelAvailable(webllm, payload.model, appConfig);
-      if (!available) throw new Error('El modelo WebLLM no está disponible por completo en el almacenamiento local. Descárgalo desde el perfil antes de iniciar el chat.');
+      if (!available) throw new Error('The WebLLM model is not fully available in local storage. Download it from the profile before starting the chat.');
 
       const activeWebllmConfig = payload.webllmConfig || getActiveWebllmConfig();
       const overrides = extractOverrides(activeWebllmConfig);
@@ -438,7 +438,7 @@
         await this.engines.acquire(webllm, modelId, appConfig, onProgress);
         const cached = await webllm.hasModelInCache?.(modelId, appConfig);
         if (cached !== true) {
-          throw new Error('WebLLM terminó la preparación, pero el navegador no pudo guardar el modelo en Cache Storage.');
+          throw new Error('WebLLM finished preparing, but the browser could not store the model in Cache Storage.');
         }
         if (!setModelCompleted(modelId, true)) {
           throw new Error('WebLLM could not persist the completed model verification.');
@@ -456,7 +456,7 @@
       const webllm = await loadWebLLM();
       const appConfig = getAppConfig(webllm);
       if (typeof webllm.deleteModelAllInfoInCache !== 'function') {
-        throw new Error('Esta versión de WebLLM no permite borrar modelos individualmente.');
+        throw new Error('This WebLLM version cannot delete individual models.');
       }
       await webllm.deleteModelAllInfoInCache(modelId, appConfig);
       const removed = await webllm.hasModelInCache?.(modelId, appConfig) !== true;
