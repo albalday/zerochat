@@ -55,9 +55,8 @@
   }
 
   function togglePanel(forceOpen) {
-    const shouldOpen = forceOpen !== undefined ? forceOpen : dom.debugPanel.style.display === 'none';
-    dom.debugPanel.style.display = shouldOpen ? 'flex' : 'none';
-    dom.debugPanel.setAttribute('aria-hidden', String(!shouldOpen));
+    const shouldOpen = forceOpen !== undefined ? forceOpen : dom.debugPanel.hidden;
+    dom.debugPanel.hidden = !shouldOpen;
     dom.btnToggleDebug.classList.toggle('active', shouldOpen);
     dom.btnToggleDebug.setAttribute('aria-expanded', String(shouldOpen));
     if (shouldOpen) scrollLogToBottom(true);
@@ -94,7 +93,7 @@
       </div>
       <div class="debug-msg">${messageHtml}</div>
     `;
-    if (!isVisibleIn(activeFilter, type)) entry.style.display = 'none';
+    entry.hidden = !isVisibleIn(activeFilter, type);
     dom.debugLogContent.appendChild(entry);
     return entry;
   }
@@ -127,7 +126,7 @@
   function filterLogs(tabId) {
     activeFilter = tabId;
     dom.debugLogContent.querySelectorAll('.debug-entry').forEach(entry => {
-      entry.style.display = isVisibleIn(tabId, entry.dataset.type) ? 'flex' : 'none';
+      entry.hidden = !isVisibleIn(tabId, entry.dataset.type);
     });
     scrollLogToBottom(true);
   }
@@ -144,13 +143,13 @@
       const dialog = dom.debugInterceptorDialog;
       const showJsonError = error => {
         dom.debugJsonError.textContent = t('debug_json_error_invalid', { error: error.message });
-        dom.debugJsonError.style.display = 'block';
+        dom.debugJsonError.hidden = false;
       };
       let isMaximized = false;
       dom.btnMaximizeDebugModal.innerHTML = MAXIMIZE_SVG;
       dom.debugModalEndpointBadge.textContent = `POST ${endpoint}`;
       dom.txtDebugPayload.value = JSON.stringify(payload, null, 2);
-      dom.debugJsonError.style.display = 'none';
+      dom.debugJsonError.hidden = true;
       dom.debugJsonError.textContent = '';
 
       const buttons = [dom.btnMaximizeDebugModal, dom.btnDebugSend, dom.btnDebugSendDisable, dom.btnCloseDebugModal, dom.btnFormatDebugJson, dom.btnCopyDebugJson];
@@ -183,7 +182,7 @@
       dom.btnFormatDebugJson.onclick = () => {
         try {
           dom.txtDebugPayload.value = JSON.stringify(JSON.parse(dom.txtDebugPayload.value), null, 2);
-          dom.debugJsonError.style.display = 'none';
+          dom.debugJsonError.hidden = true;
         } catch (error) {
           showJsonError(error);
         }
@@ -237,7 +236,7 @@
           </div>
         </div>
         <textarea id="txt-debug-payload" class="debug-payload-textarea" spellcheck="false" wrap="off"></textarea>
-        <div id="debug-json-error" class="debug-json-error" style="display: none;"></div>
+        <div id="debug-json-error" class="debug-json-error" hidden></div>
       </div>
 
     </div>`;

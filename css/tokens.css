@@ -4,7 +4,6 @@
 :root {
   /* Paleta Base y Acentos */
   --primary: #2563eb;
-  --primary-color: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-light: #eff6ff;
   --primary-rgb: 37, 99, 235;
@@ -14,16 +13,12 @@
   --bg-surface: #ffffff;
   --bg-surface-elevated: #ffffff;
   --bg-surface-subtle: #f1f5f9;
-  --bg-assistant-bubble: #ffffff;
-  --bg-user-bubble: #2563eb;
   --bg-hover: #f1f5f9;
-  --bg-main: #f8fafc;
 
   /* Tipografía y Textos */
   --text-main: #0f172a;
   --text-secondary: #475569;
   --text-muted: #64748b;
-  --text-user: #ffffff;
 
   /* Bordes y Separadores */
   --border-color: #e2e8f0;
@@ -42,16 +37,11 @@
   /* Estados de Notificación / Acción */
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  --danger-light: #fef2f2;
-  --danger-subtle: rgba(239, 68, 68, 0.12);
   --success: #10b981;
-  --success-light: #f0fdf4;
   --warning: #f59e0b;
-  --warning-light: #fffbeb;
 
   /* Transiciones */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Scrollbars */
   --scrollbar-thumb: rgba(148, 163, 184, 0.4);
@@ -70,12 +60,10 @@
   --shadow-composer: 0 4px 20px -2px rgba(0, 0, 0, 0.07), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
 
   /* Radios de Curvatura */
-  --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
-  --radius-2xl: 24px;
   --radius-full: 9999px;
 
   /* Tipografía Modular */
@@ -83,12 +71,9 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   /* Capas Z-Index */
-  --z-base: 1;
   --z-header: 100;
   --z-sidebar: 110;
-  --z-modal-backdrop: 200;
   --z-modal: 210;
-  --z-toast: 300;
 
   /* Viewport y Layout */
   --header-height: 3.5rem;
@@ -105,7 +90,6 @@
    ========================================================================== */
 [data-theme="dark"] {
   --primary: #3b82f6;
-  --primary-color: #3b82f6;
   --primary-hover: #60a5fa;
   --primary-light: rgba(59, 130, 246, 0.18);
   --primary-rgb: 59, 130, 246;
@@ -114,12 +98,8 @@
   --bg-surface: #131b2e;
   --bg-surface-elevated: #1a243b;
   --bg-surface-subtle: #182238;
-  --bg-assistant-bubble: #182238;
-  --bg-user-bubble: #2563eb;
   --bg-hover: #1e293b;
-  --bg-main: #090d16;
 
-  --text-user: #ffffff;
   --text-main: #f1f5f9;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
@@ -139,12 +119,8 @@
 
   --danger: #f87171;
   --danger-hover: #ef4444;
-  --danger-light: rgba(248, 113, 113, 0.15);
-  --danger-subtle: rgba(248, 113, 113, 0.18);
   --success: #34d399;
-  --success-light: rgba(52, 211, 153, 0.15);
   --warning: #fbbf24;
-  --warning-light: rgba(251, 191, 36, 0.15);
 
   --scrollbar-thumb: rgba(100, 116, 139, 0.4);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.7);

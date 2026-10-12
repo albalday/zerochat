@@ -34,6 +34,10 @@
   white-space: nowrap;
 }
 
+.markdown-table .align-left { text-align: left; }
+.markdown-table .align-center { text-align: center; }
+.markdown-table .align-right { text-align: right; }
+
 .markdown-table th:last-child {
   border-right: none;
 }
@@ -349,7 +353,7 @@
 .tool-call-group-status { color: var(--text-muted); font-weight: 500; }
 .tool-call-group.is-running { border-color: var(--primary); }
 .tool-call-group.is-running .tool-call-group-summary > .ui-icon { color: var(--primary); animation: pulse-tool-badge 1.4s infinite ease-in-out; }
-.tool-call-group.has-error .tool-call-group-summary > .ui-icon { color: var(--error-color); }
+.tool-call-group.has-error .tool-call-group-summary > .ui-icon { color: var(--danger); }
 .tool-call-group-cards { padding: 0 0.5rem 0.25rem; }
 .tool-call-group-active-cards { padding: 0 0.5rem 0.25rem; }
 .tool-call-group-active-cards > .tool-card-wrapper { margin: 0.35rem 0; }
@@ -608,7 +612,7 @@
 
 hr {
   border: none;
-  border-top: 1px solid var(--border-color, #e2e8f0);
+  border-top: 1px solid var(--border-color);
   margin: 1rem 0;
 }
 

@@ -73,7 +73,7 @@ test('Browser UI - composer: estructura, autoexpansión, razonamiento, RAG y env
       const intensity = document.getElementById('reasoning-intensity');
       const button = document.getElementById('btn-reasoning');
       return {
-        display: menu.style.display,
+        display: getComputedStyle(menu).display,
         direction: getComputedStyle(menu).flexDirection,
         range: [intensity.min, intensity.max],
         popup: button.getAttribute('aria-haspopup'),
@@ -84,19 +84,19 @@ test('Browser UI - composer: estructura, autoexpansión, razonamiento, RAG y env
     await page.locator('#reasoning-intensity').fill('3');
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().reasoningEffort), 'high');
     await page.click('#btn-close-reasoning');
-    assert.equal(await page.locator('#reasoning-menu').evaluate(el => el.style.display), 'none');
+    assert.equal(await page.locator('#reasoning-menu').evaluate(el => el.hidden), true);
 
     await page.click('#btn-open-rag');
     await page.waitForFunction(() => document.getElementById('rag-modal')?.open);
     await page.click('#btn-close-rag');
     await page.waitForFunction(() => !document.getElementById('rag-modal')?.open);
 
-    const sendVisibility = stopDisplay => page.evaluate(display => {
-      document.getElementById('btn-stop-stream').style.display = display;
+    const sendVisibility = stopHidden => page.evaluate(hidden => {
+      document.getElementById('btn-stop-stream').hidden = hidden;
       return getComputedStyle(document.getElementById('btn-send')).display !== 'none';
-    }, stopDisplay);
-    assert.equal(await sendVisibility('inline-flex'), false, 'Con el botón de detener visible, el de envío debe ocultarse');
-    assert.equal(await sendVisibility('none'), true, 'Al terminar el streaming, el botón de envío vuelve a ser visible');
+    }, stopHidden);
+    assert.equal(await sendVisibility(false), false, 'Con el botón de detener visible, el de envío debe ocultarse');
+    assert.equal(await sendVisibility(true), true, 'Al terminar el streaming, el botón de envío vuelve a ser visible');
   } finally {
     await browser.close();
   }
@@ -179,7 +179,7 @@ test('Browser UI - el panel de métricas se ancla al composer en escritorio y oc
       await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await waitForAppReady(page);
 
-      await page.evaluate(() => { document.getElementById('connection-tokens-badge').style.display = 'inline-flex'; });
+      await page.evaluate(() => { document.getElementById('connection-tokens-badge').hidden = false; });
       await page.click('#connection-tokens-badge');
       const layout = await page.evaluate(() => {
         const composerRect = document.getElementById('chat-form').getBoundingClientRect();
@@ -222,9 +222,9 @@ test('Browser UI - en móvil la telemetría con caché no saca el botón de envi
       await page.goto(getIndexUrl(), { waitUntil: 'load' });
       await waitForAppReady(page);
       const layout = await page.evaluate(() => {
-        document.getElementById('connection-tokens-badge').style.display = 'inline-flex';
+        document.getElementById('connection-tokens-badge').hidden = false;
         document.getElementById('connection-tokens-text').textContent = '~12.3k / 128k';
-        document.getElementById('context-hub-cache-pill').style.display = 'inline-flex';
+        document.getElementById('context-hub-cache-pill').hidden = false;
         document.getElementById('context-hub-cache-val').textContent = '10.2k';
         const form = document.getElementById('chat-form').getBoundingClientRect();
         const send = document.getElementById('btn-send').getBoundingClientRect();
@@ -283,7 +283,7 @@ test('Browser UI - en móvil los pies de respuesta y confirmación permanecen en
 
     const typographyAndHeader = await page.evaluate(() => {
       const sidebar = document.getElementById('btn-toggle-sidebar');
-      sidebar.style.display = 'inline-flex';
+      sidebar.hidden = false;
       const debug = document.getElementById('btn-toggle-debug');
       const profile = document.getElementById('active-profile-trigger');
       return {

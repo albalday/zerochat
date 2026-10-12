@@ -43,7 +43,7 @@
   /** Sitúa el menú encima del botón, dentro de la ventana. */
   function positionReasoningMenu(elements) {
     const menu = elements.reasoningMenu;
-    if (menu.style.display === 'none') return;
+    if (menu.hidden) return;
     const rect = elements.btnReasoning.getBoundingClientRect();
     const width = Math.min(290, window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
@@ -58,12 +58,12 @@
   }
 
   function closeReasoningMenu(elements) {
-    elements.reasoningMenu.style.display = 'none';
+    elements.reasoningMenu.hidden = true;
     elements.btnReasoning.setAttribute('aria-expanded', 'false');
   }
 
   function openReasoningMenu(elements, appConfig) {
-    elements.reasoningMenu.style.display = 'flex';
+    elements.reasoningMenu.hidden = false;
     elements.btnReasoning.setAttribute('aria-expanded', 'true');
     syncReasoningIntensity(elements, appConfig.reasoningEffort || 'medium');
     positionReasoningMenu(elements);
@@ -71,7 +71,7 @@
   }
 
   function toggleReasoningMenu(elements, appConfig) {
-    if (elements.reasoningMenu.style.display === 'flex') closeReasoningMenu(elements);
+    if (!elements.reasoningMenu.hidden) closeReasoningMenu(elements);
     else openReasoningMenu(elements, appConfig);
   }
 

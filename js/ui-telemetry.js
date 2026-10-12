@@ -1,14 +1,6 @@
 /**
- * Módulo de Interfaz de Usuario para Telemetría de Contexto y Tokens (ChatUITelemetry).
- * ZeroChat - js/ui-telemetry.js
- *
- * Responsabilidades:
- * - Formateo de números de tokens (compacto y legible).
- * - Clasificación semafórica de la capacidad de contexto (óptimo, aviso, crítico).
- * - Generación de ViewModel desacoplado para vista de badge y popover.
- * - Renderizado eficiente del badge y renderizado perezoso (lazy) del popover.
- * - Limpieza y reseteo integral de telemetría entre sesiones.
- * - Enlace de eventos accesibles para apertura y cierre del popover.
+ * Telemetría de contexto y tokens del compositor (ChatUITelemetry): el botón con el uso del
+ * contexto y su semáforo, y el panel con el detalle, que solo se rellena mientras está abierto.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -20,28 +12,23 @@
   'use strict';
 
   const { resolveDep } = Utils;
-
-  const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
-
   const { t } = I18n;
 
-  /**
-   * Formatea un conteo numérico de tokens de manera compacta (ej: 0, 850, 12.5k, 128k, 1.2M).
-   * @param {number|string} num
-   * @returns {string}
-   */
+  const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
+  const STATUS_CLASSES = ['status-warning', 'status-critical'];
+  const LIMIT_SOURCE_KEYS = { server: 'context_limit_source_server', manual: 'context_limit_source_manual', assumed: 'context_limit_source_assumed' };
+  const HEALTH_KEYS = { ok: 'context_status_ok', warning: 'context_status_warning', critical: 'context_status_critical' };
+
+  /** Recuento compacto de tokens: 850, 12.5k, 128k, 1.2M. */
   function formatTokenCount(num) {
     const val = Number(num);
-    if (!val || isNaN(val) || val <= 0) return '0';
-    if (val >= 1000000) {
-      return (val / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-    }
-    if (val >= 1000) {
-      return (val / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-    }
+    if (!val || val <= 0) return '0';
+    if (val >= 1000000) return `${(val / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (val >= 1000) return `${(val / 1000).toFixed(1).replace(/\.0$/, '')}k`;
     return String(Math.round(val));
   }
 
+  /** Capacidad de contexto exacta en miles: 90112 → 90.112K. */
   function formatContextCapacity(num) {
     const value = Number(num);
     if (!Number.isFinite(value) || value <= 0) return '0';
@@ -49,20 +36,15 @@
     return `${(value / 1000).toFixed(3).replace(/\.?0+$/, '')}K`;
   }
 
+  /** Lee una capacidad escrita por el usuario (64000, 90.112K, 1M); null si no es válida o es menor de 1024. */
   function parseContextCapacity(value) {
     const match = String(value || '').trim().match(/^(\d+(?:[.,]\d+)?)\s*([km]?)$/i);
     if (!match) return null;
-    const amount = Number(match[1].replace(',', '.'));
-    const multiplier = match[2].toLowerCase() === 'k' ? 1000 : (match[2].toLowerCase() === 'm' ? 1000000 : 1);
-    const limit = Math.floor(amount * multiplier);
+    const multiplier = { k: 1000, m: 1000000 }[match[2].toLowerCase()] || 1;
+    const limit = Math.floor(Number(match[1].replace(',', '.')) * multiplier);
     return Number.isFinite(limit) && limit >= 1024 ? limit : null;
   }
 
-  /**
-   * Clasifica la salud del contexto según el porcentaje de ventana consumido.
-   * @param {number} percentUsed
-   * @returns {'ok'|'warning'|'critical'}
-   */
   function getContextHealthStatus(percentUsed) {
     const pct = Number(percentUsed) || 0;
     if (pct >= 85) return 'critical';
@@ -71,310 +53,140 @@
   }
 
   /**
-   * Genera un ViewModel desacoplado de telemetría con todas las métricas procesadas.
-   * @param {Object} params
-   * @param {Object} [params.stats] - Estadísticas del último turno o streaming en curso.
-   * @param {Object} [params.diagnostics] - Diagnósticos previos de ContextManager.
-   * @param {Object} [params.config] - Configuración de modelo y proveedor.
-   * @param {Array} [params.chatHistory] - Mensajes de la conversación activa.
-   * @param {Object} [params.contextManager] - Instancia de ChatContextManager inyectable.
-   * @returns {Object} ViewModel completo para consumo de vistas y tests.
+   * Métricas para el botón y el panel. Sin diagnósticos previos, los calcula ChatContextManager
+   * con los tokens de prompt que haya informado el servidor.
    */
-  function computeTelemetryViewModel({ stats, diagnostics, config, chatHistory, contextManager } = {}) {
-    const CM = contextManager || getContextManager();
-    const cfg = config || {};
-    const model = cfg.model || '';
-    const apiType = cfg.apiType || 'openai';
-
-    const sPrompt = (stats && typeof stats === 'object') ? (stats.promptTokens || 0) : 0;
-    const sCached = (stats && typeof stats === 'object') ? (stats.cachedTokens || 0) : 0;
-    const sCacheCreate = (stats && typeof stats === 'object') ? (stats.cacheCreationTokens || 0) : 0;
-    const sCompletion = (stats && typeof stats === 'object') ? (stats.completionTokens || stats.tokens || 0) : 0;
-    const sSpeed = (stats && stats.tokensPerSec) ? stats.tokensPerSec : null;
-    const sLatency = (stats && stats.ttftSec) ? stats.ttftSec : null;
-
-    let diag = diagnostics;
-    if (!diag && CM && typeof CM.getContextDiagnostics === 'function') {
-      diag = CM.getContextDiagnostics(chatHistory || [], {
-        model,
-        providerType: apiType,
-        totalContextLimit: cfg.modelContextLimit || cfg.contextLimitOverride,
-        usedTokens: sPrompt > 0 ? sPrompt : null
-      });
-    }
-
-    const configuredLimit = cfg.modelContextLimit || cfg.contextLimitOverride;
-    const totalLimit = diag?.totalLimit || (CM && typeof CM.getModelContextLimit === 'function'
-      ? CM.getModelContextLimit(model, apiType, configuredLimit)
-      : (CM?.DEFAULT_CONTEXT_LIMIT || 0));
-    const usedTokens = diag?.usedTokens ?? sPrompt;
-    const percentUsed = diag?.percentUsed ?? (totalLimit > 0 ? Number(((usedTokens / totalLimit) * 100).toFixed(1)) : 0);
-    const remainingTokens = Math.max(0, totalLimit - usedTokens);
-    const isEstimated = diag?.isEstimated ?? (sPrompt <= 0);
-
-    const prefix = (isEstimated && usedTokens > 0) ? '~' : '';
-    const usedFormatted = prefix + formatTokenCount(usedTokens);
-    const limitFormatted = formatTokenCount(totalLimit);
-    const contextLimitSource = cfg.modelContextLimit ? 'server' : (cfg.contextLimitOverride ? 'manual' : 'assumed');
-    const badgeText = `${usedFormatted} / ${limitFormatted}${contextLimitSource === 'assumed' ? '*' : ''}`;
-    const healthStatus = getContextHealthStatus(percentUsed);
+  function computeTelemetryViewModel({ stats, diagnostics, config, chatHistory }) {
+    const promptTokens = stats?.promptTokens || 0;
+    const configuredLimit = config.modelContextLimit || config.contextLimitOverride;
+    const diag = diagnostics || getContextManager().getContextDiagnostics(chatHistory, {
+      model: config.model || '',
+      providerType: config.apiType || 'openai',
+      totalContextLimit: configuredLimit,
+      usedTokens: promptTokens > 0 ? promptTokens : null
+    });
+    const { totalLimit, usedTokens, percentUsed, isEstimated } = diag;
+    const contextLimitSource = config.modelContextLimit ? 'server' : (config.contextLimitOverride ? 'manual' : 'assumed');
+    const prefix = isEstimated && usedTokens > 0 ? '~' : '';
+    const cachedTokens = stats?.cachedTokens || 0;
 
     return {
-      model,
-      apiType,
       usedTokens,
       totalLimit,
-      remainingTokens,
+      remainingTokens: Math.max(0, totalLimit - usedTokens),
       percentUsed,
       isEstimated,
-      prefix,
-      badgeText,
-      healthStatus,
+      badgeText: `${prefix}${formatTokenCount(usedTokens)} / ${formatTokenCount(totalLimit)}${contextLimitSource === 'assumed' ? '*' : ''}`,
+      healthStatus: getContextHealthStatus(percentUsed),
       contextLimitSource,
-      cachedTokens: sCached,
-      cachedFormatted: formatTokenCount(sCached),
-      cacheCreationTokens: sCacheCreate,
-      cacheCreationFormatted: formatTokenCount(sCacheCreate),
-      turnPrompt: sPrompt,
-      turnCompletion: sCompletion,
-      turnSpeed: sSpeed,
-      turnLatency: sLatency
+      cachedTokens,
+      cachedFormatted: formatTokenCount(cachedTokens),
+      cacheCreationTokens: stats?.cacheCreationTokens || 0,
+      turnPrompt: promptTokens,
+      turnCompletion: stats?.completionTokens || stats?.tokens || 0,
+      turnSpeed: stats?.tokensPerSec || null,
+      turnLatency: stats?.ttftSec || null
     };
   }
 
-  /**
-   * Actualiza el indicador visual del badge en el composer.
-   * @param {Object} elements - Referencias a elementos DOM de telemetría.
-   * @param {Object} vm - ViewModel generado por computeTelemetryViewModel.
-   * @param {Function} [customT] - Función traductora opcional.
-   */
-  function updateBadge(elements, vm, customT) {
-    if (!elements || !elements.connectionTokensBadge) return;
-    const translate = customT || t;
+  const tokens = value => `${value.toLocaleString()} tok`;
 
-    // 1. Texto de tokens
-    if (elements.connectionTokensText) {
-      elements.connectionTokensText.textContent = vm.badgeText;
-    }
+  function setHealthClass(element, healthStatus) {
+    element.classList.remove(...STATUS_CLASSES);
+    if (healthStatus !== 'ok') element.classList.add(`status-${healthStatus}`);
+  }
 
-    // 2. Semáforo visual en el botón
-    elements.connectionTokensBadge.classList.remove('status-warning', 'status-critical');
-    if (vm.healthStatus === 'critical') {
-      elements.connectionTokensBadge.classList.add('status-critical');
-    } else if (vm.healthStatus === 'warning') {
-      elements.connectionTokensBadge.classList.add('status-warning');
-    }
+  function updateBadge(elements, vm) {
+    elements.connectionTokensText.textContent = vm.badgeText;
+    setHealthClass(elements.connectionTokensBadge, vm.healthStatus);
+    elements.contextHubCacheVal.textContent = vm.cachedFormatted;
+    elements.contextHubCachePill.hidden = vm.cachedTokens <= 0;
+    elements.connectionTokensBadge.title = t('context_hub_btn_title');
+    elements.connectionTokensBadge.hidden = false;
+  }
 
-    // 3. Píldora de tokens en caché
-    if (elements.contextHubCachePill) {
-      if (vm.cachedTokens > 0) {
-        let cacheVal = elements.contextHubCacheVal;
-        if (!cacheVal && elements.contextHubCachePill.querySelector) {
-          cacheVal = elements.contextHubCachePill.querySelector('#context-hub-cache-val');
-        }
-        if (cacheVal) {
-          cacheVal.textContent = vm.cachedFormatted;
-        }
-        elements.contextHubCachePill.style.display = 'inline-flex';
-      } else {
-        elements.contextHubCachePill.style.display = 'none';
-      }
-    }
+  function updatePopover(elements, vm) {
+    const bar = elements.contextProgressBar;
+    bar.classList.remove('warning', 'critical');
+    if (vm.healthStatus !== 'ok') bar.classList.add(vm.healthStatus);
+    bar.style.width = `${Math.min(100, Math.max(0, vm.percentUsed))}%`;
 
-    // 4. Tooltip accesible
-    const titleText = translate('context_hub_btn_title');
-    elements.connectionTokensBadge.setAttribute('title', titleText);
-    elements.connectionTokensBadge.style.display = 'inline-flex';
+    elements.contextMetricUsedVal.textContent = tokens(vm.usedTokens) + (vm.isEstimated && vm.usedTokens > 0 ? ' (est.)' : '');
+    elements.contextMetricLimitVal.textContent = `${formatContextCapacity(vm.totalLimit)} tok`;
+    elements.contextLimitSource.textContent = t(LIMIT_SOURCE_KEYS[vm.contextLimitSource]);
+    const fromServer = vm.contextLimitSource === 'server';
+    const input = elements.contextLimitOverrideInput;
+    if (document.activeElement !== input) input.value = fromServer ? '' : formatContextCapacity(vm.totalLimit);
+    input.disabled = fromServer;
+    elements.btnSaveContextLimitOverride.disabled = fromServer;
+    elements.contextMetricFreeVal.textContent = `${formatContextCapacity(vm.remainingTokens)} tok`;
+
+    const status = elements.contextMetricStatusVal;
+    status.className = `context-metric-val status-${vm.healthStatus}`;
+    status.textContent = t(HEALTH_KEYS[vm.healthStatus]);
+
+    elements.contextMetricCachedReadVal.textContent = tokens(vm.cachedTokens);
+    elements.contextMetricCachedWriteVal.textContent = tokens(vm.cacheCreationTokens);
+    elements.contextMetricTurnPromptVal.textContent = vm.turnPrompt > 0 ? tokens(vm.turnPrompt) : '-';
+    elements.contextMetricTurnCompletionVal.textContent = vm.turnCompletion > 0 ? tokens(vm.turnCompletion) : '-';
+    elements.contextMetricTurnSpeedVal.textContent = vm.turnSpeed ? `${vm.turnSpeed} t/s` : '-';
+    elements.contextMetricTurnLatencyVal.textContent = vm.turnLatency ? `${vm.turnLatency}s` : '-';
+  }
+
+  /** Actualiza siempre el botón; el panel, solo si está abierto o se pide con `forcePopover`. */
+  function renderTelemetry(elements, vm, { forcePopover = false } = {}) {
+    updateBadge(elements, vm);
+    if (forcePopover || !elements.contextHubPopover.hidden) updatePopover(elements, vm);
+  }
+
+  /** Deja la telemetría en el estado de una conversación sin estadísticas del servidor. */
+  function resetTelemetry(elements, config, chatHistory = []) {
+    renderTelemetry(elements, computeTelemetryViewModel({ stats: null, diagnostics: null, config, chatHistory }), { forcePopover: true });
   }
 
   /**
-   * Actualiza los valores detallados en el Popover flotante.
-   * @param {Object} elements - Referencias a elementos DOM del popover.
-   * @param {Object} vm - ViewModel generado por computeTelemetryViewModel.
-   * @param {Function} [customT] - Función traductora opcional.
+   * Conecta la apertura y el cierre del panel (botón, cerrar, clic fuera y Escape). `onOpen` se
+   * llama al abrirlo para rellenarlo.
    */
-  function updatePopover(elements, vm, customT) {
-    if (!elements || !elements.contextHubPopover) return;
-    const translate = customT || t;
-
-    // 1. Barra de progreso
-    if (elements.contextProgressBar) {
-      elements.contextProgressBar.classList.remove('warning', 'critical');
-      if (vm.healthStatus === 'critical') {
-        elements.contextProgressBar.classList.add('critical');
-      } else if (vm.healthStatus === 'warning') {
-        elements.contextProgressBar.classList.add('warning');
-      }
-      elements.contextProgressBar.style.width = `${Math.min(100, Math.max(0, vm.percentUsed))}%`;
-    }
-
-    // 2. Cuadrícula de contexto global
-    if (elements.contextMetricUsedVal) {
-      elements.contextMetricUsedVal.textContent = `${vm.usedTokens.toLocaleString()} tok` + (vm.isEstimated && vm.usedTokens > 0 ? ' (est.)' : '');
-    }
-    if (elements.contextMetricLimitVal) {
-      elements.contextMetricLimitVal.textContent = `${formatContextCapacity(vm.totalLimit)} tok`;
-    }
-    if (elements.contextLimitSource) {
-      const sourceKey = vm.contextLimitSource === 'server'
-        ? 'context_limit_source_server'
-        : (vm.contextLimitSource === 'manual' ? 'context_limit_source_manual' : 'context_limit_source_assumed');
-      elements.contextLimitSource.textContent = translate(sourceKey);
-    }
-    if (elements.contextLimitOverrideInput) {
-      const input = elements.contextLimitOverrideInput;
-      if (document.activeElement !== input) input.value = vm.contextLimitSource === 'server' ? '' : formatContextCapacity(vm.totalLimit);
-      input.disabled = vm.contextLimitSource === 'server';
-    }
-    if (elements.btnSaveContextLimitOverride) {
-      elements.btnSaveContextLimitOverride.disabled = vm.contextLimitSource === 'server';
-    }
-    if (elements.contextMetricFreeVal) {
-      elements.contextMetricFreeVal.textContent = `${formatContextCapacity(vm.remainingTokens)} tok`;
-    }
-    if (elements.contextMetricStatusVal) {
-      elements.contextMetricStatusVal.className = 'context-metric-val';
-      if (vm.healthStatus === 'critical') {
-        elements.contextMetricStatusVal.classList.add('status-critical');
-        elements.contextMetricStatusVal.textContent = translate('context_status_critical');
-      } else if (vm.healthStatus === 'warning') {
-        elements.contextMetricStatusVal.classList.add('status-warning');
-        elements.contextMetricStatusVal.textContent = translate('context_status_warning');
-      } else {
-        elements.contextMetricStatusVal.classList.add('status-ok');
-        elements.contextMetricStatusVal.textContent = translate('context_status_ok');
-      }
-    }
-
-    // 3. Métricas de caché (Prompt / KV)
-    if (elements.contextMetricCachedReadVal) {
-      elements.contextMetricCachedReadVal.textContent = `${vm.cachedTokens.toLocaleString()} tok`;
-    }
-    if (elements.contextMetricCachedWriteVal) {
-      elements.contextMetricCachedWriteVal.textContent = `${vm.cacheCreationTokens.toLocaleString()} tok`;
-    }
-
-    // 4. Métricas del turno generado
-    if (elements.contextMetricTurnPromptVal) {
-      elements.contextMetricTurnPromptVal.textContent = vm.turnPrompt > 0 ? `${vm.turnPrompt.toLocaleString()} tok` : '-';
-    }
-    if (elements.contextMetricTurnCompletionVal) {
-      elements.contextMetricTurnCompletionVal.textContent = vm.turnCompletion > 0 ? `${vm.turnCompletion.toLocaleString()} tok` : '-';
-    }
-    if (elements.contextMetricTurnSpeedVal) {
-      elements.contextMetricTurnSpeedVal.textContent = vm.turnSpeed ? `${vm.turnSpeed} t/s` : '-';
-    }
-    if (elements.contextMetricTurnLatencyVal) {
-      elements.contextMetricTurnLatencyVal.textContent = vm.turnLatency ? `${vm.turnLatency}s` : '-';
-    }
-  }
-
-  /**
-   * Renderiza la telemetría completa aplicando renderizado perezoso (Lazy Rendering).
-   * El badge siempre se actualiza; el popover solo se actualiza si está abierto o si se solicita forzarlo.
-   * @param {Object} elements - Referencias a elementos DOM.
-   * @param {Object} vm - ViewModel generado.
-   * @param {Object} [options={}] - Opciones de renderizado ({ forcePopover: boolean }).
-   * @param {Function} [customT] - Función traductora opcional.
-   */
-  function renderTelemetry(elements, vm, options = {}, customT) {
-    if (!elements) return;
-    updateBadge(elements, vm, customT);
-
-    const isPopoverOpen = elements.contextHubPopover &&
-      elements.contextHubPopover.style.display !== 'none' &&
-      elements.contextHubPopover.style.display !== '';
-
-    if (options.forcePopover || isPopoverOpen) {
-      updatePopover(elements, vm, customT);
-    }
-  }
-
-  /**
-   * Restaura la telemetría a estado neutro limpio para una nueva conversación o al alternar sesiones.
-   * @param {Object} elements - Referencias a elementos DOM.
-   * @param {Object} config - Configuración actual de la app.
-   * @param {Array} [chatHistory=[]] - Mensajes de la nueva sesión cargada (vacío por defecto).
-   * @param {Object} [contextManager] - Instancia de ChatContextManager opcional.
-   * @param {Function} [customT] - Función traductora opcional.
-   */
-  function resetTelemetry(elements, config, chatHistory = [], contextManager, customT) {
-    const vm = computeTelemetryViewModel({
-      stats: null,
-      diagnostics: null,
-      config,
-      chatHistory,
-      contextManager
-    });
-
-    renderTelemetry(elements, vm, { forcePopover: true }, customT);
-  }
-
-  /**
-   * Vincula los eventos de apertura, cierre y accesibilidad ARIA para el Popover.
-   * @param {Object} elements - Contenedor con connectionTokensBadge, contextHubPopover y btnCloseContextPopover.
-   * @param {Function} [onOpenCallback] - Callback invocado cuando el usuario abre el popover (útil para lazy update).
-   */
-  function bindPopoverEvents(elements, onOpenCallback) {
-    if (!elements || !elements.connectionTokensBadge) return;
-
+  function mount(elements, onOpen) {
     const badge = elements.connectionTokensBadge;
     const popover = elements.contextHubPopover;
-    const btnClose = elements.btnCloseContextPopover;
 
-    // En móvil el popover ocupa el área del chat: desde el header hasta el composer.
+    // En móvil el panel ocupa el área del chat: desde la cabecera hasta el compositor.
     function fitPopoverToChatArea() {
       const composer = popover.closest('.chat-input-container');
       const header = document.querySelector('.app-header');
-      const top = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
-      const bottom = composer ? Math.max(0, window.innerHeight - composer.getBoundingClientRect().top) : 0;
-      popover.style.setProperty('--context-hub-top', `${top}px`);
-      popover.style.setProperty('--context-hub-bottom', `${bottom}px`);
+      popover.style.setProperty('--context-hub-top', `${Math.max(0, header.getBoundingClientRect().bottom)}px`);
+      popover.style.setProperty('--context-hub-bottom', `${Math.max(0, window.innerHeight - composer.getBoundingClientRect().top)}px`);
     }
 
-    function closePopover() {
-      popover.style.display = 'none';
-      badge.setAttribute('aria-expanded', 'false');
-      badge.classList.remove('active');
+    function setOpen(open) {
+      if (open) fitPopoverToChatArea();
+      popover.hidden = !open;
+      badge.setAttribute('aria-expanded', String(open));
+      badge.classList.toggle('active', open);
+      if (open) onOpen();
     }
 
-    function togglePopover(e) {
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      const isHidden = popover.style.display === 'none' || !popover.style.display;
-      if (isHidden) fitPopoverToChatArea();
-      popover.style.display = isHidden ? 'flex' : 'none';
-      badge.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
-      badge.classList.toggle('active', isHidden);
-
-      if (isHidden && typeof onOpenCallback === 'function') {
-        onOpenCallback();
-      }
-    }
-
-    badge.addEventListener('click', togglePopover);
-
-    btnClose.addEventListener('click', event => {
+    badge.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      closePopover();
+      setOpen(popover.hidden);
+    });
+    elements.btnCloseContextPopover.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
     });
     document.addEventListener('click', event => {
-      if (popover.style.display !== 'none' && !popover.contains(event.target) && !badge.contains(event.target)) closePopover();
+      if (!popover.hidden && !popover.contains(event.target) && !badge.contains(event.target)) setOpen(false);
     });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && popover.style.display !== 'none') closePopover();
+      if (event.key === 'Escape' && !popover.hidden) setOpen(false);
     });
     window.addEventListener('resize', () => {
-      if (popover.style.display !== 'none') fitPopoverToChatArea();
+      if (!popover.hidden) fitPopoverToChatArea();
     });
-
-    return {
-      closePopover,
-      togglePopover
-    };
   }
 
   return {
@@ -383,10 +195,8 @@
     parseContextCapacity,
     getContextHealthStatus,
     computeTelemetryViewModel,
-    updateBadge,
-    updatePopover,
     renderTelemetry,
     resetTelemetry,
-    bindPopoverEvents
+    mount
   };
 });

@@ -347,7 +347,7 @@
     editor = branch
       ? { creating: false, id: branch.id, name: branch.name || '', description: branch.description || '', language: branch.language || DEFAULT_LANGUAGE }
       : { creating: true, id: '', name: '', description: '', language: DEFAULT_LANGUAGE };
-    $('rag-branch-feedback').style.display = 'none';
+    $('rag-branch-feedback').hidden = true;
     $('rag-manage-branch-select').value = editor.creating ? NEW_BRANCH : editor.id;
     $('rag-branch-name-input').value = editor.name;
     $('rag-branch-desc-input').value = editor.description;
@@ -375,10 +375,10 @@
 
   function showBranchFeedback(message, type = 'success') {
     const feedback = $('rag-branch-feedback');
-    feedback.style.display = 'block';
+    feedback.hidden = false;
     feedback.className = `server-query-status status-${type}`;
     feedback.textContent = message;
-    setTimeout(() => { feedback.style.display = 'none'; }, 4000);
+    setTimeout(() => { feedback.hidden = true; }, 4000);
   }
 
   async function saveOrUpdateBranch() {
@@ -682,7 +682,7 @@
               <input type="text" id="rag-branch-desc-input" data-i18n-placeholder="rag_branch_desc_placeholder" placeholder="Descripción sobre el contenido de esta rama" autocomplete="off">
             </div>
           </div>
-          <div id="rag-branch-feedback" class="server-query-status" style="display: none;"></div>
+          <div id="rag-branch-feedback" class="server-query-status" hidden></div>
         </div>
         <div id="rag-manage-workspace" class="rag-manage-workspace"></div>
       </div>

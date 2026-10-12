@@ -22,7 +22,6 @@
     ChatToolSecurity: ToolSecurity,
     ChatProjectContext: ProjectContext,
     ChatMessageTurns: MessageTurns,
-    ChatContextManager: ContextManager,
     ChatConversationService: ConversationService,
     ChatGenerationController: GenerationController,
     ChatUIReasoning: UIReasoning,
@@ -342,7 +341,6 @@
 
   async function inspectProfile(profile) {
     elements.inspectorProfileName.textContent = profile.name || '';
-    elements.inspectorResults.style.display = 'block';
     elements.inspectorResults.innerHTML = '';
     if (!elements.inspectorDialog.open) elements.inspectorDialog.showModal();
     await UIInspector.handleRunInspector(elements, getRuntimeConfig(), profile);
@@ -443,7 +441,7 @@
     const config = getRuntimeConfig();
     const project = State.get('project');
     UIReasoning.syncProjectIndicator(elements, config, project);
-    if (elements.reasoningMenu.style.display !== 'flex') return;
+    if (elements.reasoningMenu.hidden) return;
     UIReasoning.renderProjectPanel(elements, {
       config,
       project,
@@ -539,15 +537,14 @@
       stats: stats || telemetry.stats,
       diagnostics: diagnostics || telemetry.diagnostics,
       config: getRuntimeConfig(),
-      chatHistory: getChatHistory(),
-      contextManager: ContextManager
+      chatHistory: getChatHistory()
     });
-    UITelemetry.renderTelemetry(elements, vm, options, t);
+    UITelemetry.renderTelemetry(elements, vm, options);
   }
 
   function resetTelemetryDisplay({ syncState = true } = {}) {
     if (syncState) State.set('telemetry', { stats: null, diagnostics: null });
-    UITelemetry.resetTelemetry(elements, getRuntimeConfig(), getChatHistory(), ContextManager, t);
+    UITelemetry.resetTelemetry(elements, getRuntimeConfig(), getChatHistory());
   }
 
   // ==========================================================================
@@ -656,7 +653,7 @@
       renderProjectPanel();
     });
     document.addEventListener('click', event => {
-      if (elements.reasoningMenu.style.display === 'none') return;
+      if (elements.reasoningMenu.hidden) return;
       if (!elements.reasoningMenu.contains(event.target) && !elements.btnReasoning.contains(event.target)) {
         UIReasoning.closeReasoningMenu(elements);
       }
@@ -723,7 +720,7 @@
     bindPreference(elements.themeButtons, 'data-theme', applyTheme, 'theme');
     bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
 
-    UITelemetry.bindPopoverEvents(elements, () => updateConnectionTokensBadge(null, null, { forcePopover: true }));
+    UITelemetry.mount(elements, () => updateConnectionTokensBadge(null, null, { forcePopover: true }));
     elements.btnSaveContextLimitOverride.addEventListener('click', saveContextLimitOverride);
 
     elements.messagesList.addEventListener('click', event => {

@@ -19,12 +19,12 @@ describe('Browser UI - debug panel', { concurrency: 2 }, () => {
       await page.click('#btn-toggle-debug');
       const opened = await page.evaluate(() => ({
         display: getComputedStyle(document.getElementById('debug-panel')).display,
-        panelHidden: document.getElementById('debug-panel').getAttribute('aria-hidden'),
+        panelHidden: document.getElementById('debug-panel').hidden,
         triggerExpanded: document.getElementById('btn-toggle-debug').getAttribute('aria-expanded'),
         filtersRole: document.querySelector('.debug-tabs').getAttribute('role')
       }));
       assert.equal(opened.display, 'flex');
-      assert.equal(opened.panelHidden, 'false');
+      assert.equal(opened.panelHidden, false);
       assert.equal(opened.triggerExpanded, 'true');
       assert.equal(opened.filtersRole, 'group');
 

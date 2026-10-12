@@ -117,6 +117,13 @@ Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catál
 `ChatIcons` (`js/icons.js`) o etiquetas `<svg class="ui-icon">`. Los emojis solo son
 admisibles en contenido textual explicativo o mensajes del chat.
 
+Los colores, radios, sombras y capas salen de los tokens de `css/tokens.css`, sin valor de
+respaldo en `var()`; los ajustes del modo oscuro solo redefinen lo que cambia respecto a la
+regla base. Los elementos se muestran y ocultan con el atributo `hidden` (la regla global de
+`css/base.css` prevalece sobre el `display` de cada clase), nunca con `style.display` ni
+estilos en línea; solo se admiten estilos en línea para valores que dependen de los datos,
+como el ancho de una barra de progreso o el color de una serie.
+
 Para preservar el rendimiento durante el streaming de tokens SSE, se debe aplicar
 renderizado eficiente (lazy rendering): evitar mutaciones masivas continuas del DOM y
 actualizar paneles o popovers pesados bajo demanda al interactuar o al finalizar la inferencia.

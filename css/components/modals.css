@@ -5,12 +5,12 @@
   margin: auto;
   padding: 0;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl, 1.25rem);
+  border-radius: var(--radius-xl);
   background-color: var(--bg-surface);
   color: var(--text-main);
   max-width: 680px;
   width: 94vw;
-  max-height: calc(var(--app-height, 100dvh) * 0.88);
+  max-height: calc(var(--app-height) * 0.88);
   box-shadow: var(--shadow-xl);
 }
 
@@ -62,13 +62,13 @@
   width: 36px;
   height: 36px;
   min-width: 36px;
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
   cursor: pointer;
-  transition: all var(--transition-fast, 150ms ease);
+  transition: all var(--transition-fast);
 }
 
 .btn-close:hover {
@@ -119,7 +119,7 @@
   gap: 0.45rem;
   font-size: 0.95rem;
   font-weight: 500;
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1;
@@ -409,9 +409,6 @@ input:checked + .slider:before {
   transition: color 0.15s ease, opacity 0.15s ease;
 }
 
-.webllm-help-link[hidden] {
-  display: none !important;
-}
 
 .profile-lock-control,
 .profile-lock-status {
@@ -431,14 +428,10 @@ input:checked + .slider:before {
   font-weight: 600;
 }
 
-.profile-lock-control[hidden],
-.profile-lock-status[hidden] {
-  display: none !important;
-}
 
 .webllm-help-link:hover {
   text-decoration: underline;
-  color: var(--primary-hover, var(--primary));
+  color: var(--primary-hover);
 }
 
 .webllm-help-link .ui-icon {
@@ -503,13 +496,7 @@ input:checked + .slider:before {
   animation: spin 1s linear infinite;
 }
 
-.api-key-field[hidden] {
-  display: none !important;
-}
 
-.webllm-params-panel[hidden] {
-  display: none !important;
-}
 
 .webllm-params-panel > strong {
   font-size: 0.83rem;
@@ -1025,7 +1012,7 @@ input.form-input:focus-visible,
   color: var(--text-muted);
   cursor: pointer;
 }
-.rag-dropzone:hover, .rag-dropzone.drag-over { border-color: var(--primary-color); background: var(--primary-light); }
+.rag-dropzone:hover, .rag-dropzone.drag-over { border-color: var(--primary); background: var(--primary-light); }
 
 .rag-ingestion-progress-item, .rag-document-card {
   display: flex;
@@ -1050,7 +1037,7 @@ input.form-input:focus-visible,
 .rag-ingestion-progress-item > *, .rag-ingestion-global-progress > * { min-width: 0; }
 .rag-ingestion-progress-item strong, .rag-ingestion-progress-item span, .rag-ingestion-global-progress strong, .rag-ingestion-global-progress span { overflow-wrap: anywhere; }
 .rag-ingestion-progress-item progress { width: 100%; max-width: 100%; }
-.rag-ingestion-global-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr) auto; align-items: center; gap: 0.65rem; padding: 0.75rem 0.8rem; margin-bottom: 0.65rem; border: 1px solid var(--primary-color); border-radius: var(--radius-sm); background: var(--primary-light); }
+.rag-ingestion-global-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr) auto; align-items: center; gap: 0.65rem; padding: 0.75rem 0.8rem; margin-bottom: 0.65rem; border: 1px solid var(--primary); border-radius: var(--radius-sm); background: var(--primary-light); }
 .rag-ingestion-global-progress > div { display: grid; gap: 0.1rem; }
 .rag-ingestion-global-progress span { color: var(--text-muted); font-size: 0.78rem; }
 .rag-ingestion-global-progress progress { width: 100%; max-width: 100%; }

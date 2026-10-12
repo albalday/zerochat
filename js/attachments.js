@@ -67,11 +67,11 @@
     const files = getFiles();
     if (files.length === 0) {
       container.innerHTML = '';
-      container.style.display = 'none';
+      container.hidden = true;
       return;
     }
 
-    container.style.display = 'flex';
+    container.hidden = false;
     container.innerHTML = '';
 
     files.forEach((file, index) => {

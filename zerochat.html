@@ -43,7 +43,7 @@
 </head>
 <body>
   <!-- Catálogo de Símbolos SVG Monocromáticos (ZeroChat Icons Sprite) -->
-  <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <svg xmlns="http://www.w3.org/2000/svg" hidden>
     <defs>
       <symbol id="icon-square-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></symbol>
       <symbol id="icon-external-link" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></symbol>
@@ -122,7 +122,7 @@
         <button type="button" id="btn-import-chat-file" class="btn-sidebar-footer" data-i18n-title="btn_import_chat_title" data-i18n-aria="btn_import_chat" title="Importar conversación desde archivo JSON" aria-label="Importar">
           <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-upload"></use></svg>
         </button>
-        <input type="file" id="import-json-input" accept=".json" style="display: none;">
+        <input type="file" id="import-json-input" accept=".json" hidden>
         <button type="button" id="btn-delete-all-chats" class="btn-sidebar-footer btn-sidebar-danger" data-i18n-title="btn_delete_all_chats_title" data-i18n-aria="btn_delete_all_chats" title="Eliminar todas las conversaciones guardadas" aria-label="Borrar todos">
           <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-trash"></use></svg>
         </button>
@@ -297,7 +297,7 @@
     <!-- Barra Superior / Header estilo ChatGPT & Gemini -->
     <header class="app-header">
       <div class="header-left">
-        <button type="button" id="btn-toggle-sidebar" class="btn-header-icon" data-i18n-title="btn_sidebar_title" title="Chats y Configuración" aria-label="Chats y Configuración" style="display: none;">
+        <button type="button" id="btn-toggle-sidebar" class="btn-header-icon" data-i18n-title="btn_sidebar_title" title="Chats y Configuración" aria-label="Chats y Configuración" hidden>
           <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-menu"></use></svg>
         </button>
         <button type="button" id="btn-sidebar-new-chat" class="btn-header-icon" data-i18n-title="btn_new_chat_sidebar_title" data-i18n-aria="btn_new_chat_sidebar_title" title="Crear nueva conversación" aria-label="Crear nueva conversación">
@@ -367,13 +367,13 @@
     <!-- Barra de entrada inferior -->
     <div class="chat-input-wrapper">
       <!-- Previsualización de archivos adjuntos -->
-      <div id="attachments-container" class="attachments-container" style="display: none;"></div>
+      <div id="attachments-container" class="attachments-container" hidden></div>
 
 
 
       <form id="chat-form" class="chat-input-container">
         <!-- Input oculto para selección de archivos -->
-        <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.js,.ts,.py,.html,.css,.csv,.tsv,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sql,.sh,.rs,.go,.php,image/*" style="display: none;">
+        <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.js,.ts,.py,.html,.css,.csv,.tsv,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sql,.sh,.rs,.go,.php,image/*" hidden>
 
         <!-- Zona Superior: Textarea de ancho completo -->
         <div class="composer-top-row">
@@ -410,7 +410,7 @@
               </button>
 
               <!-- Panel de intensidad de razonamiento -->
-              <div id="reasoning-menu" class="reasoning-menu" role="dialog" aria-modal="false" aria-labelledby="reasoning-menu-title" style="display: none;">
+              <div id="reasoning-menu" class="reasoning-menu" role="dialog" aria-modal="false" aria-labelledby="reasoning-menu-title" hidden>
                 <div class="reasoning-menu-header">
                   <span id="reasoning-menu-title" class="reasoning-menu-title-wrapper"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-brain"></use></svg><span data-i18n="reasoning_menu_title">Nivel de Razonamiento</span></span>
                   <button type="button" id="btn-close-reasoning" class="btn-reasoning-close" data-i18n-aria="modal_close_aria" aria-label="Cerrar"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-close"></use></svg></button>
@@ -432,13 +432,13 @@
 
           <div class="composer-actions-right input-actions">
             <div class="context-hub-wrapper">
-              <button type="button" id="connection-tokens-badge" class="composer-telemetry-btn" style="display: none;" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
+              <button type="button" id="connection-tokens-badge" class="composer-telemetry-btn" hidden aria-expanded="false" aria-haspopup="dialog" data-i18n-title="context_hub_btn_title" title="Métricas de Contexto y Tokens de la conversación">
                 <span id="connection-tokens-text" class="composer-tokens-text">0 / 128k</span>
-                <span id="context-hub-cache-pill" class="composer-tokens-cache" style="display: none;" title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg><span id="context-hub-cache-val">0</span></span>
+                <span id="context-hub-cache-pill" class="composer-tokens-cache" hidden title="Tokens en caché"><svg class="ui-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-zap"></use></svg><span id="context-hub-cache-val">0</span></span>
               </button>
 
               <!-- Popover Flotante de Métricas Detalladas -->
-              <div id="context-hub-popover" class="context-hub-popover" style="display: none;" role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
+              <div id="context-hub-popover" class="context-hub-popover" hidden role="dialog" aria-modal="false" aria-label="Métricas de Contexto y Tokens">
                 <div class="context-popover-header">
                   <div class="context-popover-title">
                     <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg>
@@ -453,7 +453,7 @@
                 <div class="context-popover-section">
                   <div class="context-section-title" data-i18n="context_section_global">Ventana de Contexto Global</div>
                   <div class="context-progress-bar-container">
-                    <div id="context-progress-bar" class="context-progress-bar" style="width: 0%;"></div>
+                    <div id="context-progress-bar" class="context-progress-bar"></div>
                   </div>
                   <div class="context-metrics-grid">
                     <div class="context-metric-item">
@@ -523,7 +523,7 @@
               </div>
             </div>
 
-            <button type="button" id="btn-stop-stream" class="btn-stop-stream" style="display: none;" data-i18n-title="btn_stop_title" data-i18n-aria="btn_stop_title" title="Detener respuesta" aria-label="Detener respuesta">
+            <button type="button" id="btn-stop-stream" class="btn-stop-stream" hidden data-i18n-title="btn_stop_title" data-i18n-aria="btn_stop_title" title="Detener respuesta" aria-label="Detener respuesta">
               <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-stop"></use></svg>
             </button>
 
@@ -537,7 +537,7 @@
   </main>
 
   <!-- Panel Lateral Derecho: Log & Debug / Razonamiento -->
-  <aside id="debug-panel" class="debug-panel" style="display: none;" aria-labelledby="debug-panel-title" aria-hidden="true">
+  <aside id="debug-panel" class="debug-panel" hidden aria-labelledby="debug-panel-title">
     <div class="debug-panel-header">
       <div class="debug-title">
         <span class="debug-badge-icon">

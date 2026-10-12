@@ -64,7 +64,7 @@ test('GenerationController - responde, guarda el historial y deja la generación
   await send('Hola');
   assert.deepEqual(State.get('messages').slice(1).map(message => message.role), ['user', 'assistant']);
   assert.match(lastAssistant().querySelector('.message-content').innerHTML, /ok/);
-  assert.equal(lastAssistant().querySelector('.message-actions').style.display, 'inline-flex');
+  assert.equal(lastAssistant().querySelector('.message-actions').hidden, false);
   assert.equal(calls.saved, 1);
   assert.equal(GenerationController.isGenerating(), false);
   assert.equal(elements.userInput.value, '');
@@ -96,7 +96,7 @@ test('GenerationController - un error del proveedor se muestra escapado en la ta
   const content = lastAssistant().querySelector('.message-content');
   assert.ok(content.querySelector('.message-error-card'));
   assert.equal(content.querySelector('img'), null);
-  assert.equal(lastAssistant().querySelector('.message-actions').style.display, 'inline-flex');
+  assert.equal(lastAssistant().querySelector('.message-actions').hidden, false);
   assert.equal(GenerationController.isGenerating(), false);
 });
 

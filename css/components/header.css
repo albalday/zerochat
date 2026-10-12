@@ -6,13 +6,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--header-height, 3.5rem);
-  min-height: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top, 0px));
+  height: var(--header-height);
+  min-height: calc(var(--header-height) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) max(0px, env(safe-area-inset-right, 0px)) 0 max(0px, env(safe-area-inset-left, 0px));
   border-bottom: none;
   background-color: var(--bg-app);
   position: relative;
-  z-index: var(--z-header, 100);
+  z-index: var(--z-header);
   flex-shrink: 0;
   user-select: none;
 }

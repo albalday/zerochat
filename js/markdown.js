@@ -133,7 +133,7 @@
 
     for (let i = 0; i < numCols; i++) {
       const cellText = headerCells[i] !== undefined ? headerCells[i] : '';
-      const align = aligns[i] ? ` style="text-align: ${aligns[i]};"` : '';
+      const align = aligns[i] ? ` class="align-${aligns[i]}"` : '';
       html += `<th${align}>${parseInlineMarkdown(cellText)}</th>`;
     }
 
@@ -146,7 +146,7 @@
         html += '<tr>';
         for (let i = 0; i < numCols; i++) {
           const cellText = cells[i] !== undefined ? cells[i] : '';
-          const align = aligns[i] ? ` style="text-align: ${aligns[i]};"` : '';
+          const align = aligns[i] ? ` class="align-${aligns[i]}"` : '';
           html += `<td${align}>${parseInlineMarkdown(cellText)}</td>`;
         }
         html += '</tr>';

@@ -29,10 +29,10 @@ test('ChatDebug - acumula el razonamiento en un bloque y oculta lo crudo fuera d
   assert.equal(network.querySelector('.debug-msg').textContent, 'POST <url>', 'Los mensajes se muestran como texto');
   assert.match(network.querySelector('.debug-time').textContent, /^\[\d{1,2}:\d{2}:\d{2}\]$/);
   assert.ok(raw.classList.contains('raw-outgoing'));
-  assert.equal(raw.style.display, 'none');
+  assert.equal(raw.hidden, true);
 
   ChatDebug.filterLogs('raw');
-  assert.deepEqual(entries(elements).map(entry => entry.style.display), ['none', 'none', 'none', 'flex']);
+  assert.deepEqual(entries(elements).map(entry => entry.hidden), [true, true, true, false]);
   ChatDebug.setRawLogsEnabled(false);
   ChatDebug.addLog('raw', 'ignorado');
   ChatDebug.setRawLogsEnabled(true);
@@ -42,10 +42,10 @@ test('ChatDebug - acumula el razonamiento en un bloque y oculta lo crudo fuera d
 test('ChatDebug - el panel, el estado y el interceptor de mensajes', async t => {
   const elements = setup(t);
   ChatDebug.togglePanel(true);
-  assert.equal(elements.debugPanel.style.display, 'flex');
+  assert.equal(elements.debugPanel.hidden, false);
   assert.equal(elements.btnToggleDebug.getAttribute('aria-expanded'), 'true');
   ChatDebug.togglePanel();
-  assert.equal(elements.debugPanel.style.display, 'none');
+  assert.equal(elements.debugPanel.hidden, true);
 
   ChatDebug.setStatus('streaming');
   assert.equal(elements.debugStatusIndicator.textContent, I18n.t('debug_status_streaming'));
@@ -59,7 +59,7 @@ test('ChatDebug - el panel, el estado y el interceptor de mensajes', async t => 
   assert.equal(elements.debugModalEndpointBadge.textContent, 'POST http://x/v1');
   elements.txtDebugPayload.value = '{ roto';
   elements.btnDebugSend.click();
-  assert.equal(elements.debugJsonError.style.display, 'block', 'Un JSON inválido no se envía');
+  assert.equal(elements.debugJsonError.hidden, false, 'Un JSON inválido no se envía');
   elements.txtDebugPayload.value = '{"a":2}';
   elements.btnDebugSendDisable.click();
   assert.deepEqual(await pending, { cancel: false, modifiedPayload: { a: 2 } });

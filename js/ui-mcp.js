@@ -113,7 +113,6 @@
   }
 
   function renderToolsList(container, tools, enabledTools) {
-    container.style.display = 'block';
     if (tools.length === 0) {
       const msg = getState().get('mcp').status === 'connected' ? t('mcp_tools_empty_connected') : t('mcp_tools_empty_disconnected');
       container.innerHTML = `<div class="mcp-tools-empty">${Icons.get('plug', { size: 24 })}<p>${escapeHtml(msg)}</p></div>`;
@@ -413,7 +412,7 @@
     elements.statusText.setAttribute('data-i18n', `mcp_status_${status}`);
     elements.statusText.textContent = t(`mcp_status_${status}`);
 
-    elements.serverDetails.style.display = isConnected ? 'inline-flex' : 'none';
+    elements.serverDetails.hidden = !isConnected;
     clearElement(elements.serverDetails);
     if (isConnected) {
       const version = state.serverInfo?.version ? ` v${state.serverInfo.version}` : '';
@@ -423,8 +422,8 @@
       appendTextElement(elements.serverDetails, 'span', count > 0 ? t('mcp_tools_discovered', { count }) : t('mcp_no_tools'), { className: 'mcp-detail-item' });
     }
 
-    elements.bootstrapCard.style.display = isConnected ? 'none' : 'block';
-    elements.reconnectHint.style.display = status === 'disconnected' ? 'block' : 'none';
+    elements.bootstrapCard.hidden = isConnected;
+    elements.reconnectHint.hidden = status !== 'disconnected';
     elements.reconnectHint.setAttribute('data-i18n', 'mcp_reconnect_after_restart');
     elements.reconnectHint.textContent = t('mcp_reconnect_after_restart');
     elements.commandSnippet.textContent = generateTerminalCommand();
@@ -441,10 +440,10 @@
 
     if (tools.length === 0 && servers.length === 0) {
       container.innerHTML = `<div class="mcp-no-auths-msg label-hint">${escapeHtml(t('mcp_security_no_saved_auths'))}</div>`;
-      btnClear.style.display = 'none';
+      btnClear.hidden = true;
       return;
     }
-    btnClear.style.display = 'inline-flex';
+    btnClear.hidden = false;
 
     const trashIcon = Icons.get('trash', { size: 12 });
     const revokeLabel = escapeHtml(t('mcp_security_btn_revoke'));

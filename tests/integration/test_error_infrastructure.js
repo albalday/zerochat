@@ -51,11 +51,11 @@ test('Error Infrastructure - ChatDebug soporta tipo warning y filtrado', t => {
   assert.ok(entry.classList.contains('debug-entry-warning'));
 
   ChatDebug.filterLogs('network');
-  assert.equal(entry.style.display, 'flex', 'El filtro de red incluye los avisos');
+  assert.equal(entry.hidden, false, 'El filtro de red incluye los avisos');
   ChatDebug.filterLogs('thinking');
-  assert.equal(entry.style.display, 'none');
+  assert.equal(entry.hidden, true);
   ChatDebug.filterLogs('all');
-  assert.equal(entry.style.display, 'flex');
+  assert.equal(entry.hidden, false);
 });
 
 test('Error Infrastructure - buildRagSystemContext degrada a texto vacío ante fallo sin lanzar', async () => {

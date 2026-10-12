@@ -95,7 +95,7 @@
     });
 
     return `
-      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg" style="width:100%; height:auto; max-height:360px;">
+      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg">
         ${gridLines}
         ${bars}
         ${xLabels}
@@ -173,7 +173,7 @@
     });
 
     return `
-      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg" style="width:100%; height:auto; max-height:360px;">
+      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg">
         ${gridLines}
         ${paths}
         ${dots}
@@ -247,7 +247,7 @@
     });
 
     return `
-      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg" style="width:100%; height:auto; max-height:320px;">
+      <svg viewBox="0 0 ${width} ${height}" class="chat-chart-svg chat-chart-svg-pie">
         <g class="pie-slices">${slices}</g>
         <g class="pie-legend">${legendItems}</g>
       </svg>

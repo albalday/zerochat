@@ -55,15 +55,15 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
   assert.equal(elements.statusBadge.className, 'mcp-status-badge mcp-status-disconnected');
   assert.equal(elements.statusText.textContent, 'Desconectado');
   assert.equal(elements.statusText.getAttribute('data-i18n'), 'mcp_status_disconnected');
-  assert.equal(elements.serverDetails.style.display, 'none');
-  assert.equal(elements.bootstrapCard.style.display, 'block');
-  assert.equal(elements.reconnectHint.style.display, 'block');
+  assert.equal(elements.serverDetails.hidden, true);
+  assert.equal(elements.bootstrapCard.hidden, false);
+  assert.equal(elements.reconnectHint.hidden, false);
   assert.equal(elements.reconnectHint.textContent, 'Si el servidor se ha reiniciado, recarga esta página (F5) para volver a conectar.');
   assert.equal(elements.commandSnippet.textContent, ChatUIMcp.generateTerminalCommand());
 
   ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'connecting' });
   assert.equal(elements.statusText.textContent, 'Conectando...');
-  assert.equal(elements.reconnectHint.style.display, 'none');
+  assert.equal(elements.reconnectHint.hidden, true);
 
   ChatUIMcp.renderConnectionStatus(elements, {
     ...ChatState.get('mcp'),
@@ -73,15 +73,15 @@ test('ChatUIMcp - renderConnectionStatus actualiza badge, guía de arranque y de
     tools: [{ id: 't1', name: 't1', metadata: {} }, { id: 't2', name: 't2', metadata: {} }]
   });
   assert.equal(elements.statusText.textContent, 'Conectado');
-  assert.equal(elements.serverDetails.style.display, 'inline-flex');
-  assert.equal(elements.bootstrapCard.style.display, 'none');
+  assert.equal(elements.serverDetails.hidden, false);
+  assert.equal(elements.bootstrapCard.hidden, true);
   assert.ok(elements.serverDetails.title.includes('zerochat v0.4.0'));
   assert.ok(elements.serverDetails.title.includes('15ms'));
   assert.ok(elements.serverDetails.textContent.includes('2 herramientas'));
 
   ChatUIMcp.renderConnectionStatus(elements, { ...ChatState.get('mcp'), status: 'error', error: 'Conexión rechazada' });
   assert.equal(elements.statusText.textContent, 'Error de conexión');
-  assert.equal(elements.bootstrapCard.style.display, 'block');
+  assert.equal(elements.bootstrapCard.hidden, false);
 });
 
 test('ChatUIMcp - incorpora herramientas externas al listado MCP', () => {
@@ -111,7 +111,6 @@ test('ChatUIMcp - initMcpUI publica el comando de arranque y sigue los cambios d
 test('ChatUIMcp - renderToolsList renderiza estado vacío cuando está desconectado', t => {
   const { toolsContainer } = setup(t, { status: 'disconnected' });
   ChatUIMcp.renderToolsList(toolsContainer, [], {});
-  assert.equal(toolsContainer.style.display, 'block');
   assert.ok(toolsContainer.querySelector('.mcp-tools-empty'));
   assert.match(toolsContainer.textContent, /ejecute localmente/);
 });

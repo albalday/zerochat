@@ -31,8 +31,8 @@
   function openSidebar(elements) {
     elements.chatSidebar.classList.remove('sidebar-hidden');
     elements.chatSidebar.classList.add('sidebar-visible');
-    elements.chatSidebar.style.display = 'flex';
-    elements.btnToggleSidebar.style.display = 'none';
+    elements.chatSidebar.hidden = false;
+    elements.btnToggleSidebar.hidden = true;
     if (!isMobile()) return;
     elements.chatContainer.setAttribute('inert', '');
     elements.sidebarBackdrop.classList.add('visible');
@@ -44,8 +44,8 @@
   function closeSidebar(elements) {
     elements.chatSidebar.classList.add('sidebar-hidden');
     elements.chatSidebar.classList.remove('sidebar-visible');
-    elements.chatSidebar.style.display = 'none';
-    elements.btnToggleSidebar.style.display = 'inline-flex';
+    elements.chatSidebar.hidden = true;
+    elements.btnToggleSidebar.hidden = false;
     elements.chatContainer.removeAttribute('inert');
     elements.sidebarBackdrop.classList.remove('visible');
   }
@@ -59,9 +59,7 @@
   function setSidebarMode(elements, mode = 'chat') {
     const settings = mode === 'settings';
     elements.sidebarViewChat.hidden = settings;
-    elements.sidebarViewChat.style.display = settings ? 'none' : 'flex';
     elements.sidebarViewSettings.hidden = !settings;
-    elements.sidebarViewSettings.style.display = settings ? 'flex' : 'none';
     elements.chatSidebar.classList.toggle('mode-settings', settings);
     if (!settings) setActiveSettingsSection(elements, '');
   }

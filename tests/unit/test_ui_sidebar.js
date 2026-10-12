@@ -90,7 +90,7 @@ test('UISidebar - abrir y cerrar la barra en móvil deja el chat inerte detrás 
   assert.ok(elements.chatSidebar.classList.contains('sidebar-visible'));
   assert.ok(elements.chatContainer.hasAttribute('inert'));
   assert.ok(elements.sidebarBackdrop.classList.contains('visible'));
-  assert.equal(elements.btnToggleSidebar.style.display, 'none');
+  assert.equal(elements.btnToggleSidebar.hidden, true);
 
   elements.sidebarBackdrop.click();
   assert.ok(elements.chatSidebar.classList.contains('sidebar-hidden'));

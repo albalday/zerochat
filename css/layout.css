@@ -42,7 +42,7 @@
   margin: auto auto;
   text-align: center;
   padding: 3rem 1.5rem;
-  max-width: var(--max-content-width, 68rem);
+  max-width: var(--max-content-width);
   width: 100%;
   align-self: center;
   animation: fadeIn 0.3s ease-out;

@@ -1,6 +1,20 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const UITelemetry = require('../../js/ui-telemetry.js');
+const ContextManager = require('../../js/context-manager.js');
+const I18n = require('../../js/i18n.js');
+const { installDom, getAppElements } = require('../helpers/dom-env.js');
+
+/** Sustituye los diagnósticos de ChatContextManager por unos fijos. */
+function useDiagnostics(t, diagnostics) {
+  t.mock.method(ContextManager, 'getContextDiagnostics', (history, options) => ({ ...diagnostics, options }));
+}
+
+function setupDom(t) {
+  const dom = installDom({ app: true });
+  t.after(() => dom.restore());
+  return getAppElements(document);
+}
 
 test('UITelemetry - formatea y parsea recuentos de tokens y capacidades de contexto', () => {
   assert.equal(UITelemetry.formatTokenCount(0), '0');
@@ -44,19 +58,8 @@ test('UITelemetry - getContextHealthStatus evalúa umbrales de advertencia y cr�
   assert.equal(UITelemetry.getContextHealthStatus(100), 'critical');
 });
 
-test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y de contexto', () => {
-  const fakeContextManager = {
-    getContextDiagnostics: (history, opts) => ({
-      model: opts.model,
-      providerType: opts.providerType,
-      totalLimit: 128000,
-      usedTokens: opts.usedTokens || 32000,
-      remainingTokens: 96000,
-      percentUsed: 25.0,
-      isEstimated: false
-    }),
-    getModelContextLimit: () => 128000
-  };
+test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y de contexto', t => {
+  useDiagnostics(t, { totalLimit: 128000, usedTokens: 32000, percentUsed: 25.0, isEstimated: false });
 
   const stats = {
     promptTokens: 32000,
@@ -70,8 +73,7 @@ test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y 
   const vm = UITelemetry.computeTelemetryViewModel({
     stats,
     config: { model: 'gpt-4o', apiType: 'openai', modelContextLimit: 128000 },
-    chatHistory: [{ role: 'user', content: 'test' }],
-    contextManager: fakeContextManager
+    chatHistory: [{ role: 'user', content: 'test' }]
   });
 
   assert.equal(vm.usedTokens, 32000);
@@ -82,34 +84,22 @@ test('UITelemetry - computeTelemetryViewModel sintetiza métricas de servidor y 
   assert.equal(vm.cachedTokens, 16000);
   assert.equal(vm.cachedFormatted, '16k');
   assert.equal(vm.cacheCreationTokens, 4000);
-  assert.equal(vm.cacheCreationFormatted, '4k');
   assert.equal(vm.turnPrompt, 32000);
   assert.equal(vm.turnCompletion, 800);
   assert.equal(vm.turnSpeed, '74.2');
   assert.equal(vm.turnLatency, '0.45');
   assert.equal(vm.badgeText, '32k / 128k');
   assert.equal(vm.contextLimitSource, 'server');
+  assert.equal(ContextManager.getContextDiagnostics.mock.calls[0].arguments[1].usedTokens, 32000, 'Usa los tokens de prompt del servidor');
 });
 
-test('UITelemetry - computeTelemetryViewModel maneja estimación cuando no hay tokens de servidor', () => {
-  const fakeContextManager = {
-    getContextDiagnostics: (history, opts) => ({
-      model: opts.model,
-      providerType: opts.providerType,
-      totalLimit: 200000,
-      usedTokens: 1500,
-      remainingTokens: 198500,
-      percentUsed: 0.8,
-      isEstimated: true
-    }),
-    getModelContextLimit: () => 200000
-  };
+test('UITelemetry - computeTelemetryViewModel maneja estimación cuando no hay tokens de servidor', t => {
+  useDiagnostics(t, { totalLimit: 200000, usedTokens: 1500, percentUsed: 0.8, isEstimated: true });
 
   const vm = UITelemetry.computeTelemetryViewModel({
     stats: null,
     config: { model: 'claude-3-5-sonnet', apiType: 'claude', contextLimitOverride: 200000 },
-    chatHistory: [{ role: 'user', content: 'Hola' }],
-    contextManager: fakeContextManager
+    chatHistory: [{ role: 'user', content: 'Hola' }]
   });
 
   assert.equal(vm.isEstimated, true);
@@ -119,153 +109,68 @@ test('UITelemetry - computeTelemetryViewModel maneja estimación cuando no hay t
   assert.equal(vm.cachedFormatted, '0');
 });
 
-test('UITelemetry - marca como asumida la capacidad cuando no la publica el servidor', () => {
-  const fakeContextManager = {
-    getContextDiagnostics: () => ({ totalLimit: 1000000, usedTokens: 1200, percentUsed: 0.1, isEstimated: true }),
-    getModelContextLimit: () => 1000000
-  };
+test('UITelemetry - marca como asumida la capacidad cuando no la publica el servidor', t => {
+  useDiagnostics(t, { totalLimit: 1000000, usedTokens: 1200, percentUsed: 0.1, isEstimated: true });
 
   const vm = UITelemetry.computeTelemetryViewModel({
     config: { model: 'unknown-model', apiType: 'openai' },
-    chatHistory: [],
-    contextManager: fakeContextManager
+    chatHistory: []
   });
 
   assert.equal(vm.contextLimitSource, 'assumed');
   assert.equal(vm.badgeText, '~1.2k / 1M*');
 });
 
-test('UITelemetry - updateBadge actualiza clases de semáforo, texto y pill de caché', () => {
-  function makeMockElement(initial = {}) {
-    const classes = new Set();
-    return {
-      textContent: '',
-      style: {},
-      attributes: {},
-      classList: {
-        add: (...cls) => cls.forEach(c => classes.add(c)),
-        remove: (...cls) => cls.forEach(c => classes.delete(c)),
-        contains: (cls) => classes.has(cls)
-      },
-      setAttribute: function (k, v) { this.attributes[k] = v; },
-      ...initial
-    };
-  }
+test('UITelemetry - el botón muestra el uso, el semáforo y la píldora de caché', t => {
+  const elements = setupDom(t);
+  const vm = { badgeText: '90k / 128k', healthStatus: 'warning', cachedTokens: 2500, cachedFormatted: '2.5k' };
+  UITelemetry.renderTelemetry(elements, vm);
+  assert.equal(elements.connectionTokensText.textContent, '90k / 128k');
+  assert.ok(elements.connectionTokensBadge.classList.contains('status-warning'));
+  assert.equal(elements.connectionTokensBadge.hidden, false);
+  assert.equal(elements.connectionTokensBadge.title, I18n.t('context_hub_btn_title'));
+  assert.equal(elements.contextHubCachePill.hidden, false);
+  assert.equal(elements.contextHubCacheVal.textContent, '2.5k');
 
-  const badgeEl = makeMockElement();
-  const textEl = makeMockElement();
-  const cachePillEl = makeMockElement({ style: { display: 'none' } });
-  const cacheValEl = makeMockElement();
-
-  const elements = {
-    connectionTokensBadge: badgeEl,
-    connectionTokensText: textEl,
-    contextHubCachePill: cachePillEl,
-    contextHubCacheVal: cacheValEl
-  };
-
-  const vmWarning = {
-    badgeText: '90k / 128k',
-    healthStatus: 'warning',
-    cachedTokens: 2500,
-    cachedFormatted: '2.5k',
-    usedTokens: 90000,
-    totalLimit: 128000,
-    percentUsed: 70.3
-  };
-
-  UITelemetry.updateBadge(elements, vmWarning, (k) => k);
-
-  assert.equal(textEl.textContent, '90k / 128k');
-  assert.ok(badgeEl.classList.contains('status-warning'));
-  assert.ok(!badgeEl.classList.contains('status-critical'));
-  assert.equal(cachePillEl.style.display, 'inline-flex');
-  assert.equal(cacheValEl.textContent, '2.5k');
-  assert.equal(badgeEl.style.display, 'inline-flex');
-
-  // Caso Crítico sin caché
-  const vmCritical = {
-    badgeText: '120k / 128k',
-    healthStatus: 'critical',
-    cachedTokens: 0,
-    cachedFormatted: '0',
-    usedTokens: 120000,
-    totalLimit: 128000,
-    percentUsed: 93.8
-  };
-
-  UITelemetry.updateBadge(elements, vmCritical, (k) => k);
-
-  assert.equal(textEl.textContent, '120k / 128k');
-  assert.ok(!badgeEl.classList.contains('status-warning'));
-  assert.ok(badgeEl.classList.contains('status-critical'));
-  assert.equal(cachePillEl.style.display, 'none');
+  UITelemetry.renderTelemetry(elements, { ...vm, badgeText: '120k / 128k', healthStatus: 'critical', cachedTokens: 0, cachedFormatted: '0' });
+  assert.ok(!elements.connectionTokensBadge.classList.contains('status-warning'));
+  assert.ok(elements.connectionTokensBadge.classList.contains('status-critical'));
+  assert.equal(elements.contextHubCachePill.hidden, true);
 });
 
-test('UITelemetry - renderTelemetry respeta lazy rendering del Popover', () => {
-  const elements = {
-    connectionTokensBadge: {
-      classList: { remove: () => {}, add: () => {} },
-      setAttribute: () => {},
-      style: {}
-    },
-    connectionTokensText: { textContent: '' },
-    contextHubPopover: { style: { display: 'none' } },
-    contextProgressBar: { style: {}, classList: { remove: () => {}, add: () => {} } },
-    contextMetricUsedVal: { textContent: '' }
-  };
+test('UITelemetry - el panel solo se rellena abierto y el botón lo abre y cierra', t => {
+  const elements = setupDom(t);
+  useDiagnostics(t, { totalLimit: 128000, usedTokens: 10000, percentUsed: 7.8, isEstimated: false });
+  const vm = UITelemetry.computeTelemetryViewModel({ stats: { promptTokens: 10000 }, config: { model: 'm', modelContextLimit: 128000 }, chatHistory: [] });
+  let opened = 0;
+  UITelemetry.mount(elements, () => { opened++; UITelemetry.renderTelemetry(elements, vm, { forcePopover: true }); });
 
-  const vm = {
-    badgeText: '10k / 128k',
-    healthStatus: 'ok',
-    percentUsed: 7.8,
-    usedTokens: 10000,
-    totalLimit: 128000,
-    remainingTokens: 118000,
-    cachedTokens: 0,
-    cacheCreationTokens: 0
-  };
-
-  // Popover cerrado -> no escribe en contextMetricUsedVal
+  const initialUsed = elements.contextMetricUsedVal.textContent;
   UITelemetry.renderTelemetry(elements, vm);
-  assert.equal(elements.contextMetricUsedVal.textContent, '', 'No debe actualizar el popover si está oculto');
+  assert.equal(elements.contextMetricUsedVal.textContent, initialUsed, 'No actualiza el panel oculto');
 
-  // Popover abierto -> sí escribe en contextMetricUsedVal
-  elements.contextHubPopover.style.display = 'flex';
-  UITelemetry.renderTelemetry(elements, vm);
-  assert.ok(elements.contextMetricUsedVal.textContent.includes('tok'));
-  assert.ok(elements.contextMetricUsedVal.textContent.includes('10'));
+  elements.connectionTokensBadge.click();
+  assert.equal(elements.contextHubPopover.hidden, false);
+  assert.equal(elements.connectionTokensBadge.getAttribute('aria-expanded'), 'true');
+  assert.equal(opened, 1);
+  assert.equal(elements.contextMetricUsedVal.textContent, `${(10000).toLocaleString()} tok`);
+  assert.equal(elements.contextProgressBar.style.width, '7.8%');
+  assert.equal(elements.contextLimitOverrideInput.disabled, true, 'La capacidad del servidor no se edita');
+  assert.equal(elements.contextMetricStatusVal.textContent, I18n.t('context_status_ok'));
+
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+  assert.equal(elements.contextHubPopover.hidden, true);
+  elements.connectionTokensBadge.click();
+  document.body.click();
+  assert.equal(elements.contextHubPopover.hidden, true, 'Un clic fuera lo cierra');
 });
 
-test('UITelemetry - resetTelemetry restaura a estado neutro limpio para nueva sesión', () => {
-  const elements = {
-    connectionTokensBadge: {
-      classList: { remove: () => {}, add: () => {} },
-      setAttribute: () => {},
-      style: {}
-    },
-    connectionTokensText: { textContent: '' },
-    contextHubCachePill: { style: {} },
-    contextHubPopover: { style: { display: 'none' } },
-    contextProgressBar: { style: {}, classList: { remove: () => {}, add: () => {} } },
-    contextMetricUsedVal: { textContent: '' },
-    contextMetricLimitVal: { textContent: '' }
-  };
-
-  const fakeContextManager = {
-    getContextDiagnostics: () => ({
-      totalLimit: 128000,
-      usedTokens: 0,
-      remainingTokens: 128000,
-      percentUsed: 0,
-      isEstimated: false
-    }),
-    getModelContextLimit: () => 128000
-  };
-
-  UITelemetry.resetTelemetry(elements, { model: 'gpt-4o', modelContextLimit: 128000 }, [], fakeContextManager);
-
+test('UITelemetry - resetTelemetry deja el estado neutro de una conversación nueva', t => {
+  const elements = setupDom(t);
+  useDiagnostics(t, { totalLimit: 128000, usedTokens: 0, percentUsed: 0, isEstimated: false });
+  UITelemetry.resetTelemetry(elements, { model: 'gpt-4o', modelContextLimit: 128000 }, []);
   assert.equal(elements.connectionTokensText.textContent, '0 / 128k');
-  assert.equal(elements.contextHubCachePill.style.display, 'none');
+  assert.equal(elements.contextHubCachePill.hidden, true);
   assert.equal(elements.contextProgressBar.style.width, '0%');
+  assert.equal(elements.contextMetricTurnPromptVal.textContent, '-');
 });

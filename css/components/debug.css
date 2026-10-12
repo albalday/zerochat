@@ -19,7 +19,7 @@
   max-width: 45vw;
   height: 100%;
   height: 100dvh;
-  height: var(--app-height, 100dvh);
+  height: var(--app-height);
   max-height: 100%;
   background: var(--bg-surface);
   color: var(--text-main);
@@ -685,7 +685,7 @@
     bottom: 0;
     height: 100%;
     height: 100dvh;
-    height: var(--app-height, 100dvh);
+    height: var(--app-height);
     width: 92vw;
     max-width: 92vw;
     z-index: 1000;

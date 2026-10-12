@@ -69,8 +69,15 @@
 }
 
 .chat-chart-svg {
+  width: 100%;
+  height: auto;
+  max-height: 360px;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.05));
   transition: all 0.2s ease;
+}
+
+.chat-chart-svg-pie {
+  max-height: 320px;
 }
 
 .chart-bar-group rect {
@@ -360,7 +367,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   padding: 0.25rem 0.65rem;
-  border-radius: var(--radius-full, 9999px);
+  border-radius: var(--radius-full);
   border: 1px solid transparent;
   transition: all 0.2s ease;
 }
@@ -406,7 +413,7 @@
   background-color: var(--bg-surface-subtle);
   border: 1px solid var(--border-color);
   padding: 0.15rem 0.55rem;
-  border-radius: var(--radius-full, 9999px);
+  border-radius: var(--radius-full);
   flex-wrap: wrap;
   white-space: normal;
   max-width: 100%;
@@ -423,7 +430,7 @@
   color: #f8fafc;
   padding: 0.85rem 1rem;
   border-radius: var(--radius-md);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 0.775rem;
   line-height: 1.45;
   overflow-x: auto;
@@ -486,7 +493,7 @@
   color: var(--text-muted);
   background-color: var(--bg-hover);
   padding: 0.15rem 0.5rem;
-  border-radius: var(--radius-full, 9999px);
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
 }
 
@@ -531,7 +538,7 @@
   font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-main);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
 .mcp-tool-badge {
@@ -762,9 +769,6 @@
   box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.18);
 }
 
-.tool-auth-more-menu[hidden] {
-  display: none;
-}
 
 .tool-auth-more-menu .btn-auth-action {
   width: 100%;
@@ -1047,7 +1051,7 @@
 
 .mcp-auth-item-name {
   color: var(--text-main);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 0.75rem;
 }
 
@@ -1129,7 +1133,7 @@
 
 .mcp-auth-constraint-tag {
   font-size: 0.65rem;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   padding: 0.1rem 0.4rem;
   background: var(--bg-surface);
   border: 1px dashed var(--border-color);
@@ -1143,10 +1147,6 @@
 
 .mcp-section-hint {
   margin: 0.5rem 0 0.75rem;
-}
-
-.btn-mcp-clear-auths {
-  display: none;
 }
 
 .mcp-cmd-row {
@@ -1234,7 +1234,7 @@
 .mcp-server-tool-count {
   font-size: 0.7rem;
   color: var(--text-muted);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
 .mcp-server-desc {
@@ -1251,7 +1251,7 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   margin: 0.1rem 0 0;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
 .mcp-server-remote-badge {
@@ -1259,7 +1259,7 @@
   border-radius: 9999px;
   background: rgba(59, 130, 246, 0.12);
   color: #60a5fa;
-  font-family: var(--font-sans, sans-serif);
+  font-family: var(--font-sans);
   font-weight: 600;
   padding: 0.08rem 0.4rem;
 }
@@ -1489,7 +1489,7 @@
 
 .ask-user-hint.ask-user-error {
   display: block;
-  color: var(--error, #ef4444);
+  color: var(--danger);
 }
 
 /* Tarjeta de run_command: estado del proceso, salida reciente, log y botón de detener */
@@ -1546,9 +1546,6 @@
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.btn-command-action[hidden] {
-  display: none;
-}
 
 .btn-command-action:hover {
   background: var(--bg-hover);
@@ -1566,8 +1563,8 @@
 }
 
 .btn-command-stop:hover:not(:disabled) {
-  color: var(--error-color);
-  border-color: var(--error-color);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .tool-card-badge.status-stopped {
@@ -1578,7 +1575,7 @@
 
 /* Aviso al terminar un turno con comandos en segundo plano en marcha */
 .command-jobs-card {
-  max-width: var(--max-content-width, 68rem);
+  max-width: var(--max-content-width);
   margin: 0.75rem auto;
   padding: 0.6rem 0.85rem;
   box-sizing: border-box;
@@ -1722,5 +1719,5 @@ button.command-jobs-link:focus-visible {
 }
 
 .subagent-error {
-  color: var(--error-color);
+  color: var(--danger);
 }

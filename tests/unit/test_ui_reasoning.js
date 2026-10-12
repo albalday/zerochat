@@ -28,7 +28,7 @@ const actions = elements => [...elements.projectModePanel.querySelectorAll('.pro
 test('UIReasoning - el control deslizante elige el nivel y actualiza botón, etiqueta y aguja', t => {
   const { elements, calls } = setup(t);
   UIReasoning.toggleReasoningMenu(elements, { reasoningEffort: 'medium' });
-  assert.equal(elements.reasoningMenu.style.display, 'flex');
+  assert.equal(elements.reasoningMenu.hidden, false);
   assert.equal(elements.reasoningIntensity.value, '2');
 
   elements.reasoningIntensity.value = '3';
@@ -43,7 +43,7 @@ test('UIReasoning - el control deslizante elige el nivel y actualiza botón, eti
   assert.equal(elements.btnReasoning.classList.contains('active'), false, 'Un nivel desconocido cuenta como ninguno');
 
   elements.reasoningMenu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(elements.reasoningMenu.style.display, 'none');
+  assert.equal(elements.reasoningMenu.hidden, true);
   assert.equal(elements.btnReasoning.getAttribute('aria-expanded'), 'false');
 });
 

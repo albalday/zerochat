@@ -7,6 +7,11 @@
   padding: 0;
 }
 
+/* Los elementos se ocultan siempre con el atributo hidden, aunque su clase fije otro display. */
+[hidden] {
+  display: none !important;
+}
+
 img {
   max-width: 100%;
   height: auto;
@@ -15,7 +20,7 @@ img {
 html, body {
   height: 100%;
   height: 100dvh;
-  height: var(--app-height, 100dvh);
+  height: var(--app-height);
   min-height: -webkit-fill-available;
   font-family: var(--font-sans);
   background-color: var(--bg-app);
@@ -30,7 +35,7 @@ body {
   flex-direction: row;
   height: 100%;
   height: 100dvh;
-  height: var(--app-height, 100dvh);
+  height: var(--app-height);
   width: 100%;
   width: 100vw;
   overflow: hidden;

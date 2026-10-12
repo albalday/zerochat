@@ -412,7 +412,7 @@
     }
 
     const status = elements.serverQueryStatus;
-    status.style.display = 'block';
+    status.hidden = false;
     if (!apiUrl) {
       status.className = 'server-query-status status-error';
       status.textContent = t('err_invalid_url');
@@ -566,7 +566,6 @@
     const apiKey = String(source ? source.apiKey : elements.settingApiKey.value).trim();
     const model = String(source ? source.model : elements.settingModel.value).trim();
     const results = elements.inspectorResults;
-    results.style.display = 'block';
 
     if (!apiUrl || !model) {
       results.innerHTML = statusHtml(escapeHtml(t(apiUrl ? 'inspector_err_no_model' : 'err_invalid_url')));

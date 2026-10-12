@@ -52,7 +52,7 @@ test('UIConversation - el error de conexión escapa los datos remotos y conserva
   assert.equal((parts.content.innerHTML.match(/&lt;img/g) || []).length, 2);
   assert.ok(parts.content.querySelector('.message-error-card strong'));
   assert.equal(parts.row.classList.contains('message-error'), true);
-  assert.equal(parts.actions.style.display, 'inline-flex');
+  assert.equal(parts.actions.hidden, false);
 });
 
 test('UIConversation - copiar usa el texto del momento y vuelve al icono original', async t => {
@@ -105,7 +105,7 @@ test('UIConversation - appendUserMessage pinta el mensaje y sus acciones', t => 
   }, { onReuse: text => { reusedText = text; }, onDelete: wrapper => { deleted = wrapper; } });
 
   assert.ok(msgId.startsWith('msg_usr_'));
-  assert.equal(welcomeBanner.style.display, 'none');
+  assert.equal(welcomeBanner.hidden, true);
   const wrapper = messagesList.querySelector(`[data-msg-id="${msgId}"]`);
   assert.ok(wrapper.classList.contains('user'));
   assert.equal(wrapper.querySelector('.message-content').textContent, 'Hola mundo');
@@ -125,7 +125,7 @@ test('UIConversation - createAssistantMessagePlaceholder crea la estructura y la
   assert.equal(result.wrapper.getAttribute('data-msg-id'), 'test_ast_1');
   assert.equal(result.wrapper.getAttribute('data-base-id'), 'test_ast_1');
   assert.ok(result.content.querySelector('.initial-cursor'));
-  assert.equal(result.actions.style.display, 'none');
+  assert.equal(result.actions.hidden, true);
   assert.equal(result.statsContainer.parentNode, result.footerRow);
   result.wrapper.querySelector('.btn-branch-conversation').click();
   assert.equal(branched, result.wrapper);
@@ -158,7 +158,7 @@ test('UIConversation - removeMessage borra el turno, lo quita del DOM y muestra 
   assert.equal(wrapper.isConnected, false);
   assert.equal(saved, true);
   assert.equal(welcomeBanner.parentNode, messagesList);
-  assert.equal(welcomeBanner.style.display, '');
+  assert.equal(welcomeBanner.hidden, false);
 });
 
 test('UIConversation - las imágenes adjuntas se sanean y solo las válidas generan IMG', t => {
@@ -265,7 +265,7 @@ test('UIConversation - renderSessionMessages pinta el resumen plegado como Markd
   assert.ok(banner.querySelector('summary.branch-summary-header'));
   assert.match(banner.innerHTML, /<strong>previo<\/strong>/);
   assert.equal(banner.querySelector('img'), null);
-  assert.equal(elements.welcomeBanner.style.display, 'none');
+  assert.equal(elements.welcomeBanner.hidden, true);
   const assistant = elements.messagesList.querySelector('.message-wrapper.assistant');
   assert.equal(assistant.getAttribute('data-base-id'), 'a1');
   assert.equal(assistant.getAttribute('data-msg-ids'), 'a1_turn_0_assistant');

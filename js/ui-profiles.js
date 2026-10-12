@@ -259,8 +259,8 @@
     const transferId = hashParams.get('transferId') || '';
     const validTransfer = /^[A-Za-z0-9_-]{16,128}$/.test(transferId);
 
-    elements.messagesList.style.display = 'none';
-    elements.chatForm.style.display = 'none';
+    elements.messagesList.hidden = true;
+    elements.chatForm.hidden = true;
     const banner = document.createElement('div');
     banner.className = 'import-waiting-banner';
     banner.innerHTML = `<div class="import-waiting-content">${Icons.get('download', { size: 64 })}
@@ -378,8 +378,8 @@
   }
 
   function hideEditorStatus() {
-    els.serverQueryStatus.style.display = 'none';
-    els.profileActionFeedback.style.display = 'none';
+    els.serverQueryStatus.hidden = true;
+    els.profileActionFeedback.hidden = true;
   }
 
   function resetProfileFormToSelected() {

@@ -69,7 +69,7 @@
   }
 
   function updateStatsDisplay(statsContainer, stats) {
-    statsContainer.style.display = 'inline-flex';
+    statsContainer.hidden = false;
     const clockSvg = Icons.get('clock', { size: 11 });
     const cacheHtml = stats.cachedTokens > 0
       ? `<span class="stat-sep stat-sep-4">•</span><span class="stat-item stat-item-cache" title="${t('stat_cache_title')}">${Icons.get('database', { size: 11 })} <span>${t('stat_cache_tokens', { tokens: stats.cachedTokens })}</span></span>`
@@ -225,7 +225,7 @@
         updateStatsDisplay(statsContainer, loopResult.stats);
         options.updateConnectionTokensBadge(loopResult.stats, loopResult.contextDiagnostics, { forcePopover: true });
       }
-      actions.style.display = 'inline-flex';
+      actions.hidden = false;
       UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');
     } catch (err) {
       console.error('[GenerationController] Agent inference failed:', err);

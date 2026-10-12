@@ -50,7 +50,7 @@
           ${hintHtml ? `<p class="message-error-card-hint">${hintHtml}</p>` : ''}
         </div>
       </div>`;
-    actions.style.display = 'inline-flex';
+    actions.hidden = false;
   }
 
   function renderConnectionError(parts, message, url) {
@@ -172,7 +172,7 @@
     getDebug().addLog('system', t('msg_deleted_log', { id: msgId || baseId, count: result.removedCount }));
     if (!messagesList.querySelector('.message-wrapper')) {
       messagesList.appendChild(welcomeBanner);
-      welcomeBanner.style.display = '';
+      welcomeBanner.hidden = false;
     }
     saveSession();
   }
@@ -230,7 +230,7 @@
   }
 
   function appendUserMessage(container, welcomeBanner, { text = '', originalPrompt = text, attachedImages = [], existingMsgId }, { onReuse, onDelete }) {
-    welcomeBanner.style.display = 'none';
+    welcomeBanner.hidden = true;
     const msgId = existingMsgId || createId('msg_usr');
     const { doc, wrapper, content, actions } = createMessageSkeleton(container, 'user', msgId);
     content.textContent = text;
@@ -254,11 +254,11 @@
     const { doc, wrapper, row, content, footerRow, actions } = createMessageSkeleton(container, 'assistant', existingMsgId ? rawId : baseId);
     wrapper.setAttribute('data-base-id', baseId);
     content.innerHTML = '<span class="streaming-cursor initial-cursor"></span>';
-    actions.style.display = 'none';
+    actions.hidden = true;
 
     const statsContainer = doc.createElement('div');
     statsContainer.className = 'message-stats';
-    statsContainer.style.display = 'none';
+    statsContainer.hidden = true;
     footerRow.prepend(statsContainer);
 
     const btnBranch = createActionButton(doc, { className: 'btn-branch-conversation', icon: 'git-branch', titleKey: 'btn_branch_title', onClick: () => onBranch(wrapper) });
@@ -342,7 +342,7 @@
     }
     const fullAssistantMarkdown = markdownParts.join('\n\n');
     bindMessageCopy(btnCopy, () => fullAssistantMarkdown || content.innerText);
-    actions.style.display = 'inline-flex';
+    actions.hidden = false;
     getMarkdown().attachContentListeners(content);
   }
 
@@ -356,11 +356,11 @@
     const messages = history.filter(message => message.role !== 'system');
     if (messages.length === 0 && !summaryBlock) {
       messagesList.appendChild(welcomeBanner);
-      welcomeBanner.style.display = '';
+      welcomeBanner.hidden = false;
       callbacks.resetTelemetry();
       return;
     }
-    welcomeBanner.style.display = 'none';
+    welcomeBanner.hidden = true;
 
     let i = 0;
     while (i < messages.length) {

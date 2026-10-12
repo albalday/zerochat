@@ -585,7 +585,7 @@ test('Browser UI - configuración MCP, perfiles y secciones permanecen operativa
       const runtime = window.ChatConfig?.getActive?.();
       return {
         isOpen: dialog.open,
-        feedbackVisible: feedback && feedback.style.display !== 'none',
+        feedbackVisible: feedback && !feedback.hidden,
         savedUrl: profile?.settings?.apiUrl,
         runtimeUrl: runtime?.apiUrl
       };

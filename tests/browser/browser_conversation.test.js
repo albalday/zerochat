@@ -596,7 +596,7 @@ test('Browser UI - Bifurcar con resumen muestra indicador de carga visual en el 
     await page.evaluate(() => {
       const messagesList = document.getElementById('messages-list');
       const placeholder = window.ChatUIConversation.createAssistantMessagePlaceholder(messagesList, 'test_msg_branch_load', { onBranch() {}, onDelete() {} });
-      placeholder.actions.style.display = 'inline-flex';
+      placeholder.actions.hidden = false;
       window.ChatUIConversation.showBranchLoadingIndicator(placeholder.wrapper, 'Resumiendo contexto previo...');
     });
 
@@ -867,7 +867,7 @@ test('Browser UI - inicializar el modo proyecto envía el prompt de arranque com
     await page.waitForFunction(() => window.ChatState.get('messages').some(message => message.role === 'user'));
     const state = await page.evaluate(() => ({
       sent: window.ChatState.get('messages').filter(message => message.role === 'user').pop().content,
-      menuOpen: document.getElementById('reasoning-menu').style.display === 'flex'
+      menuOpen: !document.getElementById('reasoning-menu').hidden
     }));
     assert.equal(state.sent, 'Initialize project mode for /tmp/demo');
     assert.equal(state.menuOpen, false, 'El menú de razonamiento se cierra al enviar');

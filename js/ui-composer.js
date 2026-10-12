@@ -84,7 +84,7 @@
 
   function syncGenerationControls(elements, isGenerating) {
     elements.btnSend.disabled = isGenerating;
-    elements.btnStopStream.style.display = isGenerating ? 'inline-flex' : 'none';
+    elements.btnStopStream.hidden = !isGenerating;
     if (!isGenerating) getGenerationStatus().clearStatus(elements.generationStatus);
   }
 

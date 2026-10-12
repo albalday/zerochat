@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: var(--max-content-width, 68rem);
+  max-width: var(--max-content-width);
   margin-left: auto;
   margin-right: auto;
   padding: 0 0.5rem;
@@ -76,8 +76,7 @@
 }
 
 [data-theme="dark"] .message-row.user .message-content {
-  background-color: #1e293b;
-  color: var(--text-main);
+  background-color: var(--bg-hover);
   border-color: #334155;
 }
 
@@ -532,7 +531,7 @@
    ========================================================================== */
 .branch-summary-banner {
   width: 100%;
-  max-width: var(--max-content-width, 68rem);
+  max-width: var(--max-content-width);
   margin: 0.75rem auto 1.25rem auto;
   padding: 0.75rem 1rem;
   background-color: var(--bg-surface-subtle);

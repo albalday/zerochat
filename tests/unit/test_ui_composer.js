@@ -41,13 +41,13 @@ test('UIComposer - syncGenerationControls alterna Enviar y Parar y limpia el est
 
   UIComposer.syncGenerationControls(elements, true);
   assert.equal(elements.btnSend.disabled, true);
-  assert.equal(elements.btnStopStream.style.display, 'inline-flex');
+  assert.equal(elements.btnStopStream.hidden, false);
   assert.equal(State.get('ui').generationStatus.phase, 'tool');
 
   State.set('streaming', { isGenerating: false });
   UIComposer.syncGenerationControls(elements, false);
   assert.equal(elements.btnSend.disabled, false);
-  assert.equal(elements.btnStopStream.style.display, 'none');
+  assert.equal(elements.btnStopStream.hidden, true);
   assert.equal(State.get('ui').generationStatus.phase, 'idle');
   assert.equal(elements.generationStatus.hidden, true);
 });
