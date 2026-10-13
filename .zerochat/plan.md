@@ -10,6 +10,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M2-T3 Audit R-01: drop WebLLM guards over always-loaded modules, with hygiene test (2026-10-13)
 - [x] M2-T4 Audit R-04: test that every registered provider adapter extends BaseProviderAdapter (2026-10-13)
 - [x] M2-T5 Audit R-06: tool rule cites only README keys, with a test against the Tool constructor (2026-10-13)
+- [x] M2-T6 Audit R-03: architecture test for the persistence boundary (2026-10-13)
 
 ## M3 Playwright automation scripts
 Goal: Use ZeroChat to write and maintain Playwright automation scripts.

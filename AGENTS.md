@@ -128,7 +128,8 @@ La persistencia local se canaliza por dos módulos: `ChatStorage` (`js/storage.j
 preferencias en `localStorage` con prefijo `zerochat_`, la cookie de sesión del backend y las
 conversaciones, y `ChatRagStorage` (`js/ragStorage.js`) para la base de conocimiento. Ambos usan
 la conexión y el esquema únicos de `ZeroChatDB` (`js/storage-db.js`). Ningún otro módulo accede
-directamente a `localStorage`, cookies o IndexedDB, y no hay respaldos en memoria: las pruebas
+directamente a `localStorage`, cookies o IndexedDB (lo comprueba
+`tests/architecture/test_persistence_boundary.js`), y no hay respaldos en memoria: las pruebas
 reciben esas APIs de `tests/helpers/storage-env.js`.
 
 El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
