@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Review 1: Infrastructure and rules</h1>
-      <p class="subtitle">Which AGENTS.md rules are protected by a test, and which depend only on someone reading them?</p>
+      <p class="subtitle">Which AGENTS.md rules are protected by a test, and which depend only on someone reading them? Updated on 13 October 2026 with the closure of the findings.</p>
     </header>
 
     <main>
@@ -58,38 +58,39 @@
 
       <div class="card">
         <h2>2. Rules and tests</h2>
-        <p>Each row is an <code>AGENTS.md</code> rule. The middle column says what protects it.</p>
+        <p>Each row is an <code>AGENTS.md</code> rule. The middle column says what protects it after the findings were closed (section 7); in brackets, the finding that added the test.</p>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Rule</th><th>Protection</th><th>Status today</th></tr></thead>
             <tbody>
               <tr><td>Dependencies through <code>resolveDep</code> or the UMD factory, no <code>window.X || require</code></td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
               <tr><td>No unused functions or test-only exports; no variables nobody reads</td><td>[test] <code>test_code_hygiene.js</code></td><td>Met</td></tr>
-              <tr><td>No fallbacks for always-loaded modules or guards on always-present elements</td><td>[no test]</td><td>Two leftovers in <code>js/providers-webllm.js</code> (R-01)</td></tr>
-              <tr><td>Events bound once in <code>mount()</code>, with delegated listeners</td><td>[no test]</td><td>Not exhaustively checked (R-02)</td></tr>
+              <tr><td>No fallbacks for always-loaded modules or guards on always-present elements</td><td>[test] <code>test_code_hygiene.js</code> (R-01)</td><td>Met: the guards in <code>js/providers-webllm.js</code> were removed</td></tr>
+              <tr><td>Events bound once in <code>mount()</code>, with delegated listeners</td><td>[test] <code>test_ui_listeners.js</code> and a repaint-twice test in <code>test_ui_mcp.js</code> (R-02)</td><td>Met: the MCP section bound events while painting; it now delegates in <code>initMcpUI</code></td></tr>
               <tr><td>No backward-compatibility code</td><td>[no test]; not checkable in general</td><td>Manual review on every change</td></tr>
               <tr><td>Tests use a real DOM (<code>installDom</code>), no faked elements</td><td>[reading]</td><td>Met in the tests reviewed</td></tr>
               <tr><td>Visible text through <code>ChatI18n</code>, keys in Spanish and English, no fallback text after <code>t()</code>, every key used</td><td>[test] <code>test_i18n.js</code> and <code>test_i18n_literals.js</code></td><td>Met: 706/706 keys</td></tr>
               <tr><td><code>ChatState</code> only through domain mutators</td><td>[test] partial: <code>test_state_contract.js</code> covers the <code>ui</code> and <code>project</code> slices and the <code>app.js</code> copy</td><td>Met where covered</td></tr>
               <tr><td>UMD pattern in reusable modules</td><td>Implicit: Node tests load the modules with <code>require</code></td><td>Met</td></tr>
-              <tr><td>Providers extend <code>BaseProviderAdapter</code></td><td>[reading]</td><td>Met: Claude, Gemini, Ollama, OpenRouter, Mirror and WebLLM extend it; OpenAI/LM Studio and Custom are the base class (R-04)</td></tr>
-              <tr><td>Persistence only in <code>ChatStorage</code>, <code>ChatRagStorage</code> and <code>ZeroChatDB</code></td><td>[cmd]</td><td>Met: outside them only <code>js/sandbox.js</code> names those APIs, to block them (R-03)</td></tr>
+              <tr><td>Providers extend <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code> (R-04)</td><td>Met: every adapter in the registry is <code>instanceof BaseProviderAdapter</code></td></tr>
+              <tr><td>Persistence only in <code>ChatStorage</code>, <code>ChatRagStorage</code> and <code>ZeroChatDB</code></td><td>[test] <code>test_persistence_boundary.js</code> (R-03)</td><td>Met: outside them only <code>js/sandbox.js</code> names those APIs, to block them</td></tr>
               <tr><td>Dialogs only through <code>ChatDialogs</code></td><td>[test] <code>test_dialogs.js</code></td><td>Met</td></tr>
-              <tr><td>Injected messages in English</td><td>[no test]</td><td>Met in the cases reviewed (R-05)</td></tr>
-              <tr><td>No emojis in controls; icons from <code>ChatIcons</code></td><td>[test] partial: import banner and reasoning summary; [test] <code>test_icon_sprite.js</code> for the sprite</td><td>Met where covered (R-07)</td></tr>
-              <tr><td>Colours, radii and shadows in <code>tokens.css</code>; no <code>var()</code> fallbacks; show and hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Met</td></tr>
+              <tr><td>Injected messages in English</td><td>[test] <code>test_english_literals.js</code> (R-05)</td><td>Met: no literal outside <code>i18n.js</code> is in Spanish</td></tr>
+              <tr><td>No emojis in controls; icons from <code>ChatIcons</code></td><td>[test] <code>test_ui_modernization.js</code> (markup, icon catalogue and control texts) (R-07) and <code>test_icon_sprite.js</code></td><td>Met</td></tr>
+              <tr><td>Colours, radii and shadows in <code>tokens.css</code>; no <code>var()</code> fallbacks; show and hide with <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code>, also selectors without consumers (R-10)</td><td>Met: the dead <code>.btn-copied</code> rule was removed</td></tr>
               <tr><td>Deferred rendering during streaming</td><td>[no test]</td><td>Not checked</td></tr>
-              <tr><td>Tool contract in <code>js/tools/README.md</code></td><td>[no test] since <code>test_tool_contract.js</code> was removed</td><td>Met by reading; the rule names properties that no longer exist (R-06)</td></tr>
+              <tr><td>Tool contract in <code>js/tools/README.md</code></td><td>[test] <code>test_builtin_tools.js</code> (R-06)</td><td>Met: the rule names only the keys in <code>js/tools/README.md</code></td></tr>
               <tr><td>Explicit errors, no empty <code>catch</code></td><td>[test] <code>test_error_handling.js</code></td><td>Met</td></tr>
               <tr><td>Backend: no <code>except Exception: pass</code>, <code>zz-main.py</code> last, <code>zerochat.py</code> equal to the concatenation of <code>py/</code>, tool definitions and handlers paired</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Met</td></tr>
               <tr><td>Versions only through <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Met</td></tr>
               <tr><td>The wheel contains only the executable</td><td>[test] <code>tests/packaging_smoke_test.py</code> in <code>release.yml</code></td><td>Met</td></tr>
-              <tr><td>Bilingual help consistent with behaviour</td><td>[no test]</td><td>21 pages per language [cmd]; the help still said "8.x" after 9.0.0 was released (R-09)</td></tr>
-              <tr><td>External data kept out of <code>innerHTML</code></td><td>[test] partial: escaping in the <code>ChatUtils</code> primitives</td><td>100 unclassified <code>innerHTML</code> uses in 28 files (R-08)</td></tr>
+              <tr><td>Bilingual help consistent with behaviour</td><td>[test] partial: <code>test_help_pages.js</code> checks translation, cross links and series (R-09); consistency with behaviour is still checked by reading</td><td>Met where covered</td></tr>
+              <tr><td>External data kept out of <code>innerHTML</code></td><td>[test] <code>test_html_sinks.js</code>, a closed list of 92 reviewed uses in 24 files, and injection tests (R-08)</td><td>Met: the review found and fixed a real case in <code>render_chart</code></td></tr>
             </tbody>
           </table>
         </div>
-        <p>Count: of 23 rules, <strong>12 have a test</strong> (3 of them partial), 1 is protected implicitly, 3 are checked only by command or reading and <strong>7 have no test at all</strong>. Most of those 7 are of the kind that caused the 9.0.0 cleanup.</p>
+        <p>Count at review time: of 23 rules, 12 had a test (3 of them partial), 1 was protected implicitly, 3 were checked only by command or reading and 7 had no test at all.</p>
+        <p>Count after closure: <strong>19 have a test</strong> (2 of them partial), 1 is protected implicitly, 1 is checked by reading and <strong>2 have no test</strong>: the absence of backward-compatibility code, which is not checkable in general, and deferred rendering during streaming.</p>
       </div>
 
       <div class="card">
@@ -126,27 +127,48 @@
         <p>Each finding proposes the rule or test that stops it from coming back. None is critical or high.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Priority</th><th>Evidence</th><th>Proposal and closing test</th></tr></thead>
+            <thead><tr><th>ID</th><th>Priority</th><th>Evidence</th><th>Proposal and closing test</th><th>Closure</th></tr></thead>
             <tbody>
-              <tr><td><strong>R-01</strong></td><td>Medium</td><td><code>js/providers-webllm.js:368-371</code> checks with <code>Providers?.</code> and <code>typeof</code> that <code>BaseProviderAdapter</code> exists, and line 474 uses <code>Providers.registry?.register</code>. <code>zerochat.html</code> always loads <code>providers.js</code> first.</td><td>Remove the guards and extend <code>test_code_hygiene.js</code> to reject <code>?.</code> and <code>typeof … !== 'function'</code> on the modules <code>zerochat.html</code> loads.</td></tr>
-              <tr><td><strong>R-02</strong></td><td>Medium</td><td>The <code>mount()</code> and delegated-listener rule has no test.</td><td>Architecture test: in <code>js/ui-*.js</code>, <code>addEventListener</code> only inside <code>mount()</code> or a handler; integration test that repaints a list twice and checks that one click triggers one action.</td></tr>
-              <tr><td><strong>R-03</strong></td><td>Medium</td><td>The persistence boundary holds, but only a <code>grep</code> shows it.</td><td>Architecture test rejecting <code>localStorage</code>, <code>indexedDB</code> and <code>document.cookie</code> outside <code>storage.js</code>, <code>storage-db.js</code> and <code>ragStorage.js</code>, with the <code>sandbox.js</code> blocklist as the only exception.</td></tr>
-              <tr><td><strong>R-04</strong></td><td>Low</td><td><code>BaseProviderAdapter</code> inheritance is checked by reading the code.</td><td>Test: every adapter in the registry is <code>instanceof BaseProviderAdapter</code>.</td></tr>
-              <tr><td><strong>R-05</strong></td><td>Low</td><td>English injected messages have no test.</td><td>Gather injected texts into constants and check they contain no Spanish-specific characters (<code>áéíóúñ¿¡</code>).</td></tr>
-              <tr><td><strong>R-06</strong></td><td>Low</td><td><code>AGENTS.md</code> §3 forbids the <code>ui</code> and <code>handler</code> properties, which the tool API no longer has since <code>63d4315</code>; <code>test_tool_contract.js</code> was removed with that API.</td><td>Replace the sentence with "only the keys documented in <code>js/tools/README.md</code>" and add a test comparing each <code>BUILTIN_TOOL_MODULES</code> module's keys with that list.</td></tr>
-              <tr><td><strong>R-07</strong></td><td>Low</td><td>The emoji test only looks at two components.</td><td>Extend it to <code>zerochat.html</code>, <code>js/icons.js</code> and the button texts in <code>js/i18n.js</code>.</td></tr>
-              <tr><td><strong>R-08</strong></td><td>Medium</td><td>100 <code>innerHTML</code> uses in 28 files; it has not been shown that none receives unsanitised external data.</td><td>Architecture test with a closed list of allowed uses (clearing, sanitised Markdown, <code>ChatIcons</code> SVG); a new use must be justified or switched to <code>setText</code>.</td></tr>
-              <tr><td><strong>R-09</strong></td><td>Low</td><td>After 9.0.0 was released, the whole help still said "8.x" (fixed in this review). Nothing checks that every page has its translation.</td><td>Test: each <code>help/X.html</code> has <code>help/en/X.html</code>, they link to each other and show the same <code>major.x</code> series as <code>package.json</code>.</td></tr>
-              <tr><td><strong>R-10</strong></td><td>Low</td><td>Unused CSS tokens and variables are checked, but not selectors without consumers.</td><td>Extend <code>test_style_hygiene.js</code> to classes and ids that appear in neither HTML nor JavaScript.</td></tr>
+              <tr><td><strong>R-01</strong></td><td>Medium</td><td><code>js/providers-webllm.js:368-371</code> checks with <code>Providers?.</code> and <code>typeof</code> that <code>BaseProviderAdapter</code> exists, and line 474 uses <code>Providers.registry?.register</code>. <code>zerochat.html</code> always loads <code>providers.js</code> first.</td><td>Remove the guards and extend <code>test_code_hygiene.js</code> to reject <code>?.</code> and <code>typeof … !== 'function'</code> on the modules <code>zerochat.html</code> loads.</td><td>Closed in <code>86b5450</code>: guards removed; <code>test_code_hygiene.js</code> rejects them.</td></tr>
+              <tr><td><strong>R-02</strong></td><td>Medium</td><td>The <code>mount()</code> and delegated-listener rule has no test.</td><td>Architecture test: in <code>js/ui-*.js</code>, <code>addEventListener</code> only inside <code>mount()</code> or a handler; integration test that repaints a list twice and checks that one click triggers one action.</td><td>Closed in <code>9ff0df4</code>: <code>ui-mcp.js</code> bound events on every repaint and avoided duplicates with <code>dataset.mcpBound</code> marks; it now delegates in <code>initMcpUI</code> and releases the listeners in <code>destroy()</code>. <code>test_ui_listeners.js</code> follows the call sites of each module; three reviewed exceptions.</td></tr>
+              <tr><td><strong>R-03</strong></td><td>Medium</td><td>The persistence boundary holds, but only a <code>grep</code> shows it.</td><td>Architecture test rejecting <code>localStorage</code>, <code>indexedDB</code> and <code>document.cookie</code> outside <code>storage.js</code>, <code>storage-db.js</code> and <code>ragStorage.js</code>, with the <code>sandbox.js</code> blocklist as the only exception.</td><td>Closed in <code>266c2ef</code>: <code>test_persistence_boundary.js</code>.</td></tr>
+              <tr><td><strong>R-04</strong></td><td>Low</td><td><code>BaseProviderAdapter</code> inheritance is checked by reading the code.</td><td>Test: every adapter in the registry is <code>instanceof BaseProviderAdapter</code>.</td><td>Closed in <code>a60bebe</code>: test in <code>test_providers.js</code>.</td></tr>
+              <tr><td><strong>R-05</strong></td><td>Low</td><td>English injected messages have no test.</td><td>Gather injected texts into constants and check they contain no Spanish-specific characters (<code>áéíóúñ¿¡</code>).</td><td>Closed in <code>631f2d3</code>: instead of gathering the texts into constants, <code>test_english_literals.js</code> analyses every string literal outside <code>i18n.js</code>. No model-facing text was in Spanish; the Mirror profile description was, and the editor showed it in either language.</td></tr>
+              <tr><td><strong>R-06</strong></td><td>Low</td><td><code>AGENTS.md</code> §3 forbids the <code>ui</code> and <code>handler</code> properties, which the tool API no longer has since <code>63d4315</code>; <code>test_tool_contract.js</code> was removed with that API.</td><td>Replace the sentence with "only the keys documented in <code>js/tools/README.md</code>" and add a test comparing each <code>BUILTIN_TOOL_MODULES</code> module's keys with that list.</td><td>Closed in <code>1a2dea4</code>: rule rewritten and test in <code>test_builtin_tools.js</code>.</td></tr>
+              <tr><td><strong>R-07</strong></td><td>Low</td><td>The emoji test only looks at two components.</td><td>Extend it to <code>zerochat.html</code>, <code>js/icons.js</code> and the button texts in <code>js/i18n.js</code>.</td><td>Closed in <code>fedfbda</code>: <code>test_ui_modernization.js</code> extended.</td></tr>
+              <tr><td><strong>R-08</strong></td><td>Medium</td><td>100 <code>innerHTML</code> uses in 28 files; it has not been shown that none receives unsanitised external data.</td><td>Architecture test with a closed list of allowed uses (clearing, sanitised Markdown, <code>ChatIcons</code> SVG); a new use must be justified or switched to <code>setText</code>.</td><td>Closed in <code>29a1af3</code>: 92 uses reviewed in <code>test_html_sinks.js</code>. <strong>Real defect:</strong> <code>render_chart</code> interpolated the colour and values sent by the model into SVG attributes without escaping; text steered by a web page could inject markup. They are now normalised, with an injection test in <code>test_charts.js</code>.</td></tr>
+              <tr><td><strong>R-09</strong></td><td>Low</td><td>After 9.0.0 was released, the whole help still said "8.x" (fixed in this review). Nothing checks that every page has its translation.</td><td>Test: each <code>help/X.html</code> has <code>help/en/X.html</code>, they link to each other and show the same <code>major.x</code> series as <code>package.json</code>.</td><td>Closed in <code>975a723</code>: <code>test_help_pages.js</code>; the missing language switch was added to the API key pages.</td></tr>
+              <tr><td><strong>R-10</strong></td><td>Low</td><td>Unused CSS tokens and variables are checked, but not selectors without consumers.</td><td>Extend <code>test_style_hygiene.js</code> to classes and ids that appear in neither HTML nor JavaScript.</td><td>Closed in <code>14a7fab</code>: <code>test_style_hygiene.js</code> with declared prefixes for composed classes; <code>.btn-copied</code> removed.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Findings H-01 to H-04 from the 8.12.4 audit remain closed, and the two most relevant (empty catches and untranslated literals) are protected by tests.</p>
+        <p>All ten findings are closed; section 7 gives the closure details. Findings H-01 to H-04 from the 8.12.4 audit remain closed, and the two most relevant (empty catches and untranslated literals) are protected by tests.</p>
       </div>
 
       <div class="card">
         <h2>6. Verdict</h2>
-        <p>The suite passes in full, and the rules behind the most expensive cleanup (dependencies, unused code, styles, backend) now have tests. Seven rules still depend on an agent reading <code>AGENTS.md</code>; R-01 shows that one is already broken. Closing R-01 to R-03 and R-08 is recommended before adding new functionality, following the lesson's rule: <strong>new rule, new test, same commit</strong>.</p>
+        <p>At review time the suite passed in full, but seven rules depended on an agent reading <code>AGENTS.md</code>, and R-01 showed that one was already broken. Closing R-01 to R-03 and R-08 before adding new functionality was recommended.</p>
+        <p><strong>After closure</strong>, only two rules that cannot be checked statically remain without a test. Two of the new tests found breaches that reading had accepted: the MCP section listeners (R-02) and the injection in <code>render_chart</code> (R-08). This confirms the lesson: <strong>new rule, new test, same commit</strong>.</p>
+      </div>
+
+      <div class="card" id="closure">
+        <h2>7. Closure</h2>
+        <p>Verification on 13 October 2026 on <code>dev</code> (commit <code>14a7fab</code>), following the closing procedure in <code>docs/audits/AuditFull.md</code>:</p>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Command</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td><code>npm test</code> (all levels)</td><td>774 tests: 773 passed and 1 skipped</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>241/241</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>352/352</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>34/35; the Job Object test, Windows-only, is skipped</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>46/46 in 14 files</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>100/100 in headless Chromium</td></tr>
+              <tr><td><code>npm run build</code></td><td>No differences in the generated files</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Each closure was a separate commit with its test; for R-01, R-02, R-05, R-08 and R-10 the test fails on the previous code, because there were breaches. The matching <code>AGENTS.md</code> rule now names the test that protects it.</p>
       </div>
 
       <div class="card" id="authorship">
@@ -173,7 +195,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Review 1 (Infrastructure and rules) · 12 October 2026</p>
+      <p>ZeroChat 9.x · Review 1 (Infrastructure and rules) · 12 October 2026 · closure: 13 October 2026</p>
     </footer>
   </div>
 </body>

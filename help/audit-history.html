@@ -77,7 +77,9 @@
               <tr><td>Errores explícitos (backend)</td><td>07/09 (<code>3481a07</code>)</td><td>12/10 (<code>72deff7</code>)</td><td>35 días</td><td>Capturas genéricas en 7 archivos (<code>5dc0293</code>)</td></tr>
               <tr><td>Estilos con tokens de <code>tokens.css</code></td><td>06/09 (<code>66a1967</code>)</td><td>12/10 (<code>26abb4c</code>)</td><td>36 días</td><td>Colores literales y respaldos en <code>var()</code>: dos refactorizaciones en 58 archivos</td></tr>
               <tr><td>Sin respaldos, compatibilidad ni exportaciones para pruebas</td><td>11/10 (<code>f785a3f</code>)</td><td>11/10 (<code>f785a3f</code>)</td><td>0 días, pero 46 días después de empezar</td><td>La limpieza de la 9.0.0: unas 16.500 líneas</td></tr>
-              <tr><td><code>mount()</code> con listeners delegados</td><td>12/10 (<code>98f07af</code>)</td><td>—</td><td>Sin prueba</td><td>—</td></tr>
+              <tr><td><code>mount()</code> con listeners delegados</td><td>12/10 (<code>98f07af</code>)</td><td>13/10 (<code>9ff0df4</code>)</td><td>1 día</td><td>La sección MCP enlazaba eventos en cada repintado</td></tr>
+              <tr><td>Mensajes inyectados en inglés</td><td>08/09 (<code>cfdab94</code>)</td><td>13/10 (<code>631f2d3</code>)</td><td>35 días</td><td>Ningún texto para el modelo; una descripción de perfil en español</td></tr>
+              <tr><td>Datos externos fuera de <code>innerHTML</code></td><td>13/10 (<code>29a1af3</code>)</td><td>13/10 (<code>29a1af3</code>)</td><td>0 días</td><td>Inyección de marcado en <code>render_chart</code> con argumentos del modelo</td></tr>
             </tbody>
           </table>
         </div>
@@ -92,7 +94,7 @@
           <li><strong>Publicar una versión mayor no equivale a cerrarla:</strong> la 9.0.0 salió con su primera prueba de higiene y necesitó 26 commits más al día siguiente.</li>
           <li><strong>Las normas siguen a los problemas:</strong> casi todas llegan después de que el problema exista. <em>Interpretación:</em> sin una prueba que lo impida, un agente reintroduce lo que la norma prohíbe.</li>
         </ul>
-        <p>Conclusión: el estado de la 9.1.0 es más limpio que el de ninguna versión anterior, y por primera vez la mayoría de las normas tienen prueba. Las que todavía no la tienen están en la <a href="audit-infrastructure.html">Revisión 1</a>.</p>
+        <p>Conclusión: el estado de la 9.1.0 es más limpio que el de ninguna versión anterior, y por primera vez la mayoría de las normas tienen prueba. El cierre de la Revisión 1, el 13 de octubre, añadió o amplió la prueba de diez normas, y dos de ellas encontraron incumplimientos que la lectura había dado por buenos. Las que todavía no tienen prueba están en la <a href="audit-infrastructure.html">Revisión 1</a>.</p>
       </div>
 
       <div class="card">
@@ -112,6 +114,7 @@
               <tr><td>11/10</td><td>v9.0.0</td><td><code>d2ab109</code></td><td>Publicación</td></tr>
               <tr><td>12/10</td><td>—</td><td><code>72deff7</code></td><td>Prueba de higiene del backend</td></tr>
               <tr><td>12/10</td><td>9.1.0 en <code>dev</code></td><td><code>a0393c3</code></td><td>Estado revisado</td></tr>
+              <tr><td>13/10</td><td>9.1.0 en <code>dev</code></td><td><code>14a7fab</code></td><td>Cierre de los hallazgos de la Revisión 1</td></tr>
             </tbody>
           </table>
         </div>

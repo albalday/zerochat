@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Revisión 2: Funcionalidades · ZeroChat 9.x Docs</title>
-  <meta name="description" content="Revisión de ZeroChat 9.1.0 como frontend único de un LLM local: capacidades, prueba que protege cada una, límites y coherencia con la ayuda.">
+  <meta name="description" content="Revisión de ZeroChat 9.1.0 como frontend único de modelos locales: capacidades, prueba que protege cada una, límites y coherencia con la ayuda.">
   <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -21,14 +21,14 @@
         </div>
       </div>
       <h1>Revisión 2: Funcionalidades</h1>
-      <p class="subtitle">ZeroChat 9.1.0 como frontend único de un LLM local.</p>
+      <p class="subtitle">ZeroChat 9.1.0 como frontend único de modelos locales. Actualizada el 13 de octubre de 2026 con la comprobación contra un servidor local.</p>
     </header>
 
     <main>
       <div class="card">
         <h2>1. Objetivo y método</h2>
-        <p>El objetivo actual del proyecto es usar ZeroChat como <strong>único frontend de un LLM local</strong>, Swift-Qwen3.8, servido con una API compatible con OpenAI (vLLM, SGLang, llama.cpp o LM Studio) u Ollama. Esta revisión comprueba qué ofrece la versión 9.1.0 (commit <code>a0393c3</code>) para ese uso y para seguir siendo un laboratorio personal de agentes, herramientas y MCP.</p>
-        <p>Siguiendo la <a href="learning.html#leccion-normas">lección de la 9.0.0</a>, cada capacidad indica qué la protege: <strong>[test]</strong> prueba automatizada, <strong>[lectura]</strong> revisión del código sin prueba. No se ha probado con el modelo real: lo que depende del servidor se señala como tal.</p>
+        <p>El objetivo actual del proyecto es usar ZeroChat como <strong>único frontend de modelos locales</strong>, servidos con una API compatible con OpenAI (vLLM, SGLang, llama.cpp o LM Studio) u Ollama. El modelo cambia según la tarea, así que la revisión no depende de ninguno concreto y no propone cambios para un modelo determinado. Comprueba qué ofrece la versión 9.1.0 (commit <code>a0393c3</code>) para ese uso y para seguir siendo un laboratorio personal de agentes, herramientas y MCP.</p>
+        <p>Siguiendo la <a href="learning.html#leccion-normas">lección de la 9.0.0</a>, cada capacidad indica qué la protege: <strong>[test]</strong> prueba automatizada, <strong>[lectura]</strong> revisión del código sin prueba. La primera versión no se probó con un servidor real. El 13 de octubre se comprobó contra un servidor llama.cpp local con un modelo de razonamiento y visión (sección 3).</p>
       </div>
 
       <div class="card">
@@ -37,10 +37,10 @@
           <table>
             <thead><tr><th>Área</th><th>Qué ofrece</th><th>Protección</th><th>Límite</th></tr></thead>
             <tbody>
-              <tr><td><strong>Conexión local</strong></td><td>Perfil «OpenAI / LM Studio / LocalAI / vLLM» y perfil Ollama; descubrimiento de modelos con <code>/models</code> o <code>/api/tags</code> y sondas de streaming y herramientas.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code></td><td>Visión y razonamiento solo se infieren por el nombre del modelo (F-01).</td></tr>
+              <tr><td><strong>Conexión local</strong></td><td>Perfil «OpenAI / LM Studio / LocalAI / vLLM» y perfil Ollama; descubrimiento de modelos con <code>/models</code> o <code>/api/tags</code> y sondas de streaming y herramientas.</td><td>[test] <code>test_providers.js</code>, <code>test_inspector.js</code></td><td>La visión se toma de lo que declara el servidor (F-01); el razonamiento, del adaptador.</td></tr>
               <tr><td><strong>Capacidad de contexto</strong></td><td>Lee la que publica el servidor (<code>n_ctx</code>, <code>n_ctx_train</code>, <code>max_model_len</code>, <code>context_length</code>, <code>loaded_context_length</code>); si no hay, la asume y la marca con <code>*</code>. Ajuste manual por perfil.</td><td>[lectura] <code>js/ui-inspector.js</code></td><td>Una capacidad asumida desplaza los avisos y la compactación (F-02).</td></tr>
-              <tr><td><strong>Razonamiento</strong></td><td>Bloque plegable aparte; niveles de Ninguno a Máximo; etiquetas <code>&lt;think&gt;</code> en el texto. Dentro de un turno con herramientas, reenvía al modelo el razonamiento de cada paso si llega en <code>reasoning_content</code> o <code>reasoning</code>.</td><td>[test] <code>test_providers.js</code>, <code>test_agent_runtime.js</code>, <code>test_api_utils.js</code></td><td>El razonamiento en <code>&lt;think&gt;</code> no se reenvía (F-03). Los tokens de razonamiento no aparecen en la telemetría.</td></tr>
-              <tr><td><strong>Llamadas a herramientas</strong></td><td>Llamadas nativas y, si el servidor las devuelve como texto, bloques <code>&lt;tool_call&gt;</code> (formato Hermes/Qwen) que se extraen y se ocultan.</td><td>[test] <code>test_text_tool_calls.js</code></td><td>Depende de cómo el servidor analice las llamadas (F-04).</td></tr>
+              <tr><td><strong>Razonamiento</strong></td><td>Bloque plegable aparte; niveles de Ninguno a Máximo; etiquetas <code>&lt;think&gt;</code> en el texto. Dentro de un turno con herramientas, reenvía al modelo el razonamiento de cada paso si llega en <code>reasoning_content</code> o <code>reasoning</code>.</td><td>[test] <code>test_providers.js</code>, <code>test_agent_runtime.js</code>, <code>test_api_utils.js</code></td><td>El razonamiento en <code>&lt;think&gt;</code> no se reenvía (F-03). La telemetría muestra los tokens de contexto, no los de razonamiento (F-05).</td></tr>
+              <tr><td><strong>Llamadas a herramientas</strong></td><td>Llamadas nativas y, si el servidor las devuelve como texto, bloques <code>&lt;tool_call&gt;</code> (formato Hermes) que se extraen y se ocultan.</td><td>[test] <code>test_text_tool_calls.js</code></td><td>Depende de cómo el servidor analice las llamadas (F-04).</td></tr>
               <tr><td><strong>Agente</strong></td><td>Sin límite de pasos; se detiene si repite la misma llamada o alterna dos llamadas 5 veces.</td><td>[test] <code>test_agent_core.js</code>, <code>test_agent_runtime.js</code></td><td>Un bucle con argumentos que cambian no se detecta: queda el botón de detener.</td></tr>
               <tr><td><strong>Subagentes</strong></td><td><code>delegate_task</code> de solo lectura, con contexto propio; usa el perfil «Subagente» si existe.</td><td>[test] <code>test_delegate_task.js</code></td><td>Con un único modelo local, el subagente compite por la misma GPU.</td></tr>
               <tr><td><strong>Contexto</strong></td><td>Avisos al 60 % y 85 %; compactación automática al 70 % con un resumen del propio modelo.</td><td>[test] <code>test_context_manager.js</code>, <code>test_chat_engine.js</code></td><td>El resumen puede omitir detalles.</td></tr>
@@ -48,23 +48,23 @@
               <tr><td><strong>Modo proyecto</strong></td><td>Plan, hitos y decisiones del proyecto, mantenidos por el agente entre chats.</td><td>[test] <code>test_project_context.js</code></td><td>Depende de que el modelo siga el protocolo.</td></tr>
               <tr><td><strong>RAG</strong></td><td>Índice léxico Orama en IndexedDB, por ramas.</td><td>[test] <code>test_rag_*.js</code>, <code>test_ingestion_*.js</code></td><td>Sin embeddings ni búsqueda semántica; sin DOCX.</td></tr>
               <tr><td><strong>Depuración</strong></td><td>Interceptor que detiene cada petición y permite editar el JSON antes de enviarlo.</td><td>[test] <code>test_debug.js</code>, <code>browser_debug_panel.test.js</code></td><td>No muestra el tráfico JSON-RPC con los servidores MCP.</td></tr>
-              <tr><td><strong>WebLLM</strong></td><td>Inferencia en la pestaña con WebGPU.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>Fuera del objetivo actual: modelos pequeños frente a un 27B servido aparte.</td></tr>
+              <tr><td><strong>WebLLM</strong></td><td>Inferencia en la pestaña con WebGPU.</td><td>[test] <code>test_webllm.js</code>, <code>browser_webllm.test.js</code></td><td>Fuera del objetivo actual: modelos pequeños frente a los servidos aparte.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <div class="card">
-        <h2>3. Puntos a vigilar con el LLM local</h2>
+        <h2>3. Puntos a vigilar con un servidor local</h2>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta</th></tr></thead>
+            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta</th><th>Cierre</th></tr></thead>
             <tbody>
-              <tr><td><strong>F-01</strong></td><td>Baja</td><td>El inspector infiere visión y razonamiento con expresiones sobre el nombre (<code>js/providers.js:41-43</code>). «Swift-Qwen3.8» no coincide con <code>qwen.*vl</code> ni con los patrones de razonamiento, así que el inspector mostrará ambas como desconocidas. Solo es informativo: no impide adjuntar imágenes.</td><td>Comprobar con el servidor real; si el modelo las admite, añadir el patrón con su caso en <code>test_inspector.js</code>.</td></tr>
-              <tr><td><strong>F-02</strong></td><td>Media</td><td>Si el servidor no publica la capacidad de contexto, ZeroChat asume una y compacta al 70 % de ella, aunque el servidor admita más.</td><td>Verificar en el indicador que la capacidad no lleva <code>*</code>; si la lleva, fijarla en el perfil con el valor con que se arrancó el servidor.</td></tr>
-              <tr><td><strong>F-03</strong></td><td>Media</td><td>El razonamiento solo se reenvía entre pasos si el servidor lo separa en un campo propio; si llega como <code>&lt;think&gt;</code> dentro del texto, el modelo pierde su plan entre llamadas.</td><td>Arrancar el servidor con el analizador de razonamiento de Qwen activado y comprobar en el panel de depuración que llega <code>reasoning_content</code>.</td></tr>
-              <tr><td><strong>F-04</strong></td><td>Media</td><td>Las llamadas nativas dependen del analizador de herramientas del servidor (por ejemplo, el de formato Hermes en vLLM). Sin él llegan como texto y ZeroChat las extrae, con menos garantías de formato.</td><td>Activar el analizador del servidor y confirmar con la sonda de herramientas del inspector.</td></tr>
-              <tr><td><strong>F-05</strong></td><td>Baja</td><td>La telemetría no muestra los tokens de razonamiento, que en un modelo de razonamiento local pueden ser la mayor parte de la salida.</td><td>Mostrarlos en el detalle del último turno, con prueba en <code>test_ui_telemetry.js</code>.</td></tr>
+              <tr><td><strong>F-01</strong></td><td>Baja</td><td>El inspector infiere visión y razonamiento con expresiones sobre el nombre (<code>js/providers.js:41-43</code>). Un modelo cuyo nombre no coincide con los patrones aparece con la capacidad «declarada por el adaptador» (no «desconocida», como decía la primera versión). Solo es informativo: no impide adjuntar imágenes.</td><td>Ampliar los patrones del nombre para cada modelo.</td><td>Cerrado en <code>6c7fa33</code> sin patrones por modelo: el inspector toma la visión de lo que declara el servidor en la lista de modelos que ya consulta (<code>architecture.input_modalities</code> en llama.cpp y OpenRouter, <code>type</code> en LM Studio, <code>capabilities</code> de <code>/api/show</code> en Ollama), con prueba de cada formato en <code>test_inspector.js</code>. Si el servidor no lo declara, como vLLM, se mantiene la declaración del adaptador.</td></tr>
+              <tr><td><strong>F-02</strong></td><td>Media</td><td>Si el servidor no publica la capacidad de contexto, ZeroChat asume una y compacta al 70 % de ella, aunque el servidor admita más.</td><td>Verificar en el indicador que la capacidad no lleva <code>*</code>; si la lleva, fijarla en el perfil con el valor con que se arrancó el servidor.</td><td>Comprobado: llama.cpp publica <code>meta.n_ctx</code> en <code>/v1/models</code> y ZeroChat lo lee como capacidad activa, sin <code>*</code>.</td></tr>
+              <tr><td><strong>F-03</strong></td><td>Media</td><td>El razonamiento solo se reenvía entre pasos si el servidor lo separa en un campo propio; si llega como <code>&lt;think&gt;</code> dentro del texto, el modelo pierde su plan entre llamadas.</td><td>Arrancar el servidor con el analizador de razonamiento del modelo activado y comprobar en el panel de depuración que llega <code>reasoning_content</code>.</td><td>Comprobado: llama.cpp separa el razonamiento en <code>reasoning_content</code> con y sin streaming, y <code>reasoning_effort: "none"</code> lo desactiva.</td></tr>
+              <tr><td><strong>F-04</strong></td><td>Media</td><td>Las llamadas nativas dependen del analizador de herramientas del servidor (por ejemplo, el de formato Hermes en vLLM). Sin él llegan como texto y ZeroChat las extrae, con menos garantías de formato.</td><td>Activar el analizador del servidor y confirmar con la sonda de herramientas del inspector.</td><td>Comprobado: llama.cpp devuelve <code>tool_calls</code> nativas con <code>id</code>, con los argumentos en fragmentos durante el streaming.</td></tr>
+              <tr><td><strong>F-05</strong></td><td>Baja</td><td>La telemetría no muestra los tokens de razonamiento, que en un modelo de razonamiento local pueden ser la mayor parte de la salida.</td><td>Mostrarlos en el detalle del último turno, con prueba en <code>test_ui_telemetry.js</code>.</td><td>Descartado: lo que importa en la telemetría son los tokens de contexto actuales, y los de razonamiento se ven en la inspección. Además, llama.cpp no los desglosa en <code>usage</code>, así que la cifra saldría a cero.</td></tr>
             </tbody>
           </table>
         </div>
@@ -79,7 +79,7 @@
           <li><a href="reasoning-telemetry.html">Razonamiento y telemetría</a>: umbrales del 60, 70 y 85 % y reenvío del razonamiento. Coincide.</li>
           <li><strong>Desfases corregidos en esta revisión:</strong> la ayuda y el <code>README.md</code> seguían en la serie «8.x»; el <code>README.md</code> citaba «planes y puntos de control», herramientas que ya no existen; y la auditoría anterior describía un bucle de 5 a 200 turnos con <code>agent_checkpoint</code>, <code>update_plan</code> y <code>finish_task</code>, retirados antes de la 9.0.0.</li>
         </ul>
-        <p>Ninguna prueba vigila esta coherencia (hallazgo R-09 de la <a href="audit-infrastructure.html">Revisión 1</a>): se ha mantenido porque cada cambio de funcionalidad actualizó su página, no porque algo lo impidiera.</p>
+        <p>En la revisión, ninguna prueba vigilaba esta coherencia. Desde el cierre de R-09 (<a href="audit-infrastructure.html">Revisión 1</a>), <code>test_help_pages.js</code> comprueba traducción, enlaces y serie de cada página. Que el texto coincida con el comportamiento sigue dependiendo de que cada cambio actualice su página.</p>
       </div>
 
       <div class="card">
@@ -96,14 +96,15 @@
 
       <div class="card">
         <h2>6. Dictamen</h2>
-        <p><strong>Apto como frontend único de un LLM local</strong>, con una condición: que el servidor separe razonamiento y llamadas a herramientas en sus campos propios y publique su capacidad de contexto (F-02 a F-04). Son ajustes del servidor, no de ZeroChat, y el panel de depuración permite comprobarlos. Las mejoras propias recomendadas son F-05 y una prueba de coherencia de la ayuda.</p>
+        <p><strong>Apto como frontend único de modelos locales</strong>, con una condición: que el servidor separe razonamiento y llamadas a herramientas en sus campos propios y publique su capacidad de contexto (F-02 a F-04). Son ajustes del servidor, no de ZeroChat, y el panel de depuración permite comprobarlos.</p>
+        <p><strong>Tras el cierre:</strong> con llama.cpp las tres condiciones se cumplen sin configuración adicional. F-01 se resolvió con un cambio que sirve para cualquier modelo, F-05 se descartó y la prueba de coherencia de la ayuda existe desde R-09.</p>
       </div>
 
       <div class="card" id="autoria">
         <h2>Autoría</h2>
         <div class="alert alert-info">
           <ul>
-            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code, a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido. Código verificado en el commit <code>a0393c3</code>.</li>
+            <li><strong>Revisión y redacción:</strong> Claude Opus 5.5 (<code>claude-opus-5-5</code>) en Claude Code, a partir de instrucciones del responsable del proyecto, sin redacción humana del contenido. Código verificado en el commit <code>a0393c3</code>; cierre verificado en <code>14a7fab</code>.</li>
           </ul>
         </div>
       </div>
@@ -121,7 +122,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Revisión 2 (Funcionalidades) · 12 de octubre de 2026</p>
+      <p>ZeroChat 9.x · Revisión 2 (Funcionalidades) · 12 de octubre de 2026 · cierre: 13 de octubre de 2026</p>
     </footer>
   </div>
 </body>

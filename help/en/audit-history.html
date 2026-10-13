@@ -77,7 +77,9 @@
               <tr><td>Explicit errors (backend)</td><td>07/09 (<code>3481a07</code>)</td><td>12/10 (<code>72deff7</code>)</td><td>35 days</td><td>Generic catches in 7 files (<code>5dc0293</code>)</td></tr>
               <tr><td>Styles with <code>tokens.css</code> tokens</td><td>06/09 (<code>66a1967</code>)</td><td>12/10 (<code>26abb4c</code>)</td><td>36 days</td><td>Literal colours and <code>var()</code> fallbacks: two refactors across 58 files</td></tr>
               <tr><td>No fallbacks, compatibility code or test-only exports</td><td>11/10 (<code>f785a3f</code>)</td><td>11/10 (<code>f785a3f</code>)</td><td>0 days, but 46 days after starting</td><td>The 9.0.0 cleanup: about 16,500 lines</td></tr>
-              <tr><td><code>mount()</code> with delegated listeners</td><td>12/10 (<code>98f07af</code>)</td><td>—</td><td>No test</td><td>—</td></tr>
+              <tr><td><code>mount()</code> with delegated listeners</td><td>12/10 (<code>98f07af</code>)</td><td>13/10 (<code>9ff0df4</code>)</td><td>1 day</td><td>The MCP section bound events on every repaint</td></tr>
+              <tr><td>Injected messages in English</td><td>08/09 (<code>cfdab94</code>)</td><td>13/10 (<code>631f2d3</code>)</td><td>35 days</td><td>No model-facing text; one profile description in Spanish</td></tr>
+              <tr><td>External data kept out of <code>innerHTML</code></td><td>13/10 (<code>29a1af3</code>)</td><td>13/10 (<code>29a1af3</code>)</td><td>0 days</td><td>Markup injection in <code>render_chart</code> through model arguments</td></tr>
             </tbody>
           </table>
         </div>
@@ -92,7 +94,7 @@
           <li><strong>Releasing a major version is not the same as finishing it:</strong> 9.0.0 shipped with its first hygiene test and needed 26 more commits the next day.</li>
           <li><strong>Rules follow problems:</strong> almost all of them arrive after the problem exists. <em>Interpretation:</em> without a test to stop it, an agent reintroduces what the rule forbids.</li>
         </ul>
-        <p>Conclusion: 9.1.0 is cleaner than any earlier version, and for the first time most rules have a test. Those still without one are listed in <a href="audit-infrastructure.html">Review 1</a>.</p>
+        <p>Conclusion: 9.1.0 is cleaner than any earlier version, and for the first time most rules have a test. Closing Review 1 on 13 October added or extended the test of ten rules, and two of them found breaches that reading had accepted. Those still without a test are listed in <a href="audit-infrastructure.html">Review 1</a>.</p>
       </div>
 
       <div class="card">
@@ -112,6 +114,7 @@
               <tr><td>11/10</td><td>v9.0.0</td><td><code>d2ab109</code></td><td>Release</td></tr>
               <tr><td>12/10</td><td>—</td><td><code>72deff7</code></td><td>Backend hygiene test</td></tr>
               <tr><td>12/10</td><td>9.1.0 on <code>dev</code></td><td><code>a0393c3</code></td><td>Reviewed state</td></tr>
+              <tr><td>13/10</td><td>9.1.0 on <code>dev</code></td><td><code>14a7fab</code></td><td>Review 1 findings closed</td></tr>
             </tbody>
           </table>
         </div>

@@ -21,7 +21,7 @@
         </div>
       </div>
       <h1>Revisión 1: Infraestructura y normas</h1>
-      <p class="subtitle">¿Qué norma de AGENTS.md está protegida por una prueba y cuál depende solo de que alguien la lea?</p>
+      <p class="subtitle">¿Qué norma de AGENTS.md está protegida por una prueba y cuál depende solo de que alguien la lea? Actualizada el 13 de octubre de 2026 con el cierre de los hallazgos.</p>
     </header>
 
     <main>
@@ -58,38 +58,39 @@
 
       <div class="card">
         <h2>2. Normas y pruebas</h2>
-        <p>Cada fila es una norma de <code>AGENTS.md</code>. La columna central dice qué la protege.</p>
+        <p>Cada fila es una norma de <code>AGENTS.md</code>. La columna central dice qué la protege tras el cierre de los hallazgos (sección 7); entre paréntesis, el hallazgo que añadió la prueba.</p>
         <div class="table-responsive">
           <table>
             <thead><tr><th>Norma</th><th>Protección</th><th>Estado hoy</th></tr></thead>
             <tbody>
               <tr><td>Dependencias con <code>resolveDep</code> o la fábrica UMD, sin <code>window.X || require</code></td><td>[test] <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
               <tr><td>Sin funciones sin uso ni exportadas solo para pruebas; sin variables que nadie lea</td><td>[test] <code>test_code_hygiene.js</code></td><td>Cumple</td></tr>
-              <tr><td>Sin respaldos para módulos siempre cargados ni guardas sobre elementos siempre presentes</td><td>[sin prueba]</td><td>Dos restos en <code>js/providers-webllm.js</code> (R-01)</td></tr>
-              <tr><td>Eventos enlazados una vez en <code>mount()</code>, con listeners delegados</td><td>[sin prueba]</td><td>No verificado de forma exhaustiva (R-02)</td></tr>
+              <tr><td>Sin respaldos para módulos siempre cargados ni guardas sobre elementos siempre presentes</td><td>[test] <code>test_code_hygiene.js</code> (R-01)</td><td>Cumple: retiradas las guardas de <code>js/providers-webllm.js</code></td></tr>
+              <tr><td>Eventos enlazados una vez en <code>mount()</code>, con listeners delegados</td><td>[test] <code>test_ui_listeners.js</code> y prueba de repintado doble en <code>test_ui_mcp.js</code> (R-02)</td><td>Cumple: la sección MCP enlazaba al pintar; ahora delega en <code>initMcpUI</code></td></tr>
               <tr><td>Sin código de compatibilidad con versiones anteriores</td><td>[sin prueba]; no es comprobable de forma general</td><td>Revisión manual en cada cambio</td></tr>
               <tr><td>Pruebas con DOM real (<code>installDom</code>), sin elementos simulados</td><td>[lectura]</td><td>Cumple en las pruebas revisadas</td></tr>
               <tr><td>Texto visible con <code>ChatI18n</code>, claves en español e inglés, sin texto alternativo tras <code>t()</code>, toda clave usada</td><td>[test] <code>test_i18n.js</code> y <code>test_i18n_literals.js</code></td><td>Cumple: 706/706 claves</td></tr>
               <tr><td><code>ChatState</code> solo mediante mutadores de dominio</td><td>[test] parcial: <code>test_state_contract.js</code> cubre los slices <code>ui</code> y <code>project</code> y la copia de <code>app.js</code></td><td>Cumple en lo cubierto</td></tr>
               <tr><td>Patrón UMD en módulos reutilizables</td><td>Implícita: las pruebas de Node cargan los módulos con <code>require</code></td><td>Cumple</td></tr>
-              <tr><td>Proveedores que extienden <code>BaseProviderAdapter</code></td><td>[lectura]</td><td>Cumple: Claude, Gemini, Ollama, OpenRouter, Mirror y WebLLM la extienden; OpenAI/LM Studio y Personalizado son la clase base (R-04)</td></tr>
-              <tr><td>Persistencia solo en <code>ChatStorage</code>, <code>ChatRagStorage</code> y <code>ZeroChatDB</code></td><td>[cmd]</td><td>Cumple: fuera de ellos solo <code>js/sandbox.js</code> nombra esas APIs, para bloquearlas (R-03)</td></tr>
+              <tr><td>Proveedores que extienden <code>BaseProviderAdapter</code></td><td>[test] <code>test_providers.js</code> (R-04)</td><td>Cumple: todo adaptador del registro es <code>instanceof BaseProviderAdapter</code></td></tr>
+              <tr><td>Persistencia solo en <code>ChatStorage</code>, <code>ChatRagStorage</code> y <code>ZeroChatDB</code></td><td>[test] <code>test_persistence_boundary.js</code> (R-03)</td><td>Cumple: fuera de ellos solo <code>js/sandbox.js</code> nombra esas APIs, para bloquearlas</td></tr>
               <tr><td>Diálogos solo con <code>ChatDialogs</code></td><td>[test] <code>test_dialogs.js</code></td><td>Cumple</td></tr>
-              <tr><td>Mensajes inyectados en inglés</td><td>[sin prueba]</td><td>Cumple en los casos revisados (R-05)</td></tr>
-              <tr><td>Sin emojis en controles; iconos de <code>ChatIcons</code></td><td>[test] parcial: banner de importación y resumen de razonamiento; [test] <code>test_icon_sprite.js</code> para el sprite</td><td>Cumple en lo cubierto (R-07)</td></tr>
-              <tr><td>Colores, radios y sombras en <code>tokens.css</code>; sin respaldo en <code>var()</code>; mostrar y ocultar con <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code></td><td>Cumple</td></tr>
+              <tr><td>Mensajes inyectados en inglés</td><td>[test] <code>test_english_literals.js</code> (R-05)</td><td>Cumple: ningún literal fuera de <code>i18n.js</code> está en español</td></tr>
+              <tr><td>Sin emojis en controles; iconos de <code>ChatIcons</code></td><td>[test] <code>test_ui_modernization.js</code> (marcado, catálogo de iconos y textos de controles) (R-07) y <code>test_icon_sprite.js</code></td><td>Cumple</td></tr>
+              <tr><td>Colores, radios y sombras en <code>tokens.css</code>; sin respaldo en <code>var()</code>; mostrar y ocultar con <code>hidden</code></td><td>[test] <code>test_style_hygiene.js</code>, también selectores sin consumidores (R-10)</td><td>Cumple: retirada la regla muerta <code>.btn-copied</code></td></tr>
               <tr><td>Renderizado diferido durante el streaming</td><td>[sin prueba]</td><td>No verificado</td></tr>
-              <tr><td>Contrato de herramientas de <code>js/tools/README.md</code></td><td>[sin prueba] desde que se retiró <code>test_tool_contract.js</code></td><td>Cumple por lectura; la norma cita propiedades que ya no existen (R-06)</td></tr>
+              <tr><td>Contrato de herramientas de <code>js/tools/README.md</code></td><td>[test] <code>test_builtin_tools.js</code> (R-06)</td><td>Cumple: la norma cita solo las claves de <code>js/tools/README.md</code></td></tr>
               <tr><td>Errores explícitos, sin <code>catch</code> vacíos</td><td>[test] <code>test_error_handling.js</code></td><td>Cumple</td></tr>
               <tr><td>Backend: sin <code>except Exception: pass</code>, <code>zz-main.py</code> último, <code>zerochat.py</code> igual a la concatenación de <code>py/</code>, definiciones y manejadores de herramientas emparejados</td><td>[test] <code>test_backend_hygiene.js</code></td><td>Cumple</td></tr>
               <tr><td>Versiones solo con <code>npm run bump</code></td><td>[test] <code>test_versioning.js</code></td><td>Cumple</td></tr>
               <tr><td>El wheel solo contiene el ejecutable</td><td>[test] <code>tests/packaging_smoke_test.py</code> en <code>release.yml</code></td><td>Cumple</td></tr>
-              <tr><td>Ayuda bilingüe y coherente con el comportamiento</td><td>[sin prueba]</td><td>21 páginas en cada idioma [cmd]; la ayuda seguía diciendo «8.x» tras publicar la 9.0.0 (R-09)</td></tr>
-              <tr><td>Datos externos fuera de <code>innerHTML</code></td><td>[test] parcial: escape de las primitivas de <code>ChatUtils</code></td><td>100 usos de <code>innerHTML</code> en 28 archivos sin clasificar (R-08)</td></tr>
+              <tr><td>Ayuda bilingüe y coherente con el comportamiento</td><td>[test] parcial: <code>test_help_pages.js</code> comprueba traducción, enlace cruzado y serie (R-09); la coherencia con el comportamiento sigue siendo de lectura</td><td>Cumple en lo cubierto</td></tr>
+              <tr><td>Datos externos fuera de <code>innerHTML</code></td><td>[test] <code>test_html_sinks.js</code>, lista cerrada de 92 usos revisados en 24 archivos, y pruebas de inyección (R-08)</td><td>Cumple: la revisión encontró y corrigió un caso real en <code>render_chart</code></td></tr>
             </tbody>
           </table>
         </div>
-        <p>Recuento: de 23 normas, <strong>12 tienen prueba</strong> (3 de ellas parcial), 1 se protege de forma implícita, 3 se comprueban solo por comando o lectura y <strong>7 no tienen ninguna prueba</strong>. La mayoría de esas 7 son del tipo que provocó la limpieza de la 9.0.0.</p>
+        <p>Recuento en la revisión: de 23 normas, 12 tenían prueba (3 de ellas parcial), 1 se protegía de forma implícita, 3 se comprobaban solo por comando o lectura y 7 no tenían ninguna prueba.</p>
+        <p>Recuento tras el cierre: <strong>19 tienen prueba</strong> (2 de ellas parcial), 1 se protege de forma implícita, 1 se comprueba por lectura y <strong>2 no tienen prueba</strong>: la ausencia de código de compatibilidad, que no es comprobable de forma general, y el renderizado diferido durante el streaming.</p>
       </div>
 
       <div class="card">
@@ -126,27 +127,48 @@
         <p>Cada hallazgo propone la norma o la prueba que impide que vuelva. Ninguno es crítico ni alto.</p>
         <div class="table-responsive">
           <table>
-            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta y prueba de cierre</th></tr></thead>
+            <thead><tr><th>ID</th><th>Prioridad</th><th>Evidencia</th><th>Propuesta y prueba de cierre</th><th>Cierre</th></tr></thead>
             <tbody>
-              <tr><td><strong>R-01</strong></td><td>Media</td><td><code>js/providers-webllm.js:368-371</code> comprueba con <code>Providers?.</code> y <code>typeof</code> que exista <code>BaseProviderAdapter</code>, y la línea 474 usa <code>Providers.registry?.register</code>. <code>zerochat.html</code> carga siempre <code>providers.js</code> antes.</td><td>Retirar las guardas y ampliar <code>test_code_hygiene.js</code> para rechazar <code>?.</code> y <code>typeof … !== 'function'</code> sobre los módulos que carga <code>zerochat.html</code>.</td></tr>
-              <tr><td><strong>R-02</strong></td><td>Media</td><td>La norma de <code>mount()</code> y listeners delegados no tiene prueba.</td><td>Prueba de arquitectura: en <code>js/ui-*.js</code>, <code>addEventListener</code> solo dentro de <code>mount()</code> o de un manejador; prueba de integración que repinte una lista dos veces y compruebe que un clic dispara una sola acción.</td></tr>
-              <tr><td><strong>R-03</strong></td><td>Media</td><td>La frontera de persistencia se cumple, pero solo lo demuestra un <code>grep</code>.</td><td>Prueba de arquitectura que rechace <code>localStorage</code>, <code>indexedDB</code> y <code>document.cookie</code> fuera de <code>storage.js</code>, <code>storage-db.js</code> y <code>ragStorage.js</code>, con la lista de bloqueo de <code>sandbox.js</code> como única excepción.</td></tr>
-              <tr><td><strong>R-04</strong></td><td>Baja</td><td>La herencia de <code>BaseProviderAdapter</code> se comprueba leyendo el código.</td><td>Prueba: todo adaptador del registro es <code>instanceof BaseProviderAdapter</code>.</td></tr>
-              <tr><td><strong>R-05</strong></td><td>Baja</td><td>Los mensajes inyectados en inglés no tienen prueba.</td><td>Reunir los textos inyectados en constantes y comprobar que no contienen caracteres propios del español (<code>áéíóúñ¿¡</code>).</td></tr>
-              <tr><td><strong>R-06</strong></td><td>Baja</td><td><code>AGENTS.md</code> §3 prohíbe las propiedades <code>ui</code> y <code>handler</code>, que la API de herramientas ya no tiene desde <code>63d4315</code>; con esa API se retiró <code>test_tool_contract.js</code>.</td><td>Sustituir la frase por «solo las claves documentadas en <code>js/tools/README.md</code>» y añadir una prueba que compare las claves de cada módulo de <code>BUILTIN_TOOL_MODULES</code> con esa lista.</td></tr>
-              <tr><td><strong>R-07</strong></td><td>Baja</td><td>La prueba de emojis solo mira dos componentes.</td><td>Extenderla a <code>zerochat.html</code>, <code>js/icons.js</code> y los textos de botones de <code>js/i18n.js</code>.</td></tr>
-              <tr><td><strong>R-08</strong></td><td>Media</td><td>100 usos de <code>innerHTML</code> en 28 archivos; no se ha demostrado que ninguno reciba datos externos sin sanear.</td><td>Prueba de arquitectura con la lista cerrada de usos permitidos (vaciar, Markdown saneado, SVG de <code>ChatIcons</code>); un uso nuevo obliga a justificarlo o a usar <code>setText</code>.</td></tr>
-              <tr><td><strong>R-09</strong></td><td>Baja</td><td>Tras publicar la 9.0.0, toda la ayuda seguía indicando «8.x» (corregido en esta revisión). Nada comprueba que cada página tenga su traducción.</td><td>Prueba: cada <code>help/X.html</code> tiene <code>help/en/X.html</code>, se enlazan entre sí y muestran la misma serie <code>major.x</code> que <code>package.json</code>.</td></tr>
-              <tr><td><strong>R-10</strong></td><td>Baja</td><td>Se comprueban tokens y variables CSS sin uso, no selectores sin consumidores.</td><td>Ampliar <code>test_style_hygiene.js</code> con las clases e identificadores que no aparecen en HTML ni JavaScript.</td></tr>
+              <tr><td><strong>R-01</strong></td><td>Media</td><td><code>js/providers-webllm.js:368-371</code> comprueba con <code>Providers?.</code> y <code>typeof</code> que exista <code>BaseProviderAdapter</code>, y la línea 474 usa <code>Providers.registry?.register</code>. <code>zerochat.html</code> carga siempre <code>providers.js</code> antes.</td><td>Retirar las guardas y ampliar <code>test_code_hygiene.js</code> para rechazar <code>?.</code> y <code>typeof … !== 'function'</code> sobre los módulos que carga <code>zerochat.html</code>.</td><td>Cerrado en <code>86b5450</code>: guardas retiradas; <code>test_code_hygiene.js</code> las rechaza.</td></tr>
+              <tr><td><strong>R-02</strong></td><td>Media</td><td>La norma de <code>mount()</code> y listeners delegados no tiene prueba.</td><td>Prueba de arquitectura: en <code>js/ui-*.js</code>, <code>addEventListener</code> solo dentro de <code>mount()</code> o de un manejador; prueba de integración que repinte una lista dos veces y compruebe que un clic dispara una sola acción.</td><td>Cerrado en <code>9ff0df4</code>: <code>ui-mcp.js</code> enlazaba en cada repintado y evitaba duplicados con marcas <code>dataset.mcpBound</code>; ahora delega en <code>initMcpUI</code> y libera los listeners en <code>destroy()</code>. <code>test_ui_listeners.js</code> sigue las llamadas de cada módulo; tres excepciones revisadas.</td></tr>
+              <tr><td><strong>R-03</strong></td><td>Media</td><td>La frontera de persistencia se cumple, pero solo lo demuestra un <code>grep</code>.</td><td>Prueba de arquitectura que rechace <code>localStorage</code>, <code>indexedDB</code> y <code>document.cookie</code> fuera de <code>storage.js</code>, <code>storage-db.js</code> y <code>ragStorage.js</code>, con la lista de bloqueo de <code>sandbox.js</code> como única excepción.</td><td>Cerrado en <code>266c2ef</code>: <code>test_persistence_boundary.js</code>.</td></tr>
+              <tr><td><strong>R-04</strong></td><td>Baja</td><td>La herencia de <code>BaseProviderAdapter</code> se comprueba leyendo el código.</td><td>Prueba: todo adaptador del registro es <code>instanceof BaseProviderAdapter</code>.</td><td>Cerrado en <code>a60bebe</code>: prueba en <code>test_providers.js</code>.</td></tr>
+              <tr><td><strong>R-05</strong></td><td>Baja</td><td>Los mensajes inyectados en inglés no tienen prueba.</td><td>Reunir los textos inyectados en constantes y comprobar que no contienen caracteres propios del español (<code>áéíóúñ¿¡</code>).</td><td>Cerrado en <code>631f2d3</code>: en lugar de reunir los textos en constantes, <code>test_english_literals.js</code> analiza todos los literales de cadena fuera de <code>i18n.js</code>. Ningún texto para el modelo estaba en español; sí la descripción del perfil Espejo, que el editor mostraba en cualquier idioma.</td></tr>
+              <tr><td><strong>R-06</strong></td><td>Baja</td><td><code>AGENTS.md</code> §3 prohíbe las propiedades <code>ui</code> y <code>handler</code>, que la API de herramientas ya no tiene desde <code>63d4315</code>; con esa API se retiró <code>test_tool_contract.js</code>.</td><td>Sustituir la frase por «solo las claves documentadas en <code>js/tools/README.md</code>» y añadir una prueba que compare las claves de cada módulo de <code>BUILTIN_TOOL_MODULES</code> con esa lista.</td><td>Cerrado en <code>1a2dea4</code>: norma reescrita y prueba en <code>test_builtin_tools.js</code>.</td></tr>
+              <tr><td><strong>R-07</strong></td><td>Baja</td><td>La prueba de emojis solo mira dos componentes.</td><td>Extenderla a <code>zerochat.html</code>, <code>js/icons.js</code> y los textos de botones de <code>js/i18n.js</code>.</td><td>Cerrado en <code>fedfbda</code>: <code>test_ui_modernization.js</code> ampliado.</td></tr>
+              <tr><td><strong>R-08</strong></td><td>Media</td><td>100 usos de <code>innerHTML</code> en 28 archivos; no se ha demostrado que ninguno reciba datos externos sin sanear.</td><td>Prueba de arquitectura con la lista cerrada de usos permitidos (vaciar, Markdown saneado, SVG de <code>ChatIcons</code>); un uso nuevo obliga a justificarlo o a usar <code>setText</code>.</td><td>Cerrado en <code>29a1af3</code>: 92 usos revisados en <code>test_html_sinks.js</code>. <strong>Defecto real:</strong> <code>render_chart</code> interpolaba el color y los valores que envía el modelo en atributos SVG sin escapar; un texto dirigido por una página web podía inyectar marcado. Ahora se normalizan, con prueba de inyección en <code>test_charts.js</code>.</td></tr>
+              <tr><td><strong>R-09</strong></td><td>Baja</td><td>Tras publicar la 9.0.0, toda la ayuda seguía indicando «8.x» (corregido en esta revisión). Nada comprueba que cada página tenga su traducción.</td><td>Prueba: cada <code>help/X.html</code> tiene <code>help/en/X.html</code>, se enlazan entre sí y muestran la misma serie <code>major.x</code> que <code>package.json</code>.</td><td>Cerrado en <code>975a723</code>: <code>test_help_pages.js</code>; añadido el selector de idioma que faltaba en las páginas de claves de API.</td></tr>
+              <tr><td><strong>R-10</strong></td><td>Baja</td><td>Se comprueban tokens y variables CSS sin uso, no selectores sin consumidores.</td><td>Ampliar <code>test_style_hygiene.js</code> con las clases e identificadores que no aparecen en HTML ni JavaScript.</td><td>Cerrado en <code>14a7fab</code>: <code>test_style_hygiene.js</code> con prefijos de clases compuestas declarados; retirada <code>.btn-copied</code>.</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Los hallazgos H-01 a H-04 de la auditoría de la 8.12.4 siguen cerrados, y los dos más relevantes (catch vacíos y literales sin traducir) están protegidos por pruebas.</p>
+        <p>Los diez hallazgos están cerrados; el detalle del cierre está en la sección 7. Los hallazgos H-01 a H-04 de la auditoría de la 8.12.4 siguen cerrados, y los dos más relevantes (catch vacíos y literales sin traducir) están protegidos por pruebas.</p>
       </div>
 
       <div class="card">
         <h2>6. Dictamen</h2>
-        <p>La suite pasa íntegra y las normas que provocaron la limpieza más costosa (dependencias, código sin uso, estilos, backend) ya tienen prueba. Quedan siete normas que dependen de que un agente lea <code>AGENTS.md</code>; R-01 demuestra que alguna ya se incumple. Se recomienda cerrar R-01 a R-03 y R-08 antes de añadir funcionalidad nueva, y seguir la regla de la lección: <strong>norma nueva, prueba nueva, en el mismo commit</strong>.</p>
+        <p>En la revisión, la suite pasaba íntegra, pero siete normas dependían de que un agente leyera <code>AGENTS.md</code>, y R-01 demostraba que alguna ya se incumplía. Se recomendó cerrar R-01 a R-03 y R-08 antes de añadir funcionalidad nueva.</p>
+        <p><strong>Tras el cierre</strong>, solo quedan sin prueba dos normas que no se pueden comprobar de forma estática. Dos de las pruebas nuevas encontraron incumplimientos que la lectura había dado por buenos: los listeners de la sección MCP (R-02) y la inyección en <code>render_chart</code> (R-08). Es la confirmación de la lección: <strong>norma nueva, prueba nueva, en el mismo commit</strong>.</p>
+      </div>
+
+      <div class="card" id="cierre">
+        <h2>7. Cierre</h2>
+        <p>Verificación del 13 de octubre de 2026 en <code>dev</code> (commit <code>14a7fab</code>), con el procedimiento de cierre de <code>docs/audits/AuditFull.md</code>:</p>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Comando</th><th>Resultado</th></tr></thead>
+            <tbody>
+              <tr><td><code>npm test</code> (todos los niveles)</td><td>774 pruebas: 773 correctas y 1 omitida</td></tr>
+              <tr><td><code>npm run test:unit</code></td><td>241/241</td></tr>
+              <tr><td><code>npm run test:integration</code></td><td>352/352</td></tr>
+              <tr><td><code>npm run test:infrastructure</code></td><td>34/35; se omite la prueba del Job Object, exclusiva de Windows</td></tr>
+              <tr><td><code>npm run test:architecture</code></td><td>46/46 en 14 archivos</td></tr>
+              <tr><td><code>npm run test:browser</code></td><td>100/100 en Chromium headless</td></tr>
+              <tr><td><code>npm run build</code></td><td>Sin diferencias en los archivos generados</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Cada cierre fue un commit independiente con su prueba; en R-01, R-02, R-05, R-08 y R-10 la prueba falla con el código anterior, porque había incumplimientos. La norma correspondiente de <code>AGENTS.md</code> cita ahora la prueba que la protege.</p>
       </div>
 
       <div class="card" id="autoria">
@@ -173,7 +195,7 @@
     </nav>
 
     <footer>
-      <p>ZeroChat 9.x · Revisión 1 (Infraestructura y normas) · 12 de octubre de 2026</p>
+      <p>ZeroChat 9.x · Revisión 1 (Infraestructura y normas) · 12 de octubre de 2026 · cierre: 13 de octubre de 2026</p>
     </footer>
   </div>
 </body>
