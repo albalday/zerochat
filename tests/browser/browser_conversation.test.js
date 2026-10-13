@@ -772,6 +772,7 @@ test('Browser UI - Borrado de mensaje durante streaming no modifica DOM ni estad
       { id: 'ast_streaming_1', role: 'assistant', content: 'Respuesta previa' }
     ]), sessionId);
     await openSavedSession(page, sessionId);
+    await page.waitForSelector('.message-wrapper.user .btn-delete');
 
     const result = await page.evaluate(async id => {
       window.ChatState.set('streaming', { isGenerating: true });
