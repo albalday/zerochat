@@ -116,6 +116,7 @@
         const replay = m.reasoningReplay;
         if (index > currentTurnStart && replay && typeof replay.field === 'string' && typeof replay.text === 'string') {
           item[replay.field] = replay.text;
+          if (typeof replay.signature === 'string') item.reasoning_signature = replay.signature;
         }
         messages.push(item);
       } else if (m.role === 'tool') {

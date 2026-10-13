@@ -77,8 +77,8 @@ test('ContextCache - ClaudeAdapter genera cabeceras nativas y ubica cache_contro
   assert.ok(payload.system[0].cache_control, 'El system prompt debe tener cache_control');
   // El último mensaje (tool response) debe ser el que tenga cache_control
   const lastMsg = payload.messages[payload.messages.length - 1];
-  assert.equal(lastMsg.role, 'tool');
-  assert.ok(Array.isArray(lastMsg.content), 'El mensaje debe haberse convertido en array con partes de contenido');
+  assert.equal(lastMsg.role, 'user');
+  assert.equal(lastMsg.content[0].type, 'tool_result');
   assert.ok(lastMsg.content[0].cache_control, 'El resultado de la herramienta debe tener cache_control para el siguiente turno');
 });
 

@@ -28,7 +28,7 @@
       <h2>1. Model reasoning</h2>
       <p>Some providers return reasoning content or a summary that ZeroChat displays in a collapsible block. This is what the API exposes, not a complete view of the model's internal process.</p>
       <p>The composer's reasoning control lets you choose from None to Maximum. ZeroChat maps the level to parameters supported by each adapter. None omits explicit configuration: it does not guarantee disabling reasoning used by a model by default. Availability and effect depend on the model.</p>
-      <p>While the agent chains tools within one answer, ZeroChat sends each step's reasoning back to the model so it keeps its plan from one call to the next. It only does so when the server sends reasoning in its own field (<code>reasoning_content</code> or <code>reasoning</code>, as llama.cpp, vLLM, Ollama or OpenRouter do), and drops it when the answer ends: the next message does not include it and it is not saved in the conversation.</p>
+      <p>While the agent chains tools within one answer, ZeroChat sends each step's reasoning back to the model so it keeps its plan from one call to the next. It only does so when the server sends reasoning in its own field (<code>reasoning_content</code> or <code>reasoning</code>, as llama.cpp, vLLM, Ollama or OpenRouter do) or in Messages API <code>thinking</code> blocks, which are sent back with their signature, and drops it when the answer ends: the next message does not include it and it is not saved in the conversation.</p>
       <p>The same panel has the "Project mode" switch, and the dot on the button shows that a project is in use: see <a href="project-mode.html">Project management</a>.</p>
     </div>
 

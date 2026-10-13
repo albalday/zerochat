@@ -68,6 +68,18 @@ test('ChatEngine - reenvía el razonamiento solo en los pasos del turno en curso
   assert.equal(messages.some(m => 'reasoningReplay' in m), false);
 });
 
+test('ChatEngine - reenvía la firma del razonamiento cuando el servidor la entrega', () => {
+  const messages = buildMessages([
+    { role: 'user', content: 'Pregunta' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
+      reasoningReplay: { field: 'thinking', text: 'plan', signature: '' } },
+    { role: 'tool', tool_call_id: 'c1', name: 'read_file', content: 'a' }
+  ]);
+  const assistant = messages.find(m => m.role === 'assistant');
+  assert.equal(assistant.thinking, 'plan');
+  assert.equal(assistant.reasoning_signature, '');
+});
+
 test('ChatEngine - no inventa turnos assistant para resultados de llamadas paralelas', () => {
   const messages = buildMessages([
     { role: 'user', content: 'Busca dos cosas' },

@@ -196,6 +196,97 @@ test('ClaudeAdapter - Parseo de chunks SSE nativos de Anthropic', () => {
   assert.equal(uChunk.cachedTokens, 3500);
 });
 
+test('ClaudeAdapter - Acumula los bloques tool_use y la firma del thinking del streaming', () => {
+  const adapter = new ClaudeProviderAdapter();
+
+  const thinking = adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'plan' } });
+  assert.equal(thinking.reasoningField, 'thinking');
+  const signature = adapter.parseStreamChunk({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: '' } });
+  assert.equal(signature.reasoningSignature, '', 'Una firma vacía también se reenvía');
+
+  const start = adapter.parseStreamChunk({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: {} } });
+  assert.deepEqual(start.toolCallDeltas, [{ index: 1, id: 'toolu_1', function: { name: 'get_weather', arguments: '' } }]);
+  const args = adapter.parseStreamChunk({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"city":' } });
+  assert.deepEqual(args.toolCallDeltas, [{ index: 1, function: { arguments: '{"city":' } }]);
+
+  const complete = adapter.parseStreamChunk({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_2', name: 'now', input: { tz: 'UTC' } } });
+  assert.equal(complete.toolCallDeltas[0].function.arguments, '{"tz":"UTC"}', 'Un input completo en el inicio del bloque cuenta como argumentos');
+});
+
+test('ClaudeAdapter - El contexto de la Messages API suma la entrada y la caché', () => {
+  const adapter = new ClaudeProviderAdapter();
+  const start = adapter.parseStreamChunk({ type: 'message_start', message: { usage: { input_tokens: 4, cache_read_input_tokens: 319, cache_creation_input_tokens: 10, output_tokens: 0 } } });
+  assert.equal(start.usage.prompt_tokens, 333);
+  assert.equal(start.cachedTokens, 319);
+  const delta = adapter.parseStreamChunk({ type: 'message_delta', usage: { output_tokens: 57 } });
+  assert.equal(delta.usage.prompt_tokens, undefined, 'Sin input_tokens no se inventa la entrada');
+});
+
+test('ClaudeAdapter - Traduce el historial de herramientas a bloques tool_use y tool_result', () => {
+  const adapter = new ClaudeProviderAdapter();
+  const toolsList = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object', properties: {} } } }];
+  const payload = adapter.buildPayload({
+    model: 'modelo',
+    reasoningEffort: 'low',
+    toolsList,
+    messages: [
+      { role: 'user', content: 'Tiempo en Madrid y París' },
+      {
+        role: 'assistant',
+        content: 'Consulto las dos.',
+        thinking: 'dos llamadas',
+        reasoning_signature: 'firma',
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"Madrid"}' } },
+          { id: 'c2', type: 'function', function: { name: 'get_weather', arguments: 'no es json' } }
+        ]
+      },
+      { role: 'tool', tool_call_id: 'c1', name: 'get_weather', content: '22C' },
+      { role: 'tool', tool_call_id: 'c2', name: 'get_weather', content: { error: 'bad args' } }
+    ]
+  });
+
+  assert.deepEqual(payload.messages[1], {
+    role: 'assistant',
+    content: [
+      { type: 'thinking', thinking: 'dos llamadas', signature: 'firma' },
+      { type: 'text', text: 'Consulto las dos.' },
+      { type: 'tool_use', id: 'c1', name: 'get_weather', input: { city: 'Madrid' } },
+      { type: 'tool_use', id: 'c2', name: 'get_weather', input: {} }
+    ]
+  });
+  assert.equal(payload.messages.length, 3, 'Los resultados paralelos van en un único turno user');
+  assert.deepEqual(payload.messages[2].content.map(block => [block.type, block.tool_use_id, block.content]), [
+    ['tool_result', 'c1', '22C'],
+    ['tool_result', 'c2', '{"error":"bad args"}']
+  ]);
+  assert.deepEqual(payload.tool_choice, { type: 'auto' });
+  assert.equal(toolsList[0].cache_control, undefined, 'La lista de herramientas recibida no se modifica');
+  assert.ok(payload.tools[0].cache_control);
+  assert.equal(payload.max_tokens, 32000, 'El razonamiento no recorta la salida máxima');
+});
+
+test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del modelo', () => {
+  const adapter = new ClaudeProviderAdapter();
+  const tools = [{ type: 'function', function: { name: 'read_file' } }];
+  const choice = toolChoice => adapter.buildPayload({ model: 'm', messages: [{ role: 'user', content: 'x' }], toolsList: tools, toolChoice }).tool_choice;
+  assert.deepEqual(choice('none'), { type: 'none' });
+  assert.deepEqual(choice('required'), { type: 'any' });
+  assert.deepEqual(choice({ type: 'function', function: { name: 'read_file' } }), { type: 'tool', name: 'read_file' });
+
+  const textOnly = adapter.formatMessages([{ role: 'user', content: [
+    { type: 'text', text: 'Mira' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }
+  ] }], { ...adapter.getCapabilities(), vision: false });
+  assert.deepEqual(textOnly[0].content, [{ type: 'text', text: 'Mira' }]);
+
+  const payload = adapter.buildPayload({ model: 'm', messages: [{ role: 'user', content: 'x' }], reasoningEffort: 'xhigh' });
+  const recovery = adapter.handleHttpError(400, 'max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens for m', payload);
+  assert.equal(recovery.reason, 'max_tokens_rejected');
+  assert.equal(payload.max_tokens, 8192);
+  assert.equal(payload.thinking.budget_tokens, 4096, 'El presupuesto de razonamiento queda por debajo del nuevo límite');
+});
+
 test('OllamaAdapter - Endpoints y parseo de modelos de Ollama (/api/tags)', () => {
   const adapter = new OllamaProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('http://localhost:11434'), 'http://localhost:11434/v1/chat/completions');

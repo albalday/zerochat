@@ -231,9 +231,14 @@
     // Razonamiento recibido en un campo propio del delta; el agente lo reenvía dentro del turno.
     let replayReasoning = '';
     let replayReasoningField = '';
-    const getReasoningReplay = () => (replayReasoningField && replayReasoning
-      ? { field: replayReasoningField, text: replayReasoning }
-      : null);
+    // Firma con la que la Messages API valida el bloque thinking reenviado; puede llegar vacía.
+    let replaySignature = null;
+    const getReasoningReplay = () => {
+      if (!replayReasoningField || !replayReasoning) return null;
+      const replay = { field: replayReasoningField, text: replayReasoning };
+      if (replaySignature !== null) replay.signature = replaySignature;
+      return replay;
+    };
     let accumulatedToolCalls = {};
     let chunkCount = 0;
     let activeReasoningTag = null;
@@ -456,6 +461,7 @@
 
               if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
               if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
+              if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
 
               // Tokens de razonamiento específicos
               if (chunkData.reasoningChunk) {

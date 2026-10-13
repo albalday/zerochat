@@ -91,6 +91,36 @@ test('Api - devuelve para reenviar solo el razonamiento recibido en un campo pro
   }
 });
 
+test('Api - Messages API: llamadas tool_use en streaming y razonamiento con firma para reenviar', async () => {
+  const originalFetch = global.fetch;
+  const events = [
+    { type: 'message_start', message: { usage: { input_tokens: 20, cache_read_input_tokens: 100 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'dos ciudades' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig' } },
+    { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_a', name: 'get_weather', input: {} } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"city":' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '"Madrid"}' } },
+    { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_b', name: 'get_weather', input: {} } },
+    { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"city":"Paris"}' } },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 30 } },
+    { type: 'message_stop' }
+  ];
+  try {
+    global.fetch = async () => new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''));
+    const result = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'claude', model: 'test', messages: [{ role: 'user', content: 'x' }] });
+    assert.deepEqual(result.toolCalls.map(call => [call.id, call.function.name, call.function.arguments]), [
+      ['toolu_a', 'get_weather', '{"city":"Madrid"}'],
+      ['toolu_b', 'get_weather', '{"city":"Paris"}']
+    ]);
+    assert.deepEqual(result.reasoningReplay, { field: 'thinking', text: 'dos ciudades', signature: 'sig' });
+    assert.equal(result.stats.promptTokens, 120);
+    assert.equal(result.stats.completionTokens, 30);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
   const originalFetch = global.fetch;
   let network = 0;

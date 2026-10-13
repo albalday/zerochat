@@ -572,6 +572,36 @@
     }
   }
 
+  // Salida máxima por petición en la Messages API, donde max_tokens es obligatorio.
+  const CLAUDE_MAX_TOKENS = 32000;
+
+  // tool_choice de OpenAI ('auto', 'none', 'required' o una función concreta) en la Messages API.
+  function toClaudeToolChoice(choice) {
+    if (choice === 'auto' || choice === 'none') return { type: choice };
+    if (choice === 'required') return { type: 'any' };
+    if (choice && choice.type === 'function' && choice.function?.name) return { type: 'tool', name: choice.function.name };
+    return null;
+  }
+
+  // tool_use exige un objeto como input: unos argumentos ilegibles se reenvían como objeto vacío,
+  // porque el resultado de esa herramienta ya le explica el error al modelo.
+  function parseToolInput(args) {
+    if (args && typeof args === 'object') return args;
+    try {
+      const parsed = JSON.parse(args || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  // input_tokens de la Messages API excluye lo leído y escrito en caché; el contexto es la suma.
+  function withClaudePromptTokens(usage) {
+    if (usage.input_tokens === undefined) return usage;
+    const promptTokens = usage.input_tokens + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+    return { ...usage, prompt_tokens: promptTokens };
+  }
+
   /**
    * Adaptador para Anthropic Claude (/v1/messages).
    */
@@ -616,10 +646,26 @@
       return headers;
     }
 
+    /**
+     * Traduce el historial en formato OpenAI a bloques de la Messages API: imágenes base64, assistant
+     * con thinking, text y tool_use, y resultados de herramientas como tool_result en un turno user.
+     */
     formatMessages(messages, capabilities) {
       const caps = capabilities || this.getCapabilities();
-      return messages.map(m => {
-        if (Array.isArray(m.content)) {
+      const formatted = [];
+      messages.forEach(m => {
+        if (m.role === 'tool') {
+          const block = { type: 'tool_result', tool_use_id: m.tool_call_id, content: serializeContent(m.content) };
+          const previous = formatted[formatted.length - 1];
+          // Los resultados de llamadas paralelas van juntos en el turno user que sigue al assistant.
+          if (previous && previous.role === 'user' && Array.isArray(previous.content) && previous.content.every(part => part.type === 'tool_result')) {
+            previous.content.push(block);
+          } else {
+            formatted.push({ role: 'user', content: [block] });
+          }
+        } else if (m.role === 'assistant') {
+          formatted.push(this.formatAssistantMessage(m));
+        } else if (Array.isArray(m.content)) {
           const claudeParts = m.content.map(part => {
             if (caps.vision && part.type === 'image_url' && part.image_url && part.image_url.url) {
               const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
@@ -635,11 +681,40 @@
               }
             }
             return part;
-          }).filter(part => caps.vision || part.type !== 'image');
-          return { ...m, content: claudeParts };
+          }).filter(part => part.type === 'text' || (caps.vision && part.type === 'image'));
+          formatted.push({ ...m, content: claudeParts });
+        } else {
+          formatted.push(m);
         }
-        return m;
       });
+      return formatted;
+    }
+
+    formatAssistantMessage(m) {
+      const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+      const hasThinking = typeof m.thinking === 'string' && m.thinking !== '';
+      if (!hasToolCalls && !hasThinking) return { role: 'assistant', content: m.content ?? '' };
+
+      const blocks = [];
+      if (hasThinking) {
+        const thinking = { type: 'thinking', thinking: m.thinking };
+        if (typeof m.reasoning_signature === 'string') thinking.signature = m.reasoning_signature;
+        blocks.push(thinking);
+      }
+      if (Array.isArray(m.content)) {
+        blocks.push(...m.content);
+      } else if (typeof m.content === 'string' && m.content.trim() !== '') {
+        blocks.push({ type: 'text', text: m.content });
+      }
+      (m.tool_calls || []).forEach(call => {
+        blocks.push({
+          type: 'tool_use',
+          id: call.id,
+          name: call.function?.name || '',
+          input: parseToolInput(call.function?.arguments)
+        });
+      });
+      return { role: 'assistant', content: blocks };
     }
 
     buildPayload(params) {
@@ -665,11 +740,13 @@
         systemContent = systemMessages.map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).join('\n\n');
       }
 
+      // max_tokens es obligatorio y limita razonamiento y respuesta juntos; un modelo con menos
+      // salida máxima lo rechaza indicando su límite y handleHttpError reintenta con él.
       const payload = {
         model: (model || '').trim(),
         messages: nonSystemMessages,
         temperature: parseFloat(temperature) || 0.7,
-        max_tokens: 4096
+        max_tokens: CLAUDE_MAX_TOKENS
       };
 
       if (systemContent) {
@@ -697,51 +774,57 @@
               input_schema: t.function.parameters || { type: 'object', properties: {} }
             };
           }
-          return t;
+          return { ...t };
         });
-        if (capabilities.promptCaching && payload.tools.length > 0) {
-          payload.tools[payload.tools.length - 1].cache_control = { type: 'ephemeral' };
-        }
+        const choice = toClaudeToolChoice(toolChoice);
+        if (choice) payload.tool_choice = choice;
       }
 
       if (capabilities.promptCaching) {
-        this.applyContextCache(payload, { toolsList, messages: nonSystemMessages });
+        this.applyContextCache(payload, { messages: nonSystemMessages });
       }
 
       return payload;
     }
 
+    /** El razonamiento se activa con un presupuesto; sin él la Messages API no razona. */
     applyReasoning(payload, effortLevel) {
       const effort = String(effortLevel || 'none').toLowerCase().trim();
+      let budget = 2048;
+      if (effort === 'low' || effort === 'minimal') budget = 1024;
+      else if (effort === 'high') budget = 4096;
+      else if (effort === 'xhigh') budget = 8192;
 
-      if (effort !== 'none') {
-        let budget = 2048;
-        if (effort === 'low' || effort === 'minimal') budget = 1024;
-        else if (effort === 'medium') budget = 2048;
-        else if (effort === 'high') budget = 4096;
-        else if (effort === 'xhigh') budget = 8192;
-
-        payload.thinking = {
-          type: 'enabled',
-          budget_tokens: budget
-        };
-        payload.temperature = 1.0;
-        payload.max_tokens = Math.max(4096, budget + 1024);
-      } else {
-        payload.thinking = { type: 'disabled' };
-      }
+      payload.thinking = {
+        type: 'enabled',
+        budget_tokens: budget
+      };
+      payload.temperature = 1.0;
     }
 
     applyContextCache(payload, options = {}) {
-      const { toolsList = [], messages = [] } = options;
+      const { messages = [] } = options;
 
-      if (toolsList.length > 0 && !toolsList[toolsList.length - 1].cache_control) {
-        toolsList[toolsList.length - 1].cache_control = { type: 'ephemeral' };
+      if (Array.isArray(payload.tools) && payload.tools.length > 0) {
+        payload.tools[payload.tools.length - 1].cache_control = { type: 'ephemeral' };
       }
 
       // El sistema va en payload.system con su propio punto de caché; aquí solo hay turnos.
       const lastProcessableIdx = findLastProcessableIndex(messages);
       payload.messages = messages.map((m, idx) => (idx === lastProcessableIdx ? { ...m, content: attachCacheControl(m.content) } : m));
+    }
+
+    handleHttpError(status, serverErrorMsg, payload) {
+      // Anthropic: "max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens".
+      const limit = Number((String(serverErrorMsg || '').match(/max_tokens\D*\d+\s*>\s*(\d+)/i) || [])[1]);
+      if (status === 400 && limit > 0 && limit < payload.max_tokens) {
+        payload.max_tokens = limit;
+        if (payload.thinking && payload.thinking.budget_tokens >= limit) {
+          payload.thinking.budget_tokens = Math.floor(limit / 2);
+        }
+        return { retry: true, reason: 'max_tokens_rejected' };
+      }
+      return super.handleHttpError(status, serverErrorMsg, payload);
     }
 
     parseStreamChunk(parsed, state) {
@@ -754,25 +837,33 @@
         cacheCreationTokens: 0
       };
 
-      if (parsed.type === 'message_start' && parsed.message?.usage) {
-        result.usage = parsed.message.usage;
-        if (parsed.message.usage.cache_read_input_tokens) {
-          result.cachedTokens = parsed.message.usage.cache_read_input_tokens;
-        }
-        if (parsed.message.usage.cache_creation_input_tokens) {
-          result.cacheCreationTokens = parsed.message.usage.cache_creation_input_tokens;
-        }
+      const usage = parsed.type === 'message_start' ? parsed.message?.usage
+        : (parsed.type === 'message_delta' ? parsed.usage : null);
+      if (usage) {
+        result.usage = withClaudePromptTokens(usage);
+        if (usage.cache_read_input_tokens) result.cachedTokens = usage.cache_read_input_tokens;
+        if (usage.cache_creation_input_tokens) result.cacheCreationTokens = usage.cache_creation_input_tokens;
       }
 
-      if (parsed.type === 'message_delta' && parsed.usage) {
-        result.usage = parsed.usage;
+      // Cada bloque tool_use se acumula por el índice de su bloque de contenido.
+      if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
+        const block = parsed.content_block;
+        const input = block.input && typeof block.input === 'object' && Object.keys(block.input).length > 0
+          ? JSON.stringify(block.input)
+          : '';
+        result.toolCallDeltas = [{ index: parsed.index, id: block.id, function: { name: block.name || '', arguments: input } }];
       }
 
       if (parsed.type === 'content_block_delta') {
         if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
           result.reasoningChunk = parsed.delta.thinking;
+          result.reasoningField = 'thinking';
+        } else if (parsed.delta?.type === 'signature_delta' && typeof parsed.delta.signature === 'string') {
+          result.reasoningSignature = parsed.delta.signature;
         } else if (parsed.delta?.type === 'text_delta' && parsed.delta?.text) {
           result.textChunk = parsed.delta.text;
+        } else if (parsed.delta?.type === 'input_json_delta' && parsed.delta.partial_json) {
+          result.toolCallDeltas = [{ index: parsed.index, function: { arguments: parsed.delta.partial_json } }];
         }
       }
 
