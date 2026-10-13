@@ -76,3 +76,24 @@ test('Estilos - los elementos se ocultan con hidden, no con style.display ni est
   }
   assert.deepEqual(offenders, []);
 });
+
+// Clases que el código compone con un prefijo y un estado (`debug-entry-${type}`), en lugar de
+// citarlas literalmente.
+const DYNAMIC_CLASS_PREFIXES = ['active-', 'align-', 'btn-profile-item-', 'cap-badge-', 'debug-entry-', 'mcp-status-', 'status-'];
+
+test('Estilos - toda clase o id de un selector CSS aparece en el HTML o en JavaScript', () => {
+  const consumers = `${HTML}\n${allJs}`;
+  for (const prefix of DYNAMIC_CLASS_PREFIXES) assert.ok(consumers.includes(`${prefix}\${`), `Prefijo sin composición: ${prefix}`);
+  const offenders = new Set();
+  for (const [file, source] of CSS) {
+    const clean = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\([^)]*\)/g, '').replace(/"[^"]*"|'[^']*'/g, '""');
+    for (const [, selector] of clean.matchAll(/([^{}]+)\{/g)) {
+      if (/^\s*@/.test(selector)) continue;
+      for (const [, , name] of selector.matchAll(/([.#])(-?[_a-zA-Z][\w-]*)/g)) {
+        if (DYNAMIC_CLASS_PREFIXES.some(prefix => name.startsWith(prefix))) continue;
+        if (!new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(consumers)) offenders.add(`${relative(file)}: ${name}`);
+      }
+    }
+  }
+  assert.deepEqual([...offenders], [], 'Selectores sin consumidores: retira la regla o compón la clase con un prefijo declarado');
+});

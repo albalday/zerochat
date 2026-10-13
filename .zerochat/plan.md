@@ -17,7 +17,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M2-T10 Audit R-08: architecture test with the closed list of innerHTML uses (2026-10-13)
 - [x] M2-T11 Audit R-02: listeners only in mount() or handlers, with a repaint-twice integration test (2026-10-13)
 - [x] M2-T12 Audit R-05: injected messages in constants, test that they are in English (2026-10-13)
-- [ ] M2-T13 Audit R-10: style hygiene test for selectors without consumers
+- [x] M2-T13 Audit R-10: style hygiene test for selectors without consumers (2026-10-13)
 - [x] M2-T14 Audit F-01: inspector confirms vision from the modalities the server declares (any model, no name patterns) (2026-10-13)
 - [ ] M2-T15 Audit update: rewrite the audit pages for generic local models, applying M2-D1 to M2-D4
 

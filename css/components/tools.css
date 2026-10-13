@@ -454,11 +454,6 @@
   padding: 0.35rem 0.75rem;
 }
 
-.btn-copied {
-  color: var(--success) !important;
-  border-color: var(--success) !important;
-}
-
 /* ==========================================================================
    Contenedor de Herramientas MCP y Switches de Activación
    ========================================================================== */

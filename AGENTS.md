@@ -94,7 +94,8 @@ una solución equivalente en el repositorio.
 - No se añade código de compatibilidad con versiones anteriores (alias, migraciones de
   datos o formatos, lectura de claves antiguas) salvo petición expresa del usuario.
 - Al retirar o sustituir algo, el mismo cambio elimina lo que deja sin uso: funciones,
-  exportaciones, claves i18n, CSS, iconos, pruebas y documentación.
+  exportaciones, claves i18n, CSS, iconos, pruebas y documentación. Una regla CSS cuya clase o id
+  no aparece en el HTML ni en JavaScript la detecta `tests/architecture/test_style_hygiene.js`.
 - Las pruebas sin navegador usan un DOM real (`installDom` de `tests/helpers/dom-env.js`; con
   `{ app: true }` carga el marcado de `zerochat.html`). No se simulan elementos con objetos: un
   elemento incompleto obliga a escribir respaldos en el código.
