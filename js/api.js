@@ -18,6 +18,18 @@
   const { registry } = resolveDep('ChatProviders', './providers.js');
   const TextToolCalls = resolveDep('ChatTextToolCalls', './text-tool-calls.js');
 
+  // finish_reason (OpenAI) y stop_reason (Messages API) de una respuesta cortada por el límite de salida.
+  const TRUNCATED_FINISH_REASONS = ['length', 'max_tokens'];
+
+  /** Error que el servidor envía dentro del streaming, después de haber respondido 200. */
+  class StreamServerError extends Error {
+    constructor(serverMessage) {
+      super(`The server reported an error during the response: ${serverMessage}`);
+      this.name = 'StreamServerError';
+      this.serverMessage = serverMessage;
+    }
+  }
+
   function mirrorResponse(payload) {
     const i18n = I18n;
     const guidance = [
@@ -237,6 +249,8 @@
       if (replaySignature !== null) replay.signature = replaySignature;
       return replay;
     };
+    // El servidor cortó la respuesta en el límite de tokens de salida.
+    let truncated = false;
     let accumulatedToolCalls = {};
     let chunkCount = 0;
     let activeReasoningTag = null;
@@ -348,6 +362,12 @@
       return null;
     }
 
+    function buildResult() {
+      // Las llamadas en texto se extraen antes porque recortan accumulatedText.
+      const toolCalls = getFinalToolCalls();
+      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated };
+    }
+
     try {
       let response = adapter.createStreamResponse
         ? await adapter.createStreamResponse({
@@ -441,18 +461,19 @@
             const dataStr = trimmedLine.substring(6).trim();
 
             if (dataStr === '[DONE]') {
-              const stats = getStats();
-              const toolCalls = getFinalToolCalls();
+              const result = buildResult();
               if (onLog) {
+                const { stats } = result;
                 const cacheInfo = stats.cachedTokens > 0 ? ` | ⚡ Cache: ${stats.cachedTokens} tok` : '';
                 onLog({
                   type: 'stats',
                   text: `Streaming finished [DONE] | Total: ${stats.tokens} tokens | ${stats.tokensPerSec} t/s | TTFT: ${stats.ttftSec}s${cacheInfo}`
                 });
               }
-              return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats, toolCalls };
+              return result;
             }
 
+            let streamFailure = '';
             try {
               const parsed = JSON.parse(dataStr);
               const chunkData = adapter.parseStreamChunk(parsed, { firstTokenTime, accumulatedReasoning, accumulatedText });
@@ -460,6 +481,11 @@
               if (chunkData.cachedTokens > 0) serverCachedTokens = chunkData.cachedTokens;
               if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
               if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
+              if (chunkData.error) streamFailure = chunkData.error;
+              if (TRUNCATED_FINISH_REASONS.includes(chunkData.finishReason) && !truncated) {
+                truncated = true;
+                onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.finishReason}).` });
+              }
 
               // Tokens de razonamiento específicos
               if (chunkData.reasoningChunk) {
@@ -589,6 +615,10 @@
               console.warn('[ChatAPI] Ignored unreadable stream chunk:', jsonErr);
               if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
             }
+            if (streamFailure) {
+              reader.cancel().catch(() => {});
+              throw new StreamServerError(streamFailure);
+            }
           }
         }
       }
@@ -601,10 +631,10 @@
         }
       } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
 
-      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls: getFinalToolCalls() };
+      return buildResult();
     } catch (err) {
       if (err.name === 'AbortError') {
-        return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls: getFinalToolCalls() };
+        return buildResult();
       }
       console.error('[ChatAPI] streamChatCompletion failed:', err);
       onError?.(err);

@@ -280,6 +280,12 @@
       const choice = parsed.choices?.[0];
       const delta = choice?.delta;
 
+      // Un servidor que ya respondió 200 solo puede avisar de un fallo dentro del propio flujo.
+      if (parsed.error) {
+        result.error = typeof parsed.error === 'string' ? parsed.error : (parsed.error.message || JSON.stringify(parsed.error));
+      }
+      if (choice?.finish_reason) result.finishReason = choice.finish_reason;
+
       if (delta) {
         // Tokens de razonamiento específicos
         const rChunk = delta.reasoning_content || delta.reasoning || delta.thinking || delta.thought || '';
@@ -844,6 +850,13 @@
         cacheCreationTokens: 0
       };
 
+      if (parsed.type === 'error') {
+        result.error = parsed.error?.message || parsed.error?.type || 'error';
+      }
+      if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
+        result.finishReason = parsed.delta.stop_reason;
+      }
+
       const usage = parsed.type === 'message_start' ? parsed.message?.usage
         : (parsed.type === 'message_delta' ? parsed.usage : null);
       if (usage) {
@@ -884,6 +897,7 @@
         if (baseRes.cachedTokens > 0) result.cachedTokens = baseRes.cachedTokens;
         if (baseRes.cacheCreationTokens > 0) result.cacheCreationTokens = baseRes.cacheCreationTokens;
         if (baseRes.usage && !result.usage) result.usage = baseRes.usage;
+        if (baseRes.finishReason) result.finishReason = baseRes.finishReason;
       }
 
       return result;

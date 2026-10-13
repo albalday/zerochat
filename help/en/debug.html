@@ -33,6 +33,7 @@
       <li><strong>Network:</strong> recorded request information.</li>
       <li><strong>Raw:</strong> inputs and outputs without chat formatting.</li></ul>
       <p>This is not a full capture of browser traffic. Loading, CORS or network errors may also require the browser developer tools.</p>
+      <p>A server that has already started answering can only report a failure inside the stream itself (for example, an overloaded model or an upstream provider that does not respond). ZeroChat shows it in the chat as a server error and records it as an error in the log. If the server cuts the answer at the output token limit, the received text is kept with an incomplete-answer notice below it, and the log records a warning.</p>
     </div>
 
     <div class="card">

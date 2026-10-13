@@ -407,6 +407,7 @@
     return {
       success: result.success,
       loopDetected: result.loopDetected,
+      truncated: result.truncated,
       finalAssistantText: result.finalText || '',
       accumulatedMarkdown,
       stats: result.stats,

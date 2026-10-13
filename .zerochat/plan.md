@@ -21,7 +21,7 @@ Done when: the audit findings are closed, text, reasoning and tool calls work th
 - [x] M2-T14 Audit F-01: inspector confirms vision from the modalities the server declares (any model, no name patterns) (2026-10-13)
 - [x] M2-T15 Audit update: rewrite the audit pages for generic local models, applying M2-D1 to M2-D4 (2026-10-13)
 - [x] M2-T16 Anthropic adapter: stream tool_use blocks, convert tool history and tool_choice, replay thinking with signature, max_tokens no longer tied to the budget, context from input plus cache, no mutation of the tool list (2026-10-13)
-- [ ] M2-T17 Stream error events (Messages API `error`, OpenAI `error` chunk) and answers cut by the output limit are shown to the user and in the debug log
+- [x] M2-T17 Stream error events (Messages API `error`, OpenAI `error` chunk) and answers cut by the output limit are shown to the user and in the debug log (2026-10-13)
 - [x] M2-T18 Reasoning "none" sends each protocol's explicit off value, retrying without it if rejected; drop the unused reasoningTransport setting (2026-10-13)
 
 ## M3 Playwright automation scripts

@@ -215,11 +215,17 @@
         const message = loopResult.error.message || String(loopResult.error);
         Debug.setStatus('error', t('debug_status_error'));
         Debug.addLog('error', message);
-        UIConversation.renderConnectionError(parts, message, config.apiUrl);
+        if (loopResult.error.name === 'StreamServerError') {
+          UIConversation.renderStreamError(parts, loopResult.error.serverMessage);
+        } else {
+          UIConversation.renderConnectionError(parts, message, config.apiUrl);
+        }
         return;
       } else {
         Debug.setStatus('done', t('debug_status_done'));
       }
+
+      if (loopResult.truncated) UIConversation.renderTruncationNotice(content);
 
       if (loopResult.stats) {
         updateStatsDisplay(statsContainer, loopResult.stats);

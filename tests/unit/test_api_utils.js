@@ -121,6 +121,46 @@ test('Api - Messages API: llamadas tool_use en streaming y razonamiento con firm
   }
 });
 
+test('Api - un error dentro del streaming se entrega a onError con el mensaje del servidor', async () => {
+  const originalFetch = global.fetch;
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    global.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"Medio"}}]}\n\ndata: {"error":{"message":"Upstream timeout"}}\n\ndata: {"choices":[{"delta":{"content":" no llega"}}]}\n\n');
+    let received = null;
+    const logs = [];
+    const result = await Api.streamChatCompletion({
+      apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [],
+      onError: err => { received = err; }, onLog: entry => logs.push(entry)
+    });
+    assert.equal(result, null);
+    assert.equal(received.name, 'StreamServerError');
+    assert.equal(received.serverMessage, 'Upstream timeout');
+    assert.equal(logs.some(entry => entry.type === 'warning' && /unreadable/.test(entry.text)), false, 'No se trata como un fragmento ilegible');
+  } finally {
+    global.fetch = originalFetch;
+    console.error = originalError;
+  }
+});
+
+test('Api - una respuesta cortada en el límite de salida se marca y se registra', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"Texto"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n');
+    const logs = [];
+    const cut = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [], onLog: entry => logs.push(entry) });
+    assert.equal(cut.truncated, true);
+    assert.equal(cut.accumulatedText, 'Texto');
+    assert.ok(logs.some(entry => entry.type === 'warning' && /output token limit/.test(entry.text)));
+
+    global.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"Texto"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+    const complete = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [] });
+    assert.equal(complete.truncated, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
   const originalFetch = global.fetch;
   let network = 0;

@@ -287,6 +287,18 @@ test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del
   assert.equal(payload.thinking.budget_tokens, 4096, 'El presupuesto de razonamiento queda por debajo del nuevo límite');
 });
 
+test('Adaptadores - Errores dentro del streaming y motivo de fin', () => {
+  const base = new BaseProviderAdapter();
+  assert.equal(base.parseStreamChunk({ error: { message: 'Provider returned error', code: 502 } }).error, 'Provider returned error');
+  assert.equal(base.parseStreamChunk({ error: 'context overflow' }).error, 'context overflow');
+  assert.equal(base.parseStreamChunk({ choices: [{ delta: {}, finish_reason: 'length' }] }).finishReason, 'length');
+  assert.equal(base.parseStreamChunk({ choices: [{ delta: { content: 'a' } }] }).error, undefined);
+
+  const claude = new ClaudeProviderAdapter();
+  assert.equal(claude.parseStreamChunk({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }).error, 'Overloaded');
+  assert.equal(claude.parseStreamChunk({ type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 9 } }).finishReason, 'max_tokens');
+});
+
 test('OllamaAdapter - Endpoints y parseo de modelos de Ollama (/api/tags)', () => {
   const adapter = new OllamaProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('http://localhost:11434'), 'http://localhost:11434/v1/chat/completions');

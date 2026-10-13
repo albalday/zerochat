@@ -100,6 +100,30 @@ test('GenerationController - un error del proveedor se muestra escapado en la ta
   assert.equal(GenerationController.isGenerating(), false);
 });
 
+test('GenerationController - un error dentro del streaming se muestra como error del servidor, sin la pista de conexión', async t => {
+  t.mock.method(console, 'error', () => {});
+  const realStream = ChatAPI.streamChatCompletion;
+  const originalFetch = global.fetch;
+  global.fetch = async () => new Response('event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded <b>"}}\n\n');
+  t.after(() => { global.fetch = originalFetch; });
+  const { send, lastAssistant } = setup(t, { respond: params => realStream({ ...params, apiType: 'claude' }) });
+  await send('Question');
+  const card = lastAssistant().querySelector('.message-error-card');
+  assert.match(card.textContent, new RegExp(I18n.t('err_server_stream_title')));
+  assert.match(card.textContent, /Overloaded <b>/);
+  assert.equal(card.querySelector('.message-error-card-hint'), null);
+  assert.equal(GenerationController.isGenerating(), false);
+});
+
+test('GenerationController - una respuesta cortada conserva el texto y muestra el aviso', async t => {
+  const { send, lastAssistant } = setup(t, { respond: async () => ({ accumulatedText: 'Parcial', toolCalls: null, stats: null, truncated: true }) });
+  await send('Hola');
+  const content = lastAssistant().querySelector('.message-content');
+  assert.match(content.textContent, /Parcial/);
+  assert.equal(content.querySelector('.message-notice').textContent, I18n.t('chat_response_truncated'));
+  assert.equal(State.get('messages').at(-1).content, 'Parcial');
+});
+
 test('GenerationController - parar a mitad conserva el mensaje del usuario y no deja la conversación ocupada', async t => {
   const { send, calls } = setup(t, {
     respond: params => new Promise((_resolve, reject) => {

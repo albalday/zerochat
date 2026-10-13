@@ -61,6 +61,19 @@
     });
   }
 
+  /** Error que el servidor envió dentro del streaming: ya había conectado, así que no se sugiere revisar la URL. */
+  function renderStreamError(parts, serverMessage) {
+    renderErrorCard(parts, { title: t('err_server_stream_title'), detail: serverMessage });
+  }
+
+  /** Aviso bajo una respuesta que el servidor cortó en el límite de salida; el texto recibido se conserva. */
+  function renderTruncationNotice(content) {
+    const notice = content.ownerDocument.createElement('p');
+    notice.className = 'message-notice';
+    notice.textContent = t('chat_response_truncated');
+    content.appendChild(notice);
+  }
+
   function injectStreamingCursor(html) {
     if (!html || html.trim() === '') return '<span class="streaming-cursor"></span>';
     const trimmed = html.trimEnd();
@@ -414,6 +427,8 @@
     bindMessageCopy,
     renderErrorCard,
     renderConnectionError,
+    renderStreamError,
+    renderTruncationNotice,
     createAssistantBlock,
     renderAssistantBlock,
     scrollToBottom,

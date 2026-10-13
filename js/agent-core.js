@@ -595,6 +595,8 @@
       let status = 'completed';
       let executionError = null;
       let yieldedToUser = false;
+      // Algún paso del turno terminó en el límite de tokens de salida.
+      let truncated = false;
 
       while (true) {
         if (abortSignal.aborted) {
@@ -669,6 +671,7 @@
           stepReasoningReplay = streamResult.reasoningReplay || null;
           stepToolCalls = streamResult.toolCalls;
           stepStats = streamResult.stats;
+          if (streamResult.truncated) truncated = true;
 
           if (abortSignal.aborted) {
             if (!currentStepText) {
@@ -688,7 +691,7 @@
           // Caso A: Sin llamadas a herramientas -> Turno final
           if (!stepToolCalls || stepToolCalls.length === 0) {
             if (!currentStepText?.trim() && workingMessages.at(-1)?.role === 'tool') {
-              callbacks.onLog?.({ type: 'warn', text: 'Model ended the tool loop without producing a response.' });
+              callbacks.onLog?.({ type: 'warning', text: 'Model ended the tool loop without producing a response.' });
             }
 
             finalAccumulatedText = currentStepText;
@@ -805,6 +808,7 @@
         reasoningText: finalReasoningText,
         stepsCount: stepIndex,
         loopDetected: status === 'loop_detected',
+        truncated,
         awaitingUser: yieldedToUser,
         toolExecutions,
         history: workingMessages.map(withoutReasoningReplay),
