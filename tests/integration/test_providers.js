@@ -23,6 +23,16 @@ test('ProviderRegistry - Detección y resolución de adaptadores', () => {
   assert.equal(registry.resolve('http://localhost:1234/v1').id, 'openai');
 });
 
+test('ProviderRegistry - todo adaptador registrado extiende BaseProviderAdapter', () => {
+  require('../../js/providers-webllm.js');
+  const ids = [...registry.adapters.keys()];
+  assert.ok(ids.includes('webllm'));
+  for (const [id, adapter] of registry.adapters) {
+    assert.ok(adapter instanceof BaseProviderAdapter, `${id} no extiende BaseProviderAdapter`);
+  }
+  assert.ok(registry.defaultAdapter instanceof BaseProviderAdapter);
+});
+
 test('ProviderRegistry - declara configuración de conexión sin lógica de UI por proveedor', () => {
   assert.equal(registry.get('ollama').getConnectionConfig().endpoint, 'http://localhost:11434');
   assert.equal(registry.get('claude').getConnectionConfig().endpoint, 'https://api.anthropic.com/v1');
