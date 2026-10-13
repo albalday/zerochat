@@ -597,6 +597,9 @@
       let yieldedToUser = false;
       // Algún paso del turno terminó en el límite de tokens de salida.
       let truncated = false;
+      // Un servidor que rechaza el parámetro de razonamiento lo rechazaría en cada paso: tras el
+      // primer rechazo, el resto del turno se envía sin él.
+      let stepReasoningEffort = reasoningEffort;
 
       while (true) {
         if (abortSignal.aborted) {
@@ -642,7 +645,7 @@
             model,
             messages: stepMessages,
             temperature,
-            reasoningEffort,
+            reasoningEffort: stepReasoningEffort,
             tools: activeToolDefs,
             signal: abortSignal,
             onBeforeRequest,
@@ -672,6 +675,10 @@
           stepToolCalls = streamResult.toolCalls;
           stepStats = streamResult.stats;
           if (streamResult.truncated) truncated = true;
+          if (streamResult.recoveredReason === 'reasoning_rejected' && stepReasoningEffort) {
+            stepReasoningEffort = '';
+            callbacks.onLog?.({ type: 'warning', text: 'The server rejected the reasoning parameter: the rest of this turn is sent without it.' });
+          }
 
           if (abortSignal.aborted) {
             if (!currentStepText) {

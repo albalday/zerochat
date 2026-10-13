@@ -918,6 +918,7 @@
         id: 'gemini',
         label: 'Google Gemini',
         connection: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+        reasoningLevels: ['none', 'low', 'medium', 'high'],
         capabilities: {
           streaming: true,
           vision: true,
@@ -930,6 +931,11 @@
           modelListing: true
         }
       });
+    }
+
+    /** reasoning_effort de Gemini no tiene nivel por encima de high: Máximo pide high. */
+    applyReasoning(payload, effortLevel) {
+      super.applyReasoning(payload, effortLevel === 'xhigh' ? 'high' : effortLevel);
     }
 
     /**

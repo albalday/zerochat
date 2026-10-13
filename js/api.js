@@ -147,7 +147,7 @@
 
   /**
    * Orquestador común de streaming HTTP/SSE. Devuelve { accumulatedText, accumulatedReasoning,
-   * reasoningReplay, stats, toolCalls }, también al cancelar (con lo recibido hasta entonces); un
+   * reasoningReplay, stats, toolCalls, truncated, recoveredReason }, también al cancelar (con lo recibido hasta entonces); un
    * error se entrega a onError y devuelve null.
    */
   async function streamChatCompletion(params) {
@@ -251,6 +251,8 @@
     };
     // El servidor cortó la respuesta en el límite de tokens de salida.
     let truncated = false;
+    // Parámetro que el servidor rechazó y sin el que se repitió la petición.
+    let recoveredReason = '';
     let accumulatedToolCalls = {};
     let chunkCount = 0;
     let activeReasoningTag = null;
@@ -365,7 +367,7 @@
     function buildResult() {
       // Las llamadas en texto se extraen antes porque recortan accumulatedText.
       const toolCalls = getFinalToolCalls();
-      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated };
+      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated, recoveredReason };
     }
 
     try {
@@ -397,6 +399,7 @@
         // Auto-recuperación delegando en el adaptador
         const recovery = adapter.handleHttpError(response.status, serverErrorMsg, payload);
         if (recovery && recovery.retry) {
+          recoveredReason = recovery.reason || '';
           if (onLog) {
             onLog({
               type: 'error',

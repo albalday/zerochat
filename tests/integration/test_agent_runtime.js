@@ -227,6 +227,35 @@ test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno y no
   assert.equal(result.history.some(m => 'reasoningReplay' in m), false);
 });
 
+test('AgentRuntime - tras un rechazo del razonamiento, el resto del turno se envía sin él', async t => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'lookup', execute: async () => ({ ok: true }) }));
+
+  const efforts = [];
+  const logs = [];
+  const result = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async params => {
+        efforts.push(params.reasoningEffort);
+        if (efforts.length === 1) {
+          return { accumulatedText: '', recoveredReason: 'reasoning_rejected', toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] };
+        }
+        if (efforts.length === 2) {
+          return { accumulatedText: '', toolCalls: [{ id: 'call_2', type: 'function', function: { name: 'lookup', arguments: '{"again":true}' } }] };
+        }
+        return { accumulatedText: 'Hecho.', toolCalls: [] };
+      }
+    },
+    reasoningEffort: 'xhigh',
+    callbacks: { onLog: entry => logs.push(entry) },
+    messages: [{ role: 'user', content: 'Busca.' }]
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(efforts, ['xhigh', '', '']);
+  assert.equal(logs.filter(entry => entry.type === 'warning' && /reasoning parameter/.test(entry.text)).length, 1);
+});
+
 test('AgentRuntime - serializa el resultado para el modelo a través del contrato de la tool', async t => {
   const registry = new ToolRegistry();
   registry.registerTool(makeTool({

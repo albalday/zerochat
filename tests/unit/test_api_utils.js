@@ -161,6 +161,25 @@ test('Api - una respuesta cortada en el límite de salida se marca y se registra
   }
 });
 
+test('Api - informa del parámetro rechazado tras repetir la petición sin él', async () => {
+  const originalFetch = global.fetch;
+  const bodies = [];
+  try {
+    global.fetch = async (url, options) => {
+      bodies.push(JSON.parse(options.body));
+      return bodies.length === 1
+        ? new Response(JSON.stringify({ error: { message: 'Invalid value for reasoning_effort: xhigh' } }), { status: 400 })
+        : new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n');
+    };
+    const result = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [], reasoningEffort: 'xhigh' });
+    assert.equal(result.recoveredReason, 'reasoning_rejected');
+    assert.equal(bodies[0].reasoning_effort, 'xhigh');
+    assert.equal('reasoning_effort' in bodies[1], false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('Api - Espejo respeta callbacks, cancelación y consultas sin red', async () => {
   const originalFetch = global.fetch;
   let network = 0;

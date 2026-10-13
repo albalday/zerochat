@@ -437,6 +437,9 @@ test('Reasoning intensity - ninguno envía el apagado explícito de cada protoco
   assert.equal(recovery.reason, 'reasoning_rejected');
   assert.equal(geminiPayload.reasoning_effort, undefined, 'Un modelo con razonamiento mínimo recibe la petición sin el parámetro');
 
+  const geminiMax = new GeminiProviderAdapter().buildPayload({ model: 'gemini-flash', messages, reasoningEffort: 'xhigh' });
+  assert.equal(geminiMax.reasoning_effort, 'high', 'Máximo pide el nivel más alto que admite Gemini');
+
   const omitted = new BaseProviderAdapter().buildPayload({ model: 'test', messages, reasoningEffort: '' });
   assert.equal(omitted.reasoning_effort, undefined, 'Un nivel vacío no envía parámetro');
 });
