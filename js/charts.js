@@ -27,6 +27,9 @@
     '#84cc16'  // lime
   ];
 
+  // Colores que el modelo puede pedir para una serie: hexadecimales, rgb()/hsl() o un nombre.
+  const SAFE_COLOR = /^(?:#[0-9a-f]{3,8}|(?:rgb|hsl)a?\([\d\s.,%]+\)|[a-z]{3,20})$/i;
+
   const { escapeHtml, formatShortValue } = Utils;
   const { t } = I18n;
 
@@ -261,8 +264,14 @@
     const type = (config.type || 'bar').toLowerCase();
     const title = config.title || t('chart_default_title');
     const description = config.description || '';
-    const labels = config.labels || [];
-    const datasets = config.datasets || (config.data ? [{ label: title, data: config.data }] : []);
+    // Los argumentos llegan del modelo sin validar: los valores se interpolan en atributos SVG.
+    const labels = (Array.isArray(config.labels) ? config.labels : []).map(label => String(label ?? ''));
+    const rawDatasets = Array.isArray(config.datasets) ? config.datasets : (config.data ? [{ label: title, data: config.data }] : []);
+    const datasets = rawDatasets.map(ds => ({
+      label: String(ds?.label ?? ''),
+      data: (Array.isArray(ds?.data) ? ds.data : []).map(value => (Number.isFinite(Number(value)) ? Number(value) : 0)),
+      color: typeof ds?.color === 'string' && SAFE_COLOR.test(ds.color.trim()) ? ds.color.trim() : ''
+    }));
 
     let chartSvg = '';
     if (type === 'line') {

@@ -44,7 +44,7 @@
       const label = `<code title="${escapeHtml(job.command)}">${escapeHtml(shortCommand(job.command))}</code>`
         + `<span class="command-jobs-time">${escapeHtml(format((now - job.startedAt) / 1000))}</span>`;
       // Lleva a la tarjeta del comando si está en esta conversación.
-      return `<li data-job-id="${job.id}">${inView
+      return `<li data-job-id="${escapeHtml(String(job.id))}">${inView
         ? `<button type="button" class="command-jobs-link">${label}</button>`
         : `<span class="command-jobs-link">${label}</span>`}</li>`;
     }).join('');

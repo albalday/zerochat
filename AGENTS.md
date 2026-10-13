@@ -186,6 +186,10 @@ credenciales o contenido HTML debe incluir pruebas específicas y revisar:
 - generación segura de HTML;
 - comportamiento ante errores y cancelación.
 
+Los datos externos se pintan como texto (`ChatUtils.setText` o `textContent`) o escapados con
+`escapeHtml`. `innerHTML` solo se usa en la lista cerrada de usos revisados de
+`tests/architecture/test_html_sinks.js`; un uso nuevo se revisa y se añade a ella.
+
 No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
 Las comunicaciones con `zerochat.py` requieren obligatoriamente el token de sesión
 suministrado en el arranque. El token es diario: se reutiliza durante el mismo día para que
