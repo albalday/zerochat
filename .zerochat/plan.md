@@ -7,6 +7,7 @@ Goal: The chat shows images, such as a web page's, and reads office documents.
 Done when: an image from a web page or tool result is displayed in the conversation, and docx/xlsx files can be attached and read, with tests and /help updated.
 - [ ] M2-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview
 - [ ] M2-T2 Read office files (docx, xlsx) as attachments and from tools
+- [x] M2-T3 Audit R-01: drop WebLLM guards over always-loaded modules, with hygiene test (2026-10-13)
 
 ## M3 Playwright automation scripts
 Goal: Use ZeroChat to write and maintain Playwright automation scripts.

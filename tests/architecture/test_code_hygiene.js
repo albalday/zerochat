@@ -87,3 +87,24 @@ test('Higiene - no hay variables declaradas que nadie lea', () => {
   }
   assert.deepEqual(offenders, [], `Variables sin uso:\n${offenders.join('\n')}`);
 });
+
+// Parámetros de la fábrica UMD y constantes obtenidas con resolveDep: módulos que zerochat.html carga
+// siempre antes, así que ni ellos ni sus miembros exportados necesitan guardas.
+function moduleBindings(source) {
+  const factory = source.match(/\}\)\([^\n]*?,\s*function\s*\(([^)]*)\)/);
+  const params = factory ? factory[1].split(',').map(name => name.trim()).filter(Boolean) : [];
+  const resolved = [...source.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*resolveDep\(/g)].map(match => match[1]);
+  return [...params, ...resolved];
+}
+
+test('Higiene - sin guardas sobre módulos que siempre están cargados', () => {
+  const offenders = [];
+  for (const [file, source] of SOURCES) {
+    for (const name of moduleBindings(source)) {
+      const id = escapeRegExp(name);
+      const guard = new RegExp(`(?<![\\w$.])(?:${id}(?:\\.[\\w$]+)?\\?\\.|typeof\\s+${id}\\b)`, 'g');
+      for (const match of source.matchAll(guard)) offenders.push(`${relative(file)}:${lineOf(source, match.index)} ${match[0]}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `Usa el módulo directamente, sin ?. ni typeof:\n${offenders.join('\n')}`);
+});

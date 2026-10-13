@@ -217,7 +217,7 @@ Antes de considerar terminado un cambio:
 1. deben pasar las pruebas aplicables;
 2. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
 
-Las normas de código muerto, duplicado y dependencias de la sección 2 se comprueban en
+Las normas de código muerto, duplicado, dependencias y guardas sobre módulos siempre cargados de la sección 2 se comprueban en
 `tests/architecture/test_code_hygiene.js` y `tests/architecture/test_i18n_literals.js`.
 Una clave i18n que el código compone con un prefijo se declara en `DYNAMIC_KEY_PREFIXES`.
 Una revisión de cambios comprueba además qué deja sin uso o duplicado el cambio revisado.

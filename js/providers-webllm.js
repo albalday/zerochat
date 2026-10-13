@@ -365,11 +365,7 @@
     });
   }
 
-  const BaseProviderAdapter = Providers?.BaseProviderAdapter;
-  if (typeof BaseProviderAdapter !== 'function') {
-    throw new Error('ChatWebLLM requires ChatProviders.BaseProviderAdapter (load js/providers.js first).');
-  }
-  class WebLLMProviderAdapter extends BaseProviderAdapter {
+  class WebLLMProviderAdapter extends Providers.BaseProviderAdapter {
     constructor(options = {}) {
       super({
         id: 'webllm', label: 'WebLLM (local)', reasoningLevels: ['none'],
@@ -471,7 +467,7 @@
   }
 
   const adapter = new WebLLMProviderAdapter();
-  Providers.registry?.register(adapter);
+  Providers.registry.register(adapter);
   return {
     WEBLLM_URL,
     COMPLETED_MODELS_STORAGE_KEY,
