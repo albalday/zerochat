@@ -145,7 +145,8 @@ respetar la cancelación y revalidar el estado antes de efectuar cambios cuando
 pueda haber variado durante la espera. Los textos deben pasar por `ChatI18n`.
 
 Los mensajes inyectados programáticamente en la conversación deben redactarse en
-inglés.
+inglés. Fuera de `js/i18n.js` ningún literal de cadena que no sea marcado HTML lleva caracteres
+propios del español (lo comprueba `tests/architecture/test_english_literals.js`).
 
 La interfaz no debe usar emojis crudos en botones, badges, barras o acciones interactivas.
 Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catálogo

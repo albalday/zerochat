@@ -41,7 +41,7 @@
   const MIRROR_PROFILE = Object.freeze({
     id: READONLY_PROFILE_ID,
     name: 'Espejo',
-    description: 'Muestra la petición OpenAI sin enviarla.',
+    description: '',
     settings: {
       ...NEW_PROFILE_SETTINGS, apiUrl: 'mirror://local', apiType: 'mirror', model: 'mirror'
     }
