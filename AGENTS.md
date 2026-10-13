@@ -11,7 +11,7 @@ Rules for agents go in this file; if details live in other docs, link them from 
 Every agent working in this repository keeps the project memory up to date:
 
 - `.zerochat/state.md`: current milestone, next task and active decisions. Read it before starting work. Keep it under 40 lines.
-- `.zerochat/plan.md`: milestones and their tasks.
+- `.zerochat/plan.md`: milestones and tasks.
 - `.zerochat/log.md`: decisions, one line each, append only and never archived. Search it; do not read it in full.
 - `.zerochat/archive/M<n>.md`: plan sections of closed milestones. Search them; do not read them in full.
 
@@ -33,310 +33,107 @@ When the user confirms a milestone is closed: move its section from .zerochat/pl
 Other agent instruction files (CLAUDE.md, .cursorrules) only point here. Add rules to this file, not to them.
 
 
-## 1. Fuente de verdad
+## 1. Fuente de verdad y arquitectura
 
-El código fuente se mantiene en:
+El código fuente del proyecto se organiza en:
+- `zerochat.html`: interfaz web servida estáticamente (GitHub Pages), sin proceso de empaquetado (bundle).
+- `js/`: módulos del cliente web. Sus normas técnicas detalladas residen en [`js/README.md`](./js/README.md).
+- `css/`: estilos y tokens semánticos de diseño.
+- `py/`: módulos del backend local modularizado. Sus especificaciones y empaquetado residen en [`py/README.md`](./py/README.md).
+- `zerochat.py`: ejecutable unificado del backend, generado con `npm run build:backend`.
+- `tests/`: suite de pruebas descrita en [`tests/README.md`](./tests/README.md).
+- `scripts/`: herramientas de automatización, validación y control de versiones.
 
-- `zerochat.html` (interfaz web universal servida por GitHub Pages)
-- `py/` (módulos funcionales del backend local que ensamblan `zerochat.py`)
-- `zerochat.py` (backend local unificado y gestor de entorno venv, reconstruido desde `py/`)
-- `js/`
-- `css/`
-- `tests/`
-- `scripts/`
+Los cambios deben ser pequeños, coherentes con la arquitectura y limitarse a lo solicitado. No se introducen refactorizaciones ni dependencias sin justificación concreta.
 
-El backend de Python reside modularizado en `py/` por funcionalidad y se reconstruye
-en el ejecutable unificado `zerochat.py` al final de cada cambio mediante
-`npm run build:backend` (que sincroniza los servicios gestionados, concatena ordenadamente los módulos de `py/` y asegura permisos de ejecución).
-El módulo que contiene `main()` se denomina obligatoriamente `zz-main.py` para que la
-ordenación alfabética lo sitúe siempre el último.
-
-No existe proceso de empaquetado (bundle) para la web. La aplicación web se sirve de forma directa
-y estática por HTTPS desde GitHub Pages cargando sus módulos `css/` y `js/`.
-
-Los cambios deben ser pequeños, coherentes con la arquitectura existente y limitarse
-al problema solicitado. No se deben introducir refactorizaciones generales, nuevas
-abstracciones o dependencias sin una justificación concreta.
 
 ## 2. Calidad del código
 
 El código nuevo debe:
+- respetar los patrones ya utilizados en el módulo y mantener las interfaces públicas;
+- separar lógica de dominio, persistencia, adaptadores y presentación;
+- gestionar errores de forma explícita y validar entradas externas y de configuración;
+- no añadir código de compatibilidad hacia atrás (alias, migraciones de datos, formatos antiguos) salvo petición expresa;
+- eliminar todo lo que quede huérfano tras una retirada (funciones, estilos CSS, claves i18n, pruebas);
+- en pruebas sin navegador, emplear siempre un DOM y APIs reales (`tests/helpers/dom-env.js`, `storage-env.js`), sin simular elementos con objetos parciales;
+- no exportar funciones exclusivamente para ser probadas.
 
-- respetar los patrones y APIs ya utilizados por el módulo;
-- mantener las interfaces públicas salvo que el cambio lo requiera;
-- evitar duplicación y estado global innecesario;
-- separar la lógica de dominio, persistencia, proveedores y presentación;
-- gestionar errores de forma explícita, sin ocultarlos silenciosamente;
-- validar entradas externas y valores procedentes de la configuración;
-- ser comprobable mediante pruebas automatizadas;
-- incluir comentarios únicamente cuando aclaren una decisión no evidente.
 
-Antes de crear una utilidad, servicio o abstracción, debe comprobarse si ya existe
-una solución equivalente en el repositorio.
+## 3. Arquitectura y límites del sistema
 
-### Código muerto, duplicado y de compatibilidad
+* **Estado compartido:** Reside exclusivamente en `ChatState` con mutadores de dominio atómicos (`appendMessage`, `replaceMessages`, `removeTurn`, etc.). Prohibidas variables globales mutables de módulo.
+* **Persistencia:** Canalizada únicamente por `ChatStorage` y `ChatRagStorage` a través de `ZeroChatDB`. Ningún otro módulo toca almacenamiento web ni cookies.
+* **Texto e i18n:** Todo texto visible pasa por `ChatI18n` (simultáneo en español e inglés). Los mensajes inyectados programáticamente en el chat van exclusivamente en inglés.
+* **Diálogos:** Avisos y confirmaciones usan exclusivamente `ChatDialogs` (`alert`, `confirm`, `prompt`) con `await`. Prohibidos los diálogos nativos del navegador.
+* **Estilos e iconos:** Colores y radios provienen de `css/tokens.css` (sin respaldo en `var()`). Los elementos se ocultan con el atributo `hidden`, nunca con `style.display`. Controles interactivos usan iconos vectoriales SVG (`ChatIcons`), sin emojis crudos.
+* **Proveedores y herramientas:** Los adaptadores de IA extienden `BaseProviderAdapter`. Las herramientas nativas usan solo claves documentadas en [`js/tools/README.md`](./js/tools/README.md).
 
-- Las dependencias entre módulos se inyectan en la fábrica UMD o se resuelven con
-  `ChatUtils.resolveDep`, nunca con `window.X || require(...)` escrito a mano. `ChatI18n` y
-  `ChatIcons` se cargan justo después de `utils.js` y se inyectan siempre en la fábrica
-  (`const { t } = I18n;`), sin envoltorios propios de `t()`.
-- No se añaden respaldos para lo que siempre está disponible: los módulos que carga
-  `zerochat.html` y el contexto que `ChatToolCards` entrega a las vistas (`markdown`, `t`,
-  `charts`, `createCardWrapper` e iconos de estado). Se llama directamente; si faltara, el
-  error debe verse. Lo mismo vale para los elementos de `ELEMENT_IDS` en `app.js` y para el
-  marcado de los diálogos, que `app.js` inserta al arrancar con `ensureDialogMarkup()` de cada
-  módulo: ningún módulo inserta marcado al cargarse ni comprueba si un elemento existe.
-- Los módulos de interfaz enlazan sus eventos una sola vez en `mount()`, con listeners
-  delegados en el contenedor; repintar una lista no vuelve a enlazar eventos (lo comprueba
-  `tests/architecture/test_ui_listeners.js`).
-- No se escribe texto alternativo tras `t()`: devuelve la clave cuando falta la traducción,
-  así que la clave debe existir en español e inglés.
-- No se añade código de compatibilidad con versiones anteriores (alias, migraciones de
-  datos o formatos, lectura de claves antiguas) salvo petición expresa del usuario.
-- Al retirar o sustituir algo, el mismo cambio elimina lo que deja sin uso: funciones,
-  exportaciones, claves i18n, CSS, iconos, pruebas y documentación. Una regla CSS cuya clase o id
-  no aparece en el HTML ni en JavaScript la detecta `tests/architecture/test_style_hygiene.js`.
-- Las pruebas sin navegador usan un DOM real (`installDom` de `tests/helpers/dom-env.js`; con
-  `{ app: true }` carga el marcado de `zerochat.html`). No se simulan elementos con objetos: un
-  elemento incompleto obliga a escribir respaldos en el código.
-- No se exportan funciones solo para probarlas: las pruebas usan la API pública y el
-  contexto real, sin versiones incompletas que obliguen a mantener respaldos.
-- Antes de copiar un módulo parecido para crear otro, se extrae lo común.
+> Para especificaciones detalladas de frontend, UMD, eventos y estilos, consulta [`js/README.md`](./js/README.md).
 
-## 3. Arquitectura y presentación
-
-`app.js` coordina el arranque y la integración de módulos. La lógica específica debe
-permanecer en su módulo correspondiente.
-
-El estado compartido, persistente o necesario para coordinar subsistemas debe pasar
-por `ChatState`, respetando sus slices canónicos (`config`, `sessions`, `messages`,
-`streaming`, `telemetry`, `ui`, `mcp`, `toolSecurity`, `project`). Está prohibido usar variables globales de
-módulo que provoquen fugas de estado entre conversaciones.
-
-El mantenimiento y las modificaciones de `ChatState` deben realizarse exclusivamente
-mediante funciones de modificación de atributos y mutadores de dominio específicos
-(`appendMessage`, `replaceMessages`, `removeTurn`, `saveSessionMetadata`, `removeSession`,
-`replaceConversation`, `importConversation`, `setAttachments`, etc.) que garanticen cambios
-atómicos y sincronizados con el estado actual, impidiendo desincronizaciones, escrituras
-parciales no controladas o sobreescrituras arbitrarias.
-
-Los módulos reutilizables deben conservar el patrón UMD utilizado por el proyecto
-para poder ejecutarse en navegador y en las pruebas de Node.js.
-
-Los proveedores de IA deben extender `BaseProviderAdapter` (`js/providers.js`) para
-normalizar endpoints, streaming SSE, razonamiento (`reasoningChunk`), tool calls y telemetría.
-
-La persistencia local se canaliza por dos módulos: `ChatStorage` (`js/storage.js`) para
-preferencias en `localStorage` con prefijo `zerochat_`, la cookie de sesión del backend y las
-conversaciones, y `ChatRagStorage` (`js/ragStorage.js`) para la base de conocimiento. Ambos usan
-la conexión y el esquema únicos de `ZeroChatDB` (`js/storage-db.js`). Ningún otro módulo accede
-directamente a `localStorage`, cookies o IndexedDB (lo comprueba
-`tests/architecture/test_persistence_boundary.js`), y no hay respaldos en memoria: las pruebas
-reciben esas APIs de `tests/helpers/storage-env.js`.
-
-El texto visible de la interfaz debe pasar por `ChatI18n`. Toda nueva clave debe
-añadirse simultáneamente a los diccionarios español e inglés.
-
-Los avisos, confirmaciones y solicitudes de texto deben utilizar exclusivamente
-`ChatDialogs.alert`, `ChatDialogs.confirm` y `ChatDialogs.prompt` (`js/ui-dialogs.js`).
-Está prohibido llamar a los diálogos nativos del navegador `alert()`, `confirm()`
-y `prompt()`, también mediante alias o propiedades de `window`/`globalThis`.
-Las confirmaciones y solicitudes de texto deben esperar su resultado con `await`,
-respetar la cancelación y revalidar el estado antes de efectuar cambios cuando
-pueda haber variado durante la espera. Los textos deben pasar por `ChatI18n`.
-
-Los mensajes inyectados programáticamente en la conversación deben redactarse en
-inglés. Fuera de `js/i18n.js` ningún literal de cadena que no sea marcado HTML lleva caracteres
-propios del español (lo comprueba `tests/architecture/test_english_literals.js`).
-
-La interfaz no debe usar emojis crudos en botones, badges, barras o acciones interactivas.
-Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catálogo
-`ChatIcons` (`js/icons.js`) o etiquetas `<svg class="ui-icon">`. Los emojis solo son
-admisibles en contenido textual explicativo o mensajes del chat. Lo comprueban
-`tests/architecture/test_ui_modernization.js` (marcado, `js/icons.js` y textos de controles) y
-`tests/browser/browser_a11y_theme.test.js` (controles renderizados).
-
-Los colores, radios, sombras y capas salen de los tokens de `css/tokens.css`, sin valor de
-respaldo en `var()`; fuera de ese fichero no se escriben colores literales (salvo la hoja de
-impresión). Los estados usan su familia semántica (`--success`, `--warning`, `--danger`,
-`--info`, `--accent`, `--teal`, `--primary`, `--neutral`) con sus variantes `-text`, `-soft`,
-`-soft-hover` y `-border`, que se adaptan solas al tema; las superficies oscuras en ambos
-temas (código, salidas, interceptor de depuración) usan los tokens `--console-*`. Los ajustes
-del modo oscuro solo redefinen lo que cambia respecto a la regla base. Los elementos se muestran y ocultan con el atributo `hidden` (la regla global de
-`css/base.css` prevalece sobre el `display` de cada clase), nunca con `style.display` ni
-estilos en línea; solo se admiten estilos en línea para valores que dependen de los datos,
-como el ancho de una barra de progreso o el color de una serie.
-
-Para preservar el rendimiento durante el streaming de tokens SSE, se debe aplicar
-renderizado eficiente (lazy rendering): evitar mutaciones masivas continuas del DOM y
-actualizar paneles o popovers pesados bajo demanda al interactuar o al finalizar la inferencia.
-
-Las herramientas solo usan las claves de especificación documentadas en `js/tools/README.md`,
-que son las que acepta el constructor de `Tool`; lo comprueba `tests/integration/test_builtin_tools.js`.
 
 ## 4. Seguridad
 
-Las entradas de usuario, respuestas de proveedores, contenido de documentos y
-resultados de herramientas se consideran datos no confiables.
-
-Todo cambio que afecte a MCP, ejecución de comandos, sandbox, persistencia de datos,
-credenciales o contenido HTML debe incluir pruebas específicas y revisar:
-
-- validación de entradas;
-- autorización;
-- límites de tamaño y tiempo;
-- exposición de secretos;
-- generación segura de HTML;
-- comportamiento ante errores y cancelación.
-
-Los datos externos se pintan como texto (`ChatUtils.setText` o `textContent`) o escapados con
-`escapeHtml`. `innerHTML` solo se usa en la lista cerrada de usos revisados de
-`tests/architecture/test_html_sinks.js`; un uso nuevo se revisa y se añade a ella.
-
-No se deben registrar claves API, tokens ni contenido sensible en depuración o tests.
-Las comunicaciones con `zerochat.py` requieren obligatoriamente el token de sesión
-suministrado en el arranque. El token es diario: se reutiliza durante el mismo día para que
-las pestañas no se desconecten al recargar o reiniciar el backend, y se guarda en
-`~/zerochat/config/token.json` con permisos solo para el usuario (`0600`, directorio `0700`).
-El backend escucha por defecto en `127.0.0.1`. Un `--host`/`ZEROCHAT_HOST` que no sea de
-bucle local se admite como decisión explícita del usuario, pero el arranque debe avisar de que
-expone la ejecución de comandos a la red sin cifrar.
-
-La autorización del backend se basa en el token, no en el origen. `is_allowed_origin` solo
-gobierna CORS: la cabecera `Origin` no incluye la ruta y `Referer` puede suprimirse, así que
-restringirlos más no añade protección. La interfaz se sirve desde `https://albalday.github.io`,
-origen compartido con las demás páginas de GitHub Pages del mismo usuario, que pueden leer la
-cookie del token, `localStorage` e IndexedDB de ZeroChat; limitar la cookie con `Path` no lo
-impide, porque una página del mismo origen puede cargar `/zerochat/` en un `iframe`. Este riesgo
-se acepta mientras ese origen solo publique páginas de confianza del propio autor; la única
-mitigación real es servir la interfaz desde un origen dedicado.
+Las entradas de usuario, respuestas de modelos y datos externos no son confiables:
+- Inserción segura: pintar texto plano o escapar con `escapeHtml`. `innerHTML` queda restringido a la lista cerrada revisada en `tests/architecture/test_html_sinks.js`.
+- Cambios que afecten a ejecución de comandos, sandbox o datos sensibles deben incluir pruebas específicas de límites y autorización.
+- El backend requiere el token diario de sesión (`~/zerochat/config/token.json`, permisos `0600`) y escucha por defecto en `127.0.0.1`.
 
 
 ## 5. Pruebas y validación
 
-Durante el desarrollo se puede usar la validación más específica:
-
-- lógica sin interfaz: `npm run test:unit`;
-- infraestructura de servidor local: `npm run test:infrastructure`;
-- contratos de arquitectura: `npm run test:architecture`;
-- integración de componentes: `npm run test:integration`;
-- cambios de HTML, CSS o DOM: `npm run test:browser`.
+Validaciones según el nivel afectado:
+- Lógica sin interfaz: `npm run test:unit`
+- Infraestructura y servidor: `npm run test:infrastructure`
+- Contratos de arquitectura: `npm run test:architecture`
+- Integración de componentes: `npm run test:integration`
+- Cambios de HTML, CSS o DOM: `npm run test:browser`
 
 Antes de considerar terminado un cambio:
+1. deben pasar todas las pruebas aplicables;
+2. todo cambio de comportamiento debe incluir pruebas nuevas o modificadas.
 
-1. deben pasar las pruebas aplicables;
-2. los cambios de comportamiento deben tener pruebas nuevas o modificadas.
-
-Las normas de código muerto, duplicado, dependencias y guardas sobre módulos siempre cargados de la sección 2 se comprueban en
-`tests/architecture/test_code_hygiene.js` y `tests/architecture/test_i18n_literals.js`.
-Una clave i18n que el código compone con un prefijo se declara en `DYNAMIC_KEY_PREFIXES`.
-Una revisión de cambios comprueba además qué deja sin uso o duplicado el cambio revisado.
 
 ## 6. Control de versiones y Git
 
-El flujo de trabajo en el repositorio debe seguir estas pautas:
+- **Rama de trabajo:** Todo desarrollo se realiza sobre `dev`.
+- **Commits:** Convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
+- **Gestión de versiones:** Se actualizan exclusivamente con `npm run bump <patch | minor | major>`.
+  - `patch`: actualiza solo la versión de la interfaz web.
+  - `minor` / `major`: actualizan también la versión del backend y PyPI.
+  - Durante el trabajo iterativo en `dev` no se incrementa versión en cada commit; `bump` se ejecuta solo al consolidar para release o pase a `master`. Prohibido modificar números de versión manualmente.
+  - El empaquetado y release a PyPI se describe en [`py/README.md`](./py/README.md).
 
-- **Rama de trabajo**: Todo desarrollo o cambio se realiza sobre la rama `dev`.
-- **Formato de commits**: Usar la convención Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
-
-### Gestión unificada de versiones
-
-Las versiones se actualizan exclusivamente mediante el script automatizado:
-
-```bash
-npm run bump <nueva_version | patch | minor | major>
-```
-
-El primer y segundo nivel (`major.minor`) identifican la compatibilidad de `zerochat.py` y del paquete PyPI. El tercer nivel identifica cambios de la interfaz web compatibles con ese backend.
-
-El script `scripts/bump-version.mjs` actualiza automáticamente:
-- `package.json` y `package-lock.json`
-- `zerochat.html` (título)
-- `sw.js` (nombre de caché)
-- `pyproject.toml` únicamente cuando cambia `major.minor`
-
-Por tanto, `patch` actualiza solo la interfaz web; `minor` y `major` actualizan también la versión publicable en PyPI. `zerochat.py` informa de `major.minor` y debe seguir siendo compatible con todos los parches de esa serie.
-
-**Ciclo en `dev` vs. Releases**: Durante el trabajo iterativo en la rama `dev`, no es necesario ni conveniente incrementar la versión en cada commit o cambio de código (sea de frontend o backend). Se pueden realizar múltiples ciclos de desarrollo, pruebas y correcciones manteniendo la misma versión. El comando `npm run bump` se ejecuta únicamente cuando el bloque de cambios se considera maduro y se prepara la versión para su promoción a `master` o publicación en PyPI.
-
-### Distribución, estado local y publicación PyPI
-
-Las dos distribuciones de producción deben ofrecer el mismo comportamiento, excepto por el origen del ejecutable:
-
-- `pip install zerochat` instala exclusivamente el ejecutable `zerochat.py` como comando `zerochat`; el wheel no puede contener HTML, CSS, JavaScript ni recursos de la interfaz.
-- La descarga con `curl` obtiene ese ejecutable como archivo `zerochat.py`.
-- Fuera del repositorio de desarrollo, ambos abren siempre `https://albalday.github.io/zerochat/zerochat.html`. Esto preserva un único origen para cookie, almacenamiento web y token de sesión.
-- Ambos crean `~/zerochat/`, con `config/`, `services/` y `.venv/`. Las dependencias Python de MCP se instalan y ejecutan únicamente con `~/zerochat/.venv/`; nunca en el Python global ni en el entorno que contiene el comando de PyPI. Borrar `~/zerochat/` debe eliminar todo el estado y los MCP gestionados.
-- El servidor se ejecuta con el intérprete que lo inició en ambos modos. El comando instalado por PyPI no se reinstala dentro del venv y el script descargado tampoco se reejecuta en él; ambos lanzan los MCP con el Python aislado.
-- La comprobación de actualizaciones compara solo `major.minor`. Los parches web se reciben desde GitHub Pages sin aviso de actualización. Una versión nueva de backend debe informar del comando de actualización apropiado, sin actualizar automáticamente: `sys.executable -m pip install --upgrade zerochat` para PyPI o la descarga explícita para curl.
-
-Para una publicación PyPI, el agente debe completar el ciclo: trabajar y validar en `dev`, ejecutar `npm run bump minor` o `major` para cambios de backend, verificar que el wheel solo contiene el ejecutable con `python tests/packaging_smoke_test.py dist`, promover el commit validado a `master`, crear y publicar la etiqueta `v<versión de pyproject.toml>` y crear el Release de GitHub. `release.yml` valida la etiqueta, ejecuta toda la suite, construye el paquete y publica mediante Trusted Publishing; no se publica manualmente con credenciales.
-
-**Prohibido** modificar manualmente los números de versión en archivos individuales. Toda actualización debe realizarse exclusivamente mediante este script.
-
-Ejemplos:
-```bash
-npm run bump patch      # 7.0.8 → 7.0.9
-npm run bump minor      # 7.0.9 → 7.1.0
-npm run bump major      # 7.1.0 → 8.0.0
-npm run bump 7.2.5      # Versión específica
-```
 
 ## 7. Regla de promoción a `master`
 
-Todo cambio destinado a `master` debe prepararse primero en `dev`.
+Todo cambio destinado a `master` debe prepararse primero en `dev`. La promoción queda prohibida si:
+- no se ha ejecutado `npm run bump` previo en `dev`;
+- la versión de `dev` coincide con la de `master` o no hay avance de versión;
+- falla cualquier comprobación de la validación automática (`test:unit`, `test:infrastructure`, `test:architecture`, `test:integration`, y `test:browser` si afecta a UI).
 
-La promoción a `master` queda prohibida si:
+**Excepción:** Los cambios que afecten exclusivamente a `/help/`, `/docs/`, `.zerochat/` y `AGENTS.md` están exentos de bump y de la suite completa, pudiendo sincronizarse directamente con `master`.
 
-- no se ha ejecutado el incremento de versión (`npm run bump`) como paso de consolidación previo en `dev`;
-- la versión de `dev` a promocionar coincide con la ya existente en `master` o no hay un avance claro de versión;
-- no se ejecuta la validación automática definida por el proyecto;
-- cualquier comprobación crítica falla.
-
-La validación automática mínima para un pase a `master` debe incluir:
-
-- `npm run test:unit`;
-- `npm run test:infrastructure`;
-- `npm run test:architecture`;
-- `npm run test:integration`;
-- `npm run test:browser` si el cambio afecta a HTML, CSS o DOM.
-
-Si cualquiera de estas comprobaciones falla, el paso a `master` queda bloqueado.
-`master` debe ser únicamente el estado validado y liberado, no una rama de trabajo.
-
-Únicamente si el usuario lo solicita de forma expresa, se podrá omitir la ejecución de los tests previos al pase a master. En tal caso, se requerirá confirmación explícita y se deberá dejar constancia del motivo en el mensaje del commit y push. No se permitirán excepciones en versiones consecutivas (entre dos versiones con excepción debe existir al menos una versión promovida con validación completa y sin excepciones).
-
-### Excepción para documentación en `/help`, `/docs` y `AGENTS.md`
-
-Los archivos de `/help/` (ayuda publicada en GitHub Pages), de `/docs/` (informes de auditoría y propuestas), de `.zerochat/` (memoria del proyecto) y `AGENTS.md` (normas del proyecto) no forman parte del código distribuible del producto ni requieren versionado. Se autoriza la publicación o sincronización directa a `master` de cambios que afecten exclusivamente a `/help/`, `/docs/`, `.zerochat/` y `AGENTS.md`, sin incremento de versión del producto ni ejecución obligatoria de la suite completa de tests, manteniéndose siempre sincronizados con la rama `dev`.
 
 ## 8. Finalización
 
 Un cambio está terminado cuando:
+- implementa únicamente lo solicitado y conserva el comportamiento existente;
+- pasa las pruebas correspondientes y añade pruebas para el nuevo comportamiento;
+- mantiene español e inglés cuando afecta a la interfaz o a la ayuda en `/help/`;
+- recompila el backend (`npm run build:backend`) si se modificó `py/`;
+- no deja código sin uso, duplicado ni de compatibilidad previa;
+- deja la documentación y la memoria de proyecto (`.zerochat/`) sincronizadas.
 
-- implementa únicamente el comportamiento solicitado;
-- conserva el comportamiento existente, salvo decisión explícita;
-- tiene pruebas adecuadas;
-- mantiene español e inglés cuando afecta a la interfaz;
-- actualiza y mantiene automáticamente la documentación de `/help` en formato bilingüe (español e inglés) ante cualquier actualización o cambio de funcionalidades;
-- no deja errores de consola en los tests de navegador;
-- recompila el backend (`npm run build:backend`) si se modificó el directorio `py/`, manteniendo sincronizado `zerochat.py` sin necesidad de alterar versiones;
-- no deja código sin uso, duplicado ni de compatibilidad con versiones anteriores;
-- deja la documentación coherente con el comportamiento real.
 
 ## 9. Política de documentación y colocación (colocation)
 
-La documentación se organiza de forma canónica en los siguientes niveles:
-
-- **`AGENTS.md` (Gobernanza y normas globales)**:
-  Contiene exclusivamente las normas de obligado cumplimiento, límites de seguridad, restricciones arquitectónicas transversales y directrices del flujo de trabajo (build, test, git). No debe inflarse con contratos detallados ni especificaciones técnicas exhaustivas de APIs o subsistemas.
-- **Documentación técnica de subsistemas (Colocación / Colocation)**:
-  La documentación técnica profunda reside obligatoriamente en la carpeta raíz del subsistema que describe bajo el nombre estándar `README.md`. Está prohibido que los agentes creen archivos `.md` sueltos en la raíz o en carpetas genéricas, salvo en `.zerochat/`:
-  - Pruebas y suite de test: `tests/README.md`.
-  - Herramientas agénticas y contratos de ejecución: `js/tools/README.md`.
-- **Memoria del proyecto (`.zerochat/`)**:
-  Plan, estado, registro de decisiones y archivo de hitos, con los ficheros `.md` que define la sección "Project memory". Se versiona junto con el código.
-- **Documentación de usuario final (`help/`)**:
-  Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación. Cada página tiene su traducción en `help/en/`, las dos se enlazan entre sí y citan la serie `major.x` de `package.json`; lo comprueba `tests/architecture/test_help_pages.js`.
-- **Histórico y archivo (`docs/`)**:
-  Reservado exclusivamente para el procedimiento de auditoría `AuditFull.md` (`docs/audits/`) y para propuestas técnicas de diseño en borrador (`docs/proposals/`). Los informes de auditoría se publican en la ayuda (`help/audit-*.html`).
+La documentación se organiza canónicamente en:
+- **`AGENTS.md` (Gobernanza y normas globales):** Normas universales de obligado cumplimiento, límites de seguridad y flujo de trabajo. No se infla con contratos detallados de subsistemas.
+- **Documentación técnica colocada (`<subsistema>/README.md`):**
+  - Frontend y UI: [`js/README.md`](./js/README.md).
+  - Backend y distribución: [`py/README.md`](./py/README.md).
+  - Herramientas agénticas: [`js/tools/README.md`](./js/tools/README.md).
+  - Pruebas y validación: [`tests/README.md`](./tests/README.md).
+- **Memoria del proyecto (`.zerochat/`):** Plan, estado y registro de decisiones.
+- **Documentación de usuario (`help/`):** Ayuda web estática bilingüe (español e inglés) servida por GitHub Pages.
+- **Histórico y archivo (`docs/`):** Procedimientos de auditoría y propuestas técnicas en borrador.
