@@ -147,7 +147,6 @@
       messages,
       temperature = 0.7,
       reasoningEffort = 'medium',
-      reasoningTransport = 'auto',
       toolChoice = 'auto',
       signal,
       onBeforeRequest,
@@ -172,7 +171,6 @@
       messages,
       temperature,
       reasoningEffort,
-      reasoningTransport,
       toolsList,
       toolChoice: toolChoice || 'auto'
     });

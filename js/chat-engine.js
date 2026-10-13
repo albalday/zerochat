@@ -299,7 +299,6 @@
       ...llm,
       temperature: appConfig.temperature,
       reasoningEffort: appConfig.reasoningEffort,
-      reasoningTransport: appConfig.reasoningTransport,
       messages: chatHistory,
       signal: params.signal,
       appendFinalMessage: true,

@@ -407,14 +407,26 @@ test('Capabilities - Utilización en buildPayload para filtrar parámetros no so
   assert.equal(textOnlyMessages[0].content, 'Descripción textual', 'Debe extraer sólo texto si vision=false');
 });
 
-test('Reasoning intensity - ninguno omite los parámetros de razonamiento', () => {
-  const openAI = new BaseProviderAdapter();
-  const openAIPayload = openAI.buildPayload({ model: 'test', messages: [{ role: 'user', content: 'hola' }], reasoningEffort: 'none' });
-  assert.equal(openAIPayload.reasoning_effort, undefined);
+test('Reasoning intensity - ninguno envía el apagado explícito de cada protocolo y se retira si se rechaza', () => {
+  const messages = [{ role: 'user', content: 'hola' }];
+  const openAIPayload = new BaseProviderAdapter().buildPayload({ model: 'test', messages, reasoningEffort: 'none' });
+  assert.equal(openAIPayload.reasoning_effort, 'none');
+
+  const routerPayload = new OpenRouterProviderAdapter().buildPayload({ model: 'test', messages, reasoningEffort: 'none' });
+  assert.deepEqual(routerPayload.reasoning, { effort: 'none' });
 
   const claude = new ClaudeProviderAdapter();
-  const claudePayload = claude.buildPayload({ model: 'claude-test', messages: [{ role: 'user', content: 'hola' }], reasoningEffort: 'none' });
-  assert.equal(claudePayload.thinking, undefined);
+  const claudePayload = claude.buildPayload({ model: 'claude-test', messages, temperature: 0.3, reasoningEffort: 'none' });
+  assert.deepEqual(claudePayload.thinking, { type: 'disabled' });
+  assert.equal(claudePayload.temperature, 0.3, 'Sin razonamiento se respeta la temperatura del perfil');
+
+  const geminiPayload = new GeminiProviderAdapter().buildPayload({ model: 'gemini-pro', messages, reasoningEffort: 'none' });
+  const recovery = new GeminiProviderAdapter().handleHttpError(400, 'Thinking cannot be disabled for this model.', geminiPayload);
+  assert.equal(recovery.reason, 'reasoning_rejected');
+  assert.equal(geminiPayload.reasoning_effort, undefined, 'Un modelo con razonamiento mínimo recibe la petición sin el parámetro');
+
+  const omitted = new BaseProviderAdapter().buildPayload({ model: 'test', messages, reasoningEffort: '' });
+  assert.equal(omitted.reasoning_effort, undefined, 'Un nivel vacío no envía parámetro');
 });
 
 test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ y compatibilidad de payload', () => {
@@ -433,7 +445,7 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
   assert.equal(parsedModels[0].id, 'gemini-1.5-flash');
   assert.equal(parsedModels[1].id, 'gemini-2.0-flash');
 
-  // Construcción de payload: debe quitar models/ y no inyectar reasoning_effort ni stream_options
+  // Construcción de payload: quita models/, pide sin razonamiento de forma explícita y no inyecta stream_options
   const payload = adapter.buildPayload({
     model: 'models/gemini-1.5-flash',
     messages: [
@@ -445,7 +457,7 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
     enableContextCache: true
   });
   assert.equal(payload.model, 'gemini-1.5-flash');
-  assert.equal(payload.reasoning_effort, undefined, 'No debe inyectar reasoning_effort');
+  assert.equal(payload.reasoning_effort, 'none', 'Sin razonamiento se pide de forma explícita');
   assert.equal(payload.stream_options, undefined, 'No debe inyectar stream_options');
   assert.equal('temperature' in payload, false, 'Gemini no debe recibir temperature');
   assert.equal('top_p' in payload, false);
@@ -482,7 +494,7 @@ test('ChatAPI.getProviderCapabilities - Consulta a través de ChatAPI', () => {
   assert.equal(ollamaCaps.streaming, true);
 
   const geminiCaps = ChatAPI.getProviderCapabilities('https://generativelanguage.googleapis.com/v1beta/openai');
-  assert.equal(geminiCaps.reasoning, false);
+  assert.equal(geminiCaps.reasoning, true);
   assert.equal(geminiCaps.temperature, false);
   assert.equal(geminiCaps.promptCaching, true);
 });

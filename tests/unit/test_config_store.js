@@ -91,13 +91,6 @@ test('ChatConfig - la ventana de contexto WebLLM es 16K por defecto y descarta t
   assert.deepEqual(config.webllmConfig, { context_window_size: '131072', prefill_chunk_size: '1024' });
 });
 
-test('ChatConfig - conserva una estrategia de transporte de razonamiento válida', () => {
-  const { store } = createFixture();
-  store.initialize();
-  assert.equal(store.updateRuntime({ reasoningTransport: 'send-none' }).reasoningTransport, 'send-none');
-  assert.equal(store.updateRuntime({ reasoningTransport: 'untrusted' }).reasoningTransport, 'auto');
-});
-
 test('ChatConfig - snapshots no permiten mutar el estado interno', () => {
   const { store } = createFixture();
   store.initialize();

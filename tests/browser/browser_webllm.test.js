@@ -15,12 +15,11 @@ test('Browser UI - WebLLM mantiene la intensidad de razonamiento en cero', async
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
     await page.evaluate(() => window.ChatConfig.updateRuntime({
-      apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none', reasoningTransport: 'auto'
+      apiType: 'webllm', apiUrl: 'webllm://local', reasoningEffort: 'none'
     }));
     await page.click('#btn-reasoning');
     await page.waitForSelector('#reasoning-intensity');
     assert.equal(await page.locator('#reasoning-intensity').inputValue(), '0');
-    assert.equal(await page.locator('[data-reasoning-transport="send-none"]').count(), 0);
   } finally { await browser.close(); }
 });
 

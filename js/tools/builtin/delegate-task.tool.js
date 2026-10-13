@@ -125,7 +125,6 @@
       model: context.model,
       temperature: context.temperature,
       reasoningEffort: context.reasoningEffort,
-      reasoningTransport: context.reasoningTransport,
       contextOptions: context.contextOptions || {},
       summarizeHistory: context.summarizeHistory || null
     };
@@ -157,7 +156,6 @@
       model: settings.model,
       temperature: settings.temperature,
       reasoningEffort: settings.reasoningEffort || 'medium',
-      reasoningTransport: settings.reasoningTransport || 'auto',
       // Sin capacidad declarada en el perfil, el gestor de contexto asume la de su modelo.
       contextOptions: { ...inherited.contextOptions, totalContextLimit: settings.contextLimitOverride || null },
       summarizeHistory: null
@@ -215,7 +213,6 @@
       model: connection.model,
       temperature: connection.temperature,
       reasoningEffort: connection.reasoningEffort,
-      reasoningTransport: connection.reasoningTransport,
       messages: [{ role: 'user', content: buildSubagentPrompt(normalized.task) }],
       signal: context.signal || null,
       // Mismo prompt de sistema y proyecto que el agente principal; la compactación usa su propia conexión.

@@ -169,17 +169,9 @@ test('WebLLM - omite parámetros de razonamiento no garantizados (incluido none)
     assert.equal(payload.tools, undefined);
     assert.equal(payload.stream_options, undefined);
     const minimumPayload = adapter.buildPayload({
-      model: 'test-model', messages: [], reasoningEffort: 'none', reasoningTransport: 'send-none'
+      model: 'test-model', messages: [], reasoningEffort: 'none'
     });
     assert.equal(minimumPayload.reasoning_effort, undefined);
-  }
-
-  {
-    const adapter = new WebLLM.WebLLMProviderAdapter();
-    const payload = adapter.buildPayload({
-      model: 'test-model', messages: [], reasoningEffort: 'high', reasoningTransport: 'send-none'
-    });
-    assert.equal(payload.reasoning_effort, undefined);
   }
 });
 

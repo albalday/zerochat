@@ -192,7 +192,7 @@ test('delegate_task - un perfil de conexión «Subagente» da al subagente su pr
   const profile = {
     id: 'profile:Subagente',
     name: ' subAGENTE ',
-    settings: { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model', temperature: '0.2', reasoningEffort: 'low', reasoningTransport: 'auto', contextLimitOverride: 32000 }
+    settings: { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model', temperature: '0.2', reasoningEffort: 'low', contextLimitOverride: 32000 }
   };
   services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }, { id: profile.id, name: profile.name, settings: {} }] };
   services.profilesUI = { loadProfileUnlocked: async id => { loaded.push(id); return structuredClone(profile); } };

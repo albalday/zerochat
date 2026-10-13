@@ -215,7 +215,6 @@
         messages = [],
         temperature = 0.7,
         reasoningEffort = 'medium',
-        reasoningTransport = 'auto',
         toolsList = [],
         toolChoice = 'auto',
         stream = true,
@@ -243,8 +242,11 @@
         }
       }
 
-      if (capabilities.reasoning && !['none', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
-        this.applyReasoning(payload, reasoningEffort);
+      // "none" se pide de forma explícita: sin parámetro el modelo razona según su valor por defecto.
+      // Un servidor que no admite apagarlo lo rechaza y handleHttpError reintenta sin él.
+      const effort = String(reasoningEffort || '').toLowerCase().trim();
+      if (capabilities.reasoning && effort) {
+        this.applyReasoning(payload, effort);
       }
 
       if (capabilities.tools && toolsList && toolsList.length > 0) {
@@ -525,7 +527,7 @@
             }
           }
         };
-        await chatProbe('streaming', { stream: true, temperature: 0.1, reasoningEffort: 'none' }, ['stream'], 'inspector_detail_streaming_confirmed',
+        await chatProbe('streaming', { stream: true, temperature: 0.1, reasoningEffort: '' }, ['stream'], 'inspector_detail_streaming_confirmed',
           res => (res.headers.get('content-type') || '').includes('event-stream') || Boolean(res.body));
         await chatProbe('tools', {
           stream: false,
@@ -761,8 +763,9 @@
         payload.stream = true;
       }
 
-      if (capabilities.reasoning && !['none', ''].includes(String(reasoningEffort).toLowerCase().trim())) {
-        this.applyReasoning(payload, reasoningEffort);
+      const effort = String(reasoningEffort || '').toLowerCase().trim();
+      if (capabilities.reasoning && effort) {
+        this.applyReasoning(payload, effort);
       }
 
       if (capabilities.tools && toolsList && toolsList.length > 0) {
@@ -787,9 +790,13 @@
       return payload;
     }
 
-    /** El razonamiento se activa con un presupuesto; sin él la Messages API no razona. */
+    /** El razonamiento se activa con un presupuesto y "none" lo desactiva de forma explícita. */
     applyReasoning(payload, effortLevel) {
       const effort = String(effortLevel || 'none').toLowerCase().trim();
+      if (effort === 'none') {
+        payload.thinking = { type: 'disabled' };
+        return;
+      }
       let budget = 2048;
       if (effort === 'low' || effort === 'minimal') budget = 1024;
       else if (effort === 'high') budget = 4096;
@@ -897,12 +904,10 @@
         id: 'gemini',
         label: 'Google Gemini',
         connection: { endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai' },
-        reasoningLevels: ['none'],
         capabilities: {
           streaming: true,
           vision: true,
           tools: true,
-          reasoning: false,
           // Google rechazará temperature, top_p y top_k en los próximos modelos Gemini
           temperature: false,
           jsonMode: true,
