@@ -35,3 +35,10 @@ Goal: The chat shows images, such as a web page's, and reads office documents.
 Done when: an image from a web page or tool result is displayed in the conversation, and docx/xlsx files can be attached and read, with tests and /help updated.
 - [ ] M4-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview
 - [ ] M4-T2 Read office files (docx, xlsx) as attachments and from tools
+
+## M5 Browser test architecture and optimization
+Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
+Done when: Large browser test suites are split by subdomains, common test setup and fixtures are shared in helpers, and npm run test:browser passes cleanly.
+- [ ] M5-T1 Audit and split large browser test suites into focused files
+- [ ] M5-T2 Extract shared fixtures and interaction helpers in tests/helpers/
+- [ ] M5-T3 Verify suite execution and maintainability with npm run test:browser
