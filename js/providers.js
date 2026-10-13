@@ -44,6 +44,21 @@
     ['embeddings', /(?:embedding|embed|bge|nomic|e5|text-embedding)/i, 'inspector_detail_embeddings_inferred']
   ];
 
+  /**
+   * Visión que el servidor declara para un modelo: true, false o null si no la declara. Lee
+   * architecture.input_modalities (llama.cpp, OpenRouter), type de LM Studio (vlm, llm) y
+   * capabilities de Ollama (vision; llama.cpp la llama multimodal en su listado compatible).
+   */
+  function declaredVision(details) {
+    if (!details || typeof details !== 'object') return null;
+    const inputs = details.architecture?.input_modalities;
+    if (Array.isArray(inputs)) return inputs.includes('image');
+    if (details.type === 'vlm') return true;
+    if (details.type === 'llm') return false;
+    if (Array.isArray(details.capabilities)) return details.capabilities.includes('vision') || details.capabilities.includes('multimodal');
+    return null;
+  }
+
   /** Estado de una capacidad en el informe del inspector; la interfaz traduce `detailKey`. */
   const capability = (status, detailKey, detailParams, source) => ({ status, detailKey, detailParams, source });
 
@@ -374,6 +389,14 @@
     }
 
     /**
+     * Petición con los detalles de un modelo cuando el listado no los incluye; null si el servidor
+     * no la tiene.
+     */
+    getModelInfoRequest() {
+      return null;
+    }
+
+    /**
      * Parsea la respuesta del endpoint de modelos.
      */
     parseModelsResponse(data) {
@@ -468,6 +491,19 @@
       const modelNames = [probeModel, ...discoveredModels.map(item => item.id || item.name || '')].join(' ').toLowerCase().trim();
       for (const [key, pattern, detailKey] of MODEL_NAME_INFERENCES) {
         if (modelNames && pattern.test(modelNames)) capabilities[key] = capability('inferred', detailKey, {}, 'model_name');
+      }
+
+      // La visión que declara el servidor manda sobre la inferida por el nombre.
+      let vision = declaredVision(discoveredModels.find(item => item.id === probeModel)?.details);
+      const infoRequest = vision === null && connectionSuccess && probeModel ? this.getModelInfoRequest(cleanBase, probeModel) : null;
+      if (infoRequest) {
+        const res = await request(infoRequest.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(infoRequest.body) });
+        if (res?.ok) vision = declaredVision(await res.json().catch(() => null));
+      }
+      if (vision !== null) {
+        capabilities.vision = vision
+          ? capability('confirmed', 'inspector_detail_vision_server', {}, 'server')
+          : capability('unsupported', 'inspector_detail_vision_text_only', {}, 'server');
       }
 
       if (runProbes) {
@@ -984,6 +1020,11 @@
       const baseWithoutV1 = cleanUrl.replace(/\/v1$/, '');
       const v1Url = cleanUrl.endsWith('/v1') ? cleanUrl : `${cleanUrl}/v1`;
       return [`${baseWithoutV1}/api/tags`, `${v1Url}/models`];
+    }
+
+    /** /api/tags no incluye las capacidades del modelo; /api/show sí. */
+    getModelInfoRequest(cleanUrl, model) {
+      return { url: `${cleanUrl.replace(/\/v1$/, '')}/api/show`, body: { model } };
     }
 
     parseModelsResponse(data) {

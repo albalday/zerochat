@@ -305,3 +305,41 @@ test('ProviderInspector - confirma capacidades con sondas, infiere por el nombre
   }
 });
 
+
+test('ProviderInspector - la visión que declara el servidor manda sobre el nombre del modelo', async t => {
+  const chat = { match: url => url.endsWith('/chat/completions'), response: { json: {} } };
+  const vision = async (type, model, routes) => {
+    const requests = stubFetch(t, [...routes, chat]);
+    const report = await Providers.registry.inspect('http://localhost:1234/v1', '', model, type);
+    t.mock.restoreAll();
+    const { status, detailKey, source } = report.capabilities.vision;
+    return { status, detailKey, source, requests: requests.map(item => item.url) };
+  };
+
+  // llama.cpp y OpenRouter: architecture.input_modalities en /v1/models.
+  const llamaCpp = await vision('openai', 'local-27b', [
+    { match: url => url.endsWith('/v1/models'), response: { json: { data: [{ id: 'local-27b', architecture: { input_modalities: ['text', 'image'] } }] } } }
+  ]);
+  assert.deepEqual([llamaCpp.status, llamaCpp.detailKey, llamaCpp.source], ['confirmed', 'inspector_detail_vision_server', 'server']);
+
+  // LM Studio: type de /api/v0/models; un modelo de texto no queda inferido por su nombre.
+  const lmStudio = await vision('openai', 'vision-coder', [
+    { match: url => url.endsWith('/api/v0/models'), response: { json: { data: [{ id: 'vision-coder', type: 'llm' }] } } }
+  ]);
+  assert.deepEqual([lmStudio.status, lmStudio.detailKey], ['unsupported', 'inspector_detail_vision_text_only']);
+
+  // Ollama: /api/tags no trae capacidades y se piden a /api/show.
+  const ollama = await vision('ollama', 'gemma3:27b', [
+    { match: url => url.endsWith('/api/tags'), response: { json: { models: [{ name: 'gemma3:27b' }] } } },
+    { match: (url, body) => url.endsWith('/api/show') && body.model === 'gemma3:27b', response: { json: { capabilities: ['completion', 'vision'] } } }
+  ]);
+  assert.equal(ollama.status, 'confirmed');
+  assert.ok(ollama.requests.includes('http://localhost:1234/api/show'));
+
+  // Un servidor que no la declara deja la declaración del adaptador, sin peticiones de más.
+  const silent = await vision('openai', 'plain-model', [
+    { match: url => url.endsWith('/v1/models'), response: { json: { data: [{ id: 'plain-model' }] } } }
+  ]);
+  assert.deepEqual([silent.status, silent.source], ['declared', 'adapter']);
+  assert.equal(silent.requests.some(url => url.endsWith('/api/show')), false);
+});
