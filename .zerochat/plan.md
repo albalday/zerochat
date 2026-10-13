@@ -15,7 +15,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M2-T8 Audit R-07: emoji test extended to zerochat.html, icons.js and control texts (2026-10-13)
 - [x] M2-T9 Audit F-01 to F-05 checked against a local llama.cpp server; decisions M2-D1 to M2-D4 (2026-10-13)
 - [x] M2-T10 Audit R-08: architecture test with the closed list of innerHTML uses (2026-10-13)
-- [ ] M2-T11 Audit R-02: listeners only in mount() or handlers, with a repaint-twice integration test
+- [x] M2-T11 Audit R-02: listeners only in mount() or handlers, with a repaint-twice integration test (2026-10-13)
 - [ ] M2-T12 Audit R-05: injected messages in constants, test that they are in English
 - [ ] M2-T13 Audit R-10: style hygiene test for selectors without consumers
 - [x] M2-T14 Audit F-01: inspector confirms vision from the modalities the server declares (any model, no name patterns) (2026-10-13)

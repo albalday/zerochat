@@ -21,6 +21,8 @@
   const UNIX_TERMINAL_COMMAND = 'pip install zerochat\nzerochat';
   // En Windows, `zerochat` suele no estar en el PATH y PowerShell 5 no admite `&&`; el lanzador py funciona siempre.
   const WINDOWS_TERMINAL_COMMAND = 'py -m pip install zerochat\npy -m zerochat';
+  // Radios de la política global de MCP: valor de la política e id del control.
+  const POLICY_RADIOS = { ask: 'mcp-policy-ask', workspace_trust: 'mcp-policy-workspace-trust', allow_all: 'mcp-policy-allow-all' };
 
   function isWindowsPlatform(nav = navigator) {
     const platform = nav.userAgentData?.platform || nav.platform || '';
@@ -158,40 +160,39 @@
       </div>
       <div class="mcp-tools-list">${items}</div>`;
 
-    container.querySelectorAll('.mcp-auth-select').forEach(select => {
-      select.addEventListener('change', () => {
-        const toolId = select.getAttribute('data-tool-id');
-        const policy = select.value;
-        if (policy === 'ask') {
-          getSecurity().revokeToolPolicy(toolId);
-        } else {
-          getSecurity().setToolPolicy(toolId, policy, {
-            serverName: select.getAttribute('data-server-name'),
-            originalName: select.getAttribute('data-orig-name')
-          });
-        }
-        select.className = `mcp-auth-select ${policyClass(policy)}`;
-        renderSavedAuthorizations();
-      });
-    });
+  }
 
-    container.querySelectorAll('.mcp-tool-checkbox').forEach(checkbox => {
-      checkbox.addEventListener('change', async () => {
-        const toolId = checkbox.getAttribute('data-tool-id');
-        if (toolId === 'browser_action' && checkbox.checked) {
-          let availability = { available: false };
-          try {
-            availability = await getMCP().manager.requestExternalControl('tools/availability', { name: 'browser_action' });
-          } catch (error) { /* sin respuesta del servidor: se considera no disponible */ }
-          if (!availability.available) {
-            checkbox.checked = false;
-            await getDialogs().alert(t('browser_action_requirements_notice'), { type: 'info' });
-            return;
-          }
-        }
-        updateToolEnabledState(toolId, checkbox.checked);
-      });
-    });
+  /** Cambio en la lista de herramientas: política de autorización o activación de una herramienta. */
+  async function handleToolsChange(target) {
+    if (target.matches('.mcp-auth-select')) {
+      const toolId = target.getAttribute('data-tool-id');
+      const policy = target.value;
+      if (policy === 'ask') {
+        getSecurity().revokeToolPolicy(toolId);
+      } else {
+        getSecurity().setToolPolicy(toolId, policy, {
+          serverName: target.getAttribute('data-server-name'),
+          originalName: target.getAttribute('data-orig-name')
+        });
+      }
+      target.className = `mcp-auth-select ${policyClass(policy)}`;
+      renderSavedAuthorizations();
+      return;
+    }
+    if (!target.matches('.mcp-tool-checkbox')) return;
+    const toolId = target.getAttribute('data-tool-id');
+    if (toolId === 'browser_action' && target.checked) {
+      let availability = { available: false };
+      try {
+        availability = await getMCP().manager.requestExternalControl('tools/availability', { name: 'browser_action' });
+      } catch (error) { /* sin respuesta del servidor: se considera no disponible */ }
+      if (!availability.available) {
+        target.checked = false;
+        await getDialogs().alert(t('browser_action_requirements_notice'), { type: 'info' });
+        return;
+      }
+    }
+    updateToolEnabledState(toolId, target.checked);
   }
 
   function renderServerOptions(server, language) {
@@ -270,36 +271,40 @@
     const browserActionActive = isBrowserActionCurrentlyActive();
     container.innerHTML = servers.map(server => renderServer(server, language, browserActionActive)).join('');
 
-    container.querySelectorAll('.btn-mcp-server-trust').forEach(button => {
-      button.addEventListener('click', () => {
-        const serverId = button.getAttribute('data-server-id');
-        if (getSecurity().getServerPolicy(serverId) === 'allow') getSecurity().revokeServerPolicy(serverId);
-        else getSecurity().setServerPolicy(serverId, 'allow', { serverName: serverId });
-        renderExternalServers(container, servers);
-        renderSavedAuthorizations();
-      });
-    });
+  }
 
-    container.querySelectorAll('.mcp-server-option-checkbox').forEach(checkbox => {
-      checkbox.addEventListener('change', async () => {
-        const manager = getMCP().manager;
-        checkbox.disabled = true;
-        try {
-          await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
-          getState().set('mcp', { externalServers: (await manager.fetchExternalServers()).servers });
-        } catch (error) {
-          console.error('[MCP UI] Error configuring server option:', error);
-          checkbox.checked = !checkbox.checked;
-        } finally {
-          checkbox.disabled = false;
-        }
-      });
-    });
+  /** Clic en la lista de servidores: confiar en el servidor o iniciarlo/detenerlo. */
+  function handleServersClick(container, target) {
+    const trust = target.closest('.btn-mcp-server-trust');
+    if (trust) {
+      const serverId = trust.getAttribute('data-server-id');
+      if (getSecurity().getServerPolicy(serverId) === 'allow') getSecurity().revokeServerPolicy(serverId);
+      else getSecurity().setServerPolicy(serverId, 'allow', { serverName: serverId });
+      renderExternalServers(container, getState().get('mcp').externalServers);
+      renderSavedAuthorizations();
+      return;
+    }
+    const toggle = target.closest('.btn-mcp-server-toggle');
+    if (toggle) {
+      runExternalServerAction(toggle.getAttribute('data-server-id'), toggle.getAttribute('data-action'),
+        { browserActionActive: isBrowserActionCurrentlyActive(), button: toggle });
+    }
+  }
 
-    container.querySelectorAll('.btn-mcp-server-toggle').forEach(button => {
-      button.addEventListener('click', () => runExternalServerAction(
-        button.getAttribute('data-server-id'), button.getAttribute('data-action'), { browserActionActive, button }));
-    });
+  /** Cambio de una opción booleana de un servidor: se guarda y se recarga la lista de servidores. */
+  async function handleServerOptionChange(checkbox) {
+    if (!checkbox.matches('.mcp-server-option-checkbox')) return;
+    const manager = getMCP().manager;
+    checkbox.disabled = true;
+    try {
+      await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
+      getState().set('mcp', { externalServers: (await manager.fetchExternalServers()).servers });
+    } catch (error) {
+      console.error('[MCP UI] Error configuring server option:', error);
+      checkbox.checked = !checkbox.checked;
+    } finally {
+      checkbox.disabled = false;
+    }
   }
 
   function updateExternalServerState(serverId, changes) {
@@ -490,65 +495,63 @@
     });
 
     container.innerHTML = serverItems.join('') + toolItems.join('');
-    // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
-    container.querySelectorAll('.btn-revoke-auth').forEach(button => {
-      button.addEventListener('click', () => security.revokeToolPolicy(button.getAttribute('data-tool-id')));
-    });
-    container.querySelectorAll('.btn-revoke-server-auth').forEach(button => {
-      button.addEventListener('click', () => security.revokeServerPolicy(button.getAttribute('data-server-id')));
-    });
   }
 
   function renderCurrentToolsList(elements) {
     renderToolsList(elements.toolsContainer, getConnectedTools(), getConfig().getActive().enabledTools);
   }
 
+  /** Pinta los controles de seguridad con el estado de ChatToolSecurity; los eventos los enlaza initMcpUI. */
   function syncSecurityControls(elements) {
     const security = getSecurity();
     const policy = security.getGlobalMcpPolicy();
-    const radios = { ask: 'mcp-policy-ask', workspace_trust: 'mcp-policy-workspace-trust', allow_all: 'mcp-policy-allow-all' };
-    for (const [value, id] of Object.entries(radios)) {
-      const radio = document.getElementById(id);
-      radio.checked = policy === value;
-      if (radio.dataset.mcpBound) continue;
-      radio.dataset.mcpBound = 'true';
-      radio.addEventListener('change', () => {
-        if (radio.checked) security.setGlobalMcpPolicy(value);
-      });
-    }
-
+    for (const [value, id] of Object.entries(POLICY_RADIOS)) document.getElementById(id).checked = policy === value;
     const rulesInput = document.getElementById('mcp-directory-rules');
-    const rulesError = document.getElementById('mcp-directory-rules-error');
     if (document.activeElement !== rulesInput) rulesInput.value = security.getDirectoryRules().join('\n');
-    if (!rulesInput.dataset.mcpBound) {
-      rulesInput.dataset.mcpBound = 'true';
-      const onRulesChange = () => {
-        try {
-          security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
-          rulesError.textContent = '';
-        } catch (err) {
-          rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
-        }
-      };
-      rulesInput.addEventListener('change', onRulesChange);
-      rulesInput.addEventListener('input', onRulesChange);
-    }
-
-    const btnClearAuths = document.getElementById('btn-mcp-clear-auths');
-    if (!btnClearAuths.dataset.mcpBound) {
-      btnClearAuths.dataset.mcpBound = 'true';
-      btnClearAuths.addEventListener('click', () => security.clearAllAuthorizations());
-    }
-
     renderSavedAuthorizations();
     renderCurrentToolsList(elements);
   }
 
+  /** Monta la sección MCP: enlaza una sola vez sus eventos, delegados en cada contenedor. */
   function initMcpUI(elements) {
     const State = getState();
+    const security = getSecurity();
+    const listeners = new AbortController();
+    const on = (target, type, handler) => target.addEventListener(type, handler, { signal: listeners.signal });
     const render = () => renderConnectionStatus(elements, State.get('mcp'));
-    const unsubscribeSecurity = getSecurity().subscribe(() => syncSecurityControls(elements));
-    elements.btnCopyCmd.addEventListener('click', () => copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd));
+
+    on(elements.btnCopyCmd, 'click', () => copyCommandToClipboard(generateTerminalCommand(), elements.btnCopyCmd));
+    on(elements.toolsContainer, 'change', event => handleToolsChange(event.target));
+    on(elements.serversList, 'click', event => handleServersClick(elements.serversList, event.target));
+    on(elements.serversList, 'change', event => handleServerOptionChange(event.target));
+    // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
+    on(document.getElementById('mcp-saved-auths-list'), 'click', event => {
+      const tool = event.target.closest('.btn-revoke-auth');
+      if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
+      const server = event.target.closest('.btn-revoke-server-auth');
+      if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
+    });
+    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
+      const radio = document.getElementById(id);
+      on(radio, 'change', () => {
+        if (radio.checked) security.setGlobalMcpPolicy(value);
+      });
+    }
+    const rulesInput = document.getElementById('mcp-directory-rules');
+    const rulesError = document.getElementById('mcp-directory-rules-error');
+    const onRulesChange = () => {
+      try {
+        security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
+        rulesError.textContent = '';
+      } catch (err) {
+        rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
+      }
+    };
+    on(rulesInput, 'change', onRulesChange);
+    on(rulesInput, 'input', onRulesChange);
+    on(document.getElementById('btn-mcp-clear-auths'), 'click', () => security.clearAllAuthorizations());
+
+    const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));
     const unsubscribeState = State.subscribe('mcp', state => renderConnectionStatus(elements, state));
     render();
     syncSecurityControls(elements);
@@ -563,6 +566,7 @@
 
     return {
       destroy: () => {
+        listeners.abort();
         unsubscribeState();
         unsubscribeSecurity();
         unsubscribeLanguage();

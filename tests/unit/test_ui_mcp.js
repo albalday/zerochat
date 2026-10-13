@@ -39,6 +39,14 @@ function setup(t, mcp = {}) {
   };
 }
 
+/** Sección MCP montada con initMcpUI: los eventos se enlazan una vez, delegados en los contenedores. */
+function mounted(t, mcp = {}) {
+  const elements = setup(t, mcp);
+  const ui = ChatUIMcp.initMcpUI(elements);
+  t.after(() => ui.destroy());
+  return elements;
+}
+
 test('ChatUIMcp - recomienda el arranque por PyPI según el sistema y el puerto de zerochat.py', () => {
   assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), 'pip install zerochat\nzerochat');
   assert.equal(ChatUIMcp.generateTerminalCommand({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }), 'pip install zerochat\nzerochat');
@@ -122,7 +130,7 @@ const TOOLS = [
 ];
 
 test('ChatUIMcp - renderToolsList renderiza herramientas con interruptores que actualizan la configuración', t => {
-  const { toolsContainer } = setup(t);
+  const { toolsContainer } = mounted(t);
   const previous = ChatConfig.getActive().enabledTools;
   t.after(() => ChatConfig.updateRuntime({ enabledTools: previous }));
   ChatUIMcp.renderToolsList(toolsContainer, TOOLS, { list_directory: true, read_file: false, run_command: true });
@@ -135,31 +143,32 @@ test('ChatUIMcp - renderToolsList renderiza herramientas con interruptores que a
   const checkbox = id => toolsContainer.querySelector(`.mcp-tool-checkbox[data-tool-id="${id}"]`);
   assert.equal(checkbox('read_file').checked, false);
   checkbox('run_command').checked = false;
-  checkbox('run_command').dispatchEvent(new Event('change'));
+  checkbox('run_command').dispatchEvent(new Event('change', { bubbles: true }));
   assert.equal(ChatConfig.getActive().enabledTools.run_command, false);
   checkbox('read_file').checked = true;
-  checkbox('read_file').dispatchEvent(new Event('change'));
+  checkbox('read_file').dispatchEvent(new Event('change', { bubbles: true }));
   assert.equal(ChatConfig.getActive().enabledTools.read_file, true);
 });
 
 test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actualiza políticas', t => {
-  const { toolsContainer } = setup(t);
   const tools = [
     { id: 'mcp_test_tool_1', name: 'mcp_test_tool_1', metadata: { mcpServerName: 'srv1', originalName: 'tool1' } },
     { id: 'mcp_test_tool_2', name: 'mcp_test_tool_2', metadata: { mcpServerName: 'srv1', originalName: 'tool2' } }
   ];
+  // Conectada: cada cambio de política repinta la lista desde el estado MCP.
+  const { toolsContainer } = mounted(t, { status: 'connected', tools });
   ChatToolSecurity.manager.setToolPolicy('mcp_test_tool_2', 'allow', { serverName: 'srv1', originalName: 'tool2' });
   ChatUIMcp.renderToolsList(toolsContainer, tools, {});
 
   const select = id => toolsContainer.querySelector(`.mcp-auth-select[data-tool-id="${id}"]`);
   assert.equal(select('mcp_test_tool_2').value, 'allow');
   select('mcp_test_tool_1').value = 'allow';
-  select('mcp_test_tool_1').dispatchEvent(new Event('change'));
+  select('mcp_test_tool_1').dispatchEvent(new Event('change', { bubbles: true }));
   assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_1'), 'allow');
   assert.ok(select('mcp_test_tool_1').classList.contains('status-allowed'));
 
   select('mcp_test_tool_2').value = 'ask';
-  select('mcp_test_tool_2').dispatchEvent(new Event('change'));
+  select('mcp_test_tool_2').dispatchEvent(new Event('change', { bubbles: true }));
   assert.equal(ChatToolSecurity.manager.getToolPolicy('mcp_test_tool_2'), null);
   assert.ok(select('mcp_test_tool_2').classList.contains('status-ask'));
 
@@ -169,7 +178,7 @@ test('ChatUIMcp - renderToolsList renderiza selectores de autorización y actual
 });
 
 test('ChatUIMcp - las revocaciones guardadas son botones de icono con tooltip accesible', t => {
-  setup(t);
+  mounted(t);
   ChatToolSecurity.manager.setToolPolicy('mcp_compact_revoke_test', 'allow', { originalName: 'compact revoke test' });
   ChatUIMcp.renderSavedAuthorizations();
   const button = document.querySelector('#mcp-saved-auths-list .btn-revoke-auth');
@@ -265,7 +274,7 @@ test('ChatUIMcp - Playwright detecta e informa si browser_action está activa', 
 });
 
 test('ChatUIMcp - iniciar un servidor MCP muestra el estado iniciando y el intento de cada espera', async t => {
-  const { serversList } = setup(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  const { serversList } = mounted(t, { externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
   let statusDuringStart = null;
   t.mock.method(ChatMCP.manager, 'startExternalServer', async (serverId, onWait) => {
     statusDuringStart = ChatState.get('mcp').externalServers[0].status;
@@ -281,6 +290,25 @@ test('ChatUIMcp - iniciar un servidor MCP muestra el estado iniciando y el inten
   assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 2, total: 10 });
   assert.equal(button.disabled, false);
   assert.equal(button.hasAttribute('aria-busy'), false);
+});
+
+test('ChatUIMcp - repintar las listas no vuelve a enlazar eventos: cada acción se dispara una vez', async t => {
+  const { toolsContainer, serversList } = mounted(t);
+  const tools = [{ id: 'mcp_once', name: 'mcp_once', metadata: { mcpServerName: 'srv', originalName: 'once' } }];
+  const setPolicy = t.mock.method(ChatToolSecurity.manager, 'setToolPolicy');
+  ChatUIMcp.renderToolsList(toolsContainer, tools, {});
+  ChatUIMcp.renderToolsList(toolsContainer, tools, {});
+  const select = toolsContainer.querySelector('.mcp-auth-select');
+  select.value = 'allow';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  assert.equal(setPolicy.mock.callCount(), 1);
+
+  const start = t.mock.method(ChatMCP.manager, 'startExternalServer', async () => {});
+  ChatUIMcp.renderExternalServers(serversList, [{ id: 'ejemplo', status: 'stopped' }]);
+  ChatUIMcp.renderExternalServers(serversList, [{ id: 'ejemplo', status: 'stopped' }]);
+  serversList.querySelector('.btn-mcp-server-toggle').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(start.mock.callCount(), 1);
 });
 
 function useDialogs(t, confirmResult, alerts = []) {
