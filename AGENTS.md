@@ -328,6 +328,6 @@ La documentación se organiza de forma canónica en los siguientes niveles:
 - **Memoria del proyecto (`.zerochat/`)**:
   Plan, estado, registro de decisiones y archivo de hitos, con los ficheros `.md` que define la sección "Project memory". Se versiona junto con el código.
 - **Documentación de usuario final (`help/`)**:
-  Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación.
+  Contenido HTML estático bilingüe (español e inglés) servido por GitHub Pages para usuarios de la aplicación. Cada página tiene su traducción en `help/en/`, las dos se enlazan entre sí y citan la serie `major.x` de `package.json`; lo comprueba `tests/architecture/test_help_pages.js`.
 - **Histórico y archivo (`docs/`)**:
   Reservado exclusivamente para el procedimiento de auditoría `AuditFull.md` (`docs/audits/`) y para propuestas técnicas de diseño en borrador (`docs/proposals/`). Los informes de auditoría se publican en la ayuda (`help/audit-*.html`).
