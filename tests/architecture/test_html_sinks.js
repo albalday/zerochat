@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 // Límite de contenido externo (docs/audits/AuditFull.md): el HTML solo se asigna en los usos
 // revisados de esta lista cerrada. Cada uno pinta marcado propio con los datos escapados
@@ -38,17 +39,9 @@ const REVIEWED_USES = {
   'js/utils.js': 3
 };
 
-function listJsFiles(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listJsFiles(fullPath);
-    return entry.name.endsWith('.js') ? [fullPath] : [];
-  });
-}
-
 test('HTML - solo se asigna HTML en los usos revisados de la lista cerrada', () => {
   const found = {};
-  for (const file of listJsFiles(path.join(ROOT, 'js'))) {
+  for (const file of listSourceFiles(path.join(ROOT, 'js'))) {
     const relative = path.relative(ROOT, file).split(path.sep).join('/');
     const count = [...fs.readFileSync(file, 'utf8').matchAll(HTML_SINK)].length;
     if (count) found[relative] = count;

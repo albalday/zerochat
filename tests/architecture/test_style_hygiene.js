@@ -2,24 +2,17 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 // Higiene de estilos: tokens definidos y usados, sin respaldos que nunca se aplican, y elementos
 // ocultos con el atributo hidden en lugar de estilos en línea.
 
 const ROOT = path.resolve(__dirname, '../..');
 
-function listFiles(dir, extension) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listFiles(fullPath, extension);
-    return entry.name.endsWith(extension) ? [fullPath] : [];
-  });
-}
-
 const read = file => fs.readFileSync(file, 'utf8');
 const relative = file => path.relative(ROOT, file);
-const CSS = new Map(listFiles(path.join(ROOT, 'css'), '.css').map(file => [file, read(file)]));
-const JS = new Map(listFiles(path.join(ROOT, 'js'), '.js').map(file => [file, read(file)]));
+const CSS = new Map(listSourceFiles(path.join(ROOT, 'css'), '.css').map(file => [file, read(file)]));
+const JS = new Map(listSourceFiles(path.join(ROOT, 'js'), '.js').map(file => [file, read(file)]));
 const HTML = read(path.join(ROOT, 'zerochat.html'));
 const allCss = [...CSS.values()].join('\n');
 const allJs = [...JS.values()].join('\n');

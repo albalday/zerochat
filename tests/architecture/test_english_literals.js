@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 // AGENTS.md §3: los mensajes que el código inyecta en la conversación se redactan en inglés, y el
 // texto de la interfaz sale de ChatI18n. Fuera de js/i18n.js ningún literal de cadena lleva
@@ -11,13 +12,8 @@ const JS_DIR = path.resolve(__dirname, '../../js');
 const SPANISH = /[áéíóúñ¿¡ÁÉÍÓÚÑ]/;
 const MARKUP = /<\/?[a-z][^>]*>/i;
 
-function listSourceFiles(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listSourceFiles(fullPath);
-    return entry.name.endsWith('.js') && entry.name !== 'i18n.js' ? [fullPath] : [];
-  });
-}
+// i18n.js es el diccionario: sus textos son los traducidos.
+const listAppSources = dir => listSourceFiles(dir).filter(file => path.basename(file) !== 'i18n.js');
 
 // Literales de cadena de un fuente JS: comillas y tramos de texto de plantillas (sin ${…}).
 function stringLiterals(src) {
@@ -86,7 +82,7 @@ function stringLiterals(src) {
 
 test('Textos - fuera de i18n.js ningún literal de cadena está en español', () => {
   const offenders = [];
-  for (const file of listSourceFiles(JS_DIR)) {
+  for (const file of listAppSources(JS_DIR)) {
     const source = fs.readFileSync(file, 'utf8');
     for (const { index, text } of stringLiterals(source)) {
       if (SPANISH.test(text) && !MARKUP.test(text)) {

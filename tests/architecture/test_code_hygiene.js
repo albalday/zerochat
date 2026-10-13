@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 // Higiene del código fuente: dependencias resueltas con la infraestructura común, sin
 // funciones ni variables que nadie use. Las pruebas no cuentan como uso.
@@ -9,15 +10,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../..');
 const JS_DIR = path.join(ROOT, 'js');
 
-function listJsFiles(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listJsFiles(fullPath);
-    return entry.name.endsWith('.js') ? [fullPath] : [];
-  });
-}
-
-const SOURCES = new Map(listJsFiles(JS_DIR).map(file => [file, fs.readFileSync(file, 'utf8')]));
+const SOURCES = new Map(listSourceFiles(JS_DIR).map(file => [file, fs.readFileSync(file, 'utf8')]));
 const OTHER_CONSUMERS = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'sw.js')].map(file => fs.readFileSync(file, 'utf8'));
 const relative = file => path.relative(ROOT, file);
 const lineOf = (source, index) => source.slice(0, index).split('\n').length;

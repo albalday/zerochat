@@ -18,9 +18,6 @@
   const { registry } = resolveDep('ChatProviders', './providers.js');
   const TextToolCalls = resolveDep('ChatTextToolCalls', './text-tool-calls.js');
 
-  // finish_reason (OpenAI) y stop_reason (Messages API) de una respuesta cortada por el límite de salida.
-  const TRUNCATED_FINISH_REASONS = ['length', 'max_tokens'];
-
   /** Error que el servidor envía dentro del streaming, después de haber respondido 200. */
   class StreamServerError extends Error {
     constructor(serverMessage) {
@@ -485,9 +482,9 @@
               if (chunkData.cacheCreationTokens > 0) serverCacheCreationTokens = chunkData.cacheCreationTokens;
               if (typeof chunkData.reasoningSignature === 'string') replaySignature = (replaySignature || '') + chunkData.reasoningSignature;
               if (chunkData.error) streamFailure = chunkData.error;
-              if (TRUNCATED_FINISH_REASONS.includes(chunkData.finishReason) && !truncated) {
+              if (chunkData.truncatedBy && !truncated) {
                 truncated = true;
-                onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.finishReason}).` });
+                onLog?.({ type: 'warning', text: `The server cut the response at the output token limit (${chunkData.truncatedBy}).` });
               }
 
               // Tokens de razonamiento específicos

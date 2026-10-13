@@ -59,6 +59,20 @@
     return null;
   }
 
+  /** Mensaje de un error que el servidor envía dentro del streaming: texto u objeto con message o type. */
+  function streamErrorMessage(error) {
+    if (typeof error === 'string') return error;
+    return error.message || error.type || JSON.stringify(error);
+  }
+
+  /** Copia en el resultado del chunk el uso de tokens y los tokens leídos y escritos en caché. */
+  function readUsage(result, usage) {
+    result.usage = usage;
+    if (usage.prompt_tokens_details?.cached_tokens) result.cachedTokens = usage.prompt_tokens_details.cached_tokens;
+    if (usage.cache_read_input_tokens) result.cachedTokens = usage.cache_read_input_tokens;
+    if (usage.cache_creation_input_tokens) result.cacheCreationTokens = usage.cache_creation_input_tokens;
+  }
+
   /** Estado de una capacidad en el informe del inspector; la interfaz traduce `detailKey`. */
   const capability = (status, detailKey, detailParams, source) => ({ status, detailKey, detailParams, source });
 
@@ -159,10 +173,17 @@
     }
 
     /**
-     * Aplica la configuración de razonamiento / pensamiento al payload.
+     * Normaliza el nivel elegido y lo aplica si el modelo razona. "none" se pide de forma explícita:
+     * sin parámetro el modelo razona según su valor por defecto. Un servidor que no admite apagarlo
+     * lo rechaza y handleHttpError reintenta sin él.
      */
-    applyReasoning(payload, effortLevel) {
-      const effort = String(effortLevel || 'none').toLowerCase().trim();
+    applyReasoningEffort(payload, capabilities, reasoningEffort) {
+      const effort = String(reasoningEffort || '').toLowerCase().trim();
+      if (capabilities.reasoning && effort) this.applyReasoning(payload, effort);
+    }
+
+    /** Aplica al payload un nivel de razonamiento ya normalizado y no vacío. */
+    applyReasoning(payload, effort) {
       payload.reasoning_effort = effort;
     }
 
@@ -242,12 +263,7 @@
         }
       }
 
-      // "none" se pide de forma explícita: sin parámetro el modelo razona según su valor por defecto.
-      // Un servidor que no admite apagarlo lo rechaza y handleHttpError reintenta sin él.
-      const effort = String(reasoningEffort || '').toLowerCase().trim();
-      if (capabilities.reasoning && effort) {
-        this.applyReasoning(payload, effort);
-      }
+      this.applyReasoningEffort(payload, capabilities, reasoningEffort);
 
       if (capabilities.tools && toolsList && toolsList.length > 0) {
         this.applyTools(payload, toolsList, toolChoice);
@@ -281,10 +297,9 @@
       const delta = choice?.delta;
 
       // Un servidor que ya respondió 200 solo puede avisar de un fallo dentro del propio flujo.
-      if (parsed.error) {
-        result.error = typeof parsed.error === 'string' ? parsed.error : (parsed.error.message || JSON.stringify(parsed.error));
-      }
-      if (choice?.finish_reason) result.finishReason = choice.finish_reason;
+      if (parsed.error) result.error = streamErrorMessage(parsed.error);
+      // Motivo de fin cuando el servidor cortó la respuesta en el límite de tokens de salida.
+      if (choice?.finish_reason === 'length') result.truncatedBy = 'length';
 
       if (delta) {
         // Tokens de razonamiento específicos
@@ -326,18 +341,7 @@
         };
       }
 
-      if (usage) {
-        result.usage = usage;
-        if (usage.prompt_tokens_details?.cached_tokens) {
-          result.cachedTokens = usage.prompt_tokens_details.cached_tokens;
-        }
-        if (usage.cache_read_input_tokens) {
-          result.cachedTokens = usage.cache_read_input_tokens;
-        }
-        if (usage.cache_creation_input_tokens) {
-          result.cacheCreationTokens = usage.cache_creation_input_tokens;
-        }
-      }
+      if (usage) readUsage(result, usage);
 
       return result;
     }
@@ -769,10 +773,7 @@
         payload.stream = true;
       }
 
-      const effort = String(reasoningEffort || '').toLowerCase().trim();
-      if (capabilities.reasoning && effort) {
-        this.applyReasoning(payload, effort);
-      }
+      this.applyReasoningEffort(payload, capabilities, reasoningEffort);
 
       if (capabilities.tools && toolsList && toolsList.length > 0) {
         payload.tools = toolsList.map(t => {
@@ -797,8 +798,7 @@
     }
 
     /** El razonamiento se activa con un presupuesto y "none" lo desactiva de forma explícita. */
-    applyReasoning(payload, effortLevel) {
-      const effort = String(effortLevel || 'none').toLowerCase().trim();
+    applyReasoning(payload, effort) {
       if (effort === 'none') {
         payload.thinking = { type: 'disabled' };
         return;
@@ -841,6 +841,9 @@
     }
 
     parseStreamChunk(parsed, state) {
+      // Los eventos de la Messages API llevan type; sin él es Claude servido en formato OpenAI (OpenRouter).
+      if (!parsed.type) return super.parseStreamChunk(parsed, state);
+
       const result = {
         textChunk: '',
         reasoningChunk: '',
@@ -850,20 +853,14 @@
         cacheCreationTokens: 0
       };
 
-      if (parsed.type === 'error') {
-        result.error = parsed.error?.message || parsed.error?.type || 'error';
-      }
-      if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
-        result.finishReason = parsed.delta.stop_reason;
+      if (parsed.type === 'error') result.error = streamErrorMessage(parsed.error || 'error');
+      if (parsed.type === 'message_delta' && parsed.delta?.stop_reason === 'max_tokens') {
+        result.truncatedBy = 'max_tokens';
       }
 
       const usage = parsed.type === 'message_start' ? parsed.message?.usage
         : (parsed.type === 'message_delta' ? parsed.usage : null);
-      if (usage) {
-        result.usage = withClaudePromptTokens(usage);
-        if (usage.cache_read_input_tokens) result.cachedTokens = usage.cache_read_input_tokens;
-        if (usage.cache_creation_input_tokens) result.cacheCreationTokens = usage.cache_creation_input_tokens;
-      }
+      if (usage) readUsage(result, withClaudePromptTokens(usage));
 
       // Cada bloque tool_use se acumula por el índice de su bloque de contenido.
       if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
@@ -885,19 +882,6 @@
         } else if (parsed.delta?.type === 'input_json_delta' && parsed.delta.partial_json) {
           result.toolCallDeltas = [{ index: parsed.index, function: { arguments: parsed.delta.partial_json } }];
         }
-      }
-
-      // Fallback a formato choices por si OpenRouter sirve Claude en formato OpenAI
-      if (parsed.choices?.[0] || parsed.usage) {
-        const baseRes = super.parseStreamChunk(parsed, state);
-        if (baseRes.textChunk) result.textChunk = baseRes.textChunk;
-        if (baseRes.reasoningChunk) result.reasoningChunk = baseRes.reasoningChunk;
-        if (baseRes.reasoningField) result.reasoningField = baseRes.reasoningField;
-        if (baseRes.toolCallDeltas.length > 0) result.toolCallDeltas = baseRes.toolCallDeltas;
-        if (baseRes.cachedTokens > 0) result.cachedTokens = baseRes.cachedTokens;
-        if (baseRes.cacheCreationTokens > 0) result.cacheCreationTokens = baseRes.cacheCreationTokens;
-        if (baseRes.usage && !result.usage) result.usage = baseRes.usage;
-        if (baseRes.finishReason) result.finishReason = baseRes.finishReason;
       }
 
       return result;
@@ -934,8 +918,8 @@
     }
 
     /** reasoning_effort de Gemini no tiene nivel por encima de high: Máximo pide high. */
-    applyReasoning(payload, effortLevel) {
-      super.applyReasoning(payload, effortLevel === 'xhigh' ? 'high' : effortLevel);
+    applyReasoning(payload, effort) {
+      super.applyReasoning(payload, effort === 'xhigh' ? 'high' : effort);
     }
 
     /**
@@ -1189,9 +1173,8 @@
       return `${url}/v1/chat/completions`;
     }
 
-    applyReasoning(payload, effortLevel) {
-      const effort = String(effortLevel || 'none').toLowerCase().trim();
-      payload.reasoning = { effort: effort };
+    applyReasoning(payload, effort) {
+      payload.reasoning = { effort };
       payload.reasoning_effort = effort;
     }
 

@@ -291,12 +291,14 @@ test('Adaptadores - Errores dentro del streaming y motivo de fin', () => {
   const base = new BaseProviderAdapter();
   assert.equal(base.parseStreamChunk({ error: { message: 'Provider returned error', code: 502 } }).error, 'Provider returned error');
   assert.equal(base.parseStreamChunk({ error: 'context overflow' }).error, 'context overflow');
-  assert.equal(base.parseStreamChunk({ choices: [{ delta: {}, finish_reason: 'length' }] }).finishReason, 'length');
+  assert.equal(base.parseStreamChunk({ choices: [{ delta: {}, finish_reason: 'length' }] }).truncatedBy, 'length');
+  assert.equal(base.parseStreamChunk({ choices: [{ delta: {}, finish_reason: 'stop' }] }).truncatedBy, undefined);
   assert.equal(base.parseStreamChunk({ choices: [{ delta: { content: 'a' } }] }).error, undefined);
 
   const claude = new ClaudeProviderAdapter();
   assert.equal(claude.parseStreamChunk({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }).error, 'Overloaded');
-  assert.equal(claude.parseStreamChunk({ type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 9 } }).finishReason, 'max_tokens');
+  assert.equal(claude.parseStreamChunk({ type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 9 } }).truncatedBy, 'max_tokens');
+  assert.equal(claude.parseStreamChunk({ choices: [{ delta: { content: 'a' } }] }).textChunk, 'a', 'Claude en formato OpenAI pasa por el adaptador base');
 });
 
 test('OllamaAdapter - Endpoints y parseo de modelos de Ollama (/api/tags)', () => {

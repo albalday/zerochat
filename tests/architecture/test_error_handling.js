@@ -2,18 +2,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 const JS_DIR = path.resolve(__dirname, '../../js');
 // Un catch sin cuerpo oculta el error; debe registrarlo, propagarlo o explicar con un comentario por qué lo ignora.
 const EMPTY_CATCH = /catch\s*(\([^)]*\))?\s*\{\s*\}/g;
-
-function listSourceFiles(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listSourceFiles(fullPath);
-    return entry.name.endsWith('.js') ? [fullPath] : [];
-  });
-}
 
 test('Errores - ningún módulo usa bloques catch vacíos', () => {
   const offenders = [];

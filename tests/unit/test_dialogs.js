@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const State = require('../../js/state.js');
+const { listSourceFiles } = require('../helpers/source-files');
 
 test('Notice queue validates, deduplicates and clears on conversation changes', () => {
   const store = State.createStore();
@@ -21,19 +22,11 @@ test('Notice queue validates, deduplicates and clears on conversation changes', 
 });
 
 test('Application does not call native browser dialogs', () => {
-  function check(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'vendor') continue;
-      const file = path.join(dir, entry.name);
-      if (entry.isDirectory()) check(file);
-      else if (file.endsWith('.js')) {
-        const source = fs.readFileSync(file, 'utf8').replace(/^\s*\/\/.*$/gm, '');
-        assert.doesNotMatch(source, /(?:window|globalThis|self)\s*\.\s*(?:alert|confirm|prompt)\s*\(/, file);
-        assert.doesNotMatch(source.replace(/function alert\(/g, 'function internalNotice('), /(?<![\w.])(?:alert|confirm|prompt)\s*\(/g, file);
-      }
-    }
+  for (const file of listSourceFiles(path.resolve(__dirname, '../../js'))) {
+    const source = fs.readFileSync(file, 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(source, /(?:window|globalThis|self)\s*\.\s*(?:alert|confirm|prompt)\s*\(/, file);
+    assert.doesNotMatch(source.replace(/function alert\(/g, 'function internalNotice('), /(?<![\w.])(?:alert|confirm|prompt)\s*\(/g, file);
   }
-  check('js');
 });
 
 test('Confirmations remain independent and require explicit acceptance', () => {

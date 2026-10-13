@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 const JS_DIR = path.resolve(__dirname, '../../js');
 // Asignación directa de un literal (comillas o plantilla) a una propiedad de texto visible.
@@ -9,17 +10,12 @@ const TEXT_ASSIGNMENT = /\.(textContent|innerText|placeholder|title)\s*=\s*(['`]
 // Términos técnicos que no se traducen: unidades y métodos HTTP.
 const UNTRANSLATED_TERMS = /\b(tok|POST|GET)\b/g;
 
-function listSourceFiles(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : listSourceFiles(fullPath);
-    return entry.name.endsWith('.js') && entry.name !== 'i18n.js' ? [fullPath] : [];
-  });
-}
+// i18n.js es el diccionario: sus textos son los traducidos.
+const listAppSources = dir => listSourceFiles(dir).filter(file => path.basename(file) !== 'i18n.js');
 
 test('ChatI18n - el texto visible asignado desde JavaScript no usa literales sin traducir', () => {
   const offenders = [];
-  for (const file of listSourceFiles(JS_DIR)) {
+  for (const file of listAppSources(JS_DIR)) {
     const source = fs.readFileSync(file, 'utf8');
     for (const match of source.matchAll(TEXT_ASSIGNMENT)) {
       const text = match[3].replace(/\$\{[^}]*\}/g, '').replace(UNTRANSLATED_TERMS, '');
@@ -38,7 +34,7 @@ const UNREACHABLE_FALLBACK = /(?<![\w$])(?:t|tFn|translate|translator)\(\s*'[\w.
 
 test('ChatI18n - no hay textos alternativos tras t(), que nunca se usarían', () => {
   const offenders = [];
-  for (const file of listSourceFiles(JS_DIR)) {
+  for (const file of listAppSources(JS_DIR)) {
     const source = fs.readFileSync(file, 'utf8');
     for (const match of source.matchAll(UNREACHABLE_FALLBACK)) {
       offenders.push(`${path.relative(JS_DIR, file)}:${source.slice(0, match.index).split('\n').length}`);
@@ -54,7 +50,7 @@ test('ChatI18n - toda clave de los diccionarios se usa', () => {
   const { TRANSLATIONS } = require('../../js/i18n.js');
   const i18nSource = fs.readFileSync(path.join(JS_DIR, 'i18n.js'), 'utf8');
   const corpus = [
-    ...listSourceFiles(JS_DIR).map(file => fs.readFileSync(file, 'utf8')),
+    ...listAppSources(JS_DIR).map(file => fs.readFileSync(file, 'utf8')),
     fs.readFileSync(path.resolve(JS_DIR, '../zerochat.html'), 'utf8'),
     i18nSource.slice(i18nSource.indexOf('function t('))
   ].join('\n');
