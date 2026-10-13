@@ -165,8 +165,8 @@ Para preservar el rendimiento durante el streaming de tokens SSE, se debe aplica
 renderizado eficiente (lazy rendering): evitar mutaciones masivas continuas del DOM y
 actualizar paneles o popovers pesados bajo demanda al interactuar o al finalizar la inferencia.
 
-Las herramientas deben respetar el contrato documentado en `js/tools/README.md`.
-No deben utilizarse las propiedades obsoletas `ui` ni `handler`.
+Las herramientas solo usan las claves de especificación documentadas en `js/tools/README.md`,
+que son las que acepta el constructor de `Tool`; lo comprueba `tests/integration/test_builtin_tools.js`.
 
 ## 4. Seguridad
 

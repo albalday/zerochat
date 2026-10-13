@@ -30,6 +30,28 @@ test('Builtin Tools - zerochat.html, sw.js y el registro cargan exactamente los 
   }
 });
 
+// Claves de la especificación documentadas en la lista inicial de js/tools/README.md, sin lo que va
+// entre paréntesis (firmas y subclaves) ni lo que sigue a los dos puntos.
+function documentedToolKeys() {
+  const readme = fs.readFileSync(path.join(ROOT_DIR, 'js/tools/README.md'), 'utf-8');
+  const bullets = readme.split('\n\n').find(block => block.startsWith('- `definition`')).split('\n');
+  return bullets.flatMap(line => {
+    const head = line.replace(/\([^)]*\)/g, '').split(':')[0];
+    return Array.from(head.matchAll(/`([\w$]+)`/g), match => match[1]);
+  }).sort();
+}
+
+test('Builtin Tools - las especificaciones solo usan las claves documentadas en js/tools/README.md', () => {
+  const documented = documentedToolKeys();
+  const accepted = AgentCore.Tool.toString().match(/constructor\(\{(.*?)\}\)\s*\{/)[1]
+    .split(',').map(part => part.split('=')[0].trim()).sort();
+  assert.deepEqual(documented, accepted, 'README.md y el constructor de Tool deben listar las mismas claves');
+  for (const file of fs.readdirSync(BUILTIN_DIR).filter(name => name.endsWith('.tool.js'))) {
+    const undocumented = Object.keys(require(path.join(BUILTIN_DIR, file))).filter(key => !documented.includes(key));
+    assert.deepEqual(undocumented, [], `${file} usa claves sin documentar`);
+  }
+});
+
 test('Builtin Tools - execute_javascript limpia las marcas de código y formatea la salida', async () => {
   const tool = getTool('execute_javascript');
   let receivedCode = '';
