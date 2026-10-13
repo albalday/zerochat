@@ -149,7 +149,9 @@ inglés.
 La interfaz no debe usar emojis crudos en botones, badges, barras o acciones interactivas.
 Debe utilizar exclusivamente iconos vectoriales SVG limpios a través del catálogo
 `ChatIcons` (`js/icons.js`) o etiquetas `<svg class="ui-icon">`. Los emojis solo son
-admisibles en contenido textual explicativo o mensajes del chat.
+admisibles en contenido textual explicativo o mensajes del chat. Lo comprueban
+`tests/architecture/test_ui_modernization.js` (marcado, `js/icons.js` y textos de controles) y
+`tests/browser/browser_a11y_theme.test.js` (controles renderizados).
 
 Los colores, radios, sombras y capas salen de los tokens de `css/tokens.css`, sin valor de
 respaldo en `var()`; fuera de ese fichero no se escriben colores literales (salvo la hoja de

@@ -59,6 +59,24 @@ test('UI Modernization - El banner de importación y el resumen de razonamiento 
   assert.ok(banner[1].includes("Icons.get('download'"), 'El banner de importación debe usar ChatIcons');
 });
 
+test('UI Modernization - el marcado, el catálogo de iconos y los textos de los controles no usan emojis', () => {
+  const emoji = /\p{Extended_Pictographic}/u;
+  const html = read('zerochat.html');
+  assert.equal(emoji.test(html), false, 'zerochat.html no debe contener emojis');
+  assert.equal(emoji.test(read('js/icons.js')), false, 'js/icons.js no debe contener emojis');
+
+  // Textos de controles: claves btn_* y las que zerochat.html aplica dentro de botones, opciones,
+  // etiquetas y resúmenes. Las exportaciones y el contenido explicativo pueden llevar emojis.
+  const { TRANSLATIONS } = require('../../js/i18n.js');
+  const controlKeys = new Set(Object.keys(TRANSLATIONS.es).filter(key => key.startsWith('btn_')));
+  for (const control of html.matchAll(/<(button|option|label|summary)\b[\s\S]*?<\/\1>/g)) {
+    for (const match of control[0].matchAll(/data-i18n[\w-]*="([\w.-]+)"/g)) controlKeys.add(match[1]);
+  }
+  const offenders = Object.entries(TRANSLATIONS).flatMap(([language, dictionary]) =>
+    [...controlKeys].filter(key => emoji.test(dictionary[key] || '')).map(key => `${language}.${key}`));
+  assert.deepEqual(offenders, [], 'Los textos de los controles deben usar iconos de ChatIcons, no emojis');
+});
+
 test('UI Modernization - zerochat.html optimiza carga con defer y CSS paralelos', () => {
   const htmlContent = read('zerochat.html');
   assert.match(htmlContent, /<link rel="manifest" href="manifest\.webmanifest">/, 'Debe declarar manifest.webmanifest');
