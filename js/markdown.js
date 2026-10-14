@@ -189,8 +189,208 @@
     return result.join('\n');
   }
 
+  const LATEX_MATH_SYMBOLS = Object.freeze({
+    // Flechas
+    rightarrow: '→',
+    to: '→',
+    leftarrow: '←',
+    gets: '←',
+    Rightarrow: '⇒',
+    implies: '⇒',
+    Leftarrow: '⇐',
+    leftrightarrow: '\u2194',
+    iff: '⇔',
+    uparrow: '↑',
+    downarrow: '↓',
+    nearrow: '\u2197',
+    searrow: '\u2198',
+    mapsto: '↦',
+
+    // Comparacion y relaciones
+    le: '≤',
+    leq: '≤',
+    ge: '≥',
+    geq: '≥',
+    ne: '≠',
+    neq: '≠',
+    approx: '≈',
+    sim: '∼',
+    simeq: '≃',
+    equiv: '≡',
+    cong: '≅',
+    propto: '∝',
+    ll: '≪',
+    gg: '≫',
+
+    // Operaciones aritmeticas y algebra
+    times: '×',
+    div: '÷',
+    pm: '±',
+    mp: '∓',
+    cdot: '·',
+    circ: '∘',
+    bullet: '•',
+    star: '★',
+    ast: '∗',
+
+    // Logica y teoria de conjuntos
+    in: '∈',
+    notin: '∉',
+    ni: '∋',
+    subset: '⊂',
+    subseteq: '⊆',
+    supset: '⊃',
+    supseteq: '⊇',
+    cap: '∩',
+    cup: '∪',
+    setminus: '∖',
+    emptyset: '∅',
+    forall: '∀',
+    exists: '∃',
+    nexists: '∄',
+    land: '∧',
+    lor: '∨',
+    neg: '¬',
+    lnot: '¬',
+    top: '⊤',
+    bot: '⊥',
+
+    // Calculo y miscelanea
+    infty: '∞',
+    partial: '∂',
+    nabla: '∇',
+    sum: '∑',
+    prod: '∏',
+    int: '∫',
+    oint: '∮',
+    angle: '∠',
+    perp: '⊥',
+    parallel: '∥',
+    ldots: '…',
+    cdots: '…',
+    dots: '…',
+
+    // Letras griegas minusculas
+    alpha: 'α',
+    beta: 'β',
+    gamma: 'γ',
+    delta: 'δ',
+    epsilon: 'ε',
+    varepsilon: 'ε',
+    zeta: 'ζ',
+    eta: 'η',
+    theta: 'θ',
+    vartheta: 'ϑ',
+    iota: 'ι',
+    kappa: 'κ',
+    lambda: 'λ',
+    mu: 'μ',
+    nu: 'ν',
+    xi: 'ξ',
+    pi: 'π',
+    varpi: 'ϖ',
+    rho: 'ρ',
+    varrho: 'ϱ',
+    sigma: 'σ',
+    varsigma: 'ς',
+    tau: 'τ',
+    upsilon: 'υ',
+    phi: 'φ',
+    varphi: 'ϕ',
+    chi: 'χ',
+    psi: 'ψ',
+    omega: 'ω',
+
+    // Letras griegas mayusculas
+    Gamma: 'Γ',
+    Delta: 'Δ',
+    Theta: 'Θ',
+    Lambda: 'Λ',
+    Xi: 'Ξ',
+    Pi: 'Π',
+    Sigma: 'Σ',
+    Upsilon: 'Υ',
+    Phi: 'Φ',
+    Psi: 'Ψ',
+    Omega: 'Ω'
+  });
+
+  const SUPERSCRIPT_MAP = Object.freeze({
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+    'n': 'ⁿ', 'i': 'ⁱ'
+  });
+
+  const SUBSCRIPT_MAP = Object.freeze({
+    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+    'a': 'ₐ', 'e': 'ₑ', 'o': 'ₒ', 'x': 'ₓ', 'i': 'ᵢ',
+    'j': 'ⱼ', 'n': 'ₙ'
+  });
+
   /**
-   * Parsea segmentos de texto normales (fuera de bloques de código).
+   * Normaliza sintaxis LaTeX matematica y delimitadores a texto limpio con simbolos Unicode.
+   */
+  function normalizeMathNotation(text) {
+    if (!text || (!text.includes('\\') && !text.includes('$') && !text.includes('^') && !text.includes('_{'))) {
+      return text;
+    }
+
+    let p = text;
+
+    // 1. Delimitadores de bloque y matematicos: $$...$$, \[...\], \(...\)
+    p = p.replace(/\$\$([\s\S]*?)\$\$/g, '$1');
+    p = p.replace(/\\\[([\s\S]*?)\\\]/g, '$1');
+    p = p.replace(/\\\(([\s\S]*?)\\\)/g, '$1');
+
+    // 2. Comandos de formato habituales
+    p = p.replace(/\\(?:text|mathrm|mathbf|mathit|boldsymbol)\s*\{([^}]+)\}/g, '$1');
+    p = p.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, (match, n, d) => {
+      const num = n.trim();
+      const den = d.trim();
+      const parenN = /[+\-\s]/.test(num);
+      const parenD = /[+\-\s]/.test(den);
+      return `${parenN ? `(${num})` : num}/${parenD ? `(${den})` : den}`;
+    });
+    p = p.replace(/\\sqrt\s*\[([^\]]+)\]\s*\{([^}]+)\}/g, '^$1√($2)');
+    p = p.replace(/\\sqrt\s*\{([^}]+)\}/g, '√($1)');
+    p = p.replace(/\\sqrt\b/g, '√');
+
+    // 3. Espaciado y llaves LaTeX
+    p = p.replace(/\\(?:quad|qquad)/g, '  ');
+    p = p.replace(/\\[,;:]/g, ' ');
+    p = p.replace(/\\!/g, '');
+    p = p.replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+
+    // 4. Mapeo de simbolos matematicos y letras griegas
+    p = p.replace(/\\([A-Za-z]+)(?:\{\})?/g, (match, name) => {
+      return Object.prototype.hasOwnProperty.call(LATEX_MATH_SYMBOLS, name)
+        ? LATEX_MATH_SYMBOLS[name]
+        : match;
+    });
+
+    // 5. Superindices y subindices matematicos seguros
+    p = p.replace(/(?<=[a-zA-Z0-9\)])\^\{([0-9+\-ni()]+)\}/g, (match, inner) => {
+      return inner.split('').map(c => SUPERSCRIPT_MAP[c] || c).join('');
+    });
+    p = p.replace(/(?<=[a-zA-Z0-9\)])_\{([0-9+\-aeoxijn()]+)\}/g, (match, inner) => {
+      return inner.split('').map(c => SUBSCRIPT_MAP[c] || c).join('');
+    });
+    p = p.replace(/(?<=[a-zA-Z0-9\)])\^([0-9ni])/g, (match, c) => SUPERSCRIPT_MAP[c] || match);
+
+    // 6. Retirar delimitadores $...$ cuando no sea una cifra monetaria o rango numerico
+    p = p.replace(/(?<!\\)\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (match, inner) => {
+      if (/^[\d.,\s\-]+$/.test(inner.trim())) return match;
+      return inner;
+    });
+
+    return p;
+  }
+
+  /**
+   * Parsea segmentos de texto normales (fuera de bloques de codigo).
    */
   function parseTextMarkdown(text) {
     if (!text) return '';
@@ -227,8 +427,11 @@
       `;
     });
 
-    // 2. Código inline `código`
+    // 2. Codigo inline `codigo`
     p = protectInlineCode(p, codes);
+
+    // 2b. Normalizacion de notacion matematica y LaTeX a Unicode fuera de codigo inline
+    p = normalizeMathNotation(p);
 
     // 3. Tablas Markdown (GFM Tables)
     p = parseMarkdownTables(p);

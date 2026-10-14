@@ -34,7 +34,7 @@
   const APP_VERSION = (typeof document !== 'undefined' && document.title.match(/v?(\d+\.\d+(?:\.\d+)?)/)?.[1]) || 'dev';
 
   const DEFAULT_THEME = 'dark';
-  const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Never use LaTeX syntax or delimiters ($ or $$); write mathematics, formulas, and numbers directly in readable text using standard symbols (+, -, ×, /, =).]';
+  const DEFAULT_SYSTEM_DATA_PROMPT = '[Format: Always use standard Markdown and plain text. Use direct Unicode symbols (→, ≤, ≥, ≈, ≠, ×, ÷, ±, ²) for mathematics and logic; never output LaTeX commands (\\rightarrow, \\le, \\frac) or delimiters ($ or $$).]';
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   const CONFIG_DEFAULTS = Object.freeze({

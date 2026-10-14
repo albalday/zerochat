@@ -22,3 +22,6 @@
 - 2026-10-13 M2-D18 finish_reason "length" or stop_reason "max_tokens" marks the result as truncated: the text is kept, a notice is shown under the message and the log gets a warning; the notice lives only in the current view and is not saved with the message (M2-T17)
 - 2026-10-13 M2-D19 After a reasoning_rejected retry the agent sends the rest of the turn without the reasoning parameter (api.js returns recoveredReason; the turn keeps it locally, no module state); each new turn tries the configured level again. Gemini reasoning_effort tops at high, so Maximum sends high: a provider API limit, not a model rule (M2-T19)
 - 2026-10-13 M2-D20 AGENTS.md slimmed to 139 lines / 9 KB by extracting technical rules to colocated js/README.md and py/README.md; README.md streamlined with clean separated bilingual sections and links to /help/ (M2-T20)
+- 2026-10-15 M6-D1 Normalize common LaTeX symbols to Unicode in ChatMarkdown instead of heavy KaTeX bundle (M6-T1)
+- 2026-10-15 M6-D2 Normalize LaTeX math macros and math delimiters to Unicode in ChatMarkdown outside code blocks, preserving currencies (M6-T2)
+- 2026-10-15 M6-D3 Adopt Proposal B for DEFAULT_SYSTEM_DATA_PROMPT with explicit Unicode symbols and prohibited LaTeX macros, and update /help/ (M6-T3)

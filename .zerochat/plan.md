@@ -21,10 +21,7 @@ Done when: Large browser test suites are split by subdomains, common test setup 
 - [ ] M5-T2 Extract shared fixtures and interaction helpers in tests/helpers/
 - [ ] M5-T3 Verify suite execution and maintainability with npm run test:browser
 
-## M6 Investigation and rendering of LaTeX/math notation in chat responses
-Goal: Investigate unrendered LaTeX/math syntax (e.g. $\rightarrow$) appearing as raw text in chat responses, and support or normalize math notation.
-Done when: The cause of unrendered math notation is analyzed, a solution (such as KaTeX integration, character substitution or custom parsing) is agreed and implemented with tests, and /help is updated if applicable.
-- [ ] M6-T1 Investigate raw LaTeX/math syntax in chat responses and define the rendering or normalization approach
+## M6 Investigation and rendering of LaTeX/math notation in chat responses: closed 2026-10-15
 
 ## M7 Temporary tests and scratchpad execution in /tmp
 Goal: Allow running temporary tests and scratch scripts without leaving orphan files in the project workspace, supporting execution in /tmp like Claude Code.
