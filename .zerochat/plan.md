@@ -2,30 +2,7 @@
 
 ## M1 Project setup: closed 2026-10-12
 
-## M2 Audit closure, Anthropic connection and detected bugs
-Goal: Close the 9.1.0 audit findings and make the Anthropic Messages adapter work with any compatible server, fixing the bugs found on the way.
-Done when: the audit findings are closed, text, reasoning and tool calls work through /v1/messages against a compatible server with tests, and /help is updated.
-- [x] M2-T1 Show images in the chat (dropped: moved to M4-T1)
-- [x] M2-T2 Read office files as attachments and from tools (dropped: moved to M4-T2)
-- [x] M2-T3 Audit R-01: drop WebLLM guards over always-loaded modules, with hygiene test (2026-10-13)
-- [x] M2-T4 Audit R-04: test that every registered provider adapter extends BaseProviderAdapter (2026-10-13)
-- [x] M2-T5 Audit R-06: tool rule cites only README keys, with a test against the Tool constructor (2026-10-13)
-- [x] M2-T6 Audit R-03: architecture test for the persistence boundary (2026-10-13)
-- [x] M2-T7 Audit R-09: help pages test (translation, cross links, version series); language switch on the API key pages (2026-10-13)
-- [x] M2-T8 Audit R-07: emoji test extended to zerochat.html, icons.js and control texts (2026-10-13)
-- [x] M2-T9 Audit F-01 to F-05 checked against a local llama.cpp server; decisions M2-D1 to M2-D4 (2026-10-13)
-- [x] M2-T10 Audit R-08: architecture test with the closed list of innerHTML uses (2026-10-13)
-- [x] M2-T11 Audit R-02: listeners only in mount() or handlers, with a repaint-twice integration test (2026-10-13)
-- [x] M2-T12 Audit R-05: injected messages in constants, test that they are in English (2026-10-13)
-- [x] M2-T13 Audit R-10: style hygiene test for selectors without consumers (2026-10-13)
-- [x] M2-T14 Audit F-01: inspector confirms vision from the modalities the server declares (any model, no name patterns) (2026-10-13)
-- [x] M2-T15 Audit update: rewrite the audit pages for generic local models, applying M2-D1 to M2-D4 (2026-10-13)
-- [x] M2-T16 Anthropic adapter: stream tool_use blocks, convert tool history and tool_choice, replay thinking with signature, max_tokens no longer tied to the budget, context from input plus cache, no mutation of the tool list (2026-10-13)
-- [x] M2-T17 Stream error events (Messages API `error`, OpenAI `error` chunk) and answers cut by the output limit are shown to the user and in the debug log (2026-10-13)
-- [x] M2-T18 Reasoning "none" sends each protocol's explicit off value, retrying without it if rejected; drop the unused reasoningTransport setting (2026-10-13)
-- [x] M2-T19 A rejected reasoning parameter is retried once per agent turn, not on every step; Gemini Maximum maps to high (2026-10-13)
-- [x] M2-T20 Slim AGENTS.md, colocate technical rules in js/README.md and py/README.md, and streamline README.md (2026-10-13)
-
+## M2 Audit closure, Anthropic connection and detected bugs: closed 2026-10-13
 ## M3 Playwright automation scripts
 Goal: Use ZeroChat to write and maintain Playwright automation scripts.
 Done when: to be agreed with the user before the milestone starts.
@@ -43,3 +20,16 @@ Done when: Large browser test suites are split by subdomains, common test setup 
 - [ ] M5-T1 Audit and split large browser test suites into focused files
 - [ ] M5-T2 Extract shared fixtures and interaction helpers in tests/helpers/
 - [ ] M5-T3 Verify suite execution and maintainability with npm run test:browser
+
+## M6 Investigation and rendering of LaTeX/math notation in chat responses
+Goal: Investigate unrendered LaTeX/math syntax (e.g. $\rightarrow$) appearing as raw text in chat responses, and support or normalize math notation.
+Done when: The cause of unrendered math notation is analyzed, a solution (such as KaTeX integration, character substitution or custom parsing) is agreed and implemented with tests, and /help is updated if applicable.
+- [ ] M6-T1 Investigate raw LaTeX/math syntax in chat responses and define the rendering or normalization approach
+
+## M7 Temporary tests and scratchpad execution in /tmp
+Goal: Allow running temporary tests and scratch scripts without leaving orphan files in the project workspace, supporting execution in /tmp like Claude Code.
+Done when: The approach for temporary tests (governance in AGENTS.md vs. code/security support in ChatToolSecurity and workspace_trust for /tmp) is defined and implemented with tests and updated documentation.
+- [ ] M7-T1 Define the temporary test policy (/tmp vs. workspace scratchpad) and update AGENTS.md rules
+- [ ] M7-T2 Support /tmp in ChatToolSecurity workspace_trust and command/file path handling
+- [ ] M7-T3 Update agent tool instructions and prompts for temporary script execution and cleanup
+
