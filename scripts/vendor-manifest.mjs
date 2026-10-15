@@ -15,5 +15,29 @@ export const VENDORS = [
     onDemand: false,
     license: { file: 'LICENSE.md', name: 'Apache License 2.0', copyright: 'Copyright 2023 OramaSearch Inc' },
     source: 'https://github.com/oramasearch/orama'
+  },
+  {
+    id: 'mammoth',
+    package: 'mammoth',
+    exports: ['convertToHtml', 'images'],
+    onDemand: true,
+    license: { file: 'LICENSE', name: 'BSD 2-Clause License', copyright: 'Copyright (c) 2013 Michael Williamson' },
+    source: 'https://github.com/mwilliamson/mammoth.js'
+  },
+  {
+    id: 'exceljs',
+    package: 'exceljs',
+    exports: ['Workbook'],
+    onDemand: true,
+    license: { file: 'LICENSE', name: 'MIT License', copyright: 'Copyright (c) 2014-2019 Guyon Roche' },
+    source: 'https://github.com/exceljs/exceljs'
+  },
+  {
+    id: 'fflate',
+    package: 'fflate',
+    exports: ['unzipSync', 'strFromU8'],
+    onDemand: true,
+    license: { file: 'LICENSE', name: 'MIT License', copyright: 'Copyright (c) 2026 Arjun Barrett' },
+    source: 'https://github.com/101arrowz/fflate'
   }
 ];

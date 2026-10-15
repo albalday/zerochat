@@ -7,7 +7,7 @@ describe('Browser - vendor loader', () => {
     await closeGlobalBrowser();
   });
 
-  test('Browser - ChatVendorLoader inyecta el bundle una vez en file:// y explica el fallo sin conexión', async () => {
+  test('Browser - ChatVendorLoader inyecta los bundles una vez en file:// y explica el fallo sin conexión', async () => {
     const browser = await createTestBrowser();
     try {
       const page = await browser.newPage();
@@ -24,6 +24,15 @@ describe('Browser - vendor loader', () => {
         };
       });
       assert.deepEqual(loaded, { same: true, hasSearch: true, injected: 2 });
+
+      const office = await page.evaluate(async () => {
+        const [mammoth, ExcelJS, fflate] = await Promise.all(['mammoth', 'exceljs', 'fflate'].map(id => ChatVendorLoader.load(id)));
+        const workbook = new ExcelJS.Workbook();
+        workbook.addWorksheet('Datos').addRow(['a', 1]);
+        const entries = Object.keys(fflate.unzipSync(new Uint8Array(await workbook.xlsx.writeBuffer())));
+        return { mammoth: typeof mammoth.convertToHtml, sheet: entries.includes('xl/worksheets/sheet1.xml') };
+      });
+      assert.deepEqual(office, { mammoth: 'function', sheet: true });
 
       const failure = await page.evaluate(async () => {
         try {
