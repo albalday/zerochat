@@ -39,3 +39,10 @@ Done when: Both Spanish and English help pages reflect task.py, simplified state
 - [ ] M9-T2 Update English project management documentation in help/en/project-mode.html
 - [ ] M9-T3 Validate help pages and suite with npm run test:architecture
 
+
+## M10 MCP state refresh on startup and in the panel
+Goal: The MCP state (proxy connection status and external servers) is refreshed when the app starts and when the MCP panel is opened, so the panel always shows the current state.
+Done when: App startup refreshes the MCP state without user interaction, the panel state updates when opened, tests cover both refresh paths, and the applicable suites pass.
+- [ ] M10-T1 Refresh MCP state (proxy status and external servers) on app startup
+- [ ] M10-T2 Update the MCP panel status when it is opened
+- [ ] M10-T3 Cover both refresh paths with tests and run the applicable suites
