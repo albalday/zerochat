@@ -21,8 +21,7 @@
   const UNIX_TERMINAL_COMMAND = 'pip install zerochat\nzerochat';
   // En Windows, `zerochat` suele no estar en el PATH y PowerShell 5 no admite `&&`; el lanzador py funciona siempre.
   const WINDOWS_TERMINAL_COMMAND = 'py -m pip install zerochat\npy -m zerochat';
-  // Radios de la política global de MCP: valor de la política e id del control.
-  const POLICY_RADIOS = { ask: 'mcp-policy-ask', workspace_trust: 'mcp-policy-workspace-trust', allow_all: 'mcp-policy-allow-all' };
+  let cachedElements = null;
 
   function isWindowsPlatform(nav = navigator) {
     const platform = nav.userAgentData?.platform || nav.platform || '';
@@ -453,9 +452,10 @@
     renderExternalServers(elements.serversList, isConnected ? state.externalServers : []);
   }
 
-  function renderSavedAuthorizations(elements) {
-    const container = elements?.savedAuthsList || document.getElementById('mcp-saved-auths-list');
-    const btnClear = elements?.btnClearAuths || document.getElementById('btn-mcp-clear-auths');
+  function renderSavedAuthorizations(elements = cachedElements) {
+    const el = elements || cachedElements;
+    const container = el?.savedAuthsList;
+    const btnClear = el?.btnClearAuths;
     if (!container || !btnClear) return;
     const security = getSecurity();
     const tools = security.listAuthorizedTools();
@@ -516,27 +516,33 @@
   }
 
   function renderCurrentToolsList(elements) {
-    renderToolsList(elements.toolsContainer, getConnectedTools(), getConfig().getActive().enabledTools);
+    const el = elements || cachedElements;
+    if (el?.toolsContainer) {
+      renderToolsList(el.toolsContainer, getConnectedTools(), getConfig().getActive().enabledTools);
+    }
   }
 
   /** Pinta los controles de seguridad con el estado de ChatToolSecurity; los eventos los enlaza initMcpUI. */
-  function syncSecurityControls(elements) {
+  function syncSecurityControls(elements = cachedElements) {
+    const el = elements || cachedElements;
+    if (!el) return;
     const security = getSecurity();
     const policy = security.getGlobalMcpPolicy();
-    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
-      const radio = document.getElementById(id);
-      if (radio) radio.checked = policy === value;
+    if (el.policyRadios) {
+      for (const [value, radio] of Object.entries(el.policyRadios)) {
+        if (radio) radio.checked = policy === value;
+      }
     }
-    const rulesInput = elements?.directoryRules || document.getElementById('mcp-directory-rules');
-    if (rulesInput && document.activeElement !== rulesInput) {
-      rulesInput.value = security.getDirectoryRules().join('\n');
+    if (el.directoryRules && document.activeElement !== el.directoryRules) {
+      el.directoryRules.value = security.getDirectoryRules().join('\n');
     }
-    renderSavedAuthorizations(elements);
-    renderCurrentToolsList(elements);
+    renderSavedAuthorizations(el);
+    renderCurrentToolsList(el);
   }
 
   /** Monta la sección MCP: enlaza una sola vez sus eventos, delegados en cada contenedor. */
   function initMcpUI(elements) {
+    cachedElements = elements;
     const State = getState();
     const security = getSecurity();
     const listeners = new AbortController();
@@ -548,41 +554,32 @@
     on(elements.serversList, 'click', event => handleServersClick(elements.serversList, event.target));
     on(elements.serversList, 'change', event => handleServerOptionChange(event.target));
     // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
-    const savedAuthsList = elements?.savedAuthsList || document.getElementById('mcp-saved-auths-list');
-    if (savedAuthsList) {
-      on(savedAuthsList, 'click', event => {
-        const tool = event.target.closest('.btn-revoke-auth');
-        if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
-        const server = event.target.closest('.btn-revoke-server-auth');
-        if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
-      });
-    }
-    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
-      const radio = document.getElementById(id);
-      if (radio) {
-        on(radio, 'change', () => {
-          if (radio.checked) security.setGlobalMcpPolicy(value);
-        });
+    on(elements.savedAuthsList, 'click', event => {
+      const tool = event.target.closest('.btn-revoke-auth');
+      if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
+      const server = event.target.closest('.btn-revoke-server-auth');
+      if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
+    });
+    if (elements.policyRadios) {
+      for (const [value, radio] of Object.entries(elements.policyRadios)) {
+        if (radio) {
+          on(radio, 'change', () => {
+            if (radio.checked) security.setGlobalMcpPolicy(value);
+          });
+        }
       }
     }
-    const rulesInput = elements?.directoryRules || document.getElementById('mcp-directory-rules');
-    const rulesError = elements?.directoryRulesError || document.getElementById('mcp-directory-rules-error');
-    if (rulesInput && rulesError) {
-      const onRulesChange = () => {
-        try {
-          security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
-          rulesError.textContent = '';
-        } catch (err) {
-          rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
-        }
-      };
-      on(rulesInput, 'change', onRulesChange);
-      on(rulesInput, 'input', onRulesChange);
-    }
-    const btnClearAuths = elements?.btnClearAuths || document.getElementById('btn-mcp-clear-auths');
-    if (btnClearAuths) {
-      on(btnClearAuths, 'click', () => security.clearAllAuthorizations());
-    }
+    const onRulesChange = () => {
+      try {
+        security.setDirectoryRules(elements.directoryRules.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
+        elements.directoryRulesError.textContent = '';
+      } catch (err) {
+        elements.directoryRulesError.textContent = err.message || t('mcp_directory_rules_invalid');
+      }
+    };
+    on(elements.directoryRules, 'change', onRulesChange);
+    on(elements.directoryRules, 'input', onRulesChange);
+    on(elements.btnClearAuths, 'click', () => security.clearAllAuthorizations());
 
     const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));
     const unsubscribeState = State.subscribe('mcp', state => renderConnectionStatus(elements, state));
@@ -599,6 +596,7 @@
 
     return {
       destroy: () => {
+        cachedElements = null;
         listeners.abort();
         unsubscribeState();
         unsubscribeSecurity();

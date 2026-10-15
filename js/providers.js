@@ -762,14 +762,22 @@
 
       // max_tokens es obligatorio y limita razonamiento y respuesta juntos; un modelo con menos
       // salida máxima lo rechaza indicando su límite y handleHttpError reintenta con él.
+      const endpointKey = (params.endpoint || this.connection?.endpoint || '').trim();
       const modelKey = (model || '').trim();
-      const effectiveMaxTokens = this.effectiveMaxTokens.get(modelKey) || CLAUDE_MAX_TOKENS;
+      const cacheKey = `${endpointKey}::${modelKey}`;
+      const effectiveMaxTokens = this.effectiveMaxTokens.get(cacheKey) || CLAUDE_MAX_TOKENS;
       const payload = {
         model: modelKey,
         messages: nonSystemMessages,
         temperature: parseFloat(temperature) || 0.7,
         max_tokens: effectiveMaxTokens
       };
+      Object.defineProperty(payload, '_endpoint', {
+        value: endpointKey,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      });
 
       if (systemContent) {
         if (capabilities.promptCaching) {
@@ -845,7 +853,9 @@
       if (status === 400 && limit > 0 && limit < payload.max_tokens) {
         payload.max_tokens = limit;
         if (payload.model) {
-          this.effectiveMaxTokens.set(payload.model, limit);
+          const endpointKey = (payload._endpoint || this.connection?.endpoint || '').trim();
+          const cacheKey = `${endpointKey}::${payload.model}`;
+          this.effectiveMaxTokens.set(cacheKey, limit);
         }
         if (payload.thinking) {
           payload.thinking.budget_tokens = clampThinkingBudget(payload.thinking.budget_tokens, limit);

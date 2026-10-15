@@ -289,6 +289,13 @@ test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del
   const nextPayload = adapter.buildPayload({ model: 'm', messages: [{ role: 'user', content: 'y' }], reasoningEffort: 'xhigh' });
   assert.equal(nextPayload.max_tokens, 8192, 'Las llamadas siguientes al mismo modelo usan directamente el límite aprendido');
   assert.equal(nextPayload.thinking.budget_tokens, 4096);
+
+  // Aislamiento por endpoint
+  const payloadEp1 = adapter.buildPayload({ endpoint: 'https://proxy1.api', model: 'm-iso', messages: [{ role: 'user', content: 'x' }] });
+  assert.equal(JSON.parse(JSON.stringify(payloadEp1))._endpoint, undefined, '_endpoint no es enumerable ni se serializa');
+  adapter.handleHttpError(400, 'max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens', payloadEp1);
+  assert.equal(adapter.buildPayload({ endpoint: 'https://proxy1.api', model: 'm-iso', messages: [{ role: 'user', content: 'x' }] }).max_tokens, 8192);
+  assert.equal(adapter.buildPayload({ endpoint: 'https://proxy2.api', model: 'm-iso', messages: [{ role: 'user', content: 'x' }] }).max_tokens, 32000, 'Distinto endpoint para el mismo modelo no hereda el límite');
 });
 
 test('Adaptadores - Errores dentro del streaming y motivo de fin', () => {

@@ -13,7 +13,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId, copyToClipboard, escapeHtml, sanitizeImageUrl, openImageInNewTab } = Utils;
+  const { resolveDep, createId, copyToClipboard, escapeHtml, sanitizeImageUrl, makeImageOpenable } = Utils;
   const { t } = I18n;
   const { extractBaseId } = MessageTurns;
 
@@ -208,6 +208,11 @@
       }
       state.lastTop = top;
     }, { passive: true });
+    container.addEventListener('load', event => {
+      if (event.target && event.target.tagName === 'IMG') {
+        scrollToBottom(container);
+      }
+    }, true);
     return state;
   }
 
@@ -322,18 +327,9 @@
         const img = doc.createElement('img');
         img.src = safeUrl;
         img.alt = name;
-        img.title = name ? `${name} — ${t('image_open_tab')}` : t('image_open_tab');
-        img.tabIndex = 0;
-        img.setAttribute('role', 'button');
         img.className = 'message-image-thumb';
-        const open = () => openImageInNewTab(safeUrl);
-        img.addEventListener('click', open);
-        img.addEventListener('keydown', event => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            open();
-          }
-        });
+        const title = name ? `${name} — ${t('image_open_tab')}` : t('image_open_tab');
+        makeImageOpenable(img, safeUrl, title);
         item.appendChild(img);
       }
       const caption = doc.createElement('div');

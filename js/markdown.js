@@ -696,27 +696,7 @@
   function bindImagePreview(container) {
     container.querySelectorAll('img.chat-embedded-image:not([data-preview-init])').forEach(img => {
       img.dataset.previewInit = 'true';
-      img.tabIndex = 0;
-      img.setAttribute('role', 'button');
-      const open = () => {
-        const currentSrc = img.currentSrc || img.getAttribute('src');
-        if (currentSrc && !currentSrc.startsWith('data:image/svg+xml') && !currentSrc.startsWith('rag-image://')) {
-          Utils.openImageInNewTab(currentSrc, img.alt);
-        }
-      };
-      img.addEventListener('click', open);
-      img.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          open();
-        }
-      });
-      img.addEventListener('load', () => {
-        const messagesList = img.closest('#messages-list');
-        if (messagesList) {
-          resolveDep('ChatUIConversation', './ui-conversation.js').scrollToBottom(messagesList);
-        }
-      }, { once: true });
+      Utils.makeImageOpenable(img, () => img.currentSrc || img.getAttribute('src'));
     });
   }
 

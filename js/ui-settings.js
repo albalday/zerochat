@@ -200,7 +200,7 @@
       applyLanguage(elements, appConfig.language);
       renderAgentToolsUI(elements.agentToolsContainer, appConfig.enabledTools);
     }
-    getUIMcp().syncSecurityControls({ toolsContainer: elements.mcpToolsContainer });
+    getUIMcp().syncSecurityControls();
 
     const targetId = SECTION_TITLES[sectionId] ? sectionId : 'model';
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {

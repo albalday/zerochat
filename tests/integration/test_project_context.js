@@ -146,6 +146,73 @@ test('ProjectContext.refresh - un fallo de lectura distinto de inexistente queda
   assert.equal(console.warn.mock.callCount(), 1);
 });
 
+test('ProjectContext.refresh - si la lectura de state.md falla, es denegada o queda unavailable, no lee AGENTS.md', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  // Error en state.md
+  const harnessErr = createHarness({
+    files: {
+      '/repo/.zerochat/task.py': 'helper',
+      '/repo/.zerochat/state.md': { success: false, error: 'Disk read error' },
+      '/repo/AGENTS.md': 'rules'
+    }
+  });
+  await harnessErr.context.refresh();
+  assert.equal(harnessErr.state.get('project').status, 'error');
+  assert.deepEqual(harnessErr.calls.map(c => c.path), [
+    '/repo/.zerochat/task.py',
+    '/repo/.zerochat/state.md'
+  ], 'No debe intentar leer AGENTS.md si falla state.md');
+
+  // Denegado en state.md
+  const harnessDenied = createHarness({
+    files: {
+      '/repo/.zerochat/task.py': 'helper',
+      '/repo/.zerochat/state.md': 'state',
+      '/repo/AGENTS.md': 'rules'
+    },
+    security: {
+      evaluateAuthorization: (tool, args) => {
+        if (args.path.endsWith('state.md')) return { status: 'deny', requiresApproval: false };
+        return { status: 'allow', requiresApproval: false };
+      }
+    }
+  });
+  await harnessDenied.context.refresh();
+  assert.equal(harnessDenied.state.get('project').status, 'no_access');
+  assert.deepEqual(harnessDenied.calls.map(c => c.path), [
+    '/repo/.zerochat/task.py'
+  ]);
+
+  // Unavailable en state.md
+  let availableQueries = 0;
+  const toolDynamic = {
+    name: 'read_file',
+    isAvailable: () => {
+      availableQueries++;
+      // Disponible para preliminar y task.py, no disponible para state.md
+      return availableQueries <= 2;
+    }
+  };
+  const harnessUnavail = createHarness({
+    files: {
+      '/repo/.zerochat/task.py': 'helper',
+      '/repo/.zerochat/state.md': 'state',
+      '/repo/AGENTS.md': 'rules'
+    }
+  });
+  harnessUnavail.context = ProjectContext.createProjectContext({
+    state: harnessUnavail.state,
+    config: { getActive: () => ({ projectMode: true, projectDeclined: [] }) },
+    agentCore: {
+      registry: { getTool: name => (name === 'read_file' ? toolDynamic : null) },
+      executor: harnessErr.context ? { executeToolCall: async () => ({ success: true, result: { success: true, isError: false, content: JSON.stringify({ success: true, content: 'ok' }) } }) } : null
+    },
+    security: { evaluateAuthorization: () => ({ status: 'allow', requiresApproval: false }) }
+  });
+  await harnessUnavail.context.refresh();
+  assert.equal(harnessUnavail.state.get('project').status, 'unavailable');
+});
+
 test('ProjectContext.refresh - solo publica el resultado de la llamada más reciente', async () => {
   const harness = createHarness({ files: { '/repo/.zerochat/task.py': 'helper' } });
   const first = harness.context.refresh();

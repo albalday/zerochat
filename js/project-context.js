@@ -528,7 +528,9 @@ ${stateBody}
         helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal);
         if (helperRead.status === 'ok') {
           stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
-          rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
+          if (stateRead.status === 'ok' || stateRead.status === 'missing') {
+            rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
+          }
         }
       } catch (error) {
         helperRead = { status: 'error', error: error?.message || String(error) };
@@ -541,6 +543,9 @@ ${stateBody}
         return publish({ cwd, status, error: helperRead.error || '', ...empty });
       }
 
+      if (stateRead.status === 'unavailable') {
+        return publish({ cwd, status: 'unavailable', error: '', ...empty });
+      }
       if (stateRead.status === 'denied') {
         return publish({ cwd, status: 'no_access', error: '', ...empty });
       }

@@ -39,7 +39,12 @@ function setup(t, mcp = {}) {
     savedAuthsList: byId('mcp-saved-auths-list'),
     btnClearAuths: byId('btn-mcp-clear-auths'),
     directoryRules: byId('mcp-directory-rules'),
-    directoryRulesError: byId('mcp-directory-rules-error')
+    directoryRulesError: byId('mcp-directory-rules-error'),
+    policyRadios: {
+      ask: byId('mcp-policy-ask'),
+      workspace_trust: byId('mcp-policy-workspace-trust'),
+      allow_all: byId('mcp-policy-allow-all')
+    }
   };
 }
 

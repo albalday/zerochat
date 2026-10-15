@@ -115,6 +115,30 @@
   }
 
   /**
+   * Configura una imagen para que sea accesible como botón y se abra en nueva pestaña
+   * mediante clic o pulsando Enter/Espacio.
+   */
+  function makeImageOpenable(imgElement, urlOrGetter, title) {
+    if (!imgElement) return;
+    imgElement.tabIndex = 0;
+    imgElement.setAttribute('role', 'button');
+    if (title) imgElement.title = title;
+    const open = () => {
+      const url = typeof urlOrGetter === 'function' ? urlOrGetter() : urlOrGetter;
+      if (url && !url.startsWith('data:image/svg+xml') && !url.startsWith('rag-image://')) {
+        api.openImageInNewTab(url, imgElement.alt || title);
+      }
+    };
+    imgElement.addEventListener('click', open);
+    imgElement.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        open();
+      }
+    });
+  }
+
+  /**
    * Asigna contenido no confiable como texto, sin interpretarlo como HTML.
    * @param {Element|Object|null|undefined} element
    * @param {*} value
@@ -302,11 +326,12 @@
     throw new Error(`Missing module ${globalName}`);
   }
 
-  return {
+  const api = {
     escapeHtml,
     sanitizeUrl,
     sanitizeImageUrl,
     openImageInNewTab,
+    makeImageOpenable,
     parseRagImageRef,
     setText,
     clearElement,
@@ -322,4 +347,6 @@
     bytesToBase64,
     resolveDep
   };
+
+  return api;
 });

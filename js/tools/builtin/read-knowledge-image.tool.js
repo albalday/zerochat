@@ -31,19 +31,9 @@
       img.className = 'rag-image-thumb';
       img.src = result.dataUrl;
       img.alt = result.documentTitle || result.imageRef || ui.t('tool_rag_image_title');
-      img.title = ui.t('image_open_tab');
-      img.tabIndex = 0;
-      img.setAttribute('role', 'button');
       img.loading = 'lazy';
       img.decoding = 'async';
-      const open = () => Utils.openImageInNewTab(result.dataUrl);
-      img.addEventListener('click', open);
-      img.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          open();
-        }
-      });
+      Utils.makeImageOpenable(img, result.dataUrl, ui.t('image_open_tab'));
       figure.appendChild(img);
       resultDiv.appendChild(figure);
     }
