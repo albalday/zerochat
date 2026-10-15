@@ -87,8 +87,8 @@
 
   async function extractDocumentContent(file, fileType) {
     // Los documentos ofimáticos son paquetes ZIP: se leen antes de rechazar archivos comprimidos.
-    if (getOfficeParser().getOfficeFormat(file.name, file.type) === fileType) {
-      const parsed = await getOfficeParser().parseOfficeDocument(await file.arrayBuffer(), file.name, file.type);
+    if (getOfficeParser().isOfficeFormat(fileType)) {
+      const parsed = await getOfficeParser().parseOfficeFile(file);
       return { text: normalizeExtractedText(parsed.text), images: parsed.images };
     }
     const archiveFormat = await getArchiveFormat(file);

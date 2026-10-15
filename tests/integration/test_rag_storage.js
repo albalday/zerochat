@@ -217,3 +217,23 @@ test('RagStorage - getChunkById resuelve alias comunes generados por LLMs (docId
   assert.ok(cDoc);
   assert.equal(cDoc.content, 'Contenido sección 0');
 });
+
+test('RagStorage - coherencia de formatos admitidos con ChatOfficeParser (F-15)', async () => {
+  const { installDom } = require('../helpers/dom-env.js');
+  installDom();
+  const OfficeParser = require('../../js/office-parser.js');
+  const branch = await RagStorage.createBranch('FormatTest');
+
+  const modernOfficeFormats = ['docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp'];
+  for (const ext of modernOfficeFormats) {
+    assert.ok(OfficeParser.isOfficeFormat(ext), `${ext} debe ser reconocido por el parser`);
+    const doc = await RagStorage.saveDocument({
+      branchId: branch.id,
+      title: `archivo.${ext}`,
+      fileType: ext,
+      chunks: [{ content: `Contenido de prueba para ${ext}` }]
+    });
+    assert.equal(doc.fileType, ext);
+  }
+});
+

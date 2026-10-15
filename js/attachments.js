@@ -106,14 +106,11 @@
       });
 
       const attachmentsText = effectiveFiles.map(file => {
-        if (file.type === 'pdf') {
-          return `\n\n--- PDF Document: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
-        } else if (file.type === 'office') {
-          return `\n\n--- ${file.documentKind}: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`markdown\n${file.content}\n\`\`\``;
-        } else if (file.type === 'image') {
-          return `\n\n--- Image: ${file.name} (${Utils.formatBytes(file.size)}) ---`;
-        }
-        return `\n\n--- File: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`\n${file.content}\n\`\`\``;
+        if (file.type === 'image') return `\n\n--- Image: ${file.name} (${Utils.formatBytes(file.size)}) ---`;
+        const { label, lang } = file.type === 'pdf' ? { label: 'PDF Document', lang: 'text' }
+          : file.type === 'office' ? { label: file.documentKind, lang: 'markdown' }
+          : { label: 'File', lang: '' };
+        return `\n\n--- ${label}: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`${lang}\n${file.content}\n\`\`\``;
       }).join('');
 
       fullPrompt = rawText ? `${rawText}\n${attachmentsText}` : `Attached files for analysis:${attachmentsText}`;

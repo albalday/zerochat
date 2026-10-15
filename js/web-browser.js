@@ -252,12 +252,18 @@
     }
   }
 
+  function detectDocumentType(fileName, contentType = '') {
+    if (/\.pdf$/i.test(fileName) || contentType.includes('application/pdf')) return 'pdf';
+    return getOfficeParser().getOfficeFormat(fileName, contentType) || '';
+  }
+
   /** Texto de contexto de un PDF o documento ofimático descargado; las imágenes quedan como marcadores. */
-  async function describeDownloadedDocument(arrayBuffer, url, contentType = '') {
+  async function describeDownloadedDocument(arrayBuffer, url, contentType = '', docType = '') {
     const fileName = documentFileName(url);
+    const type = docType || detectDocumentType(fileName, contentType);
     const header = kind => `[${kind}: ${fileName || 'document'}]\n[URL: ${url}]\n[Size: ${Utils.formatBytes(arrayBuffer.byteLength)}]\n\n`;
-    const OfficeParser = getOfficeParser();
-    if (!/\.pdf$/i.test(fileName) && !contentType.includes('application/pdf') && OfficeParser.getOfficeFormat(fileName, contentType)) {
+    if (type && type !== 'pdf') {
+      const OfficeParser = getOfficeParser();
       const { format, text } = await OfficeParser.parseOfficeDocument(arrayBuffer, fileName, contentType);
       return `${header(OfficeParser.getOfficeDocumentKind(format))}--- Content extracted from the document ---\n\n${OfficeParser.replaceImageReferences(text)}`;
     }
@@ -345,12 +351,13 @@
 
       const arrayBuffer = await res.arrayBuffer();
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const docType = detectDocumentType(documentFileName(url), contentType);
       return {
         success: true,
-        content: await describeDownloadedDocument(arrayBuffer, url, contentType),
+        content: await describeDownloadedDocument(arrayBuffer, url, contentType, docType),
         byteSize: arrayBuffer.byteLength,
         status: 200,
-        isPdf: Boolean(context.isPdfUrl),
+        isPdf: docType === 'pdf',
         strategy: this.name
       };
     }
@@ -412,8 +419,9 @@
       }, this.timeoutMs);
 
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
-      const isPdf = context.isPdfUrl || contentType.includes('application/pdf');
-      const isDocument = isPdf || context.isOfficeUrl || Boolean(getOfficeParser().getOfficeFormat('', contentType));
+      const docType = detectDocumentType(documentFileName(url), contentType);
+      const isPdf = docType === 'pdf';
+      const isDocument = Boolean(docType);
 
       let content = '';
       let byteSize = 0;
@@ -421,7 +429,7 @@
       if (isDocument && res.ok) {
         const arrayBuffer = await res.arrayBuffer();
         byteSize = arrayBuffer.byteLength;
-        content = await describeDownloadedDocument(arrayBuffer, url, contentType);
+        content = await describeDownloadedDocument(arrayBuffer, url, contentType, docType);
       } else {
         const rawText = await res.text();
         byteSize = rawText.length;
@@ -475,8 +483,10 @@
       const url = validation.url;
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const isLocalUrl = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|0\.0\.0\.0)/i.test(validation.hostname);
-      const isPdfUrl = /\.pdf(\?|#|$)/i.test(url);
-      const isOfficeUrl = Boolean(getOfficeParser().getOfficeFormat(documentFileName(url)));
+      const fileName = documentFileName(url);
+      const docType = detectDocumentType(fileName);
+      const isPdfUrl = docType === 'pdf';
+      const isOfficeUrl = Boolean(docType && docType !== 'pdf');
 
       const context = {
         isLocalUrl,

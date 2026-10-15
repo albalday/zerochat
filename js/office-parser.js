@@ -749,5 +749,13 @@
     return { format, text: result.text || '[The document contains no readable text.]', images: result.images };
   }
 
-  return { getOfficeFormat, getOfficeDocumentKind, replaceImageReferences, parseOfficeDocument };
+  function isOfficeFormat(format) {
+    return Boolean(OFFICE_FORMATS[format]);
+  }
+
+  async function parseOfficeFile(file) {
+    return parseOfficeDocument(await file.arrayBuffer(), file?.name || '', file?.type || '');
+  }
+
+  return { getOfficeFormat, isOfficeFormat, getOfficeDocumentKind, replaceImageReferences, parseOfficeDocument, parseOfficeFile };
 });

@@ -1243,7 +1243,7 @@
   async function parseFile(file) {
     const OfficeParser = getOfficeParser();
     if (OfficeParser.getOfficeFormat(file.name, file.type)) {
-      const { format, text, images } = await OfficeParser.parseOfficeDocument(await file.arrayBuffer(), file.name, file.type);
+      const { format, text, images } = await OfficeParser.parseOfficeFile(file);
       const attached = images.slice(0, MAX_OFFICE_ATTACHMENT_IMAGES);
       return {
         name: file.name,
