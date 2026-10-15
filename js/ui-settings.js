@@ -212,6 +212,8 @@
 
     if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
     if (!preservePendingChanges) setSettingsFormDirty(elements, false);
+    // Las acciones de la sección MCP se aplican al momento: Guardar solo aparece si hay cambios de otra sección.
+    elements.btnSaveSettings.hidden = targetId === 'mcp' && !preservePendingChanges;
   }
 
   /** Guarda las reglas de directorios; si alguna no es válida muestra el error y devuelve false. */
@@ -278,14 +280,18 @@
     };
     const dialog = elements.settingsDialog;
     const markModified = () => setSettingsFormDirty(elements, true);
+    // Los controles de la sección MCP se aplican al momento y no dejan cambios pendientes.
+    const markFormModified = event => {
+      if (!event.target.closest('#settings-mcp')) markModified();
+    };
 
     listen(elements.btnCloseSettings, 'click', () => closeSettingsPanelOnly(elements));
     listen(elements.settingsForm, 'submit', event => {
       event.preventDefault();
       saveCurrentSettings(elements, getRuntimeConfig(), callbacks);
     });
-    listen(dialog, 'input', markModified);
-    listen(dialog, 'change', markModified);
+    listen(dialog, 'input', markFormModified);
+    listen(dialog, 'change', markFormModified);
     listen(dialog, 'click', event => {
       if (event.target.closest('#btn-mcp-clear-auths')) markModified();
       if (event.target === dialog) closeSettingsPanelOnly(elements);

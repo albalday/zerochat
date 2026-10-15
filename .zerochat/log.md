@@ -28,3 +28,4 @@
 - 2026-10-15 M8-D1 Adopt .zerochat/task.py for atomic project memory management (M8-T1)
 - 2026-10-15 M8-D2 Simplify state.md and update AGENTS.md rules to combine A, B, and C (M8-T2)
 - 2026-10-15 M8-D3 Export TASK_SCRIPT_TEMPLATE and verify parity with .zerochat/task.py in bootstrap tests (M8-T3)
+- 2026-10-15 M10-D1 The services.json 'enabled' flag means 'offer at startup': start sets it, stop and declining the startup offer clear it, and the MCP card shows it as an editable switch; the MCP settings section applies everything immediately, so it hides Save and does not mark pending changes (M10-T4)

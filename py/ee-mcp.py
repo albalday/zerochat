@@ -611,7 +611,8 @@ class McpServiceManager:
             self._save_preferences()
             return self.list_servers()
 
-    def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
+    def configure(self, server_id: str, options: dict | None = None, enabled: bool | None = None) -> list[dict]:
+        """Guarda opciones del servicio y, con `enabled`, si se ofrece iniciarlo en la próxima sesión."""
         with self._lock:
             self.services = self._load_services()
             if server_id not in self.services:
@@ -620,6 +621,8 @@ class McpServiceManager:
             if options is not None:
                 opts = entry.setdefault("options", {})
                 opts.update(options)
+            if enabled is not None:
+                entry["enabled"] = enabled
             self._save_preferences()
             return self.list_servers()
 

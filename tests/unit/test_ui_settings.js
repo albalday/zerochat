@@ -74,6 +74,24 @@ test('UISettings - cerrar con cambios sin guardar pide confirmación', async t =
   assert.equal(elements.settingsDialog.open, false);
 });
 
+test('UISettings - la sección MCP se aplica al momento: sin Guardar ni cambios pendientes', async t => {
+  const { elements } = setup(t, { confirm: async () => assert.fail('No debe pedir confirmación') });
+  UISettings.openSettingsSection(elements, Config.getActive(), 'mcp');
+  assert.equal(elements.btnSaveSettings.hidden, true);
+  const serverSwitch = document.createElement('input');
+  serverSwitch.type = 'checkbox';
+  elements.mcpServersList.append(serverSwitch);
+  serverSwitch.dispatchEvent(new Event('change', { bubbles: true }));
+  assert.equal(elements.settingsDialog.dataset.settingsDirty, 'false');
+  assert.equal(await UISettings.closeSettingsModal(elements), true);
+
+  UISettings.openSettingsSection(elements, Config.getActive(), 'model');
+  assert.equal(elements.btnSaveSettings.hidden, false);
+  elements.settingSystemDataPrompt.dispatchEvent(new Event('input', { bubbles: true }));
+  UISettings.openSettingsSection(elements, Config.getActive(), 'mcp');
+  assert.equal(elements.btnSaveSettings.hidden, false, 'Con cambios de otra sección se puede guardar desde MCP');
+});
+
 test('UISettings - el tema y el idioma marcan su botón activo', t => {
   const { elements } = setup(t);
   assert.equal(UISettings.applyTheme(elements, 'dark'), 'dark');
