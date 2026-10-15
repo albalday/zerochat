@@ -16,7 +16,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { formatBytes } = Utils;
+  const { formatBytes, bytesToBase64 } = Utils;
 
   function isPdfDelimiterOrWs(charCode) {
     return charCode <= 32 || charCode === 40 || charCode === 41 || charCode === 60 || 
@@ -639,18 +639,6 @@
     }
 
     return null;
-  }
-
-  function bytesToBase64(uint8Array) {
-    if (!uint8Array || uint8Array.length === 0) return '';
-    if (typeof Buffer !== 'undefined') return Buffer.from(uint8Array).toString('base64');
-    let binary = '';
-    const len = uint8Array.byteLength;
-    const chunkSize = 0x8000;
-    for (let i = 0; i < len; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, uint8Array.subarray(i, Math.min(i + chunkSize, len)));
-    }
-    return btoa(binary);
   }
 
   const PDF_PASSWORD_PADDING = new Uint8Array([

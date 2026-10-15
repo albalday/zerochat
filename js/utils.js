@@ -124,6 +124,19 @@
    * @param {*} value
    * @returns {Element|Object|null|undefined}
    */
+  /** Codifica bytes en base64 sin desbordar la pila con documentos grandes. */
+  function bytesToBase64(uint8Array) {
+    if (!uint8Array || uint8Array.length === 0) return '';
+    if (typeof Buffer !== 'undefined') return Buffer.from(uint8Array).toString('base64');
+    let binary = '';
+    const len = uint8Array.byteLength;
+    const chunkSize = 0x8000;
+    for (let i = 0; i < len; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, uint8Array.subarray(i, Math.min(i + chunkSize, len)));
+    }
+    return btoa(binary);
+  }
+
   function setText(element, value) {
     if (element) element.textContent = value === null || value === undefined ? '' : String(value);
     return element;
@@ -310,6 +323,7 @@
     copyToClipboard,
     formatShortValue,
     formatBytes,
+    bytesToBase64,
     resolveDep
   };
 });
