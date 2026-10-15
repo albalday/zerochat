@@ -6,15 +6,15 @@ const ProjectContext = require('../../js/project-context.js');
 
 test('ProjectContext.computeStatus - resuelve cada estado según configuración, servidor y lectura', () => {
   const base = { projectMode: true, declined: [], cwd: '/repo', readAvailable: true };
-  assert.equal(ProjectContext.computeStatus({ ...base, projectMode: false, stateRead: { status: 'ok' } }), 'disabled');
-  assert.equal(ProjectContext.computeStatus({ ...base, cwd: '', stateRead: { status: 'ok' } }), 'unavailable');
-  assert.equal(ProjectContext.computeStatus({ ...base, readAvailable: false, stateRead: { status: 'ok' } }), 'unavailable');
-  assert.equal(ProjectContext.computeStatus({ ...base, declined: ['/repo'], stateRead: { status: 'ok' } }), 'declined');
-  assert.equal(ProjectContext.computeStatus({ ...base, stateRead: { status: 'denied' } }), 'no_access');
-  assert.equal(ProjectContext.computeStatus({ ...base, stateRead: { status: 'missing' } }), 'missing');
-  assert.equal(ProjectContext.computeStatus({ ...base, stateRead: { status: 'ok' } }), 'ready');
-  assert.equal(ProjectContext.computeStatus({ ...base, stateRead: { status: 'unavailable' } }), 'unavailable');
-  assert.equal(ProjectContext.computeStatus({ ...base, stateRead: { status: 'error' } }), 'error');
+  assert.equal(ProjectContext.computeStatus({ ...base, projectMode: false, helperRead: { status: 'ok' } }), 'disabled');
+  assert.equal(ProjectContext.computeStatus({ ...base, cwd: '', helperRead: { status: 'ok' } }), 'unavailable');
+  assert.equal(ProjectContext.computeStatus({ ...base, readAvailable: false, helperRead: { status: 'ok' } }), 'unavailable');
+  assert.equal(ProjectContext.computeStatus({ ...base, declined: ['/repo'], helperRead: { status: 'ok' } }), 'declined');
+  assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'denied' } }), 'no_access');
+  assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'missing' } }), 'missing');
+  assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'ok' } }), 'ready');
+  assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'unavailable' } }), 'unavailable');
+  assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'error' } }), 'error');
   assert.equal(ProjectContext.computeStatus(), 'disabled');
 });
 
@@ -70,7 +70,7 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   assert.match(prompt, /Without AGENTS\.md: create it/);
   assert.match(prompt, /in CLAUDE\.md use the line `@AGENTS\.md`/);
   assert.match(prompt, /Do not modify a file that says it must not be modified/);
-  assert.match(prompt, /\.zerochat\/state\.md last, because its existence marks the project as initialized/);
+  assert.match(prompt, /\.zerochat\/task\.py last, because its existence marks the project as initialized/);
   assert.match(prompt, /Without a plan: ask the user for the project's purpose and its first milestone/);
   assert.match(prompt, /Add the purpose to README\.md, creating it if missing; README\.md never holds plans, tasks or status/);
   assert.match(prompt, /leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup"/);

@@ -1,7 +1,7 @@
 /**
- * Modo proyecto: detecta .zerochat/state.md en el directorio de trabajo del servidor local,
- * lee también AGENTS.md (normas y protocolo de memoria, comunes a todos los agentes), publica
- * el resultado en el slice `project` de ChatState y construye el bloque que se inyecta en el
+ * Modo proyecto: detecta .zerochat/task.py en el directorio de trabajo del servidor local,
+ * lee también .zerochat/state.md y AGENTS.md (normas y protocolo de memoria, comunes a todos los agentes),
+ * publica el resultado en el slice `project` de ChatState y construye el bloque que se inyecta en el
  * prompt de sistema. Los ficheros se leen con la herramienta
  * `read_file` a través de ToolExecutor, sin pedir confirmación: si la política de seguridad
  * la exige, el estado pasa a `no_access`.
@@ -358,15 +358,15 @@ if __name__ == "__main__":
 
   function buildBootstrapPrompt(cwd) {
     return `Initialize project mode for the repository at ${cwd}. ${RULES_FILE} is the single place for this project's agent rules: ZeroChat, Codex, Cursor, Copilot and other agents read it, and Claude Code reads it when CLAUDE.md imports it. Work in this order:
-1. Inspect without modifying anything: ${RULES_FILE}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, .windsurfrules); README*, CONTRIBUTING*, docs/.
-2. Report: (a) whether ${RULES_FILE} exists; (b) which other agent files exist, and whether they point to ${RULES_FILE} or hold rules of their own; (c) where the project already keeps a plan, tasks or a decision log. Quote file and section.
+1. Inspect without modifying anything: ${RULES_FILE}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, .windsurfrules); ${MEMORY_DIR}/; README*, CONTRIBUTING*, docs/.
+2. Report: (a) whether ${RULES_FILE} exists; (b) which other agent files exist, and whether they point to ${RULES_FILE} or hold rules of their own; (c) where the project already keeps a plan, tasks or a decision log (including any existing ${MEMORY_DIR}/ files to migrate). Quote file and section.
 3. Propose the changes with their exact text and wait for the user's explicit approval (use the ask_user tool for it when available):
    - Without ${RULES_FILE}: create it with a title and the memory section below. Do not invent project rules.
    - With ${RULES_FILE}: add the memory section near the top, keeping its heading "## ${MEMORY_SECTION_TITLE}". Adapt it: if the project already keeps a plan or decision log, point to it and state how a task is marked done there, instead of creating ${PLAN_FILE} or ${LOG_FILE}. Do not repeat rules the file already states.
    - Other agent files: add one line pointing to ${RULES_FILE}; in CLAUDE.md use the line \`@${RULES_FILE}\`, which imports it. Propose moving their own rules to ${RULES_FILE}. Do not modify a file that says it must not be modified. If there are any, end the memory section with: "Other agent instruction files (<their names>) only point here. Add rules to this file, not to them."
    - Without a plan: ask the user for the project's purpose and its first milestone (goal, done-when criteria, first tasks). Add the purpose to README.md, creating it if missing; README.md never holds plans, tasks or status.
    Plans and logs grow, so they never go in ${RULES_FILE} or the other agent files, which agents load in every session.
-4. After approval, apply the changes with absolute paths under ${cwd}: first ${RULES_FILE} and the other agent files; then ${PLAN_FILE}, ${LOG_FILE} and ${TASK_HELPER_FILE} from the templates, unless the project keeps them elsewhere; ${STATE_FILE} last, because its existence marks the project as initialized. Fill the templates with the approved content and leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup".
+4. After approval, apply the changes with absolute paths under ${cwd}: first ${RULES_FILE} and the other agent files; then ${PLAN_FILE}, ${LOG_FILE} and ${STATE_FILE} from the templates, unless the project keeps them elsewhere; ${TASK_HELPER_FILE} last, because its existence marks the project as initialized. Fill the templates with the approved content and leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup".
 5. Finish by listing the files created or modified.
 
 Memory section (${RULES_FILE}):
@@ -426,14 +426,14 @@ ${stateBody}
 
   /**
    * Estado del proyecto a partir de la configuración, el servidor local y la lectura de
-   * .zerochat/state.md, cuya existencia marca el proyecto como inicializado
-   * (`stateRead.status`: ok | missing | denied | unavailable | error).
+   * .zerochat/task.py, cuya existencia marca el proyecto como inicializado
+   * (`helperRead.status`: ok | missing | denied | unavailable | error).
    */
-  function computeStatus({ projectMode = false, declined = [], cwd = '', readAvailable = false, stateRead = null } = {}) {
+  function computeStatus({ projectMode = false, declined = [], cwd = '', readAvailable = false, helperRead = null } = {}) {
     if (!projectMode) return 'disabled';
     if (!cwd || !readAvailable) return 'unavailable';
     if (Array.isArray(declined) && declined.includes(cwd)) return 'declined';
-    switch (stateRead?.status) {
+    switch (helperRead?.status) {
       case 'ok': return 'ready';
       case 'missing': return 'missing';
       case 'denied': return 'no_access';
@@ -518,26 +518,40 @@ ${stateBody}
         readAvailable: Boolean(getAvailableTool(READ_TOOL))
       };
 
-      const preliminary = computeStatus({ ...base, stateRead: { status: 'ok' } });
+      const preliminary = computeStatus({ ...base, helperRead: { status: 'ok' } });
       if (preliminary !== 'ready') return publish({ cwd, status: preliminary, error: '', ...empty });
 
-      let stateRead;
+      let helperRead;
+      let stateRead = { status: 'missing' };
       let rulesRead = { status: 'missing' };
       try {
-        stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
-        if (stateRead.status === 'ok') rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
+        helperRead = await readProjectFile(cwd, TASK_HELPER_FILE, options.signal);
+        if (helperRead.status === 'ok') {
+          stateRead = await readProjectFile(cwd, STATE_FILE, options.signal);
+          rulesRead = await readProjectFile(cwd, RULES_FILE, options.signal);
+        }
       } catch (error) {
-        stateRead = { status: 'error', error: error?.message || String(error) };
+        helperRead = { status: 'error', error: error?.message || String(error) };
       }
       if (sequence !== refreshSequence) return getState().get('project');
 
-      const status = computeStatus({ ...base, stateRead });
+      const status = computeStatus({ ...base, helperRead });
       if (status !== 'ready') {
-        if (status === 'error') console.warn('[ProjectContext] Could not read project state:', stateRead.error);
-        return publish({ cwd, status, error: stateRead.error || '', ...empty });
+        if (status === 'error') console.warn('[ProjectContext] Could not read project helper script:', helperRead.error);
+        return publish({ cwd, status, error: helperRead.error || '', ...empty });
+      }
+
+      if (stateRead.status === 'denied') {
+        return publish({ cwd, status: 'no_access', error: '', ...empty });
+      }
+      if (stateRead.status === 'error') {
+        console.warn('[ProjectContext] Could not read project state:', stateRead.error);
+        return publish({ cwd, status: 'error', error: stateRead.error || '', ...empty });
       }
       // Sin AGENTS.md el proyecto sigue activo: el bloque de sistema pide crearlo.
-      if (rulesRead.status !== 'ok' && rulesRead.status !== 'missing') console.warn('[ProjectContext] Could not read project rules:', rulesRead.error || rulesRead.status);
+      if (rulesRead.status !== 'ok' && rulesRead.status !== 'missing') {
+        console.warn('[ProjectContext] Could not read project rules:', rulesRead.error || rulesRead.status);
+      }
       return publish({
         cwd,
         status,
@@ -545,7 +559,9 @@ ${stateBody}
         rules: rulesRead.status === 'ok'
           ? { content: rulesRead.content, truncated: rulesRead.truncated }
           : { content: '', truncated: false },
-        state: { content: stateRead.content, truncated: stateRead.truncated }
+        state: stateRead.status === 'ok'
+          ? { content: stateRead.content, truncated: stateRead.truncated }
+          : { content: '', truncated: false }
       });
     }
 

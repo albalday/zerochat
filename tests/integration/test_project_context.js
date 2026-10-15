@@ -80,13 +80,13 @@ test('ProjectContext.refresh - un proyecto rechazado no se lee', async () => {
 });
 
 test('ProjectContext.refresh - si la política exige aprobación no ejecuta ni pregunta', async () => {
-  const { context, calls, state } = createHarness({ approval: true, files: { '/repo/.zerochat/state.md': 'state' } });
+  const { context, calls, state } = createHarness({ approval: true, files: { '/repo/.zerochat/task.py': 'helper' } });
   await context.refresh();
   assert.equal(state.get('project').status, 'no_access');
   assert.equal(calls.length, 0);
 });
 
-test('ProjectContext.refresh - sin .zerochat/state.md queda missing', async () => {
+test('ProjectContext.refresh - sin .zerochat/task.py queda missing', async () => {
   const { context, state } = createHarness();
   await context.refresh();
   assert.equal(state.get('project').status, 'missing');
@@ -96,6 +96,7 @@ test('ProjectContext.refresh - sin .zerochat/state.md queda missing', async () =
 test('ProjectContext.refresh - lee normas y estado con límite de tamaño', async () => {
   const { context, calls, state } = createHarness({
     files: {
+      '/repo/.zerochat/task.py': '# helper',
       '/repo/AGENTS.md': { success: true, content: '# Rules', truncated: true },
       '/repo/.zerochat/state.md': '- Next task: M1-T2 tests'
     }
@@ -106,21 +107,29 @@ test('ProjectContext.refresh - lee normas y estado con límite de tamaño', asyn
   assert.deepEqual(project.rules, { content: '# Rules', truncated: true });
   assert.deepEqual(project.state, { content: '- Next task: M1-T2 tests', truncated: false });
   assert.deepEqual(calls.map(args => [args.path, args.max_bytes]), [
+    ['/repo/.zerochat/task.py', ProjectContext.MAX_FILE_BYTES],
     ['/repo/.zerochat/state.md', ProjectContext.MAX_FILE_BYTES],
     ['/repo/AGENTS.md', ProjectContext.MAX_FILE_BYTES]
   ]);
   assert.match(ProjectContext.buildPromptBlock(project), /- Next task: M1-T2 tests/);
 });
 
-test('ProjectContext.refresh - un AGENTS.md sin .zerochat/state.md no inicializa el proyecto', async () => {
+test('ProjectContext.refresh - un AGENTS.md sin .zerochat/task.py no inicializa el proyecto', async () => {
   const { context, calls, state } = createHarness({ files: { '/repo/AGENTS.md': '# Rules' } });
   await context.refresh();
   assert.equal(state.get('project').status, 'missing');
-  assert.deepEqual(calls.map(args => args.path), ['/repo/.zerochat/state.md']);
+  assert.deepEqual(calls.map(args => args.path), ['/repo/.zerochat/task.py']);
+});
+
+test('ProjectContext.refresh - un proyecto con .zerochat/state.md pero sin task.py queda missing para facilitar migración', async () => {
+  const { context, calls, state } = createHarness({ files: { '/repo/.zerochat/state.md': '- Next task: M1-T1' } });
+  await context.refresh();
+  assert.equal(state.get('project').status, 'missing');
+  assert.deepEqual(calls.map(args => args.path), ['/repo/.zerochat/task.py']);
 });
 
 test('ProjectContext.refresh - sin AGENTS.md el proyecto sigue activo y el bloque pide crearlo', async () => {
-  const { context, state } = createHarness({ files: { '/repo/.zerochat/state.md': 'state' } });
+  const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': 'helper', '/repo/.zerochat/state.md': 'state' } });
   await context.refresh();
   const project = state.get('project');
   assert.equal(project.status, 'ready');
@@ -130,7 +139,7 @@ test('ProjectContext.refresh - sin AGENTS.md el proyecto sigue activo y el bloqu
 
 test('ProjectContext.refresh - un fallo de lectura distinto de inexistente queda error y avisa', async (t) => {
   t.mock.method(console, 'warn', () => {});
-  const { context, state } = createHarness({ files: { '/repo/.zerochat/state.md': { success: false, error: 'Permission denied' } } });
+  const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': { success: false, error: 'Permission denied' } } });
   await context.refresh();
   assert.equal(state.get('project').status, 'error');
   assert.equal(state.get('project').error, 'Permission denied');
@@ -138,7 +147,7 @@ test('ProjectContext.refresh - un fallo de lectura distinto de inexistente queda
 });
 
 test('ProjectContext.refresh - solo publica el resultado de la llamada más reciente', async () => {
-  const harness = createHarness({ files: { '/repo/.zerochat/state.md': 'state' } });
+  const harness = createHarness({ files: { '/repo/.zerochat/task.py': 'helper' } });
   const first = harness.context.refresh();
   harness.state.set('mcp', { status: 'disconnected', serverInfo: null });
   const second = harness.context.refresh();
@@ -201,7 +210,7 @@ test('ProjectContext.initialize - sin write_file o fuera de missing no hace nada
   assert.deepEqual(await noWrite.context.initialize(first.callbacks), { ok: false, reason: 'unavailable' });
   assert.equal(first.log.confirms.length, 0);
 
-  const ready = createHarness({ files: { '/repo/.zerochat/state.md': 'state' } });
+  const ready = createHarness({ files: { '/repo/.zerochat/task.py': 'helper' } });
   await ready.context.refresh();
   const second = initCallbacks();
   assert.deepEqual(await ready.context.initialize(second.callbacks), { ok: false, reason: 'unavailable' });
@@ -226,14 +235,14 @@ test('ProjectContext.initialize - la regla concedida permite escribir en .zeroch
 
 test('ProjectContext.refresh - un fallo de transporte sin contenido queda error con su motivo', async (t) => {
   t.mock.method(console, 'warn', () => {});
-  const { context, state } = createHarness({ files: { '/repo/.zerochat/state.md': new Error('connection reset') } });
+  const { context, state } = createHarness({ files: { '/repo/.zerochat/task.py': new Error('connection reset') } });
   await context.refresh();
   assert.equal(state.get('project').status, 'error');
   assert.equal(state.get('project').error, 'connection reset');
 });
 
 
-test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/state.md inexistente queda missing', async () => {
+test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/task.py inexistente queda missing', async () => {
   const MCP = require('../../js/mcp.js');
   const AgentCore = require('../../js/agent-core.js');
   const backendResult = payload => ({
@@ -279,6 +288,7 @@ test('ProjectContext.refresh - con el proveedor MCP real, un .zerochat/state.md 
     assert.equal(ChatState.get('project').status, 'missing', ChatState.get('project').error);
     assert.equal(context.canInitialize(), true);
 
+    files['/repo/.zerochat/task.py'] = '# helper';
     files['/repo/.zerochat/state.md'] = '- Next task: M1-T1';
     files['/repo/AGENTS.md'] = '# Rules';
     await context.refresh();
