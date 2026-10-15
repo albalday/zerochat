@@ -47,3 +47,4 @@ Done when: App startup refreshes the MCP state without user interaction, the pan
 - [ ] M10-T2 Update the MCP panel status when it is opened
 - [ ] M10-T3 Cover both refresh paths with tests and run the applicable suites
 - [x] M10-T4 Fix MCP autostart memory: declining the startup offer unmarks services, the panel shows and edits the mark, and the MCP section has no misleading Save button (2026-10-15)
+- [x] M10-T5 Simplify MCP autostart memory: drop the per-service switch and the backend change; declining the startup offer saves the service as stopped (2026-10-15)

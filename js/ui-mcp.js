@@ -195,22 +195,10 @@
     updateToolEnabledState(toolId, target.checked);
   }
 
-  /** Interruptores del servicio: si se ofrece iniciarlo en la próxima sesión y sus opciones booleanas. */
   function renderServerOptions(server, language) {
     const options = (server.options || []).filter(option => option.type === 'boolean');
-    const id = escapeHtml(server.id);
-    const autostart = `
-        <div class="mcp-server-option-row">
-          <label class="switch switch-sm">
-            <input type="checkbox" class="mcp-server-autostart-checkbox" data-server-id="${id}" ${server.enabled === true ? 'checked' : ''}>
-            <span class="slider round"></span>
-          </label>
-          <div class="mcp-server-option-meta">
-            <span class="mcp-server-option-label">${escapeHtml(t('mcp_server_autostart_label'))}</span>
-            <span class="label-hint">${escapeHtml(t('mcp_server_autostart_hint'))}</span>
-          </div>
-        </div>`;
-    return `<div class="mcp-server-options">${autostart}${options.map(option => {
+    if (options.length === 0) return '';
+    return `<div class="mcp-server-options">${options.map(option => {
       const description = localized(option.description, language);
       const value = server.userOptions && option.id in server.userOptions ? server.userOptions[option.id] : option.default;
       return `
@@ -303,19 +291,13 @@
     }
   }
 
-  /**
-   * Cambio de un interruptor de un servidor (ofrecerlo al iniciar u opción booleana): se guarda y
-   * se recarga la lista de servidores.
-   */
+  /** Cambio de una opción booleana de un servidor: se guarda y se recarga la lista de servidores. */
   async function handleServerOptionChange(checkbox) {
-    const isAutostart = checkbox.matches('.mcp-server-autostart-checkbox');
-    if (!isAutostart && !checkbox.matches('.mcp-server-option-checkbox')) return;
+    if (!checkbox.matches('.mcp-server-option-checkbox')) return;
     const manager = getMCP().manager;
     checkbox.disabled = true;
     try {
-      await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), isAutostart
-        ? { enabled: checkbox.checked }
-        : { options: { [checkbox.getAttribute('data-option-id')]: checkbox.checked } });
+      await manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
       getState().set('mcp', { externalServers: (await manager.fetchExternalServers()).servers });
     } catch (error) {
       console.error('[MCP UI] Error configuring server option:', error);
@@ -393,23 +375,24 @@
     }
   }
 
-  /** Deja de ofrecer al iniciar los servicios que el usuario no quiso arrancar. */
-  async function forgetDeclinedServices(ids) {
-    let servers = null;
+  /**
+   * Marca como no iniciados los servicios que el usuario no quiso arrancar: detener un servicio
+   * detenido solo guarda ese estado, que es el que se consulta en el siguiente arranque.
+   */
+  async function markDeclinedServicesStopped(ids) {
     for (const id of ids) {
       try {
-        servers = (await getMCP().manager.configureExternalServer(id, { enabled: false })).servers;
+        await getMCP().manager.stopExternalServer(id);
       } catch (error) {
-        console.warn(`[MCP UI] Could not unmark external server ${id}:`, error);
+        console.warn(`[MCP UI] Could not mark external server ${id} as stopped:`, error);
       }
     }
-    if (Array.isArray(servers)) getState().set('mcp', { externalServers: servers });
   }
 
   /**
    * Ofrece iniciar los servicios activos en la sesión anterior que siguen detenidos.
-   * El usuario puede quitar de la lista los que no quiera iniciar; los que no se inician dejan de
-   * ofrecerse en las sesiones siguientes.
+   * El usuario puede quitar de la lista los que no quiera iniciar; los que no se inician quedan
+   * guardados como no iniciados y no se vuelven a ofrecer.
    */
   async function offerStoppedExternalServices(servers) {
     const language = I18n.getLanguage();
@@ -428,7 +411,7 @@
     });
     const chosen = Array.isArray(selected) ? selected : [];
     const isStopped = id => getState().get('mcp').externalServers.find(server => server.id === id)?.status === 'stopped';
-    await forgetDeclinedServices(items.map(item => item.id).filter(id => !chosen.includes(id) && isStopped(id)));
+    await markDeclinedServicesStopped(items.map(item => item.id).filter(id => !chosen.includes(id) && isStopped(id)));
     if (chosen.length === 0) return [];
     const failed = [];
     for (const id of chosen) {

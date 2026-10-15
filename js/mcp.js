@@ -1115,9 +1115,8 @@
       return result;
     }
 
-    /** Guarda `options` del servicio y, con `enabled`, si se ofrece iniciarlo en la próxima sesión. */
-    async configureExternalServer(serverId, { options, enabled } = {}) {
-      return this.requestExternalControl('zerochat/external/servers/configure', { serverId, options, enabled });
+    async configureExternalServer(serverId, options) {
+      return this.requestExternalControl('zerochat/external/servers/configure', { serverId, options });
     }
   }
 

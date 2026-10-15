@@ -525,16 +525,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             return None, {"code": -32602, "message": "serverId debe ser un texto no vacío."}, ""
         if not isinstance(opts, dict):
             return None, {"code": -32602, "message": "options debe ser un objeto."}, ""
-        enabled = params.get("enabled")
-        if enabled is not None and not isinstance(enabled, bool):
-            return None, {"code": -32602, "message": "enabled debe ser booleano."}, ""
         try:
             if method.endswith("/start"):
                 servers = GLOBAL_MCP_MANAGER.start(server_id)
             elif method.endswith("/stop"):
                 servers = GLOBAL_MCP_MANAGER.stop(server_id)
             else:
-                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts, enabled)
+                servers = GLOBAL_MCP_MANAGER.configure(server_id, opts)
         except KeyError as exc:
             return None, {"code": -32602, "message": str(exc.args[0]) if exc.args else str(exc)}, ""
         return {"servers": servers}, None, ""

@@ -1024,7 +1024,7 @@ test('Servidor local zerochat.py: peticiones RPC autenticadas (/mcp/external) in
   }
 });
 
-test('Servidor local zerochat.py: los métodos de control MCP validan sus entradas y configure guarda el ofrecimiento al iniciar', async () => {
+test('Servidor local zerochat.py: los métodos de control MCP responden con error JSON-RPC ante entradas inválidas', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
   const testToken = 'control-errors-token-12345';
@@ -1061,17 +1061,6 @@ test('Servidor local zerochat.py: los métodos de control MCP validan sus entrad
     }
     const invalidOptions = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', options: 'x' });
     assert.equal(invalidOptions.error?.code, -32602);
-    const invalidEnabled = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', enabled: 'yes' });
-    assert.equal(invalidEnabled.error?.code, -32602);
-    // Marcar o desmarcar el ofrecimiento al iniciar no arranca ni detiene el servicio y se persiste.
-    for (const enabled of [true, false]) {
-      const marked = await rpc('zerochat/external/servers/configure', { serverId: 'ejemplo', enabled });
-      const ejemplo = marked.result.servers.find(server => server.id === 'ejemplo');
-      assert.equal(ejemplo.enabled, enabled);
-      assert.equal(ejemplo.status, 'stopped');
-      const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'config', 'services.json'), 'utf8'));
-      assert.equal(saved.ejemplo.enabled, enabled);
-    }
     const status = await rpc('zerochat/external/status', {});
     assert.equal(status.result.servers.some(server => server.id === 'no-existe'), false);
   } finally {
