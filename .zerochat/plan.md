@@ -35,9 +35,9 @@ Done when: The approach for temporary tests (governance in AGENTS.md vs. code/se
 ## M9 Update project management manual documentation
 Goal: Update the user manual (help/project-mode.html and help/en/project-mode.html) with the latest project memory changes, including .zerochat/task.py usage, atomic task completion, simplified state.md (<30 lines), automated bootstrap generation, and git tracking policy.
 Done when: Both Spanish and English help pages reflect task.py, simplified state.md rules, and automated bootstrap; and npm run test:architecture passes cleanly.
-- [ ] M9-T1 Update Spanish project management documentation in help/project-mode.html
-- [ ] M9-T2 Update English project management documentation in help/en/project-mode.html
-- [ ] M9-T3 Validate help pages and suite with npm run test:architecture
+- [x] M9-T1 Update Spanish project management documentation in help/project-mode.html (2026-10-15)
+- [x] M9-T2 Update English project management documentation in help/en/project-mode.html (2026-10-15)
+- [x] M9-T3 Validate help pages and suite with npm run test:architecture (2026-10-15)
 
 
 ## M10 MCP state refresh on startup and in the panel: closed 2026-10-15
