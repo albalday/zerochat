@@ -21,7 +21,46 @@
   function updateLiveCard(card, _args, result, elapsedMs, ui) {
     const success = result.success !== false && !result.error;
     getCards().renderStatusBadge(card.querySelector('.tool-card-badge'), success, ui.t(success ? 'tool_status_success' : 'tool_status_error', { ms: elapsedMs }));
-    card.querySelector('.rag-image-result').textContent = success ? result.documentTitle || result.imageRef || '' : result.error || '';
+    const resultDiv = card.querySelector('.rag-image-result');
+    Utils.setText(resultDiv, success ? result.documentTitle || result.imageRef || '' : result.error || '');
+    if (success && result.dataUrl) {
+      const figure = card.ownerDocument.createElement('figure');
+      figure.className = 'rag-image-preview';
+      const img = card.ownerDocument.createElement('img');
+      img.className = 'rag-image-thumb';
+      img.src = result.dataUrl;
+      img.alt = result.documentTitle || result.imageRef || ui.t('tool_rag_image_title');
+      img.title = ui.t('image_open_tab');
+      img.tabIndex = 0;
+      img.setAttribute('role', 'button');
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      const open = () => Utils.openImageInNewTab(result.dataUrl);
+      img.addEventListener('click', open);
+      img.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+      figure.appendChild(img);
+      resultDiv.appendChild(figure);
+    }
+  }
+
+  function renderHistoricalCard(args, message, ui) {
+    const card = createLiveCard(args, ui);
+    const imgData = message?.images?.find(item => item?.dataUrl);
+    const success = Boolean(imgData) || (typeof message?.content === 'string' && message.content.startsWith('Image retrieved'));
+    const result = {
+      success,
+      imageRef: imgData?.imageRef || args.imageRef,
+      documentTitle: imgData?.documentTitle,
+      page: imgData?.page,
+      dataUrl: imgData?.dataUrl
+    };
+    updateLiveCard(card, args, result, 0, ui);
+    return card;
   }
 
   return {
@@ -42,6 +81,6 @@
         ? `> **read_knowledge_image** (${result.imageRef})\n\n`
         : `> **read_knowledge_image** (${args.imageRef || ''}) · ${result.error || 'Error'}\n\n`)
     },
-    view: { createLiveCard, updateLiveCard }
+    view: { createLiveCard, updateLiveCard, renderHistoricalCard }
   };
 });

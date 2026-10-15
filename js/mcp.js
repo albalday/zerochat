@@ -561,8 +561,19 @@
     image.className = 'mcp-screenshot-image';
     image.src = dataUrl;
     image.alt = t('mcp_screenshot_alt');
+    image.title = t('image_open_tab');
+    image.tabIndex = 0;
+    image.setAttribute('role', 'button');
     image.loading = 'lazy';
     image.decoding = 'async';
+    const open = () => Utils.openImageInNewTab(dataUrl);
+    image.addEventListener('click', open);
+    image.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        open();
+      }
+    });
     const caption = card.ownerDocument.createElement('figcaption');
     caption.textContent = t('mcp_screenshot_caption');
     figure.append(image, caption);

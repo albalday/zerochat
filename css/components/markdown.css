@@ -86,6 +86,7 @@
   max-width: 100%;
   width: auto;
   height: auto;
+  min-height: 48px;
   max-height: min(75vh, 600px);
   object-fit: contain;
   border-radius: var(--radius-md);
@@ -93,9 +94,14 @@
   box-shadow: var(--shadow-sm);
   display: block;
   margin: 0 auto;
-  cursor: default;
-  background-color: transparent;
+  cursor: pointer;
+  background-color: var(--bg-surface-subtle);
   box-sizing: border-box;
+  transition: opacity 0.15s ease;
+}
+
+.chat-embedded-image:hover {
+  opacity: 0.92;
 }
 
 .chat-embedded-image.inline-image {
@@ -103,8 +109,10 @@
   vertical-align: middle;
   max-width: 100%;
   max-height: 120px;
+  min-height: 24px;
   height: auto;
   margin: 0.25rem;
+  background-color: var(--bg-surface-subtle);
   box-sizing: border-box;
 }
 

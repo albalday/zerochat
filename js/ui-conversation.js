@@ -13,7 +13,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, MessageTurns) {
   'use strict';
 
-  const { resolveDep, createId, copyToClipboard, escapeHtml, sanitizeImageUrl } = Utils;
+  const { resolveDep, createId, copyToClipboard, escapeHtml, sanitizeImageUrl, openImageInNewTab } = Utils;
   const { t } = I18n;
   const { extractBaseId } = MessageTurns;
 
@@ -77,7 +77,7 @@
   function injectStreamingCursor(html) {
     if (!html || html.trim() === '') return '<span class="streaming-cursor"></span>';
     const trimmed = html.trimEnd();
-    const match = trimmed.match(/(<\/(?:p|li|h[1-6]|span|code|strong|em|td|blockquote)>)$/i);
+    const match = trimmed.match(/(<\/(?:p|li|h[1-6]|span|code|strong|em|td|blockquote|figcaption|figure)>)$/i);
     if (match) {
       const closingTag = match[1];
       return trimmed.slice(0, -closingTag.length) + '<span class="streaming-cursor"></span>' + closingTag;
@@ -92,10 +92,77 @@
     return block;
   }
 
+  /**
+   * Reconcilia los bloques de Markdown dentro de un turno sin destruir los elementos previos.
+   * Conserva las instancias de imagen ya insertadas para evitar recargas, pérdidas de tamaño y parpadeos.
+   */
+  function updateBlockChildren(block, targetHtml) {
+    const doc = block.ownerDocument;
+    const template = doc.createElement('template');
+    template.innerHTML = targetHtml;
+    const newNodes = Array.from(template.content.childNodes).filter(node => node.nodeType !== 3 || node.textContent.trim() !== '');
+
+    Array.from(block.childNodes).forEach(node => {
+      if (node.nodeType === 3 && node.textContent.trim() === '') node.remove();
+    });
+    const currentNodes = Array.from(block.childNodes);
+
+    const maxLen = Math.max(newNodes.length, currentNodes.length);
+    for (let i = 0; i < maxLen; i++) {
+      const cur = currentNodes[i];
+      const next = newNodes[i];
+
+      if (!cur && next) {
+        block.appendChild(next);
+      } else if (cur && !next) {
+        cur.remove();
+      } else if (cur && next) {
+        if (cur.isEqualNode ? cur.isEqualNode(next) : cur.outerHTML === next.outerHTML) {
+          continue;
+        }
+
+        if (cur.nodeType === 1 && next.nodeType === 1 && cur.tagName === next.tagName) {
+          const curImg = cur.querySelector?.('img.chat-embedded-image');
+          const nextImg = next.querySelector?.('img.chat-embedded-image');
+          if (curImg && nextImg && curImg.getAttribute('src') === nextImg.getAttribute('src')) {
+            if (curImg.getAttribute('alt') !== nextImg.getAttribute('alt')) {
+              curImg.setAttribute('alt', nextImg.getAttribute('alt') || '');
+            }
+            if (curImg.getAttribute('title') !== nextImg.getAttribute('title')) {
+              curImg.setAttribute('title', nextImg.getAttribute('title') || '');
+            }
+            const curCaption = cur.querySelector?.('.chat-image-caption');
+            const nextCaption = next.querySelector?.('.chat-image-caption');
+            if (curCaption && nextCaption) {
+              if (curCaption.textContent !== nextCaption.textContent) {
+                curCaption.textContent = nextCaption.textContent;
+              }
+            } else if (!curCaption && nextCaption) {
+              cur.appendChild(nextCaption.cloneNode(true));
+            } else if (curCaption && !nextCaption) {
+              curCaption.remove();
+            }
+            const curCursor = cur.querySelector?.('.streaming-cursor');
+            const nextCursor = next.querySelector?.('.streaming-cursor');
+            if (!curCursor && nextCursor) {
+              cur.appendChild(nextCursor.cloneNode(true));
+            } else if (curCursor && !nextCursor) {
+              curCursor.remove();
+            }
+            continue;
+          }
+        }
+
+        block.replaceChild(next, cur);
+      }
+    }
+  }
+
   function renderAssistantBlock(block, text, { streaming = false } = {}) {
     const Markdown = getMarkdown();
     const html = Markdown.parseMarkdown(text);
-    block.innerHTML = streaming ? injectStreamingCursor(html) : html;
+    const targetHtml = streaming ? injectStreamingCursor(html) : html;
+    updateBlockChildren(block, targetHtml);
     Markdown.attachContentListeners(block);
   }
 
@@ -255,9 +322,18 @@
         const img = doc.createElement('img');
         img.src = safeUrl;
         img.alt = name;
-        img.title = name;
+        img.title = name ? `${name} — ${t('image_open_tab')}` : t('image_open_tab');
+        img.tabIndex = 0;
+        img.setAttribute('role', 'button');
         img.className = 'message-image-thumb';
-        if (/^https?:\/\/|^blob:|^data:image\//i.test(safeUrl)) img.addEventListener('click', () => window.open(safeUrl, '_blank'));
+        const open = () => openImageInNewTab(safeUrl);
+        img.addEventListener('click', open);
+        img.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open();
+          }
+        });
         item.appendChild(img);
       }
       const caption = doc.createElement('div');

@@ -134,6 +134,39 @@
   }
 
   /**
+   * Resuelve una URL de imagen (relativa, con barra doble o absoluta) respecto a la URL base.
+   */
+  function resolveImageUrl(rawUrl, baseUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (/^data:image\//i.test(trimmed)) {
+      return Utils.sanitizeImageUrl(trimmed);
+    }
+    let urlToResolve = trimmed;
+    if (urlToResolve.startsWith('//')) {
+      urlToResolve = 'https:' + urlToResolve;
+    }
+    try {
+      const resolved = new URL(urlToResolve, baseUrl);
+      if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
+        return resolved.href;
+      }
+    } catch (_) { /* URL no válida o esquema desconocido */ }
+    return '';
+  }
+
+  /**
+   * Resuelve URLs relativas de imágenes dentro de un bloque Markdown respecto a la URL base.
+   */
+  function resolveMarkdownImageUrls(markdownText, baseUrl) {
+    if (!markdownText || typeof markdownText !== 'string' || !baseUrl) return markdownText;
+    return markdownText.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
+      const resolved = resolveImageUrl(url, baseUrl);
+      return resolved ? `![${alt}](${resolved})` : match;
+    });
+  }
+
+  /**
    * Extrae el texto legible y estructurado de un documento HTML local.
    */
   function extractReadableTextFromHtml(htmlString, targetUrl) {
@@ -149,6 +182,27 @@
         const metaDesc = doc.querySelector('meta[name="description"]') ? doc.querySelector('meta[name="description"]').getAttribute('content') : '';
 
         const mainElement = doc.querySelector('main, article, #content, .content, #main, .main-content') || doc.body;
+
+        const imagesFound = [];
+        const seenUrls = new Set();
+        const imgNodes = (mainElement || doc.body).querySelectorAll('img');
+        imgNodes.forEach(img => {
+          const rawSrc = img.getAttribute('src') || img.src || '';
+          const resolvedSrc = resolveImageUrl(rawSrc, targetUrl);
+          if (!resolvedSrc || seenUrls.has(resolvedSrc)) return;
+          const width = parseInt(img.getAttribute('width') || '', 10);
+          const height = parseInt(img.getAttribute('height') || '', 10);
+          if ((width && width <= 2) || (height && height <= 2)) return;
+
+          seenUrls.add(resolvedSrc);
+          const altText = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+          imagesFound.push({ url: resolvedSrc, alt: altText });
+
+          const label = altText || 'Image';
+          const replacement = doc.createTextNode(`\n\n![${label}](${resolvedSrc})\n\n`);
+          img.replaceWith(replacement);
+        });
+
         let text = mainElement ? (mainElement.innerText || mainElement.textContent || '') : '';
 
         text = text.replace(/\r\n/g, '\n')
@@ -158,20 +212,40 @@
 
         let headerInfo = `[Title: ${title || 'Untitled'}]\n[URL: ${targetUrl}]\n`;
         if (metaDesc) headerInfo += `[Description: ${metaDesc}]\n`;
+        if (imagesFound.length > 0) headerInfo += `[Images found on page: ${imagesFound.length}]\n`;
         headerInfo += '\n--- Page content ---\n';
+
+        if (imagesFound.length > 0) {
+          let imagesList = '\n\n--- Images on page ---\n';
+          imagesFound.forEach((item, index) => {
+            const label = item.alt || `Image ${index + 1}`;
+            imagesList += `${index + 1}. ![${label}](${item.url})\n`;
+          });
+          text += imagesList;
+        }
 
         const fullOutput = headerInfo + text;
         if (fullOutput.length > MAX_CONTENT_LENGTH) {
-          return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Contenido truncado por longitud ...]';
+          return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated due to length ...]';
         }
         return fullOutput;
       }
     } catch (e) { /* DOMParser no disponible o HTML ilegible: se usa la extracción por expresiones regulares */ }
 
     // Fallback simple basado en expresiones regulares para Node.js o entornos sin DOMParser
-    const cleanText = htmlString
+    let cleanText = htmlString
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<img\b[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*>/gi, (match, src, alt) => {
+        if (/\b(?:width|height)=["']?[0-2]["']?/i.test(match)) return ' ';
+        const resolved = resolveImageUrl(src, targetUrl);
+        return resolved ? `\n\n![${(alt || 'Image').trim()}](${resolved})\n\n` : ' ';
+      })
+      .replace(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
+        if (/\b(?:width|height)=["']?[0-2]["']?/i.test(match)) return ' ';
+        const resolved = resolveImageUrl(src, targetUrl);
+        return resolved ? `\n\n![Image](${resolved})\n\n` : ' ';
+      })
       .replace(/<[^>]+>/g, ' ')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n\s*\n+/g, '\n\n')
@@ -226,6 +300,7 @@
       }
 
       let content = await res.text();
+      content = resolveMarkdownImageUrls(content, url);
       return {
         success: true,
         content: content,
@@ -470,6 +545,7 @@
     fetchPage,
     validateUrlForFetch,
     extractReadableTextFromHtml,
+    resolveImageUrl,
     BaseFetchStrategy,
     ReaderGatewayStrategy,
     LocalPdfStrategy,

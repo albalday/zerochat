@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Markdown = require('../../js/markdown.js');
+const ChatUtils = require('../../js/utils.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 test('Markdown - escapa HTML y renderiza tablas, código, pensamiento y reglas horizontales', () => {
   {
@@ -127,5 +129,38 @@ test('Markdown - normaliza notación matemática y LaTeX a Unicode fuera de cód
   // Dentro de tablas
   const table = Markdown.parseMarkdown('| Símbolo | Significado |\n|---|---|\n| $\\rightarrow$ | flecha |');
   assert.ok(table.includes('<td>→</td>'));
+});
+
+test('Markdown - attachContentListeners activa el click accesible en imágenes para abrir en nueva pestaña', () => {
+  const dom = installDom();
+  try {
+    const container = document.createElement('div');
+    container.innerHTML = Markdown.parseMarkdown('![Diagrama](https://example.test/img.png)');
+    const img = container.querySelector('img.chat-embedded-image');
+    assert.ok(img);
+    assert.equal(img.getAttribute('role'), null);
+
+    const opened = [];
+    window.open = url => {
+      opened.push(url);
+      return { document: {} };
+    };
+
+    Markdown.attachContentListeners(container);
+    assert.equal(img.getAttribute('role'), 'button');
+    assert.equal(img.tabIndex, 0);
+
+    img.dispatchEvent(new Event('click'));
+    assert.equal(opened.length, 1);
+    assert.ok(opened[0].startsWith('blob:'));
+
+    const enterEvent = new Event('keydown');
+    enterEvent.key = 'Enter';
+    img.dispatchEvent(enterEvent);
+    assert.equal(opened.length, 2);
+    assert.ok(opened[1].startsWith('blob:'));
+  } finally {
+    dom.restore();
+  }
 });
 

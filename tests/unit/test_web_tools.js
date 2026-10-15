@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 // Cargar módulos
 const WebSearch = require('../../js/web-search.js');
 const WebBrowser = require('../../js/web-browser.js');
+const { installDom } = require('../helpers/dom-env.js');
 
 test('SearchProvider - DuckDuckGo Markdown & HTML parsing', () => {
   const ddg = new WebSearch.DuckDuckGoSearchProvider();
@@ -135,6 +136,45 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
     assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test('PageFetcher - resolveImageUrl y extracción de imágenes HTML con URLs absolutas', () => {
+  const dom = installDom();
+  try {
+    assert.equal(WebBrowser.resolveImageUrl('https://cdn.example.com/a.jpg', 'https://example.com/news'), 'https://cdn.example.com/a.jpg');
+    assert.equal(WebBrowser.resolveImageUrl('/images/logo.png', 'https://example.com/news/article'), 'https://example.com/images/logo.png');
+    assert.equal(WebBrowser.resolveImageUrl('photo.jpg', 'https://example.com/news/article'), 'https://example.com/news/photo.jpg');
+    assert.equal(WebBrowser.resolveImageUrl('//cdn.example.com/pic.webp', 'https://example.com'), 'https://cdn.example.com/pic.webp');
+    assert.equal(WebBrowser.resolveImageUrl('data:image/png;base64,iVBORw0KGgo=', 'https://example.com'), 'data:image/png;base64,iVBORw0KGgo=');
+    assert.equal(WebBrowser.resolveImageUrl('javascript:alert(1)', 'https://example.com'), '');
+
+    const html = `
+      <html>
+        <head><title>Artículo de prueba</title></head>
+        <body>
+          <main>
+            <h1>Titular</h1>
+            <p>Texto inicial</p>
+            <img src="/media/portada.jpg" alt="Foto de portada" />
+            <p>Segundo párrafo</p>
+            <img src="https://cdn.externo.com/chart.png" alt="Gráfico de ventas" />
+            <img src="/media/tracker.gif" width="1" height="1" alt="pixel" />
+          </main>
+        </body>
+      </html>
+    `;
+
+    const extracted = WebBrowser.extractReadableTextFromHtml(html, 'https://example.com/articulos/hoy');
+    assert.ok(extracted.includes('![Foto de portada](https://example.com/media/portada.jpg)'), 'Debe convertir la imagen relativa a absoluta en su lugar');
+    assert.ok(extracted.includes('![Gráfico de ventas](https://cdn.externo.com/chart.png)'), 'Debe incluir la imagen con URL absoluta');
+    assert.ok(!extracted.includes('tracker.gif'), 'Debe omitir píxeles de tracking 1x1');
+    assert.ok(extracted.includes('[Images found on page: 2]'), 'Debe incluir el recuento en cabecera');
+    assert.ok(extracted.includes('--- Images on page ---'), 'Debe incluir sección resumen de imágenes');
+    assert.ok(extracted.includes('1. ![Foto de portada](https://example.com/media/portada.jpg)'));
+    assert.ok(extracted.includes('2. ![Gráfico de ventas](https://cdn.externo.com/chart.png)'));
+  } finally {
+    dom.restore();
   }
 });
 

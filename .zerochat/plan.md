@@ -11,8 +11,9 @@ Done when: to be agreed with the user before the milestone starts.
 ## M4 Images and office files in the chat
 Goal: The chat shows images, such as a web page's, and reads office documents.
 Done when: an image from a web page or tool result is displayed in the conversation, and docx/xlsx files can be attached and read, with tests and /help updated.
-- [ ] M4-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview
+- [x] M4-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview (2026-10-15)
 - [ ] M4-T2 Read office files (docx, xlsx) as attachments and from tools
+- [x] M4-T3 Abrir imágenes en visor de pestaña sin forzar descarga y eliminar temblores en streaming (2026-10-15)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
@@ -35,3 +36,5 @@ Done when: The approach for temporary tests (governance in AGENTS.md vs. code/se
 ## M9 Update project management manual documentation: closed 2026-10-15
 
 ## M10 MCP state refresh on startup and in the panel: closed 2026-10-15
+
+## M11 Fixes and refactoring from post-9.1.0 findings: closed 2026-10-15

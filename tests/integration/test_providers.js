@@ -285,6 +285,10 @@ test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del
   assert.equal(recovery.reason, 'max_tokens_rejected');
   assert.equal(payload.max_tokens, 8192);
   assert.equal(payload.thinking.budget_tokens, 4096, 'El presupuesto de razonamiento queda por debajo del nuevo límite');
+
+  const nextPayload = adapter.buildPayload({ model: 'm', messages: [{ role: 'user', content: 'y' }], reasoningEffort: 'xhigh' });
+  assert.equal(nextPayload.max_tokens, 8192, 'Las llamadas siguientes al mismo modelo usan directamente el límite aprendido');
+  assert.equal(nextPayload.thinking.budget_tokens, 4096);
 });
 
 test('Adaptadores - Errores dentro del streaming y motivo de fin', () => {

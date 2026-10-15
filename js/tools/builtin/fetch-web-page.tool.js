@@ -10,13 +10,13 @@
   return {
     definition: {
       name: 'fetch_web_page',
-      description: 'Downloads and reads the text and content of a public web page or HTML article from its URL (e.g. "https://en.wikipedia.org/wiki/Sun").',
+      description: 'Downloads and reads the text, content, and image references of a public web page or HTML article from its URL (e.g. "https://en.wikipedia.org/wiki/Sun"). Preserves image URLs in Markdown format so they can be inspected and displayed in the conversation.',
       parameters: { type: 'object', properties: { url: { type: 'string', description: 'URL of the web page to read.' } }, required: ['url'] }
     },
     aliases: ['fetch_web', 'fetch_url', 'get_web_page', 'read_web_page', 'web_fetch', 'browse_web', 'browse', 'webpage'],
     category: 'web',
     settings: { titleKey: 'agent_web_title', descKey: 'agent_web_desc' },
-    promptGuide: '- `fetch_web_page(url="...")`: Downloads and extracts clean text content from public web pages or HTML articles.',
+    promptGuide: '- `fetch_web_page(url="...")`: Downloads and extracts clean text and image references from public web pages or HTML articles.',
     execute: (args, context) => context.services.webBrowser.fetchPage(Cards.getUrlArg(args)),
     result: {
       toModel: (_args, result) => JSON.stringify(result),

@@ -202,7 +202,7 @@
     }
 
     if (signal?.aborted) {
-      return { accumulatedText: '', accumulatedReasoning: '', reasoningReplay: null, stats: null, toolCalls: null };
+      return { accumulatedText: '', accumulatedReasoning: '', reasoningReplay: null, stats: null, toolCalls: null, truncated: false, recoveredReason: '' };
     }
 
     if (detectedType === 'mirror') {
@@ -218,7 +218,7 @@
         onLog({ type: 'raw', subtype: 'outgoing', text: `>>> MIRROR POST ${endpoint}\n${accumulatedText}` });
       }
       if (onChunk) onChunk(accumulatedText, accumulatedText, stats);
-      return { accumulatedText, accumulatedReasoning: '', reasoningReplay: null, stats, toolCalls: null };
+      return { accumulatedText, accumulatedReasoning: '', reasoningReplay: null, stats, toolCalls: null, truncated: false, recoveredReason: '' };
     }
 
     if (onLog) {

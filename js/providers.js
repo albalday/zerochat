@@ -47,7 +47,7 @@
   /**
    * Visión que el servidor declara para un modelo: true, false o null si no la declara. Lee
    * architecture.input_modalities (llama.cpp, OpenRouter), type de LM Studio (vlm, llm) y
-   * capabilities de Ollama (vision; llama.cpp la llama multimodal en su listado compatible).
+   * capabilities de Ollama (vision).
    */
   function declaredVision(details) {
     if (!details || typeof details !== 'object') return null;
@@ -55,7 +55,7 @@
     if (Array.isArray(inputs)) return inputs.includes('image');
     if (details.type === 'vlm') return true;
     if (details.type === 'llm') return false;
-    if (Array.isArray(details.capabilities)) return details.capabilities.includes('vision') || details.capabilities.includes('multimodal');
+    if (Array.isArray(details.capabilities)) return details.capabilities.includes('vision');
     return null;
   }
 
@@ -635,6 +635,7 @@
           modelListing: true
         }
       });
+      this.effectiveMaxTokens = new Map();
     }
 
     normalizeEndpoint(rawUrl) {
@@ -754,11 +755,13 @@
 
       // max_tokens es obligatorio y limita razonamiento y respuesta juntos; un modelo con menos
       // salida máxima lo rechaza indicando su límite y handleHttpError reintenta con él.
+      const modelKey = (model || '').trim();
+      const effectiveMaxTokens = this.effectiveMaxTokens?.get(modelKey) || CLAUDE_MAX_TOKENS;
       const payload = {
-        model: (model || '').trim(),
+        model: modelKey,
         messages: nonSystemMessages,
         temperature: parseFloat(temperature) || 0.7,
-        max_tokens: CLAUDE_MAX_TOKENS
+        max_tokens: effectiveMaxTokens
       };
 
       if (systemContent) {
@@ -808,6 +811,10 @@
       else if (effort === 'high') budget = 4096;
       else if (effort === 'xhigh') budget = 8192;
 
+      if (payload.max_tokens && budget >= payload.max_tokens) {
+        budget = Math.floor(payload.max_tokens / 2);
+      }
+
       payload.thinking = {
         type: 'enabled',
         budget_tokens: budget
@@ -832,6 +839,10 @@
       const limit = Number((String(serverErrorMsg || '').match(/max_tokens\D*\d+\s*>\s*(\d+)/i) || [])[1]);
       if (status === 400 && limit > 0 && limit < payload.max_tokens) {
         payload.max_tokens = limit;
+        if (payload.model) {
+          if (!this.effectiveMaxTokens) this.effectiveMaxTokens = new Map();
+          this.effectiveMaxTokens.set(payload.model, limit);
+        }
         if (payload.thinking && payload.thinking.budget_tokens >= limit) {
           payload.thinking.budget_tokens = Math.floor(limit / 2);
         }

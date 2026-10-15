@@ -35,7 +35,11 @@ function setup(t, mcp = {}) {
     btnCopyCmd: byId('btn-mcp-copy-cmd'),
     bootstrapCard: byId('mcp-bootstrap-card'),
     toolsContainer: byId('mcp-tools-container'),
-    serversList: byId('mcp-servers-list')
+    serversList: byId('mcp-servers-list'),
+    savedAuthsList: byId('mcp-saved-auths-list'),
+    btnClearAuths: byId('btn-mcp-clear-auths'),
+    directoryRules: byId('mcp-directory-rules'),
+    directoryRulesError: byId('mcp-directory-rules-error')
   };
 }
 

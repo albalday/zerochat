@@ -305,3 +305,37 @@ test('UIConversation - showBranchLoadingIndicator y hideBranchLoadingIndicator a
   assert.equal(button.querySelector('.ui-icon-spin'), null);
   assert.equal(wrapper.querySelector('.branch-progress-indicator'), null);
 });
+
+test('UIConversation - renderAssistantBlock preserves existing image instances across streaming chunks', t => {
+  setup(t);
+  const container = document.createElement('div');
+  const block = UIConversation.createAssistantBlock(container);
+
+  // Chunk 1: Header and first image
+  UIConversation.renderAssistantBlock(
+    block,
+    '### Header\n![Logo](https://example.com/logo.svg)',
+    { streaming: true }
+  );
+  const imgFirst = block.querySelector('img.chat-embedded-image');
+  assert.ok(imgFirst, 'Must render image element');
+  assert.equal(imgFirst.getAttribute('src'), 'https://example.com/logo.svg');
+
+  // Chunk 2: Model continues generating separator and text
+  UIConversation.renderAssistantBlock(
+    block,
+    '### Header\n![Logo](https://example.com/logo.svg)\n\n---\n\nGenerating next text...',
+    { streaming: true }
+  );
+  const imgSecond = block.querySelector('img.chat-embedded-image');
+  assert.equal(imgFirst, imgSecond, 'Image element instance must be preserved without recreation');
+
+  // Chunk 3: Final rendering
+  UIConversation.renderAssistantBlock(
+    block,
+    '### Header\n![Logo](https://example.com/logo.svg)\n\n---\n\nCompleted response.'
+  );
+  const imgFinal = block.querySelector('img.chat-embedded-image');
+  assert.equal(imgFirst, imgFinal, 'Image element instance must stay intact on final render');
+});
+

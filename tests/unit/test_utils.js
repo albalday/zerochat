@@ -89,3 +89,35 @@ test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo
     global.fetch = originalFetch;
   }
 });
+
+test('ChatUtils - openImageInNewTab abre URLs seguras en visor HTML Blob con noopener', () => {
+  const dom = installDom();
+  try {
+    const opened = [];
+    window.open = (url, target, features) => {
+      opened.push({ url, target, features });
+      return { document: {} };
+    };
+
+    ChatUtils.openImageInNewTab('javascript:alert(1)');
+    ChatUtils.openImageInNewTab('');
+    ChatUtils.openImageInNewTab('rag-image://doc:img');
+    assert.equal(opened.length, 0);
+
+    ChatUtils.openImageInNewTab('https://example.com/foto.jpg', 'Foto de prueba');
+    assert.equal(opened.length, 1);
+    assert.ok(opened[0].url.startsWith('blob:'));
+    assert.equal(opened[0].target, '_blank');
+    assert.equal(opened[0].features, 'noopener,noreferrer');
+
+    ChatUtils.openImageInNewTab('blob:https://example.com/uuid');
+    assert.equal(opened.length, 2);
+    assert.ok(opened[1].url.startsWith('blob:'));
+
+    ChatUtils.openImageInNewTab('data:image/png;base64,iVBORw0KGgo=');
+    assert.equal(opened.length, 3);
+    assert.ok(opened[2].url.startsWith('blob:'));
+  } finally {
+    dom.restore();
+  }
+});

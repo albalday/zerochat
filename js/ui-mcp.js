@@ -453,9 +453,10 @@
     renderExternalServers(elements.serversList, isConnected ? state.externalServers : []);
   }
 
-  function renderSavedAuthorizations() {
-    const container = document.getElementById('mcp-saved-auths-list');
-    const btnClear = document.getElementById('btn-mcp-clear-auths');
+  function renderSavedAuthorizations(elements) {
+    const container = elements?.savedAuthsList || document.getElementById('mcp-saved-auths-list');
+    const btnClear = elements?.btnClearAuths || document.getElementById('btn-mcp-clear-auths');
+    if (!container || !btnClear) return;
     const security = getSecurity();
     const tools = security.listAuthorizedTools();
     const servers = security.listAuthorizedServers();
@@ -522,10 +523,15 @@
   function syncSecurityControls(elements) {
     const security = getSecurity();
     const policy = security.getGlobalMcpPolicy();
-    for (const [value, id] of Object.entries(POLICY_RADIOS)) document.getElementById(id).checked = policy === value;
-    const rulesInput = document.getElementById('mcp-directory-rules');
-    if (document.activeElement !== rulesInput) rulesInput.value = security.getDirectoryRules().join('\n');
-    renderSavedAuthorizations();
+    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
+      const radio = document.getElementById(id);
+      if (radio) radio.checked = policy === value;
+    }
+    const rulesInput = elements?.directoryRules || document.getElementById('mcp-directory-rules');
+    if (rulesInput && document.activeElement !== rulesInput) {
+      rulesInput.value = security.getDirectoryRules().join('\n');
+    }
+    renderSavedAuthorizations(elements);
     renderCurrentToolsList(elements);
   }
 
@@ -542,31 +548,41 @@
     on(elements.serversList, 'click', event => handleServersClick(elements.serversList, event.target));
     on(elements.serversList, 'change', event => handleServerOptionChange(event.target));
     // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
-    on(document.getElementById('mcp-saved-auths-list'), 'click', event => {
-      const tool = event.target.closest('.btn-revoke-auth');
-      if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
-      const server = event.target.closest('.btn-revoke-server-auth');
-      if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
-    });
-    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
-      const radio = document.getElementById(id);
-      on(radio, 'change', () => {
-        if (radio.checked) security.setGlobalMcpPolicy(value);
+    const savedAuthsList = elements?.savedAuthsList || document.getElementById('mcp-saved-auths-list');
+    if (savedAuthsList) {
+      on(savedAuthsList, 'click', event => {
+        const tool = event.target.closest('.btn-revoke-auth');
+        if (tool) security.revokeToolPolicy(tool.getAttribute('data-tool-id'));
+        const server = event.target.closest('.btn-revoke-server-auth');
+        if (server) security.revokeServerPolicy(server.getAttribute('data-server-id'));
       });
     }
-    const rulesInput = document.getElementById('mcp-directory-rules');
-    const rulesError = document.getElementById('mcp-directory-rules-error');
-    const onRulesChange = () => {
-      try {
-        security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
-        rulesError.textContent = '';
-      } catch (err) {
-        rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
+    for (const [value, id] of Object.entries(POLICY_RADIOS)) {
+      const radio = document.getElementById(id);
+      if (radio) {
+        on(radio, 'change', () => {
+          if (radio.checked) security.setGlobalMcpPolicy(value);
+        });
       }
-    };
-    on(rulesInput, 'change', onRulesChange);
-    on(rulesInput, 'input', onRulesChange);
-    on(document.getElementById('btn-mcp-clear-auths'), 'click', () => security.clearAllAuthorizations());
+    }
+    const rulesInput = elements?.directoryRules || document.getElementById('mcp-directory-rules');
+    const rulesError = elements?.directoryRulesError || document.getElementById('mcp-directory-rules-error');
+    if (rulesInput && rulesError) {
+      const onRulesChange = () => {
+        try {
+          security.setDirectoryRules(rulesInput.value.split(/\r?\n/).map(rule => rule.trim()).filter(Boolean));
+          rulesError.textContent = '';
+        } catch (err) {
+          rulesError.textContent = err.message || t('mcp_directory_rules_invalid');
+        }
+      };
+      on(rulesInput, 'change', onRulesChange);
+      on(rulesInput, 'input', onRulesChange);
+    }
+    const btnClearAuths = elements?.btnClearAuths || document.getElementById('btn-mcp-clear-auths');
+    if (btnClearAuths) {
+      on(btnClearAuths, 'click', () => security.clearAllAuthorizations());
+    }
 
     const unsubscribeSecurity = security.subscribe(() => syncSecurityControls(elements));
     const unsubscribeState = State.subscribe('mcp', state => renderConnectionStatus(elements, state));
@@ -575,7 +591,7 @@
 
     const unsubscribeLanguage = I18n.onChange(() => {
       render();
-      renderSavedAuthorizations();
+      renderSavedAuthorizations(elements);
       if (State.get('mcp').status === 'connected') {
         getMCP().manager.syncExternalServers().catch(error => console.warn('[MCP UI] syncExternalServers failed:', error));
       }

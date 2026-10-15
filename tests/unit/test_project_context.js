@@ -105,3 +105,10 @@ test('ProjectContext - la sección de memoria define tareas numeradas, edición 
   const bootstrap = ProjectContext.buildBootstrapPrompt('/repo');
   assert.match(bootstrap, /they never go in AGENTS\.md or the other agent files, which agents load in every session/);
 });
+
+test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {
+  const diskPath = path.resolve(__dirname, '../../.zerochat/task.py');
+  const diskContent = fs.readFileSync(diskPath, 'utf-8').trim();
+  const templateContent = ProjectContext.TASK_SCRIPT_TEMPLATE.trim();
+  assert.equal(templateContent, diskContent, 'TASK_SCRIPT_TEMPLATE en js/project-context.js debe ser idéntico a .zerochat/task.py');
+});

@@ -59,6 +59,66 @@
   }
 
   /**
+   * Abre de forma segura una imagen en una nueva pestaña dentro de un visor HTML aislado.
+   * Cargar la imagen mediante un elemento <img> dentro de un documento HTML evita que
+   * cabeceras como 'Content-Disposition: attachment' fuercen la descarga del archivo en vez
+   * de mostrarlo, y evita el bloqueo de navegación en data URLs (about:blank#blocked).
+   */
+  function openImageInNewTab(rawUrl, title) {
+    const safeUrl = sanitizeImageUrl(rawUrl);
+    if (!safeUrl || safeUrl.startsWith('rag-image://')) return;
+    if (typeof window === 'undefined') return;
+
+    const imgTitle = String(title || '').trim() || 'ZeroChat Image';
+
+    try {
+      const viewerHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(imgTitle)}</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0d1117;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+    }
+    img {
+      max-width: 100%;
+      max-height: 100vh;
+      object-fit: contain;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <img src="${escapeHtml(safeUrl)}" alt="${escapeHtml(imgTitle)}">
+</body>
+</html>`;
+
+      const blob = new Blob([viewerHtml], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const win = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      if (win) {
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        return;
+      }
+    } catch (_) { /* Fallback a apertura directa si Blob o createObjectURL fallan */ }
+
+    try {
+      window.open(safeUrl, '_blank', 'noopener,noreferrer');
+    } catch (_) { /* Ventana emergente bloqueada por el navegador */ }
+  }
+
+
+  /**
    * Asigna contenido no confiable como texto, sin interpretarlo como HTML.
    * @param {Element|Object|null|undefined} element
    * @param {*} value
@@ -237,6 +297,7 @@
     escapeHtml,
     sanitizeUrl,
     sanitizeImageUrl,
+    openImageInNewTab,
     parseRagImageRef,
     setText,
     clearElement,

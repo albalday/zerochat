@@ -30,3 +30,5 @@
 - 2026-10-15 M8-D3 Export TASK_SCRIPT_TEMPLATE and verify parity with .zerochat/task.py in bootstrap tests (M8-T3)
 - 2026-10-15 M10-D1 The services.json 'enabled' flag means 'offer at startup': start sets it, stop and declining the startup offer clear it, and the MCP card shows it as an editable switch; the MCP settings section applies everything immediately, so it hides Save and does not mark pending changes (M10-T4)
 - 2026-10-15 M10-D2 Supersedes M10-D1: the only persisted MCP service state is started or not started (services.json 'enabled'), valid for the current session and checked at restart; declining the startup offer calls stop, which saves 'not started' with the unchanged backend, and there is no per-service switch (M10-T5)
+- 2026-10-15 M4-D1 Unify image presentation and click-to-open across attachments, Markdown, RAG and tools, and extract absolute image references in web page tools (M4-T1)
+- 2026-10-15 M4-D2 Visor HTML en Blob para imágenes clicables y reconciliación de bloques en streaming para eliminar temblores (M4-T3)

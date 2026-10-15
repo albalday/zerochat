@@ -1,4 +1,4 @@
 # Current state
-- Milestone: none selected (open: M3, M4, M5, M7)
-- Next task: ask the user which open milestone to continue
+- Milestone: M4 Images and office files in the chat
+- Next task: M4-T2 Read office files (docx, xlsx) as attachments and from tools
 - Last updated: 2026-10-15

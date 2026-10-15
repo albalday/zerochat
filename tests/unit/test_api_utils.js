@@ -26,10 +26,32 @@ test('Api - Espejo construye una petición OpenAI y la devuelve sin usar la red'
     assert.equal(payloadText.includes('\n'), false, 'Espejo debe reflejar el mismo JSON compacto enviado al servidor');
     assert.match(response.accumulatedText, /^# Bienvenido a ZeroChat/m);
     assert.match(response.accumulatedText, /## Continúa con un perfil/);
-    assert.match(response.accumulatedText, /> \*\*WebLLM \(experimental\):\*\*/);
+    assert.equal(response.truncated, false);
+    assert.equal(response.recoveredReason, '');
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('Api - streamChatCompletion con señal cancelada devuelve resultado consistente', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const response = await Api.streamChatCompletion({
+    apiUrl: 'http://localhost:1234/v1',
+    apiType: 'openai',
+    model: 'test',
+    messages: [{ role: 'user', content: 'test' }],
+    signal: controller.signal
+  });
+  assert.deepEqual(response, {
+    accumulatedText: '',
+    accumulatedReasoning: '',
+    reasoningReplay: null,
+    stats: null,
+    toolCalls: null,
+    truncated: false,
+    recoveredReason: ''
+  });
 });
 
 test('Api - Espejo localiza su mensaje de orientación', async () => {

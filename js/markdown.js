@@ -50,7 +50,8 @@
     const cachedUrl = isRag ? resolvedRagImagesCache.get(safeSrc) : null;
     const classes = ['chat-embedded-image', inline ? 'inline-image' : '', cachedUrl ? 'rag-resolved-image' : ''].filter(Boolean).join(' ');
     const source = isRag ? `data-rag-src="${safeSrc}" src="${cachedUrl || RAG_IMG_PLACEHOLDER}"` : `src="${safeSrc}"`;
-    const img = `<img class="${classes}" ${source} alt="${escapeHtml(alt)}" loading="lazy" />`;
+    const title = altText?.trim() ? `${altText.trim()} — ${I18n.t('image_open_tab')}` : I18n.t('image_open_tab');
+    const img = `<img class="${classes}" ${source} alt="${escapeHtml(alt)}" title="${escapeHtml(title)}" loading="lazy" />`;
     if (inline) return img;
     const caption = altText && !altText.trim().startsWith('#img') ? `<figcaption class="chat-image-caption">${escapeHtml(altText.trim())}</figcaption>` : '';
     return `\n<figure class="chat-image-figure">${img}${caption}</figure>\n`;
@@ -691,6 +692,34 @@
     });
   }
 
+  /** Permite pulsar cualquier imagen embebida en la conversación para verla a tamaño completo en nueva pestaña. */
+  function bindImagePreview(container) {
+    container.querySelectorAll('img.chat-embedded-image:not([data-preview-init])').forEach(img => {
+      img.dataset.previewInit = 'true';
+      img.tabIndex = 0;
+      img.setAttribute('role', 'button');
+      const open = () => {
+        const currentSrc = img.currentSrc || img.getAttribute('src');
+        if (currentSrc && !currentSrc.startsWith('data:image/svg+xml') && !currentSrc.startsWith('rag-image://')) {
+          Utils.openImageInNewTab(currentSrc, img.alt);
+        }
+      };
+      img.addEventListener('click', open);
+      img.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+      img.addEventListener('load', () => {
+        const messagesList = img.closest('#messages-list');
+        if (messagesList) {
+          resolveDep('ChatUIConversation', './ui-conversation.js').scrollToBottom(messagesList);
+        }
+      }, { once: true });
+    });
+  }
+
   /**
    * Activa el contenido generado por parseMarkdown y las tarjetas de herramientas: copiar y
    * ejecutar código, plegar tarjetas y cargar las imágenes de la base de conocimiento. Es seguro
@@ -701,6 +730,7 @@
     bindRunButtons(container);
     bindCollapsibleCards(container);
     resolveRagImages(container);
+    bindImagePreview(container);
   }
 
   return {

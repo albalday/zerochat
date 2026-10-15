@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const AgentCore = require('../../js/agent-core.js');
 const ToolCards = require('../../js/tool-cards.js');
+const ChatUtils = require('../../js/utils.js');
 const { installDom } = require('../helpers/dom-env.js');
 
 const ROOT_DIR = path.resolve(__dirname, '../..');
@@ -179,6 +180,43 @@ test('Builtin Tools - read_knowledge_image y search_web insertan los resultados 
   ToolCards.updateLiveToolCard(search, 'search_web', {}, { success: true, results: [{ title: '<i>t</i>', url: 'javascript:alert(1)', snippet: 's' }] }, 1);
   assert.equal(search.querySelector('.search-result-item a').textContent.trim(), '<i>t</i>');
   assert.doesNotMatch(search.querySelector('.search-result-item a').getAttribute('href'), /^javascript:/);
+});
+
+test('Builtin Tools - read_knowledge_image muestra miniatura clickeable en vivo y en historial', async t => {
+  setupDom(t);
+  const args = { imageRef: 'rag-image://doc_1:img_1' };
+  const card = ToolCards.createLiveToolCard('read_knowledge_image', args);
+
+  const opened = [];
+  const origOpen = ChatUtils.openImageInNewTab;
+  ChatUtils.openImageInNewTab = url => opened.push(url);
+
+  try {
+    ToolCards.updateLiveToolCard(card, 'read_knowledge_image', args, {
+      success: true,
+      documentTitle: 'Diagrama Técnico',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo='
+    }, 10);
+
+    const thumb = card.querySelector('.rag-image-thumb');
+    assert.ok(thumb, 'Debe renderizar la miniatura');
+    assert.equal(thumb.getAttribute('role'), 'button');
+    assert.equal(thumb.tabIndex, 0);
+
+    thumb.dispatchEvent(new Event('click'));
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0], 'data:image/png;base64,iVBORw0KGgo=');
+
+    // Comprobar restauración en tarjeta histórica
+    const historical = ToolCards.renderHistoricalToolCard(
+      { function: { name: 'read_knowledge_image', arguments: JSON.stringify(args) } },
+      { content: 'Image retrieved: rag-image://doc_1:img_1', images: [{ dataUrl: 'data:image/png;base64,iVBORw0KGgo=', imageRef: args.imageRef, documentTitle: 'Diagrama Técnico' }] }
+    );
+    const histThumb = historical.querySelector('.rag-image-thumb');
+    assert.ok(histThumb, 'La tarjeta histórica debe restaurar la miniatura');
+  } finally {
+    ChatUtils.openImageInNewTab = origOpen;
+  }
 });
 
 test('Builtin Tools - ask_user valida opciones, cede el turno y escapa su tarjeta', async t => {

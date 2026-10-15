@@ -616,12 +616,37 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.mcp-screenshot-image:hover {
+  opacity: 0.92;
 }
 
 .mcp-screenshot-preview figcaption {
   margin-top: 0.35rem;
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+.rag-image-preview {
+  margin: 0.5rem 0 0;
+}
+
+.rag-image-thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.rag-image-thumb:hover {
+  opacity: 0.92;
 }
 
 /* ==========================================================================

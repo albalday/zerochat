@@ -36,7 +36,7 @@ def parse_milestone_and_num(task_id: str):
     m = re.match(r"^M(\d+)-T(\d+)$", task_id.strip(), re.IGNORECASE)
     if not m:
         raise ValueError(f"Invalid task ID: '{task_id}'. Expected format: M<n>-T<m> (e.g. M8-T1)")
-    return f"M{m.group(1)}", int(m.group(1)), int(m.group(2))
+    return f"M{m.group(1)}", int(m.group(1))
 
 
 def get_next_decision_id(log_content: str, milestone_num: int) -> str:
@@ -69,6 +69,29 @@ def find_next_pending_task(plan_content: str, current_milestone_prefix: str):
     return None
 
 
+def update_state_content(state_content: str, next_task_str: str, today_str: str) -> str:
+    if re.search(r"^-\s*Next task:.*$", state_content, re.MULTILINE):
+        state_content = re.sub(
+            r"^-\s*Next task:.*$",
+            f"- Next task: {next_task_str}",
+            state_content,
+            flags=re.MULTILINE
+        )
+    else:
+        state_content += f"\n- Next task: {next_task_str}"
+
+    if re.search(r"^-\s*Last updated:.*$", state_content, re.MULTILINE):
+        state_content = re.sub(
+            r"^-\s*Last updated:.*$",
+            f"- Last updated: {today_str}",
+            state_content,
+            flags=re.MULTILINE
+        )
+    else:
+        state_content += f"\n- Last updated: {today_str}"
+    return state_content
+
+
 def cmd_done(args, base_dir: Path):
     plan_path = base_dir / "plan.md"
     log_path = base_dir / "log.md"
@@ -79,7 +102,7 @@ def cmd_done(args, base_dir: Path):
     log_content = read_file(log_path) if log_path.is_file() else "# Decision log\n\n"
 
     task_id = args.task_id.strip().upper()
-    milestone_prefix, m_num, _ = parse_milestone_and_num(task_id)
+    milestone_prefix, m_num = parse_milestone_and_num(task_id)
     today_str = args.date or date.today().isoformat()
 
     task_regex = re.compile(
@@ -120,26 +143,7 @@ def cmd_done(args, base_dir: Path):
         auto_next = find_next_pending_task(plan_content, milestone_prefix)
         next_task_str = auto_next if auto_next else "none pending"
 
-    if re.search(r"^-\s*Next task:.*$", state_content, re.MULTILINE):
-        state_content = re.sub(
-            r"^-\s*Next task:.*$",
-            f"- Next task: {next_task_str}",
-            state_content,
-            flags=re.MULTILINE
-        )
-    else:
-        state_content += f"\n- Next task: {next_task_str}"
-
-    if re.search(r"^-\s*Last updated:.*$", state_content, re.MULTILINE):
-        state_content = re.sub(
-            r"^-\s*Last updated:.*$",
-            f"- Last updated: {today_str}",
-            state_content,
-            flags=re.MULTILINE
-        )
-    else:
-        state_content += f"\n- Last updated: {today_str}"
-
+    state_content = update_state_content(state_content, next_task_str, today_str)
     write_file(state_path, state_content)
     print(f"✔ {state_path.name}: Next task -> {next_task_str} (Last updated: {today_str})")
 
@@ -192,19 +196,7 @@ def cmd_next(args, base_dir: Path):
     state_content = read_file(state_path)
     today_str = args.date or date.today().isoformat()
     next_task_str = args.task.strip()
-
-    state_content = re.sub(
-        r"^-\s*Next task:.*$",
-        f"- Next task: {next_task_str}",
-        state_content,
-        flags=re.MULTILINE
-    )
-    state_content = re.sub(
-        r"^-\s*Last updated:.*$",
-        f"- Last updated: {today_str}",
-        state_content,
-        flags=re.MULTILINE
-    )
+    state_content = update_state_content(state_content, next_task_str, today_str)
     write_file(state_path, state_content)
     print(f"✔ {state_path.name}: Next task -> {next_task_str} (Last updated: {today_str})")
 
