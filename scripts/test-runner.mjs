@@ -73,7 +73,10 @@ export const GROUPS = {
     'tests/integration/test_project_context.js'
   ],
   bundle: [
-    'tests/browser/browser_startup.test.js'
+    'tests/browser/browser_startup.test.js',
+    'tests/unit/test_vendor_loader.js',
+    'tests/browser/browser_vendor_loader.test.js',
+    'tests/infrastructure/test_vendor_build.js'
   ]
 };
 

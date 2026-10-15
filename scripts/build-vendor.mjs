@@ -15,6 +15,7 @@ import { VENDORS } from './vendor-manifest.mjs';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
+const VALID_ID = /^[a-z][a-z0-9-]*$/;
 const requireFromRoot = createRequire(path.join(ROOT_DIR, 'package.json'));
 
 function parseOutDir(argv) {
@@ -48,6 +49,13 @@ function entryContents(vendor) {
   return `export { ${vendor.exports.join(', ')} } from '${vendor.package}';`;
 }
 
+/** Misma convención que ChatVendorLoader: `js/vendor/<id>.browser.js` define `ZeroChat<Id>`. */
+function bundlePaths(vendor) {
+  if (!VALID_ID.test(vendor.id)) throw new Error(`Invalid vendor id "${vendor.id}"`);
+  const globalName = 'ZeroChat' + vendor.id.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+  return { outfile: `js/vendor/${vendor.id}.browser.js`, globalName };
+}
+
 function licenseOutfile(vendor) {
   return `licenses/${vendor.id.toUpperCase()}-LICENSE.md`;
 }
@@ -61,11 +69,12 @@ function noticesText(entries) {
     ''
   ];
   for (const { vendor, version } of entries) {
+    const { outfile, globalName } = bundlePaths(vendor);
     lines.push(
       `- \`${vendor.package}\` ${version} — ${vendor.license.copyright} — ${vendor.license.name}.`,
       `  Source: ${vendor.source}`,
       `  License: [${licenseOutfile(vendor)}](${licenseOutfile(vendor)})`,
-      `  Bundle: \`${vendor.outfile}\` (global \`${vendor.globalName}\`${vendor.onDemand ? ', loaded on demand' : ''})`
+      `  Bundle: \`${outfile}\` (global \`${globalName}\`${vendor.onDemand ? ', loaded on demand' : ''})`
     );
   }
   lines.push('', 'The dependencies are bundled without modification beyond minification and module-format conversion.', '');
@@ -73,13 +82,14 @@ function noticesText(entries) {
 }
 
 async function buildVendor(vendor, outDir) {
-  const outfile = path.join(outDir, vendor.outfile);
+  const { outfile: relativeOutfile, globalName } = bundlePaths(vendor);
+  const outfile = path.join(outDir, relativeOutfile);
   await build({
     stdin: { contents: entryContents(vendor), resolveDir: ROOT_DIR, loader: 'js' },
     outfile,
     bundle: true,
     format: 'iife',
-    globalName: vendor.globalName,
+    globalName,
     platform: 'browser',
     target: ['es2020'],
     minify: true,
@@ -99,7 +109,7 @@ async function main() {
   const entries = VENDORS.map(vendor => ({ vendor, version: resolvePinnedVersion(vendor, dependencies) }));
   for (const entry of entries) {
     const size = await buildVendor(entry.vendor, outDir);
-    console.log(`${entry.vendor.package}@${entry.version} -> ${entry.vendor.outfile} (${Math.round(size / 1024)} KiB)`);
+    console.log(`${entry.vendor.package}@${entry.version} -> ${bundlePaths(entry.vendor).outfile} (${Math.round(size / 1024)} KiB)`);
   }
   fs.writeFileSync(path.join(outDir, 'THIRD_PARTY_NOTICES.md'), noticesText(entries));
 }

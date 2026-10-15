@@ -137,6 +137,43 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
   );
 });
 
+test('Service Worker - una librería bajo demanda se guarda al primer uso y se sirve sin red', async () => {
+  const vm = require('node:vm');
+  const swCode = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf8');
+  const stored = new Map();
+  let online = true;
+  const listeners = {};
+  const context = {
+    self: { location: { origin: 'https://example.test' }, addEventListener: (type, fn) => { listeners[type] = fn; } },
+    URL,
+    caches: {
+      open: async () => ({
+        match: async req => stored.get(req.url) || undefined,
+        put: async (req, res) => { stored.set(req.url, res); }
+      })
+    },
+    fetch: async req => {
+      if (!online) throw new TypeError('Failed to fetch');
+      return { status: 200, type: 'basic', body: `bundle:${req.url}`, clone() { return this; } };
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(swCode, context);
+  assert.doesNotMatch(swCode, /'\.\/js\/vendor\/mammoth\.browser\.js'/);
+
+  const request = (url) => {
+    let responsePromise = null;
+    listeners.fetch({ request: { url, method: 'GET' }, respondWith: promise => { responsePromise = promise; } });
+    return responsePromise;
+  };
+  const url = 'https://example.test/zerochat/js/vendor/mammoth.browser.js';
+  assert.equal((await request(url)).body, `bundle:${url}`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(stored.has(url), 'La primera descarga debe quedar en caché');
+  online = false;
+  assert.equal((await request(url)).body, `bundle:${url}`, 'Sin red debe servirse desde la caché');
+});
+
 test('PWA Manifest - manifest.webmanifest es válido y define propiedades obligatorias', () => {
   const manifestPath = path.resolve(__dirname, '../../manifest.webmanifest');
   assert.ok(fs.existsSync(manifestPath), 'manifest.webmanifest debe existir');

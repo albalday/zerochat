@@ -25,6 +25,7 @@ const PRECACHE_ASSETS = [
   './css/print.css',
   './js/vendor/orama.browser.js',
   './js/utils.js',
+  './js/vendor-loader.js',
   './js/defaults.js',
   './js/i18n.js',
   './js/icons.js',
