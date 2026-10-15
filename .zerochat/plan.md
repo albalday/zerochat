@@ -30,6 +30,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T17 Auditoría 9.1.1-9.1.4: Grupo 2 (fáciles F-02, F-04, F-08, F-20 a F-23) (2026-10-15)
 - [x] M4-T18 Auditoría 9.1.1-9.1.4: Grupo 3 (moderadas F-05, F-06, F-09, F-11, F-12) (2026-10-15)
 - [x] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03) (2026-10-15)
+- [ ] M4-T20 Compare how images from RAG and web search are shown with Gemini (correct) and with local models (not shown), find the cause and fix it generically, without per-model changes
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
@@ -62,14 +63,19 @@ Done when: PDFs in attachments, RAG and download_pdf are read with vendored pdf.
 - [ ] M12-T2 Replace the own PDF parser with pdf.js in attachments, RAG and download_pdf, keeping {text, images} and page markers, and remove the orphan PDF code from file-parser.js
 - [ ] M12-T3 Compare text, image and page extraction with the current PDF tests and fixtures, and update tests and /help (ES/EN)
 
-## M13 Office document creation
-Goal: The model creates downloadable office documents and fills docx templates in the browser with vendored libraries.
-Done when: the model creates downloadable docx and xlsx files from a simple JSON spec and fills a docx template with data, with tests and /help updated.
-- [ ] M13-T1 Choose and vendor the write libraries (docx, the xlsx library chosen in M4-T6, a docx template library) with build:vendor and the on-demand loader
-- [ ] M13-T2 create_docx tool from a JSON block spec (headings, paragraphs, lists, tables, images) that returns a downloadable file in a tool card
-- [ ] M13-T3 create_xlsx tool from a JSON spec (sheets, rows, header style, column widths, formulas)
-- [ ] M13-T4 Fill a docx template from an attachment or the knowledge base with JSON data, keeping its format
-- [ ] M13-T5 Tests and /help (ES/EN) for document creation; leave pptx, pdf-lib and free editing of existing documents out of scope
+## M13 Document generation in the chat
+Goal: The model generates documents only as Markdown shown in the chat, whose capabilities grow with external code, ad hoc CSS and writing rules; what the chat shows can later be exported or opened in a separate tab on request.
+Done when: the model writes documents, and CSV data as Markdown tables, rendered in the chat with the agreed rules and styles, and a document shown in the chat can be exported or opened in a separate tab when asked, with tests and /help updated.
+- [x] M13-T1 Choose and vendor the write libraries (docx, the xlsx library chosen in M4-T6, a docx template library) with build:vendor and the on-demand loader (dropped: documents are Markdown in the chat, M13-D1)
+- [x] M13-T2 create_docx tool from a JSON block spec (headings, paragraphs, lists, tables, images) that returns a downloadable file in a tool card (dropped: documents are Markdown in the chat, M13-D1)
+- [x] M13-T3 create_xlsx tool from a JSON spec (sheets, rows, header style, column widths, formulas) (dropped: tabular data and CSV are Markdown tables, M13-D1)
+- [x] M13-T4 Fill a docx template from an attachment or the knowledge base with JSON data, keeping its format (dropped: documents are Markdown in the chat, M13-D1)
+- [x] M13-T5 Tests and /help (ES/EN) for document creation; leave pptx, pdf-lib and free editing of existing documents out of scope (dropped: replaced by M13-T10)
+- [ ] M13-T6 Agree with the user the writing rules for documents in the chat (allowed Markdown constructs, structure, length, when to use tables) and add them to the model instructions
+- [ ] M13-T7 Extend chat rendering where plain Markdown falls short, with vendored external code or ad hoc CSS that follows the design tokens
+- [ ] M13-T8 Generate CSV and tabular data as Markdown tables in the chat, with rules for wide or long tables
+- [ ] M13-T9 Agree with the user and implement the export of a document already shown in the chat, to a file or to a separate tab, only on request
+- [ ] M13-T10 Tests and /help (ES/EN) for document generation in the chat and its export
 
 ## M14 Project mode detection via task.py and legacy migration
 Goal: Detect project mode via .zerochat/task.py instead of .zerochat/state.md alone to cleanly trigger migration/initialization for legacy projects.
