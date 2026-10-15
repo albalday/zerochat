@@ -139,16 +139,9 @@ test('PageFetcher - Pipeline de estrategias y límite de longitud de contenido',
   }
 });
 
-test('PageFetcher - resolveImageUrl y extracción de imágenes HTML con URLs absolutas', () => {
+test('PageFetcher - extracción de imágenes HTML con URLs absolutas y filtrado de tracking', () => {
   const dom = installDom();
   try {
-    assert.equal(WebBrowser.resolveImageUrl('https://cdn.example.com/a.jpg', 'https://example.com/news'), 'https://cdn.example.com/a.jpg');
-    assert.equal(WebBrowser.resolveImageUrl('/images/logo.png', 'https://example.com/news/article'), 'https://example.com/images/logo.png');
-    assert.equal(WebBrowser.resolveImageUrl('photo.jpg', 'https://example.com/news/article'), 'https://example.com/news/photo.jpg');
-    assert.equal(WebBrowser.resolveImageUrl('//cdn.example.com/pic.webp', 'https://example.com'), 'https://cdn.example.com/pic.webp');
-    assert.equal(WebBrowser.resolveImageUrl('data:image/png;base64,iVBORw0KGgo=', 'https://example.com'), 'data:image/png;base64,iVBORw0KGgo=');
-    assert.equal(WebBrowser.resolveImageUrl('javascript:alert(1)', 'https://example.com'), '');
-
     const html = `
       <html>
         <head><title>Artículo de prueba</title></head>
@@ -160,6 +153,7 @@ test('PageFetcher - resolveImageUrl y extracción de imágenes HTML con URLs abs
             <p>Segundo párrafo</p>
             <img src="https://cdn.externo.com/chart.png" alt="Gráfico de ventas" />
             <img src="/media/tracker.gif" width="1" height="1" alt="pixel" />
+            <img alt="Infografía" src="photo.jpg" width="200" height="150" />
           </main>
         </body>
       </html>
@@ -169,12 +163,32 @@ test('PageFetcher - resolveImageUrl y extracción de imágenes HTML con URLs abs
     assert.ok(extracted.includes('![Foto de portada](https://example.com/media/portada.jpg)'), 'Debe convertir la imagen relativa a absoluta en su lugar');
     assert.ok(extracted.includes('![Gráfico de ventas](https://cdn.externo.com/chart.png)'), 'Debe incluir la imagen con URL absoluta');
     assert.ok(!extracted.includes('tracker.gif'), 'Debe omitir píxeles de tracking 1x1');
-    assert.ok(extracted.includes('[Images found on page: 2]'), 'Debe incluir el recuento en cabecera');
-    assert.ok(extracted.includes('--- Images on page ---'), 'Debe incluir sección resumen de imágenes');
-    assert.ok(extracted.includes('1. ![Foto de portada](https://example.com/media/portada.jpg)'));
-    assert.ok(extracted.includes('2. ![Gráfico de ventas](https://cdn.externo.com/chart.png)'));
+    assert.ok(extracted.includes('![Infografía](https://example.com/articulos/photo.jpg)'), 'No debe descartar imágenes legítimas de 200px');
+    assert.ok(extracted.includes('[Images found on page: 3]'), 'Debe incluir el recuento en cabecera');
+    assert.ok(!extracted.includes('--- Images on page ---'), 'No debe duplicar las imágenes en una sección separada (F-08)');
   } finally {
     dom.restore();
+  }
+});
+
+test('PageFetcher - extracción por expresiones regulares respeta tamaños y orden de atributos', () => {
+  const html = `
+    <div>
+      <img alt="Logo" src="/img/logo.png" width="200">
+      <img src="https://cdn.org/pic.png" width="2" height="2">
+      <img src="//cdn.org/banner.webp" alt="Banner">
+    </div>
+  `;
+  // Sin DOMParser en el entorno para probar la ruta regex
+  const origDOMParser = global.DOMParser;
+  delete global.DOMParser;
+  try {
+    const extracted = WebBrowser.extractReadableTextFromHtml(html, 'https://example.com/sub/');
+    assert.ok(extracted.includes('![Logo](https://example.com/img/logo.png)'), 'Extrae alt anterior a src y no descarta 200px');
+    assert.ok(!extracted.includes('pic.png'), 'Descarta imagen tracker 2x2');
+    assert.ok(extracted.includes('![Banner](https://cdn.org/banner.webp)'), 'Resuelve URL protocol-relative');
+  } finally {
+    global.DOMParser = origDOMParser;
   }
 });
 

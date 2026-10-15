@@ -214,15 +214,6 @@
         if (imagesFound.length > 0) headerInfo += `[Images found on page: ${imagesFound.length}]\n`;
         headerInfo += '\n--- Page content ---\n';
 
-        if (imagesFound.length > 0) {
-          let imagesList = '\n\n--- Images on page ---\n';
-          imagesFound.forEach((item, index) => {
-            const label = item.alt || `Image ${index + 1}`;
-            imagesList += `${index + 1}. ![${label}](${item.url})\n`;
-          });
-          text += imagesList;
-        }
-
         const fullOutput = headerInfo + text;
         if (fullOutput.length > MAX_CONTENT_LENGTH) {
           return fullOutput.slice(0, MAX_CONTENT_LENGTH) + '\n\n[... Content truncated due to length ...]';
@@ -235,15 +226,15 @@
     let cleanText = htmlString
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-      .replace(/<img\b[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*>/gi, (match, src, alt) => {
-        if (/\b(?:width|height)=["']?[0-2]["']?/i.test(match)) return ' ';
-        const resolved = resolveImageUrl(src, targetUrl);
-        return resolved ? `\n\n![${(alt || 'Image').trim()}](${resolved})\n\n` : ' ';
-      })
-      .replace(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
-        if (/\b(?:width|height)=["']?[0-2]["']?/i.test(match)) return ' ';
-        const resolved = resolveImageUrl(src, targetUrl);
-        return resolved ? `\n\n![Image](${resolved})\n\n` : ' ';
+      .replace(/<img\b([^>]*)>/gi, (match, attrs) => {
+        if (/\b(?:width|height)=["']?[0-2](?:px)?["']?(?:\s|>|$)/i.test(attrs)) return ' ';
+        const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
+        if (!srcMatch) return ' ';
+        const resolved = resolveImageUrl(srcMatch[1], targetUrl);
+        if (!resolved) return ' ';
+        const altMatch = attrs.match(/\b(?:alt|title)=["']([^"']*)["']/i);
+        const label = (altMatch ? altMatch[1] : '').trim() || 'Image';
+        return `\n\n![${label}](${resolved})\n\n`;
       })
       .replace(/<[^>]+>/g, ' ')
       .replace(/[ \t]+/g, ' ')
@@ -556,7 +547,6 @@
     fetchPage,
     validateUrlForFetch,
     extractReadableTextFromHtml,
-    resolveImageUrl,
     BaseFetchStrategy,
     ReaderGatewayStrategy,
     LocalDocumentStrategy,

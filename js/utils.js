@@ -104,11 +104,9 @@
 
       const blob = new Blob([viewerHtml], { type: 'text/html;charset=utf-8' });
       const blobUrl = URL.createObjectURL(blob);
-      const win = window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      if (win) {
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-        return;
-      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      return;
     } catch (_) { /* Fallback a apertura directa si Blob o createObjectURL fallan */ }
 
     try {

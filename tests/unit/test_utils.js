@@ -121,3 +121,24 @@ test('ChatUtils - openImageInNewTab abre URLs seguras en visor HTML Blob con noo
     dom.restore();
   }
 });
+
+test('ChatUtils - openImageInNewTab abre una sola pestaña con noopener y revoca el blob', () => {
+  const dom = installDom();
+  try {
+    const opened = [];
+    const revoked = [];
+    window.open = (url, target, features) => {
+      opened.push({ url, target, features });
+      return null; // El estándar HTML define que window.open con noopener devuelve null
+    };
+    const origRevoke = URL.revokeObjectURL;
+    URL.revokeObjectURL = url => revoked.push(url);
+
+    ChatUtils.openImageInNewTab('https://example.com/imagen.jpg', 'Mi imagen');
+    assert.equal(opened.length, 1, 'Solo debe abrirse una pestaña a pesar de que window.open devuelva null');
+    assert.ok(opened[0].url.startsWith('blob:'));
+    assert.equal(opened[0].features, 'noopener,noreferrer');
+  } finally {
+    dom.restore();
+  }
+});

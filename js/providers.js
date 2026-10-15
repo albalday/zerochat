@@ -614,6 +614,13 @@
     return { ...usage, prompt_tokens: promptTokens };
   }
 
+  function clampThinkingBudget(budget, maxTokens) {
+    if (maxTokens && budget >= maxTokens) {
+      return Math.floor(maxTokens / 2);
+    }
+    return budget;
+  }
+
   /**
    * Adaptador para Anthropic Claude (/v1/messages).
    */
@@ -811,9 +818,7 @@
       else if (effort === 'high') budget = 4096;
       else if (effort === 'xhigh') budget = 8192;
 
-      if (payload.max_tokens && budget >= payload.max_tokens) {
-        budget = Math.floor(payload.max_tokens / 2);
-      }
+      budget = clampThinkingBudget(budget, payload.max_tokens);
 
       payload.thinking = {
         type: 'enabled',
@@ -842,8 +847,8 @@
         if (payload.model) {
           this.effectiveMaxTokens.set(payload.model, limit);
         }
-        if (payload.thinking && payload.thinking.budget_tokens >= limit) {
-          payload.thinking.budget_tokens = Math.floor(limit / 2);
+        if (payload.thinking) {
+          payload.thinking.budget_tokens = clampThinkingBudget(payload.thinking.budget_tokens, limit);
         }
         return { retry: true, reason: 'max_tokens_rejected' };
       }

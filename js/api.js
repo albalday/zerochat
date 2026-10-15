@@ -142,6 +142,18 @@
     return adapter.cancelModelOperation(model);
   }
 
+  function streamResult({
+    accumulatedText = '',
+    accumulatedReasoning = '',
+    reasoningReplay = null,
+    stats = null,
+    toolCalls = null,
+    truncated = false,
+    recoveredReason = ''
+  } = {}) {
+    return { accumulatedText, accumulatedReasoning, reasoningReplay, stats, toolCalls, truncated, recoveredReason };
+  }
+
   /**
    * Orquestador común de streaming HTTP/SSE. Devuelve { accumulatedText, accumulatedReasoning,
    * reasoningReplay, stats, toolCalls, truncated, recoveredReason }, también al cancelar (con lo recibido hasta entonces); un
@@ -202,7 +214,7 @@
     }
 
     if (signal?.aborted) {
-      return { accumulatedText: '', accumulatedReasoning: '', reasoningReplay: null, stats: null, toolCalls: null, truncated: false, recoveredReason: '' };
+      return streamResult();
     }
 
     if (detectedType === 'mirror') {
@@ -218,7 +230,7 @@
         onLog({ type: 'raw', subtype: 'outgoing', text: `>>> MIRROR POST ${endpoint}\n${accumulatedText}` });
       }
       if (onChunk) onChunk(accumulatedText, accumulatedText, stats);
-      return { accumulatedText, accumulatedReasoning: '', reasoningReplay: null, stats, toolCalls: null, truncated: false, recoveredReason: '' };
+      return streamResult({ accumulatedText, stats });
     }
 
     if (onLog) {
@@ -364,7 +376,7 @@
     function buildResult() {
       // Las llamadas en texto se extraen antes porque recortan accumulatedText.
       const toolCalls = getFinalToolCalls();
-      return { accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated, recoveredReason };
+      return streamResult({ accumulatedText, accumulatedReasoning, reasoningReplay: getReasoningReplay(), stats: getStats(), toolCalls, truncated, recoveredReason });
     }
 
     try {

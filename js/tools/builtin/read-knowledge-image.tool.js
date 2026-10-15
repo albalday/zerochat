@@ -7,6 +7,7 @@
 
   const { escapeHtml, resolveDep } = Utils;
   const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
+  const SUCCESS_MODEL_PREFIX = 'Image retrieved:';
 
   function createLiveCard(args, ui) {
     const card = ui.createCardWrapper();
@@ -51,7 +52,7 @@
   function renderHistoricalCard(args, message, ui) {
     const card = createLiveCard(args, ui);
     const imgData = message?.images?.find(item => item?.dataUrl);
-    const success = Boolean(imgData) || (typeof message?.content === 'string' && message.content.startsWith('Image retrieved'));
+    const success = Boolean(imgData) || (typeof message?.content === 'string' && message.content.startsWith(SUCCESS_MODEL_PREFIX));
     const result = {
       success,
       imageRef: imgData?.imageRef || args.imageRef,
@@ -75,7 +76,7 @@
     execute: (args, context) => context.services.ragService.readKnowledgeImage(context.activeRagBranchIds, args),
     result: {
       toModel: (_args, result) => (result.success
-        ? `Image retrieved: ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, page ${result.page}` : ''})` : ''}. Inspect it visually to answer.`
+        ? `${SUCCESS_MODEL_PREFIX} ${result.imageRef}${result.documentTitle ? ` (${result.documentTitle}${result.page ? `, page ${result.page}` : ''})` : ''}. Inspect it visually to answer.`
         : JSON.stringify(result)),
       toMarkdown: (args, result) => (result.success
         ? `> **read_knowledge_image** (${result.imageRef})\n\n`
