@@ -113,7 +113,7 @@ test('los formatos binarios antiguos y los archivos dañados se rechazan con un 
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'charla.ppt'), /Save the file as \.pptx/);
   for (const name of ['roto.docx', 'roto.xlsx', 'roto.pptx', 'roto.odt']) {
     await assert.rejects(OfficeParser.parseOfficeDocument(new TextEncoder().encode('not a zip').buffer, name),
-      /file could not be read\. It may be damaged or password protected\./);
+      /could not be read\. It may be damaged or password protected\./);
   }
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'notas.txt'), /not a supported office document/);
 });

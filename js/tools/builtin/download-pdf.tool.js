@@ -10,13 +10,13 @@
   return {
     definition: {
       name: 'download_pdf',
-      description: 'Downloads a PDF file or document from a web URL and extracts all its readable text to analyze and include in the context (e.g. "https://arxiv.org/pdf/2310.06825.pdf").',
-      parameters: { type: 'object', properties: { url: { type: 'string', description: 'Direct URL of the PDF document to download and extract.' } }, required: ['url'] }
+      description: 'Downloads a PDF or office document (docx, xlsx, pptx, odt, ods, odp) from a web URL and extracts its readable text, tables and slides to analyze and include in the context (e.g. "https://arxiv.org/pdf/2310.06825.pdf").',
+      parameters: { type: 'object', properties: { url: { type: 'string', description: 'Direct URL of the PDF or office document to download and extract.' } }, required: ['url'] }
     },
     aliases: ['fetch_pdf', 'download_pdf_document', 'fetch_pdf_document', 'download_file', 'getpdf', 'readpdf'],
     category: 'web',
     settings: { titleKey: 'agent_pdf_title', descKey: 'agent_pdf_desc' },
-    promptGuide: '- `download_pdf(url="...")`: Downloads a PDF file from a URL and extracts its readable text into the prompt context.',
+    promptGuide: '- `download_pdf(url="...")`: Downloads a PDF or office document (docx, xlsx, pptx, odt, ods, odp) from a URL and extracts its readable text into the prompt context.',
     execute: (args, context) => context.services.webBrowser.fetchPage(Cards.getUrlArg(args)),
     result: {
       toModel: (_args, result) => JSON.stringify(result),

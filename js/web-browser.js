@@ -44,6 +44,9 @@
   function getFileParser() {
     return resolveDep('ChatFileParser', './file-parser.js');
   }
+  function getOfficeParser() {
+    return resolveDep('ChatOfficeParser', './office-parser.js');
+  }
 
   const { fetchWithTimeout, resolveDep } = Utils;
 
@@ -254,6 +257,27 @@
     return cleanText.slice(0, MAX_CONTENT_LENGTH);
   }
 
+  function documentFileName(url) {
+    try {
+      return decodeURIComponent(new URL(url).pathname.split('/').pop() || '');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /** Texto de contexto de un PDF o documento ofimático descargado; las imágenes quedan como marcadores. */
+  async function describeDownloadedDocument(arrayBuffer, url, contentType = '') {
+    const fileName = documentFileName(url);
+    const header = kind => `[${kind}: ${fileName || 'document'}]\n[URL: ${url}]\n[Size: ${Utils.formatBytes(arrayBuffer.byteLength)}]\n\n`;
+    const OfficeParser = getOfficeParser();
+    if (!/\.pdf$/i.test(fileName) && !contentType.includes('application/pdf') && OfficeParser.getOfficeFormat(fileName, contentType)) {
+      const { format, text } = await OfficeParser.parseOfficeDocument(arrayBuffer, fileName, contentType);
+      return `${header(OfficeParser.getOfficeDocumentKind(format))}--- Content extracted from the document ---\n\n${OfficeParser.replaceImageReferences(text)}`;
+    }
+    const extractedText = await getFileParser().extractTextFromPdf(arrayBuffer);
+    return `${header('PDF document')}--- Content extracted from the PDF ---\n\n${extractedText}`;
+  }
+
   /**
    * Interfaz Base para estrategias de extracción de contenido (FetchStrategy).
    */
@@ -281,8 +305,8 @@
     }
 
     async canHandle(url, context = {}) {
-      // No aplicar gateway a hosts locales
-      return !context.isLocalUrl;
+      // No aplicar gateway a hosts locales ni a documentos ofimáticos, que se leen en el navegador.
+      return !context.isLocalUrl && !context.isOfficeUrl;
     }
 
     async fetch(url, context = {}) {
@@ -312,44 +336,34 @@
   }
 
   /**
-   * Estrategia de descarga y extracción de documentos PDF locales/remotos.
+   * Estrategia de descarga y extracción local de documentos PDF y ofimáticos.
    */
-  class LocalPdfStrategy extends BaseFetchStrategy {
+  class LocalDocumentStrategy extends BaseFetchStrategy {
     constructor(options = {}) {
-      super({ name: 'LocalPdfExtractor', timeoutMs: 10000, ...options });
+      super({ name: 'LocalDocumentExtractor', timeoutMs: 10000, ...options });
     }
 
     async canHandle(url, context = {}) {
-      return context.isPdfUrl || false;
+      return Boolean(context.isPdfUrl || context.isOfficeUrl);
     }
 
     async fetch(url, context = {}) {
-      const FileParser = getFileParser();
-      if (!FileParser || !FileParser.extractTextFromPdf) {
-        throw new Error('ChatFileParser is not available to process PDFs.');
-      }
-
       const res = await fetchWithTimeout(url, {
-        headers: { 'Accept': 'application/pdf,*/*' }
+        headers: { 'Accept': context.isPdfUrl ? 'application/pdf,*/*' : '*/*' }
       }, this.timeoutMs);
 
       if (!res.ok) {
-        throw new Error(`Error descargando PDF (HTTP ${res.status})`);
+        throw new Error(`Error downloading the document (HTTP ${res.status})`);
       }
 
       const arrayBuffer = await res.arrayBuffer();
-      const extractedText = await FileParser.extractTextFromPdf(arrayBuffer);
-      const fileName = url.split('/').pop().split('?')[0] || 'documento.pdf';
-      const sizeStr = Utils.formatBytes(arrayBuffer.byteLength);
-
-      const content = `[PDF document: ${fileName}]\n[URL: ${url}]\n[Size: ${sizeStr}]\n\n--- Content extracted from the PDF ---\n\n${extractedText}`;
-
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
       return {
         success: true,
-        content: content,
+        content: await describeDownloadedDocument(arrayBuffer, url, contentType),
         byteSize: arrayBuffer.byteLength,
         status: 200,
-        isPdf: true,
+        isPdf: Boolean(context.isPdfUrl),
         strategy: this.name
       };
     }
@@ -364,7 +378,8 @@
     }
 
     async canHandle(url, context = {}) {
-      return !context.isLocalUrl;
+      // El proxy devuelve texto: no sirve para documentos binarios ofimáticos.
+      return !context.isLocalUrl && !context.isOfficeUrl;
     }
 
     async fetch(url, context = {}) {
@@ -405,23 +420,21 @@
     }
 
     async fetch(url, context = {}) {
-      const FileParser = getFileParser();
       const res = await fetchWithTimeout(url, {
         headers: { 'Accept': 'text/html,application/xhtml+xml,application/json,application/pdf,text/plain;q=0.9,*/*;q=0.8' }
       }, this.timeoutMs);
 
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
       const isPdf = context.isPdfUrl || contentType.includes('application/pdf');
+      const isDocument = isPdf || context.isOfficeUrl || Boolean(getOfficeParser().getOfficeFormat('', contentType));
 
       let content = '';
       let byteSize = 0;
 
-      if (isPdf && FileParser && FileParser.extractTextFromPdf) {
+      if (isDocument && res.ok) {
         const arrayBuffer = await res.arrayBuffer();
         byteSize = arrayBuffer.byteLength;
-        const extractedText = await FileParser.extractTextFromPdf(arrayBuffer);
-        const fileName = url.split('/').pop().split('?')[0] || 'documento.pdf';
-        content = `[PDF document: ${fileName}]\n[URL: ${url}]\n\n--- Content extracted from the PDF ---\n\n${extractedText}`;
+        content = await describeDownloadedDocument(arrayBuffer, url, contentType);
       } else {
         const rawText = await res.text();
         byteSize = rawText.length;
@@ -451,7 +464,7 @@
     constructor() {
       this.strategies = [
         new ReaderGatewayStrategy(),
-        new LocalPdfStrategy(),
+        new LocalDocumentStrategy(),
         new DirectFetchStrategy(),
         new CorsProxyStrategy()
       ];
@@ -476,10 +489,12 @@
       const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const isLocalUrl = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|0\.0\.0\.0)/i.test(validation.hostname);
       const isPdfUrl = /\.pdf(\?|#|$)/i.test(url);
+      const isOfficeUrl = Boolean(getOfficeParser().getOfficeFormat(documentFileName(url)));
 
       const context = {
         isLocalUrl,
         isPdfUrl,
+        isOfficeUrl,
         hostname: validation.hostname,
         ...options
       };
@@ -535,7 +550,7 @@
   const pipeline = new PageFetcherPipeline();
 
   /**
-   * Consulta una página web o descarga un documento PDF y devuelve el contenido legible.
+   * Consulta una página web o descarga un documento PDF u ofimático y devuelve el contenido legible.
    */
   async function fetchPage(rawUrl, options = {}) {
     return pipeline.fetch(rawUrl, options);
@@ -548,7 +563,7 @@
     resolveImageUrl,
     BaseFetchStrategy,
     ReaderGatewayStrategy,
-    LocalPdfStrategy,
+    LocalDocumentStrategy,
     DirectFetchStrategy,
     CorsProxyStrategy,
     PageFetcherPipeline,

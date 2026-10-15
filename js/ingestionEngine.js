@@ -16,6 +16,9 @@
   function getFileParser() {
     return resolveDep('ChatFileParser', './file-parser.js');
   }
+  function getOfficeParser() {
+    return resolveDep('ChatOfficeParser', './office-parser.js');
+  }
 
   function normalizeExtractedText(rawText) {
     if (!rawText) return '';
@@ -83,6 +86,11 @@
   }
 
   async function extractDocumentContent(file, fileType) {
+    // Los documentos ofimáticos son paquetes ZIP: se leen antes de rechazar archivos comprimidos.
+    if (getOfficeParser().getOfficeFormat(file.name, file.type) === fileType) {
+      const parsed = await getOfficeParser().parseOfficeDocument(await file.arrayBuffer(), file.name, file.type);
+      return { text: normalizeExtractedText(parsed.text), images: parsed.images };
+    }
     const archiveFormat = await getArchiveFormat(file);
     if (archiveFormat && archiveFormat !== 'gzip') throw new Error(unsupportedArchiveMessage(archiveFormat));
     if (archiveFormat === 'gzip') {
@@ -142,7 +150,7 @@
   }
 
   function findPageRange(content) {
-    const pages = Array.from(String(content).matchAll(/---\s*Page\s+(\d+)\s*---/gi), match => Number(match[1]));
+    const pages = Array.from(String(content).matchAll(/---\s*(?:Page|Slide)\s+(\d+)\s*---/gi), match => Number(match[1]));
     return pages.length ? { pageStart: Math.min(...pages), pageEnd: Math.max(...pages) } : { pageStart: null, pageEnd: null };
   }
 
@@ -187,6 +195,8 @@
   function detectFileType(file) {
     const name = file.name.toLowerCase();
     if (name.endsWith('.pdf') || file.type === 'application/pdf') return 'pdf';
+    const officeFormat = getOfficeParser().getOfficeFormat(file.name, file.type);
+    if (officeFormat) return officeFormat;
     if (name.endsWith('.md') || name.endsWith('.markdown') || file.type === 'text/markdown') return 'md';
     if (/^(?:image|audio|video)\//i.test(file.type)) return null;
     return 'txt';

@@ -16,7 +16,12 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { formatBytes, bytesToBase64 } = Utils;
+  const { formatBytes, bytesToBase64, resolveDep } = Utils;
+
+  // Imágenes de un documento ofimático que se envían al modelo junto al texto (si admite visión).
+  const MAX_OFFICE_ATTACHMENT_IMAGES = 4;
+
+  const getOfficeParser = () => resolveDep('ChatOfficeParser', './office-parser.js');
 
   function isPdfDelimiterOrWs(charCode) {
     return charCode <= 32 || charCode === 40 || charCode === 41 || charCode === 60 || 
@@ -1233,9 +1238,25 @@
   }
 
   /**
-   * Lee y procesa cualquier tipo de archivo (PDF, texto, código, imagen).
+   * Lee y procesa cualquier tipo de archivo (PDF, documento ofimático, texto, código, imagen).
    */
   async function parseFile(file) {
+    const OfficeParser = getOfficeParser();
+    if (OfficeParser.getOfficeFormat(file.name, file.type)) {
+      const { format, text, images } = await OfficeParser.parseOfficeDocument(await file.arrayBuffer(), file.name, file.type);
+      const attached = images.slice(0, MAX_OFFICE_ATTACHMENT_IMAGES);
+      return {
+        name: file.name,
+        size: file.size,
+        type: 'office',
+        format,
+        documentKind: OfficeParser.getOfficeDocumentKind(format),
+        content: OfficeParser.replaceImageReferences(text, attached.length),
+        images: attached.map(image => ({ name: `${file.name}: ${image.label}`, dataUrl: image.dataUrl, mimeType: image.mimeType })),
+        preview: `${file.name} (${formatBytes(file.size)})`
+      };
+    }
+
     const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
     const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name);
 

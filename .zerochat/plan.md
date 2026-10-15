@@ -18,7 +18,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T5 On-demand vendor loader: classic script injection loaded once, outside PRECACHE_ASSETS (the SW caches it on first use), working on file:// and in Node tests, with a clear error when offline and not yet cached (2026-10-15)
 - [x] M4-T6 Choose and vendor the office libraries: mammoth (docx), SheetJS CE or ExcelJS (xlsx/ods, weighing the future write phase) and fflate (pptx/ODF ZIP); record versions, sizes and reasons (2026-10-15)
 - [x] M4-T7 Office parser module (js/office-parser.js) returning {text, images} as Markdown with rag-image references: docx via mammoth, sheets as tables with a row cap, pptx/odt/odp via fflate with slide/page markers; EMF/WMF and external images become placeholders (2026-10-15)
-- [ ] M4-T8 Wire office files into attachments (accept list, type, header, icon, capped images for vision models), RAG ingestion (detected before the ZIP rejection) and web document tools; clear error for legacy .doc/.xls/.ppt, macros ignored
+- [x] M4-T8 Wire office files into attachments (accept list, type, header, icon, capped images for vision models), RAG ingestion (detected before the ZIP rejection) and web document tools; clear error for legacy .doc/.xls/.ppt, macros ignored (2026-10-15)
 - [ ] M4-T9 Office fixtures from several producers (Word, LibreOffice, Google Docs) with unit, integration and browser tests for parsing, attachments and RAG
 - [x] M4-T10 Replace the own PDF parser with vendored pdf.js (dropped: moved to milestone M12)
 - [ ] M4-T11 Update /help (ES/EN): supported formats, first-use download and offline behaviour, third-party libraries

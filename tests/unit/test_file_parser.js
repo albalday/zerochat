@@ -109,3 +109,27 @@ test('FileParser - descifra texto y CMaps en PDFs con seguridad estándar RC4 si
 });
 
 
+
+test('FileParser.parseFile - un documento ofimático se adjunta como Markdown con sus imágenes para modelos con visión', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { installDom } = require('../helpers/dom-env.js');
+  const dom = installDom();
+  try {
+    const bytes = fs.readFileSync(path.resolve(__dirname, '../fixtures/office/pandoc.docx'));
+    const parsed = await FileParser.parseFile(new File([bytes], 'informe.docx', { type: '' }));
+    assert.equal(parsed.type, 'office');
+    assert.equal(parsed.format, 'docx');
+    assert.equal(parsed.documentKind, 'Word document');
+    assert.match(parsed.content, /^# Informe trimestral$/m);
+    assert.match(parsed.content, /\[Image: Logo rojo \(attached image 1\)\]/);
+    assert.doesNotMatch(parsed.content, /rag-image:/);
+    assert.deepEqual(parsed.images.map(image => [image.name, image.mimeType]), [['informe.docx: Logo rojo', 'image/png']]);
+    assert.match(parsed.images[0].dataUrl, /^data:image\/png;base64,/);
+
+    await assert.rejects(FileParser.parseFile(new File([new Uint8Array([0xD0, 0xCF, 0x11, 0xE0])], 'acta.doc')),
+      /Word 97-2003 files \(\.doc\) are not supported/);
+  } finally {
+    dom.restore();
+  }
+});

@@ -81,3 +81,20 @@ test('ChatAttachments - renderChips escapa caracteres peligrosos y comillas en n
     ChatAttachments.clearFiles();
   }
 });
+
+test('ChatAttachments - un documento ofimático aporta su cabecera, su Markdown y sus imágenes', () => {
+  ChatAttachments.clearFiles();
+  try {
+    ChatAttachments.addFile({
+      name: 'ventas.xlsx', size: 2048, type: 'office', format: 'xlsx', documentKind: 'Excel spreadsheet',
+      content: '## Sheet: Ventas\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n[Image: Image 1 (attached image 1)]',
+      images: [{ name: 'ventas.xlsx: Image 1', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }]
+    });
+    const payload = ChatAttachments.buildAttachmentsPayload('Resume');
+    assert.ok(payload.fullPrompt.includes('--- Excel spreadsheet: ventas.xlsx (2 KB) ---\n```markdown\n## Sheet: Ventas'));
+    assert.deepEqual(payload.imageAttachments, [{ name: 'ventas.xlsx: Image 1', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }]);
+    assert.ok(payload.displayText.endsWith('[📄 ventas.xlsx]'));
+  } finally {
+    ChatAttachments.clearFiles();
+  }
+});

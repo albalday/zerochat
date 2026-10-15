@@ -49,6 +49,7 @@ const PRECACHE_ASSETS = [
   './js/providers.js',
   './js/providers-webllm.js',
   './js/api.js',
+  './js/office-parser.js',
   './js/file-parser.js',
   './js/tool-cards.js',
   './js/tools/builtin/execute-javascript.tool.js',

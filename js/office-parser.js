@@ -27,8 +27,22 @@
     odt: 'odt', ods: 'ods', odp: 'odp',
     doc: 'doc', xls: 'xls', ppt: 'ppt'
   };
-  const FORMAT_NAMES = {
-    docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint',
+  const FORMATS_BY_MIME_TYPE = {
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-word.document.macroenabled.12': 'docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-excel.sheet.macroenabled.12': 'xlsx',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/vnd.ms-powerpoint.presentation.macroenabled.12': 'pptx',
+    'application/vnd.oasis.opendocument.text': 'odt',
+    'application/vnd.oasis.opendocument.spreadsheet': 'ods',
+    'application/vnd.oasis.opendocument.presentation': 'odp',
+    'application/msword': 'doc',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.ms-powerpoint': 'ppt'
+  };
+  const DOCUMENT_KINDS = {
+    docx: 'Word document', xlsx: 'Excel spreadsheet', pptx: 'PowerPoint presentation',
     odt: 'OpenDocument text', ods: 'OpenDocument spreadsheet', odp: 'OpenDocument presentation'
   };
   const LEGACY_FORMATS = {
@@ -44,10 +58,30 @@
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_XML_BYTES = 50 * 1024 * 1024;
 
-  /** Formato ofimático por extensión (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp` o los antiguos `doc`, `xls`, `ppt`), o ''. */
-  function getOfficeFormat(fileName) {
+  /**
+   * Formato ofimático (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp` o los antiguos `doc`, `xls`, `ppt`)
+   * por extensión o, si no la hay, por tipo MIME; '' si no es un documento ofimático.
+   */
+  function getOfficeFormat(fileName, mimeType = '') {
     const match = String(fileName || '').toLowerCase().match(/\.([a-z]+)$/);
-    return (match && FORMATS_BY_EXTENSION[match[1]]) || '';
+    return (match && FORMATS_BY_EXTENSION[match[1]])
+      || FORMATS_BY_MIME_TYPE[String(mimeType || '').toLowerCase().split(';')[0].trim()]
+      || '';
+  }
+
+  /** Nombre legible del tipo de documento para cabeceras de contexto («Word document»…). */
+  function getOfficeDocumentKind(format) {
+    return DOCUMENT_KINDS[format] || 'Office document';
+  }
+
+  /**
+   * Sustituye las referencias `rag-image://__DOC_ID__:img_N` por texto donde no hay base de conocimiento
+   * (adjuntos y herramientas web). Las `attachedCount` primeras se indican como imágenes adjuntas.
+   */
+  function replaceImageReferences(text, attachedCount = 0) {
+    return String(text || '').replace(/!\[([^\]]*)\]\(rag-image:\/\/__DOC_ID__:img_(\d+)\)/g, (match, label, number) => (
+      Number(number) <= attachedCount ? `[Image: ${label} (attached image ${number})]` : `[Image: ${label}]`
+    ));
   }
 
   // --- Imágenes -------------------------------------------------------------
@@ -631,11 +665,11 @@
   };
 
   /**
-   * Extrae `{ text, images }` de un documento ofimático según la extensión de `fileName`.
+   * Extrae `{ format, text, images }` de un documento ofimático según la extensión de `fileName` o su tipo MIME.
    * Los formatos binarios antiguos (.doc, .xls, .ppt) se rechazan con un mensaje claro.
    */
-  async function parseOfficeDocument(arrayBuffer, fileName) {
-    const format = getOfficeFormat(fileName);
+  async function parseOfficeDocument(arrayBuffer, fileName, mimeType = '') {
+    const format = getOfficeFormat(fileName, mimeType);
     const legacy = LEGACY_FORMATS[format];
     if (legacy) {
       throw new Error(`${legacy.name} files (.${format}) are not supported. Save the file as .${legacy.modern} and try again.`);
@@ -647,10 +681,10 @@
       result = await parse(arrayBuffer);
     } catch (error) {
       if (error?.code === 'VENDOR_UNAVAILABLE') throw error;
-      throw new Error(`The ${FORMAT_NAMES[format]} file could not be read. It may be damaged or password protected.`, { cause: error });
+      throw new Error(`The ${getOfficeDocumentKind(format)} could not be read. It may be damaged or password protected.`, { cause: error });
     }
-    return { text: result.text || '[The document contains no readable text.]', images: result.images };
+    return { format, text: result.text || '[The document contains no readable text.]', images: result.images };
   }
 
-  return { getOfficeFormat, parseOfficeDocument };
+  return { getOfficeFormat, getOfficeDocumentKind, replaceImageReferences, parseOfficeDocument };
 });

@@ -93,7 +93,7 @@
     if (!String(data.branchId || '').trim()) throw new ValidationError('The document requires a branch.');
     if (!String(data.title || '').trim()) throw new ValidationError('The document title is required.');
     const fileType = String(data.fileType || 'txt').toLowerCase();
-    if (!['pdf', 'txt', 'md'].includes(fileType)) throw new ValidationError(`Unsupported file type: ${fileType}.`);
+    if (!['pdf', 'txt', 'md', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp'].includes(fileType)) throw new ValidationError(`Unsupported file type: ${fileType}.`);
     const now = Date.now();
     const document = {
       id: String(data.id || createId('doc')),

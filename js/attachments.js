@@ -1,6 +1,6 @@
 /**
  * Módulo de Gestión de Adjuntos (ChatAttachments) para ZeroChat.
- * Gestiona la lista de archivos adjuntos (texto, código, imágenes, PDF),
+ * Gestiona la lista de archivos adjuntos (texto, código, imágenes, PDF, documentos ofimáticos),
  * su renderizado visual en chips y el ensamblado del prompt enriquecido con adjuntos.
  */
 (function (root, factory) {
@@ -100,15 +100,16 @@
     let imageAttachments = [];
 
     if (effectiveFiles.length > 0) {
-      imageAttachments = effectiveFiles.filter(f => f.type === 'image' && f.dataUrl).map(f => ({
-        name: f.name,
-        dataUrl: f.dataUrl,
-        mimeType: f.mimeType || 'image/jpeg'
-      }));
+      imageAttachments = effectiveFiles.flatMap(f => {
+        if (f.type === 'office') return f.images || [];
+        return f.type === 'image' && f.dataUrl ? [{ name: f.name, dataUrl: f.dataUrl, mimeType: f.mimeType || 'image/jpeg' }] : [];
+      });
 
       const attachmentsText = effectiveFiles.map(file => {
         if (file.type === 'pdf') {
           return `\n\n--- PDF Document: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`text\n${file.content}\n\`\`\``;
+        } else if (file.type === 'office') {
+          return `\n\n--- ${file.documentKind}: ${file.name} (${Utils.formatBytes(file.size)}) ---\n\`\`\`markdown\n${file.content}\n\`\`\``;
         } else if (file.type === 'image') {
           return `\n\n--- Image: ${file.name} (${Utils.formatBytes(file.size)}) ---`;
         }
@@ -118,7 +119,7 @@
       fullPrompt = rawText ? `${rawText}\n${attachmentsText}` : `Attached files for analysis:${attachmentsText}`;
 
       const fileNamesList = effectiveFiles.map(f => {
-        const icon = f.type === 'pdf' ? '📕' : f.type === 'image' ? '🖼️' : '📎';
+        const icon = f.type === 'pdf' ? '📕' : f.type === 'office' ? '📄' : f.type === 'image' ? '🖼️' : '📎';
         return `${icon} ${f.name}`;
       }).join(', ');
 
