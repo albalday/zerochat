@@ -25,3 +25,6 @@
 - 2026-10-15 M6-D1 Normalize common LaTeX symbols to Unicode in ChatMarkdown instead of heavy KaTeX bundle (M6-T1)
 - 2026-10-15 M6-D2 Normalize LaTeX math macros and math delimiters to Unicode in ChatMarkdown outside code blocks, preserving currencies (M6-T2)
 - 2026-10-15 M6-D3 Adopt Proposal B for DEFAULT_SYSTEM_DATA_PROMPT with explicit Unicode symbols and prohibited LaTeX macros, and update /help/ (M6-T3)
+- 2026-10-15 M8-D1 Adopt .zerochat/task.py for atomic project memory management (M8-T1)
+- 2026-10-15 M8-D2 Simplify state.md and update AGENTS.md rules to combine A, B, and C (M8-T2)
+- 2026-10-15 M8-D3 Export TASK_SCRIPT_TEMPLATE and verify parity with .zerochat/task.py in bootstrap tests (M8-T3)

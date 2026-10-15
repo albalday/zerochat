@@ -1,5 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const ProjectContext = require('../../js/project-context.js');
 
 test('ProjectContext.computeStatus - resuelve cada estado según configuración, servidor y lectura', () => {
@@ -74,9 +76,11 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   assert.match(prompt, /leave no <placeholders>; if the user has no milestone yet, use "M1 Project setup"/);
   assert.match(prompt, /If there are any, end the memory section with: "Other agent instruction files/);
   assert.doesNotMatch(prompt, /gitignore/, 'No pregunta ni decide si .zerochat se versiona');
-  for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE']) {
+  for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE', 'TASK_SCRIPT_TEMPLATE']) {
     assert.ok(prompt.includes(ProjectContext[template]), template);
   }
+  const taskPyOnDisk = fs.readFileSync(path.resolve(__dirname, '../../.zerochat/task.py'), 'utf-8');
+  assert.equal(ProjectContext.TASK_SCRIPT_TEMPLATE.trim(), taskPyOnDisk.trim(), 'TASK_SCRIPT_TEMPLATE coincide con .zerochat/task.py');
 });
 
 test('ProjectContext - la sección de memoria define tareas numeradas, edición por línea y archivado', () => {

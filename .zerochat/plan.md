@@ -30,3 +30,5 @@ Done when: The approach for temporary tests (governance in AGENTS.md vs. code/se
 - [ ] M7-T2 Support /tmp in ChatToolSecurity workspace_trust and command/file path handling
 - [ ] M7-T3 Update agent tool instructions and prompts for temporary script execution and cleanup
 
+## M8 Project memory automation and acceleration: closed 2026-10-15
+
