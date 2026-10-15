@@ -18,45 +18,80 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, VendorLoader) {
   'use strict';
 
-  const { bytesToBase64 } = Utils;
+  const { bytesToBase64, IMAGE_MIME_TYPES } = Utils;
 
-  const FORMATS_BY_EXTENSION = {
-    docx: 'docx', docm: 'docx',
-    xlsx: 'xlsx', xlsm: 'xlsx',
-    pptx: 'pptx', pptm: 'pptx',
-    odt: 'odt', ods: 'ods', odp: 'odp',
-    doc: 'doc', xls: 'xls', ppt: 'ppt'
+  const OFFICE_FORMATS = {
+    docx: {
+      extensions: ['docx', 'docm'],
+      mimeTypes: [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-word.document.macroenabled.12'
+      ],
+      kind: 'Word document'
+    },
+    xlsx: {
+      extensions: ['xlsx', 'xlsm'],
+      mimeTypes: [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel.sheet.macroenabled.12'
+      ],
+      kind: 'Excel spreadsheet'
+    },
+    pptx: {
+      extensions: ['pptx', 'pptm'],
+      mimeTypes: [
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12'
+      ],
+      kind: 'PowerPoint presentation'
+    },
+    odt: {
+      extensions: ['odt'],
+      mimeTypes: ['application/vnd.oasis.opendocument.text'],
+      kind: 'OpenDocument text'
+    },
+    ods: {
+      extensions: ['ods'],
+      mimeTypes: ['application/vnd.oasis.opendocument.spreadsheet'],
+      kind: 'OpenDocument spreadsheet'
+    },
+    odp: {
+      extensions: ['odp'],
+      mimeTypes: ['application/vnd.oasis.opendocument.presentation'],
+      kind: 'OpenDocument presentation'
+    },
+    doc: {
+      extensions: ['doc'],
+      mimeTypes: ['application/msword'],
+      legacy: { name: 'Word 97-2003', modern: 'docx' }
+    },
+    xls: {
+      extensions: ['xls'],
+      mimeTypes: ['application/vnd.ms-excel'],
+      legacy: { name: 'Excel 97-2003', modern: 'xlsx' }
+    },
+    ppt: {
+      extensions: ['ppt'],
+      mimeTypes: ['application/vnd.ms-powerpoint'],
+      legacy: { name: 'PowerPoint 97-2003', modern: 'pptx' }
+    }
   };
-  const FORMATS_BY_MIME_TYPE = {
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-    'application/vnd.ms-word.document.macroenabled.12': 'docx',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-    'application/vnd.ms-excel.sheet.macroenabled.12': 'xlsx',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-    'application/vnd.ms-powerpoint.presentation.macroenabled.12': 'pptx',
-    'application/vnd.oasis.opendocument.text': 'odt',
-    'application/vnd.oasis.opendocument.spreadsheet': 'ods',
-    'application/vnd.oasis.opendocument.presentation': 'odp',
-    'application/msword': 'doc',
-    'application/vnd.ms-excel': 'xls',
-    'application/vnd.ms-powerpoint': 'ppt'
-  };
-  const DOCUMENT_KINDS = {
-    docx: 'Word document', xlsx: 'Excel spreadsheet', pptx: 'PowerPoint presentation',
-    odt: 'OpenDocument text', ods: 'OpenDocument spreadsheet', odp: 'OpenDocument presentation'
-  };
-  const LEGACY_FORMATS = {
-    doc: { name: 'Word 97-2003', modern: 'docx' },
-    xls: { name: 'Excel 97-2003', modern: 'xlsx' },
-    ppt: { name: 'PowerPoint 97-2003', modern: 'pptx' }
-  };
-  // Mismos tipos que admite ChatUtils.sanitizeImageUrl para poder mostrarse en el chat.
-  const IMAGE_MIME_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+
+  const FORMATS_BY_EXTENSION = {};
+  const FORMATS_BY_MIME_TYPE = {};
+  for (const [format, def] of Object.entries(OFFICE_FORMATS)) {
+    for (const ext of def.extensions) FORMATS_BY_EXTENSION[ext] = format;
+    for (const mime of def.mimeTypes) FORMATS_BY_MIME_TYPE[mime] = format;
+  }
+
   const MAX_SHEET_ROWS = 500;
   const MAX_SHEET_COLUMNS = 50;
   const MAX_IMAGES = 40;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_XML_BYTES = 50 * 1024 * 1024;
+
+  const omittedImage = label => `[Image omitted: ${label}]`;
+  const externalImage = label => `[Image not shown: ${label} (linked external image)]`;
 
   /**
    * Formato ofimático (`docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp` o los antiguos `doc`, `xls`, `ppt`)
@@ -71,7 +106,7 @@
 
   /** Nombre legible del tipo de documento para cabeceras de contexto («Word document»…). */
   function getOfficeDocumentKind(format) {
-    return DOCUMENT_KINDS[format] || 'Office document';
+    return OFFICE_FORMATS[format]?.kind || 'Office document';
   }
 
   /**
@@ -90,16 +125,16 @@
     const images = [];
     return {
       images,
-      /** Registra una imagen y devuelve su Markdown, o un marcador de texto si no puede mostrarse. */
+      /** Registra una imagen y devuelve `{ id, markdown }`, o marcador de texto si no puede mostrarse. */
       add({ bytes = null, base64 = '', extension = '', page = 1, label }) {
         const ext = String(extension).toLowerCase().replace(/^x-/, '').replace(/\+xml$/, '');
         const mimeType = IMAGE_MIME_TYPES[ext];
-        if (!mimeType) return `[Image not shown: ${label} (${(ext || 'unknown').toUpperCase()} format is not supported)]`;
+        if (!mimeType) return { id: null, markdown: `[Image not shown: ${label} (${(ext || 'unknown').toUpperCase()} format is not supported)]` };
         const sizeBytes = bytes ? bytes.length : Math.floor(base64.length * 3 / 4);
-        if (images.length >= MAX_IMAGES || sizeBytes > MAX_IMAGE_BYTES) return `[Image omitted: ${label}]`;
+        if (images.length >= MAX_IMAGES || sizeBytes > MAX_IMAGE_BYTES) return { id: null, markdown: omittedImage(label) };
         const id = `img_${images.length + 1}`;
         images.push({ id, page, width: 0, height: 0, sizeBytes, mimeType, dataUrl: `data:${mimeType};base64,${base64 || bytesToBase64(bytes)}`, label });
-        return `![${label}](rag-image://__DOC_ID__:${id})`;
+        return { id, markdown: `![${label}](rag-image://__DOC_ID__:${id})` };
       }
     };
   }
@@ -133,6 +168,12 @@
 
   function joinBlocks(blocks) {
     return blocks.filter(block => block && block.trim()).join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function section(marker, blocks) {
+    const content = joinBlocks(blocks);
+    if (!marker) return content;
+    return content ? `${marker}\n${content}` : marker;
   }
 
   // --- XML ------------------------------------------------------------------
@@ -221,8 +262,8 @@
 
   function packageImage(pkg, collector, path, page, label) {
     const bytes = pkg.bytes(path);
-    if (!bytes) return `[Image omitted: ${label}]`;
-    return collector.add({ bytes, extension: extensionOf(path), page, label });
+    if (!bytes) return omittedImage(label);
+    return collector.add({ bytes, extension: extensionOf(path), page, label }).markdown;
   }
 
   // --- docx -----------------------------------------------------------------
@@ -290,7 +331,6 @@
       const rows = [...node.querySelectorAll('tr')].map(row => [...row.children].map(cell => inlineMarkdown(cell)));
       return rows.length ? markdownTable(rows) : '';
     }
-    if (tag === 'p' || tag === 'div') return inlineMarkdown(node).trim();
     return inlineMarkdown(node).trim();
   }
 
@@ -311,11 +351,10 @@
       try {
         base64 = await image.readAsBase64String();
       } catch (_) {
-        return { src: '', alt: `[Image not shown: ${label} (linked external image)]` };
+        return { src: '', alt: externalImage(label) };
       }
-      const markdown = collector.add({ base64, extension, label });
-      const ref = markdown.match(/\((rag-image:\/\/[^)]+)\)$/);
-      return ref ? { src: ref[1], alt: label } : { src: '', alt: markdown };
+      const { id, markdown } = collector.add({ base64, extension, label });
+      return id ? { src: `rag-image://__DOC_ID__:${id}`, alt: label } : { src: '', alt: markdown };
     });
     const result = await mammoth.convertToHtml({ arrayBuffer }, { convertImage });
     return { text: htmlToMarkdown(result.value), images: collector.images };
@@ -355,8 +394,8 @@
       const imageRefs = sheet.getImages().map((placement, i) => {
         const image = workbook.getImage(Number(placement.imageId));
         const label = `Image ${i + 1} (sheet "${sheet.name}")`;
-        if (!image?.buffer) return `[Image omitted: ${label}]`;
-        return collector.add({ bytes: new Uint8Array(image.buffer), extension: image.extension, page: sheetIndex + 1, label });
+        if (!image?.buffer) return omittedImage(label);
+        return collector.add({ bytes: new Uint8Array(image.buffer), extension: image.extension, page: sheetIndex + 1, label }).markdown;
       });
       const name = sheet.state && sheet.state !== 'visible' ? `${sheet.name} (hidden)` : sheet.name;
       return sheetSection(name, rows, totalRows, imageRefs);
@@ -403,8 +442,8 @@
           imageCount++;
           const label = `Image ${imageCount} (slide ${slideNumber})`;
           const relation = relationships[attrs['r:embed'] || attrs['r:link']];
-          blocks.push(!relation ? `[Image omitted: ${label}]`
-            : relation.external ? `[Image not shown: ${label} (linked external image)]`
+          blocks.push(!relation ? omittedImage(label)
+            : relation.external ? externalImage(label)
               : packageImage(pkg, collector, relation.path, slideNumber, label));
         }
       },
@@ -438,7 +477,7 @@
         const noteText = readSlidePart(pkg, notes.path, collector, slideNumber, { images: false }).blocks.join(' ').trim();
         if (noteText) blocks.push(`Notes: ${noteText}`);
       }
-      return `--- Slide ${slideNumber} ---\n${joinBlocks(blocks)}`;
+      return section(`--- Slide ${slideNumber} ---`, blocks);
     });
     return { text: joinBlocks(sections), images: collector.images };
   }
@@ -450,21 +489,19 @@
     return Math.min(Number.isFinite(count) && count > 0 ? count : 1, cap);
   }
 
-  /** Estilos de lista numerados por nivel (`estilo|nivel`), definidos en styles.xml o content.xml. */
+  /** Estilos de lista numerados por nivel (`estilo|nivel`), definidos en styles.xml. */
   function readNumberedListStyles(pkg) {
     const numbered = new Set();
     let current = '';
-    for (const part of ['styles.xml', 'content.xml']) {
-      walkXml(pkg.text(part), {
-        open(name, attrs) {
-          if (name === 'text:list-style') current = attrs['style:name'] || '';
-          else if (name === 'text:list-level-style-number' && current) numbered.add(`${current}|${attrs['text:level'] || 1}`);
-        },
-        close(name) {
-          if (name === 'text:list-style') current = '';
-        }
-      });
-    }
+    walkXml(pkg.text('styles.xml'), {
+      open(name, attrs) {
+        if (name === 'text:list-style') current = attrs['style:name'] || '';
+        else if (name === 'text:list-level-style-number' && current) numbered.add(`${current}|${attrs['text:level'] || 1}`);
+      },
+      close(name) {
+        if (name === 'text:list-style') current = '';
+      }
+    });
     return numbered;
   }
 
@@ -473,7 +510,9 @@
 
   function readOpenDocument(pkg, format, collector) {
     const numberedListStyles = readNumberedListStyles(pkg);
-    const blocks = [];
+    let listStyle = '';
+    const sections = [];
+    let currentBlocks = [];
     const links = [];
     const paragraphs = [];
     const lists = [];
@@ -481,7 +520,6 @@
     let skipDepth = 0;
     let noteDepth = 0;
     let page = 1;
-    let pageBreaks = false;
     let slide = 0;
     let frameClass = '';
     let frameHasImage = false;
@@ -492,7 +530,12 @@
     let cell = null;
     let imageCount = 0;
 
-    const location = () => (format === 'odp' ? slide : format === 'ods' ? 1 : page);
+    function currentLocation() {
+      if (format === 'odp') return { page: slide, where: `slide ${slide}` };
+      if (format === 'ods') return { page: 1, where: `sheet "${table?.name || ''}"` };
+      return { page, where: `page ${page}` };
+    }
+
     const target = () => (paragraphs.length ? paragraphs[paragraphs.length - 1] : null);
 
     function emitBlock(text) {
@@ -506,16 +549,16 @@
         const indent = '  '.repeat(lists.length - 1);
         lists[0].lines.push(list.itemStarted ? `${indent}  ${text}` : `${indent}${list.ordered ? `${list.index}.` : '-'} ${text}`);
         list.itemStarted = true;
-      } else blocks.push(text);
+      } else currentBlocks.push(text);
     }
 
     function addImage(href) {
       imageCount++;
-      const where = format === 'odp' ? `slide ${slide}` : format === 'ods' ? `sheet "${table?.name || ''}"` : `page ${page}`;
+      const { page: locPage, where } = currentLocation();
       const label = `Image ${imageCount} (${where})`;
       const markdown = /^[a-z][a-z0-9+.-]*:/i.test(href)
-        ? `[Image not shown: ${label} (linked external image)]`
-        : packageImage(pkg, collector, resolvePackagePath('', href), location(), label);
+        ? externalImage(label)
+        : packageImage(pkg, collector, resolvePackagePath('', href), locPage, label);
       const paragraph = target();
       if (format === 'ods' && table) table.images.push(markdown);
       else if (paragraph) paragraph.text += ` ${markdown} `;
@@ -526,15 +569,22 @@
       open(name, attrs) {
         if (skipDepth) { skipDepth++; return; }
         switch (name) {
+          case 'text:list-style':
+            listStyle = attrs['style:name'] || '';
+            break;
+          case 'text:list-level-style-number':
+            if (listStyle) numberedListStyles.add(`${listStyle}|${attrs['text:level'] || 1}`);
+            break;
           case 'office:annotation': case 'text:tracked-changes': case 'text:note-citation':
           case 'text:page-number': case 'text:page-count': case 'draw:page-thumbnail':
             skipDepth = 1; break;
           case 'text:note': noteDepth++; break;
           case 'presentation:notes': notesDepth++; break;
           case 'draw:page':
+            if (slide > 0) sections.push(section(`--- Slide ${slide} ---`, currentBlocks));
             slide++;
+            currentBlocks = [];
             slideNotes = [];
-            blocks.push(`--- Slide ${slide} ---`);
             break;
           case 'draw:frame':
             frameClass = attrs['presentation:class'] || '';
@@ -547,7 +597,11 @@
             frameHasImage = true;
             break;
           case 'text:soft-page-break':
-            if (format === 'odt') { page++; pageBreaks = true; blocks.push(`--- Page ${page} ---`); }
+            if (format === 'odt') {
+              page++;
+              sections.push(currentBlocks);
+              currentBlocks = [];
+            }
             break;
           case 'text:h':
             paragraphs.push({ text: '', heading: repeatCount(attrs['text:outline-level'], 6) });
@@ -569,7 +623,7 @@
             if (lists.length) Object.assign(lists[lists.length - 1], { itemStarted: false, index: lists[lists.length - 1].index + 1 });
             break;
           case 'table:table':
-            table = { name: attrs['table:name'] || `Sheet ${blocks.length + 1}`, rows: [], totalRows: 0, images: [] };
+            table = { name: attrs['table:name'] || `Sheet ${currentBlocks.length + 1}`, rows: [], totalRows: 0, images: [] };
             break;
           case 'table:table-row':
             if (table) row = { cells: [], repeat: repeatCount(attrs['table:number-rows-repeated'], MAX_SHEET_ROWS) };
@@ -582,10 +636,11 @@
       close(name) {
         if (skipDepth) { skipDepth--; return; }
         switch (name) {
+          case 'text:list-style': listStyle = ''; break;
           case 'text:note': noteDepth--; break;
           case 'presentation:notes':
             notesDepth--;
-            if (slideNotes.length) blocks.push(`Notes: ${slideNotes.join(' ')}`);
+            if (slideNotes.length) currentBlocks.push(`Notes: ${slideNotes.join(' ')}`);
             break;
           case 'draw:frame': frameClass = ''; break;
           case 'text:a': {
@@ -628,7 +683,7 @@
             if (table) {
               const finished = table;
               table = null;
-              if (format === 'ods') blocks.push(sheetSection(finished.name, finished.rows, finished.totalRows, finished.images));
+              if (format === 'ods') currentBlocks.push(sheetSection(finished.name, finished.rows, finished.totalRows, finished.images));
               else {
                 const rows = finished.rows.filter(cells => cells.some(value => value.trim()));
                 emitBlock(rows.length ? markdownTable(rows) : '');
@@ -642,10 +697,16 @@
       }
     });
 
-    if (pageBreaks) blocks.unshift('--- Page 1 ---');
-    if (footnotes.length) blocks.push('Footnotes:', footnotes.map((note, i) => `${i + 1}. ${note}`).join('\n'));
-    // Mismo formato que pptx y PDF: el contenido empieza en la línea siguiente al marcador.
-    return joinBlocks(blocks).replace(/^(--- (?:Slide|Page) \d+ ---)\n\n/gm, '$1\n');
+    if (footnotes.length) currentBlocks.push('Footnotes:', footnotes.map((note, i) => `${i + 1}. ${note}`).join('\n'));
+    if (format === 'odp') {
+      if (slide > 0) sections.push(section(`--- Slide ${slide} ---`, currentBlocks));
+      return joinBlocks(sections);
+    }
+    if (format === 'odt' && sections.length) {
+      sections.push(currentBlocks);
+      return joinBlocks(sections.map((blks, i) => section(`--- Page ${i + 1} ---`, blks)));
+    }
+    return joinBlocks(currentBlocks);
   }
 
   async function parseOpenDocument(arrayBuffer, format) {
@@ -672,7 +733,7 @@
    */
   async function parseOfficeDocument(arrayBuffer, fileName, mimeType = '') {
     const format = getOfficeFormat(fileName, mimeType);
-    const legacy = LEGACY_FORMATS[format];
+    const legacy = OFFICE_FORMATS[format]?.legacy;
     if (legacy) {
       throw new Error(`${legacy.name} files (.${format}) are not supported. Save the file as .${legacy.modern} and try again.`);
     }

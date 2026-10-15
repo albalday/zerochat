@@ -33,6 +33,16 @@ test('getOfficeFormat reconoce formatos actuales, con macros, ODF y antiguos por
   for (const [name, format] of Object.entries(cases)) assert.equal(OfficeParser.getOfficeFormat(name), format, name);
 });
 
+test('getOfficeDocumentKind devuelve el nombre legible según la tabla unificada (F-03)', () => {
+  assert.equal(OfficeParser.getOfficeDocumentKind('docx'), 'Word document');
+  assert.equal(OfficeParser.getOfficeDocumentKind('xlsx'), 'Excel spreadsheet');
+  assert.equal(OfficeParser.getOfficeDocumentKind('pptx'), 'PowerPoint presentation');
+  assert.equal(OfficeParser.getOfficeDocumentKind('odt'), 'OpenDocument text');
+  assert.equal(OfficeParser.getOfficeDocumentKind('ods'), 'OpenDocument spreadsheet');
+  assert.equal(OfficeParser.getOfficeDocumentKind('odp'), 'OpenDocument presentation');
+  assert.equal(OfficeParser.getOfficeDocumentKind('unknown'), 'Office document');
+});
+
 for (const fixture of ['pandoc.docx', 'libreoffice.docx']) {
   test(`docx (${fixture}): títulos, formato, enlaces, listas, tablas e imágenes en Markdown`, async () => {
     const { text, images } = await parseFixture(fixture);
@@ -153,4 +163,23 @@ test('pptx sin presentation.xml se trata como archivo dañado (F-02)', async () 
     /The PowerPoint presentation could not be read\. It may be damaged or password protected\./
   );
 });
+
+test('odt con saltos de página genera marcadores de página limpios sin saltos redundantes (F-08)', async () => {
+  const fflate = require('fflate');
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body>
+    <office:text>
+      <text:p>Página uno</text:p>
+      <text:soft-page-break/>
+      <text:p>Página dos</text:p>
+    </office:text>
+  </office:body>
+</office:document-content>`;
+  const zip = fflate.zipSync({ 'content.xml': Buffer.from(xml) });
+  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'paginas.odt');
+  assert.equal(text, '--- Page 1 ---\nPágina uno\n\n--- Page 2 ---\nPágina dos');
+});
+
 

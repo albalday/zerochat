@@ -49,6 +49,16 @@
     return match ? { documentId: match[1], imageId: match[2] } : null;
   }
 
+  /** Tipos MIME de imagen admitidos en el chat. */
+  const IMAGE_MIME_TYPES = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml'
+  };
+
   function sanitizeImageUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
@@ -330,6 +340,7 @@
     escapeHtml,
     sanitizeUrl,
     sanitizeImageUrl,
+    IMAGE_MIME_TYPES,
     openImageInNewTab,
     makeImageOpenable,
     parseRagImageRef,
