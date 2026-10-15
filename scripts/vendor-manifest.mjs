@@ -12,32 +12,24 @@ export const VENDORS = [
     id: 'orama',
     package: '@orama/orama',
     exports: ['create', 'insertMultiple', 'search'],
-    onDemand: false,
-    license: { file: 'LICENSE.md', name: 'Apache License 2.0', copyright: 'Copyright 2023 OramaSearch Inc' },
-    source: 'https://github.com/oramasearch/orama'
+    onDemand: false
   },
   {
     id: 'mammoth',
     package: 'mammoth',
     exports: ['convertToHtml', 'images'],
-    onDemand: true,
-    license: { file: 'LICENSE', name: 'BSD 2-Clause License', copyright: 'Copyright (c) 2013 Michael Williamson' },
-    source: 'https://github.com/mwilliamson/mammoth.js'
+    onDemand: true
   },
   {
     id: 'exceljs',
     package: 'exceljs',
     exports: ['Workbook'],
-    onDemand: true,
-    license: { file: 'LICENSE', name: 'MIT License', copyright: 'Copyright (c) 2014-2019 Guyon Roche' },
-    source: 'https://github.com/exceljs/exceljs'
+    onDemand: true
   },
   {
     id: 'fflate',
     package: 'fflate',
     exports: ['unzipSync', 'strFromU8'],
-    onDemand: true,
-    license: { file: 'LICENSE', name: 'MIT License', copyright: 'Copyright (c) 2026 Arjun Barrett' },
-    source: 'https://github.com/101arrowz/fflate'
+    onDemand: true
   }
 ];

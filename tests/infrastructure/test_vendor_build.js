@@ -11,19 +11,33 @@ const loadManifest = () => import(pathToFileURL(path.join(root, 'scripts/vendor-
 const outfileOf = vendor => `js/vendor/${vendor.id}.browser.js`;
 const globalNameOf = vendor => 'ZeroChat' + vendor.id.split('-').map(part => part[0].toUpperCase() + part.slice(1)).join('');
 
-test('build:vendor reproduce exactamente los bundles, licencias y avisos versionados', async () => {
+test('build:vendor reproduce exactamente los bundles, las licencias y los avisos versionados', async () => {
   const { VENDORS } = await loadManifest();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-vendor-'));
   try {
     execFileSync('node', ['scripts/build-vendor.mjs', '--out-dir', outDir], { cwd: root, stdio: 'pipe' });
-    const generated = ['THIRD_PARTY_NOTICES.md'];
-    for (const vendor of VENDORS) generated.push(outfileOf(vendor), `licenses/${vendor.id.toUpperCase()}-LICENSE.md`);
+    const listLicenses = dir => fs.readdirSync(path.join(dir, 'licenses')).sort();
+    assert.deepEqual(listLicenses(outDir), listLicenses(root), 'licenses/ debe coincidir con la salida de npm run build:vendor');
+    const generated = ['THIRD_PARTY_NOTICES.md', ...VENDORS.map(outfileOf), ...listLicenses(root).map(name => `licenses/${name}`)];
     for (const file of generated) {
       assert.ok(fs.readFileSync(path.join(outDir, file)).equals(fs.readFileSync(path.join(root, file))),
         `${file} no coincide con la salida de npm run build:vendor`);
     }
   } finally {
     fs.rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('build:vendor incluye el texto de licencia de cada paquete empaquetado, también los de distribuciones precompiladas', () => {
+  const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
+  const linked = [...notices.matchAll(/\]\((licenses\/[^)]+)\)/g)].map(match => match[1]);
+  for (const file of linked) {
+    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.doesNotMatch(text, /ships no separate license file/, `${file} no contiene el texto de la licencia`);
+  }
+  assert.deepEqual([...new Set(linked)].sort(), fs.readdirSync(path.join(root, 'licenses')).map(name => `licenses/${name}`).sort());
+  for (const bundled of ['jszip', 'saxes', 'crypto-browserify', 'core-js', 'regenerator-runtime']) {
+    assert.match(notices, new RegExp(`^- \`${bundled}\``, 'm'), `${bundled} va dentro de un bundle y debe figurar en los avisos`);
   }
 });
 

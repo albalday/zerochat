@@ -23,6 +23,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T10 Replace the own PDF parser with vendored pdf.js (dropped: moved to milestone M12)
 - [x] M4-T11 Update /help (ES/EN): supported formats, first-use download and offline behaviour, third-party libraries (2026-10-15)
 - [x] M4-T12 Add office fixtures exported by Microsoft Word, Excel, PowerPoint and Google Docs/Sheets/Slides (needs files from the user) to the parser, attachment and RAG tests (dropped: the user validates real Word and Google documents manually)
+- [x] M4-T13 Complete third-party notices with the transitive packages bundled in each js/vendor/ file and their license texts (2026-10-15)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
