@@ -4,7 +4,7 @@
   "version": "9.1.4",
   "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local",
   "scripts": {
-    "build:vendor": "node scripts/build-orama.mjs",
+    "build:vendor": "node scripts/build-vendor.mjs",
     "build:managed-services": "node scripts/build-managed-services.mjs",
     "build:backend": "npm run build:managed-services && cat $(ls py/*.py | sort) > zerochat.py && chmod +x zerochat.py",
     "build": "npm run build:vendor && npm run build:backend",

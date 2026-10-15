@@ -34,3 +34,4 @@
 - 2026-10-15 M4-D2 Visor HTML en Blob para imágenes clicables y reconciliación de bloques en streaming para eliminar temblores (M4-T3)
 - 2026-10-15 M4-D3 Office and PDF parsing moves to standard open-source libraries pinned to exact npm versions, bundled by build:vendor into committed IIFE files in js/vendor/ and loaded on demand (classic scripts work on file://; no CDN, so no version drift, no third-party requests and offline use after first load) (M4-T2)
 - 2026-10-15 M14-D1 Adopt .zerochat/task.py as project mode sentinel to reliably trigger bootstrap and migration for legacy projects (M14-T1)
+- 2026-10-15 M4-D4 build:vendor reads scripts/vendor-manifest.mjs, refuses non-exact pins or mismatched installs, bundles each library from an esbuild stdin entry and generates licenses/ and THIRD_PARTY_NOTICES.md; an infrastructure test rebuilds into a temp dir and compares byte for byte (M4-T4)

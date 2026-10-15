@@ -73,3 +73,11 @@ Este documento contiene las especificaciones técnicas y normas de desarrollo pa
 
 * **Entorno DOM real:** Las pruebas de componentes sin navegador utilizan el DOM real proporcionado por `installDom` de `tests/helpers/dom-env.js` (con `{ app: true }` para cargar el marcado completo de `zerochat.html`). Está prohibido simular elementos con objetos planos.
 * **Exportaciones limpias:** No se exportan funciones ni variables privadas exclusivamente para ser testeadas; las pruebas consumen la API pública y el contexto real.
+
+---
+
+## 8. Librerías de terceros (`js/vendor/`)
+
+* **Origen único:** Las librerías externas se declaran en `scripts/vendor-manifest.mjs`, se fijan a una versión exacta en `package.json` y se empaquetan con `npm run build:vendor` (esbuild) en IIFE clásicos versionados en `js/vendor/`, que exponen un global (`ZeroChatOrama`, etc.). No se cargan desde CDN.
+* **Licencias:** `build:vendor` copia la licencia de cada librería a `licenses/` y regenera `THIRD_PARTY_NOTICES.md`; ninguno de los dos se edita a mano.
+* **Arranque o bajo demanda:** Solo las librerías con `onDemand: false` se cargan en `zerochat.html` y entran en `PRECACHE_ASSETS`. El resto se pide la primera vez que hace falta. `tests/infrastructure/test_vendor_build.js` comprueba que los artefactos versionados coinciden con la salida de la build.

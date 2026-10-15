@@ -14,7 +14,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T1 Show images in the chat (e.g. a web page image), beyond the existing MCP screenshot preview (2026-10-15)
 - [x] M4-T2 Read office files (docx, xlsx) as attachments and from tools (dropped: split into M4-T4 to M4-T11)
 - [x] M4-T3 Abrir imágenes en visor de pestaña sin forzar descarga y eliminar temblores en streaming (2026-10-15)
-- [ ] M4-T4 Generalize build:vendor (now Orama only) to bundle exact-pinned npm libraries into committed IIFE files in js/vendor/ with esbuild, adding each license to licenses/ and THIRD_PARTY_NOTICES.md
+- [x] M4-T4 Generalize build:vendor (now Orama only) to bundle exact-pinned npm libraries into committed IIFE files in js/vendor/ with esbuild, adding each license to licenses/ and THIRD_PARTY_NOTICES.md (2026-10-15)
 - [ ] M4-T5 On-demand vendor loader: classic script injection loaded once, outside PRECACHE_ASSETS (the SW caches it on first use), working on file:// and in Node tests, with a clear error when offline and not yet cached
 - [ ] M4-T6 Choose and vendor the office libraries: mammoth (docx), SheetJS CE or ExcelJS (xlsx/ods, weighing the future write phase) and fflate (pptx/ODF ZIP); record versions, sizes and reasons
 - [ ] M4-T7 Office parser module (js/office-parser.js) returning {text, images} as Markdown with rag-image references: docx via mammoth, sheets as tables with a row cap, pptx/odt/odp via fflate with slide/page markers; EMF/WMF and external images become placeholders
