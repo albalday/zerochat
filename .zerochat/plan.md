@@ -25,6 +25,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T12 Add office fixtures exported by Microsoft Word, Excel, PowerPoint and Google Docs/Sheets/Slides (needs files from the user) to the parser, attachment and RAG tests (dropped: the user validates real Word and Google documents manually)
 - [x] M4-T13 Complete third-party notices with the transitive packages bundled in each js/vendor/ file and their license texts (2026-10-15)
 - [ ] M4-T14 Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader
+- [ ] M4-T15 Evaluate renaming the download_pdf tool to download_doc now that it also reads office documents (tool name, aliases, i18n, cards, prompts, tests and /help)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.
