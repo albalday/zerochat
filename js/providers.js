@@ -756,7 +756,7 @@
       // max_tokens es obligatorio y limita razonamiento y respuesta juntos; un modelo con menos
       // salida máxima lo rechaza indicando su límite y handleHttpError reintenta con él.
       const modelKey = (model || '').trim();
-      const effectiveMaxTokens = this.effectiveMaxTokens?.get(modelKey) || CLAUDE_MAX_TOKENS;
+      const effectiveMaxTokens = this.effectiveMaxTokens.get(modelKey) || CLAUDE_MAX_TOKENS;
       const payload = {
         model: modelKey,
         messages: nonSystemMessages,
@@ -840,7 +840,6 @@
       if (status === 400 && limit > 0 && limit < payload.max_tokens) {
         payload.max_tokens = limit;
         if (payload.model) {
-          if (!this.effectiveMaxTokens) this.effectiveMaxTokens = new Map();
           this.effectiveMaxTokens.set(payload.model, limit);
         }
         if (payload.thinking && payload.thinking.budget_tokens >= limit) {

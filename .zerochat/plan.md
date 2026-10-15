@@ -26,6 +26,10 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T13 Complete third-party notices with the transitive packages bundled in each js/vendor/ file and their license texts (2026-10-15)
 - [ ] M4-T14 Read legacy binary Word 97-2003 (.doc) and Excel 97-2003 (.xls) files in attachments, RAG and web tools, replacing the current rejection with a vendored reader
 - [ ] M4-T15 Evaluate renaming the download_pdf tool to download_doc now that it also reads office documents (tool name, aliases, i18n, cards, prompts, tests and /help)
+- [x] M4-T16 Auditoría 9.1.1-9.1.4: Grupo 1 (triviales F-07, F-13 a F-19) (2026-10-15)
+- [ ] M4-T17 Auditoría 9.1.1-9.1.4: Grupo 2 (fáciles F-02, F-04, F-08, F-20 a F-23)
+- [ ] M4-T18 Auditoría 9.1.1-9.1.4: Grupo 3 (moderadas F-05, F-06, F-09, F-11, F-12)
+- [ ] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.

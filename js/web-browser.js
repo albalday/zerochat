@@ -145,12 +145,8 @@
     if (/^data:image\//i.test(trimmed)) {
       return Utils.sanitizeImageUrl(trimmed);
     }
-    let urlToResolve = trimmed;
-    if (urlToResolve.startsWith('//')) {
-      urlToResolve = 'https:' + urlToResolve;
-    }
     try {
-      const resolved = new URL(urlToResolve, baseUrl);
+      const resolved = new URL(trimmed, baseUrl);
       if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
         return resolved.href;
       }

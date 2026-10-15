@@ -82,6 +82,10 @@ test('UISettings - la sección MCP se aplica al momento: sin Guardar ni cambios 
   serverSwitch.type = 'checkbox';
   elements.mcpServersList.append(serverSwitch);
   serverSwitch.dispatchEvent(new Event('change', { bubbles: true }));
+  const clearAuthsBtn = document.createElement('button');
+  clearAuthsBtn.id = 'btn-mcp-clear-auths';
+  elements.mcpServersList.append(clearAuthsBtn);
+  clearAuthsBtn.dispatchEvent(new Event('click', { bubbles: true }));
   assert.equal(elements.settingsDialog.dataset.settingsDirty, 'false');
   assert.equal(await UISettings.closeSettingsModal(elements), true);
 

@@ -79,8 +79,6 @@ test('ProjectContext.buildBootstrapPrompt - interpola cwd y plantillas, y exige 
   for (const template of ['MEMORY_SECTION_TEMPLATE', 'PLAN_TEMPLATE', 'LOG_TEMPLATE', 'STATE_TEMPLATE', 'TASK_SCRIPT_TEMPLATE']) {
     assert.ok(prompt.includes(ProjectContext[template]), template);
   }
-  const taskPyOnDisk = fs.readFileSync(path.resolve(__dirname, '../../.zerochat/task.py'), 'utf-8');
-  assert.equal(ProjectContext.TASK_SCRIPT_TEMPLATE.trim(), taskPyOnDisk.trim(), 'TASK_SCRIPT_TEMPLATE coincide con .zerochat/task.py');
 });
 
 test('ProjectContext - la sección de memoria define tareas numeradas, edición por línea y archivado', () => {

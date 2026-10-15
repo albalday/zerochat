@@ -332,7 +332,7 @@
   });
 
   /**
-   * Normaliza sintaxis LaTeX matematica y delimitadores a texto limpio con simbolos Unicode.
+   * Normaliza sintaxis LaTeX matemática y delimitadores a texto limpio con símbolos Unicode.
    */
   function normalizeMathNotation(text) {
     if (!text || (!text.includes('\\') && !text.includes('$') && !text.includes('^') && !text.includes('_{'))) {
@@ -391,7 +391,7 @@
   }
 
   /**
-   * Parsea segmentos de texto normales (fuera de bloques de codigo).
+   * Parsea segmentos de texto normales (fuera de bloques de código).
    */
   function parseTextMarkdown(text) {
     if (!text) return '';
@@ -428,10 +428,10 @@
       `;
     });
 
-    // 2. Codigo inline `codigo`
+    // 2. Código inline `código`
     p = protectInlineCode(p, codes);
 
-    // 2b. Normalizacion de notacion matematica y LaTeX a Unicode fuera de codigo inline
+    // 2b. Normalización de notación matemática y LaTeX a Unicode fuera de código inline
     p = normalizeMathNotation(p);
 
     // 3. Tablas Markdown (GFM Tables)

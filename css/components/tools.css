@@ -617,7 +617,6 @@
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   cursor: pointer;
-  transition: opacity 0.15s ease;
 }
 
 .mcp-screenshot-image:hover {
@@ -642,7 +641,6 @@
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   cursor: pointer;
-  transition: opacity 0.15s ease;
 }
 
 .rag-image-thumb:hover {

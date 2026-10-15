@@ -67,7 +67,6 @@
   function openImageInNewTab(rawUrl, title) {
     const safeUrl = sanitizeImageUrl(rawUrl);
     if (!safeUrl || safeUrl.startsWith('rag-image://')) return;
-    if (typeof window === 'undefined') return;
 
     const imgTitle = String(title || '').trim() || 'ZeroChat Image';
 
@@ -116,7 +115,6 @@
       window.open(safeUrl, '_blank', 'noopener,noreferrer');
     } catch (_) { /* Ventana emergente bloqueada por el navegador */ }
   }
-
 
   /**
    * Asigna contenido no confiable como texto, sin interpretarlo como HTML.

@@ -97,7 +97,6 @@
   cursor: pointer;
   background-color: var(--bg-surface-subtle);
   box-sizing: border-box;
-  transition: opacity 0.15s ease;
 }
 
 .chat-embedded-image:hover {

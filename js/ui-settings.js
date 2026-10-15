@@ -293,7 +293,6 @@
     listen(dialog, 'input', markFormModified);
     listen(dialog, 'change', markFormModified);
     listen(dialog, 'click', event => {
-      if (event.target.closest('#btn-mcp-clear-auths')) markModified();
       if (event.target === dialog) closeSettingsPanelOnly(elements);
     });
     listen(dialog, 'cancel', event => {

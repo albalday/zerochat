@@ -117,7 +117,7 @@
       } else if (cur && !next) {
         cur.remove();
       } else if (cur && next) {
-        if (cur.isEqualNode ? cur.isEqualNode(next) : cur.outerHTML === next.outerHTML) {
+        if (cur.isEqualNode(next)) {
           continue;
         }
 
