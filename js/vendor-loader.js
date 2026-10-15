@@ -80,5 +80,16 @@
     return loading;
   }
 
-  return { load };
+  function bundleInfo(id) {
+    if (typeof id !== 'string' || !VALID_ID.test(id)) {
+      throw new Error(`Invalid vendor library id: ${id}`);
+    }
+    return {
+      id,
+      path: bundleSource(id),
+      globalName: globalNameFor(id)
+    };
+  }
+
+  return { load, bundleInfo };
 });

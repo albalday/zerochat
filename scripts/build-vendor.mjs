@@ -19,13 +19,13 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { VENDORS } from './vendor-manifest.mjs';
+import VendorLoader from '../js/vendor-loader.js';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NODE_MODULES = path.join(ROOT_DIR, 'node_modules');
 const STORED_LICENSES_DIR = path.join(ROOT_DIR, 'scripts/vendor-licenses');
 const STORED_LICENSES_INDEX = path.join(STORED_LICENSES_DIR, 'index.json');
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
-const VALID_ID = /^[a-z][a-z0-9-]*$/;
 const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[.-][\w.-]*)?$/i;
 const PACKAGE_IN_PATH = /node_modules\/((?:@[^/]+\/)?[^/]+)/g;
 
@@ -68,15 +68,13 @@ function resolvePinnedVersion(vendor, dependencies) {
 }
 
 function entryContents(vendor) {
-  if (vendor.exports === '*') return `export * from '${vendor.package}';`;
   return `export { ${vendor.exports.join(', ')} } from '${vendor.package}';`;
 }
 
 /** Misma convención que ChatVendorLoader: `js/vendor/<id>.browser.js` define `ZeroChat<Id>`. */
 function bundlePaths(vendor) {
-  if (!VALID_ID.test(vendor.id)) throw new Error(`Invalid vendor id "${vendor.id}"`);
-  const globalName = 'ZeroChat' + vendor.id.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
-  return { outfile: `js/vendor/${vendor.id}.browser.js`, globalName };
+  const info = VendorLoader.bundleInfo(vendor.id);
+  return { outfile: info.path, globalName: info.globalName };
 }
 
 function licenseName(pkg) {
@@ -137,8 +135,7 @@ function readStoredLicenses() {
 }
 
 /** Descarga con `npm pack` la licencia de los paquetes precompilados que no están instalados. */
-function fetchMissingLicenses(names) {
-  const stored = readStoredLicenses();
+function fetchMissingLicenses(names, stored = readStoredLicenses()) {
   const missing = names.filter(name => !stored[name]);
   if (!missing.length) return;
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zerochat-licenses-'));
@@ -163,7 +160,7 @@ function fetchMissingLicenses(names) {
 }
 
 /** Describe cada paquete incluido y deja su licencia en `licenses`. */
-function collectLicenses(vendor, packages, licenses) {
+function collectLicenses(vendor, packages, licenses, stored = readStoredLicenses()) {
   const entries = new Map();
   const add = (name, entry, text) => {
     if (!entries.has(name)) entries.set(name, entry);
@@ -172,15 +169,14 @@ function collectLicenses(vendor, packages, licenses) {
   };
   for (const [dir, name] of packages.installed) {
     const pkg = readJson(path.join(dir, 'package.json'));
-    add(name, { name, version: pkg.version, license: licenseName(pkg) }, licenseText(dir, pkg));
+    add(name, { name, version: pkg.version, license: licenseName(pkg) }, licenseText(dir, pkg, stored));
   }
-  const stored = readStoredLicenses();
   for (const [name, { from, dir }] of packages.prebuilt) {
     if (entries.has(name)) continue;
     const installedDir = findInstalledPackage(name, dir);
     if (installedDir) {
       const pkg = readJson(path.join(installedDir, 'package.json'));
-      add(name, { name, license: licenseName(pkg), prebuiltIn: from, textFrom: `${name}@${pkg.version}` }, licenseText(installedDir, pkg));
+      add(name, { name, license: licenseName(pkg), prebuiltIn: from, textFrom: `${name}@${pkg.version}` }, licenseText(installedDir, pkg, stored));
     } else if (stored[name]) {
       add(name, { name, license: stored[name].license, prebuiltIn: from, textFrom: `${name}@${stored[name].version}` },
         fs.readFileSync(path.join(STORED_LICENSES_DIR, `${licenseSlug(name)}.txt`), 'utf8'));
@@ -246,14 +242,15 @@ async function main() {
     built.push({ vendor, version, packages });
     console.log(`${vendor.package}@${version} -> ${bundlePaths(vendor).outfile} (${Math.round(size / 1024)} KiB)`);
   }
+  const stored = readStoredLicenses();
   if (fetchLicenses) {
     const notInstalled = built.flatMap(({ packages }) => [...packages.prebuilt]
       .filter(([name, { dir }]) => !findInstalledPackage(name, dir))
       .map(([name]) => name));
-    fetchMissingLicenses([...new Set(notInstalled)].sort());
+    fetchMissingLicenses([...new Set(notInstalled)].sort(), stored);
   }
   const licenses = new Map();
-  const bundles = built.map(({ vendor, version, packages }) => ({ vendor, version, packages: collectLicenses(vendor, packages, licenses) }));
+  const bundles = built.map(({ vendor, version, packages }) => ({ vendor, version, packages: collectLicenses(vendor, packages, licenses, stored) }));
   const licensesDir = path.join(outDir, 'licenses');
   fs.rmSync(licensesDir, { recursive: true, force: true });
   fs.mkdirSync(licensesDir, { recursive: true });

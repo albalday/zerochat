@@ -7,9 +7,10 @@ const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 const root = path.resolve(__dirname, '../..');
+const VendorLoader = require(path.join(root, 'js/vendor-loader.js'));
 const loadManifest = () => import(pathToFileURL(path.join(root, 'scripts/vendor-manifest.mjs')).href);
-const outfileOf = vendor => `js/vendor/${vendor.id}.browser.js`;
-const globalNameOf = vendor => 'ZeroChat' + vendor.id.split('-').map(part => part[0].toUpperCase() + part.slice(1)).join('');
+const outfileOf = vendor => VendorLoader.bundleInfo(vendor.id).path;
+const globalNameOf = vendor => VendorLoader.bundleInfo(vendor.id).globalName;
 
 test('build:vendor reproduce exactamente los bundles, las licencias y los avisos versionados', async () => {
   const { VENDORS } = await loadManifest();
@@ -68,4 +69,15 @@ test('solo las librerías de arranque se cargan en zerochat.html y entran en el 
     assert.equal(html.includes(`src="${outfile}"`), !vendor.onDemand, `${outfile} en zerochat.html`);
     assert.equal(sw.includes(`'./${outfile}'`), !vendor.onDemand, `${outfile} en PRECACHE_ASSETS`);
   }
+});
+
+test('VendorLoader.bundleInfo devuelve la ruta y globalName esperados y rechaza IDs no válidos', () => {
+  const info = VendorLoader.bundleInfo('office-parser');
+  assert.deepEqual(info, {
+    id: 'office-parser',
+    path: 'js/vendor/office-parser.browser.js',
+    globalName: 'ZeroChatOfficeParser'
+  });
+  assert.throws(() => VendorLoader.bundleInfo('Invalid_Id!'), /Invalid vendor library id/);
+  assert.throws(() => VendorLoader.bundleInfo(123), /Invalid vendor library id/);
 });

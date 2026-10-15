@@ -44,3 +44,4 @@
 - 2026-10-15 M4-D11 Resolver hallazgos moderados F-05, F-06, F-09, F-11, F-12 de la auditoría 9.1.1-9.1.4 (M4-T18)
 - 2026-10-15 M4-D12 Resolver hallazgos difíciles F-01 y F-03 de la auditoría 9.1.1-9.1.4 (M4-T19)
 - 2026-10-15 M13-D1 Document generation produces only Markdown shown in the chat, extended with external code, ad hoc CSS and writing rules, and CSV becomes Markdown tables; exporting what the chat shows, to a file or a separate tab, comes later and only on request; this drops the docx/xlsx write libraries, the JSON spec tools and docx templates (M13-T1)
+- 2026-10-15 M4-D13 Centralizar convenciones de vendor bundle en VendorLoader.bundleInfo y optimizar lectura de licencias en build-vendor (F-16 a F-18) (M4-T24)
