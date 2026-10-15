@@ -44,8 +44,10 @@
       <p>Use the paperclip, drag files into the chat or paste an image. Review attachments before sending and remove unwanted ones with their close button.</p>
       <ul><li><strong>Images:</strong> require a vision model; accepting a file locally does not ensure the provider accepts its format or size.</li>
       <li><strong>PDF:</strong> text is extracted in the browser. Scans without text and complex layouts may produce incomplete results; there is no general OCR.</li>
+      <li><strong>Office documents:</strong> Word (DOCX), Excel (XLSX), PowerPoint (PPTX) and OpenDocument (ODT, ODS, ODP) are converted in the browser to text with headings, lists and tables; presentations are marked per slide and each spreadsheet is sent as a table of up to 500 rows. Up to 4 images per document are sent to the model if it supports vision. Macros are never run and legacy formats (DOC, XLS, PPT) are not supported: save them in the current format.</li>
       <li><strong>Text and code:</strong> supported formats include TXT, Markdown, JSON, JavaScript, Python, HTML and CSS.</li>
       <li><strong>CSV and TSV:</strong> sent as text for the model to analyse; check delimiters, units and results.</li></ul>
+      <p>The first time you attach an office document, its reader library is downloaded from the ZeroChat site itself and cached; offline, it only works if it was downloaded before.</p>
       <p>Attachment content is sent to the provider with the message and consumes context. To consult parts of several documents, use the <a href="rag.html">RAG collection</a>.</p>
     </div>
 

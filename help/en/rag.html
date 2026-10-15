@@ -43,6 +43,7 @@
       <h2>3. Loading and processing documents</h2>
       <p>Drag files into the RAG panel or select them from its upload area. Text is split into chunks so parts of a document can be searched and read.</p>
       <ul><li><strong>PDF:</strong> extracts text and images where the format allows it. There is no general OCR for scanned documents; tables, columns and figures may lose information.</li>
+      <li><strong>Office documents:</strong> DOCX, XLSX, PPTX, ODT, ODS and ODP are indexed with their text, tables and embedded images; slides count as pages. Sheets are limited to 500 rows and EMF, WMF or linked images become text placeholders. The first upload downloads the reader library and caches it.</li>
       <li><strong>Text, Markdown and code:</strong> processed as text. Splitting does not guarantee that a function, table or idea stays within a single chunk.</li>
       <li><strong>Duplicates:</strong> if a document name and path match an existing one in the branch, you can replace or skip it and apply the choice to other duplicates in that upload.</li>
       <li><strong>Stop:</strong> requests cancellation. Check which documents finished before loading the remaining ones again.</li></ul>

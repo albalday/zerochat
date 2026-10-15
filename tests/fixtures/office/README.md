@@ -18,4 +18,4 @@ Todos comparten el mismo contenido para poder comparar productores:
 | `emf-image.pptx` | `pandoc.pptx` con la imagen guardada como EMF |
 | `linked-image.docx` | `pandoc.docx` con la imagen enlazada a una URL externa en lugar de incrustada |
 
-Faltan documentos exportados directamente por Microsoft Office y Google Docs (tarea M4-T12).
+No hay documentos exportados directamente por Microsoft Office ni Google Docs: se validan a mano con documentos reales.

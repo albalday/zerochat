@@ -44,8 +44,10 @@
       <p>Usa el clip, arrastra archivos al chat o pega una imagen. Revisa los adjuntos antes de enviar y elimina los que no quieras incluir con su botón de cierre.</p>
       <ul><li><strong>Imágenes:</strong> requieren un modelo con visión; admitir un archivo no asegura que el proveedor acepte su formato o tamaño.</li>
       <li><strong>PDF:</strong> se extrae texto en el navegador. Los escaneos sin texto y los diseños complejos pueden dar resultados incompletos; no hay OCR general.</li>
+      <li><strong>Documentos ofimáticos:</strong> Word (DOCX), Excel (XLSX), PowerPoint (PPTX) y OpenDocument (ODT, ODS, ODP) se convierten en el navegador a texto con títulos, listas y tablas; las presentaciones se marcan por diapositiva y cada hoja de cálculo se envía como tabla de hasta 500 filas. Hasta 4 imágenes por documento se envían al modelo si admite visión. Las macros no se ejecutan y los formatos antiguos (DOC, XLS, PPT) no se admiten: guárdalos en el formato actual.</li>
       <li><strong>Texto y código:</strong> admite, entre otros, TXT, Markdown, JSON, JavaScript, Python, HTML y CSS.</li>
       <li><strong>CSV y TSV:</strong> se envían como contenido textual que el modelo puede analizar; comprueba delimitadores, unidades y resultados.</li></ul>
+      <p>La primera vez que adjuntas un documento ofimático se descarga su librería de lectura desde la propia web de ZeroChat y queda en caché; sin conexión, solo funciona si ya se descargó antes.</p>
       <p>El contenido adjunto se envía al proveedor con el mensaje y consume contexto. Para consultar partes de varios documentos, utiliza la <a href="rag.html">base RAG</a>.</p>
     </div>
 

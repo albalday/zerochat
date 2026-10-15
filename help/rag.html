@@ -43,6 +43,7 @@
       <h2>3. Carga y procesamiento de documentos</h2>
       <p>Arrastra archivos al panel RAG o selecciónalos desde su área de carga. El texto se divide en fragmentos para poder buscar y leer partes del documento.</p>
       <ul><li><strong>PDF:</strong> extrae texto e imágenes cuando el formato lo permite. No incluye OCR general para documentos escaneados; tablas, columnas y figuras pueden perder información.</li>
+      <li><strong>Documentos ofimáticos:</strong> DOCX, XLSX, PPTX, ODT, ODS y ODP se indexan con su texto, tablas e imágenes incrustadas; las diapositivas cuentan como páginas. Las hojas se limitan a 500 filas y las imágenes EMF, WMF o enlazadas quedan como marcadores de texto. La primera carga descarga la librería de lectura y la guarda en caché.</li>
       <li><strong>Texto, Markdown y código:</strong> se procesan como contenido textual. La división no garantiza conservar una función, una tabla o una idea completa en un solo fragmento.</li>
       <li><strong>Duplicados:</strong> si coincide el nombre y la ruta de un documento de la rama, puedes reemplazarlo o ignorarlo y aplicar la decisión a los demás duplicados de esa carga.</li>
       <li><strong>Detener:</strong> solicita cancelar el procesamiento. Revisa qué documentos han terminado antes de volver a cargar los pendientes.</li></ul>
