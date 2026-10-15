@@ -29,7 +29,7 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T16 Auditoría 9.1.1-9.1.4: Grupo 1 (triviales F-07, F-13 a F-19) (2026-10-15)
 - [x] M4-T17 Auditoría 9.1.1-9.1.4: Grupo 2 (fáciles F-02, F-04, F-08, F-20 a F-23) (2026-10-15)
 - [x] M4-T18 Auditoría 9.1.1-9.1.4: Grupo 3 (moderadas F-05, F-06, F-09, F-11, F-12) (2026-10-15)
-- [ ] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03)
+- [x] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03) (2026-10-15)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.

@@ -99,21 +99,22 @@ test('Markdown - el código en línea se muestra literal y no lo alteran otras r
   assert.equal(Markdown.parseMarkdown('texto \u00000\u0000 raro'), '<p>texto 0 raro</p>', 'Un marcador escrito en la entrada no inyecta código');
 });
 
-test('Markdown - normaliza notación matemática y LaTeX a Unicode fuera de código', () => {
-  // Flechas y operadores comunes
+test('Markdown - normaliza notación matemática y LaTeX a Unicode dentro de delimitadores', () => {
+  // Flechas y operadores comunes dentro de $...$ o \(...\)
   assert.equal(Markdown.parseMarkdown('A $\\rightarrow$ B'), '<p>A → B</p>');
   assert.equal(Markdown.parseMarkdown('$\\alpha \\le \\beta$'), '<p>α ≤ β</p>');
-  assert.equal(Markdown.parseMarkdown('x \\approx y'), '<p>x ≈ y</p>');
+  assert.equal(Markdown.parseMarkdown('\\(x \\approx y\\)'), '<p>x ≈ y</p>');
+  assert.equal(Markdown.parseMarkdown('$x \\approx y$'), '<p>x ≈ y</p>');
 
   // Bloques display math y fracciones
   assert.equal(Markdown.parseMarkdown('$$\\frac{a + b}{c}$$'), '<p>(a + b)/c</p>');
   assert.equal(Markdown.parseMarkdown('\\[x = \\frac{1}{2}\\]'), '<p>x = 1/2</p>');
-  assert.equal(Markdown.parseMarkdown('raíz \\sqrt{x}'), '<p>raíz √(x)</p>');
+  assert.equal(Markdown.parseMarkdown('raíz $\\sqrt{x}$'), '<p>raíz √(x)</p>');
 
-  // Superíndices y subíndices
-  assert.equal(Markdown.parseMarkdown('x^{2} + y^{2} = z^{2}'), '<p>x² + y² = z²</p>');
-  assert.equal(Markdown.parseMarkdown('x^2 + y^2'), '<p>x² + y²</p>');
-  assert.equal(Markdown.parseMarkdown('x_{1} + x_{n}'), '<p>x₁ + xₙ</p>');
+  // Superíndices y subíndices dentro de delimitadores
+  assert.equal(Markdown.parseMarkdown('$x^{2} + y^{2} = z^{2}$'), '<p>x² + y² = z²</p>');
+  assert.equal(Markdown.parseMarkdown('$x^2 + y^2$'), '<p>x² + y²</p>');
+  assert.equal(Markdown.parseMarkdown('$x_{1} + x_{n}$'), '<p>x₁ + xₙ</p>');
 
   // Variables matemáticas simples con $
   assert.equal(Markdown.parseMarkdown('donde $x$ es la variable'), '<p>donde x es la variable</p>');
@@ -121,6 +122,11 @@ test('Markdown - normaliza notación matemática y LaTeX a Unicode fuera de cód
   // Conserva precios y rangos monetarios
   assert.equal(Markdown.parseMarkdown('cuesta $50 y la oferta es $40'), '<p>cuesta $50 y la oferta es $40</p>');
   assert.equal(Markdown.parseMarkdown('rango $10-$20'), '<p>rango $10-$20</p>');
+  assert.equal(Markdown.parseMarkdown('Precio $5/$10 al mes'), '<p>Precio $5/$10 al mes</p>');
+
+  // F-03: No corrompe rutas Windows, URLs ni variables snake_case
+  assert.equal(Markdown.parseMarkdown('Ruta: C:\\data\\in\\times.txt'), '<p>Ruta: C:\\data\\in\\times.txt</p>');
+  assert.equal(Markdown.parseMarkdown('Archivo nombre_archivo_con_guiones y metodo_test()'), '<p>Archivo nombre_archivo_con_guiones y metodo_test()</p>');
 
   // Dentro de código inline y bloques de código se conserva literal
   assert.equal(Markdown.parseMarkdown('usa `$\\rightarrow$` literal'), '<p>usa <code>$\\rightarrow$</code> literal</p>');

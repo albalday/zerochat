@@ -332,21 +332,12 @@
   });
 
   /**
-   * Normaliza sintaxis LaTeX matemática y delimitadores a texto limpio con símbolos Unicode.
+   * Normaliza una expresión matemática a texto limpio con símbolos Unicode.
    */
-  function normalizeMathNotation(text) {
-    if (!text || (!text.includes('\\') && !text.includes('$') && !text.includes('^') && !text.includes('_{'))) {
-      return text;
-    }
+  function normalizeMathContent(content) {
+    let p = content;
 
-    let p = text;
-
-    // 1. Delimitadores de bloque y matematicos: $$...$$, \[...\], \(...\)
-    p = p.replace(/\$\$([\s\S]*?)\$\$/g, '$1');
-    p = p.replace(/\\\[([\s\S]*?)\\\]/g, '$1');
-    p = p.replace(/\\\(([\s\S]*?)\\\)/g, '$1');
-
-    // 2. Comandos de formato habituales
+    // 1. Comandos de formato habituales
     p = p.replace(/\\(?:text|mathrm|mathbf|mathit|boldsymbol)\s*\{([^}]+)\}/g, '$1');
     p = p.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, (match, n, d) => {
       const num = n.trim();
@@ -359,20 +350,20 @@
     p = p.replace(/\\sqrt\s*\{([^}]+)\}/g, '√($1)');
     p = p.replace(/\\sqrt\b/g, '√');
 
-    // 3. Espaciado y llaves LaTeX
+    // 2. Espaciado y llaves LaTeX
     p = p.replace(/\\(?:quad|qquad)/g, '  ');
     p = p.replace(/\\[,;:]/g, ' ');
     p = p.replace(/\\!/g, '');
     p = p.replace(/\\\{/g, '{').replace(/\\\}/g, '}');
 
-    // 4. Mapeo de simbolos matematicos y letras griegas
+    // 3. Mapeo de símbolos matemáticos y letras griegas
     p = p.replace(/\\([A-Za-z]+)(?:\{\})?/g, (match, name) => {
       return Object.prototype.hasOwnProperty.call(LATEX_MATH_SYMBOLS, name)
         ? LATEX_MATH_SYMBOLS[name]
         : match;
     });
 
-    // 5. Superindices y subindices matematicos seguros
+    // 4. Superíndices y subíndices matemáticos seguros
     p = p.replace(/(?<=[a-zA-Z0-9\)])\^\{([0-9+\-ni()]+)\}/g, (match, inner) => {
       return inner.split('').map(c => SUPERSCRIPT_MAP[c] || c).join('');
     });
@@ -381,10 +372,44 @@
     });
     p = p.replace(/(?<=[a-zA-Z0-9\)])\^([0-9ni])/g, (match, c) => SUPERSCRIPT_MAP[c] || match);
 
-    // 6. Retirar delimitadores $...$ cuando no sea una cifra monetaria o rango numerico
-    p = p.replace(/(?<!\\)\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (match, inner) => {
-      if (/^[\d.,\s\-]+$/.test(inner.trim())) return match;
-      return inner;
+    return p;
+  }
+
+  function isMathContent(inner) {
+    const trimmed = inner.trim();
+    if (!trimmed) return false;
+    if (/^[\d.,\s\-+/%]+$/.test(trimmed)) return false;
+    if (trimmed.includes('\\') || trimmed.includes('^') || trimmed.includes('_')) return true;
+    if (/[=<>≈≠≤≥±×÷√]/.test(trimmed)) return true;
+    if (/^[a-zA-Z]$/.test(trimmed)) return true;
+    return false;
+  }
+
+  /**
+   * Normaliza sintaxis LaTeX matemática estrictamente dentro de delimitadores matemáticos
+   * ($...$, $$...$$, \(...\), \[...\]) a texto limpio con símbolos Unicode.
+   */
+  function normalizeMathNotation(text) {
+    if (!text || (!text.includes('\\') && !text.includes('$'))) {
+      return text;
+    }
+
+    let p = text;
+
+    // 1. Delimitadores de bloque: $$...$$ y \[...\]
+    p = p.replace(/\$\$([\s\S]*?)\$\$/g, (match, inner) => normalizeMathContent(inner));
+    p = p.replace(/\\\[([\s\S]*?)\\\]/g, (match, inner) => normalizeMathContent(inner));
+
+    // 2. Delimitadores inline LaTeX: \(...\)
+    p = p.replace(/\\\(([\s\S]*?)\\\)/g, (match, inner) => normalizeMathContent(inner));
+
+    // 3. Delimitadores inline $: $...$
+    // Cierra solo cuando no va seguido inmediatamente de un dígito (?!\d) para preservar precios ($50, $5/$10, $10-$20)
+    p = p.replace(/(?<!\\)\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)/g, (match, inner) => {
+      if (isMathContent(inner)) {
+        return normalizeMathContent(inner);
+      }
+      return match;
     });
 
     return p;

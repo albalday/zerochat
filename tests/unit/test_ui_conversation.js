@@ -339,3 +339,49 @@ test('UIConversation - renderAssistantBlock preserves existing image instances a
   assert.equal(imgFirst, imgFinal, 'Image element instance must stay intact on final render');
 });
 
+test('UIConversation - updateBlockChildren actualiza el texto junto a imágenes en listas y párrafos sin congelarlo', t => {
+  setup(t);
+  const container = document.createElement('div');
+  const block = UIConversation.createAssistantBlock(container);
+
+  // Lista con imagen: chunk inicial en streaming
+  UIConversation.renderAssistantBlock(
+    block,
+    '- foo ![a](https://x.org/a.png) bar',
+    { streaming: true }
+  );
+  const initialImg = block.querySelector('img.chat-embedded-image');
+  assert.ok(initialImg, 'Debe renderizar la imagen inicial');
+  assert.ok(block.textContent.includes('foo'), 'Contiene texto inicial');
+  assert.ok(block.textContent.includes('bar'), 'Contiene texto posterior');
+
+  // Chunk siguiente que añade texto junto a la imagen en el mismo elemento de lista y nuevo párrafo
+  UIConversation.renderAssistantBlock(
+    block,
+    '- foo ![a](https://x.org/a.png) bar BAZ\n\nfin',
+    { streaming: true }
+  );
+  const streamedImg = block.querySelector('img.chat-embedded-image');
+  assert.equal(initialImg, streamedImg, 'La instancia del elemento img se preserva');
+  assert.ok(block.textContent.includes('BAZ'), 'El texto añadido junto a la imagen no debe perderse durante el streaming');
+  assert.ok(block.textContent.includes('fin'), 'El bloque siguiente se inserta');
+
+  // Renderizado final sin streaming
+  UIConversation.renderAssistantBlock(
+    block,
+    '- foo ![a](https://x.org/a.png) bar BAZ COMPLETO\n\nfin'
+  );
+  const finalImg = block.querySelector('img.chat-embedded-image');
+  assert.equal(initialImg, finalImg, 'La instancia de img se preserva en el render final');
+  assert.ok(block.textContent.includes('BAZ COMPLETO'), 'El texto final completo se refleja');
+
+  // Párrafo con imagen embebida en línea
+  const pBlock = UIConversation.createAssistantBlock(container);
+  UIConversation.renderAssistantBlock(pBlock, 'Inicio ![b](https://x.org/b.png) medio', { streaming: true });
+  const pImg = pBlock.querySelector('img.chat-embedded-image');
+  UIConversation.renderAssistantBlock(pBlock, 'Inicio ![b](https://x.org/b.png) medio EXPANDIDO');
+  const pImgFinal = pBlock.querySelector('img.chat-embedded-image');
+  assert.equal(pImg, pImgFinal, 'Instancia de imagen preservada en párrafo');
+  assert.ok(pBlock.textContent.includes('EXPANDIDO'), 'Texto expandido se refleja en el párrafo');
+});
+

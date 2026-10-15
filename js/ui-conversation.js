@@ -122,34 +122,62 @@
         }
 
         if (cur.nodeType === 1 && next.nodeType === 1 && cur.tagName === next.tagName) {
-          const curImg = cur.querySelector?.('img.chat-embedded-image');
-          const nextImg = next.querySelector?.('img.chat-embedded-image');
-          if (curImg && nextImg && curImg.getAttribute('src') === nextImg.getAttribute('src')) {
-            if (curImg.getAttribute('alt') !== nextImg.getAttribute('alt')) {
-              curImg.setAttribute('alt', nextImg.getAttribute('alt') || '');
-            }
-            if (curImg.getAttribute('title') !== nextImg.getAttribute('title')) {
-              curImg.setAttribute('title', nextImg.getAttribute('title') || '');
-            }
-            const curCaption = cur.querySelector?.('.chat-image-caption');
-            const nextCaption = next.querySelector?.('.chat-image-caption');
-            if (curCaption && nextCaption) {
-              if (curCaption.textContent !== nextCaption.textContent) {
-                curCaption.textContent = nextCaption.textContent;
+          // Si el bloque es una figura dedicada exclusivamente a una imagen, sincronizamos sus atributos y pie
+          if (cur.matches?.('figure.chat-image-figure') && next.matches?.('figure.chat-image-figure')) {
+            const curImg = cur.querySelector?.('img.chat-embedded-image');
+            const nextImg = next.querySelector?.('img.chat-embedded-image');
+            if (curImg && nextImg && curImg.getAttribute('src') === nextImg.getAttribute('src')) {
+              if (curImg.getAttribute('alt') !== nextImg.getAttribute('alt')) {
+                curImg.setAttribute('alt', nextImg.getAttribute('alt') || '');
               }
-            } else if (!curCaption && nextCaption) {
-              cur.appendChild(nextCaption.cloneNode(true));
-            } else if (curCaption && !nextCaption) {
-              curCaption.remove();
+              if (curImg.getAttribute('title') !== nextImg.getAttribute('title')) {
+                curImg.setAttribute('title', nextImg.getAttribute('title') || '');
+              }
+              const curCaption = cur.querySelector?.('.chat-image-caption');
+              const nextCaption = next.querySelector?.('.chat-image-caption');
+              if (curCaption && nextCaption) {
+                if (curCaption.textContent !== nextCaption.textContent) {
+                  curCaption.textContent = nextCaption.textContent;
+                }
+              } else if (!curCaption && nextCaption) {
+                cur.appendChild(nextCaption.cloneNode(true));
+              } else if (curCaption && !nextCaption) {
+                curCaption.remove();
+              }
+              const curCursor = cur.querySelector?.('.streaming-cursor');
+              const nextCursor = next.querySelector?.('.streaming-cursor');
+              if (!curCursor && nextCursor) {
+                cur.appendChild(nextCursor.cloneNode(true));
+              } else if (curCursor && !nextCursor) {
+                curCursor.remove();
+              }
+              continue;
             }
-            const curCursor = cur.querySelector?.('.streaming-cursor');
-            const nextCursor = next.querySelector?.('.streaming-cursor');
-            if (!curCursor && nextCursor) {
-              cur.appendChild(nextCursor.cloneNode(true));
-            } else if (curCursor && !nextCursor) {
-              curCursor.remove();
+          }
+        }
+
+        // Si el bloque actual contiene imágenes embebidas que se conservan en el nuevo bloque
+        // (por ejemplo, dentro de listas <li>, párrafos <p> o tablas <td>), trasplantamos las
+        // instancias de <img> existentes al nuevo elemento para no destruirlas ni provocar parpadeos.
+        if (cur.nodeType === 1 && next.nodeType === 1 && cur.querySelectorAll && next.querySelectorAll) {
+          const curImgs = Array.from(cur.querySelectorAll('img.chat-embedded-image'));
+          if (curImgs.length > 0) {
+            const nextImgs = Array.from(next.querySelectorAll('img.chat-embedded-image'));
+            for (const curImg of curImgs) {
+              const src = curImg.getAttribute('src');
+              const matchIdx = nextImgs.findIndex(ni => ni.getAttribute('src') === src);
+              if (matchIdx !== -1) {
+                const nextImg = nextImgs[matchIdx];
+                nextImgs.splice(matchIdx, 1);
+                if (curImg.getAttribute('alt') !== nextImg.getAttribute('alt')) {
+                  curImg.setAttribute('alt', nextImg.getAttribute('alt') || '');
+                }
+                if (curImg.getAttribute('title') !== nextImg.getAttribute('title')) {
+                  curImg.setAttribute('title', nextImg.getAttribute('title') || '');
+                }
+                nextImg.parentNode?.replaceChild(curImg, nextImg);
+              }
             }
-            continue;
           }
         }
 
