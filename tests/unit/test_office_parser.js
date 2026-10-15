@@ -118,3 +118,39 @@ test('los formatos binarios antiguos y los archivos dañados se rechazan con un 
   }
   await assert.rejects(OfficeParser.parseOfficeDocument(new ArrayBuffer(8), 'notas.txt'), /not a supported office document/);
 });
+
+test('ODS no pierde filas tras un hueco de más de 500 filas vacías (F-01)', async () => {
+  const fflate = require('fflate');
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body>
+    <office:spreadsheet>
+      <table:table table:name="Sheet1">
+        <table:table-row>
+          <table:table-cell><text:p>Fila 1</text:p></table:table-cell>
+        </table:table-row>
+        <table:table-row table:number-rows-repeated="600"/>
+        <table:table-row>
+          <table:table-cell><text:p>Fila 2</text:p></table:table-cell>
+        </table:table-row>
+      </table:table>
+    </office:spreadsheet>
+  </office:body>
+</office:document-content>`;
+  const zip = fflate.zipSync({ 'content.xml': Buffer.from(xml) });
+  const { text } = await OfficeParser.parseOfficeDocument(zip.buffer, 'hueco.ods');
+  assert.match(text, /Fila 1/);
+  assert.match(text, /Fila 2/);
+});
+
+test('pptx sin presentation.xml se trata como archivo dañado (F-02)', async () => {
+  const fflate = require('fflate');
+  const zip = fflate.zipSync({ 'dummy.txt': Buffer.from('nada') });
+  await assert.rejects(
+    OfficeParser.parseOfficeDocument(zip.buffer, 'incompleto.pptx'),
+    /The PowerPoint presentation could not be read\. It may be damaged or password protected\./
+  );
+});
+

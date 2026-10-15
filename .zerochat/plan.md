@@ -31,6 +31,10 @@ Done when: an image from a web page or tool result is displayed in the conversat
 - [x] M4-T18 Auditoría 9.1.1-9.1.4: Grupo 3 (moderadas F-05, F-06, F-09, F-11, F-12) (2026-10-15)
 - [x] M4-T19 Auditoría 9.1.1-9.1.4: Grupo 4 (difíciles F-01, F-03) (2026-10-15)
 - [ ] M4-T20 Compare how images from RAG and web search are shown with Gemini (correct) and with local models (not shown), find the cause and fix it generically, without per-model changes
+- [x] M4-T21 Auditoría 9.1.4-9.1.5: F-01 y F-02 (fallos en ODS y PPTX) (2026-10-15)
+- [ ] M4-T22 Auditoría 9.1.4-9.1.5: F-03 a F-08, F-10, F-11 (duplicación y rendimiento en office-parser)
+- [ ] M4-T23 Auditoría 9.1.4-9.1.5: F-12 a F-15 (duplicación en consumidores: parser, browser, adjuntos y RAG)
+- [ ] M4-T24 Auditoría 9.1.4-9.1.5: F-16 a F-18 (bundles de vendor y scripts de build)
 
 ## M5 Browser test architecture and optimization
 Goal: Refactor and optimize browser test files (tests/browser/) to modularize large suites, extract shared fixtures and helpers, and improve maintainability.

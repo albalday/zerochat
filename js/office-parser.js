@@ -118,7 +118,6 @@
   function sheetSection(name, rows, totalRows, imageRefs = []) {
     const isEmpty = value => String(value ?? '').trim() === '';
     const kept = rows.map(row => row.slice(0, MAX_SHEET_COLUMNS));
-    while (kept.length && kept[kept.length - 1].every(isEmpty)) kept.pop();
     const width = kept.reduce((max, row) => {
       let last = row.length;
       while (last > 0 && isEmpty(row[last - 1])) last--;
@@ -429,6 +428,7 @@
 
   async function parsePptx(arrayBuffer) {
     const pkg = await openPackage(arrayBuffer);
+    if (!pkg.text('ppt/presentation.xml')) throw new Error('ppt/presentation.xml is missing');
     const collector = createImageCollector();
     const sections = slideOrder(pkg).map((slidePath, index) => {
       const slideNumber = index + 1;
@@ -616,9 +616,10 @@
           case 'table:table-row':
             if (table && row) {
               const hasContent = row.cells.some(value => value.trim());
-              for (let i = 0; i < row.repeat; i++) {
-                if (hasContent) table.totalRows++;
-                if (table.rows.length < MAX_SHEET_ROWS) table.rows.push(row.cells);
+              if (hasContent) {
+                table.totalRows += row.repeat;
+                const toPush = Math.min(row.repeat, Math.max(0, MAX_SHEET_ROWS - table.rows.length));
+                for (let i = 0; i < toPush; i++) table.rows.push(row.cells);
               }
               row = null;
             }
