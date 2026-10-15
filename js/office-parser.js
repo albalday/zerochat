@@ -643,7 +643,8 @@
 
     if (pageBreaks) blocks.unshift('--- Page 1 ---');
     if (footnotes.length) blocks.push('Footnotes:', footnotes.map((note, i) => `${i + 1}. ${note}`).join('\n'));
-    return joinBlocks(blocks);
+    // Mismo formato que pptx y PDF: el contenido empieza en la línea siguiente al marcador.
+    return joinBlocks(blocks).replace(/^(--- (?:Slide|Page) \d+ ---)\n\n/gm, '$1\n');
   }
 
   async function parseOpenDocument(arrayBuffer, format) {

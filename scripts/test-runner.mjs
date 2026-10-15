@@ -33,6 +33,7 @@ export const GROUPS = {
     'tests/unit/test_office_parser.js',
     'tests/integration/test_office_documents.js',
     'tests/browser/browser_file_parser.test.js',
+    'tests/browser/browser_office_documents.test.js',
     'tests/browser/browser_composer.test.js'
   ],
   generation: [
@@ -62,7 +63,8 @@ export const GROUPS = {
     'tests/integration/test_rag_storage.js',
     'tests/integration/test_rag_ui.js',
     'tests/integration/test_ingestion_engine.js',
-    'tests/integration/test_office_documents.js'
+    'tests/integration/test_office_documents.js',
+    'tests/browser/browser_office_documents.test.js'
   ],
   providers: [
     'tests/integration/test_completed_model_queries.js',

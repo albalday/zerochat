@@ -17,3 +17,5 @@ Todos comparten el mismo contenido para poder comparar productores:
 | `libreoffice.ods`, `libreoffice.xlsx` | LibreOffice 26.8 desde `exceljs.xlsx` |
 | `emf-image.pptx` | `pandoc.pptx` con la imagen guardada como EMF |
 | `linked-image.docx` | `pandoc.docx` con la imagen enlazada a una URL externa en lugar de incrustada |
+
+Faltan documentos exportados directamente por Microsoft Office y Google Docs (tarea M4-T12).

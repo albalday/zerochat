@@ -65,6 +65,7 @@ for (const fixture of ['pandoc.odt', 'libreoffice.odt']) {
 for (const fixture of ['pandoc.pptx', 'libreoffice.pptx', 'libreoffice.odp']) {
   test(`presentación (${fixture}): marcadores de diapositiva, títulos, imágenes y notas`, async () => {
     const { text, images } = await parseFixture(fixture);
+    assert.match(text, /^--- Slide 1 ---\n## Portada\n\nPresentación de prueba\n\n--- Slide 2 ---\n## Resultados$/m);
     const slides = text.split(/^--- Slide \d+ ---$/m).slice(1).map(slide => slide.trim());
     assert.equal(slides.length, 2);
     assert.match(slides[0], /^## Portada\n\nPresentación de prueba$/);
