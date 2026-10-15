@@ -1,4 +1,4 @@
 # Current state
-- Milestone: M9 Update project management manual documentation
-- Next task: none pending
+- Milestone: none selected (open: M3, M4, M5, M7)
+- Next task: ask the user which open milestone to continue
 - Last updated: 2026-10-15
